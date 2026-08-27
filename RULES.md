@@ -36,8 +36,9 @@ Tracked every commit. A regression is a P0 with a name on it.
 | Test what you changed | 60s |
 | Blocking gate suite | 60s |
 | Full build, warm cache | 5 min |
-| Hot reload | 500ms |
-| Cold start | 1s |
+| Dev restart, request to present | 100ms p50 |
+| Cold start to interactive first frame | 100ms p50 |
+| App JS executed before first pixel | none |
 
 ## Scope
 
@@ -47,6 +48,12 @@ Tracked every commit. A regression is a P0 with a name on it.
   before 1.0. **[review]**
 - **Web is the dev loop; native is swept.** One Contract source targets all four
   surfaces. Verify on the seconds-loop and let the minutes-loop run behind you. **[review]**
+- **The first frame is data, not code.** No app JS runs before first pixel. Startup is
+  emergent from every module's boot behavior and cannot be retrofitted, so the boot graph
+  carries a budget from commit one — counted, not timed. **[check]**
+- **No fallback on the boot path.** Delete the slow path rather than making it loud. A
+  source-parse fallback that could silently stand in for bytecode cost the old repo 10
+  seconds of an 11-second start, and reported nothing. **[review]**
 - **A spec needs an implementer and a date, or it isn't written.** Specifying something
   you are about to build is transcription and costs nothing. Specifying something nobody
   is assigned to build is how a corpus reaches 8.2M words. **[review]**
@@ -69,6 +76,10 @@ Tracked every commit. A regression is a P0 with a name on it.
 
 ## The five checks
 
-`build` · `test` · `lint` · `caps` · *(one slot open — spend it deliberately)*
+`build` · `test` · `lint` · `caps` · `boot`
 
-`caps` enforces the budgets above. Everything else runs async.
+`caps` enforces the budgets above. `boot` counts the module graph reachable before first
+pixel and fails when it grows — a count, so it cannot flake the way a timer does. It takes
+the last slot; a sixth check now costs one of these five.
+
+Everything else runs async.
