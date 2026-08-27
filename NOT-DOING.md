@@ -52,25 +52,37 @@ change can break.
 - No virtualList v2 (cert wires, extent demand, proxy lanes). A straightforward windowed
   list — and if it misses 60fps, that is a kernel bug worth fixing properly.
 
-**Motion** — the `transition=` attr only (opacity, transform, backgroundColor, borderRadius).
+**Motion** — **in v1**, in the RFC 0492 shape: one Rust evaluator crate, one clock,
+compiled to plan data, no JS on the frame path. Sinks are `transform` and `opacity`.
+Gestures are in; they are the continuous-input path, not decoration. The virtualizable
+clock is in, and it is the reason motion is in at all: it makes animation seekable, so
+the verification loop advances time instead of waiting for a settle.
 
-- No SharedValue graph, no gesture system, no worklets, no `runOnJS`, no motion commands,
-  no scroll binding, no UI worklet runtime.
-- This is the largest single deferral and the most likely to be contested. The argument
-  for deferring: worklets force a second JS runtime on a second thread, which is where a
-  large share of the old repo's threading complexity, callback-affinity ledger, and
-  sanctioned sync-wait exceptions originated.
+Not in v1:
+
+- **Delegation/handback to Core Animation or CSS.** That is the second-executor seam.
+  One evaluator everywhere at a measured power cost — the same call the old repo made.
+- **A Tier-1/Tier-2 split.** `transition=` is a lowering onto the same graph, never an
+  independent system. The old repo's motion ticket cluster lives entirely on that seam.
+- **Layout sinks.** Gated on a demonstrated incremental-relayout number. There isn't one.
+- **State machines, Design Mode knobs, the escape hatch / runtime graph admission, and
+  `runOnJS`** (already deleted by decision in the old repo — no shim, no migration).
 
 **Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.
 
 **Agent API** — 8 operations, not 90:
 
-`tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `wait`
+`tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `clock`
 
 Not shipping: session record/replay, causal trace, behavior diff and verify, mutation
 dry-run, contract witness / dataflow / source-map / bindings, accessibility audit, plan
-drag, correlate, advance time, visual query, network, perf, preferences, pasteboard,
-onboarding, revalidate, code grant/resume/cancel.
+drag, correlate, visual query, network, perf, preferences, pasteboard, onboarding,
+revalidate, code grant/resume/cancel.
+
+`clock` replaces a `wait` operation on purpose. If the motion graph is closed-form under
+a virtual clock, an agent advances time and reads the result; it never sleeps waiting for
+an animation to settle. Settle timing is the single largest source of flake in the old
+repo's agent loop, and under `RULES.md` a flaky check is worse than no check.
 
 ## Process
 
