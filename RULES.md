@@ -47,6 +47,9 @@ Tracked every commit. A regression is a P0 with a name on it.
   before 1.0. **[review]**
 - **Web is the dev loop; native is swept.** One Contract source targets all four
   surfaces. Verify on the seconds-loop and let the minutes-loop run behind you. **[review]**
+- **A spec needs an implementer and a date, or it isn't written.** Specifying something
+  you are about to build is transcription and costs nothing. Specifying something nobody
+  is assigned to build is how a corpus reaches 8.2M words. **[review]**
 
 ## Agents
 

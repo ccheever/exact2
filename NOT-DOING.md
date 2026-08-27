@@ -90,8 +90,10 @@ This half matters more than the feature half.
 
 - **No governance corpus.** 20 docs, capped. No lane manifest, no verify registry with
   675 entries across 64 profiles, no contracts authority map, no issue priority scoring.
-- **No design-doc-before-code requirement.** Docs are written after a subsystem exists,
-  describing what it does.
+- **No speculative specs.** Specifying something you are about to implement is fine and
+  expected — the deciding already happened upstream. Specifying something nobody is
+  assigned to build is not written at all. The old corpus is 330 RFCs of deliberation
+  against 52 specs of conclusion; the new repo imports conclusions.
 - **No refine loops.** No dual-family review rounds, no READY verdicts, no revision ledgers.
 - **No per-PR ceremony.** No framework decision log, no lane debt ledger, no provenance
   headers on hand-written files.
