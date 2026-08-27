@@ -51,9 +51,9 @@ Tracked every commit. A regression is a P0 with a name on it.
 - **The first frame is data, not code.** No app JS runs before first pixel. Startup is
   emergent from every module's boot behavior and cannot be retrofitted, so the boot graph
   carries a budget from commit one — counted, not timed. **[check]**
-- **The boot path ships bytecode. There is no source path** — not a loud fallback, none.
-  Measured: a 2,000-module graph evaluates from bytecode in 8ms and parses from source in
-  338ms. Parse is linear in bytes; bytecode eval is flat. **[check]**
+- **Modules ship as bytecode. Nothing is compiled at runtime** — not source strings
+  compiled per module at boot, not a transpile step in the loader, not a fallback. The old
+  repo transpiles 5.47MB of ESM to CommonJS across 570 modules on every launch. **[check]**
 - **A spec needs an implementer and a date, or it isn't written.** Specifying something
   you are about to build is transcription and costs nothing. Specifying something nobody
   is assigned to build is how a corpus reaches 8.2M words. **[review]**
