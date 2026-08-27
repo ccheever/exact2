@@ -9,7 +9,9 @@ Each rule is **[check]** (enforced in CI) or **[review]** (enforced by a human).
 ## Budgets — every budget is a trade, not a limit
 
 - **5 blocking checks, 60s total.** A sixth requires deleting one, same PR. **[check]**
-- **20 active design docs.** A 21st requires archiving one. **[check]**
+- **15 documents in the working set** (`llp/current/`). A 16th requires archiving one —
+  which is just removing the link. The corpus itself is uncapped. **[check]**
+- **10 documents in the foundation** (`llp/foundation/`). **[check]**
 - **This file: 700 words.** If it grows, something becomes a check or stops being a rule. **[check]**
 - **1,500 lines per source file.** Generated files are exempt — and generated files are built, not committed. **[check]**
 
@@ -42,18 +44,16 @@ Tracked every commit. A regression is a P0 with a name on it.
 
 ## Scope
 
-- **`NOT-DOING.md` is binding.** Moving something onto the doing-list means writing why
+- **`rules/NOT-DOING.md` is binding.** Moving something onto the doing-list means writing why
   and taking something off. **[review]**
 - **Delete; don't deprecate.** No compat shims, no migration paths, no legacy branches
   before 1.0. **[review]**
 - **Web is the dev loop; native is swept.** One Contract source targets all four
   surfaces. Verify on the seconds-loop and let the minutes-loop run behind you. **[review]**
-- **The first frame is data, not code.** No app JS runs before first pixel. Startup is
-  emergent from every module's boot behavior and cannot be retrofitted, so the boot graph
-  carries a budget from commit one — counted, not timed. **[check]**
-- **Modules ship as bytecode. Nothing is compiled at runtime** — not source strings
-  compiled per module at boot, not a transpile step in the loader, not a fallback. The old
-  repo transpiles 5.47MB of ESM to CommonJS across 570 modules on every launch. **[check]**
+- **The boot path executes and compiles nothing.** No app JS before first pixel; modules
+  ship as bytecode, never source strings transpiled per module at boot. Startup is
+  emergent and cannot be retrofitted, so the boot graph is budgeted from commit one —
+  counted, not timed. The old repo transpiles 5.47MB of ESM on every launch. **[check]**
 - **A spec needs an implementer and a date, or it isn't written.** Specifying something
   you are about to build is transcription and costs nothing. Specifying something nobody
   is assigned to build is how a corpus reaches 8.2M words. **[review]**
