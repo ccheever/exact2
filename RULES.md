@@ -51,9 +51,9 @@ Tracked every commit. A regression is a P0 with a name on it.
 - **The first frame is data, not code.** No app JS runs before first pixel. Startup is
   emergent from every module's boot behavior and cannot be retrofitted, so the boot graph
   carries a budget from commit one — counted, not timed. **[check]**
-- **No fallback on the boot path.** Delete the slow path rather than making it loud. A
-  source-parse fallback that could silently stand in for bytecode cost the old repo 10
-  seconds of an 11-second start, and reported nothing. **[review]**
+- **The boot path ships bytecode. There is no source path** — not a loud fallback, none.
+  Measured: a 2,000-module graph evaluates from bytecode in 8ms and parses from source in
+  338ms. Parse is linear in bytes; bytecode eval is flat. **[check]**
 - **A spec needs an implementer and a date, or it isn't written.** Specifying something
   you are about to build is transcription and costs nothing. Specifying something nobody
   is assigned to build is how a corpus reaches 8.2M words. **[review]**
