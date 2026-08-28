@@ -48,8 +48,9 @@ Tracked every commit. A regression is a P0 with a name on it.
   and taking something off. **[review]**
 - **Delete; don't deprecate.** No compat shims, no migration paths, no legacy branches
   before 1.0. **[review]**
-- **Web is the dev loop; native is swept.** One Contract source targets all four
-  surfaces. Verify on the seconds-loop and let the minutes-loop run behind you. **[review]**
+- **Web is the standard and the dev loop; native is swept.** One Contract source targets
+  all four surfaces; a semantic that could follow CSS follows CSS. Verify on the
+  seconds-loop and let the minutes-loop run behind you. **[review]**
 - **The boot path executes and compiles nothing.** No app JS before first pixel; modules
   ship as bytecode, never source strings transpiled per module at boot. Startup is
   emergent and cannot be retrofitted, so the boot graph is budgeted from commit one —
