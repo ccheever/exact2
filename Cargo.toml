@@ -1,0 +1,24 @@
+[workspace]
+members = ["kernel", "motion"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+# Taffy 0.9.2 plus two Exact patches (flex-basis cross-size clamp; a first-baseline
+# channel from measure-function leaves). See vendor/taffy/EXACT-PATCHES.md.
+[patch.crates-io]
+taffy = { path = "vendor/taffy" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true

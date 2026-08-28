@@ -1,0 +1,27 @@
+[package]
+name = "exact-kernel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Exact kernel: a copied-in, borrow-parsed binary command stream with transactional apply, Taffy layout, and columnar binary exports"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "exact_kernel"
+crate-type = ["rlib"]
+
+[dependencies]
+taffy = "0.9"
+
+[build-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+
+[dev-dependencies]
+
+[lints.clippy]
+# A masked style patch is built by setting a field and its mask bit; the
+# struct-initializer form clippy prefers cannot express that.
+field_reassign_with_default = "allow"
