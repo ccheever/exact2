@@ -122,6 +122,7 @@ enum Codec {
     Color2,
     Tracks,
     Placement,
+    Transitions,
     Enum(String),
 }
 
@@ -138,6 +139,7 @@ fn parse_codec(s: &str) -> Codec {
         "color2" => Codec::Color2,
         "tracks" => Codec::Tracks,
         "placement" => Codec::Placement,
+        "transitions" => Codec::Transitions,
         other => match other.strip_prefix("enum:") {
             Some(name) => Codec::Enum(name.to_string()),
             None => panic!("schema: unknown codec `{other}`"),
@@ -159,6 +161,7 @@ impl Codec {
             Codec::Color2 => "[Color; 2]".into(),
             Codec::Tracks => "GridTracks".into(),
             Codec::Placement => "GridPlacement".into(),
+            Codec::Transitions => "Transitions".into(),
             Codec::Enum(name) => name.clone(),
         }
     }
@@ -176,6 +179,7 @@ impl Codec {
             Codec::Color2 => "Color2",
             Codec::Tracks => "Tracks",
             Codec::Placement => "Placement",
+            Codec::Transitions => "Transitions",
             Codec::Enum(_) => "Enum",
         }
     }
@@ -233,6 +237,13 @@ impl Codec {
                 );
                 "GridTracks::default()".into()
             }
+            Codec::Transitions => {
+                assert!(
+                    value.is_null(),
+                    "schema: `{field}` (transitions) cannot declare a default"
+                );
+                "Transitions::default()".into()
+            }
             Codec::Placement => {
                 assert!(
                     value.is_null(),
@@ -261,6 +272,7 @@ impl Codec {
             Codec::Color2 => "r.color2()?".into(),
             Codec::Tracks => "r.tracks()?".into(),
             Codec::Placement => "r.placement()?".into(),
+            Codec::Transitions => "r.transitions()?".into(),
             Codec::Enum(name) => format!(
                 "{{ let v = r.u8()?; {name}::from_wire(v).ok_or(DecodeError::UnknownEnumValue {{ style: StyleId::{style_id}, value: v }})? }}"
             ),
@@ -280,13 +292,14 @@ impl Codec {
             Codec::Color2 => format!("w.color2({access});"),
             Codec::Tracks => format!("w.tracks(&{access});"),
             Codec::Placement => format!("w.placement({access});"),
+            Codec::Transitions => format!("w.transitions(&{access});"),
             Codec::Enum(_) => format!("w.u8({access} as u8);"),
         }
     }
 
     /// Whether the field type is `Copy` (so encode can pass by value).
     fn is_copy(&self) -> bool {
-        !matches!(self, Codec::Tracks)
+        !matches!(self, Codec::Tracks | Codec::Transitions)
     }
 }
 
@@ -442,7 +455,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "use crate::error::DecodeError;").unwrap();
     writeln!(
         w,
-        "use crate::style::{{Color, Dimension, GridPlacement, GridTracks, Vec2}};"
+        "use crate::style::{{Color, Dimension, GridPlacement, GridTracks, Transitions, Vec2}};"
     )
     .unwrap();
     writeln!(w, "use crate::wire::codec::{{Reader, Writer}};").unwrap();
@@ -729,7 +742,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, F32, U8, U16, U32, I32, Rgba8, Vec2, Color2, Tracks, Placement, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, F32, U8, U16, U32, I32, Rgba8, Vec2, Color2, Tracks, Placement, Transitions, Enum }}").unwrap();
     writeln!(w).unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
@@ -1117,7 +1130,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     for row in &schema.styles {
         let id = pascal(&row.field);
         let test = match parse_codec(&row.codec) {
-            Codec::F32 | Codec::Dimension | Codec::Tracks => {
+            Codec::F32 | Codec::Dimension | Codec::Tracks | Codec::Transitions => {
                 format!("self.{}.is_finite()", row.field)
             }
             Codec::Vec2 => format!(

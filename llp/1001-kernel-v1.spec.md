@@ -45,6 +45,14 @@ carry CSS names and vocabularies (`object_fit: fill|contain|cover|none|scale-dow
 collapsing with it; flex and grid are opt-in per node. (An earlier draft chose
 React Native's defaults; Charlie reversed that on 2026-08-28.)
 
+**Motion rows (2026-08-28, LLP 1002/1003).** The animatable rows carry CSS's
+individual transform property names — `translate` (vec2), `scale`, `rotate`
+(degrees) — beside `opacity`, and a `transition` row (codec `transitions`, bit 82)
+carries CSS `transition` declarations. The row's type is `exact_motion::Transitions`;
+the kernel owns its bytes (`wire/codec.rs`) and depends on `exact-motion` for the
+type, which is the only dependency edge between the two crates. `Kernel::motion_sync`
+restates a commit for the engine (LLP 1003 §6).
+
 Declared deviations, each because the engine cannot express the CSS value:
 `position` has no `static` (Taffy positions an absolute child against its parent,
 so `relative` without insets is the closest box; a web host emits `position:

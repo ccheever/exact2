@@ -1,0 +1,304 @@
+//! The engine: per-node presentation state under a seekable clock.
+//!
+//! @ref LLP 1002 §3 (the frame; who owns the clock); LLP 1003 §3
+//!
+//! The host owns time. It tells the engine what the kernel committed
+//! ([`Engine::observe`], one [`Change`] per animatable row that changed),
+//! advances the clock ([`Engine::advance`]), and takes the presentation values
+//! to paint ([`Engine::frame`]). The engine holds no thread, no timer, and no
+//! reference to the kernel: nodes are numbers the host chose.
+//!
+//! Because every running transition is a closed-form function of clock time,
+//! `advance(t)` is a seek. A test advances to `0.3` and reads; an agent's
+//! `clock` operation advances to [`Engine::settle_time`] and reads; nothing
+//! ever waits. On the web none of this runs per frame — the browser is the
+//! executor — but the same engine under a virtual clock is the oracle a web
+//! host's output is compared against.
+
+use crate::property::{Property, Value};
+use crate::transition::{Running, TransitionError, Transitions};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// One animatable row's new target, as committed by the kernel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Change {
+    /// The node, in the host's numbering.
+    pub node: u64,
+    /// Which property.
+    pub property: Property,
+    /// The new target (the style value after the commit).
+    pub value: Value,
+    /// Velocity the value is already moving at — a released gesture's — for
+    /// a spring to inherit. Ignored by easings, which CSS gives no velocity.
+    pub velocity: Option<Value>,
+}
+
+/// One value for the host to paint this frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Presentation {
+    /// The node, in the host's numbering.
+    pub node: u64,
+    /// Which property.
+    pub property: Property,
+    /// The value to paint.
+    pub value: Value,
+}
+
+/// Why the engine refused an input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineError {
+    /// `advance` was called with a time before the current one.
+    ClockWentBackwards,
+    /// A time or value was infinite or NaN.
+    NonFinite,
+    /// A `transition` row was invalid.
+    Transition(TransitionError),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Slot {
+    target: Value,
+    presented: Value,
+    running: Option<Running>,
+}
+
+/// The motion state of every node the host has told it about.
+#[derive(Debug, Default)]
+pub struct Engine {
+    now: f64,
+    transitions: BTreeMap<u64, Transitions>,
+    slots: BTreeMap<(u64, Property), Slot>,
+    dirty: BTreeSet<(u64, Property)>,
+}
+
+impl Engine {
+    /// An engine at time zero with no nodes.
+    pub fn new() -> Engine {
+        Engine::default()
+    }
+
+    /// The clock.
+    pub fn now(&self) -> f64 {
+        self.now
+    }
+
+    /// Set a node's `transition` row. Governs changes observed from now on;
+    /// a transition already running keeps its own declaration.
+    pub fn set_transitions(
+        &mut self,
+        node: u64,
+        transitions: Transitions,
+    ) -> Result<(), EngineError> {
+        transitions.validate().map_err(EngineError::Transition)?;
+        if transitions.0.is_empty() {
+            self.transitions.remove(&node);
+        } else {
+            self.transitions.insert(node, transitions);
+        }
+        Ok(())
+    }
+
+    /// Forget a node entirely.
+    pub fn remove(&mut self, node: u64) {
+        self.transitions.remove(&node);
+        self.slots.retain(|(n, _), _| *n != node);
+        self.dirty.retain(|(n, _)| *n != node);
+    }
+
+    /// A committed change to one animatable row. This is CSS Transitions §3:
+    /// a property the engine has never seen takes its value with no
+    /// transition (there is no before-change style); otherwise a matching
+    /// `transition` declaration starts one from the current value, or
+    /// interrupts and possibly reverses the one running.
+    pub fn observe(&mut self, change: Change) -> Result<(), EngineError> {
+        if !change.value.is_finite() || change.velocity.is_some_and(|v| !v.is_finite()) {
+            return Err(EngineError::NonFinite);
+        }
+        let key = (change.node, change.property);
+        let now = self.now;
+        let declaration = self
+            .transitions
+            .get(&change.node)
+            .and_then(|t| t.matching(change.property))
+            .filter(|t| t.starts())
+            .cloned();
+
+        let Some(slot) = self.slots.get_mut(&key) else {
+            self.slots.insert(
+                key,
+                Slot {
+                    target: change.value,
+                    presented: change.value,
+                    running: None,
+                },
+            );
+            self.dirty.insert(key);
+            return Ok(());
+        };
+
+        let after = change.value;
+        match slot.running.take() {
+            None => {
+                if after == slot.target {
+                    return Ok(());
+                }
+                let before = slot.presented;
+                slot.target = after;
+                match declaration {
+                    Some(declaration) => {
+                        let velocity = change.velocity.unwrap_or(Value::ZERO);
+                        slot.running = Some(Running::start(
+                            &declaration,
+                            before,
+                            after,
+                            velocity,
+                            now,
+                            before,
+                            1.0,
+                        ));
+                        slot.presented = slot
+                            .running
+                            .as_ref()
+                            .map_or(before, |r| r.sample(now).value);
+                    }
+                    None => slot.presented = after,
+                }
+            }
+            Some(running) => {
+                if after == running.to {
+                    slot.running = Some(running);
+                    return Ok(());
+                }
+                let current = running.sample(now);
+                slot.target = after;
+                let Some(declaration) = declaration.filter(|_| current.value != after) else {
+                    slot.presented = after;
+                    self.dirty.insert(key);
+                    return Ok(());
+                };
+                let inherited = change.velocity.unwrap_or(current.velocity);
+                let is_easing = matches!(
+                    declaration.timing,
+                    crate::transition::TimingFunction::Easing(_)
+                );
+                let next = if is_easing && after == running.reversing_adjusted_start {
+                    // CSS §3.2, the reversing case.
+                    let progress = running.easing_progress(now);
+                    let factor = (progress * running.reversing_shortening
+                        + (1.0 - running.reversing_shortening))
+                        .abs()
+                        .clamp(0.0, 1.0);
+                    Running::start(
+                        &declaration,
+                        current.value,
+                        after,
+                        inherited,
+                        now,
+                        running.to,
+                        factor,
+                    )
+                } else {
+                    Running::start(
+                        &declaration,
+                        current.value,
+                        after,
+                        inherited,
+                        now,
+                        current.value,
+                        1.0,
+                    )
+                };
+                slot.presented = next.sample(now).value;
+                slot.running = Some(next);
+            }
+        }
+        self.dirty.insert(key);
+        Ok(())
+    }
+
+    /// Write a value straight to the target and presentation, cancelling any
+    /// transition — what a pointer-driven write does on the web with
+    /// `transition: none` in effect. A gesture holds a value this way and
+    /// releases it with [`Engine::observe`] carrying its velocity.
+    pub fn hold(&mut self, node: u64, property: Property, value: Value) -> Result<(), EngineError> {
+        if !value.is_finite() {
+            return Err(EngineError::NonFinite);
+        }
+        let key = (node, property);
+        self.slots.insert(
+            key,
+            Slot {
+                target: value,
+                presented: value,
+                running: None,
+            },
+        );
+        self.dirty.insert(key);
+        Ok(())
+    }
+
+    /// Move the clock to `now` and sample every running transition there.
+    /// Seeking is the only operation: the result depends on `now`, never on
+    /// how many calls it took to get there.
+    pub fn advance(&mut self, now: f64) -> Result<(), EngineError> {
+        if !now.is_finite() {
+            return Err(EngineError::NonFinite);
+        }
+        if now < self.now {
+            return Err(EngineError::ClockWentBackwards);
+        }
+        self.now = now;
+        for (key, slot) in self.slots.iter_mut() {
+            let Some(running) = &slot.running else {
+                continue;
+            };
+            let sample = running.sample(now);
+            slot.presented = sample.value;
+            if sample.done {
+                slot.running = None;
+            }
+            self.dirty.insert(*key);
+        }
+        Ok(())
+    }
+
+    /// The values that changed since the last frame, in node order. Taking
+    /// them clears the set; a host paints exactly these.
+    pub fn frame(&mut self) -> Vec<Presentation> {
+        let dirty = std::mem::take(&mut self.dirty);
+        dirty
+            .into_iter()
+            .filter_map(|key| {
+                self.slots.get(&key).map(|slot| Presentation {
+                    node: key.0,
+                    property: key.1,
+                    value: slot.presented,
+                })
+            })
+            .collect()
+    }
+
+    /// The current presentation value of one property.
+    pub fn value(&self, node: u64, property: Property) -> Option<Value> {
+        self.slots.get(&(node, property)).map(|s| s.presented)
+    }
+
+    /// The current target of one property.
+    pub fn target(&self, node: u64, property: Property) -> Option<Value> {
+        self.slots.get(&(node, property)).map(|s| s.target)
+    }
+
+    /// Whether nothing is running.
+    pub fn quiescent(&self) -> bool {
+        self.slots.values().all(|s| s.running.is_none())
+    }
+
+    /// The clock time at which the last running transition ends, or `None`
+    /// when quiescent. An agent advances here instead of waiting.
+    pub fn settle_time(&self) -> Option<f64> {
+        self.slots
+            .values()
+            .filter_map(|s| s.running.as_ref().map(Running::end_time))
+            .fold(None, |acc, t| Some(acc.map_or(t, |a: f64| a.max(t))))
+    }
+}

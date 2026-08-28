@@ -6,7 +6,7 @@
 **Systems:** All
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-28
-**Related:** LLP 1001, LLP 0552, LLP 0491, LLP 0507, LLP 0486, LLP 0492
+**Related:** LLP 1001, LLP 1002, LLP 1003, LLP 0552, LLP 0491, LLP 0507, LLP 0486
 
 ## Summary
 
@@ -42,9 +42,11 @@ and this one does not. Read them first.
 - `kernel/` — `exact-kernel`, the layout/wire/export kernel. Specified by LLP 1001.
   Design lineage: RFC 0491 (kernel refresh), LLP 0507 (EXWF wire), LLP 0486/0487
   (layout language), LLP 0297 (threading contract).
-- `motion/` — `exact-motion`, the motion evaluator: shared values, closed-form
-  drivers, a virtual clock, gestures, interactive navigation. Ported from exact1
-  and trimmed to `rules/NOT-DOING.md`'s shape (RFC 0492).
+- `motion/` — `exact-motion`, the motion evaluator: CSS `transition` semantics
+  over `translate`/`scale`/`rotate`/`opacity`, one spring, a seekable clock.
+  Decided by LLP 1002, specified by LLP 1003. The kernel depends on it for the
+  `transition` row's type; it depends on nothing. Rebuilt from scratch
+  2026-08-28 (the ported RFC 0492 crate is gone; 0492 is research).
 - `vendor/taffy/` — Taffy 0.9.2 plus two Exact patches (`EXACT-PATCHES.md`).
 - `scripts/` — `caps` (the budget check) and `issue` (filesystem issues, `docs/issues.md`).
 - `skills/`, `.claude/skills/` — the orchestrate skill and the LLP skills (installed

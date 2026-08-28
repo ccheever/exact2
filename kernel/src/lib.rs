@@ -16,6 +16,8 @@
 //!   changed-geometry receipts ([`layout`]).
 //! - **One crossing per sync.** EXNODE exports the tree as typed rows or one
 //!   sectioned envelope ([`export`]).
+//! - **One seam to motion.** A commit restated as what the motion engine needs
+//!   to hear — new targets and `transition` rows, nothing else ([`motion`]).
 //! - **Injected host services.** Text measurement is a per-kernel trait object,
 //!   never a process-global callback ([`text`]).
 //!
@@ -32,6 +34,7 @@ pub mod generated;
 pub mod id;
 pub mod kernel;
 pub mod layout;
+pub mod motion;
 pub mod node;
 pub mod props;
 pub mod selector;
@@ -45,8 +48,11 @@ pub use generated::*;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
 pub use kernel::{Kernel, NodeRef};
 pub use layout::LayoutReceipt;
+pub use motion::{motion_node, MotionSync};
 pub use props::{PropList, PropValue};
-pub use style::{Color, Dimension, GridLine, GridPlacement, GridTrack, GridTracks, Vec2};
+pub use style::{
+    Color, Dimension, GridLine, GridPlacement, GridTrack, GridTracks, Transitions, Vec2,
+};
 pub use text::{
     MonospaceMeasurer, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle,
 };

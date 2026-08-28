@@ -12,6 +12,7 @@ name = "exact_kernel"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-motion = { path = "../motion" }
 taffy = "0.9"
 
 [build-dependencies]

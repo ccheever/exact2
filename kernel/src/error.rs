@@ -57,6 +57,18 @@ pub enum DecodeError {
     TooManyTracks(u8),
     /// A grid placement kind byte is outside the closed grammar.
     UnknownPlacementKind(u8),
+    /// A `transition` row carried more declarations than the wire admits.
+    TooManyTransitions(u8),
+    /// A `transition` row named a property discriminant the table lacks.
+    UnknownTransitionProperty(u8),
+    /// A `transition` row named an easing discriminant the table lacks.
+    UnknownEasing(u8),
+    /// A `steps()` easing named a step-position discriminant the table lacks.
+    UnknownStepPosition(u8),
+    /// A `linear()` easing carried more stops than the wire admits.
+    TooManyEasingStops(u8),
+    /// A `transition` row decoded but failed the evaluator's validation.
+    InvalidTransition(exact_motion::TransitionError),
     /// A style mask set bits above the last row.
     ReservedMaskBits,
     /// A child list exceeds the bound.
@@ -141,6 +153,11 @@ pub enum ApplyError {
     },
     /// A style row carried an infinite or NaN number.
     NonFiniteStyle { op_index: usize, style: StyleId },
+    /// A `SetStyle` patch carried a `transition` row the evaluator refuses.
+    InvalidTransition {
+        op_index: usize,
+        error: exact_motion::TransitionError,
+    },
     /// No representable slot index remains.
     SlotSpaceExhausted,
     /// Validation accepted an op the apply phase could not perform. This is a

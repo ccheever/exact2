@@ -36,7 +36,11 @@ change can break.
 **Runtime**
 
 - GPU / WebGPU substrate. The old repo carries ~139,000 lines of Rust adapter code
-  across two files, neither marked generated.
+  across two files, neither marked generated. The door stays open the way React's
+  does — we design nothing that closes it: an owned-pixel surface is a leaf node
+  with a kernel-owned box (like `NativeView`), GPU content never influences layout,
+  the host owns the frame, and animatable properties are extensible (CSS
+  `@property`). When it is built, it compiles no shaders at runtime (LLP 0559 F8).
 - Server generation in every form: SSR, streaming, static export, progressive forms,
   hydration, route payloads, response caching.
 - Aquifer data tier, durable worker tier, capability capsules, durable capability grants.
@@ -52,21 +56,35 @@ change can break.
 - No virtualList v2 (cert wires, extent demand, proxy lanes). A straightforward windowed
   list — and if it misses 60fps, that is a kernel bug worth fixing properly.
 
-**Motion** — **in v1**, in the RFC 0492 shape: one Rust evaluator crate, one clock,
-compiled to plan data, no JS on the frame path. Sinks are `transform` and `opacity`.
-Gestures are in; they are the continuous-input path, not decoration. The virtualizable
-clock is in, and it is the reason motion is in at all: it makes animation seekable, so
-the verification loop advances time instead of waiting for a settle.
+**Motion** — **in v1**, in the LLP 1002 shape: CSS's `transition` model. Targets
+are kernel style rows (`translate`, `scale`, `rotate`, `opacity`); a `transition`
+row on the node says how they get there; the web host emits it as CSS and does
+nothing per frame; every other host runs `exact-motion`, which is held to the
+browser by fixtures. One declared deviation, `spring()`, lowered to keyframes on
+the web. Gestures are in as follow-and-release: the platform recognizes, the
+engine holds a value and springs it back with the release velocity. The seekable
+clock is in, and it is the reason motion is testable: an agent advances time to
+`settle_time()` and reads; it never waits.
 
-Not in v1:
+Moved off this list 2026-08-28 (LLP 1002 D6): **delegation to CSS on the web** — it
+unblocks a web host that ships zero motion bytes and a parity corpus with the
+browser as the oracle, the same shape layout already has. In exchange, not in v1:
 
-- **Delegation/handback to Core Animation or CSS.** That is the second-executor seam.
-  One evaluator everywhere at a measured power cost — the same call the old repo made.
-- **A Tier-1/Tier-2 split.** `transition=` is a lowering onto the same graph, never an
-  independent system. The old repo's motion ticket cluster lives entirely on that seam.
-- **Layout sinks.** Gated on a demonstrated incremental-relayout number. There isn't one.
-- **State machines, Design Mode knobs, the escape hatch / runtime graph admission, and
-  `runOnJS`** (already deleted by decision in the old repo — no shim, no migration).
+- **A gesture arena, claims, leases, compositions, or an interactive-navigation
+  model.** Recognition, hit-testing, and scroll-vs-pan arbitration are the
+  platform's (`touch-action`, `UIGestureRecognizer`); owning them is the
+  permanent bug annuity LLP 0559 F1 describes. Scroll always wins.
+- **A second value graph.** No shared-value plane, derived values, bindings, or
+  plan node graph. The style row is the binding.
+- **Layout transitions.** Gated on a demonstrated incremental-relayout number.
+  There isn't one.
+- **Decay, sequence, and repeat drivers; `@keyframes`.** A spring carries release
+  velocity; nothing else needs a driver.
+- **Reduced-motion policy in the engine.** The producer emits `transition: none`
+  when the host reports the preference, as a stylesheet's media query would.
+- **A Core Animation executor.** Permitted by LLP 1002 D2, not built; the Apple
+  lane measures whether it earns its place.
+- **`runOnJS` and the escape hatch / runtime graph admission** — never existed here.
 
 **Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.
 

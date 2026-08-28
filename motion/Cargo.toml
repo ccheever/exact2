@@ -1,18 +1,17 @@
-# The motion domain: one Rust evaluator crate — the SharedValue plane,
-# closed-form drivers, the fixed-step virtual clock, the continuous-input
-# path (recognizers, arena, gesture graph), and interactive navigation.
+# The motion evaluator: CSS `transition` semantics over the four compositor
+# properties, one spring, and a seekable clock.
 #
-# @ref RFC 0492 (motion refresh program) / LLP 0099 (motion) / RFC 0100
-# (interactive navigation transitions).
+# @ref LLP 1002 (motion v1 decision) / LLP 1003 (motion v1 spec).
 #
-# The dependency closure is `libm` and nothing else: no `libc`, no
-# `windows-sys`, no host crate. The crate builds for wasm32-unknown-unknown.
+# The dependency closure is `libm` and nothing else: no host crate, no kernel.
+# The kernel depends on this crate for the `transition` style row's type; this
+# crate depends on nothing. It builds for wasm32-unknown-unknown.
 [package]
 name = "exact-motion"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Motion evaluator: shared values, closed-form drivers, a virtual clock, gestures, and interactive navigation"
+description = "Motion evaluator: CSS transitions, a spring, and a seekable clock"
 publish = false
 
 [lib]

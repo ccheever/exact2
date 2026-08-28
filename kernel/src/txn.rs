@@ -15,7 +15,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::arena::NodeArena;
 use crate::error::ApplyError;
-use crate::generated::{NodeType, PropId, StyleMask};
+use crate::generated::{NodeType, PropId, StyleId, StyleMask};
 use crate::id::{NodeFlags, NodeKey, ViewId};
 use crate::layout::LayoutTree;
 use crate::selector::SelectorIndex;
@@ -217,6 +217,11 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                 staged.require(op_index, *id)?;
                 if let Err(style) = patch.check_finite() {
                     return Err(ApplyError::NonFiniteStyle { op_index, style });
+                }
+                if patch.mask.has(StyleId::Transition) {
+                    if let Err(error) = patch.transition.validate() {
+                        return Err(ApplyError::InvalidTransition { op_index, error });
+                    }
                 }
             }
             Op::ClearProp { id, .. } | Op::ClearStyle { id, .. } => {

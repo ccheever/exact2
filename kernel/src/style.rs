@@ -104,6 +104,11 @@ impl Color {
     }
 }
 
+/// The `transition` row's type: CSS `transition` declarations, owned by
+/// `exact-motion` so the evaluator and the kernel share one definition. The
+/// kernel owns the bytes (`wire::codec`); the engine owns the semantics.
+pub use exact_motion::Transitions;
+
 /// Two floats.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Vec2 {

@@ -20,7 +20,7 @@ never to block. Its design documents are imported under `llp/research/`.
 | Crate | What it is | Spec |
 |---|---|---|
 | `kernel/` (`exact-kernel`) | Typed columnar arena, EXWF wire frames, validate-then-apply transactions, Taffy layout with changed-geometry receipts, EXNODE columnar export, injected text measurement. Builds for `wasm32-unknown-unknown`. | `llp/1001-kernel-v1.spec.md` |
-| `motion/` (`exact-motion`) | Shared values, closed-form drivers, a virtual clock, gesture recognizers, interactive navigation. | RFC 0492 (research) |
+| `motion/` (`exact-motion`) | CSS `transition` semantics over `translate`/`scale`/`rotate`/`opacity`, one spring, a seekable clock. The web executes it as CSS; everywhere else this crate does. | LLP 1002 (decision), LLP 1003 (spec) |
 | `vendor/taffy/` | Taffy 0.9.2 plus two Exact patches. | `vendor/taffy/EXACT-PATCHES.md` |
 
 Not built yet: the plan runner, the web host, the Apple and Linux hosts, the Contract
