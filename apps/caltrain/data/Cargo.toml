@@ -1,0 +1,17 @@
+# The Caltrain app's data crate: the schedule model and the queries over it,
+# behind the runner's one data seam. App code in Rust, linked into every host
+# and into the compiler's bake. @ref LLP 1004 D4.
+[package]
+name = "caltrain-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Caltrain data source: a seeded corridor schedule and the queries the app declares as resources"
+publish = false
+
+[lib]
+name = "caltrain_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-runner = { path = "../../../runner" }

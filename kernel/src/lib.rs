@@ -43,7 +43,7 @@ pub mod text;
 pub mod txn;
 pub mod wire;
 
-pub use error::{ApplyError, DecodeError, KernelError, LayoutError};
+pub use error::{ApplyError, DecodeError, KernelError, LayoutError, StyleValueError};
 pub use generated::*;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
 pub use kernel::{Kernel, NodeRef};
@@ -51,7 +51,7 @@ pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use props::{PropList, PropValue};
 pub use style::{
-    Color, Dimension, GridLine, GridPlacement, GridTrack, GridTracks, Transitions, Vec2,
+    Color, Dimension, GridLine, GridPlacement, GridTrack, GridTracks, StyleValue, Transitions, Vec2,
 };
 pub use text::{
     MonospaceMeasurer, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle,

@@ -1,0 +1,18 @@
+# Contract types: closed-type inference. Stdlib signatures come from the
+# plan format's roster, so the checker and the VM agree by construction.
+# @ref LLP 1004 D2/D3.
+[package]
+name = "contract-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Contract closed-type inference over the AST"
+publish = false
+
+[lib]
+name = "contract_types"
+crate-type = ["rlib"]
+
+[dependencies]
+contract-syntax = { path = "../syntax" }
+exact-plan = { path = "../../plan" }

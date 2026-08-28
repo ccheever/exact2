@@ -6,7 +6,7 @@
 **Systems:** All
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-28
-**Related:** LLP 1001, LLP 1002, LLP 1003, LLP 0552, LLP 0491, LLP 0507, LLP 0486
+**Related:** LLP 1001, LLP 1002, LLP 1003, LLP 1004, LLP 1005, LLP 1006, LLP 0552, LLP 0491, LLP 0507, LLP 0486
 
 ## Summary
 
@@ -47,15 +47,25 @@ and this one does not. Read them first.
   Decided by LLP 1002, specified by LLP 1003. The kernel depends on it for the
   `transition` row's type; it depends on nothing. Rebuilt from scratch
   2026-08-28 (the ported RFC 0492 crate is gone; 0492 is research).
+- `plan/` — `exact-plan`, the plan format: tables, bytecode, and the validating
+  decoder, generated from `plan/tables/format.json`. Depends on nothing. LLP 1005.
+- `runner/` — `exact-runner`, the plan runner: the VM, keyed instances, kernel
+  ops, events, timers under a seekable clock, the data seam. LLP 1005.
+- `contract/` — the Contract compiler: `syntax` → `types` → `analyze` → `lower`
+  and the `contract` driver/CLI, plus `corpus/`. Decided by LLP 1004, specified
+  by LLP 1006.
+- `apps/caltrain/` — the v1 app: `app.contract` and its Rust data crate
+  (`data/`), the end-to-end fixture for everything above.
 - `vendor/taffy/` — Taffy 0.9.2 plus two Exact patches (`EXACT-PATCHES.md`).
 - `scripts/` — `caps` (the budget check) and `issue` (filesystem issues, `docs/issues.md`).
 - `skills/`, `.claude/skills/` — the orchestrate skill and the LLP skills (installed
   from `ccheever/llp@v0.5.1`; receipt in `.llp/skills-receipt.json`).
 
-Not built yet, in the order they are expected: the plan runner (LLP 0485's flat
-plan as the producer that emits ops), the web host (the kernel as wasm over the real
-DOM, LLP 0517/0483), the Apple host and the generated C ABI, the Linux DRM host,
-the Contract compiler, the eight-operation agent API.
+Not built yet, in the order they are expected (revised 2026-08-28: the plan
+format, runner, and compiler landed together as one lane — see LLP 1006 §7): the
+web host (the kernel and runner as wasm over the real DOM, LLP 0517/0483, emitting
+the `transition` row as CSS), the Apple host and the generated C ABI, the Linux DRM
+host, the eight-operation agent API.
 
 ## The five checks
 

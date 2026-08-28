@@ -1,0 +1,202 @@
+# Reject fixtures: one per diagnostic id. Format: `id` line, then the source
+# until the next `---` line. The test asserts the compiler rejects each with
+# exactly that id (LLP 1004 D6: a reject fixture per rule).
+== contract-no-imports
+use theme from "@exact/facet-contract"
+component A
+  view
+    text "a"
+---
+== type-unknown-name
+component A
+  view
+    text missing
+---
+== type-unknown-field
+shape S
+  a: string
+component A
+  resource s = s() as shape S
+  view
+    text s.b
+---
+== type-arity
+component A
+  view
+    text formatClockTime(1, 2)
+---
+== type-argument
+component A
+  view
+    text formatClockTime("no")
+---
+== type-operand
+component A
+  derive x = 1 + "a"
+  view
+    text "a"
+---
+== type-branches
+component A
+  state on = true
+  view
+    text on ? "a" : 1
+---
+== type-cannot-infer
+component A
+  state x = none
+  view
+    text "a"
+---
+== type-assign
+component A
+  state n = 1
+  action bad writes n
+    n = "one"
+  view
+    text "a"
+---
+== type-unknown-function
+component A
+  view
+    text getDirectionBoard("mv")
+---
+== type-each-list
+component A
+  state n = 1
+  view
+    each x in n key=x
+      text "a"
+---
+== type-match-subject
+component A
+  state n = 1
+  view
+    match n
+      case some(x)
+        text "a"
+      case none
+        text "b"
+---
+== syntax-missing-prop
+component A
+  view
+    B()
+component B
+  props
+    label: string
+  view
+    text label
+---
+== type-prop
+component A
+  view
+    B(label=1)
+component B
+  props
+    label: string
+  view
+    text label
+---
+== analyze-write-not-declared
+component A
+  state n = 1
+  action bump
+    n = n + 1
+  view
+    text "a"
+---
+== analyze-writes-unknown-state
+component A
+  state n = 1
+  action bump writes m
+    n = 2
+  view
+    text "a"
+---
+== analyze-unknown-action
+component A
+  state n = 1
+  view
+    button press=n
+      text "a"
+---
+== analyze-handler-arity
+component A
+  state n = 1
+  action set(v: number) writes n
+    n = v
+  view
+    button press=set
+      text "a"
+---
+== analyze-child-state
+component A
+  view
+    B(x=1)
+component B
+  props
+    x: number
+  state y = 2
+  view
+    text "a"
+---
+== type-derive-cycle
+component A
+  derive a = b + 1
+  derive b = a + 1
+  view
+    text "a"
+---
+== analyze-root-props
+component A
+  props
+    x: number
+  view
+    text "a"
+---
+== lower-unknown-tag
+component A
+  view
+    widget "a"
+---
+== lower-unknown-attr
+component A
+  view
+    text "a" resizeMode="cover"
+---
+== lower-one-root
+component A
+  view
+    text "a"
+    text "b"
+---
+== lower-timer-literal
+component A
+  state n = 1
+  action tick writes n
+    n = n + 1
+  task t mount
+    every(n, tick)
+  view
+    text "a"
+---
+== lower-timer-interval
+component A
+  state n = 1
+  action tick writes n
+    n = n + 1
+  task t mount
+    every(0, tick)
+  view
+    text "a"
+---
+== lower-leaf-children
+component A
+  state q = ""
+  action set(v) writes q
+    q = v
+  view
+    input value=q change=set
+      text "inside an input"
+---

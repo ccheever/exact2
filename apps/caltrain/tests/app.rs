@@ -1,0 +1,172 @@
+//! The v1 app end to end: `app.contract` → plan → bake → runner → kernel.
+//! `rules/NOT-DOING.md`'s bar, on the one surface that exists so far.
+
+use exact_kernel::{Kernel, PropId};
+use exact_plan::{Plan, Value};
+use exact_runner::{DataSource, Event, Runner};
+
+fn text_of<D: DataSource>(r: &Runner<D>, test_id: &str) -> Option<String> {
+    let k = r.kernel();
+    let key = k.find_by_test_id(test_id).into_iter().next()?;
+    k.node_by_key(key)?
+        .props
+        .str(PropId::Text)
+        .map(str::to_string)
+}
+
+fn view_of<D: DataSource>(r: &Runner<D>, test_id: &str) -> u32 {
+    let k = r.kernel();
+    let key = k.find_by_test_id(test_id)[0];
+    k.node_by_key(key).unwrap().id
+}
+
+fn ids_with_prefix<D: DataSource>(r: &Runner<D>, prefix: &str) -> Vec<String> {
+    let k = r.kernel();
+    let mut out = Vec::new();
+    for root in k.roots() {
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            let n = k.node(id).unwrap();
+            if let Some(t) = n.props.str(PropId::TestId) {
+                if t.starts_with(prefix) && t != "station-name" && t != "station-search" {
+                    out.push(t.to_string());
+                }
+            }
+            let mut c = n.children();
+            c.reverse();
+            stack.extend(c);
+        }
+    }
+    out
+}
+
+#[test]
+fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
+    let a = caltrain::compile().unwrap();
+    let b = caltrain::compile().unwrap();
+    assert_eq!(a.encode(), b.encode(), "compiling twice is byte-identical");
+    assert_eq!(a.kernel_schema_digest, exact_kernel::SCHEMA_DIGEST);
+    assert_eq!(a.slots.len(), 4);
+    assert_eq!(a.resources.len(), 7);
+    assert_eq!(a.actions.len(), 6);
+    assert_eq!(a.timers.len(), 1);
+    assert!(
+        a.resources.iter().all(|r| r.initial.len == 0),
+        "unbaked: no compiled data yet"
+    );
+
+    let baked = caltrain::build().unwrap();
+    assert!(
+        baked.resources.iter().all(|r| r.initial.len > 0),
+        "baked: every resource has its boot value"
+    );
+    let bytes = baked.encode();
+    let decoded = Plan::decode(&bytes).unwrap();
+    assert_eq!(decoded, baked);
+    assert_eq!(
+        caltrain::build().unwrap().encode(),
+        bytes,
+        "baking twice is byte-identical"
+    );
+}
+
+#[test]
+fn the_first_frame_needs_no_data_source() {
+    /// A source that refuses everything: the baked plan must not ask.
+    struct Refusing;
+    impl exact_runner::DataSource for Refusing {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, exact_runner::DataError> {
+            Err(exact_runner::DataError::Unavailable(format!(
+                "boot asked for {source}"
+            )))
+        }
+    }
+    let baked = caltrain::build().unwrap();
+    let r = Runner::boot(baked, Refusing, Kernel::with_monospace()).unwrap();
+    assert_eq!(
+        text_of(&r, "station-name").as_deref(),
+        Some("Mountain View")
+    );
+    assert!(r.kernel().live_count() > 20);
+}
+
+#[test]
+fn the_home_screen_shows_both_boards_with_live_countdowns() {
+    let mut r = caltrain::boot(caltrain::build().unwrap(), Kernel::with_monospace()).unwrap();
+    assert_eq!(
+        text_of(&r, "station-name").as_deref(),
+        Some("Mountain View")
+    );
+    assert!(text_of(&r, "home-screen").is_none());
+    let north = ids_with_prefix(&r, "dep-mv-north");
+    let south = ids_with_prefix(&r, "dep-mv-south");
+    assert!(
+        north.len() > 3 && south.len() > 3,
+        "upcoming trains in both directions: {} / {}",
+        north.len(),
+        south.len()
+    );
+    // The first northbound departure after 11:10 UTC on the seeded schedule.
+    let first = ids_with_prefix(&r, "countdown-mv-north");
+    let countdown = text_of(&r, &first[0]).unwrap();
+    let minutes: f64 = countdown.parse().unwrap();
+    assert!(minutes > 0.0 && minutes < 60.0, "{countdown}");
+    // Layout runs on the kernel the runner drives.
+    let root = r.roots()[0];
+    let receipt = r
+        .kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(390.0, 844.0))
+        .unwrap();
+    assert!(!receipt.changed.is_empty());
+    let name = r.kernel().find_by_test_id("station-name")[0];
+    let frame = r.kernel().node_by_key(name).unwrap().frame;
+    assert!(frame.width > 0.0 && frame.height > 0.0);
+
+    // A minute of ticks under the seekable clock: the countdown drops by one.
+    r.advance(60_000.0).unwrap();
+    let later: f64 = text_of(&r, &first[0]).unwrap().parse().unwrap();
+    assert_eq!(later, minutes - 1.0);
+}
+
+#[test]
+fn changing_station_re_requests_the_boards_and_search_filters_by_key() {
+    let mut r = caltrain::boot(caltrain::build().unwrap(), Kernel::with_monospace()).unwrap();
+    r.dispatch(view_of(&r, "change-station"), Event::Press)
+        .unwrap();
+    assert_eq!(r.slot("screen"), Some(&Value::str("stations")));
+    let nearest = ids_with_prefix(&r, "station-");
+    assert_eq!(
+        &nearest[..3],
+        ["station-mv", "station-sunnyvale", "station-paloalto"],
+        "nearest three to Mountain View, then all"
+    );
+    assert_eq!(nearest.len(), 3 + caltrain_data::STATIONS.len());
+
+    r.dispatch(view_of(&r, "station-search"), Event::Change("san".into()))
+        .unwrap();
+    let matches = ids_with_prefix(&r, "station-");
+    assert_eq!(matches, ["station-sf", "station-sanmateo", "station-sj"]);
+
+    r.dispatch(view_of(&r, "station-sf"), Event::Press).unwrap();
+    assert_eq!(r.slot("stationId"), Some(&Value::some(Value::str("sf"))));
+    assert_eq!(r.slot("screen"), Some(&Value::str("home")));
+    assert_eq!(r.slot("query"), Some(&Value::str("")));
+    assert_eq!(
+        text_of(&r, "station-name").as_deref(),
+        Some("San Francisco")
+    );
+    assert!(
+        ids_with_prefix(&r, "dep-sf-north").is_empty(),
+        "nothing goes north of San Francisco"
+    );
+    assert!(ids_with_prefix(&r, "dep-sf-south").len() > 3);
+    assert_eq!(text_of(&r, "board-north"), None);
+
+    // Theme is a command out the side, not app state.
+    r.dispatch(view_of(&r, "scheme-dark"), Event::Press)
+        .unwrap();
+    let commands = r.take_commands();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].name, "setScheme");
+    assert_eq!(commands[0].args, vec![Value::str("dark")]);
+}

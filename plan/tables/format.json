@@ -1,0 +1,150 @@
+{
+  "formatVersion": 1,
+  "_about": "The single declaration authority for the plan: its tables, the expression VM's opcodes, the stdlib roster, and the enum vocabularies. plan/build.rs generates the row structs, the canonical encoder, the validating decoder, the opcode and stdlib enums, and FORMAT_DIGEST from this file. Nothing here is hand-mirrored anywhere else. Kernel node types, props, and style rows are NOT declared here: plan rows carry the kernel's ordinals as numbers, and the crates that give them meaning take the vocabulary from exact-kernel (LLP 1004 D2).",
+  "_codecs": "u8 | u16 | u32 | i32 | f64 | bool | str (u32 index into the string pool) | enum:<Name> (u8 ordinal) | idx:<table> (u32 row index, validated) | opt:<table> (u32 row index or NONE = 0xFFFFFFFF) | range:<table> (u32 start + u32 len, validated) | code (u32 offset + u32 len into the code pool, validated as well-formed bytecode) | bytes (u32 offset + u32 len into the data pool)",
+  "_tables": "Document order is significant: nodes and regions with the same parent are ordered by `order`; an arm's content is every node and region whose `arm` names it; a node with no parent inside an arm is one of the arm's roots.",
+  "tables": [
+    { "name": "types", "fields": [
+      { "name": "kind", "codec": "enum:TypeKind" },
+      { "name": "elem", "codec": "opt:types" },
+      { "name": "fields", "codec": "range:fields" },
+      { "name": "name", "codec": "str" }
+    ]},
+    { "name": "fields", "fields": [
+      { "name": "name", "codec": "str" },
+      { "name": "ty", "codec": "idx:types" }
+    ]},
+    { "name": "slots", "fields": [
+      { "name": "name", "codec": "str" },
+      { "name": "ty", "codec": "idx:types" },
+      { "name": "init", "codec": "code" }
+    ]},
+    { "name": "derives", "fields": [
+      { "name": "name", "codec": "str" },
+      { "name": "ty", "codec": "idx:types" },
+      { "name": "body", "codec": "code" }
+    ]},
+    { "name": "resources", "fields": [
+      { "name": "name", "codec": "str" },
+      { "name": "source", "codec": "str" },
+      { "name": "args", "codec": "range:args" },
+      { "name": "ty", "codec": "idx:types" },
+      { "name": "initial", "codec": "bytes" }
+    ]},
+    { "name": "args", "fields": [
+      { "name": "expr", "codec": "code" }
+    ]},
+    { "name": "actions", "fields": [
+      { "name": "name", "codec": "str" },
+      { "name": "params", "codec": "range:params" },
+      { "name": "writes", "codec": "range:writes" },
+      { "name": "body", "codec": "code" }
+    ]},
+    { "name": "params", "fields": [
+      { "name": "name", "codec": "str" },
+      { "name": "ty", "codec": "idx:types" }
+    ]},
+    { "name": "writes", "fields": [
+      { "name": "slot", "codec": "idx:slots" }
+    ]},
+    { "name": "timers", "fields": [
+      { "name": "interval_ms", "codec": "u32" },
+      { "name": "action", "codec": "idx:actions" }
+    ]},
+    { "name": "regions", "fields": [
+      { "name": "kind", "codec": "enum:RegionKind" },
+      { "name": "parent", "codec": "opt:nodes" },
+      { "name": "arm", "codec": "opt:arms" },
+      { "name": "order", "codec": "u32" },
+      { "name": "subject", "codec": "code" },
+      { "name": "key", "codec": "code" },
+      { "name": "arms", "codec": "range:arms" }
+    ]},
+    { "name": "arms", "fields": [
+      { "name": "region", "codec": "idx:regions" }
+    ]},
+    { "name": "nodes", "fields": [
+      { "name": "node_type", "codec": "u8" },
+      { "name": "parent", "codec": "opt:nodes" },
+      { "name": "arm", "codec": "opt:arms" },
+      { "name": "order", "codec": "u32" },
+      { "name": "bindings", "codec": "range:bindings" },
+      { "name": "handlers", "codec": "range:handlers" }
+    ]},
+    { "name": "bindings", "fields": [
+      { "name": "kind", "codec": "enum:BindingKind" },
+      { "name": "id", "codec": "u16" },
+      { "name": "expr", "codec": "code" }
+    ]},
+    { "name": "handlers", "fields": [
+      { "name": "event", "codec": "enum:EventKind" },
+      { "name": "action", "codec": "idx:actions" },
+      { "name": "args", "codec": "range:args" }
+    ]}
+  ],
+  "_enums": "Wire ordinal is the 0-based index. An unknown ordinal is a typed decode rejection.",
+  "enums": {
+    "TypeKind": ["number", "bool", "string", "unit", "option", "list", "record"],
+    "RegionKind": ["when", "match", "each"],
+    "BindingKind": ["prop", "style"],
+    "EventKind": ["press", "change"]
+  },
+  "_opcodes": "The expression VM: a stack machine over values with a small locals stack (`BindLocal` pops into it, `LoadLocal` copies from it, `DropLocal` pops it) for names an inline `match` binds. Each opcode names its operand layout; the decoder validates framing and every index operand. `depth` operands count enclosing instance scopes (0 = innermost). Type inference guarantees stack discipline; the VM still traps, never UB.",
+  "opcodes": [
+    { "name": "Number", "operands": ["f64"] },
+    { "name": "Bool", "operands": ["u8"] },
+    { "name": "Str", "operands": ["str"] },
+    { "name": "None", "operands": [] },
+    { "name": "Unit", "operands": [] },
+    { "name": "Some", "operands": [] },
+    { "name": "LoadSlot", "operands": ["idx:slots"] },
+    { "name": "LoadDerive", "operands": ["idx:derives"] },
+    { "name": "LoadResource", "operands": ["idx:resources"] },
+    { "name": "LoadParam", "operands": ["u16"] },
+    { "name": "LoadItem", "operands": ["u16"] },
+    { "name": "LoadBound", "operands": ["u16"] },
+    { "name": "Field", "operands": ["u16"] },
+    { "name": "Record", "operands": ["idx:types"] },
+    { "name": "List", "operands": ["u32"] },
+    { "name": "Add", "operands": [] },
+    { "name": "Sub", "operands": [] },
+    { "name": "Mul", "operands": [] },
+    { "name": "Div", "operands": [] },
+    { "name": "Rem", "operands": [] },
+    { "name": "Neg", "operands": [] },
+    { "name": "Eq", "operands": [] },
+    { "name": "Ne", "operands": [] },
+    { "name": "Lt", "operands": [] },
+    { "name": "Le", "operands": [] },
+    { "name": "Gt", "operands": [] },
+    { "name": "Ge", "operands": [] },
+    { "name": "Not", "operands": [] },
+    { "name": "Concat", "operands": [] },
+    { "name": "Jump", "operands": ["u32"] },
+    { "name": "JumpIfFalse", "operands": ["u32"] },
+    { "name": "JumpIfNone", "operands": ["u32"] },
+    { "name": "Unwrap", "operands": [] },
+    { "name": "Call", "operands": ["enum:Stdlib"] },
+    { "name": "StoreSlot", "operands": ["idx:slots"] },
+    { "name": "Command", "operands": ["str", "u16"] },
+    { "name": "Pop", "operands": [] },
+    { "name": "BindLocal", "operands": [] },
+    { "name": "LoadLocal", "operands": ["u16"] },
+    { "name": "DropLocal", "operands": [] },
+    { "name": "Return", "operands": [] }
+  ],
+  "_stdlib": "The enumerated roster (LLP 1004 D2/D4): every callable an expression may name, with its parameter types and return type (`any` = one of number, string, bool, list). The compiler checks calls against this table; the runner's VM implements each entry once; entries are added by fixture, never by speculation.",
+  "stdlib": [
+    { "name": "now", "params": [], "returns": "number" },
+    { "name": "formatClockTime", "params": ["number"], "returns": "string" },
+    { "name": "formatCountdownMinutes", "params": ["number", "number"], "returns": "string" },
+    { "name": "formatDistance", "params": ["number"], "returns": "string" },
+    { "name": "formatWalk", "params": ["number"], "returns": "string" },
+    { "name": "length", "params": ["any"], "returns": "number" },
+    { "name": "isEmpty", "params": ["any"], "returns": "bool" },
+    { "name": "toString", "params": ["any"], "returns": "string" },
+    { "name": "floor", "params": ["number"], "returns": "number" },
+    { "name": "max", "params": ["number", "number"], "returns": "number" },
+    { "name": "min", "params": ["number", "number"], "returns": "number" }
+  ]
+}

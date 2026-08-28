@@ -18,10 +18,72 @@ dependencies = [
 ]
 
 [[package]]
+name = "caltrain"
+version = "0.1.0"
+dependencies = [
+ "caltrain-data",
+ "contract",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "caltrain-data"
+version = "0.1.0"
+dependencies = [
+ "exact-runner",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+
+[[package]]
+name = "contract"
+version = "0.1.0"
+dependencies = [
+ "contract-analyze",
+ "contract-lower",
+ "contract-syntax",
+ "contract-types",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "contract-analyze"
+version = "0.1.0"
+dependencies = [
+ "contract-syntax",
+ "contract-types",
+]
+
+[[package]]
+name = "contract-lower"
+version = "0.1.0"
+dependencies = [
+ "contract-analyze",
+ "contract-syntax",
+ "contract-types",
+ "exact-kernel",
+ "exact-plan",
+]
+
+[[package]]
+name = "contract-syntax"
+version = "0.1.0"
+
+[[package]]
+name = "contract-types"
+version = "0.1.0"
+dependencies = [
+ "contract-syntax",
+ "exact-plan",
+]
 
 [[package]]
 name = "cpufeatures"
@@ -68,6 +130,23 @@ name = "exact-motion"
 version = "0.1.0"
 dependencies = [
  "libm",
+]
+
+[[package]]
+name = "exact-plan"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "exact-runner"
+version = "0.1.0"
+dependencies = [
+ "exact-kernel",
+ "exact-plan",
 ]
 
 [[package]]

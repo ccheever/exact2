@@ -1,0 +1,20 @@
+# Contract lowering: the typed, analyzed AST → plan tables and bytecode, in
+# the kernel's vocabulary, byte-identically. @ref LLP 1004 D2.
+[package]
+name = "contract-lower"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Contract lowering: component inlining, the tag/attribute table onto kernel rows, expression codegen, plan tables"
+publish = false
+
+[lib]
+name = "contract_lower"
+crate-type = ["rlib"]
+
+[dependencies]
+contract-analyze = { path = "../analyze" }
+contract-syntax = { path = "../syntax" }
+contract-types = { path = "../types" }
+exact-kernel = { path = "../../kernel" }
+exact-plan = { path = "../../plan" }

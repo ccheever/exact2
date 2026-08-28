@@ -1,0 +1,15 @@
+# Contract syntax: lexer, parser, AST, spans. Depends on nothing.
+# @ref LLP 1004 D2.
+[package]
+name = "contract-syntax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Contract syntax: indent-aware lexer, parser, and AST with spans"
+publish = false
+
+[lib]
+name = "contract_syntax"
+crate-type = ["rlib"]
+
+[dependencies]

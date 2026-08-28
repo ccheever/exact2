@@ -1,0 +1,21 @@
+# The Caltrain app: `app.contract` plus its Rust data crate, compiled and
+# baked by the tests here. This crate is what a host links: the plan bytes
+# and the data source. @ref rules/NOT-DOING.md (the v1 app).
+[package]
+name = "caltrain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Caltrain app: Contract source, data crate, and the end-to-end tests"
+publish = false
+
+[lib]
+name = "caltrain"
+crate-type = ["rlib"]
+
+[dependencies]
+caltrain-data = { path = "data" }
+contract = { path = "../../contract/cli" }
+exact-kernel = { path = "../../kernel" }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }

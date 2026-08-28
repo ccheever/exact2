@@ -10,6 +10,7 @@ use taffy::prelude::{auto, fr, length, line, max_content, min_content, percent, 
 use taffy::style::TrackSizingFunction;
 
 use crate::arena::NodeArena;
+use crate::error::StyleValueError;
 use crate::generated::{
     AlignContent, AlignItems, AlignSelf, BoxSizing, Display, FlexDirection, FlexWrap, GridAutoFlow,
     JustifyContent, NodeType, Overflow, PositionType, StyleId, StyleProps,
@@ -108,6 +109,132 @@ impl Color {
 /// `exact-motion` so the evaluator and the kernel share one definition. The
 /// kernel owns the bytes (`wire::codec`); the engine owns the semantics.
 pub use exact_motion::Transitions;
+
+/// An untyped style value from a producer that resolves rows by id — a plan
+/// runner, a compiler lowering a literal, a TypeScript encoder. Exactly one
+/// place turns it into a row: the generated `StyleProps::set_dynamic`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleValue {
+    /// A number: points for dimensions, the raw value for numeric rows, a
+    /// packed `0xRRGGBBAA` for colors.
+    Number(f64),
+    /// Text: an enum value by name, or a color as `#rrggbb[aa]`.
+    Text(String),
+    /// A percentage, authored 0–100.
+    Percent(f64),
+    /// `auto`.
+    Auto,
+    /// Two numbers.
+    Vec2(f32, f32),
+}
+
+impl StyleValue {
+    pub(crate) fn f32(&self, style: StyleId) -> Result<f32, StyleValueError> {
+        match self {
+            StyleValue::Number(n) if (*n as f32).is_finite() => Ok(*n as f32),
+            _ => Err(StyleValueError::WrongKind {
+                style,
+                expected: "number",
+            }),
+        }
+    }
+
+    pub(crate) fn int(&self, style: StyleId, min: f64, max: f64) -> Result<i64, StyleValueError> {
+        match self {
+            StyleValue::Number(n) if n.is_finite() && n.fract() == 0.0 => {
+                if *n < min || *n > max {
+                    Err(StyleValueError::OutOfRange { style })
+                } else {
+                    Ok(*n as i64)
+                }
+            }
+            _ => Err(StyleValueError::WrongKind {
+                style,
+                expected: "integer",
+            }),
+        }
+    }
+
+    pub(crate) fn text(&self, style: StyleId) -> Result<&str, StyleValueError> {
+        match self {
+            StyleValue::Text(t) => Ok(t),
+            _ => Err(StyleValueError::WrongKind {
+                style,
+                expected: "text",
+            }),
+        }
+    }
+
+    pub(crate) fn dimension(
+        &self,
+        style: StyleId,
+        admits_auto: bool,
+    ) -> Result<Dimension, StyleValueError> {
+        match self {
+            StyleValue::Number(n) if (*n as f32).is_finite() => Ok(Dimension::Points(*n as f32)),
+            StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
+            StyleValue::Auto if admits_auto => Ok(Dimension::Auto),
+            StyleValue::Auto => Err(StyleValueError::AutoNotAdmitted { style }),
+            _ => Err(StyleValueError::WrongKind {
+                style,
+                expected: "number, percent, or auto",
+            }),
+        }
+    }
+
+    pub(crate) fn color(&self, style: StyleId) -> Result<Color, StyleValueError> {
+        match self {
+            StyleValue::Number(n)
+                if n.is_finite() && n.fract() == 0.0 && *n >= 0.0 && *n <= u32::MAX as f64 =>
+            {
+                Ok(Color(*n as u32))
+            }
+            StyleValue::Text(t) => Color::parse_hex(t).ok_or(StyleValueError::BadColor { style }),
+            _ => Err(StyleValueError::WrongKind {
+                style,
+                expected: "color",
+            }),
+        }
+    }
+
+    pub(crate) fn vec2(&self, style: StyleId) -> Result<Vec2, StyleValueError> {
+        match self {
+            StyleValue::Vec2(x, y) if x.is_finite() && y.is_finite() => Ok(Vec2 { x: *x, y: *y }),
+            _ => Err(StyleValueError::WrongKind {
+                style,
+                expected: "vec2",
+            }),
+        }
+    }
+}
+
+impl Color {
+    /// Parse CSS hex notation: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`.
+    pub fn parse_hex(text: &str) -> Option<Color> {
+        let hex = text.strip_prefix('#')?;
+        let digit = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
+        let bytes = hex.as_bytes();
+        let (r, g, b, a) = match bytes.len() {
+            3 | 4 => {
+                let mut v = [0u8; 4];
+                for (i, c) in bytes.iter().enumerate() {
+                    let d = digit(*c)?;
+                    v[i] = d * 17;
+                }
+                (v[0], v[1], v[2], if bytes.len() == 4 { v[3] } else { 255 })
+            }
+            6 | 8 => {
+                let mut v = [0u8; 4];
+                for (i, pair) in bytes.chunks(2).enumerate() {
+                    v[i] = digit(pair[0])? * 16 + digit(pair[1])?;
+                }
+                (v[0], v[1], v[2], if bytes.len() == 8 { v[3] } else { 255 })
+            }
+            _ => return None,
+        };
+        Some(Color::rgba(r, g, b, a))
+    }
+}
 
 /// Two floats.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

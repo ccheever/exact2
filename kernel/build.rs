@@ -455,7 +455,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "use crate::error::DecodeError;").unwrap();
     writeln!(
         w,
-        "use crate::style::{{Color, Dimension, GridPlacement, GridTracks, Transitions, Vec2}};"
+        "use crate::error::StyleValueError;\nuse crate::style::{{Color, Dimension, GridPlacement, GridTracks, StyleValue, Transitions, Vec2}};"
     )
     .unwrap();
     writeln!(w, "use crate::wire::codec::{{Reader, Writer}};").unwrap();
@@ -825,6 +825,26 @@ fn generate(schema: &Schema, digest: u64) -> String {
     }
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
+    writeln!(w, "    /// For an enum row, the wire ordinal of `name`; `None` for other rows and unknown names.").unwrap();
+    writeln!(
+        w,
+        "    pub fn enum_from_name(self, name: &str) -> Option<u8> {{"
+    )
+    .unwrap();
+    writeln!(w, "        match self {{").unwrap();
+    for row in &schema.styles {
+        if let Codec::Enum(name) = parse_codec(&row.codec) {
+            writeln!(
+                w,
+                "            StyleId::{} => {name}::from_name(name).map(|v| v as u8),",
+                pascal(&row.field)
+            )
+            .unwrap();
+        }
+    }
+    writeln!(w, "            _ => None,").unwrap();
+    writeln!(w, "        }}").unwrap();
+    writeln!(w, "    }}").unwrap();
     for (method, doc, pred) in [
         (
             "admits_auto",
@@ -1145,6 +1165,43 @@ fn generate(schema: &Schema, digest: u64) -> String {
         )
         .unwrap();
     }
+    writeln!(w, "        Ok(())").unwrap();
+    writeln!(w, "    }}").unwrap();
+    writeln!(
+        w,
+        "    /// Set one row from an untyped value and mark it. The one place a producer"
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "    /// that names rows by id turns a value into a row; refused typed, nothing changed."
+    )
+    .unwrap();
+    writeln!(w, "    pub fn set_dynamic(&mut self, id: StyleId, value: &StyleValue) -> Result<(), StyleValueError> {{").unwrap();
+    writeln!(w, "        match id {{").unwrap();
+    for row in &schema.styles {
+        let id = pascal(&row.field);
+        let f = &row.field;
+        let stmt = match parse_codec(&row.codec) {
+            Codec::Dimension => format!("self.{f} = value.dimension(id, {})?;", row.admits_auto),
+            Codec::F32 => format!("self.{f} = value.f32(id)?;"),
+            Codec::U8 => format!("self.{f} = value.int(id, 0.0, u8::MAX as f64)? as u8;"),
+            Codec::U16 => format!("self.{f} = value.int(id, 0.0, u16::MAX as f64)? as u16;"),
+            Codec::U32 => format!("self.{f} = value.int(id, 0.0, u32::MAX as f64)? as u32;"),
+            Codec::I32 => format!("self.{f} = value.int(id, i32::MIN as f64, i32::MAX as f64)? as i32;"),
+            Codec::Rgba8 => format!("self.{f} = value.color(id)?;"),
+            Codec::Vec2 => format!("self.{f} = value.vec2(id)?;"),
+            Codec::Enum(name) => format!(
+                "self.{f} = {name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?;"
+            ),
+            Codec::Color2 | Codec::Tracks | Codec::Placement | Codec::Transitions => {
+                "return Err(StyleValueError::Unsupported { style: id });".to_string()
+            }
+        };
+        writeln!(w, "            StyleId::{id} => {{ {stmt} }}").unwrap();
+    }
+    writeln!(w, "        }}").unwrap();
+    writeln!(w, "        self.mask.set(id);").unwrap();
     writeln!(w, "        Ok(())").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "    /// Encode this patch (the rows in `self.mask`).").unwrap();

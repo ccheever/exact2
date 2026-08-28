@@ -1,0 +1,129 @@
+// Caltrain — the v1 app, in Contract, on the LLP 1004 boundary.
+//
+// No JavaScript anywhere: schedule data comes from the Rust data crate
+// (apps/caltrain/data) through `resource` declarations; formatting comes from
+// the stdlib roster; everything else is Contract. The first frame is
+// compiled data — the build bakes every resource's boot value into the plan.
+
+shape Location
+  lat: number
+  lon: number
+
+shape Station
+  id: string
+  name: string
+  zone: number
+  distance: number
+
+shape Departure
+  id: string
+  train: number
+  service: string
+  headsign: string
+  at: number
+
+component Caltrain
+  state nowMs = 1787915400000
+  state screen = "home"
+  state stationId = none
+  state query = ""
+
+  resource location = defaultLocation() as shape Location
+  derive selectedId = match stationId { case some(id) => id, case none => "mv" }
+  resource station = station(selectedId, location) as shape Station
+  resource northBoard = board(selectedId, "north") as shape list<Departure>
+  resource southBoard = board(selectedId, "south") as shape list<Departure>
+  resource nearby = nearest(location, 3) as shape list<Station>
+  resource allStations = stations(location) as shape list<Station>
+  resource matches = search(query, location) as shape list<Station>
+
+  action tick writes nowMs
+    nowMs = nowMs + 1000
+  action openStations writes screen
+    screen = "stations"
+  action goHome writes screen, query
+    screen = "home"
+    query = ""
+  action selectStation(id) writes stationId, screen, query
+    stationId = some(id)
+    screen = "home"
+    query = ""
+  action setQuery(value) writes query
+    query = value
+  action setScheme(scheme: string)
+    setScheme(scheme)
+
+  task ticker mount
+    every(1000, tick)
+
+  view
+    main testId="caltrain-main" width="100%"
+      scroll width="100%" flex=1
+        column gap=16 padding=20 maxWidth=640 alignSelf="center" width="100%"
+          header width="100%"
+            row justify="space-between" align="center"
+              column gap=2
+                text "Caltrain" size=13 weight=700 letterSpacing=1.2 color="#c0392b"
+                text station.name size=24 weight=700 testId="station-name" headingLevel=1
+                text `${formatDistance(station.distance)} · ${formatWalk(station.distance)}` size=12 color="#666666"
+              column gap=6 align="flex-end"
+                button press=openStations label="Change station" testId="change-station" padding=8 radius=8 background="#eeeeee"
+                  text "Change station" size=13 weight=600
+                row gap=6
+                  button press=setScheme("light") label="Light" testId="scheme-light"
+                    text "Light" size=12
+                  button press=setScheme("dark") label="Dark" testId="scheme-dark"
+                    text "Dark" size=12
+
+          when screen == "home"
+            section role="region" label="Departures" gap=14 testId="home-screen"
+              DirectionCard(title="Northbound", board=northBoard, nowMs=nowMs, testId="board-north")
+              DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, testId="board-south")
+          else
+            section role="region" label="Stations" gap=12 testId="stations-screen"
+              input value=query change=setQuery placeholder="Search stations" label="Search stations" testId="station-search" padding=12 radius=10 borderWidth=1 borderColor="#cccccc"
+              when query == ""
+                column gap=8
+                  text "Nearest" size=12 weight=700 letterSpacing=0.8 color="#999999"
+                  each s in nearby key=s.id
+                    StationRow(station=s, press=selectStation)
+                  text "All stations" size=12 weight=700 letterSpacing=0.8 color="#999999"
+                  each s in allStations key=s.id
+                    StationRow(station=s, press=selectStation)
+              else
+                column gap=8
+                  text "Matches" size=12 weight=700 letterSpacing=0.8 color="#999999"
+                  each s in matches key=s.id
+                    StationRow(station=s, press=selectStation)
+              button press=goHome label="Back" testId="stations-back"
+                text "Back" size=13
+
+component DirectionCard
+  props
+    title: string
+    board: list<Departure>
+    nowMs: number
+    testId: string
+  view
+    column radius=16 padding=16 gap=10 background="#f7f7f7" testId=testId
+      text title size=13 weight=700 color="#c0392b"
+      when isEmpty(board)
+        text "No more trains today" size=14 color="#666666"
+      else
+        each d in board key=d.id
+          when d.at >= nowMs
+            row gap=8 align="flex-end" testId=`dep-${d.id}`
+              text formatCountdownMinutes(d.at, nowMs) size=28 weight=700 testId=`countdown-${d.id}`
+              text `min · ${formatClockTime(d.at)} · Train ${d.train} · ${d.service} to ${d.headsign}` size=13 color="#666666"
+
+component StationRow
+  props
+    station: Station
+    press: action
+  view
+    button press=press(station.id) label=station.name testId=`station-${station.id}` width="100%"
+      row justify="space-between" align="center" paddingTop=10 paddingBottom=10 borderBottomWidth=1 borderColor="#e0e0e0" width="100%"
+        column gap=2
+          text station.name size=15 weight=600
+          text `Zone ${station.zone}` size=12 color="#999999"
+        text formatDistance(station.distance) size=12 color="#666666"

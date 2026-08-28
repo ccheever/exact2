@@ -1,0 +1,20 @@
+# The plan runner: one app-independent binary's worth of loop — evaluate the
+# plan's expressions, manage keyed instances, emit kernel ops, dispatch events,
+# tick timers under a seekable clock, and ask the app's data source for data.
+#
+# @ref LLP 1004 D4 (the data seam) / D5 (a reload is a restart) / LLP 0485 (research).
+[package]
+name = "exact-runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Plan runner: expression VM, keyed instances, kernel ops, events, timers, and the data seam"
+publish = false
+
+[lib]
+name = "exact_runner"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-kernel = { path = "../kernel" }
+exact-plan = { path = "../plan" }

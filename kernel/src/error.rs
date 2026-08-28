@@ -237,6 +237,34 @@ impl fmt::Display for KernelError {
     }
 }
 
+/// A dynamic style write (`StyleProps::set_dynamic`) was refused. Nothing changed.
+#[allow(missing_docs)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StyleValueError {
+    /// The value's kind cannot fill this row's codec.
+    WrongKind {
+        style: StyleId,
+        expected: &'static str,
+    },
+    /// The row is an enum and the text is not one of its values.
+    UnknownEnumValue { style: StyleId },
+    /// `auto` on a row that does not admit it.
+    AutoNotAdmitted { style: StyleId },
+    /// The number does not fit the row's integer codec.
+    OutOfRange { style: StyleId },
+    /// A color text was not `#rgb`, `#rrggbb`, or `#rrggbbaa`.
+    BadColor { style: StyleId },
+    /// The row's codec has no dynamic form (grid tracks, placements, gradients, transitions).
+    Unsupported { style: StyleId },
+}
+
+impl fmt::Display for StyleValueError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl std::error::Error for StyleValueError {}
 impl std::error::Error for DecodeError {}
 impl std::error::Error for ApplyError {}
 impl std::error::Error for LayoutError {}
