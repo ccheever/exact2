@@ -1,7 +1,7 @@
 # LLP 1000: Exact2 Project Root
 
 **Type:** Explainer
-**Status:** Draft
+**Status:** Active (ratified by Charlie Cheever 2026-08-28)
 **Role:** Root
 **Systems:** All
 **Author:** Charlie Cheever / Claude (Fable 5)
@@ -83,5 +83,7 @@ node scripts/caps.mjs
 
 ## Ratification note
 
-Written on 2026-08-28 alongside the first kernel landing (LLP 1001). Draft until
-Charlie confirms the map; it moves to `llp/foundation/` when it becomes Active.
+Written on 2026-08-28 alongside the first kernel landing (LLP 1001); ratified by
+Charlie the same day after the motion rebuild (LLP 1002/1003) and moved to
+`llp/foundation/`. Where this map and a spec disagree, the spec wins and this
+document is stale.
