@@ -1,0 +1,4 @@
+interface:
+  display_name: "LLP Super Refine"
+  short_description: "Iterate an LLP through dual-model review"
+  default_prompt: "Use $llp-super-refine to review and refine an LLP until both reviewers are satisfied."

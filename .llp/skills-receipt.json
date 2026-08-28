@@ -1,0 +1,19 @@
+{
+  "origin": "https://github.com/ccheever/llp",
+  "tag": "v0.5.1",
+  "commit": "e940867b00cf444097547c950c85ef696a835326",
+  "profile": [
+    "core",
+    "review-plus"
+  ],
+  "installed": "2026-08-28",
+  "note": "Installed into exact2 by copying the exact1 v0.5.1 managed set (hashes verified against the exact1 receipt). .agents/ mirror not installed.",
+  "files": {
+    ".claude/skills/llp-adopt/SKILL.md": "84baacfb87e901b8f433451ee67c8b4f3d2ec06db10c4ec0f8691142945aa885",
+    ".claude/skills/llp-create/SKILL.md": "d1ca656055fb60e90e10227b88f2d14928e248f4e6cc8293660700bc12281d13",
+    ".claude/skills/llp-maintain/SKILL.md": "e8ad53e3413fba4ed66ec62e9ef5b602e74328a9d7f925513c933ecfa2ab5119",
+    ".claude/skills/llp-orient/SKILL.md": "8ceac0ba978b878b5c46f3cfe8005a0a536171b4c40d7619097a0a80e11aea97",
+    ".claude/skills/llp-review/SKILL.md": "d302e882c86e3d01ea83ccf74a25c5f06eaa5149ff6f94cd074f048a20cb41b8",
+    ".claude/skills/llp-super-refine/SKILL.md": "bd9728b951a9d7b8d1c7afa89939bc7b822faae3a8813e4df9df240c5add1c2f"
+  }
+}
