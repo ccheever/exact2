@@ -1,0 +1,11 @@
+// Accept fixture: a `transition` authored as CSS shorthand reaches the
+// kernel's transition row and, on the web, the element's CSS.
+component Fade
+  state shown = true
+  action toggle writes shown
+    shown = not shown
+  view
+    column testId="root"
+      button press=toggle label="Toggle" testId="toggle"
+        text "Toggle"
+      text "Hello" testId="hello" opacity=(shown ? 1 : 0) transition="opacity 250ms ease-in-out, translate spring(180, 12, 1)"

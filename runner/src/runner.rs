@@ -288,6 +288,24 @@ impl<D: DataSource> Runner<D> {
         self.now_ms
     }
 
+    /// The event kinds a view handles, for a host that attaches listeners.
+    pub fn handlers_of(&self, view: ViewId) -> Vec<EventKind> {
+        let Some((node, _)) = self.tree.as_ref().and_then(|t| t.find(view)) else {
+            return Vec::new();
+        };
+        self.plan
+            .node(node)
+            .handlers
+            .iter()
+            .map(|h| self.plan.handler(h).event)
+            .collect()
+    }
+
+    /// Whether the plan has timers (a host then drives `advance`).
+    pub fn has_timers(&self) -> bool {
+        !self.plan.timers.is_empty()
+    }
+
     /// The kernel roots.
     pub fn roots(&self) -> Vec<ViewId> {
         self.tree.as_ref().map(Tree::roots).unwrap_or_default()

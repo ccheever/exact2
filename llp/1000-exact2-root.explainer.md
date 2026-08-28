@@ -6,7 +6,7 @@
 **Systems:** All
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-28
-**Related:** LLP 1001, LLP 1002, LLP 1003, LLP 1004, LLP 1005, LLP 1006, LLP 0552, LLP 0491, LLP 0507, LLP 0486
+**Related:** LLP 1001, LLP 1002, LLP 1003, LLP 1004, LLP 1005, LLP 1006, LLP 1007, LLP 0552, LLP 0491, LLP 0507, LLP 0486
 
 ## Summary
 
@@ -54,18 +54,20 @@ and this one does not. Read them first.
 - `contract/` — the Contract compiler: `syntax` → `types` → `analyze` → `lower`
   and the `contract` driver/CLI, plus `corpus/`. Decided by LLP 1004, specified
   by LLP 1006.
-- `apps/caltrain/` — the v1 app: `app.contract` and its Rust data crate
-  (`data/`), the end-to-end fixture for everything above.
+- `apps/caltrain/` — the v1 app: `app.contract`, its Rust data crate
+  (`data/`), and its wasm crate (`web/`), the end-to-end fixture for everything.
+- `host/web/` — `exact-web`, the web host: the runner and kernel in wasm over
+  the real DOM, CSS computed once from the kernel's rows, a no-`unsafe` ABI, the
+  glue, and the headless-Chrome smoke. LLP 1007.
 - `vendor/taffy/` — Taffy 0.9.2 plus two Exact patches (`EXACT-PATCHES.md`).
 - `scripts/` — `caps` (the budget check) and `issue` (filesystem issues, `docs/issues.md`).
 - `skills/`, `.claude/skills/` — the orchestrate skill and the LLP skills (installed
   from `ccheever/llp@v0.5.1`; receipt in `.llp/skills-receipt.json`).
 
-Not built yet, in the order they are expected (revised 2026-08-28: the plan
-format, runner, and compiler landed together as one lane — see LLP 1006 §7): the
-web host (the kernel and runner as wasm over the real DOM, LLP 0517/0483, emitting
-the `transition` row as CSS), the Apple host and the generated C ABI, the Linux DRM
-host, the eight-operation agent API.
+Not built yet, in the order they are expected: the Apple host and the generated
+C ABI, the Linux DRM host, the eight-operation agent API. (The plan format, runner,
+and compiler landed together as one lane — LLP 1006 §7 — and the web host followed
+the same day, LLP 1007.)
 
 ## The five checks
 
@@ -76,7 +78,7 @@ cargo build --workspace
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check
 node scripts/caps.mjs
-# boot: counts the module graph reachable before first pixel — nothing to count until a host exists
+node scripts/boot.mjs   # counts the module graph before first pixel: host glue only, no app JS
 ```
 
 ## Durable constraints (from the rules, restated for orientation)

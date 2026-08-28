@@ -254,8 +254,10 @@ pub enum StyleValueError {
     OutOfRange { style: StyleId },
     /// A color text was not `#rgb`, `#rrggbb`, or `#rrggbbaa`.
     BadColor { style: StyleId },
-    /// The row's codec has no dynamic form (grid tracks, placements, gradients, transitions).
+    /// The row's codec has no dynamic form (grid tracks, placements, gradients).
     Unsupported { style: StyleId },
+    /// A `transition` text was not CSS shorthand the evaluator accepts.
+    BadTransition { style: StyleId },
 }
 
 impl fmt::Display for StyleValueError {

@@ -146,7 +146,9 @@ reused slot never inherits motion (`a_destroyed_node_is_forgotten_and_its_slot_n
 - Two executors means the corpus is load-bearing: a browser value the fixtures
   do not pin is a divergence the rule cannot see. The fixtures pin the keyword
   midpoints, the step table, endpoints, clamping, and the reversing rule; a real
-  browser-driven harness (0486's shape) is owed when the web host exists.
+  browser-driven harness (0486's shape) is owed now that the web host exists
+  (LLP 1007 §6) — the host emits `transition` as CSS and the smoke renders it,
+  but nothing yet compares the browser's interpolation to the evaluator's.
 - A spring on the web is 240 samples per release. Cheap; not free.
 - Times and control points ride the wire as f32 like every other style row; a
   producer writing `0.1s` reads back `0.100000001s`. Harmless, and consistent.

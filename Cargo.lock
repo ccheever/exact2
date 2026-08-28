@@ -36,6 +36,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "caltrain-web"
+version = "0.1.0"
+dependencies = [
+ "caltrain-data",
+ "contract",
+ "exact-web",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -147,6 +156,19 @@ version = "0.1.0"
 dependencies = [
  "exact-kernel",
  "exact-plan",
+]
+
+[[package]]
+name = "exact-web"
+version = "0.1.0"
+dependencies = [
+ "caltrain",
+ "caltrain-data",
+ "contract",
+ "exact-kernel",
+ "exact-motion",
+ "exact-plan",
+ "exact-runner",
 ]
 
 [[package]]

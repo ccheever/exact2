@@ -236,6 +236,30 @@ impl Color {
     }
 }
 
+/// One style row's value, read by id — the read-side twin of [`StyleValue`]
+/// for consumers that lower rows generically (a web host emitting CSS).
+#[derive(Debug, Clone, PartialEq)]
+pub enum RowValue<'a> {
+    /// A dimension.
+    Dimension(Dimension),
+    /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
+    Number(f64),
+    /// A color.
+    Color(Color),
+    /// Two numbers.
+    Vec2(Vec2),
+    /// Two colors.
+    Color2([Color; 2]),
+    /// An enum value, by its declared (CSS) name.
+    Enum(&'static str),
+    /// Grid tracks.
+    Tracks(&'a GridTracks),
+    /// A grid placement.
+    Placement(GridPlacement),
+    /// The `transition` row.
+    Transitions(&'a Transitions),
+}
+
 /// Two floats.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Vec2 {

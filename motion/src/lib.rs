@@ -33,6 +33,7 @@
 pub mod easing;
 pub mod engine;
 pub mod math;
+pub mod parse;
 pub mod property;
 pub mod spring;
 pub mod transition;
@@ -40,6 +41,7 @@ pub mod velocity;
 
 pub use easing::{Easing, EasingError, LinearStop, StepPosition};
 pub use engine::{Change, Engine, EngineError, Presentation};
+pub use parse::ParseError;
 pub use property::{Property, Value};
 pub use spring::{Keyframe, SpringConfig, SpringError, SpringSample};
 pub use transition::{

@@ -1,5 +1,5 @@
 [workspace]
-members = ["kernel", "motion", "plan", "runner", "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli", "apps/caltrain", "apps/caltrain/data"]
+members = ["kernel", "motion", "plan", "runner", "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli", "apps/caltrain", "apps/caltrain/data", "host/web", "apps/caltrain/web"]
 resolver = "2"
 
 [workspace.package]

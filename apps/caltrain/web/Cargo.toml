@@ -1,0 +1,22 @@
+# The Caltrain app for the web: one wasm with the runner, the kernel, the
+# data crate, and the baked plan (written by build.rs, never committed).
+[package]
+name = "caltrain-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Caltrain on the web host: the app's wasm"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "caltrain_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+caltrain-data = { path = "../data" }
+exact-web = { path = "../../../host/web" }
+
+[build-dependencies]
+caltrain-data = { path = "../data" }
+contract = { path = "../../../contract/cli" }

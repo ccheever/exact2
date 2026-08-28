@@ -2,3 +2,5 @@ target/
 node_modules/
 .DS_Store
 *.swp
+# Built web artifacts: the wasm and its copies, never committed.
+host/web/dist/

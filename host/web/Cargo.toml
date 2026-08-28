@@ -1,0 +1,27 @@
+# The web host: the runner and kernel in wasm over the real DOM. The DOM
+# mirrors the kernel tree; CSS is computed in Rust from the kernel's style
+# rows (the transition row included); the browser lays out and animates.
+# @ref LLP 1007 (this host) / LLP 1002 D2 (the browser executes motion) /
+# LLP 0483 and 0517 (research).
+[package]
+name = "exact-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Web host: kernel tree → DOM batches with CSS computed once in Rust; a no-unsafe wasm ABI"
+publish = false
+
+[lib]
+name = "exact_web"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-kernel = { path = "../../kernel" }
+exact-motion = { path = "../../motion" }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }
+
+[dev-dependencies]
+caltrain = { path = "../../apps/caltrain" }
+contract = { path = "../../contract/cli" }
+caltrain-data = { path = "../../apps/caltrain/data" }

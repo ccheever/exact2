@@ -23,7 +23,7 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `node scripts/caps.mjs`.
 - The five checks: `cargo build --workspace` · `cargo test --workspace` ·
   `cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check` ·
-  `node scripts/caps.mjs` · `boot` (nothing to count until a host exists).
+  `node scripts/caps.mjs` · `node scripts/boot.mjs`.
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
 - Never `git stash`. Kill only PIDs you recorded. Agents remove apparatus freely and add
   none without a human saying so.

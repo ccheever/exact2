@@ -455,7 +455,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "use crate::error::DecodeError;").unwrap();
     writeln!(
         w,
-        "use crate::error::StyleValueError;\nuse crate::style::{{Color, Dimension, GridPlacement, GridTracks, StyleValue, Transitions, Vec2}};"
+        "use crate::error::StyleValueError;\nuse crate::style::{{Color, Dimension, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Vec2}};"
     )
     .unwrap();
     writeln!(w, "use crate::wire::codec::{{Reader, Writer}};").unwrap();
@@ -1194,7 +1194,10 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::Enum(name) => format!(
                 "self.{f} = {name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?;"
             ),
-            Codec::Color2 | Codec::Tracks | Codec::Placement | Codec::Transitions => {
+            Codec::Transitions => format!(
+                "self.{f} = Transitions::parse(value.text(id)?).map_err(|_| StyleValueError::BadTransition {{ style: id }})?;"
+            ),
+            Codec::Color2 | Codec::Tracks | Codec::Placement => {
                 "return Err(StyleValueError::Unsupported { style: id });".to_string()
             }
         };
@@ -1203,6 +1206,33 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        }}").unwrap();
     writeln!(w, "        self.mask.set(id);").unwrap();
     writeln!(w, "        Ok(())").unwrap();
+    writeln!(w, "    }}").unwrap();
+    writeln!(
+        w,
+        "    /// Read one row by id, untyped. Every codec has a form; nothing is skipped."
+    )
+    .unwrap();
+    writeln!(w, "    pub fn get(&self, id: StyleId) -> RowValue<'_> {{").unwrap();
+    writeln!(w, "        match id {{").unwrap();
+    for row in &schema.styles {
+        let id = pascal(&row.field);
+        let f = &row.field;
+        let expr = match parse_codec(&row.codec) {
+            Codec::Dimension => format!("RowValue::Dimension(self.{f})"),
+            Codec::F32 | Codec::U8 | Codec::U16 | Codec::U32 | Codec::I32 => {
+                format!("RowValue::Number(self.{f} as f64)")
+            }
+            Codec::Rgba8 => format!("RowValue::Color(self.{f})"),
+            Codec::Vec2 => format!("RowValue::Vec2(self.{f})"),
+            Codec::Color2 => format!("RowValue::Color2(self.{f})"),
+            Codec::Enum(_) => format!("RowValue::Enum(self.{f}.name())"),
+            Codec::Tracks => format!("RowValue::Tracks(&self.{f})"),
+            Codec::Placement => format!("RowValue::Placement(self.{f})"),
+            Codec::Transitions => format!("RowValue::Transitions(&self.{f})"),
+        };
+        writeln!(w, "            StyleId::{id} => {expr},").unwrap();
+    }
+    writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "    /// Encode this patch (the rows in `self.mask`).").unwrap();
     writeln!(

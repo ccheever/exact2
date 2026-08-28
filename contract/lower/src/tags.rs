@@ -200,6 +200,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "bottom" => styles(&["bottom"]),
         "overflow" => styles(&["overflow_x", "overflow_y"]),
         "zIndex" => styles(&["z_index"]),
+        "transition" => styles(&["transition"]),
         "scale" => styles(&["scale"]),
         "rotate" => styles(&["rotate"]),
         _ => return None,

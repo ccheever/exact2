@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Exact</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* The page renders the kernel's tree; the kernel's defaults are CSS's for a
+     bare <div>, so only UA styles that a bare div lacks are reset here. */
+  html, body { margin: 0; padding: 0; }
+  body { font: 16px system-ui, sans-serif; }
+  button, input { all: unset; display: block; box-sizing: content-box; cursor: default; }
+  input { cursor: text; -webkit-user-select: text; user-select: text; }
+  [data-scroll="true"] { overflow: auto; }
+  img { display: block; }
+</style>
+<div id="exact-root"></div>
+<script type="module" src="./glue.js"></script>
