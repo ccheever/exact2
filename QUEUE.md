@@ -20,8 +20,7 @@ sits on that list carries the trade it would take.
    bytes come from: URL, bundled asset, or a resource baked into the plan. Builds the
    async-measure → relayout path that Linux text needs anyway.
 3. **Agent API follow-ups** (LLP 1012 landed 2026-08-29; `scripts/agent.mjs`,
-   `scripts/smoke.mjs`). Not yet: a contract fixture with a `transition` under
-   `clock` on the web (the seek is exercised only by the parity harness today); the
+   `scripts/smoke.mjs`). Not yet: the
    macOS app takes focus while a script runs (`.accessory` + no `activate` would
    not); `screenshot` on macOS misses Metal layers unless `window` is asked for.
    Two things the first screenshots showed (2026-08-29): `tap scheme-dark` journals

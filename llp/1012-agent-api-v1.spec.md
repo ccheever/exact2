@@ -204,8 +204,19 @@ nothing, holds no refusal, and the host reported no error. Then the LLP 1010
 fixture through `--plan`: a wheel of 100 over the scroll node scrolls it by
 exactly 100 with the page unmoved; twelve wheels of 400 stop it at
 **652** — a parity number pinned on both hosts, it moves if either host's
-text metrics or padding do — with the page scrolled past its top. (A canvas
-step, 6a and 9, belongs to LLP 1014.)
+text metrics or padding do — with the page scrolled past its top. Then the motion fixture
+(`contract/corpus/motion.contract`: three boxes scaling 1 → 2 — a 250 ms
+linear transition and a `spring(180, 12, 1)` on a press, a 500 ms linear
+transition when a timer fires at 1000): after the press, two `layout`s with
+a 300 ms wall pause between them are identical (50×50 — frozen at local
+time 0); `clock +125` gives the linear box **75** wide and the spring box
+**86.55** on both hosts; `clock +125` gives 100; `clock settle` is a
+two-round fixed point landing at exactly **1500** (the spring settles at
+1295.8 ms on both hosts, the seek there crosses the timer, whose transition
+ends at 1500), after which both boxes are 100; and in fresh sessions, one
+seek to 1250 then 1500 across the timer gives 75 then 100, the same as
+stepping 1000, 1250, 1500 (50, 75, 100). (Canvas steps — 6a, 9, 10 —
+belong to LLP 1014.)
 
 Measured 2026-08-29 on this machine, printed by the smoke and
 `scripts/metrics.mjs`, not asserted: web smoke 3.6 s, boot 12.2 ms to the
@@ -282,11 +293,13 @@ wheel deltas bounded; `layout` with transforms, sorted, rounded; `ready`
 once the window is key; the file server's prefix check; the DevTools pipe
 failing pending calls, with deadlines; `openMac` refusing a boot error; the
 smoke's claims made exact and the wall-clock retry removed; the ring test at
-the runner; this document.
+the runner; this document. Then the motion fixture (§5), which found one
+more: the web registered animations a timer's ops started only after the
+clock had moved to the batch's landing time, so a seek across the timer
+still bore them at the destination — `applyBatch` registers before it
+moves the clock.
 
-**Not in v1:** a contract fixture with a `transition` under `clock` (the
-freeze and the seek are held by the parity harness and by the batch tests,
-not yet by the smoke); a drag form of `tap`; keys beyond `type`'s value
+**Not in v1:** a drag form of `tap`; keys beyond `type`'s value
 replacement; the macOS app taking focus while a script runs; `screenshot`
 on macOS seeing Metal without `window`; the display link idling under agent
 mode; replaying two timers' writes to one animatable row within a seek;
