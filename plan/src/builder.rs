@@ -318,7 +318,17 @@ impl PlanBuilder {
         (region, arms)
     }
 
-    /// A node with its bindings and handlers.
+    /// A canvas node's surface binding: the surface's name in the app's GPU
+    /// module and its argument expressions (LLP 1009 D3).
+    pub fn surface(&mut self, name: &str, args: &[Code]) -> SurfacesId {
+        let args = self.args(args);
+        let name = self.str(name);
+        self.plan.surfaces.push(SurfacesRow { name, args });
+        SurfacesId(self.plan.surfaces.len() as u32 - 1)
+    }
+
+    /// A node with its bindings, handlers, and (for a canvas) its surface.
+    #[allow(clippy::too_many_arguments)]
     pub fn node(
         &mut self,
         node_type: u8,
@@ -327,6 +337,7 @@ impl PlanBuilder {
         order: u32,
         bindings: &[BindingsRow],
         handlers: &[(EventKind, ActionsId, &[Code])],
+        surface: Option<SurfacesId>,
     ) -> NodesId {
         let bstart = self.plan.bindings.len() as u32;
         self.plan.bindings.extend_from_slice(bindings);
@@ -352,6 +363,7 @@ impl PlanBuilder {
                 start: hstart,
                 len: handlers.len() as u32,
             },
+            surface,
         });
         NodesId(self.plan.nodes.len() as u32 - 1)
     }

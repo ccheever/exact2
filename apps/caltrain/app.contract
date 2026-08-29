@@ -76,6 +76,8 @@ component Caltrain
                     text "Dark" size=12
 
           when screen == "home"
+            canvas surface=aurora(selectedId) width="100%" height=220 testId="aurora"
+            canvas surface=map(allStations, selectedId, northBoard, nowMs) width="100%" height=160 testId="line-map"
             section role="region" label="Departures" gap=14 testId="home-screen"
               DirectionCard(title="Northbound", board=northBoard, nowMs=nowMs, testId="board-north")
               DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, testId="board-south")

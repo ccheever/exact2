@@ -21,7 +21,7 @@ use exact_kernel::{
 };
 use exact_motion::{Change, Engine, Property};
 use exact_plan::{EventKind, Plan};
-use exact_runner::{DataSource, Event, Runner, RunnerError};
+use exact_runner::{Carried, DataSource, Event, Runner, RunnerError};
 use std::collections::BTreeMap;
 
 /// Why the host refused.
@@ -69,8 +69,27 @@ impl<D: DataSource> Host<D> {
         width: f32,
         height: f32,
     ) -> Result<(Host<D>, String), HostError> {
+        Host::boot_with(plan_bytes, data, measurer, width, height, None)
+    }
+
+    /// Boot carrying an earlier host's state (the dev reload, LLP 1007 §6):
+    /// slots by name where their types still fit, settled resources where
+    /// their arguments still match, the clock.
+    pub fn boot_with(
+        plan_bytes: &[u8],
+        data: D,
+        measurer: Box<dyn TextMeasurer>,
+        width: f32,
+        height: f32,
+        carried: Option<&Carried>,
+    ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
-        let runner = Runner::boot(plan, data, Kernel::new(measurer)).map_err(HostError::Runner)?;
+        let kernel = Kernel::new(measurer);
+        let runner = match carried {
+            Some(c) => Runner::boot_carrying(plan, data, kernel, c),
+            None => Runner::boot(plan, data, kernel),
+        }
+        .map_err(HostError::Runner)?;
         let mut host = Host {
             runner,
             mirror: BTreeMap::new(),
@@ -90,6 +109,9 @@ impl<D: DataSource> Host<D> {
         }
         host.roots = host.runner.roots();
         batch.roots(&host.roots.clone());
+        for s in host.runner.take_surface_updates() {
+            batch.surface(s.view, &s.name, &s.values);
+        }
         // The engine hears the whole tree once: values, no transitions.
         let mut sync = MotionSync::default();
         for id in &order {
@@ -118,6 +140,11 @@ impl<D: DataSource> Host<D> {
     /// The runner.
     pub fn runner(&self) -> &Runner<D> {
         &self.runner
+    }
+
+    /// What a reload keeps (`Runner::carry`).
+    pub fn carry(&self) -> Carried {
+        self.runner.carry()
     }
 
     /// The motion engine: presentation values as the presenter shows them.
@@ -214,6 +241,9 @@ impl<D: DataSource> Host<D> {
         } else {
             self.layout(&mut batch).err()
         };
+        for s in self.runner.take_surface_updates() {
+            batch.surface(s.view, &s.name, &s.values);
+        }
         // Motion last: targets are in place before the engine hears them.
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
@@ -400,6 +430,7 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::TextInput => "input",
         NodeType::Pressable => "button",
         NodeType::Toggle => "toggle",
+        NodeType::Canvas => "canvas",
     }
 }
 

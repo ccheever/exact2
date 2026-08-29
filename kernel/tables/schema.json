@@ -11,7 +11,8 @@
     { "id": 6, "name": "Pressable" },
     { "id": 7, "name": "Svg" },
     { "id": 8, "name": "Toggle" },
-    { "id": 9, "name": "NativeView" }
+    { "id": 9, "name": "NativeView" },
+    { "id": 10, "name": "Canvas" }
   ],
   "_propKinds": "str | bool | int (i64) | float (f64). `measure: true` marks props whose change invalidates a text leaf's intrinsic size.",
   "props": [

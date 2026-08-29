@@ -151,6 +151,24 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"surface","id":…,"name":…,"values":[…]}` — a canvas's inputs
+    /// (LLP 1009 D2): plan values as JSON — numbers, strings, booleans,
+    /// `null` for unit and `none`, lists, records as positional lists.
+    pub fn surface(&mut self, id: u32, name: &str, values: &[exact_plan::Value]) {
+        let mut s = String::new();
+        let _ = write!(s, "{{\"op\":\"surface\",\"id\":{id},\"name\":");
+        quote(name, &mut s);
+        s.push_str(",\"values\":[");
+        for (i, v) in values.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            value_json(v, &mut s);
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
     /// `{"op":"destroy","id":…}`.
     pub fn destroy(&mut self, id: u32) {
         self.ops.push(format!("{{\"op\":\"destroy\",\"id\":{id}}}"));
@@ -180,5 +198,29 @@ impl Batch {
         }
         s.push('}');
         s
+    }
+}
+
+/// A plan value as JSON.
+pub fn value_json(v: &exact_plan::Value, out: &mut String) {
+    use exact_plan::Value;
+    match v {
+        Value::Number(n) if n.is_finite() => {
+            let _ = write!(out, "{n}");
+        }
+        Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Value::Str(s) => quote(s, out),
+        Value::Option(Some(inner)) => value_json(inner, out),
+        Value::List(items) | Value::Record(items) => {
+            out.push('[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                value_json(item, out);
+            }
+            out.push(']');
+        }
     }
 }

@@ -1025,6 +1025,16 @@ fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Result<(), Type
                     infer(p, scope, shapes)?;
                 }
                 for a in attrs {
+                    if a.name == "surface" {
+                        // `surface=name(args)`: the name is the GPU module's,
+                        // not a function; the arguments are expressions.
+                        if let Expr::Call(_, args, _) = &a.value {
+                            for arg in args {
+                                infer(arg, scope, shapes)?;
+                            }
+                        }
+                        continue;
+                    }
                     infer(&a.value, scope, shapes)?;
                 }
                 check_view(children, scope, shapes)?;

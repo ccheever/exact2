@@ -66,6 +66,11 @@ and this one does not. Read them first.
   measurement through a registered callback, `exact-motion` as the executor, typed
   batches; `macos/` is the AppKit presenter (SwiftPM, no SwiftUI) with its smoke and
   screenshot. LLP 1008.
+- `gpu/` — `exact-gpu`, the GPU canvas (LLP 1009): the `Surface` trait an app's
+  GPU crate implements against wgpu, the module that runs surfaces on a device,
+  and its ABI — a C ABI for the `dylib` the macOS presenter `dlopen`s, wasm-bindgen
+  exports for the wasm the page fetches — both loaded on demand after the first
+  pixel. `apps/caltrain/gpu` is the app's module: the line map.
 - `vendor/taffy/` — Taffy 0.9.2 plus two Exact patches (`EXACT-PATCHES.md`).
 - `scripts/` — `caps` and `boot` (two of the five checks), `metrics` (the startup and
   speed numbers in one run, diagnostic), and `issue` (filesystem issues, `docs/issues.md`).

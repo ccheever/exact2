@@ -32,6 +32,12 @@ enum Exact {
     static func boot(width: CGFloat, height: CGFloat) -> Batch {
         read(exact_boot(measureText, nil, Float(width), Float(height)))
     }
+    /// The dev loop's restart: boot from plan bytes, state carried.
+    static func bootPlan(_ bytes: Data, width: CGFloat, height: CGFloat) -> Batch {
+        let ptr = exact_in(bytes.count)!
+        bytes.withUnsafeBytes { ptr.update(from: $0.bindMemory(to: UInt8.self).baseAddress!, count: bytes.count) }
+        return read(exact_boot_plan(bytes.count, measureText, nil, Float(width), Float(height)))
+    }
     static func press(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(view, 0, 0, now)) }
     static func change(_ view: UInt32, _ value: String, now: Double) -> Batch {
         let n = write(value)

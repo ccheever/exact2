@@ -24,6 +24,8 @@ final class NodeView: NSView, NSTextFieldDelegate {
     weak var presenter: Presenter?
     var field: NSTextField?
     var scroll: NSScrollView?
+    /// A canvas node's Metal layer (LLP 1009).
+    var metal: MetalView?
     var pressed = false
 
     init(id: UInt32, kind: String, presenter: Presenter) {
@@ -44,6 +46,11 @@ final class NodeView: NSView, NSTextFieldDelegate {
             sv.autoresizingMask = [.width, .height]
             addSubview(sv)
             scroll = sv
+        }
+        if kind == "canvas" {
+            let m = MetalView(frame: .zero)
+            addSubview(m)
+            metal = m
         }
         if kind == "input" {
             let f = NSTextField(frame: .zero)
@@ -173,6 +180,13 @@ final class Presenter {
         viewport.backgroundColor = .white
     }
 
+    /// A restart: every view goes.
+    func reset() {
+        canvases.reset()
+        root.subviews.forEach { $0.removeFromSuperview() }
+        views.removeAll()
+    }
+
     /// Size the document to its roots, never smaller than the viewport.
     func fitDocument() {
         var size = viewport.contentSize
@@ -216,7 +230,10 @@ final class Presenter {
                         container.addSubview(child, positioned: .above, relativeTo: i > 0 ? want[i - 1] : nil)
                     }
                 }
+            case "surface":
+                if let v = views[id] { canvases.surface(view: v, name: op["name"] as? String ?? "", values: op["values"] as? [Any] ?? []) }
             case "destroy":
+                canvases.destroy(view: id)
                 views[id]?.removeFromSuperview()
                 views.removeValue(forKey: id)
             case "roots":
@@ -227,6 +244,7 @@ final class Presenter {
                 v.frame = NSRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
                 v.scroll?.frame = v.bounds
                 v.field?.frame = v.bounds
+                v.metal?.frame = v.bounds
                 v.applyTransform()
             case "content":
                 views[id]?.scroll?.documentView?.frame = NSRect(x: 0, y: 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)

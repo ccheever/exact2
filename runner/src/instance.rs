@@ -45,6 +45,8 @@ pub struct NodeInst {
     pub view: ViewId,
     /// Last emitted value per binding, in binding order.
     last: Vec<Option<Value>>,
+    /// Last published surface inputs (a canvas node).
+    last_surface: Option<Vec<Value>>,
     /// Ordered children: static nodes and regions interleaved by `order`.
     children: Vec<Child>,
     /// Last emitted child list.
@@ -96,8 +98,21 @@ impl Ids {
     }
 }
 
+/// A canvas node's surface inputs, evaluated against state: the runner's
+/// side-output for the host's GPU module (LLP 1009 D2). Published only
+/// after the commit that produced it applied.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SurfaceUpdate {
+    /// The canvas node's kernel view.
+    pub view: ViewId,
+    /// The surface's name in the app's GPU module.
+    pub name: String,
+    /// Its arguments, evaluated.
+    pub values: Vec<Value>,
+}
+
 /// What one update needs: the environment and the id allocator, plus the op
-/// batch under construction.
+/// batch under construction and the surface inputs that changed.
 pub struct Update<'a> {
     /// The environment every expression sees.
     pub env: Env<'a>,
@@ -105,6 +120,8 @@ pub struct Update<'a> {
     pub ids: &'a mut Ids,
     /// Ops accumulated for one atomic `Kernel::apply`.
     pub ops: Vec<Op>,
+    /// Surface inputs that changed, in tree order.
+    pub surfaces: Vec<SurfaceUpdate>,
 }
 
 impl<'a> Update<'a> {
@@ -218,6 +235,7 @@ impl NodeInst {
             node,
             view,
             last: vec![None; row.bindings.len as usize],
+            last_surface: None,
             children: Vec::new(),
             last_children: Vec::new(),
         };
@@ -259,6 +277,23 @@ impl NodeInst {
                 id: self.view,
                 patch: Box::new(p),
             });
+        }
+        // A canvas's surface inputs: evaluated with the bindings (so a trap
+        // refuses the commit whole), published only with a successful apply.
+        if let Some(surface) = row.surface {
+            let s = plan.surface(surface);
+            let mut values = Vec::with_capacity(s.args.len as usize);
+            for a in s.args.iter() {
+                values.push(u.eval(plan.arg(a).expr, frames)?);
+            }
+            if self.last_surface.as_ref() != Some(&values) {
+                u.surfaces.push(SurfaceUpdate {
+                    view: self.view,
+                    name: plan.str(s.name).to_string(),
+                    values: values.clone(),
+                });
+                self.last_surface = Some(values);
+            }
         }
         Ok(())
     }

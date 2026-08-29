@@ -63,13 +63,18 @@
     { "name": "arms", "fields": [
       { "name": "region", "codec": "idx:regions" }
     ]},
+    { "name": "surfaces", "fields": [
+      { "name": "name", "codec": "str" },
+      { "name": "args", "codec": "range:args" }
+    ]},
     { "name": "nodes", "fields": [
       { "name": "node_type", "codec": "u8" },
       { "name": "parent", "codec": "opt:nodes" },
       { "name": "arm", "codec": "opt:arms" },
       { "name": "order", "codec": "u32" },
       { "name": "bindings", "codec": "range:bindings" },
-      { "name": "handlers", "codec": "range:handlers" }
+      { "name": "handlers", "codec": "range:handlers" },
+      { "name": "surface", "codec": "opt:surfaces" }
     ]},
     { "name": "bindings", "fields": [
       { "name": "kind", "codec": "enum:BindingKind" },

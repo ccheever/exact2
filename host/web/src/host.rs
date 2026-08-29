@@ -102,6 +102,10 @@ impl<D: DataSource> Host<D> {
         host.springs.adopt(host.runner.kernel(), &order);
         host.roots = roots.clone();
         batch.roots(&roots);
+        // Surfaces after roots: the canvas is in the page when its surface is made.
+        for s in host.runner.take_surface_updates() {
+            batch.surface(s.view, &s.name, &s.values);
+        }
         let timers = host.runner.has_timers();
         Ok((host, batch.finish(timers, None)))
     }
@@ -177,6 +181,11 @@ impl<D: DataSource> Host<D> {
         if roots != self.roots {
             self.roots = roots.clone();
             batch.roots(&roots);
+        }
+        // A canvas's inputs (LLP 1009 D2): the runner's side-output, only
+        // from commits that applied.
+        for s in self.runner.take_surface_updates() {
+            batch.surface(s.view, &s.name, &s.values);
         }
         // Springs last: the style (the target) is in the page before the
         // frames that approach it start playing.
@@ -302,6 +311,7 @@ fn tag_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::TextInput => "input",
         NodeType::Pressable => "button",
         NodeType::Toggle => "input",
+        NodeType::Canvas => "canvas",
     }
 }
 

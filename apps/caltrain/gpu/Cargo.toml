@@ -1,0 +1,28 @@
+# The Caltrain app's GPU module: its surfaces and exact-gpu in one artifact
+# the presenter loads on demand — a dylib natively, a wasm (with
+# wasm-bindgen glue) on the web. Never linked into the app's host library.
+#
+# @ref LLP 1009 D2
+[package]
+name = "caltrain-gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Caltrain's GPU module: the line-map surface"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "caltrain_gpu"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-gpu = { path = "../../../gpu" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+
+[build-dependencies]
+naga = { version = "30", features = ["wgsl-in"] }

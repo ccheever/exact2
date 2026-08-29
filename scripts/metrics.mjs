@@ -53,6 +53,12 @@ step('wasm', () => {
   out.wasm_gzip_bytes = gzipSync(wasm, { level: 9 }).length;
   const glue = readFileSync(resolve(dist, 'glue.js'));
   out.glue_bytes = glue.length;
+  if (existsSync(resolve(dist, 'gpu_bg.wasm'))) {
+    const g = readFileSync(resolve(dist, 'gpu_bg.wasm'));
+    out.gpu_wasm_bytes = g.length;
+    out.gpu_wasm_gzip_bytes = gzipSync(g, { level: 9 }).length;
+    out.gpu_glue_bytes = readFileSync(resolve(dist, 'gpu.js')).length;
+  }
 });
 
 // 3. Boot modules (the fifth check's count).
@@ -174,6 +180,7 @@ const macParse = (o) => {
   const p = /runner\+layout ([\d.]+) ms of which (\d+) text measurements \((\d+) cached\) ([\d.]+) ms in CoreText; apply ([\d.]+) ms/.exec(o);
   if (p) { out.macos_runner_ms = Number(p[1]); out.macos_measurements = Number(p[2]); out.macos_measure_hits = Number(p[3]); out.macos_measure_ms = Number(p[4]); out.macos_apply_ms = Number(p[5]); }
   out.macos_paint_ms = Number(/^painted ([\d.]+) ms/m.exec(o)?.[1] ?? NaN);
+  out.macos_gpu_ms = Number(/^gpu: module loaded in ([\d.]+) ms/m.exec(o)?.[1] ?? NaN);
   out.macos_views = Number(/; (\d+) views/.exec(o)?.[1] ?? NaN);
   const stampOf = (line, label) => Number(new RegExp(`${label.replace(/[.()]/g, '\\$&')} ([\\d.]+)`).exec(line)?.[1] ?? NaN);
   const st = /^stamps: (.*)$/m.exec(o)?.[1] ?? '';
@@ -242,6 +249,7 @@ const rows = [
   ['web host first batch', ms(out.web_boot_ms), `${kib(out.web_first_batch_bytes)} JSON`],
   ['web host update batch', ms(out.web_update_ms), `${kib(out.web_update_batch_bytes)} JSON`],
   ['wasm (web profile + wasm-opt)', kib(out.wasm_bytes), `${kib(out.wasm_gzip_bytes)} gzip; glue ${kib(out.glue_bytes)}`],
+  ['GPU module (web, on demand)', Number.isFinite(out.gpu_wasm_bytes) ? kib(out.gpu_wasm_bytes) : 'n/a', Number.isFinite(out.gpu_wasm_bytes) ? `${kib(out.gpu_wasm_gzip_bytes)} gzip; glue ${kib(out.gpu_glue_bytes)}; after first paint` : ''],
   ['browser: script → DOM', ms(out.browser_dom_ms), `budget ${budget('Cold start')}`],
   ['browser: → painted', ms(out.browser_paint_ms), Number.isFinite(out.browser_paint_ms) ? '' : 'headless has no compositor frame'],
   ['boot modules before first pixel', `${out.boot_modules}`, `budget: ${budget('App JS executed')} app JS; ${out.boot_ok ? 'ok' : 'VIOLATION'}`],
@@ -256,6 +264,7 @@ if (Number.isFinite(out.macos_paint_ms)) rows.push(
   ['  AppKit: NSWindow', ms(out.macos_window_ms), `floor ${ms(out.floor_window_ms)} (NSThemeFrame, a dlopen)`],
   ['  AppKit: run → didFinishLaunching', ms(out.macos_finish_launching_ms - out.macos_first_frame_ms), `floor ${ms(out.floor_finish_launching_ms)} (Dock registration ≈ 65 ms of it)`],
   ['  main → first paint', ms(out.macos_paint_ms), `floor ${ms(out.floor_draw_ms)}: an empty window on this machine`],
+  ['  GPU module (dlopen + device)', ms(out.macos_gpu_ms), 'after first paint, first canvas'],
 );
 if (rebuild) rows.push(['edit → wasm rebuilt (no driver)', ms(out.rebuild_ms), 'the cold path: cargo build of the app crate']);
 if (long) {

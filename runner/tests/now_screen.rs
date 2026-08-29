@@ -211,6 +211,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
         0,
         &[style("flex_direction", column), prop("testId", main_id)],
         &[],
+        None,
     );
     let trains = b.str(" trains");
     let mut count_text = Asm::new();
@@ -235,6 +236,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
             style("font_weight", w700),
         ],
         &[],
+        None,
     );
 
     // when query == "" ... else ...
@@ -287,6 +289,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
         0,
         &[prop("accessibilityLabel", label), prop("testId", tid)],
         &[(EventKind::Press, select_station, &[press_arg])],
+        None,
     );
     let mut countdown = Asm::new();
     countdown
@@ -302,6 +305,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
         0,
         &[prop("text", countdown)],
         &[],
+        None,
     );
     // else-arm
     let searching = b.constant(&Value::str("searching"));
@@ -312,6 +316,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
         0,
         &[prop("text", searching), prop("testId", searching)],
         &[],
+        None,
     );
 
     // input
@@ -326,6 +331,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
         2,
         &[prop("value", value), prop("testId", search_tid)],
         &[(EventKind::Change, set_query, &[])],
+        None,
     );
 
     // match stationId
@@ -345,6 +351,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
         0,
         &[prop("text", at_text), prop("testId", selected_tid)],
         &[],
+        None,
     );
     let nearest = b.constant(&Value::str("nearest"));
     b.node(
@@ -354,6 +361,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
         0,
         &[prop("text", nearest), prop("testId", nearest)],
         &[],
+        None,
     );
 
     (

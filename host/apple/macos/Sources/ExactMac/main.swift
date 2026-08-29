@@ -19,7 +19,7 @@ let mainAt = Date().timeIntervalSince1970
 let execToMainMs = processStart().map { (mainAt - $0) * 1000 }
 
 let smoke = ProcessInfo.processInfo.environment["EXACT_SMOKE"] == "1"
-if smoke { setvbuf(stdout, nil, _IOLBF, 0) }
+setvbuf(stdout, nil, _IOLBF, 0)
 let t0 = CACurrentMediaTime()
 func now() -> Double { (CACurrentMediaTime() - t0) * 1000 }
 /// Startup stamps, milliseconds from `main`, in order.
@@ -32,13 +32,20 @@ stamp("setActivationPolicy")
 let appReadyMs = now()
 
 let presenter = Presenter()
+let canvases = Canvases()
 stamp("Presenter (NSScrollView)")
 var clockTimer: Timer?
 
-/// Motion frames come from the display link, and only while motion runs.
+/// Frames come from the display link, only while motion runs or a canvas
+/// has something to render (LLP 1009 D4).
 final class Frames: NSObject {
     var link: CADisplayLink?
-    @objc func tick(_ link: CADisplayLink) { apply(Exact.tick(now: now())) }
+    var motion = false
+    @objc func tick(_ link: CADisplayLink) {
+        if motion { apply(Exact.tick(now: now())) }
+        let more = canvases.tick(now: now())
+        run(motion || more || canvases.wantsFrames)
+    }
     func run(_ on: Bool) {
         if on, link == nil {
             let l = presenter.viewport.displayLink(target: self, selector: #selector(tick(_:)))
@@ -54,7 +61,10 @@ let frames = Frames()
 
 func apply(_ batch: Batch) {
     presenter.apply(batch)
-    frames.run(batch.motion)
+    frames.motion = batch.motion
+    // The GPU module: after the first painted frame, only when a canvas exists.
+    if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) } }
+    frames.run(batch.motion || canvases.wantsFrames)
     if batch.timers, clockTimer == nil {
         clockTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in apply(Exact.advance(now: now())) }
     }
@@ -86,6 +96,28 @@ window.delegate = delegate
 
 stamp("before boot")
 let tBoot = CACurrentMediaTime()
+// The dev loop (LLP 1007 §6, here): EXACT_DEV_PLAN names the plan the
+// resident compiler writes; when it changes, restart from it, state carried.
+var planWatch: DispatchSourceTimer?
+if let planPath = ProcessInfo.processInfo.environment["EXACT_DEV_PLAN"] {
+    var last = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date) ?? .distantPast
+    let t = DispatchSource.makeTimerSource(queue: .main)
+    t.schedule(deadline: .now() + 0.1, repeating: 0.1)
+    t.setEventHandler {
+        guard let m = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date), m > last else { return }
+        last = m
+        guard let bytes = FileManager.default.contents(atPath: planPath) else { return }
+        let started = CACurrentMediaTime()
+        presenter.reset()
+        let size = presenter.viewport.contentSize
+        let batch = Exact.bootPlan(bytes, width: size.width, height: size.height)
+        apply(batch)
+        print("reloaded \(planPath.split(separator: "/").last ?? "plan") in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+    }
+    t.resume()
+    planWatch = t
+}
+
 let boot = Exact.boot(width: presenter.viewport.contentSize.width, height: presenter.viewport.contentSize.height)
 let rustMs = (CACurrentMediaTime() - tBoot) * 1000
 stamp("runner + layout")
@@ -110,6 +142,7 @@ if smoke {
         print("stamps: " + stamps.map { "\($0.0) \(String(format: "%.1f", $0.1))" }.joined(separator: " · ") + " · first layout \(firstLayoutMs.map { String(format: "%.1f", $0) } ?? "?") · first draw \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?")")
         let texts = presenter.views.values.filter { $0.kind == "text" }.compactMap { $0.props["text"] }
         let station = presenter.views.values.first { $0.props["testId"] == "station-name" }
+        print("gpu: \(canvases.module != nil ? "module loaded in \(String(format: "%.1f", canvases.loadedMs ?? 0)) ms; \(canvases.entries.count) canvases; \(canvases.rendered) renders" : "not loaded: \(canvases.failed ?? (canvases.entries.isEmpty ? "no canvas" : "not requested"))")")
         print("station \(station?.props["text"] ?? "?") frame \(station.map { "\(Int($0.frame.origin.x)),\(Int($0.frame.origin.y)) \(Int($0.frame.width))x\(Int($0.frame.height))" } ?? "?"); \(texts.count) texts")
         if let path = ProcessInfo.processInfo.environment["EXACT_SHOT"] {
             let v = presenter.viewport
@@ -118,6 +151,16 @@ if smoke {
                 try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
                 print("shot \(path)")
             }
+        }
+        if let path = ProcessInfo.processInfo.environment["EXACT_SHOT_WINDOW"] {
+            // The window server's picture of this window — Metal layers included,
+            // which cacheDisplay cannot see. Needs screen-capture permission.
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            p.arguments = ["-x", "-o", "-l", String(window.windowNumber), path]
+            try? p.run()
+            p.waitUntilExit()
+            print("window shot \(path) (\(p.terminationStatus == 0 ? "ok" : "failed"))")
         }
         print("smoke ok")
         exit(0)

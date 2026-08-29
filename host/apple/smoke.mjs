@@ -19,5 +19,7 @@ if (!/error none/.test(out)) failures.push('the first batch reported an error');
 for (const id of ['caltrain-main', 'station-name', 'board-north', 'board-south', 'change-station']) if (!out.includes(id)) failures.push(`missing testId ${id}`);
 if (!/station Mountain View/.test(out)) failures.push('station name not presented');
 if (!/smoke ok/.test(out)) failures.push(`the app did not finish (exit ${r.status}, signal ${r.signal})`);
+if (/gpu: not loaded: (?!no canvas)/.test(out)) failures.push('a canvas is on screen but the GPU module did not load');
+if (/gpu: module loaded/.test(out) && !/[1-9]\d* renders/.test(out)) failures.push('the GPU module loaded but rendered nothing');
 if (failures.length) { for (const f of failures) console.error('  ' + f); process.exit(1); }
 console.log('macos smoke: ok');

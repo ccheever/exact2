@@ -111,7 +111,21 @@ impl<D: DataSource> Bridge<D> {
         height: f32,
     ) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
-        self.boot(&plan, data, measure, ctx, width, height)
+        let carried = self.host.take().map(|h| h.carry());
+        let measurer: Box<dyn TextMeasurer> = match measure {
+            Some(f) => Box::new(CallbackMeasurer::new(f, ctx)),
+            None => Box::new(MonospaceMeasurer::default()),
+        };
+        match Host::boot_with(&plan, data, measurer, width, height, carried.as_ref()) {
+            Ok((host, batch)) => {
+                self.host = Some(host);
+                self.emit(batch)
+            }
+            Err(e) => self.emit(format!(
+                "{{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"boot: {}\"}}",
+                escape(&format!("{e:?}"))
+            )),
+        }
     }
 
     /// Dispatch an event at `now_ms`; `kind` is 0 = press, 1 = change

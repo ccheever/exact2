@@ -8,7 +8,7 @@
 //! the host lays out and paints. Every write is validated by the kernel before
 //! anything changes; a trap or refusal leaves the kernel exactly as it was.
 
-use crate::instance::{Ids, InstanceError, Tree, Update};
+use crate::instance::{Ids, InstanceError, SurfaceUpdate, Tree, Update};
 use crate::vm::{self, Env, Frame, Trap};
 use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
 use exact_plan::{ActionsId, Code, EventKind, Plan, PlanError, Value};
@@ -161,6 +161,7 @@ pub struct Runner<D: DataSource> {
     timers: Vec<Timer>,
     batch: u64,
     commands: Vec<Command>,
+    surfaces: Vec<SurfaceUpdate>,
     poisoned: bool,
 }
 
@@ -263,6 +264,7 @@ impl<D: DataSource> Runner<D> {
             timers: Vec::new(),
             batch: 0,
             commands: Vec::new(),
+            surfaces: Vec::new(),
             poisoned: false,
         };
         // Slots: carried values where the name and type still fit, else
@@ -316,18 +318,20 @@ impl<D: DataSource> Runner<D> {
             .collect();
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
-        let (tree, ops) = {
+        let (tree, ops, surfaces) = {
             let mut u = Update {
                 env: runner.env(&[], &[]),
                 ids: &mut ids,
                 ops: Vec::new(),
+                surfaces: Vec::new(),
             };
             let tree = Tree::create(&mut u)?;
-            (tree, u.ops)
+            (tree, u.ops, u.surfaces)
         };
         runner.ids = ids;
         runner.tree = Some(tree);
         runner.apply(ops)?;
+        runner.surfaces = surfaces;
         Ok(runner)
     }
 
@@ -407,6 +411,14 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Commands produced since the last take.
+    /// Surface inputs that changed since the last take — a canvas node's
+    /// arguments, evaluated — published only from commits that applied
+    /// (LLP 1009 D2). The host hands them to the app's GPU module.
+    pub fn take_surface_updates(&mut self) -> Vec<SurfaceUpdate> {
+        std::mem::take(&mut self.surfaces)
+    }
+
+    /// The commands actions emitted since the last take.
     pub fn take_commands(&mut self) -> Vec<Command> {
         std::mem::take(&mut self.commands)
     }
@@ -563,13 +575,14 @@ impl<D: DataSource> Runner<D> {
                 env: self.env(&[], &[]),
                 ids: &mut ids,
                 ops: Vec::new(),
+                surfaces: Vec::new(),
             };
-            tree.update(&mut u).map(|_| u.ops)
+            tree.update(&mut u).map(|_| (u.ops, u.surfaces))
         };
         self.ids = ids;
         self.tree = Some(tree);
-        let ops = match result {
-            Ok(ops) => ops,
+        let (ops, surfaces) = match result {
+            Ok(x) => x,
             Err(e) => {
                 self.poisoned = true;
                 self.commands.clear();
@@ -577,7 +590,10 @@ impl<D: DataSource> Runner<D> {
             }
         };
         match self.apply(ops) {
-            Ok(receipt) => Ok(receipt),
+            Ok(receipt) => {
+                self.surfaces.extend(surfaces);
+                Ok(receipt)
+            }
             Err(e) => {
                 self.poisoned = true;
                 self.commands.clear();

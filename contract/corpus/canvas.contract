@@ -1,0 +1,13 @@
+// Accept fixture: a `canvas` bound to a surface in the app's GPU module
+// (LLP 1009 D3). The surface's arguments are state; the runner publishes
+// them, evaluated, whenever they change.
+component Map
+  state zoom = 1
+  action zoomIn writes zoom
+    zoom = zoom + 1
+  view
+    column testId="root"
+      button press=zoomIn label="Zoom" testId="zoom"
+        text "Zoom"
+      canvas surface=map(zoom, "caltrain") width="100%" height=240 testId="map"
+      canvas testId="bare"

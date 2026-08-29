@@ -98,7 +98,15 @@ function apply(batch) {
         anim.finished.then(() => { if (animations.get(key) === anim) animations.delete(key); }, () => {});
         break;
       }
-      case "destroy": { const el = views.get(op.id); if (el) el.remove(); views.delete(op.id); break; }
+      case "surface": {
+        // A canvas's inputs (LLP 1009 D2): to the GPU module when it is
+        // loaded, queued until then. The module itself is fetched only
+        // after the first painted frame, and only when a canvas exists.
+        if (globalThis.exact.gpu) globalThis.exact.gpu.surface(op.id, op.name, op.values);
+        else (globalThis.exact.pendingSurfaces ??= []).push({ id: op.id, name: op.name, values: op.values });
+        break;
+      }
+      case "destroy": { const el = views.get(op.id); if (el) el.remove(); views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
       case "roots": {
         root.replaceChildren(...op.ids.map((i) => views.get(i)).filter(Boolean));
         break;
@@ -123,6 +131,7 @@ function boot(bytes) {
   ticker = null;
   for (const a of animations.values()) a.cancel();
   animations.clear();
+  globalThis.exact?.gpu?.reset();
   views.clear();
   root.replaceChildren();
   let timers;
@@ -134,10 +143,24 @@ function boot(bytes) {
     timers = send(wasm.exact_boot());
   }
   if (timers) ticker = setInterval(() => send(wasm.exact_advance(now())), 250);
+  if (bytes) requestAnimationFrame(loadGpuIfNeeded);
   return performance.now() - t;
 }
 
-globalThis.exact = { reload: (bytes) => (wasm ? boot(bytes) : NaN) };
+globalThis.exact = { reload: (bytes) => (wasm ? boot(bytes) : NaN), views, root, pendingSurfaces: [] };
+
+// The GPU module, on demand: a script element after the first painted
+// frame — never an import, which the boot check counts — and only when a
+// canvas is on the page.
+let gpuRequested = false;
+function loadGpuIfNeeded() {
+  if (gpuRequested || !(globalThis.exact.pendingSurfaces ?? []).length) return;
+  gpuRequested = true;
+  const s = document.createElement("script");
+  s.type = "module";
+  s.src = new URL("./gpu-glue.js", import.meta.url).href;
+  document.head.append(s);
+}
 
 async function main() {
   const url = new URL("./app.wasm", import.meta.url);
@@ -150,6 +173,7 @@ async function main() {
   root.dataset.bootMs = (performance.now() - t0).toFixed(1);
   requestAnimationFrame(() => {
     root.dataset.paintMs = (performance.now() - t0).toFixed(1);
+    loadGpuIfNeeded();
   });
 }
 

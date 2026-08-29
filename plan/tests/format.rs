@@ -41,7 +41,7 @@ fn sample() -> Plan {
     let mut text = Asm::new();
     text.load_derive(doubled).call(Stdlib::ToString);
     let text = b.code(text);
-    let root = b.node(0, None, None, 0, &[], &[]);
+    let root = b.node(0, None, None, 0, &[], &[], None);
     let _label = b.node(
         1,
         Some(root),
@@ -53,13 +53,14 @@ fn sample() -> Plan {
             expr: text,
         }],
         &[(EventKind::Press, tick, &[])],
+        None,
     );
     let mut cond = Asm::new();
     cond.load_slot(count).number(3.0).simple(Opcode::Gt);
     let cond = b.code(cond);
     let unit = b.constant(&Value::Unit);
     let (_region, arms) = b.region(RegionKind::When, Some(root), None, 1, cond, unit, 2);
-    b.node(1, None, Some(arms[0]), 0, &[], &[]);
+    b.node(1, None, Some(arms[0]), 0, &[], &[], None);
     b.finish().unwrap()
 }
 

@@ -328,8 +328,14 @@ impl<'a> Lowerer<'a> {
                 };
                 let mut bindings: Vec<BindingsRow> = Vec::new();
                 let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
+                let mut surface: Option<exact_plan::SurfacesId> = None;
                 for (style, value) in &t.fixed_styles {
-                    let code = self.b.constant(&Value::str(value));
+                    // A fixed row is an enum's name or a number in points.
+                    let v = match value.parse::<f64>() {
+                        Ok(n) => Value::Number(n),
+                        Err(_) => Value::str(value),
+                    };
+                    let code = self.b.constant(&v);
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
                         id: *style as u16,
@@ -367,7 +373,15 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 for a in attrs {
-                    self.attr(tag, a, scope, locals, &mut bindings, &mut handlers)?;
+                    self.attr(
+                        tag,
+                        a,
+                        scope,
+                        locals,
+                        &mut bindings,
+                        &mut handlers,
+                        &mut surface,
+                    )?;
                 }
                 let handler_refs: Vec<(EventKind, exact_plan::ActionsId, &[Code])> = handlers
                     .iter()
@@ -397,6 +411,7 @@ impl<'a> Lowerer<'a> {
                     order,
                     &bindings,
                     &handler_refs,
+                    surface,
                 );
                 self.nodes(children, Some(id), arm, scope, locals)
             }
@@ -466,6 +481,7 @@ impl<'a> Lowerer<'a> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn attr(
         &mut self,
         tag: &str,
@@ -474,6 +490,7 @@ impl<'a> Lowerer<'a> {
         locals: u16,
         bindings: &mut Vec<BindingsRow>,
         handlers: &mut Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)>,
+        surface: &mut Option<exact_plan::SurfacesId>,
     ) -> Result<(), LowerError> {
         let Some(target) = tags::attr(&a.name) else {
             return err(
@@ -517,6 +534,31 @@ impl<'a> Lowerer<'a> {
                     id: prop as u16,
                     expr: code,
                 });
+            }
+            tags::AttrTarget::Surface => {
+                if tag != "canvas" {
+                    return err(
+                        "lower-surface-tag",
+                        format!("`surface` belongs to `canvas`, not `{tag}`"),
+                        a.span,
+                    );
+                }
+                let (name, args): (&str, &[Expr]) = match &a.value {
+                    Expr::Ident(n, _) => (n, &[]),
+                    Expr::Call(n, args, _) => (n, args),
+                    _ => {
+                        return err(
+                            "lower-surface",
+                            "a surface is a name or `name(args)`",
+                            a.span,
+                        )
+                    }
+                };
+                let mut codes = Vec::new();
+                for arg in args {
+                    codes.push(self.expr_code(arg, scope, locals)?);
+                }
+                *surface = Some(self.b.surface(name, &codes));
             }
             tags::AttrTarget::Handler(event) => {
                 let (name, args): (&str, &[Expr]) = match &a.value {

@@ -1,0 +1,28 @@
+# The GPU module's crate: the Surface trait an app implements, the module
+# that hosts its surfaces on a wgpu device, and the ABI a presenter loads on
+# demand — a C ABI natively, wasm-bindgen exports on the web.
+#
+# @ref LLP 1009 D1/D2
+[package]
+name = "exact-gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GPU canvas: the Surface trait, the on-demand module, wgpu on every host"
+publish = false
+
+[lib]
+name = "exact_gpu"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../plan" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["wgsl", "metal", "vulkan"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["wgsl", "webgpu"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }

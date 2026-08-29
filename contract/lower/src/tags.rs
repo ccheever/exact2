@@ -22,6 +22,8 @@ pub enum AttrTarget {
     Handler(&'static str),
     /// CSS `flex: <n>` — grow, shrink, and basis together.
     Flex,
+    /// A canvas's surface binding: `surface=name(args)` (LLP 1009 D3).
+    Surface,
 }
 
 /// A tag's node type, its fixed rows, and how positional arguments land.
@@ -97,6 +99,13 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: vec![],
             positional: None,
         },
+        // A bare <canvas> is 300×150 on the web; so is a bare `canvas` here.
+        "canvas" => Tag {
+            node_type: NodeType::Canvas,
+            fixed_styles: vec![(s("width"), "300"), (s("height"), "150")],
+            fixed_props: vec![],
+            positional: None,
+        },
         "image" => Tag {
             node_type: NodeType::Image,
             fixed_styles: vec![],
@@ -120,6 +129,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // handlers
         "press" => AttrTarget::Handler("press"),
         "change" => AttrTarget::Handler("change"),
+        // the canvas's surface (LLP 1009 D3)
+        "surface" => AttrTarget::Surface,
         // props (HTML attribute names)
         "testId" => AttrTarget::Prop(p("testId")),
         "label" => AttrTarget::Prop(p("accessibilityLabel")),

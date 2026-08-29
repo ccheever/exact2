@@ -32,5 +32,6 @@ pub mod stdlib;
 pub mod vm;
 
 pub use exact_plan::Value;
+pub use instance::SurfaceUpdate;
 pub use runner::{Carried, Command, DataError, DataSource, Event, Runner, RunnerError};
 pub use vm::Trap;

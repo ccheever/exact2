@@ -1,0 +1,213 @@
+# LLP 1009: The GPU canvas
+
+**Type:** RFC
+**Status:** Review (super-refine loop 2026-08-29: two rounds on r2, both families NOT READY on in-delta findings only — dispositions in `llp/reviews/1009-gpu-canvas.{codex,grok}.md`; r4 is Charlie's requested simplification; round 3 reviewed r4 at his request — both families NOT READY, neither on architecture (codex: "the core direction … is feasible"); r5 folds round 3 and is unreviewed. `rules/NOT-DOING.md` §Process forbids refine loops; this one ran on his in-session instruction, and the trades it owes are in §5.)
+**Systems:** Kernel (node type), Contract (tag), Plan (surface row), Runner (surface arguments), GPU module (new), Apple host, Web host
+**Author:** Claude (Fable 5) for Charlie Cheever
+**Date:** 2026-08-29
+**Revised:** 2026-08-29 (r5 — round-3 fold, unreviewed: GPU code lives in the app's GPU crate, never the host-linked data crate; `bind` returns a result and surfaces register an arity; surface arguments are evaluated with the node's bindings before apply and published as a runner side-output only after a successful commit; a bare `canvas` is 300×150 by tag default — the web's size, no deviation; fixtures read back from a module-owned copyable texture; D5 narrowed to the build-declared shader set; the minimal presentation-value extension point decided; the loader is a post-paint injected script element; §5 proposes one concrete take.) 2026-08-29 (r4 — cut to the five decisions that matter, at Charlie's request: wgpu is the one API on every host; the module is on demand; shaders are validated at build and compiled at first use, off the boot path; extensible properties are a later RFC. r3 carried an exact-owned handle, a profile table, a shader catalogue, and declared properties — machinery that answered review findings by adding rather than removing; superseded by this text.) r3, r2, r1: see the review artifacts.
+**Related:** `rules/NOT-DOING.md` §Runtime (the "door stays open" clause; this RFC walks through it) and §Components (`canvas`; §5 records the trade), LLP 1000 (the map), LLP 1001 (`NativeView`; layout is a host call), LLP 1002 (one representation, two executors; the browser as oracle), LLP 1004 D4 (app computation is a Rust data crate), LLP 1007/1008 (the hosts), LLP 1008 §6 (startup: nothing GPU joins the boot path)
+
+## Summary
+
+An app draws with the GPU through a **`canvas`** node: a leaf with a
+kernel-owned box, whose content the app renders in **Rust against wgpu** —
+the same code on macOS, Linux, and the web. That code lives in a
+**separate module per app**, loaded the first time a canvas is on screen
+and after the first pixel, so an app without a canvas carries nothing and
+an app with one boots exactly as fast. The host owns the frame. The
+browser is the oracle: a readback fixture holds native to Chrome. That is
+the whole design; everything else is the spec's.
+
+## 1. Decisions
+
+**D1 — wgpu is the one GPU API, on every host.** App rendering code is
+Rust in the app's **GPU crate** — a sibling of its data crate (LLP 1004
+D4), and the only crate that depends on wgpu; the host-linked data crate
+never does — written against wgpu's own types: on Apple and Linux wgpu runs on Metal and Vulkan; on the web wgpu
+runs on the browser's WebGPU through its WebGPU backend. WebGPU's model
+is therefore the representation and the browser is one of its two
+executors, LLP 1002's shape — and we own no API of our own. The parity
+instrument is a **readback**: the same Rust rendering the same frame on
+each host, compared to Chrome within a per-fixture band (bit-exact for
+opaque geometry; a declared band where blending or precision differ).
+Not chosen: an exact-owned WebGPU-shaped handle with two implementations
+(r2/r3). It avoided wasm-bindgen in the web host, but the module loads
+after first pixel, where the boot rule does not reach, and it would have
+been a second WebGPU surface to keep in step with the first.
+
+**D2 — The GPU is a separate module per app, loaded on demand.**
+`<app>-gpu` is a second artifact: wgpu plus the app's surfaces behind a
+small C ABI (`gpu_load`, `gpu_create`, `gpu_bind`, `gpu_render`,
+`gpu_destroy`, `gpu_readback`) — a `dylib` in the bundle on Apple, loaded
+with `dlopen`; on the web a second wasm with its generated glue, fetched
+when needed. The core hosts stay as they are (`#![deny(unsafe_code)]`,
+no wasm-bindgen); the module holds the two audited `unsafe` boundaries
+(the Metal layer handoff, `dlopen`). The app implements one trait:
+
+```rust
+pub trait Surface {
+    /// The canvas's inputs from the plan, as typed values; before the
+    /// first render and whenever they change. A refusal names the input.
+    fn bind(&mut self, inputs: &[Value]) -> Result<(), SurfaceError>;
+    /// One frame into `target`. Returns whether another is wanted. The
+    /// clock in `frame` is the host's presentable clock — deterministic
+    /// under the agent's `clock`; a surface that samples wall time is not.
+    fn render(&mut self, frame: &Frame, device: &wgpu::Device, queue: &wgpu::Queue, target: &wgpu::TextureView) -> bool;
+}
+```
+
+and registers each surface in the module by **name and arity**; the
+compiler checks a `canvas`'s argument count against a roster the GPU
+crate's build emits (types are checked at `bind`, as a resource's are at
+its shape). wgpu objects never cross the module's ABI: it carries encoded
+values, fixed-width handles, and the target pointer. **The runner's
+half:** a canvas's arguments are evaluated with the node's other bindings
+— per realized node, before the kernel applies the commit, so a trap
+refuses the commit whole as any binding's does — and published as a
+**runner side-output** after a successful apply (and at boot), never as a
+kernel op; a refused commit publishes nothing. The host puts them on its
+batch as a `surface` op (node, name, values); the presenter hands them to
+the module, queuing them until it is loaded. Instances are per canvas
+node, created when the module is up, dropped with the node, re-created
+on a plan reload. Failures are reported per canvas, never as a boot
+refusal — a name the module lacks, a `bind` refusal, a module that fails
+to load, an adapter or device that cannot be created; the box keeps
+painting its background. Device loss (the platform's) drops every
+instance's device-owned state: the module re-creates the device and
+re-creates every instance, whose next `bind` and `render` rebuild what
+they own.
+
+**D3 — `Canvas` is a leaf node with a kernel-owned box.** `schema.json`
+gains node type `Canvas`, sized by its style rows exactly as `NativeView`
+is: never measured, content never influencing layout. A bare `<canvas>`
+is 300×150 on the web, so the `canvas` tag's defaults are `width=300
+height=150` — the web's size, by the tag table, no deviation. Contract
+gains `canvas surface=map(location, trains) width="100%" height=240`; the compiler lowers `surface=` to a `surfaces` row — the
+name and the argument expressions — that is not a resource: not settled,
+not baked, no boot value. The drawable's pixel size is the host's (the
+layer's scale on Apple; the element's content box and `devicePixelRatio`
+on the web) and travels in `Frame`.
+
+**D4 — The host owns the frame, visibility, and the target; the device
+comes after first pixel.** A canvas renders when the host judges it on
+screen and it has something to render — new inputs, a wanted frame, a
+new size, or the device just became ready — from the host's existing
+frame source (the display link on Apple, `requestAnimationFrame` on the
+web) under a third batch signal, `canvas`, beside `timers` and `motion`;
+nothing runs per frame otherwise. The presenter registers the platform
+target (a `CAMetalLayer`, a `<canvas>` element) with the module and
+unregisters it on destroy. The first canvas on screen starts the module
+load and device creation **after** the frame that painted its box — on
+the web the glue injects the module's `<script>` element from the
+animation frame after the paint stamp (never an `import`, which the
+`boot` check counts), and the smoke asserts the element is absent before
+that stamp; the time from then to the first rendered frame is a reported
+startup phase. The claim is exact: no GPU fetch, initialization, device,
+or shader work is on the pre-pixel path. The device outlives plan
+reloads; surfaces do not. Readback is asynchronous, for fixtures, not
+the agent's screenshot: a fixture renders into a **module-owned texture**
+with `COPY_SRC` (a presented surface texture need not be copyable) and
+reads that back.
+
+**D5 — Shaders are validated at build and compiled at first use, off the
+boot path.** The WGSL files under the GPU crate's `shaders/` directory
+are checked by naga in its `build.rs`; a bad one fails the build with its
+line and column. That is the build-declared set; a surface holds a raw
+`wgpu::Device` and may also compile a string at runtime, which the build
+cannot see and does not claim to — wgpu validates it then, and it fails
+that surface, not the app. At runtime wgpu compiles it on first use — which by D4 is after
+the first pixel, so the measured 115 ms cold cost (§3) lands on a canvas's
+first frame and never on boot. `rules/NOT-DOING.md` says the built door
+"compiles no shaders at runtime"; this decision does not meet that
+wording and asks for it to be amended (§5) rather than met with a
+precompilation pipeline whose feasibility with bind groups is unproven.
+Precompilation is a later, measured trade.
+
+**The extension point for animatable properties** (the NOT-DOING clause
+"animatable properties are extensible"): committed state is not
+presentation state (LLP 1002), so "a property is more state" would not
+deliver a display-rate value to a surface. The minimal extension point
+is decided here and built when a surface needs it: `exact_motion::Property`
+gains `Custom(u16)`, the plan declares custom properties in a table, the
+engine transitions them as it does `opacity`, and their presentation
+values reach `bind` as trailing inputs each frame they change — on every
+host through `exact-motion`, since no such property maps to CSS. The
+authoring syntax and the web-side sampling are the later RFC's.
+
+**Not decided here, deliberately:** A 2D vector layer
+(vello-class; adopted, not built, as a `Surface`). A GPU paint stage for
+ordinary subtrees. A GPU-drawn presenter. Compute-only surfaces. Video
+and camera. The Linux host's use of this device is that lane's decision.
+
+## 2. Sequencing (web first)
+
+1. The seam and the node: `Surface`, the `surfaces` row, `Canvas` in the
+   schema and tag table, build-time naga validation, headless tests with
+   a recording surface.
+2. The web host: the on-demand module, a `<canvas>` per node, the
+   `canvas` signal, readback; the Caltrain line map; the fixture recorded
+   from Chrome.
+3. The Apple host: the `dylib`, the `CAMetalLayer` target, the display
+   link, device-after-first-pixel with its phase reported; the fixture
+   held natively.
+
+The spec (1009.000) transcribes the landing.
+
+## 3. Costs, measured 2026-08-29
+
+- **On the web** the module is wgpu's WebGPU backend plus generated glue.
+  Built (step 2, 2026-08-29): the Caltrain module with the line map is
+  **142 KiB / 70 KiB gzip** after wasm-bindgen and `wasm-opt`, plus 47 KiB
+  of generated `gpu.js`; the device is up **~94 ms** after the loader is
+  injected, in headless Chrome. Fetched only by canvas apps, only after the
+  first pixel; the Caltrain app wasm (173 KiB gzip) is untouched. (The
+  scratch probe's 829 KiB was mostly wasm-bindgen's unprocessed export
+  stubs — 169 KiB of it was code.)
+- **Natively** the module is ~1.7 MiB stripped (Metal backend plus naga).
+  Measured (step 3): `dlopen` + device + the first canvas's surface is
+  **23–36 ms warm, ~260 ms on a cold first launch**, after the first
+  paint; absent from apps without a canvas. The scratch crate and the commands
+  are recorded in `llp/reviews/1009-gpu-canvas.codex.md` (round 3 asked;
+  `scripts/probe/` when the GPU crate lands). The ~100-crate dependency
+  joins `cargo build --workspace`: its cold compile is ~35 s here, its warm
+  cost nothing — measured against the five checks' budgets in step 1.
+- **Time:** adapter + device + one pipeline from WGSL + one draw on Metal
+  is 11–13 ms warm, 115 ms cold; by D4 both land after the first pixel.
+- **A dependency:** wgpu (v30, ~100 crates), pinned; the wasm-bindgen CLI
+  in the web module's build. Reached through one module, so replacing
+  either is one crate's change.
+
+## 4. Open questions
+
+1. Readback bands for blending and MSAA across Metal and Chrome —
+   declared per fixture, as measured.
+2. Whether the module's C ABI stays hand-written (as `exact.h` is) or is
+   generated from a table — hand-written until a second consumer.
+
+## 5. The NOT-DOING trades this RFC owes (Charlie's, before Acceptance)
+
+The rule: name what it unblocks, and take something off the doing-list
+in the same PR.
+
+- **§Runtime "GPU / WebGPU substrate" and §Components `canvas`** (one
+  trade). Unblocks everything an app draws that is not a box or text —
+  the Caltrain line map first. **Proposed take, in the same PR: the three
+  gradient style rows** (`gradient_type`, `gradient_angle`,
+  `gradient_colors`) leave `schema.json` — declared in v1, implemented by
+  no host, and a canvas draws a gradient; they return when a host earns
+  them. (Round 3 held that deferring iOS is a reorder and dropping the
+  agent's screenshot an alias; both withdrawn.)
+- **§Runtime, the wording "compiles no shaders at runtime"** — amend to
+  "compiles nothing on the boot path; a canvas compiles its shaders at
+  first use" (D5), or refuse, in which case D5 waits for a proven
+  precompilation path and this RFC waits with it.
+- **§Process: refine loops** (this loop). Unblocks building the canvas on
+  text two families have read three times; the take is the same one as
+  LLP 1004's, Charlie's to name.
+
+## Ratification note
+
+Review. Three rounds: two on r2, one on r4; r5 folds round 3 and is
+unreviewed (see the artifacts). Charlie may say Accepted on this text,
+apply §5, or ask for another round.
