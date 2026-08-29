@@ -93,6 +93,7 @@ const server = createServer((req, res) => {
   res.writeHead(200, { 'content-type': types[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
   res.end(body);
 });
+server.on('error', (e) => { console.error(`cannot listen on 127.0.0.1:${port}: ${e.code ?? e.message}`); try { process.kill(-dev.pid, 'SIGKILL'); } catch {} process.exit(1); });
 server.listen(port, '127.0.0.1', () => console.log(`http://127.0.0.1:${port}/  (dev loop on apps/${app}/app.contract; ctrl-c to stop)`));
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

@@ -77,11 +77,21 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Boot from the input buffer's first `len` bytes — the dev loop's
-    /// restart from a freshly compiled plan; the old host is dropped whole.
+    /// restart from a freshly compiled plan. The old host's state is carried
+    /// (`Host::boot_with`), then the old host is dropped.
     pub fn boot_plan(&mut self, len: usize, data: D) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
-        self.host = None;
-        self.boot(&plan, data)
+        let carried = self.host.take().map(|h| h.carry());
+        match Host::boot_with(&plan, data, carried.as_ref()) {
+            Ok((host, batch)) => {
+                self.host = Some(host);
+                self.emit(batch)
+            }
+            Err(e) => self.emit(format!(
+                "{{\"ops\":[],\"timers\":false,\"error\":\"boot: {}\"}}",
+                escape(&format!("{e:?}"))
+            )),
+        }
     }
 
     /// Dispatch an event at `now_ms` (the page's clock); `kind` is 0 = press,

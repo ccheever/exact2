@@ -21,7 +21,7 @@ forward events, tick the clock, and play a spring's frames, and nothing runs
 per frame. The plan is baked into the wasm at build time, so a page fetches
 one wasm and one module. Measured on the Caltrain app (`scripts/metrics.mjs`,
 2026-08-28): **script start → first frame in the DOM, 10–11 ms** (fetch and
-instantiate 348 KiB of wasm — 149 KiB gzip — boot, ~200 elements); **edit
+instantiate 404 KiB of wasm — 172 KiB gzip — boot, ~200 elements); **edit
 `app.contract` → the new plan's first frame in the DOM, 18–20 ms** through the
 resident dev driver, against the 100 ms budget row. The engine is held to the
 browser by a recorded fixture: 105 samples, 0 disagreements. Where this
@@ -160,8 +160,19 @@ the app's data source, and writes the plan atomically. The app's `dev` bin
 `node host/web/dev.mjs` runs that, serves `dist/` with `dev.js` added to the
 page, pushes each ready plan over server-sent events, and prints the numbers.
 `dev.js` fetches the plan and calls `exact.reload(bytes)` → `exact_boot_plan`:
-a full teardown and a boot from initial state, no migration, no patch
-format. A compile error is pushed to the page as an overlay with its line and
+a full teardown of the page and a boot of the new plan **carrying the old
+runner's state** (`Runner::carry` / `Runner::boot_carrying`, `Host::boot_with`):
+each slot by name where its carried value conforms to the slot's — possibly
+new — type, else its initializer; each settled resource by name where its
+value still fits the declared shape, reused only where its arguments still
+match (a carried `stationId` gets its own board, and the plan's baked boot
+values are never taken over carried state); the clock, so timers continue.
+Carried state is never why a boot fails: what no longer fits starts fresh.
+The tree, ids, derives, and the DOM are rebuilt — five screens deep stays
+five screens deep, but scroll, focus, and a spring in flight do not survive
+(identity matching between the old and new trees is the later trade, and
+`rules/NOT-DOING.md` §Runtime records this one). No patch format, no
+generations. A compile error is pushed to the page as an overlay with its line and
 column; the last good plan stays. Measured (`scripts/metrics.mjs`, five runs):
 **save → plan ready 8–13 ms** (compile 0.5–1 ms, bake 0.5–1 ms, the rest the
 poll), **save → the new plan's first frame in the DOM 18–20 ms**. The
@@ -182,16 +193,20 @@ asserting the app's landmarks and printing the boot stamp. `node
 scripts/metrics.mjs` — every number in this document in one run (~10 s;
 diagnostic, never blocking).
 
-**Where the bytes are (2026-08-28, 348 KiB; 149 KiB gzip).** Measured from the
-name section of an unstripped build: std/core/alloc ≈ 43% (string and slice
-helpers, `core::fmt`, float print and parse for `px` values and JSON), kernel
-16%, runner 15%, web host 8%, plan decoder 8%, motion (the `transition`
-parser) 3%, hashbrown 2%, plus ≈ 60 KiB of data (the baked plan and strings).
-**Taffy is 0%**: nothing on the web reaches `compute_layout`, so the linker
-drops the layout algorithms; a "kernel without Taffy" feature would save
-nothing here. The profile and `wasm-opt` took 436 → 348 KiB (164 → 149 KiB
-gzip) with no change to script-start → DOM. The next real cut is in our own
-code and in what it asks of `core::fmt`, not in dependencies.
+**Where the bytes are (2026-08-28, 404 KiB; 172 KiB gzip).** Measured from the
+name section of an unstripped build: std/core/alloc ≈ 59% (string and slice
+helpers, `core::fmt`, float print and parse for `px` values, JSON, and spring
+frames, and the `BTreeMap`/`BTreeSet` instantiations the engine brings),
+kernel 10%, runner 10%, plan decoder 7%, web host 4%, hashbrown 3%, motion 3%,
+libm 1%, plus ≈ 70 KiB of data (the baked plan and strings). **Taffy is
+~1%** (tree bookkeeping only): nothing on the web reaches `compute_layout`,
+so the linker drops the layout algorithms; a "kernel without Taffy" feature
+would save nothing here. The `web` profile and `wasm-opt` took 436 → 348 KiB
+(164 → 149 KiB gzip) with no change to script-start → DOM; springs (§3) then
+added the engine and its std instantiations, 348 → 404 KiB. The next real
+cuts are in our own code — the engine's maps could be vectors — and in what
+it asks of `core::fmt`, not in dependencies. `parity` and `dev` are not in
+the wasm.
 
 ## 8. The `boot` check (`scripts/boot.mjs`)
 
@@ -209,13 +224,13 @@ out; the kernel's Taffy layout is not run here — and is dead-code-eliminated
 from the wasm, §7 — and `Kernel::with_monospace` is only a placeholder
 measurer); gradients, grid, `line_clamp`, `font_family` rows; touch/keyboard
 events beyond `click` and `input`; scroll position and focus restoration
-across reloads; gestures on the web (`hold`/`observe` with velocity — LLP 1002
+across a reload (the tree is rebuilt; §6); gestures on the web (`hold`/`observe` with velocity — LLP 1002
 D4 — reach no page event yet); `prefers-reduced-motion` (the author's
 stylesheet, LLP 1002 §4); a spring interrupted *by an easing* on the same
 property (the frames are cancelled and the CSS transition starts from the
 computed style at that moment — the browser's rule, unmeasured against the
-engine's); state-preserving reload (a later trade against `rules/NOT-DOING.md`
-§Runtime, never a silent extension of §6).
+engine's); reusing DOM nodes across a reload by identity (a later trade
+against `rules/NOT-DOING.md` §Runtime, never a silent extension of §6).
 
 ## 10. Checks that hold this
 
@@ -227,7 +242,10 @@ page as CSS and toggles with state. `host/web/tests/springs.rs`: §3.
 `host/web/tests/parity.rs`: §5, against the recorded fixture.
 `host/web/tests/dev.rs`: §6 — a save builds, an identical save is nothing, a
 broken save is a named refusal and the last plan stays, the bridge boots from
-bytes. `motion/tests/spring.rs`: the engine's lowering is the closed form on
+bytes and carries state across boots, a slot carries where its type still
+fits and starts fresh when it changed or was renamed.
+`apps/caltrain/tests/app.rs`: a reload keeps its station and clock on an
+edited, unbaked plan and re-requests nothing whose arguments did not change. `motion/tests/spring.rs`: the engine's lowering is the closed form on
 the grid, bit for bit, for scalars and pairs. `scripts/boot.mjs` green; `node
 host/web/smoke.mjs` and `node host/web/parity.mjs` green in headless Chrome.
 All under the five checks on 2026-08-28 (158 tests across the workspace).

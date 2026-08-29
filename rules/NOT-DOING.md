@@ -45,7 +45,10 @@ change can break.
   hydration, route payloads, response caching.
 - Aquifer data tier, durable worker tier, capability capsules, durable capability grants.
 - Snapback / update economy.
-- HBC compilation, hot revision surfaces, staged reload.
+- HBC compilation, hot revision surfaces, staged reload. (A dev reload *carries
+  state* — slots by name where their types still fit, settled resources where
+  their arguments still match, the clock — and is otherwise a restart: no patch
+  format, no generations, no identity matching. LLP 1007 §6; Charlie, 2026-08-28.)
 - Islands and inline islands.
 - Cross-runtime shared data.
 

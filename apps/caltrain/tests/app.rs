@@ -170,3 +170,87 @@ fn changing_station_re_requests_the_boards_and_search_filters_by_key() {
     assert_eq!(commands[0].name, "setScheme");
     assert_eq!(commands[0].args, vec![Value::str("dark")]);
 }
+
+/// A data source that counts what it is asked.
+struct Counting {
+    inner: caltrain_data::Caltrain,
+    queries: usize,
+}
+
+impl DataSource for Counting {
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, exact_runner::DataError> {
+        self.queries += 1;
+        self.inner.query(source, args)
+    }
+}
+
+#[test]
+fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
+    let counting = || Counting {
+        inner: caltrain_data::Caltrain,
+        queries: 0,
+    };
+    let mut r = Runner::boot(
+        caltrain::build().unwrap(),
+        counting(),
+        Kernel::with_monospace(),
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "change-station"), Event::Press)
+        .unwrap();
+    r.dispatch(view_of(&r, "station-sf"), Event::Press).unwrap();
+    r.advance(30_000.0).unwrap();
+    assert_eq!(
+        text_of(&r, "station-name").as_deref(),
+        Some("San Francisco")
+    );
+    let carried = r.carry();
+    assert_eq!(carried.slots.len(), 4);
+    assert_eq!(carried.now_ms, 30_000.0);
+
+    // The edited plan: unbaked (no compiled data) and with a visible change.
+    let edited = contract::compile(
+        &caltrain::SOURCE.replace("text \"Caltrain\" ", "text \"Caltrain Live\" "),
+    )
+    .unwrap();
+    let mut again =
+        Runner::boot_carrying(edited, counting(), Kernel::with_monospace(), &carried).unwrap();
+    assert_eq!(
+        again.slot("stationId"),
+        Some(&Value::some(Value::str("sf")))
+    );
+    assert_eq!(again.slot("screen"), Some(&Value::str("home")));
+    assert_eq!(
+        text_of(&again, "station-name").as_deref(),
+        Some("San Francisco")
+    );
+    assert!(
+        ids_with_prefix(&again, "dep-sf-south").len() > 3,
+        "the boards are San Francisco's"
+    );
+    assert_eq!(again.now_ms(), 30_000.0, "the clock carries");
+    assert_eq!(
+        again.data().queries,
+        0,
+        "every resource's arguments still matched: nothing was re-requested"
+    );
+    let root = again.roots()[0];
+    let k = again.kernel();
+    let mut stack = vec![root];
+    let mut found = false;
+    while let Some(id) = stack.pop() {
+        let node = k.node(id).unwrap();
+        if node.props.str(PropId::Text) == Some("Caltrain Live") {
+            found = true;
+        }
+        stack.extend(node.children());
+    }
+    assert!(found, "the edit is on screen");
+
+    // A tick after the reload fires the timer from the carried clock.
+    let receipts = again.advance(31_000.0).unwrap();
+    assert!(
+        !receipts.is_empty(),
+        "the ticker runs from the carried clock"
+    );
+}

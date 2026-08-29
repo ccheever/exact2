@@ -130,6 +130,22 @@ struct Timer {
     next_ms: f64,
 }
 
+/// What survives a reload: state by name, settled resources by name with
+/// the arguments they answered, and the clock. A new plan takes each slot
+/// whose name it still declares and whose carried value conforms to the
+/// slot's (possibly new) type; everything else starts from its initializer.
+/// Resources are reused only where their arguments still match, so a
+/// carried `stationId` gets its own board, never the baked one.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Carried {
+    /// Slot name → value.
+    pub slots: Vec<(String, Value)>,
+    /// Resource name → (arguments, value).
+    pub resources: Vec<(String, Vec<Value>, Value)>,
+    /// The clock, milliseconds.
+    pub now_ms: f64,
+}
+
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
@@ -153,6 +169,59 @@ impl<D: DataSource> Runner<D> {
     /// initial state, settle resources (compiled data first, the source
     /// otherwise), realize the tree, and apply the first frame's ops.
     pub fn boot(plan: Plan, data: D, kernel: Kernel) -> Result<Runner<D>, RunnerError> {
+        Runner::boot_inner(plan, data, kernel, None)
+    }
+
+    /// Boot a new plan with the state of an old runner (a dev reload that
+    /// keeps its place — LLP 1007 §6). The tree, ids, timers, and every
+    /// derive are fresh; only slots, matching resources, and the clock are
+    /// taken, and each only where it still fits the new plan, so carried
+    /// state can never be why a boot fails. Nothing compiled into the plan
+    /// is trusted over carried state.
+    pub fn boot_carrying(
+        plan: Plan,
+        data: D,
+        kernel: Kernel,
+        carried: &Carried,
+    ) -> Result<Runner<D>, RunnerError> {
+        Runner::boot_inner(plan, data, kernel, Some(carried))
+    }
+
+    /// Everything a reload keeps.
+    pub fn carry(&self) -> Carried {
+        Carried {
+            slots: self
+                .plan
+                .slots
+                .iter()
+                .zip(&self.slots)
+                .map(|(s, v)| (self.plan.str(s.name).to_string(), v.clone()))
+                .collect(),
+            resources: self
+                .plan
+                .resources
+                .iter()
+                .zip(&self.resources)
+                .filter_map(|(r, s)| {
+                    s.as_ref().map(|s| {
+                        (
+                            self.plan.str(r.name).to_string(),
+                            s.args.clone(),
+                            s.value.clone(),
+                        )
+                    })
+                })
+                .collect(),
+            now_ms: self.now_ms,
+        }
+    }
+
+    fn boot_inner(
+        plan: Plan,
+        data: D,
+        kernel: Kernel,
+        carried: Option<&Carried>,
+    ) -> Result<Runner<D>, RunnerError> {
         plan.validate().map_err(RunnerError::Plan)?;
         if plan.kernel_schema_digest != exact_kernel::SCHEMA_DIGEST {
             return Err(RunnerError::KernelSchemaMismatch {
@@ -196,27 +265,53 @@ impl<D: DataSource> Runner<D> {
             commands: Vec::new(),
             poisoned: false,
         };
-        // Slots: initial values, in order (an initializer may read earlier slots).
+        // Slots: carried values where the name and type still fit, else
+        // initial values, in order (an initializer may read earlier slots).
         for i in 0..runner.plan.slots.len() {
-            let code = runner.plan.slots[i].init;
-            let v = runner.eval(code, &[], &[])?;
-            if !v.conforms(&runner.plan, runner.plan.slots[i].ty) {
+            let ty = runner.plan.slots[i].ty;
+            let name = runner.plan.str(runner.plan.slots[i].name);
+            let kept = carried
+                .and_then(|c| c.slots.iter().find(|(n, _)| n == name))
+                .map(|(_, v)| v.clone())
+                .filter(|v| v.conforms(&runner.plan, ty));
+            let v = match kept {
+                Some(v) => v,
+                None => runner.eval(runner.plan.slots[i].init, &[], &[])?,
+            };
+            if !v.conforms(&runner.plan, ty) {
                 return Err(RunnerError::SlotType {
-                    slot: runner.plan.str(runner.plan.slots[i].name).to_string(),
+                    slot: name.to_string(),
                 });
             }
             runner.slots.push(v);
         }
         runner.derives = vec![None; runner.plan.derives.len()];
-        runner.resources = (0..runner.plan.resources.len()).map(|_| None).collect();
+        // Resources: carried where the name is still declared and the value
+        // still fits the declared shape; a carried value can refuse nothing.
+        runner.resources = (0..runner.plan.resources.len())
+            .map(|i| {
+                let name = runner.plan.str(runner.plan.resources[i].name);
+                carried
+                    .and_then(|c| c.resources.iter().find(|(n, _, _)| n == name))
+                    .filter(|(_, _, value)| runner.check_shape(i, value).is_ok())
+                    .map(|(_, args, value)| ResourceState {
+                        args: args.clone(),
+                        value: value.clone(),
+                    })
+            })
+            .collect();
         runner.resource_values = vec![None; runner.plan.resources.len()];
-        runner.settle(true)?;
+        runner.now_ms = carried.map_or(0.0, |c| c.now_ms);
+        // A carried boot never takes compiled data: it was baked for the
+        // initial state, and the carried state is not that.
+        runner.settle(carried.is_none())?;
+        let now = runner.now_ms;
         runner.timers = runner
             .plan
             .timers
             .iter()
             .map(|t| Timer {
-                next_ms: t.interval_ms as f64,
+                next_ms: now + t.interval_ms as f64,
             })
             .collect();
         // First frame.

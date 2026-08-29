@@ -3,6 +3,7 @@
 
 use exact_runner::{DataError, DataSource, Value};
 use exact_web::dev::Session;
+use exact_web::Host;
 
 #[derive(Default)]
 struct NoData;
@@ -85,4 +86,93 @@ fn the_bridge_boots_from_bytes_in_its_input_buffer() {
     let batch = String::from_utf8(bridge.output_bytes(len as usize).to_vec()).unwrap();
     assert!(batch.starts_with("{\"ops\":[{\"op\":\"create\""), "{batch}");
     assert!(batch.contains("\"text\":\"one\""), "{batch}");
+}
+
+const COUNTER: &str = "component App\n  state n = 1\n  action inc writes n\n    n = n + 1\n  view\n    column testId=\"root\"\n      button press=inc label=\"Inc\" testId=\"inc\"\n        text \"Inc\"\n      text `${n}` testId=\"n\"\n";
+
+fn view_of(host: &Host<NoData>, test_id: &str) -> u32 {
+    let k = host.runner().kernel();
+    let key = k.find_by_test_id(test_id)[0];
+    k.node_by_key(key).unwrap().id
+}
+
+fn text_of(host: &Host<NoData>, test_id: &str) -> String {
+    let k = host.runner().kernel();
+    let key = k.find_by_test_id(test_id)[0];
+    k.node_by_key(key)
+        .unwrap()
+        .props
+        .str(exact_kernel::PropId::Text)
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn a_reload_carries_state_by_name_where_the_type_still_fits() {
+    let plan = contract::compile(COUNTER).unwrap().encode();
+    let (mut host, _) = Host::boot(&plan, NoData).unwrap();
+    let inc = view_of(&host, "inc");
+    for _ in 0..3 {
+        host.dispatch(inc, exact_runner::Event::Press);
+    }
+    assert_eq!(text_of(&host, "n"), "4");
+    let carried = host.carry();
+
+    // The same shape: the count survives.
+    let (host, batch) = Host::boot_with(&plan, NoData, Some(&carried)).unwrap();
+    assert_eq!(text_of(&host, "n"), "4");
+    assert!(
+        batch.contains("\"text\":\"4\""),
+        "the first batch already shows it: {batch}"
+    );
+
+    // The slot's type changed: the carried number does not fit a string,
+    // so the slot starts from its new initializer.
+    let restrung = contract::compile(
+        &COUNTER
+            .replace("state n = 1", "state n = \"x\"")
+            .replace("n = n + 1", "n = n + \"!\""),
+    )
+    .unwrap()
+    .encode();
+    let (host, _) = Host::boot_with(&restrung, NoData, Some(&carried)).unwrap();
+    assert_eq!(text_of(&host, "n"), "x");
+
+    // The slot was renamed: nothing carries to it.
+    let renamed = contract::compile(
+        &COUNTER
+            .replace("state n = 1", "state m = 1")
+            .replace("writes n", "writes m")
+            .replace("n = n + 1", "m = m + 1")
+            .replace("${n}", "${m}"),
+    )
+    .unwrap()
+    .encode();
+    let (host, _) = Host::boot_with(&renamed, NoData, Some(&carried)).unwrap();
+    assert_eq!(text_of(&host, "n"), "1");
+}
+
+#[test]
+fn the_bridge_carries_state_across_boots_from_bytes() {
+    let plan = contract::compile(COUNTER).unwrap().encode();
+    let mut bridge: exact_web::abi::Bridge<NoData> = exact_web::abi::Bridge::new();
+    let n = bridge.input_write(&plan);
+    let len = bridge.boot_plan(n, NoData);
+    let batch = String::from_utf8(bridge.output_bytes(len as usize).to_vec()).unwrap();
+    // The button's view id, from its create op.
+    let at = batch.find("\"data-testid\":\"inc\"").unwrap();
+    let head = &batch[..at];
+    let marker = "\"op\":\"create\",\"id\":";
+    let id_at = head.rfind(marker).unwrap() + marker.len();
+    let inc: u32 = head[id_at..].split(',').next().unwrap().parse().unwrap();
+    for _ in 0..2 {
+        bridge.dispatch(inc, 0, 0, 0.0);
+    }
+    let n = bridge.input_write(&plan);
+    let len = bridge.boot_plan(n, NoData);
+    let batch = String::from_utf8(bridge.output_bytes(len as usize).to_vec()).unwrap();
+    assert!(
+        batch.contains("\"text\":\"3\""),
+        "the second boot carried the count: {batch}"
+    );
 }

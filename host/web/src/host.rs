@@ -15,7 +15,7 @@ use crate::motion::{Lowered, Springs};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeRef, NodeType, PropId, PropValue, ViewId};
 use exact_motion::Property;
 use exact_plan::{EventKind, Plan};
-use exact_runner::{DataSource, Event, Runner, RunnerError};
+use exact_runner::{Carried, DataSource, Event, Runner, RunnerError};
 use std::collections::BTreeMap;
 
 /// Why the host refused.
@@ -54,9 +54,25 @@ impl<D: DataSource> Host<D> {
     /// Boot from plan bytes: decode (a validation pass), boot the runner, and
     /// produce the first batch, which creates the whole tree.
     pub fn boot(plan_bytes: &[u8], data: D) -> Result<(Host<D>, String), HostError> {
+        Host::boot_with(plan_bytes, data, None)
+    }
+
+    /// Boot carrying an earlier host's state (the dev loop's reload, LLP
+    /// 1007 §6): slots by name where their types still fit, settled
+    /// resources where their arguments still match, the clock. Carried state
+    /// is never why a boot fails — what no longer fits starts fresh.
+    pub fn boot_with(
+        plan_bytes: &[u8],
+        data: D,
+        carried: Option<&Carried>,
+    ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
-        let runner =
-            Runner::boot(plan, data, Kernel::with_monospace()).map_err(HostError::Runner)?;
+        let kernel = Kernel::with_monospace();
+        let runner = match carried {
+            Some(c) => Runner::boot_carrying(plan, data, kernel, c),
+            None => Runner::boot(plan, data, kernel),
+        }
+        .map_err(HostError::Runner)?;
         let mut host = Host {
             runner,
             mirror: BTreeMap::new(),
@@ -111,6 +127,11 @@ impl<D: DataSource> Host<D> {
     /// [`Host::dispatch_at`] at the clock's last value.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> String {
         self.dispatch_at(view, event, self.now_ms)
+    }
+
+    /// What a reload keeps (`Runner::carry`).
+    pub fn carry(&self) -> Carried {
+        self.runner.carry()
     }
 
     /// The springs' engine: presentation values as the page shows them.
