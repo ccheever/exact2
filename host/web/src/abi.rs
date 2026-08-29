@@ -2,7 +2,7 @@
 //!
 //! @ref LLP 1007 §3
 //!
-//! Five exports. The glue never hands the host a pointer it did not get from
+//! Five exports (plus `exact_boot_plan` for the dev loop, `dev.rs`). The glue never hands the host a pointer it did not get from
 //! the host: `exact_in(len)` resizes a host-owned input buffer and returns its
 //! address; the glue writes the payload there; every call returns the length
 //! of the output buffer, whose address `exact_out()` reports. Both buffers
@@ -44,6 +44,19 @@ impl<D: DataSource> Bridge<D> {
         self.output.as_ptr()
     }
 
+    /// Write `bytes` into the input buffer (what the glue does through the
+    /// address `input` returned); the length written.
+    pub fn input_write(&mut self, bytes: &[u8]) -> usize {
+        self.input.clear();
+        self.input.extend_from_slice(bytes);
+        self.input.len()
+    }
+
+    /// The output buffer's first `len` bytes.
+    pub fn output_bytes(&self, len: usize) -> &[u8] {
+        &self.output[..len.min(self.output.len())]
+    }
+
     fn emit(&mut self, s: String) -> u32 {
         self.output = s.into_bytes();
         self.output.len() as u32
@@ -63,8 +76,17 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// Dispatch an event; `kind` is 0 = press, 1 = change (payload = the input buffer's first `len` bytes, UTF-8).
-    pub fn dispatch(&mut self, view: u32, kind: u32, len: usize) -> u32 {
+    /// Boot from the input buffer's first `len` bytes — the dev loop's
+    /// restart from a freshly compiled plan; the old host is dropped whole.
+    pub fn boot_plan(&mut self, len: usize, data: D) -> u32 {
+        let plan = self.input[..len.min(self.input.len())].to_vec();
+        self.host = None;
+        self.boot(&plan, data)
+    }
+
+    /// Dispatch an event at `now_ms` (the page's clock); `kind` is 0 = press,
+    /// 1 = change (payload = the input buffer's first `len` bytes, UTF-8).
+    pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let event = match kind {
@@ -72,7 +94,7 @@ impl<D: DataSource> Bridge<D> {
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
-            Some(h) => h.dispatch(view, event),
+            Some(h) => h.dispatch_at(view, event, now_ms),
             None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
         };
         self.emit(out)
@@ -131,10 +153,16 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().boot($plan, <$data as ::std::default::Default>::default()))
         }
 
+        /// Boot from plan bytes in the input buffer (the dev loop's restart).
+        #[no_mangle]
+        pub extern "C" fn exact_boot_plan(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().boot_plan(len as usize, <$data as ::std::default::Default>::default()))
+        }
+
         /// Dispatch an event; returns the batch's length.
         #[no_mangle]
-        pub extern "C" fn exact_dispatch(view: u32, kind: u32, len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().dispatch(view, kind, len as usize))
+        pub extern "C" fn exact_dispatch(view: u32, kind: u32, len: u32, now_ms: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().dispatch(view, kind, len as usize, now_ms))
         }
 
         /// Move the clock; returns the batch's length.

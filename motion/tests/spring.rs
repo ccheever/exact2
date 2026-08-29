@@ -145,3 +145,78 @@ fn invalid_parameters_are_refused_by_name() {
     assert_eq!(bad(|c| c.mass = f64::INFINITY), Err(SpringError::NonFinite));
     assert_eq!(under().validate(), Ok(()));
 }
+
+#[test]
+fn the_engine_lowers_a_running_spring_to_the_frames_it_would_sample() {
+    use exact_motion::{
+        Change, Engine, Property, TimingFunction, Transition, TransitionProperty, Transitions,
+        Value,
+    };
+    let mut engine = Engine::new();
+    let spring = Transition::new(
+        TransitionProperty::All,
+        0.0,
+        TimingFunction::Spring(under()),
+    );
+    engine
+        .set_transitions(1, Transitions(vec![spring]))
+        .unwrap();
+    let observe = |engine: &mut Engine, property, value| {
+        engine
+            .observe(Change {
+                node: 1,
+                property,
+                value,
+                velocity: None,
+            })
+            .unwrap();
+    };
+    observe(&mut engine, Property::Translate, Value::ZERO);
+    observe(&mut engine, Property::Opacity, Value::scalar(1.0));
+    assert!(
+        engine.spring_frames(1, Property::Translate).is_none(),
+        "nothing runs yet"
+    );
+    observe(&mut engine, Property::Translate, Value::new(100.0, 10.0));
+    observe(&mut engine, Property::Opacity, Value::scalar(0.0));
+
+    // A scalar's frames are exactly `keyframes()`.
+    let frames = engine.spring_frames(1, Property::Opacity).unwrap();
+    let (duration, expected) = keyframes(&under(), 1.0, 0.0, 0.0);
+    assert_eq!(frames.duration, duration);
+    assert_eq!(frames.start, 0.0);
+    assert_eq!(
+        frames
+            .values
+            .iter()
+            .map(|v| v.x.to_bits())
+            .collect::<Vec<_>>(),
+        expected
+            .iter()
+            .map(|k| k.value.to_bits())
+            .collect::<Vec<_>>()
+    );
+
+    // A pair runs until both components rest; its frames are the engine's
+    // own samples on the grid, bit for bit.
+    let frames = engine.spring_frames(1, Property::Translate).unwrap();
+    let x = under().settle_time(-100.0, 0.0);
+    let y = under().settle_time(-10.0, 0.0);
+    assert_eq!(frames.duration, x.max(y));
+    assert_eq!(frames.values[0], Value::ZERO);
+    assert_eq!(*frames.values.last().unwrap(), Value::new(100.0, 10.0));
+    for (n, value) in frames
+        .values
+        .iter()
+        .enumerate()
+        .take(frames.values.len() - 1)
+    {
+        engine.advance(n as f64 / SAMPLE_RATE).unwrap();
+        let sampled = engine.value(1, Property::Translate).unwrap();
+        assert_eq!(
+            (sampled.x.to_bits(), sampled.y.to_bits()),
+            (value.x.to_bits(), value.y.to_bits()),
+            "frame {n}"
+        );
+    }
+}

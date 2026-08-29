@@ -24,6 +24,8 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - The five checks: `cargo build --workspace` · `cargo test --workspace` ·
   `cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check` ·
   `node scripts/caps.mjs` · `node scripts/boot.mjs`.
+- The dev loop is `node host/web/dev.mjs`: edit `apps/caltrain/app.contract`, the page
+  restarts from the new plan in ~20 ms. `node scripts/metrics.mjs` prints every number.
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
 - Never `git stash`. Kill only PIDs you recorded. Agents remove apparatus freely and add
   none without a human saying so.

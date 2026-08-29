@@ -319,6 +319,34 @@ impl Running {
         }
     }
 
+    /// A running spring, lowered: its values on the [`SAMPLE_RATE`] grid from
+    /// release to rest, evenly spaced, the last exactly `to`. `None` for an
+    /// easing (CSS plays those itself). Each value is the same bits
+    /// [`Running::sample`] would return at that grid time, so a host that
+    /// plays these with linear interpolation shows the native curve.
+    ///
+    /// [`SAMPLE_RATE`]: crate::spring::SAMPLE_RATE
+    pub fn spring_frames(&self) -> Option<(f64, Vec<Value>)> {
+        let Curve::Spring { config, velocity } = &self.curve else {
+            return None;
+        };
+        let duration = self.end_time() - self.start;
+        if duration <= 0.0 {
+            return Some((0.0, vec![self.from, self.to]));
+        }
+        let displacement = self.from - self.to;
+        let count = (duration * crate::spring::SAMPLE_RATE).round() as usize;
+        let mut values = Vec::with_capacity(count + 1);
+        for n in 0..count {
+            let t = n as f64 / crate::spring::SAMPLE_RATE;
+            let x = config.sample(displacement.x, velocity.x, t);
+            let y = config.sample(displacement.y, velocity.y, t);
+            values.push(self.to + Value::new(x.displacement, y.displacement));
+        }
+        values.push(self.to);
+        Some((duration, values))
+    }
+
     /// When the transition ends, on the clock. A spring's end is its settle
     /// time on the sample grid.
     pub fn end_time(&self) -> f64 {

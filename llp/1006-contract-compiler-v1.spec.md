@@ -156,8 +156,12 @@ own (a 2026-08-28 review correction to an earlier overclaim here).
 
 ## 8. Not in v1 (and where each is declared)
 
-An incremental/resident driver and the ≤20 ms slice (1004 D5 — nothing is
-measured yet; the CLI is a one-shot); **compile-time checking of attribute
+~~An incremental/resident driver and the ≤20 ms slice~~ — the resident
+driver landed with the web host the same day (LLP 1007 §6,
+`host/web/src/dev.rs`): a save is observed, compiled, and baked in 8–13 ms
+including a 10 ms poll, so the ≤20 ms slice (1004 D5) holds with no
+incremental compilation at this size; the CLI stays a one-shot.
+**compile-time checking of attribute
 values against their kernel rows** (`width=true` compiles and fails at first
 frame — a typed refusal, but late; the 2026-08-28 review's circle-back);
 **handler arity through a bare `action` prop** (checked at dispatch, not

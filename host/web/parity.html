@@ -1,0 +1,69 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Exact motion parity</title>
+<!-- The browser as oracle (LLP 1002 D2, §5): run every case in cases.json by
+     seeking its transitions with Animation.currentTime and write what the
+     browser computed into #out, one `sample` line each. Host code. -->
+<div id="stage"></div>
+<pre id="out"></pre>
+<script type="module">
+const out = [];
+const stage = document.getElementById("stage");
+const css = (property, [x, y]) => property === "translate" ? `${x}px ${y}px` : property === "rotate" ? `${x}deg` : String(x);
+const identity = { translate: [0, 0], scale: [1, 0], rotate: [0, 0], opacity: [1, 0] };
+function read(el, property) {
+  const v = getComputedStyle(el)[property];
+  if (v === "none") return identity[property];
+  const parts = v.split(/\s+/).map(parseFloat);
+  return [parts[0], parts[1] ?? 0];
+}
+try {
+  const cases = await (await fetch("./cases.json")).json();
+  for (const c of cases) {
+    const el = document.createElement("div");
+    stage.append(el);
+    el.style.transition = "none";
+    el.style[c.property] = css(c.property, c.initial);
+    getComputedStyle(el)[c.property];
+    const created = new Map(); // Animation -> seconds it was created at
+    // Seek every live animation to t. One CSS cancelled (a transition
+    // replaced by a newer one on its property) is idle; pausing it would
+    // revive it as a plain animation that sorts after — and overrides — the
+    // transition that replaced it, so it is dropped instead.
+    const seek = (t) => {
+      for (const [a, at] of created) {
+        if (a.playState === "idle") { created.delete(a); continue; }
+        a.pause(); a.currentTime = (t - at) * 1000;
+      }
+      getComputedStyle(el)[c.property];
+    };
+    if (c.frames) {
+      // A spring: the frames the engine lowered, played as the glue plays them.
+      const step = c.steps[0];
+      const a = el.animate(c.frames.map((v) => ({ [c.property]: css(c.property, v) })), { duration: c.duration, easing: "linear", fill: "forwards" });
+      a.pause();
+      created.set(a, step.at);
+    } else {
+      el.style.transition = c.css;
+      getComputedStyle(el)[c.property];
+    }
+    for (const step of c.steps) {
+      seek(step.at);
+      if (step.set) {
+        if (c.frames) continue;
+        el.style[c.property] = css(c.property, step.set);
+        getComputedStyle(el)[c.property];
+        for (const a of el.getAnimations()) if (!created.has(a)) { a.pause(); a.currentTime = 0; created.set(a, step.at); }
+      } else {
+        const [x, y] = read(el, c.property);
+        out.push(`sample ${c.name} ${step.at} ${x} ${y}`);
+      }
+    }
+  }
+  out.push(`browser ${/Chrome\/[\d.]+/.exec(navigator.userAgent)?.[0] ?? navigator.userAgent}`);
+} catch (e) {
+  out.push(`error ${e}`);
+}
+document.getElementById("out").textContent = out.join("\n");
+document.getElementById("out").dataset.done = "1";
+</script>

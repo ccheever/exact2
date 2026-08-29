@@ -118,6 +118,39 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"animate","id":…,"property":…,"delay":ms,"duration":ms,"values":[…]}`
+    /// — a spring's frames, evenly spaced; `translate` values are `[x,y]`
+    /// pairs, the rest numbers. No values means stop playing the property.
+    pub fn animate(
+        &mut self,
+        id: u32,
+        property: &str,
+        delay_ms: f64,
+        duration_ms: f64,
+        values: &[(f64, f64)],
+        pair: bool,
+    ) {
+        let mut s = String::new();
+        let _ = write!(s, "{{\"op\":\"animate\",\"id\":{id},\"property\":");
+        quote(property, &mut s);
+        let _ = write!(
+            s,
+            ",\"delay\":{delay_ms},\"duration\":{duration_ms},\"values\":["
+        );
+        for (i, (x, y)) in values.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            if pair {
+                let _ = write!(s, "[{x},{y}]");
+            } else {
+                let _ = write!(s, "{x}");
+            }
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
     /// `{"op":"destroy","id":…}`.
     pub fn destroy(&mut self, id: u32) {
         self.ops.push(format!("{{\"op\":\"destroy\",\"id\":{id}}}"));

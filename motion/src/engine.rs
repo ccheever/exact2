@@ -62,6 +62,24 @@ struct Slot {
     running: Option<Running>,
 }
 
+/// A spring in flight, restated for a host that lowers it instead of
+/// sampling it per frame — the web, where the browser plays the frames
+/// through `Element.animate` with linear easing (LLP 1002 D2).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpringFrames {
+    /// The node.
+    pub node: u64,
+    /// The property.
+    pub property: Property,
+    /// Clock time the spring starts moving (its change time plus delay).
+    pub start: f64,
+    /// Seconds from `start` to rest.
+    pub duration: f64,
+    /// Values on the 240 Hz grid, evenly spaced from `start` to `start +
+    /// duration`; the first is the release value, the last the target.
+    pub values: Vec<Value>,
+}
+
 /// The motion state of every node the host has told it about.
 #[derive(Debug, Default)]
 pub struct Engine {
@@ -276,6 +294,20 @@ impl Engine {
                 })
             })
             .collect()
+    }
+
+    /// The spring running on one property, lowered to frames; `None` when
+    /// nothing runs there or what runs is an easing.
+    pub fn spring_frames(&self, node: u64, property: Property) -> Option<SpringFrames> {
+        let running = self.slots.get(&(node, property))?.running.as_ref()?;
+        let (duration, values) = running.spring_frames()?;
+        Some(SpringFrames {
+            node,
+            property,
+            start: running.start,
+            duration,
+            values,
+        })
     }
 
     /// The current presentation value of one property.

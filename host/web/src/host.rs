@@ -11,7 +11,9 @@
 
 use crate::batch::Batch;
 use crate::css;
+use crate::motion::{Lowered, Springs};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeRef, NodeType, PropId, PropValue, ViewId};
+use exact_motion::Property;
 use exact_plan::{EventKind, Plan};
 use exact_runner::{DataSource, Event, Runner, RunnerError};
 use std::collections::BTreeMap;
@@ -43,6 +45,9 @@ pub struct Host<D: DataSource> {
     mirror: BTreeMap<ViewId, Mirror>,
     keys: BTreeMap<NodeKey, ViewId>,
     roots: Vec<ViewId>,
+    springs: Springs,
+    /// The page's clock at the last call, milliseconds from script start.
+    now_ms: f64,
 }
 
 impl<D: DataSource> Host<D> {
@@ -57,6 +62,8 @@ impl<D: DataSource> Host<D> {
             mirror: BTreeMap::new(),
             keys: BTreeMap::new(),
             roots: Vec::new(),
+            springs: Springs::new(),
+            now_ms: 0.0,
         };
         let mut batch = Batch::new();
         // Everything live is new to the page.
@@ -76,6 +83,7 @@ impl<D: DataSource> Host<D> {
         for id in &order {
             host.emit_children(*id, &mut batch);
         }
+        host.springs.adopt(host.runner.kernel(), &order);
         host.roots = roots.clone();
         batch.roots(&roots);
         let timers = host.runner.has_timers();
@@ -87,18 +95,32 @@ impl<D: DataSource> Host<D> {
         &self.runner
     }
 
-    /// Deliver an event; the batch makes the page equal to the tree after
-    /// the commit. A refusal is reported in the batch's `error`, and the page
-    /// is untouched (as the kernel was).
-    pub fn dispatch(&mut self, view: ViewId, event: Event) -> String {
+    /// Deliver an event at the page's clock (milliseconds from script
+    /// start); the batch makes the page equal to the tree after the commit,
+    /// and any spring the change releases is in it as frames. A refusal is
+    /// reported in the batch's `error`, and the page is untouched (as the
+    /// kernel was).
+    pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
+        self.now_ms = now_ms.max(self.now_ms);
         match self.runner.dispatch(view, event) {
             Ok(receipt) => self.batch_for(&[receipt], None),
             Err(e) => self.batch_for(&[], Some(&format!("{e:?}"))),
         }
     }
 
+    /// [`Host::dispatch_at`] at the clock's last value.
+    pub fn dispatch(&mut self, view: ViewId, event: Event) -> String {
+        self.dispatch_at(view, event, self.now_ms)
+    }
+
+    /// The springs' engine: presentation values as the page shows them.
+    pub fn springs(&self) -> &Springs {
+        &self.springs
+    }
+
     /// Move the clock; every timer due fires; one batch for all of them.
     pub fn advance(&mut self, now_ms: f64) -> String {
+        self.now_ms = now_ms.max(self.now_ms);
         match self.runner.advance(now_ms) {
             Ok(receipts) => self.batch_for(&receipts, None),
             Err(e) => self.batch_for(&[], Some(&format!("{e:?}"))),
@@ -134,6 +156,33 @@ impl<D: DataSource> Host<D> {
         if roots != self.roots {
             self.roots = roots.clone();
             batch.roots(&roots);
+        }
+        // Springs last: the style (the target) is in the page before the
+        // frames that approach it start playing.
+        let now_s = self.now_ms / 1000.0;
+        for lowered in self.springs.commit(self.runner.kernel(), receipts, now_s) {
+            match lowered {
+                Lowered::Start {
+                    view,
+                    property,
+                    delay,
+                    duration,
+                    values,
+                } => {
+                    let pairs: Vec<(f64, f64)> = values.iter().map(|v| (v.x, v.y)).collect();
+                    batch.animate(
+                        view,
+                        property.name(),
+                        delay * 1000.0,
+                        duration * 1000.0,
+                        &pairs,
+                        property == Property::Translate,
+                    );
+                }
+                Lowered::Cancel { view, property } => {
+                    batch.animate(view, property.name(), 0.0, 0.0, &[], false);
+                }
+            }
         }
         let timers = self.runner.has_timers();
         batch.finish(timers, error)

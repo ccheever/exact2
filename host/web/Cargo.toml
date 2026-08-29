@@ -21,6 +21,10 @@ exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
 
+# The dev driver compiles Contract natively; the wasm never does.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+contract = { path = "../../contract/cli" }
+
 [dev-dependencies]
 caltrain = { path = "../../apps/caltrain" }
 contract = { path = "../../contract/cli" }

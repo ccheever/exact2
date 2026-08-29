@@ -9,7 +9,7 @@ import { gzipSync } from 'node:zlib';
 
 const crate = process.argv[2] ?? 'caltrain-web';
 const root = resolve(new URL('../..', import.meta.url).pathname);
-const r = spawnSync('cargo', ['build', '-p', crate, '--profile', 'web', '--target', 'wasm32-unknown-unknown'], { cwd: root, stdio: 'inherit' });
+const r = spawnSync('cargo', ['build', '-p', crate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown'], { cwd: root, stdio: 'inherit' });
 if (r.status !== 0) process.exit(r.status ?? 1);
 const built = resolve(root, 'target/wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 const dist = resolve(root, 'host/web/dist');

@@ -128,8 +128,10 @@ own `DecodeError`/`ApplyError` without translation.
 Layout-affecting transitions; `@keyframes`/`animation`; gesture recognition,
 hit-testing, and arbitration (the platform's — LLP 1002 D4); a Core Animation
 executor (LLP 1002 §4); reduced-motion policy in the engine (producer emits
-`transition: none` — LLP 1002 §4); a browser-driven parity harness (owed with
-the web host — LLP 1002 §5). Everything deleted from the ported crate is listed
+`transition: none` — LLP 1002 §4). The browser-driven parity harness owed
+with the web host (LLP 1002 §5) landed there the same day: LLP 1007 §5, a
+recorded fixture of 105 browser samples the engine matches within 1e-3, held
+by `host/web/tests/parity.rs`. Everything deleted from the ported crate is listed
 in LLP 1002 D5 and in `rules/NOT-DOING.md` §Motion.
 
 ## 10. Checks that hold this

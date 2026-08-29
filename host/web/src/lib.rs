@@ -16,8 +16,14 @@
 //!
 //! - [`css`] — style rows → CSS declarations, once.
 //! - [`batch`] — the JSON the glue applies.
+//! - [`motion`] — springs: the one curve CSS cannot play, lowered to frames
+//!   by the same engine every native host runs, once per release.
 //! - [`host`] — the runner wrapped for a DOM: receipts → batches, events,
 //!   timers.
+//! - [`parity`] — the browser-driven parity harness: cases a real browser
+//!   runs, and the check that holds the engine to what it recorded.
+//! - [`dev`] — the resident dev driver: a source change observed → the
+//!   plan ready, in one long-lived process; the page restarts from it.
 //! - [`abi`] — the wasm exports, with no `unsafe`: the glue writes into a
 //!   host-owned buffer and reads from another.
 
@@ -27,6 +33,10 @@
 pub mod abi;
 pub mod batch;
 pub mod css;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod dev;
 pub mod host;
+pub mod motion;
+pub mod parity;
 
 pub use host::{Host, HostError};

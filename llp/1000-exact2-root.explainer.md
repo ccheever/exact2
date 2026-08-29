@@ -57,8 +57,10 @@ and this one does not. Read them first.
 - `apps/caltrain/` — the v1 app: `app.contract`, its Rust data crate
   (`data/`), and its wasm crate (`web/`), the end-to-end fixture for everything.
 - `host/web/` — `exact-web`, the web host: the runner and kernel in wasm over
-  the real DOM, CSS computed once from the kernel's rows, a no-`unsafe` ABI, the
-  glue, and the headless-Chrome smoke. LLP 1007.
+  the real DOM, CSS computed once from the kernel's rows, springs lowered to
+  frames, a no-`unsafe` ABI, the glue, the headless-Chrome smoke, the motion
+  parity harness (`parity.mjs`), and the dev loop (`node host/web/dev.mjs`:
+  edit `app.contract`, the page restarts in ~20 ms). LLP 1007.
 - `vendor/taffy/` — Taffy 0.9.2 plus two Exact patches (`EXACT-PATCHES.md`).
 - `scripts/` — `caps` and `boot` (two of the five checks), `metrics` (the startup and
   speed numbers in one run, diagnostic), and `issue` (filesystem issues, `docs/issues.md`).
@@ -66,12 +68,12 @@ and this one does not. Read them first.
   from `ccheever/llp@v0.5.1`; receipt in `.llp/skills-receipt.json`).
 
 Not built yet, in the order they are expected (decided 2026-08-28: **the web
-version works really well first, then Apple, then Linux**): the web host's owed
-pieces — springs lowered to keyframes, the browser-driven motion parity harness
-(LLP 1002 §5), the resident dev driver (LLP 1006 §8) — then the Apple host and
+version works really well first, then Apple, then Linux**): the Apple host and
 the generated C ABI, the Linux DRM host, the eight-operation agent API. (The plan
-format, runner, and compiler landed together as one lane — LLP 1006 §7 — and the
-web host followed the same day, LLP 1007.)
+format, runner, and compiler landed together as one lane — LLP 1006 §7; the web
+host followed the same day, LLP 1007, and its owed pieces — springs lowered to
+frames, the browser-driven motion parity harness, the resident dev driver — the
+same day again, LLP 1007 §3, §5, §6.)
 
 ## The five checks
 
