@@ -7,9 +7,10 @@
 
 use crate::{block_on, load_gpu, Frame, Gpu, Surface};
 use std::path::PathBuf;
+use std::time::Duration;
 
-/// Pixels read back: `width`×`height`, four bytes each in the texture's
-/// channel order (RGBA from [`render`]), rows top-down, tightly packed.
+/// Pixels read back: `width`×`height` RGBA, four bytes each, rows top-down,
+/// tightly packed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pixels {
     /// Width in pixels.
@@ -21,8 +22,14 @@ pub struct Pixels {
 }
 
 impl Pixels {
-    /// The pixel at `(x, y)`.
+    /// The pixel at `(x, y)`; panics off the picture.
     pub fn at(&self, x: u32, y: u32) -> [u8; 4] {
+        assert!(
+            x < self.width && y < self.height,
+            "({x}, {y}) is off a {}x{} picture",
+            self.width,
+            self.height
+        );
         let i = ((y * self.width + x) * 4) as usize;
         [
             self.data[i],
@@ -40,19 +47,21 @@ impl Pixels {
             .count()
     }
 
-    /// The pixels as a binary PPM (P6), the fourth channel dropped.
+    /// The pixels as a binary PPM (P6), alpha dropped.
     pub fn ppm(&self) -> Vec<u8> {
         let mut out = format!("P6\n{} {}\n255\n", self.width, self.height).into_bytes();
         out.extend(self.data.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]));
         out
     }
 
-    /// Write `<name>.ppm` under `$EXACT_GPU_OUT` when it is set: the path
-    /// written, or `None`.
+    /// Write `<name>.ppm` under `$EXACT_GPU_OUT` when it is set (the
+    /// directory is created): the path written, or `None`.
     pub fn save(&self, name: &str) -> Option<PathBuf> {
-        let dir = std::env::var_os("EXACT_GPU_OUT")?;
-        let path = PathBuf::from(dir).join(format!("{name}.ppm"));
-        match std::fs::write(&path, self.ppm()) {
+        let dir = PathBuf::from(std::env::var_os("EXACT_GPU_OUT")?);
+        let path = dir.join(format!("{name}.ppm"));
+        let written =
+            std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, self.ppm()));
+        match written {
             Ok(()) => Some(path),
             Err(e) => {
                 eprintln!("exact gpu: could not write {}: {e}", path.display());
@@ -69,7 +78,10 @@ pub fn device() -> Result<Gpu, String> {
 
 /// One frame of `surface` into a fresh `Rgba8Unorm` texture of the frame's
 /// pixel size, read back; and whether the surface wants another frame. The
-/// surface has no children texture here.
+/// surface has no children texture here. `Rgba8Unorm` rather than the
+/// presented surface's `Bgra8Unorm` because the browser's readback is RGBA
+/// and the surface builds its pipeline for whatever format it is given: the
+/// fixture measures the shader, not a drawable's channel order.
 pub fn render(
     gpu: &Gpu,
     surface: &mut dyn Surface,
@@ -96,13 +108,25 @@ pub fn render(
     Ok((read(gpu, &texture)?, wants))
 }
 
-/// Read a texture back — any four-byte format, created with `COPY_SRC` —
-/// waiting for the GPU.
+/// Read a texture back as RGBA: one 2D layer (mip 0) of an `Rgba8Unorm`,
+/// `Rgba8UnormSrgb`, `Bgra8Unorm`, or `Bgra8UnormSrgb` texture created with
+/// `COPY_SRC` — BGRA is swizzled — waiting for the GPU. Anything else is
+/// refused by name.
 pub fn read(gpu: &Gpu, texture: &wgpu::Texture) -> Result<Pixels, String> {
-    let (width, height) = (texture.width(), texture.height());
-    if texture.format().block_copy_size(None) != Some(4) {
-        return Err(format!("{:?} is not a four-byte format", texture.format()));
+    use wgpu::TextureFormat as F;
+    let bgra = match texture.format() {
+        F::Rgba8Unorm | F::Rgba8UnormSrgb => false,
+        F::Bgra8Unorm | F::Bgra8UnormSrgb => true,
+        other => return Err(format!("{other:?} is not an RGBA8 or BGRA8 format")),
+    };
+    let layers = texture.depth_or_array_layers();
+    if texture.dimension() != wgpu::TextureDimension::D2 || layers != 1 {
+        return Err(format!(
+            "a {:?} texture with {layers} layers is not one 2D layer",
+            texture.dimension()
+        ));
     }
+    let (width, height) = (texture.width(), texture.height());
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     let row = (width * 4).div_ceil(align) * align;
     let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -122,21 +146,38 @@ pub fn read(gpu: &Gpu, texture: &wgpu::Texture) -> Result<Pixels, String> {
                 rows_per_image: None,
             },
         },
-        texture.size(),
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
     );
     gpu.queue.submit([encoder.finish()]);
     let slice = buffer.slice(..);
-    slice.map_async(wgpu::MapMode::Read, |_| {});
+    // The map's own result, not inferred from the poll: a lost device or a
+    // refused map names itself.
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| {
+        let _ = tx.send(r);
+    });
     gpu.device
         .poll(wgpu::PollType::wait_indefinitely())
         .map_err(|e| format!("poll: {e:?}"))?;
+    rx.recv_timeout(Duration::from_secs(10))
+        .map_err(|_| "the map callback did not run".to_string())?
+        .map_err(|e| format!("map: {e:?}"))?;
     let mapped = slice
         .get_mapped_range()
         .map_err(|e| format!("map: {e:?}"))?;
     let mut data = Vec::with_capacity((width * height * 4) as usize);
     for y in 0..height {
         let start = (y * row) as usize;
-        data.extend_from_slice(&mapped[start..start + (width * 4) as usize]);
+        let line = &mapped[start..start + (width * 4) as usize];
+        if bgra {
+            data.extend(line.chunks_exact(4).flat_map(|p| [p[2], p[1], p[0], p[3]]));
+        } else {
+            data.extend_from_slice(line);
+        }
     }
     Ok(Pixels {
         width,

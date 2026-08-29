@@ -45,3 +45,23 @@ The defects are in the next shader, not aurora/map: skipped structs are a commen
 ## Verdict
 READY
 
+
+---
+
+## Disposition (orchestrator, 2026-08-29)
+
+Verified against the code before folding; each fold is held by a test named here. Findings 3, 4, 6, and 8 coincide with the codex review's 6, 3/4, 5, and 1 — folded once, recorded there too.
+
+1. MEDIUM (uniform sizes below 16; a dynamic array's size) — **NOT FOLDED; verified otherwise.** wgpu-core's only `% 16` rule is the downlevel `UnalignedShader` check on late-sized bindings at pipeline creation (`device/resource.rs:4943`), which a layout that names `min_binding_size` never enters; WebGPU has no 16-multiple rule on uniform binding sizes, and naga's size is exactly what wgpu derives for `layout: None`. naga 30 counts a runtime-sized array as one element (`proc/type_methods.rs`: `IndexableLength::Dynamic => 1`), so `min_binding_size` is `Some(stride)`, never `None` — the FLAG is resolved. Held by `bindings_carry_their_stages_and_kinds` (`counts: array<u32>` → 4) and the `Particles` case (8 + 16 = 24).
+2. MEDIUM (a skipped struct is a comment in `OUT_DIR`) — **CONFIRMED, FOLDED.** A struct with a trailing runtime-sized array (WGSL's one legal case) is generated from its fixed members, with `<NAME>_OFFSET` and `<NAME>_STRIDE` for the array and its element type generated beside it; any other shape that cannot be generated is a build error naming the struct and the member. No comment path remains. Held by `a_trailing_runtime_sized_array_is_an_offset_and_a_stride_beside_the_fixed_members`.
+3. MEDIUM (vertex convention; silent name reuse) — **FOLDED** with codex 2 and 6: `INPUTS` beside `LAYOUT`, the convention named; a name reused by a different attribute list is an error, the same WGSL struct is one Rust struct.
+4. MEDIUM (`at`; array layers) — **FOLDED** with codex 3 and 4.
+5. MEDIUM (`map_async`'s result discarded) — **FOLDED.** The callback's `Result` crosses an `mpsc` channel; after `poll(wait_indefinitely)` it is received (bounded at 10 s) and a refused map names itself rather than surfacing as a later `get_mapped_range` error.
+6. MEDIUM (a GPU-less runner is green) — **DECLARED**, as codex 5.
+7. MEDIUM (untested paths) — **FOLDED in part.** Added: `generate()` on a directory (a bad stem, a non-`.wgsl` file, the sources list), a binding used only through a helper (visibility is transitive), a storage texture's access and format, the trailing-array path, nested arrays (`let o1 = o0 + i1 * 4;`), a keyword field (`box` → `r#box`), `Default` dropped at 33 elements, two vertex entry points sharing a struct, every collision class, `write` zeroing, BGRA, refused formats and layers, `at` off the picture, `save` creating its directory. Not added: a matrix in a real shader on the GPU (no such shader exists yet); `struct type` (a WGSL reserved word, unreachable).
+8. LOW (filterable always true) — **FOLDED** as codex 1: it can be reflected, from naga's `sampling_set`, and now is.
+9. LOW (struct names and stems not keyword-checked) — **FOLDED.** `type_name` refuses a struct name that is not a Rust identifier or is a keyword (rename it in the WGSL); the registry covers `entry` and `wgpu`; stems were already checked.
+10. LOW (`read_dir` entry errors; `format:?`; `write` leaves padding) — **FOLDED.** A `read_dir` entry error fails `generate`; `storage_format` is an exhaustive match over naga's `StorageFormat` (a new variant is a compile error in this crate, not in `OUT_DIR`); `write` zeroes `out[..SIZE]` before the fields.
+11. LOW (`Rgba8Unorm`; `save`; the native-only module) — **AGREED; partly folded.** `render` keeps `Rgba8Unorm` and its doc now says why; `save` creates the directory. The FLAG: `nm -gU` on the release `libcaltrain_gpu.dylib` lists only the ten `gpu_*` exports and no `fixture` symbol — the linker drops it.
+
+Verdict READY binds to the reviewed tree; the folds above are unreviewed by this family.

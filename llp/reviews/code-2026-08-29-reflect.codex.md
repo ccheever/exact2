@@ -29,3 +29,17 @@ The current shaders and generated API are correct for their exercised shapes: Na
 ## Verdict
 
 NOT READY
+---
+
+## Disposition (orchestrator, 2026-08-29)
+
+Verified against the code before folding; each fold is held by a test named here.
+
+1. HIGH (every float texture filterable) — **CONFIRMED, FOLDED.** `binding_type` reads naga's per-entry-point `sampling_set` (transitive through calls, `valid/analyzer.rs:451`): a float texture is `filterable: true` exactly when some entry point samples it with a sampler, `false` when only `textureLoad` reads it or it is multisampled — the rule wgpu applies for `layout: None`. One layout per module (the union over entry points), not per entry point: a texture sampled in one stage and loaded in another is `filterable: true`, which the loading stage also accepts. Held by `gpu/reflect/tests/reflect.rs::a_float_texture_is_filterable_exactly_when_a_sampler_touches_it` (`tex` sampled → true; `lut` loaded → false) and the aurora's `CHILDREN` in `apps/caltrain/gpu/tests/shaders.rs`.
+2. MEDIUM (collision gaps) — **FOLDED.** One `Names` registry per generated module, seeded with `SOURCE`, `MODULE`, `entry`, `wgpu`, claims every binding const, `GROUP_n`, buffer struct, and vertex-input struct; the `entry` module has its own for `<NAME>` and `<NAME>_WORKGROUP_SIZE`; a duplicate is a build error naming both sides. A second vertex entry point that would reuse a name is an error unless it takes the same WGSL struct, in which case one Rust struct serves both. Held by `colliding_generated_names_are_refused_by_name` (`foo_bar`/`foo__bar` → `FooBarInput`; `struct entry`; `source`; `a_b`/`aB`) and `two_vertex_entry_points_sharing_one_struct_get_one_rust_struct`.
+3. MEDIUM (`read`'s contract) — **FOLDED.** `fixture::read` accepts one 2D layer (mip 0) of `Rgba8Unorm`, `Rgba8UnormSrgb`, `Bgra8Unorm`, or `Bgra8UnormSrgb`, swizzles BGRA to RGBA, copies exactly `width × height × 1`, and refuses anything else by name; `Pixels` is documented RGBA. Held by `gpu/tests/fixture.rs::a_bgra_texture_comes_back_rgba` and `other_formats_and_array_textures_are_refused_by_name` (`R32Float`; two layers).
+4. LOW (`Pixels::at` unchecked) — **FOLDED.** Asserts `x < width && y < height`, naming the coordinate and the picture. Held by `a_pixel_off_the_picture_panics`.
+5. MEDIUM (a skip is a pass; no Chrome comparison) — **DECLARED, NOT FOLDED.** A required-adapter mode is a check, and `rules/RULES.md` §Agents says a human asks for one; proposed to Charlie as `EXACT_GPU_REQUIRED=1` making `fixture::device()` fail instead of skip, for a labelled GPU host. The native-versus-Chrome comparison within declared bands is LLP 1009 §4 open question 1, unchanged.
+6. LOW (the vertex layout is a convention) — **FOLDED.** The generated struct carries `INPUTS: &[(u32, VertexFormat)]` — what the shader declares — beside `LAYOUT`, whose doc names it as this generator's convention (one per-vertex buffer, tightly interleaved in declaration order) and says another policy is another const beside it; the crate docs say the same. Several buffers and instance-rate attributes remain undone. Held by `entry_points_and_vertex_inputs_are_named_and_packed`.
+
+Verdict NOT READY binds to the reviewed tree; the folds above are unreviewed by this family.
