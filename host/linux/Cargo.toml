@@ -1,6 +1,6 @@
 # The Linux host: the runner and kernel natively, laying out with Taffy and
 # measuring text with cosmic-text, running exact-motion, painting the kernel
-# tree itself with tiny-skia — the kernel is the display list — onto DRM/KMS
+# tree itself (vello on the GPU, tiny-skia on the CPU) — the kernel is the display list — onto DRM/KMS
 # dumb buffers with evdev input, or into a buffer with no display at all.
 # Pure Rust end to end: no system library is linked, so it builds on any
 # Linux (and on macOS, headless, for the seconds-loop).
@@ -12,7 +12,7 @@ name = "exact-linux"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Linux host: the kernel tree painted by the host, on DRM/KMS or into a buffer"
+description = "Linux host: the kernel tree painted by the host — vello on the GPU, tiny-skia on the CPU — on DRM/KMS or into a buffer"
 publish = false
 
 [lib]
@@ -25,8 +25,14 @@ exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
 tiny-skia = "0.12"
-cosmic-text = "0.19"
+cosmic-text = { version = "0.19", features = ["peniko"] }
 png = "0.18"
+# The GPU painter: vello over wgpu, rendering the same display list into a
+# texture the host reads back. vello 0.10 pins wgpu 29; the on-demand GPU
+# module (`gpu/`) is on 30 — two builds of wgpu until vello moves, never one
+# device shared (the module is a separate artifact).
+vello = "0.10"
+wgpu = { version = "29", default-features = false, features = ["wgsl", "metal", "vulkan"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 drm = "0.15"

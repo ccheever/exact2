@@ -14,8 +14,8 @@
 //! once per (glyph, color) into small premultiplied pixmaps.
 
 use cosmic_text::{
-    Align, Attrs, Buffer, CacheKey, Ellipsize, EllipsizeHeightLimit, Family, FontSystem, Metrics,
-    Shaping, Style, SwashCache, SwashContent, Weight, Wrap,
+    fontdb, Align, Attrs, Buffer, CacheKey, Ellipsize, EllipsizeHeightLimit, Family, FontSystem,
+    Metrics, PenikoFont, Shaping, Style, SwashCache, SwashContent, Weight, Wrap,
 };
 use exact_kernel::{AxisOffer, TextAlign, TextMeasureRequest, TextMeasurer, TextMetrics};
 use std::cell::RefCell;
@@ -121,6 +121,18 @@ struct Glyph {
     top: i32,
 }
 
+/// A run of glyphs from one font at one size, for a backend that draws
+/// outlines itself (the GPU): glyph ids with their positions in points from
+/// the paragraph's top-left.
+pub struct GlyphRun {
+    /// The font's data and collection index.
+    pub font: PenikoFont,
+    /// Points.
+    pub size: f32,
+    /// (glyph id, x, y) — y is the baseline.
+    pub glyphs: Vec<(u32, f32, f32)>,
+}
+
 /// The engine: fonts, the paragraph cache, the glyph cache, the counters.
 pub struct TextEngine {
     fonts: FontSystem,
@@ -128,12 +140,57 @@ pub struct TextEngine {
     paragraphs: HashMap<String, Rc<Paragraph>>,
     glyphs: HashMap<(CacheKey, u32), Option<Rc<Glyph>>>,
     normal: HashMap<(u32, u16, bool), f32>,
+    font_data: HashMap<(fontdb::ID, u16), Option<PenikoFont>>,
     /// How many times the kernel asked, since launch.
     pub measures: usize,
     /// How many were answered from cache.
     pub hits: usize,
     /// Time spent shaping on misses.
     pub shaping: Duration,
+    /// The family `sans-serif` resolves to.
+    pub sans: String,
+}
+
+/// The installed family `sans-serif` should mean: `EXACT_FONT`, else the
+/// database's default when it is installed, else the first present of
+/// fontconfig's preference list for `sans-serif` (60-latin.conf) with the
+/// platform's own families after it.
+fn sans_family(db: &fontdb::Database) -> Option<String> {
+    let installed = |name: &str| {
+        db.faces()
+            .any(|f| f.families.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)))
+    };
+    if let Ok(name) = std::env::var("EXACT_FONT") {
+        if installed(&name) {
+            return Some(name);
+        }
+        eprintln!("exact: EXACT_FONT {name} is not an installed family");
+    }
+    let current = db.family_name(&fontdb::Family::SansSerif).to_string();
+    if installed(&current) {
+        return Some(current);
+    }
+    // fontconfig's 60-latin.conf order on Linux; the browser's on macOS.
+    let preferred: &[&str] = if cfg!(target_os = "macos") {
+        &["Helvetica Neue", "Helvetica", "Arial", "Verdana"]
+    } else {
+        &[
+            "Noto Sans",
+            "DejaVu Sans",
+            "Verdana",
+            "Arial",
+            "Liberation Sans",
+            "Nimbus Sans",
+            "Cantarell",
+            "Ubuntu",
+            "Roboto",
+            "Segoe UI",
+        ]
+    };
+    preferred
+        .iter()
+        .find(|n| installed(n))
+        .map(|n| n.to_string())
 }
 
 /// The engine shared between the measurer and the painter.
@@ -146,7 +203,14 @@ impl Default for TextEngine {
 }
 
 impl TextEngine {
-    /// Load the system's fonts (`EXACT_FONTS` adds a directory).
+    /// Load the system's fonts (`EXACT_FONTS` adds a directory) and settle
+    /// what `sans-serif` means: `EXACT_FONT` when set, else the first
+    /// installed family in fontconfig's own preference order — the answer
+    /// a browser gets from `fc-match sans-serif`. Left to its default,
+    /// cosmic-text names a family that may not exist ("Open Sans" on Linux),
+    /// and its per-glyph fallback then scores every font on the machine by
+    /// weight: at 600 the Caltrain app's button came out in URW Bookman with
+    /// a space from Noto Color Emoji, 16 pt wide.
     pub fn new() -> TextEngine {
         let mut fonts = FontSystem::new();
         if let Ok(dir) = std::env::var("EXACT_FONTS") {
@@ -155,12 +219,18 @@ impl TextEngine {
         if fonts.db().faces().next().is_none() {
             eprintln!("exact: no fonts found; text will not shape (set EXACT_FONTS to a directory of .ttf files)");
         }
+        let sans = sans_family(fonts.db());
+        if let Some(name) = &sans {
+            fonts.db_mut().set_sans_serif_family(name.clone());
+        }
         TextEngine {
+            sans: sans.unwrap_or_default(),
             fonts,
             swash: SwashCache::new(),
             paragraphs: HashMap::new(),
             glyphs: HashMap::new(),
             normal: HashMap::new(),
+            font_data: HashMap::new(),
             measures: 0,
             hits: 0,
             shaping: Duration::ZERO,
@@ -420,6 +490,49 @@ impl TextEngine {
                 mask,
             );
         }
+    }
+}
+
+impl TextEngine {
+    /// A font's data handle (shared, cheap to clone), cached.
+    pub fn font_data(&mut self, id: fontdb::ID, weight: Weight) -> Option<PenikoFont> {
+        let key = (id, weight.0);
+        if let Some(f) = self.font_data.get(&key) {
+            return f.clone();
+        }
+        let f = self.fonts.get_font(id, weight).map(|f| f.as_peniko());
+        self.font_data.insert(key, f.clone());
+        f
+    }
+
+    /// A paragraph as glyph runs grouped by font and size, positions in
+    /// points from the paragraph's top-left, the same numbers the raster
+    /// path snaps to pixels.
+    pub fn glyph_runs(&mut self, paragraph: &Paragraph) -> Vec<GlyphRun> {
+        type Key = (fontdb::ID, u16, u32);
+        type Runs = Vec<(Key, Vec<(u32, f32, f32)>)>;
+        let mut runs: Runs = Vec::new();
+        for run in paragraph.buffer.layout_runs() {
+            for g in run.glyphs {
+                let key = (g.font_id, g.font_weight.0, g.font_size.to_bits());
+                let x = g.x + g.x_offset * g.font_size;
+                let y = run.line_y + g.y - g.y_offset * g.font_size;
+                match runs.last_mut() {
+                    Some((k, glyphs)) if *k == key => glyphs.push((g.glyph_id as u32, x, y)),
+                    _ => runs.push((key, vec![(g.glyph_id as u32, x, y)])),
+                }
+            }
+        }
+        runs.into_iter()
+            .filter_map(|((id, weight, size), glyphs)| {
+                let font = self.font_data(id, Weight(weight))?;
+                Some(GlyphRun {
+                    font,
+                    size: f32::from_bits(size),
+                    glyphs,
+                })
+            })
+            .collect()
     }
 }
 

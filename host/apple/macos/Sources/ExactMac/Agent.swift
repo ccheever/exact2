@@ -32,9 +32,13 @@ enum Agent {
         switch op {
         case "quit": exit(0)
         case "layout": reply(layout())
-        case "tap": reply(tap(req))
-        case "type": reply(type(req))
-        case "clock": reply(clock(req))
+        // A call that moved something settles the canvases before it
+        // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
+        // after a frame, so the frame is rendered here, not left to the
+        // display link to get to between two calls).
+        case "tap": let r = tap(req); canvases.settle(now: now()); reply(r)
+        case "type": let r = type(req); canvases.settle(now: now()); reply(r)
+        case "clock": let r = clock(req); canvases.settle(now: now()); reply(r)
         case "screenshot": reply(screenshot(req))
         default: print(Exact.agent(line))
         }
@@ -53,6 +57,16 @@ enum Agent {
     /// as the web's `getBoundingClientRect` includes CSS transforms.
     static func box(_ v: NSView) -> NSRect {
         let clip = presenter.viewport.contentView
+        // Under a child a canvas's surface has placed (LLP 1014 D5): the box
+        // where it is seen, through the placement, not the kernel's.
+        if let n = v as? NodeView, let placed = n.placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView {
+            let corners = [NSPoint(x: 0, y: 0), NSPoint(x: v.bounds.width, y: 0), NSPoint(x: v.bounds.width, y: v.bounds.height), NSPoint(x: 0, y: v.bounds.height)]
+                .map { NodeView.map(h, placed.convert($0, from: v)) }
+            let xs = corners.map { $0.x }, ys = corners.map { $0.y }
+            let inCanvas = NSRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+            let r = canvas.convert(inCanvas, to: clip)
+            return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
+        }
         let r = v.convert(v.bounds.applying(v.layer?.affineTransform() ?? .identity), to: clip)
         return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
     }
@@ -76,8 +90,11 @@ enum Agent {
 
     static func tap(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
-        let p = v.convert(NSPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
         let b = box(v)
+        // The middle of the box as seen — through a surface's placement when
+        // there is one (LLP 1014 D5) — as a point in the window.
+        let clip = presenter.viewport.contentView
+        let p = clip.convert(NSPoint(x: b.midX + clip.bounds.origin.x, y: b.midY + clip.bounds.origin.y), to: nil)
         let at = [r2(b.midX), r2(b.midY)]
         if let wheel = req["wheel"] as? [Double], wheel.count == 2 {
             // The web's sign (a positive dy scrolls down), pixel units, no

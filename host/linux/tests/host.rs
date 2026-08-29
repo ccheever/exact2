@@ -80,15 +80,15 @@ fn the_tree_lays_out_with_real_text_and_every_node_has_a_box() {
     let mut p = boot();
     let live = p.host().kernel().live_count();
     assert_eq!(p.boxes().len(), live, "every live node is painted");
-    // The root is a block: as wide as the viewport, as tall as its content —
-    // the document a browser's viewport scrolls over.
+    // The root is a block as wide as the viewport and, since the app lives
+    // inside a sky canvas that fills the window (LLP 1014 §1a), as tall as
+    // it: its `scroll` child holds the page.
     let root = boxed(&mut p, "caltrain-main");
     assert_eq!(
-        (root.rect.0, root.rect.1, root.rect.2),
-        (0.0, 0.0, 390.0),
+        (root.rect.0, root.rect.1, root.rect.2, root.rect.3),
+        (0.0, 0.0, 390.0, 844.0),
         "{root:?}"
     );
-    assert!(root.rect.3 > 844.0, "taller than the viewport: {root:?}");
     let name = boxed(&mut p, "station-name");
     assert!(
         name.rect.2 > 0.0 && name.rect.3 > 20.0,
@@ -158,26 +158,28 @@ fn typing_replaces_the_value_and_the_runner_hears_one_change() {
 }
 
 #[test]
-fn a_wheel_scrolls_the_page_when_the_inner_container_cannot() {
+fn a_wheel_scrolls_the_apps_scroll_node_and_the_page_stays() {
+    // The app's page is the `scroll` inside the sky canvas (LLP 1014 §1a):
+    // the wheel goes there, and the page — the viewport over a document
+    // exactly its size — has nothing to take.
     let mut p = boot();
     let before = boxed(&mut p, "station-name").rect.1;
     let reply = p.wheel(view(&p, "station-name"), 0.0, 300.0).unwrap();
     assert!(reply.contains("\"wheel\":[0,300]"), "{reply}");
-    assert_eq!(p.page(), (0.0, 300.0), "the page took it");
+    assert_eq!(p.page(), (0.0, 0.0), "the page has nothing to scroll");
     assert_eq!(boxed(&mut p, "station-name").rect.1, before - 300.0);
-    let inner = p
-        .boxes()
-        .iter()
-        .find(|b| b.scroll.is_some())
-        .unwrap()
-        .scroll;
-    assert_eq!(
-        inner,
-        Some((0.0, 0.0)),
-        "the app's scroll node does not overflow"
-    );
-    // Up past the top stops at the top.
-    let _ = p.wheel(view(&p, "station-name"), 0.0, -1000.0);
+    let inner = |p: &mut Presenter<caltrain_data::Caltrain>| {
+        p.boxes()
+            .iter()
+            .find(|b| b.scroll.is_some())
+            .unwrap()
+            .scroll
+    };
+    assert_eq!(inner(&mut p), Some((0.0, 300.0)), "the scroll node took it");
+    // Up past the top stops at the top (over the root: the station's name
+    // has scrolled off the viewport by now).
+    let _ = p.wheel(view(&p, "caltrain-main"), 0.0, -1000.0);
+    assert_eq!(inner(&mut p), Some((0.0, 0.0)));
     assert_eq!(p.page(), (0.0, 0.0));
 }
 

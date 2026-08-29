@@ -249,6 +249,55 @@ rmSync(tmp, { recursive: true, force: true });
   rmSync(tmp, { recursive: true, force: true });
 }
 
+// 11. The deck and the materials (LLP 1014 §1a, §1b): `Deck` opens a canvas
+// whose cards are the kernel's buttons — placed by the surface on macOS, a
+// column over the surface on the web and on Linux (D2) — and a tap on a
+// card focuses it. On macOS the placements are settled before every reply
+// (§1c): at clock 0 the deck is closed, its cards placed near the top of the
+// canvas, and the canvas's middle is nothing but kernel frames — a tap there
+// reaches no card. Two seconds of the agent's clock move the springs. A
+// material button switches the sky.
+{
+  const d = await open({ host });
+  try {
+    await d.tap('deck-toggle');
+    let st = await d.state();
+    check(st.slots.deck === true, `the deck did not open (${JSON.stringify(st.slots.deck)})`);
+    let l = await d.layout();
+    const cards = l.nodes.filter((n) => n.testId?.startsWith('card-'));
+    check(cards.length >= 2, `the deck has ${cards.length} card(s)`);
+    if (host === 'macos') {
+      const deck = box(l, 'deck');
+      const onCanvas = cards.filter((c) => c.x < deck.x + deck.w && c.x + c.w > deck.x);
+      check(onCanvas.length > 0 && onCanvas.length < cards.length, `${onCanvas.length} of ${cards.length} cards placed on the canvas (a closed deck shows a few; the rest are off it)`);
+      const low = onCanvas.filter((c) => c.y + c.h > deck.y + deck.h / 2);
+      check(low.length === 0, `${low.length} card(s) placed in the lower half of a closed deck: ${low.slice(0, 2).map((c) => `${c.testId} y=${c.y} h=${c.h}`).join(', ')}`);
+      await d.tap('deck');
+      st = await d.state();
+      check(st.slots.focus === null, `a tap on the canvas's middle, outside every placed card, focused ${JSON.stringify(st.slots.focus)} — a kernel frame was hit`);
+    }
+    // The front card: a tap lands on the middle of a card's box as seen, and
+    // on a closed deck every card but the first is mostly behind the one in
+    // front of it, which is what the tap then reaches (the browser's rule).
+    await d.tap(cards[0].testId);
+    st = await d.state();
+    check(st.slots.focus === cards[0].testId.slice(5), `a tap on ${cards[0].testId} focused ${JSON.stringify(st.slots.focus)}`);
+    await d.clock('+2000');
+    l = await d.layout();
+    if (host === 'macos') {
+      const later = l.nodes.filter((n) => n.testId?.startsWith('card-'));
+      const moved = later.filter((c, i) => cards[i] && Math.abs(c.y - cards[i].y) > 1).length;
+      check(moved > 0, 'two seconds on, no card moved: the springs did not run on the agent clock');
+    }
+    await d.tap('material-crt');
+    st = await d.state();
+    check(st.slots.material === 'crt', `the material is ${JSON.stringify(st.slots.material)}`);
+    console.log(`${host} deck: ${cards.length} cards, ${cards[0].testId} focused by a tap; material crt`);
+  } finally {
+    await d.close();
+  }
+}
+
 // 11. Motion under the clock (LLP 1012 §2, the motion fixture): three boxes
 // scale 1 → 2 — a 250 ms linear transition and a spring on a press, a 500 ms
 // linear transition when a timer fires at t = 1000. Nothing plays between

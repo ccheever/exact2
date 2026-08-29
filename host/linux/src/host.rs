@@ -25,6 +25,7 @@ use std::collections::BTreeMap;
 pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
+    Painter(String),
 }
 
 impl std::fmt::Display for HostError {

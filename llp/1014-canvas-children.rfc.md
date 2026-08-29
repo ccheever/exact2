@@ -1,7 +1,7 @@
 # LLP 1014: Canvas children — laid out by the kernel, over the surface everywhere, through it natively
 
 **Type:** RFC
-**Status:** Accepted (Charlie Cheever, 2026-08-29, unreviewed; written that day from the probe of the same day and built the same day — §2 steps 1 and 2 landed, LLP 1014.000 transcribes them and names what step 3 still owes; §3's numbers are the probe's, confirmed in the tree. The §5 doing-list take is still owed: the proposed `Svg` take was withdrawn in LLP 1009 r3 as freeing no v1 capacity, see §5.)
+**Status:** Accepted (Charlie Cheever, 2026-08-29, unreviewed; written that day from the probe of the same day and built the same day — §2 steps 1 and 2 landed, LLP 1014.000 transcribes them and names what step 3 still owes; §3's numbers are the probe's, confirmed in the tree. The §5 doing-list take, delegated by Charlie the same day: the three gradient style rows leave the schema — 1009's proposed take for this door, applied here.)
 **Systems:** Kernel (`Canvas` holds children), Contract (`canvas` children; corpus), Web host (a wrapper element), Apple host (the overlay, capture, the hook list), GPU module (one export, two trait methods), Linux host (the painter decision this informs)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
@@ -90,7 +90,9 @@ scrolling and motion inside a canvas are recaptured, not composited, and a
 scroll view through a shader is the case this RFC does not recommend.
 
 **D5 — Geometry is the kernel's: a surface may distort pixels, not boxes.** No
-transform in v1. Hit-testing and accessibility come from the kernel's frames
+transform in v1. *(Built 2026-08-30 as the later decision described below —
+LLP 1014.000 §1b: per-child textures, placements with depth, hit-testing and
+accessibility through them, the card stack as the consumer.)* Hit-testing and accessibility come from the kernel's frames
 through the alpha-0 overlay — AppKit hit-tests through alpha 0 (verified, §3)
 and does not through `isHidden`, which is why alpha. Transforms are a later
 decision in the browser's shape (`updateElementGeometry`): the surface returns
@@ -102,7 +104,8 @@ a hit-test callback into the surface. Per-child textures — the browser's
 with its kernel frame, when a surface asks; nothing in v1 forecloses it.
 
 **Not decided here, deliberately:** nested canvases (the inner surface as a
-module-owned texture composed by the outer — the browser's reverse-tree order);
+module-owned texture composed by the outer — the browser's reverse-tree order;
+*built 2026-08-30 by readback, LLP 1014.000 §1a*);
 text selection inside a canvas (none on macOS yet, LLP 1008 §7); the web
 executor if a browser ships HTML-in-Canvas; the accessibility role of children
 under a canvas (§4).
@@ -157,9 +160,10 @@ The spec (1014.000) transcribes the landing.
 
 ## 4. Open questions
 
-1. The `gpu_render` tail: pre-existing (`nextDrawable` back-pressure with two
-   canvases presenting per tick, under the smoke's storm) or not — measure the
-   unpatched build.
+1. ~~The `gpu_render` tail~~ — answered in LLP 1014.000 §3: no tail in steady
+   state (p50 0.5 ms, max < 1 ms at 120 Hz); ~1.5 s of frame-long acquires
+   after the window appears; and a window that cannot be seen, which the
+   presenter now skips.
 2. The accessibility role of children under a canvas — `AXUnknown` today for
    every text node, not only these; whether this lane is where LLP 1008 §7's
    gap closes for text.
@@ -178,9 +182,14 @@ same PR.
   `svgSource` leave `schema.json` — is **withdrawn**: LLP 1009's round-2
   reviews found the same swap frees no v1 capacity (LLP 1001 §9 already puts
   SVG rasterization outside v1) and it was withdrawn there in r3; deleting an
-  unused node type is cleanup, not a trade. **The doing-list take is owed and
-  is Charlie's to name** (1009 §5's candidates apply), recorded here as the
-  obligation Acceptance carries.
+  unused node type is cleanup, not a trade. **The take, named by delegation
+  (Charlie, 2026-08-29) and applied: the three gradient style rows —
+  `gradient_type`, `gradient_angle`, `gradient_colors` — leave
+  `schema.json`**, with their `GradientType` vocabulary. LLP 1009 §5 proposed
+  exactly this for the door it opened; it was declared in v1, lowered by no
+  host (both skipped the rows by name) and no Contract attribute, and a
+  gradient with anything on it is now a canvas surface with children. They
+  return when a host earns them.
 - Nothing else moves: D3 and D4 are the presenter's, D5 declines a feature.
 
 ## Ratification note
@@ -188,5 +197,5 @@ same PR.
 Accepted by Charlie Cheever 2026-08-29 on this text, unreviewed, the same
 day it was written from the probe and built in the main tree (LLP 1014.000);
 the probe's worktree is gone, its diff kept in the session's scratchpad and
-its report in the artifact "Text Through the Aurora". Owed: §5's doing-list
-take, Charlie's to name.
+its report in the artifact "Text Through the Aurora". §5's take applied the
+same day by delegation: the gradient rows are out.

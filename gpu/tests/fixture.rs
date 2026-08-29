@@ -87,6 +87,7 @@ fn a_frame_reads_back_unpadded_and_as_a_ppm() {
         height: 2.0,
         scale: 1.0,
         now_ms: 0.0,
+        children_generation: 0,
     };
     let (px, wants) = fixture::render(&gpu, &mut fill, &frame).unwrap();
     assert!(!wants);
@@ -109,6 +110,7 @@ fn a_bgra_texture_comes_back_rgba() {
         height: 2.0,
         scale: 1.0,
         now_ms: 0.0,
+        children_generation: 0,
     };
     fill.render(
         &frame,

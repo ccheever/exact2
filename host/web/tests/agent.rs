@@ -42,10 +42,20 @@ fn tree_lists_every_live_node_in_preorder_with_props_and_handlers() {
 fn state_is_typed_json_with_field_names() {
     let host = boot();
     let state = host.agent(r#"{"op":"state"}"#);
-    assert!(
-        state.starts_with("{\"clock\":0,\"slots\":{\"nowMs\":1787915400000,\"screen\":\"home\",\"stationId\":null,\"query\":\"\"}"),
-        "{state}"
-    );
+    assert!(state.starts_with("{\"clock\":0,\"slots\":{"), "{state}");
+    // Every slot by name, typed (LLP 1014 added the sky's material, the
+    // deck, and its focus).
+    for slot in [
+        "\"nowMs\":1787915400000",
+        "\"screen\":\"home\"",
+        "\"stationId\":null",
+        "\"query\":\"\"",
+        "\"material\":\"glass\"",
+        "\"deck\":false",
+        "\"focus\":null",
+    ] {
+        assert!(state.contains(slot), "{slot} in {state}");
+    }
     assert!(
         state.contains("\"derives\":{\"selectedId\":\"mv\"}"),
         "{state}"

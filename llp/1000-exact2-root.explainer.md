@@ -70,7 +70,8 @@ and this one does not. Read them first.
 - `host/linux/` — `exact-linux`, the Linux host and the first that paints: the
   runner and kernel natively, cosmic-text measuring and painting from one
   paragraph cache, `exact-motion` as the executor, and the kernel tree drawn
-  with tiny-skia — the kernel is the display list, no batch and no mirror —
+  by one walk over a backend — vello on the GPU, tiny-skia on the CPU where
+  there is none — the kernel is the display list, no batch and no mirror —
   onto DRM/KMS dumb buffers with evdev input, or into a buffer with no display
   at all (the agent API over stdio, a screenshot, the smoke — on fleet Linux
   and on macOS). Pure Rust; no system library is linked. `apps/caltrain/linux`

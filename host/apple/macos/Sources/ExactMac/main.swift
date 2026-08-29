@@ -95,6 +95,13 @@ window.initialFirstResponder = presenter.viewport
 window.autorecalculatesKeyViewLoop = false
 stamp("contentView")
 window.center()
+// Agent-driven apps run side by side (every session's smoke launches one):
+// centred, each would cover the last and starve its Metal layer of drawables.
+// Spread them by pid so no window is fully hidden.
+if agentMode {
+    let k = CGFloat(Int(getpid()) % 6)
+    window.setFrameOrigin(NSPoint(x: window.frame.origin.x - 120 + 48 * k, y: window.frame.origin.y + 60 - 24 * k))
+}
 stamp("center")
 
 final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -107,6 +114,11 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowDidResize(_ notification: Notification) {
         let s = presenter.viewport.contentSize
         apply(Exact.resize(width: s.width, height: s.height))
+    }
+    /// Seen again, or no longer: the canvases follow (`Canvases.visible`).
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        canvases.occlusionChanged()
+        frames.run(frames.motion || canvases.wantsFrames)
     }
 }
 let delegate = Delegate()

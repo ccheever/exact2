@@ -43,13 +43,14 @@ fn the_map_binds_its_inputs_and_lays_out_stations_on_a_line() {
     map.bind(&[line.clone(), Value::str("mv"), board, Value::Number(0.0)])
         .unwrap();
     let v = map.vertices(200.0, 160.0);
-    // The line (6), three stations (18), the train (6).
-    assert_eq!(v.len(), 30);
-    let red = v
+    // The line (6) and the train (6); the stations are the canvas's
+    // children, laid out by the kernel (LLP 1014).
+    assert_eq!(v.len(), 12);
+    let blue = v
         .iter()
-        .filter(|x| x.color[0] > 0.7 && x.color[1] < 0.3)
+        .filter(|x| x.color[2] > 0.8 && x.color[0] < 0.3)
         .count();
-    assert_eq!(red, 6, "the selected station is the red dot");
+    assert_eq!(blue, 6, "the train is the blue dot");
     assert!(
         map.bind(&[
             line,
@@ -79,6 +80,7 @@ fn the_map_renders_and_reads_back_on_this_machines_gpu() {
         height: 160.0,
         scale: 1.0,
         now_ms: 0.0,
+        children_generation: 0,
     };
     let (px, wants) = fixture::render(&gpu, &mut map, &frame).unwrap();
     assert!(!wants, "a static picture wants no more frames");
@@ -88,10 +90,11 @@ fn the_map_renders_and_reads_back_on_this_machines_gpu() {
         [247, 247, 247, 255],
         "the background is the clear color"
     );
-    let mid = px.at(100, 80);
-    assert!(
-        mid[0] > 150 && mid[1] < 100,
-        "the selected station's red dot sits mid-line: {mid:?}"
+    let beside = px.at(120, 80);
+    assert_eq!(
+        beside,
+        [247, 247, 247, 255],
+        "no dots: the stations are the canvas's children"
     );
     let on_line = px.at(100, 40);
     assert!(
@@ -114,6 +117,7 @@ fn the_aurora_renders_a_lit_sky_and_wants_every_frame() {
         height: 64.0,
         scale: 1.0,
         now_ms: 1234.0,
+        children_generation: 0,
     };
     let (px, wants) = fixture::render(&gpu, &mut sky, &frame).unwrap();
     assert!(wants, "lit from the clock: wants every frame");

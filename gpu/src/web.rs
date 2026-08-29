@@ -72,6 +72,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         height,
         scale,
         now_ms,
+        children_generation: 0,
     };
     match with(|m| m.render(id, &frame)).flatten() {
         Some(true) => 1,

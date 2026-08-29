@@ -196,6 +196,7 @@ in the same PR.
   gradient style rows** (`gradient_type`, `gradient_angle`,
   `gradient_colors`) leave `schema.json` — declared in v1, implemented by
   no host, and a canvas draws a gradient; they return when a host earns
+  them. *(Applied 2026-08-29 under LLP 1014 §5, the same door widened.)*
   them. (Round 3 held that deferring iOS is a reorder and dropping the
   agent's screenshot an alias; both withdrawn.)
 - **§Runtime, the wording "compiles no shaders at runtime"** — amend to

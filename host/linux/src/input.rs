@@ -7,7 +7,7 @@
 
 #![allow(unsafe_code)]
 
-use evdev::{Device, EventSummary, EventType, RelativeAxisCode};
+use evdev::{AbsoluteAxisCode, Device, EventSummary, EventType, RelativeAxisCode};
 use std::os::fd::AsRawFd;
 
 /// One thing the user did.
@@ -15,6 +15,9 @@ use std::os::fd::AsRawFd;
 pub enum InputEvent {
     /// The pointer moved by (dx, dy) device pixels.
     Motion(f32, f32),
+    /// The pointer is at a fraction of the screen (an absolute device — a
+    /// tablet, a KVM's mouse): `None` on an axis that did not move.
+    Absolute(Option<f32>, Option<f32>),
     /// The primary button went down (`true`) or up.
     Button(bool),
     /// A wheel: (dx, dy) in points, the web's sign (a positive `dy` scrolls
@@ -40,9 +43,12 @@ pub enum Key {
 /// Points per wheel notch — the browser's tick.
 pub const LINE: f32 = 40.0;
 
+/// An absolute device's (min, max) per axis, x then y.
+type Ranges = [(i32, i32); 2];
+
 /// Every device that points or types.
 pub struct Input {
-    devices: Vec<Device>,
+    devices: Vec<(Device, Option<Ranges>)>,
     shift: bool,
 }
 
@@ -54,10 +60,24 @@ impl Input {
         let mut devices = Vec::new();
         for (_, d) in evdev::enumerate() {
             let pointer = d.supported_events().contains(EventType::RELATIVE);
+            // An absolute pointer: ABS_X/ABS_Y with their ranges (a KVM's
+            // mouse, a tablet); a touchpad's multitouch is not read.
+            let absolute = d
+                .supported_absolute_axes()
+                .is_some_and(|a| {
+                    a.contains(AbsoluteAxisCode::ABS_X) && a.contains(AbsoluteAxisCode::ABS_Y)
+                })
+                .then(|| d.get_abs_state().ok())
+                .flatten()
+                .map(|abs| {
+                    let x = abs[AbsoluteAxisCode::ABS_X.0 as usize];
+                    let y = abs[AbsoluteAxisCode::ABS_Y.0 as usize];
+                    [(x.minimum, x.maximum), (y.minimum, y.maximum)]
+                });
             let keyboard = d.supported_keys().is_some_and(|k| {
                 k.contains(evdev::KeyCode::KEY_A) || k.contains(evdev::KeyCode::BTN_LEFT)
             });
-            if !(pointer || keyboard) {
+            if !(pointer || absolute.is_some() || keyboard) {
                 continue;
             }
             // SAFETY: fcntl on a file descriptor this process owns; the
@@ -69,7 +89,7 @@ impl Input {
                     libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
                 }
             }
-            devices.push(d);
+            devices.push((d, absolute));
         }
         Input {
             devices,
@@ -89,18 +109,32 @@ impl Input {
 
     /// The descriptors to poll.
     pub fn fds(&self) -> Vec<i32> {
-        self.devices.iter().map(|d| d.as_raw_fd()).collect()
+        self.devices.iter().map(|(d, _)| d.as_raw_fd()).collect()
     }
 
     /// Everything that arrived since the last read.
     pub fn read(&mut self) -> Vec<InputEvent> {
         let mut out = Vec::new();
-        for d in &mut self.devices {
+        for (d, absolute) in &mut self.devices {
             let Ok(events) = d.fetch_events() else {
                 continue;
             };
+            let fraction = |range: (i32, i32), v: i32| {
+                let span = (range.1 - range.0).max(1) as f32;
+                ((v - range.0) as f32 / span).clamp(0.0, 1.0)
+            };
             for e in events {
                 match e.destructure() {
+                    EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_X, v) => {
+                        if let Some(r) = absolute {
+                            out.push(InputEvent::Absolute(Some(fraction(r[0], v)), None));
+                        }
+                    }
+                    EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_Y, v) => {
+                        if let Some(r) = absolute {
+                            out.push(InputEvent::Absolute(None, Some(fraction(r[1], v))));
+                        }
+                    }
                     EventSummary::RelativeAxis(_, RelativeAxisCode::REL_X, v) => {
                         out.push(InputEvent::Motion(v as f32, 0.0))
                     }

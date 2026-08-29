@@ -76,6 +76,12 @@ final class NodeView: NSView, NSTextFieldDelegate {
     var overlay: FlippedView?
     var needsCapture = false
     var paintedThisTurn = false
+    /// Where a canvas's surface put this direct child (LLP 1014 D5): a 3×3
+    /// homography, row major, from this node's own points to the canvas's,
+    /// then its depth (larger nearer); `nil` is the kernel's frame.
+    /// Hit-testing inverts it, nearest child first; accessibility reports the
+    /// mapped box.
+    var placement: [Double]?
     /// An image node's picture, once loaded (decoded off the main thread),
     /// the source it came from, and which load is current: a completion
     /// from an older load, or for a view that was destroyed, is dropped.
@@ -209,6 +215,96 @@ final class NodeView: NSView, NSTextFieldDelegate {
 
     @objc func clipScrolled() { repaintThrough() }
 
+    /// The direct child of a canvas this node is under, when that child is
+    /// placed by the surface: the node whose `placement` maps this subtree.
+    var placedAncestor: NodeView? {
+        var v: NSView? = self
+        while let n = v {
+            if let node = n as? NodeView, node.placement != nil { return node }
+            if let s = n.superview as? FlippedView, s.superview is NodeView, (s.superview as? NodeView)?.overlay === s { return nil }
+            v = n.superview
+        }
+        return nil
+    }
+
+    /// A homography applied to a point (row major, projective).
+    static func map(_ h: [Double], _ p: NSPoint) -> NSPoint {
+        let w = h[6] * p.x + h[7] * p.y + h[8]
+        guard abs(w) > 1e-9 else { return NSPoint(x: CGFloat.infinity, y: CGFloat.infinity) }
+        return NSPoint(x: (h[0] * p.x + h[1] * p.y + h[2]) / w, y: (h[3] * p.x + h[4] * p.y + h[5]) / w)
+    }
+
+    /// The inverse of a 3×3 (row major), or nil when singular.
+    static func invert(_ h: [Double]) -> [Double]? {
+        let (a, b, c, d, e, f, g, hh, i) = (h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8])
+        let det = a * (e * i - f * hh) - b * (d * i - f * g) + c * (d * hh - e * g)
+        guard abs(det) > 1e-12 else { return nil }
+        let inv = [e * i - f * hh, c * hh - b * i, b * f - c * e,
+                   f * g - d * i, a * i - c * g, c * d - a * f,
+                   d * hh - e * g, b * g - a * hh, a * e - b * d]
+        return inv.map { $0 / det }
+    }
+
+    /// A window point in this node's own coordinates — through the surface's
+    /// placement when this node is under a placed child (LLP 1014 D5), else
+    /// AppKit's own conversion.
+    func local(_ windowPoint: NSPoint) -> NSPoint {
+        guard let placed = placedAncestor, let h = placed.placement, let inv = NodeView.invert(h),
+              let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
+            return convert(windowPoint, from: nil)
+        }
+        let inCanvas = canvas.convert(windowPoint, from: nil)
+        let inChild = NodeView.map(inv, inCanvas)
+        // The child's own points; then down to this node by the untransformed
+        // hierarchy.
+        return convert(inChild, from: placed)
+    }
+
+    /// The placement changed: accessibility sees the new box.
+    func placementChanged() {
+        NSAccessibility.post(element: self, notification: .layoutChanged)
+    }
+
+    /// Hit-testing through the surface's placements (LLP 1014 D5): a canvas
+    /// whose children are placed maps the point through each child's
+    /// inverse, topmost first — straight from the canvas to the child,
+    /// skipping the box AppKit would test. A placed child is only where the
+    /// surface put it, never at its kernel frame: the rest of the overlay
+    /// (children the surface left in place) is tested in AppKit's order
+    /// without them, and then the canvas itself is the hit.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let overlay, let sup = superview else { return super.hitTest(point) }
+        let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil }
+        guard !placed.isEmpty else { return super.hitTest(point) }
+        let inCanvas = convert(point, from: sup)
+        guard !isHidden, bounds.contains(inCanvas) else { return nil }
+        // Nearest first: what is seen on top is what a tap reaches.
+        for child in placed.sorted(by: { ($0.placement?[9] ?? 0) > ($1.placement?[9] ?? 0) }) {
+            guard let h = child.placement, let inv = NodeView.invert(h) else { continue }
+            let p = NodeView.map(inv, inCanvas)
+            guard child.bounds.contains(p) else { continue }
+            // Into the child's superview's space, where AppKit expects it.
+            let inOverlay = NSPoint(x: child.frame.minX + p.x, y: child.frame.minY + p.y)
+            if let hit = child.hitTest(inOverlay) { return hit }
+        }
+        let inOverlay = overlay.convert(inCanvas, from: self)
+        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil {
+            if let hit = child.hitTest(inOverlay) { return hit }
+        }
+        return self
+    }
+
+    /// The box on screen, through the placement of the placed child this
+    /// node is (or is under), for assistive technology — the same box the
+    /// agent's `layout` reports.
+    override func accessibilityFrame() -> NSRect {
+        guard let placed = placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView, let win = window else { return super.accessibilityFrame() }
+        let corners = [NSPoint(x: 0, y: 0), NSPoint(x: bounds.width, y: 0), NSPoint(x: bounds.width, y: bounds.height), NSPoint(x: 0, y: bounds.height)].map { NodeView.map(h, placed.convert($0, from: self)) }
+        let xs = corners.map { $0.x }, ys = corners.map { $0.y }
+        let inCanvas = NSRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+        return win.convertToScreen(canvas.convert(inCanvas, to: nil))
+    }
+
     func color(_ key: String, _ fallback: NSColor) -> NSColor {
         guard let c = style[key] as? [Double], c.count == 4 else { return fallback }
         return NSColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
@@ -288,6 +384,14 @@ final class NodeView: NSView, NSTextFieldDelegate {
 
     override func draw(_ rect: NSRect) {
         repaintThrough()
+        if Capture.capturing, kind == "canvas", let rep = canvases.readback(view: self) {
+            // A canvas nested under a canvas painted through its surface: its
+            // picture into the ancestor's capture (LLP 1014); its own Metal
+            // layer is not seen there.
+            let picture = NSImage(size: bounds.size)
+            picture.addRepresentation(rep)
+            picture.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
         if firstDrawMs == nil {
             firstDrawMs = wall()
             // The first pixel is on its way: the GPU module may load now
@@ -380,7 +484,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     override func mouseUp(with event: NSEvent) {
         guard pressed else { return super.mouseUp(with: event) }
         pressed = false
-        if bounds.contains(convert(event.locationInWindow, from: nil)) { presenter?.press(id) }
+        if bounds.contains(local(event.locationInWindow)) { presenter?.press(id) }
     }
     func controlTextDidChange(_ obj: Notification) {
         if handlers.contains("change") { presenter?.change(id, field?.stringValue ?? "") }
@@ -526,9 +630,22 @@ enum Capture {
         // it opaque into the bitmap regardless.
         let alpha = view.alphaValue
         view.alphaValue = 1
+        // A canvas nested under this one that is painted through its own
+        // surface: its picture comes by readback (its draw), not from its
+        // overlay's views, which cacheDisplay would paint regardless of their
+        // alpha — so those are hidden for the duration.
+        var hidden: [NSView] = []
+        func hide(_ v: NSView) {
+            for s in v.subviews {
+                if let n = s as? NodeView, let o = n.overlay, o.alphaValue == 0, !o.isHidden { o.isHidden = true; hidden.append(o); continue }
+                hide(s)
+            }
+        }
+        hide(view)
         capturing = true
         view.cacheDisplay(in: view.bounds, to: rep)
         capturing = false
+        for o in hidden { o.isHidden = false }
         view.alphaValue = alpha
         return rep
     }

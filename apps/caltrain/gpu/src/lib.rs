@@ -3,16 +3,25 @@
 //! Inputs, in `canvas surface=map(line, selectedId, board, nowMs)` order:
 //! the stations in line order (records `[id, name, zone, distance]`), the
 //! selected station's id, the northbound board (records `[id, train,
-//! service, headsign, at]`), and the clock. It draws the line, one dot per
-//! station with the selected one highlighted, and the next northbound
-//! train as a dot sliding toward the selected station as its countdown
-//! runs — every frame from a vertex buffer built on `bind`, so a change of
-//! inputs is a new picture and nothing else is.
+//! service, headsign, at]`), and the clock. It draws the line and the next
+//! northbound train as a dot sliding toward the selected station as its
+//! countdown runs — from a vertex buffer built on `bind`, so a change of
+//! inputs is a new picture and nothing else is. The stations themselves —
+//! a dot and a name each — are the canvas's children (LLP 1014): laid out
+//! by the kernel, composited over the surface on every host. The two agree
+//! on where a station is by construction: the children are a column with
+//! 16 points of padding and 14-point rows spread `space-between`, so the
+//! first row's centre is 23 points from the top and the last 23 from the
+//! bottom, and the train interpolates between the same centres.
 
 #![deny(missing_docs)]
 
 pub mod aurora;
+pub mod glass;
+pub mod stack;
 pub use aurora::AuroraSurface;
+pub use glass::GlassSurface;
+pub use stack::StackSurface;
 
 use exact_gpu::json::{list, number, text};
 use exact_gpu::wgpu;
@@ -54,8 +63,9 @@ impl MapSurface {
             return out;
         }
         let x = 0.5 * width;
-        let top = 16.0;
-        let bottom = height - 16.0;
+        // The children's first and last row centres (see the module doc).
+        let top = 23.0;
+        let bottom = height - 23.0;
         let y_of = |i: usize| top + (bottom - top) * (i as f32 / (n.max(2) - 1) as f32);
         let ndc = |px: f32, py: f32| [(px / width) * 2.0 - 1.0, 1.0 - (py / height) * 2.0];
         let mut quad = |cx: f32, cy: f32, w: f32, h: f32, color: [f32; 4]| {
@@ -69,22 +79,13 @@ impl MapSurface {
         };
         let line = [0.75, 0.75, 0.75, 1.0];
         quad(x, (top + bottom) / 2.0, 3.0, bottom - top, line);
-        for i in 0..n {
-            let selected = self.selected == Some(i);
-            let color = if selected {
-                [0.75, 0.22, 0.17, 1.0]
-            } else {
-                [0.4, 0.4, 0.4, 1.0]
-            };
-            let size = if selected { 14.0 } else { 7.0 };
-            quad(x, y_of(i), size, size, color);
-        }
         if let (Some(sel), Some(progress)) = (self.selected, self.train) {
             // Northbound: the train comes from the next station south (the
             // higher index) toward the selected one.
             let from = (sel + 1).min(n - 1);
             let y = y_of(from) + (y_of(sel) - y_of(from)) * progress;
-            quad(x + 18.0, y, 10.0, 10.0, [0.16, 0.5, 0.9, 1.0]);
+            // Left of the line: the names are on its right.
+            quad(x - 18.0, y, 10.0, 10.0, [0.16, 0.5, 0.9, 1.0]);
         }
         out
     }
@@ -209,7 +210,20 @@ fn aurora() -> Box<dyn Surface> {
     Box::new(AuroraSurface::new())
 }
 
+fn glass() -> Box<dyn Surface> {
+    Box::new(GlassSurface::new())
+}
+
+fn stack() -> Box<dyn Surface> {
+    Box::new(StackSurface::new())
+}
+
 /// The module's surfaces: name, arity, factory.
-pub static REGISTRY: Registry = Registry(&[("map", 4, map), ("aurora", 1, aurora)]);
+pub static REGISTRY: Registry = Registry(&[
+    ("map", 4, map),
+    ("aurora", 1, aurora),
+    ("glass", 2, glass),
+    ("stack", 4, stack),
+]);
 
 exact_gpu::module!(REGISTRY);

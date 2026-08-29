@@ -1,8 +1,10 @@
 //! The display: DRM/KMS with two dumb buffers and a page flip per frame,
 //! and the frame loop that owns the process when there is a screen.
 //!
-//! @ref LLP 1015 §6; LLP 1009 (nothing GPU joins the boot path — here
-//! nothing GPU joins at all: the painter is the CPU's)
+//! @ref LLP 1015 §6; LLP 1009 D5 as LLP 1015 §7 amends it (the GPU painter
+//! compiles its shaders on the first launch on a machine and reads them
+//! from the cache after; the display itself is dumb buffers and a readback
+//! until the KMS surface lands)
 //!
 //! The card's first connected connector at its preferred mode; two
 //! XRGB8888 dumb buffers; the first frame by `set_crtc`, every later one by
@@ -16,6 +18,7 @@
 use crate::app::Config;
 use crate::input::{Input, InputEvent, Key};
 use crate::presenter::Presenter;
+use crate::vnc::Vnc;
 use drm::buffer::{Buffer as _, DrmFourcc};
 use drm::control::{
     connector, crtc, dumbbuffer::DumbBuffer, framebuffer, Device as ControlDevice, Event, Mode,
@@ -26,6 +29,7 @@ use exact_runner::DataSource;
 use std::fs::{File, OpenOptions};
 use std::os::fd::{AsFd, BorrowedFd};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 use tiny_skia::Pixmap;
 
@@ -221,17 +225,32 @@ pub fn run<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
         eprintln!("exact: {e}");
     }
     let mut input = Input::open();
+    let mut vnc = match config.vnc.as_deref() {
+        Some(addr) => match Vnc::start(addr, pw, ph) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                eprintln!("exact: vnc: {e}");
+                None
+            }
+        },
+        None => None,
+    };
     let mut pointer = (viewport.0 / 2.0, viewport.1 / 2.0);
     p.set_pointer(Some(pointer));
     let mut down: Option<u32> = None;
     let mut last_tick = 0.0f64;
     let mut plan_seen = config.dev_plan.as_deref().and_then(mtime);
     println!(
-        "exact: {pw}x{ph} @{}Hz on {}, scale {}, {} input device(s), boot {:.1} ms",
+        "exact: {pw}x{ph} @{}Hz on {}, scale {}, {} input device(s){}, boot {:.1} ms",
         display.refresh(),
         config.card,
         config.scale,
         input.len(),
+        match (&vnc, config.vnc.as_deref()) {
+            (Some(_), Some("1")) => ", vnc on :5900".to_string(),
+            (Some(_), Some(a)) => format!(", vnc on {a}"),
+            _ => String::new(),
+        },
         wall()
     );
     loop {
@@ -240,6 +259,9 @@ pub fn run<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
             if let Err(e) = display.present(&frame) {
                 eprintln!("exact: {e}");
                 return 1;
+            }
+            if let Some(v) = &vnc {
+                v.publish(Arc::new(frame));
             }
         }
         let now = wall();
@@ -252,15 +274,32 @@ pub fn run<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
         if p.images().pending() || config.dev_plan.is_some() {
             timeout = if timeout < 0 { 100 } else { timeout.min(100) };
         }
-        if input.is_empty() && timeout < 0 {
+        if input.is_empty() && vnc.is_none() && timeout < 0 {
             timeout = 1000;
         }
-        poll(&input.fds(), timeout);
-        for ev in input.read() {
+        let mut fds = input.fds();
+        if let Some(v) = &vnc {
+            fds.push(v.fd());
+        }
+        poll(&fds, timeout);
+        let mut events = input.read();
+        if let Some(v) = vnc.as_mut() {
+            events.extend(v.take_events());
+        }
+        for ev in events {
             match ev {
                 InputEvent::Motion(dx, dy) => {
                     pointer.0 = (pointer.0 + dx / config.scale).clamp(0.0, viewport.0 - 1.0);
                     pointer.1 = (pointer.1 + dy / config.scale).clamp(0.0, viewport.1 - 1.0);
+                    p.set_pointer(Some(pointer));
+                }
+                InputEvent::Absolute(fx, fy) => {
+                    if let Some(fx) = fx {
+                        pointer.0 = (fx * viewport.0).clamp(0.0, viewport.0 - 1.0);
+                    }
+                    if let Some(fy) = fy {
+                        pointer.1 = (fy * viewport.1).clamp(0.0, viewport.1 - 1.0);
+                    }
                     p.set_pointer(Some(pointer));
                 }
                 InputEvent::Button(true) => down = p.hit(pointer.0, pointer.1),

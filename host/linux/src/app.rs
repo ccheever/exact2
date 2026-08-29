@@ -13,8 +13,13 @@
 //! - `EXACT_ASSETS=<dir>` — the asset root (the current directory otherwise).
 //! - `EXACT_SIZE=WxH` — the headless viewport, points (420×860 otherwise).
 //! - `EXACT_SCALE=n` — device pixels per point (1 otherwise).
+//! - `EXACT_PAINTER=gpu|cpu` — the painter (the GPU when there is one otherwise).
+//! - `EXACT_CACHE=<dir>` — where the GPU's pipeline cache lives (`~/.cache/exact`).
 //! - `EXACT_DRM=<card>` — the KMS device (`/dev/dri/card0` otherwise).
+//! - `EXACT_VNC=1|<addr:port>` — serve the screen over VNC, the client's
+//!   pointer and keys as input (display mode; `1` is `0.0.0.0:5900`).
 //! - `EXACT_FONTS=<dir>` — a directory of fonts to add to the system's.
+//! - `EXACT_FONT=<family>` — what `sans-serif` means (fontconfig's answer otherwise).
 
 use crate::presenter::Presenter;
 use exact_runner::DataSource;
@@ -41,6 +46,8 @@ pub struct Config {
     pub dev_plan: Option<PathBuf>,
     /// The KMS device.
     pub card: String,
+    /// Serve the screen over VNC at this address (`1` is `0.0.0.0:5900`).
+    pub vnc: Option<String>,
 }
 
 impl Config {
@@ -77,6 +84,7 @@ impl Config {
             shot: env("EXACT_SHOT"),
             dev_plan: env("EXACT_DEV_PLAN").map(PathBuf::from),
             card: env("EXACT_DRM").unwrap_or_else(|| "/dev/dri/card0".to_string()),
+            vnc: env("EXACT_VNC"),
         }
     }
 
@@ -161,19 +169,50 @@ fn headless<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
             root.1,
             error.as_deref().unwrap_or("none")
         );
-        let (measures, hits, shaping, faces) = {
+        let (measures, hits, shaping, faces, sans) = {
             let t = p.text().borrow();
             (
                 t.measures,
                 t.hits,
                 t.shaping.as_secs_f64() * 1000.0,
                 t.face_count(),
+                t.sans.clone(),
             )
         };
+        let painter = &p.painter;
         println!(
-            "phases: fonts {:.1} ms ({faces} faces); runner+layout {:.1} ms of which {measures} text measurements ({hits} cached) {shaping:.1} ms shaping; paint {paint_ms:.1} ms at {}x{}",
+            "painter: {}{}{}",
+            painter.name,
+            painter
+                .adapter
+                .as_deref()
+                .map(|a| format!(" — {a}"))
+                .unwrap_or_default(),
+            if painter.name == "gpu" {
+                format!(
+                    "; device {:.1} ms, shaders {:.1} ms ({})",
+                    painter.device_ms,
+                    painter.shaders_ms,
+                    if painter.cached {
+                        "pipeline cache"
+                    } else {
+                        "compiled"
+                    }
+                )
+            } else {
+                String::new()
+            }
+        );
+        let gpu_frame = p
+            .last_frame_ms()
+            .map(|(render, readback)| {
+                format!(" (render {render:.1} ms, readback {readback:.1} ms)")
+            })
+            .unwrap_or_default();
+        println!(
+            "phases: fonts {:.1} ms ({faces} faces, sans-serif {sans:?}); runner+layout {:.1} ms of which {measures} text measurements ({hits} cached) {shaping:.1} ms shaping; paint {paint_ms:.1} ms{gpu_frame} at {}x{}",
             p.fonts_ms,
-            runner_ms - p.fonts_ms,
+            runner_ms - p.fonts_ms - painter.device_ms - painter.shaders_ms,
             frame.width(),
             frame.height()
         );

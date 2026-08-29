@@ -12,9 +12,13 @@
 //! takes in a browser. A wheel goes to the innermost scroll container under
 //! the point that can take its dominant axis, else to the page.
 
+use crate::gpu::Gpu;
 use crate::host::{Host, HostError};
 use crate::image::Images;
-use crate::paint::{content_size, effective_overflow, Frame, PaintedBox, Painter, Rect4, Scene};
+use crate::paint::{
+    content_size, effective_overflow, Backend, Frame, PaintedBox, Painter, Rect4, Scene,
+};
+use crate::raster::Raster;
 use crate::text::{Measurer, Shared, TextEngine};
 use exact_kernel::{NodeType, Overflow, PropId, ViewId};
 use exact_plan::EventKind;
@@ -30,7 +34,7 @@ use tiny_skia::Pixmap;
 pub struct Presenter<D: DataSource> {
     host: Host<D>,
     text: Shared,
-    painter: Painter,
+    brush: Painter,
     viewport: (f32, f32),
     scroll: BTreeMap<ViewId, (f32, f32)>,
     page: (f32, f32),
@@ -39,14 +43,91 @@ pub struct Presenter<D: DataSource> {
     pointer: Option<(f32, f32)>,
     boxes: Vec<PaintedBox>,
     dirty: bool,
+    /// Which painter was asked for (`Auto` may change its mind after a
+    /// failed frame).
+    choice: PainterChoice,
     /// How long the font scan took at boot, milliseconds (the one cost that
     /// is the machine's, not the app's).
     pub fonts_ms: f64,
+    /// The painter, for the report.
+    pub painter: PainterInfo,
 }
 
 /// Two decimals, the agent API's precision.
 fn r2(x: f32) -> f64 {
     (x as f64 * 100.0).round() / 100.0
+}
+
+/// Which backend paints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PainterChoice {
+    /// The GPU when there is an adapter, else the CPU with a note on stderr.
+    Auto,
+    /// vello over wgpu; a boot error when there is no adapter.
+    Gpu,
+    /// tiny-skia.
+    Cpu,
+}
+
+impl PainterChoice {
+    /// `EXACT_PAINTER`: `gpu`, `cpu`, or unset (auto).
+    pub fn from_env() -> PainterChoice {
+        match std::env::var("EXACT_PAINTER").as_deref() {
+            Ok("gpu") => PainterChoice::Gpu,
+            Ok("cpu") => PainterChoice::Cpu,
+            _ => PainterChoice::Auto,
+        }
+    }
+}
+
+/// What the painter is, for the smoke's report.
+#[derive(Debug, Clone)]
+pub struct PainterInfo {
+    /// `"gpu"` or `"cpu"`.
+    pub name: &'static str,
+    /// The adapter and API, on the GPU.
+    pub adapter: Option<String>,
+    /// Device creation, milliseconds, on the GPU.
+    pub device_ms: f64,
+    /// Shader compilation, milliseconds, on the GPU.
+    pub shaders_ms: f64,
+    /// Whether the shaders came from the pipeline cache on disk.
+    pub cached: bool,
+}
+
+fn cpu_info() -> PainterInfo {
+    PainterInfo {
+        name: "cpu",
+        adapter: None,
+        device_ms: 0.0,
+        shaders_ms: 0.0,
+        cached: false,
+    }
+}
+
+fn open_backend(choice: PainterChoice) -> Result<(Box<dyn Backend>, PainterInfo), String> {
+    let cpu = || (Box::new(Raster::new()) as Box<dyn Backend>, cpu_info());
+    match choice {
+        PainterChoice::Cpu => Ok(cpu()),
+        PainterChoice::Gpu | PainterChoice::Auto => match Gpu::new() {
+            Ok(g) => {
+                let info = PainterInfo {
+                    name: "gpu",
+                    adapter: Some(format!("{} ({})", g.adapter, g.api)),
+                    device_ms: g.device_ms,
+                    shaders_ms: g.shaders_ms,
+                    cached: g.cached,
+                };
+                Ok((Box::new(g), info))
+            }
+            Err(e) if choice == PainterChoice::Auto => {
+                // A note, not an error (the smoke reads stderr for errors).
+                eprintln!("painting on the CPU: no GPU ({e})");
+                Ok(cpu())
+            }
+            Err(e) => Err(format!("no GPU: {e}")),
+        },
+    }
 }
 
 impl<D: DataSource> Presenter<D> {
@@ -60,9 +141,29 @@ impl<D: DataSource> Presenter<D> {
         scale: f32,
         assets: PathBuf,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        Presenter::boot_with(
+            plan,
+            data,
+            viewport,
+            scale,
+            assets,
+            PainterChoice::from_env(),
+        )
+    }
+
+    /// Boot with a chosen painter (`boot` reads `EXACT_PAINTER`).
+    pub fn boot_with(
+        plan: &[u8],
+        data: D,
+        viewport: (f32, f32),
+        scale: f32,
+        assets: PathBuf,
+        choice: PainterChoice,
+    ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let t = std::time::Instant::now();
         let text = TextEngine::shared();
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
+        let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
         let (host, error) = Host::boot(
             plan,
             data,
@@ -72,10 +173,7 @@ impl<D: DataSource> Presenter<D> {
         )?;
         let mut p = Presenter {
             host,
-            painter: Painter {
-                text: text.clone(),
-                scale,
-            },
+            brush: Painter::new(text.clone(), scale, backend),
             text,
             viewport,
             scroll: BTreeMap::new(),
@@ -85,7 +183,9 @@ impl<D: DataSource> Presenter<D> {
             pointer: None,
             boxes: Vec::new(),
             dirty: true,
+            choice,
             fonts_ms,
+            painter,
         };
         let e = p.after_commit();
         Ok((p, error.or(e)))
@@ -145,6 +245,11 @@ impl<D: DataSource> Presenter<D> {
     /// Whether the picture is stale.
     pub fn dirty(&self) -> bool {
         self.dirty
+    }
+
+    /// The last frame's (encode + render, readback) milliseconds, on the GPU.
+    pub fn last_frame_ms(&self) -> Option<(f64, f64)> {
+        self.brush.last_frame_ms()
     }
 
     /// Where the pointer is drawn (`None` draws none).
@@ -262,7 +367,30 @@ impl<D: DataSource> Presenter<D> {
             focus: self.focus,
             pointer: self.pointer,
         };
-        let Frame { pixmap, boxes } = self.painter.paint(&scene, self.viewport);
+        let mut painted = self.brush.paint(&scene, self.viewport);
+        if let Err(e) = &painted {
+            if self.choice == PainterChoice::Auto && self.brush.backend() == "gpu" {
+                // The GPU failed a frame (a lost device, a readback with no
+                // answer): the CPU paints from here on, this frame first.
+                eprintln!("exact: paint: {e}; painting on the CPU from here");
+                self.brush.replace_backend(Box::new(Raster::new()));
+                self.painter = cpu_info();
+                painted = self.brush.paint(&scene, self.viewport);
+            }
+        }
+        let (pixmap, boxes) = match painted {
+            Ok(Frame { pixmap, boxes }) => (pixmap, boxes),
+            Err(e) => {
+                // A frame nobody could paint: a blank picture, and the last
+                // frame's boxes kept, so input still lands where things were.
+                eprintln!("exact: paint: {e}");
+                let w = ((self.viewport.0 * self.brush.scale).round() as u32).max(1);
+                let h = ((self.viewport.1 * self.brush.scale).round() as u32).max(1);
+                let mut blank = Pixmap::new(w, h).expect("a viewport has pixels");
+                blank.fill(tiny_skia::Color::WHITE);
+                (blank, std::mem::take(&mut self.boxes))
+            }
+        };
         self.boxes = boxes;
         self.dirty = false;
         pixmap

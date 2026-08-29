@@ -11,7 +11,14 @@ final class MetalView: NSView {
     override var isFlipped: Bool { true }
     override func makeBackingLayer() -> CALayer {
         let layer = CAMetalLayer()
-        layer.isOpaque = true
+        // Composited, never direct-to-display: a layer that covers the whole
+        // window and says it is opaque gets a presentation path whose
+        // drawables come back only at the next vsync, and every
+        // `nextDrawable` then waits a full frame on the main thread — a
+        // full-window canvas rendered on the display link starved the app
+        // (LLP 1014, the app inside the sky). A translucent layer stays in
+        // the compositor, where a drawable comes back as soon as it is read.
+        layer.isOpaque = false
         return layer
     }
     override init(frame: NSRect) {
@@ -40,6 +47,10 @@ final class GpuModule {
     typealias DestroyFn = @convention(c) (UInt32) -> Void
     typealias TextureFn = @convention(c) (UInt32, UInt32, UInt32, UnsafePointer<UInt8>?, Int) -> UInt32
     typealias WantsFn = @convention(c) (UInt32) -> UInt32
+    typealias ReadbackFn = @convention(c) (UInt32, Float, Float, Float, Double, UnsafeMutablePointer<UInt8>?, Int) -> UInt32
+    typealias ChildFn = @convention(c) (UInt32, UInt32, Float, Float, Float, Float, UInt32, UInt32, UnsafePointer<UInt8>?, Int) -> UInt32
+    typealias CountFn = @convention(c) (UInt32, UInt32) -> UInt32
+    typealias PlacementFn = @convention(c) (UInt32, UInt32, UnsafeMutablePointer<Float>?, Int) -> UInt32
     typealias ErrorFn = @convention(c) () -> UInt32
     typealias ErrorPtrFn = @convention(c) () -> UnsafePointer<UInt8>?
 
@@ -51,6 +62,13 @@ final class GpuModule {
     /// The canvas's children as pixels; whether the surface wants them (LLP 1014).
     let texture: TextureFn
     let wantsChildren: WantsFn
+    /// A canvas's picture as pixels (LLP 1014, nested canvases).
+    let readback: ReadbackFn
+    /// Each child as its own texture, and where the surface put it (LLP 1014 D5).
+    let wantsChildrenEach: WantsFn
+    let child: ChildFn
+    let childrenCount: CountFn
+    let placement: PlacementFn
     private let errorLen: ErrorFn
     private let errorPtr: ErrorPtrFn
 
@@ -67,16 +85,20 @@ final class GpuModule {
         guard let load = sym("gpu_load", LoadFn.self), let create = sym("gpu_create", CreateFn.self), let bind = sym("gpu_bind", BindFn.self),
               let render = sym("gpu_render", RenderFn.self), let dirty = sym("gpu_dirty", DirtyFn.self), let destroy = sym("gpu_destroy", DestroyFn.self),
               let texture = sym("gpu_texture", TextureFn.self), let wantsChildren = sym("gpu_wants_children", WantsFn.self),
+              let readback = sym("gpu_readback", ReadbackFn.self),
+              let wantsChildrenEach = sym("gpu_wants_children_each", WantsFn.self), let child = sym("gpu_child", ChildFn.self),
+              let childrenCount = sym("gpu_children_count", CountFn.self), let placement = sym("gpu_placement", PlacementFn.self),
               let errorLen = sym("gpu_error", ErrorFn.self), let errorPtr = sym("gpu_error_ptr", ErrorPtrFn.self) else {
             return .failure(GpuLoadError(message: "\(path) is not an exact GPU module (missing exports)"))
         }
-        let module = GpuModule(create: create, bind: bind, render: render, dirty: dirty, destroy: destroy, texture: texture, wantsChildren: wantsChildren, errorLen: errorLen, errorPtr: errorPtr)
+        let module = GpuModule(create: create, bind: bind, render: render, dirty: dirty, destroy: destroy, texture: texture, wantsChildren: wantsChildren, readback: readback, wantsChildrenEach: wantsChildrenEach, child: child, childrenCount: childrenCount, placement: placement, errorLen: errorLen, errorPtr: errorPtr)
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
         return .success(module)
     }
 
-    private init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, wantsChildren: @escaping WantsFn, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn) {
-        self.create = create; self.bind = bind; self.render = render; self.dirty = dirty; self.destroy = destroy; self.texture = texture; self.wantsChildren = wantsChildren; self.errorLen = errorLen; self.errorPtr = errorPtr
+    private init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, wantsChildren: @escaping WantsFn, readback: @escaping ReadbackFn, wantsChildrenEach: @escaping WantsFn, child: @escaping ChildFn, childrenCount: @escaping CountFn, placement: @escaping PlacementFn, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn) {
+        self.create = create; self.bind = bind; self.render = render; self.dirty = dirty; self.destroy = destroy; self.texture = texture; self.wantsChildren = wantsChildren; self.readback = readback
+        self.wantsChildrenEach = wantsChildrenEach; self.child = child; self.childrenCount = childrenCount; self.placement = placement; self.errorLen = errorLen; self.errorPtr = errorPtr
     }
 
     func error() -> String {
@@ -97,9 +119,23 @@ final class Canvases {
         /// The surface samples the children (LLP 1014 D2): the overlay is
         /// captured into its texture and composited at alpha 0.
         var through = false
+        /// The surface wants each direct child as its own texture and places
+        /// it (LLP 1014 D5): captured one by one, hit-tested through the
+        /// surface's placements.
+        var each = false
         /// A children texture has been uploaded (so an emptied overlay is
         /// captured once more, to clear it).
         var uploaded = false
+        /// The clock at the last readback of a nested canvas: one that wants
+        /// frames is read back again only once the clock has moved, so a
+        /// clock that stands still — the agent's — never spins it.
+        var readAt: Double = -1
+        /// A render blocked in `nextDrawable`: the layer's drawables are not
+        /// coming back (the window is covered and the occlusion notice has
+        /// not landed yet). No presenting until the occlusion state changes
+        /// or this much wall time has passed, so one lost second is not
+        /// every frame lost.
+        var starvedUntil: Double = 0
         init(view: NodeView, name: String, values: [Any]) { self.view = view; self.name = name; self.values = values }
     }
     var entries: [UInt32: Entry] = [:]
@@ -167,8 +203,48 @@ final class Canvases {
         e.id = bytes.withUnsafeBufferPointer { m.create($0.baseAddress, bytes.count, ptr, w, h) }
         if e.id == 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return }
         bindNow(m, e)
-        e.through = m.wantsChildren(e.id) != 0
+        e.each = m.wantsChildrenEach(e.id) != 0
+        e.through = e.each || m.wantsChildren(e.id) != 0
         if e.through { capture(m, e) }
+    }
+
+    /// Each direct child of the overlay captured on its own and uploaded with
+    /// its frame (LLP 1014 D5); the overlay composites at alpha 0 as for a
+    /// whole capture, and hit-testing goes through the placements the
+    /// surface reports after each frame.
+    private func captureEach(_ m: GpuModule, _ e: Entry, overlay: NSView, scale: CGFloat) -> Bool {
+        let children = overlay.subviews.compactMap { $0 as? NodeView }
+        var uploaded = 0
+        let t0 = CACurrentMediaTime()
+        for (i, child) in children.enumerated() {
+            guard let rep = Capture.bitmap(of: child, scale: scale), let data = rep.bitmapData else { continue }
+            let f = child.frame
+            let r = m.child(e.id, UInt32(i), Float(f.origin.x), Float(f.origin.y), Float(f.width), Float(f.height), UInt32(rep.pixelsWide), UInt32(rep.pixelsHigh), UnsafePointer(data), rep.pixelsHigh * rep.bytesPerRow)
+            if r != 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return false }
+            uploaded += 1
+        }
+        _ = m.childrenCount(e.id, UInt32(children.count))
+        if agentMode {
+            FileHandle.standardError.write(Data(String(format: "canvas %d: captured %d children in %.2f ms\n", Int(e.view.id), uploaded, (CACurrentMediaTime() - t0) * 1000).utf8))
+        }
+        return true
+    }
+
+    /// The window's occlusion changed: whatever was starved may try again.
+    func occlusionChanged() {
+        for e in entries.values { e.starvedUntil = 0 }
+    }
+
+    /// After a frame, where the surface put each child (LLP 1014 D5): the
+    /// homography on the child, `nil` for the kernel's frame.
+    private func readPlacements(_ m: GpuModule, _ e: Entry) {
+        guard e.each, let overlay = e.view.overlay else { return }
+        var h = [Float](repeating: 0, count: 10)
+        for (i, child) in overlay.subviews.compactMap({ $0 as? NodeView }).enumerated() {
+            let placed = h.withUnsafeMutableBufferPointer { m.placement(e.id, UInt32(i), $0.baseAddress, $0.count) } != 0
+            let next: [Double]? = placed ? h.map { Double($0) } : nil
+            if next != child.placement { child.placement = next; child.placementChanged() }
+        }
     }
 
     /// Every canvas whose children changed since its last capture is painted
@@ -202,6 +278,10 @@ final class Canvases {
         // Nothing to paint and nothing painted before: no texture at all.
         guard !overlay.subviews.isEmpty || e.uploaded else { return }
         let scale = win.backingScaleFactor
+        if e.each {
+            if captureEach(m, e, overlay: overlay, scale: scale) { e.uploaded = true; captures += 1; overlay.alphaValue = 0; e.view.paintedThisTurn = true; DispatchQueue.main.async { e.view.paintedThisTurn = false } }
+            return
+        }
         let t0 = CACurrentMediaTime()
         guard let rep = Capture.bitmap(of: overlay, scale: scale), let data = rep.bitmapData else { return }
         let t1 = CACurrentMediaTime()
@@ -231,28 +311,94 @@ final class Canvases {
         }
     }
 
+    /// A canvas's picture as pixels, rendered again by the module (LLP 1014):
+    /// what a canvas nested under a canvas painted through its surface paints
+    /// into its ancestor's capture, since its Metal layer is not seen there.
+    func readback(view: NodeView) -> NSBitmapImageRep? {
+        guard let m = module, let e = entries[view.id], e.id != 0, let metal = view.metal else { return nil }
+        let scale = CGFloat(metal.layer?.contentsScale ?? 2)
+        let w = Int((metal.bounds.width * scale).rounded()), h = Int((metal.bounds.height * scale).rounded())
+        guard w > 0, h > 0,
+              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32),
+              let data = rep.bitmapData
+        else { return nil }
+        rep.size = metal.bounds.size
+        let at = now()
+        let r = m.readback(e.id, Float(metal.bounds.width), Float(metal.bounds.height), Float(scale), at, data, w * h * 4)
+        e.readAt = at
+        if r == 1 {
+            FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
+            return nil
+        }
+        // 2: the surface wants another frame — the ancestor will capture again.
+        e.wants = r == 2
+        readPlacements(m, e)
+        return rep
+    }
+
+    /// Whether the window can be seen (LLP 1009 D4: the host judges what is
+    /// on screen). An occluded window's Metal layer hands out no drawables,
+    /// and asking blocks the main thread — up to a second — for a frame
+    /// nobody gets (measured closing LLP 1014 §4.1); so nothing renders
+    /// and nothing wants a frame until the window is seen again, when the
+    /// delegate asks `Frames` to run.
+    var visible: Bool { presenter.viewport.window?.occlusionState.contains(.visible) ?? true }
+
     /// Whether any surface has something to render — or an edit is under a
     /// canvas painted through its surface, which captures every frame (D4 d).
     var wantsFrames: Bool {
-        guard let m = module else { return false }
+        guard let m = module, visible else { return false }
         return entries.values.contains { e in
             e.id != 0 && (e.wants || m.dirty(e.id) != 0 || (e.through && e.view.overlay.map { Canvases.editing(under: $0) } == true))
         }
     }
 
+    /// Under the agent's clock (LLP 1012's fixed point): the pending
+    /// captures painted and every canvas rendered at `now` before a reply
+    /// leaves — placements read, nested pictures read back — so what the
+    /// next call sees is what this one left, not what the display link got
+    /// to. Bounded: a nested canvas that wants a frame asks its ancestor to
+    /// capture again, once more here, then the display link has it.
+    func settle(now: Double) {
+        guard module != nil else { return }
+        for _ in 0..<3 {
+            captureIfNeeded()
+            _ = tick(now: now)
+            guard entries.values.contains(where: { $0.view.needsCapture }) else { return }
+        }
+    }
+
     /// Render every dirty or wanting surface at `now`; whether more is wanted.
     func tick(now: Double) -> Bool {
-        guard let m = module else { return false }
+        guard let m = module, visible else { return false }
         var more = false
         for e in entries.values where e.id != 0 {
-            if e.through, let overlay = e.view.overlay, Canvases.editing(under: overlay) { capture(m, e) }
+            // Nested under a canvas painted through its surface (LLP 1014):
+            // its Metal layer is never composited, so presenting to it would
+            // block on a drawable nobody takes. It is only ever read back into
+            // the ancestor's capture — which a change asks for here — and it
+            // never wants frames of its own.
+            if let outer = e.view.canvasAbove, outer.overlay != nil, entries[outer.id]?.through == true {
+                if m.dirty(e.id) != 0 || (e.wants && now != e.readAt) { outer.needsCapture = true; scheduleCapture() }
+                continue
+            }
+            // D4 (d): every frame while editing under the overlay — but not
+            // twice on the turn a batch already captured.
+            if e.through, !e.view.paintedThisTurn, let overlay = e.view.overlay, Canvases.editing(under: overlay) { capture(m, e) }
             guard e.wants || m.dirty(e.id) != 0, let metal = e.view.metal else { continue }
+            let wall = CACurrentMediaTime()
+            if wall < e.starvedUntil { more = true; continue }
             let scale = Float(metal.layer?.contentsScale ?? 2)
             let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
+            if CACurrentMediaTime() - wall > 0.2 {
+                e.starvedUntil = CACurrentMediaTime() + 1.0
+                if agentMode { FileHandle.standardError.write(Data("exact gpu: canvas \(e.view.id) waited \(Int((CACurrentMediaTime() - wall) * 1000)) ms for a drawable; not presenting for a second\n".utf8)) }
+            }
             if r == 2 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)) }
             e.wants = r == 1
             rendered += 1
             more = more || e.wants
+            readPlacements(m, e)
         }
         return more
     }

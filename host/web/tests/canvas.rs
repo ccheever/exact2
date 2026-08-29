@@ -95,7 +95,7 @@ fn the_caltrain_app_boots_with_both_surfaces() {
     let plan = caltrain::build().unwrap();
     let (_, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
     assert!(
-        batch.contains("\"name\":\"aurora\",\"values\":[\"mv\"]"),
+        batch.contains("\"name\":\"glass\",\"values\":[\"glass\",\"mv\"]"),
         "{}",
         &batch[batch.len().saturating_sub(600)..]
     );

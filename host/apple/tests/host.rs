@@ -88,12 +88,20 @@ fn the_first_batch_creates_places_and_sizes_the_whole_tree() {
         &batch[..400]
     );
     assert!(batch.contains("\"background_color\":[238,238,238,255]"));
-    // The root is a block: as wide as the viewport, as tall as its content —
-    // the document a browser's viewport scrolls over (LLP 1008 §1).
+    // The root is a block as wide as the viewport (LLP 1008 §1) and, since
+    // the app lives inside a sky canvas that fills the window (LLP 1014
+    // §1a), as tall as it: its `scroll` child holds the page.
     let root = frame_of(&batch, 1);
-    assert_eq!((root.0, root.1, root.2), (0.0, 0.0, 390.0), "{root:?}");
-    assert!(root.3 > 844.0, "taller than the viewport: {root:?}");
-    let scroll = content_of(&batch, 2);
+    assert_eq!(
+        (root.0, root.1, root.2, root.3),
+        (0.0, 0.0, 390.0, 844.0),
+        "{root:?}"
+    );
+    let scroll = content_of(&batch, 3);
+    assert!(
+        scroll.1 > 844.0,
+        "the page is taller than the viewport: {scroll:?}"
+    );
     assert_eq!(
         scroll.0, 390.0,
         "border-box: nothing overflows sideways: {scroll:?}"

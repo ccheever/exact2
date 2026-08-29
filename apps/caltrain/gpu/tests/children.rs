@@ -73,6 +73,7 @@ fn the_aurora_composes_its_children_over_the_sky() {
         height: H as f32,
         scale: 1.0,
         now_ms: 1234.0,
+        children_generation: 0,
     };
     let mut sky = AuroraSurface::new();
     sky.bind(&[Value::str("mv")]).unwrap();

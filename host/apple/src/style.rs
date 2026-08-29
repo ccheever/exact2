@@ -44,7 +44,7 @@ pub fn style_json(style: &StyleProps) -> (String, Vec<Skipped>) {
             RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => {
                 skipped.push(Skipped {
                     row: id,
-                    reason: "gradient and grid rows are not lowered in v1",
+                    reason: "grid rows are not lowered in v1",
                 });
                 continue;
             }

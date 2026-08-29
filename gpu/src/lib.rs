@@ -37,6 +37,10 @@ pub struct Frame {
     pub scale: f32,
     /// The host's presentable clock, milliseconds.
     pub now_ms: f64,
+    /// How many times the canvas's children texture has been uploaded (LLP
+    /// 1014): a surface that keeps the previous children crossfades when
+    /// this changes. The module sets it; a host passes `0`.
+    pub children_generation: u32,
 }
 
 impl Frame {
@@ -75,12 +79,55 @@ pub trait Surface {
     fn wants_children(&self) -> bool {
         false
     }
+    /// Whether the surface also wants the children as they were before the
+    /// latest upload (LLP 1014): the module keeps a copy, handed over once by
+    /// [`Surface::previous_children`] and refreshed before every upload;
+    /// [`Frame::children_generation`] says when the pair changed.
+    fn wants_previous_children(&self) -> bool {
+        false
+    }
+    /// The children before the latest upload (see
+    /// [`Surface::wants_previous_children`]); `None` when there are none.
+    fn previous_children(&mut self, _texture: Option<&wgpu::TextureView>) {}
+    /// Whether the surface wants each direct child of the canvas as its own
+    /// texture with its kernel frame (LLP 1014 D5, the browser's `drawable`):
+    /// the host then captures every child separately, hands each one over
+    /// through [`Surface::child`], and asks [`Surface::placement`] after each
+    /// frame where the surface put it, for hit-testing and accessibility.
+    fn wants_children_each(&self) -> bool {
+        false
+    }
+    /// The `index`th direct child's texture (created or resized; contents
+    /// update in place) and its frame in the canvas's points — `x, y, width,
+    /// height`. `None` when the child is gone.
+    fn child(&mut self, _index: usize, _texture: Option<&wgpu::TextureView>, _frame: [f32; 4]) {}
+    /// How many direct children there are now (children past it are gone).
+    fn children_count(&mut self, _count: usize) {}
+    /// Where the surface put the `index`th child: a 3×3 homography, row
+    /// major, from the child's own points (origin at its top-left corner) to
+    /// the canvas's points — the browser's `canvasTransform` — and its depth,
+    /// larger nearer the eye, which orders hit-testing where children
+    /// overlap (the browser's hit-test stack follows draw order). `None` is
+    /// the kernel's frame, untouched. The host inverts the homography to
+    /// hit-test and reports the mapped box to accessibility.
+    fn placement(&self, _index: usize) -> Option<Placement> {
+        None
+    }
     /// The canvas's children as a texture (LLP 1014 D2, D3) — laid
     /// out by the kernel in the canvas's box, painted by the host at the
     /// canvas's scale, premultiplied RGBA — for the surface to sample;
     /// `None` when there are none. Called when the texture is created or
     /// replaced; its contents update in place.
     fn children(&mut self, _texture: Option<&wgpu::TextureView>) {}
+}
+
+/// Where a surface put a child (LLP 1014 D5): see [`Surface::placement`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placement {
+    /// Child points to canvas points, row major, projective.
+    pub homography: [f32; 9],
+    /// Larger nearer the eye.
+    pub depth: f32,
 }
 
 /// Makes a surface.
@@ -117,11 +164,23 @@ struct Instance {
     bound: bool,
     dirty: bool,
     children: Option<Children>,
+    children_generation: u32,
+    /// Per-child textures (LLP 1014 D5), by index.
+    each: Vec<Option<ChildTexture>>,
 }
 
-/// A canvas's children, painted by the host, on the device (LLP 1014 D3).
+/// One direct child's texture on the device (LLP 1014 D5).
+struct ChildTexture {
+    texture: wgpu::Texture,
+    width: u32,
+    height: u32,
+}
+
+/// A canvas's children, painted by the host, on the device (LLP 1014 D3),
+/// and — for a surface that asked — the children before the latest upload.
 struct Children {
     texture: wgpu::Texture,
+    previous: Option<wgpu::Texture>,
     width: u32,
     height: u32,
 }
@@ -198,6 +257,8 @@ impl Module {
                 bound: false,
                 dirty: false,
                 children: None,
+                children_generation: 0,
+                each: Vec::new(),
             },
         );
         Some(id)
@@ -210,13 +271,140 @@ impl Module {
             .is_some_and(|i| i.surface.wants_children())
     }
 
+    /// Whether a canvas's surface wants each child as its own texture (LLP
+    /// 1014 D5).
+    pub fn wants_children_each(&self, id: u32) -> bool {
+        self.instances
+            .get(&id)
+            .is_some_and(|i| i.surface.wants_children_each())
+    }
+
+    /// The `index`th direct child of a canvas, painted by the host (LLP 1014
+    /// D5): `frame` in the canvas's points, `width`×`height` premultiplied
+    /// RGBA pixels. Creates or replaces the texture at a new size, writes
+    /// the pixels, tells the surface, and marks the canvas dirty.
+    pub fn child(
+        &mut self,
+        id: u32,
+        index: usize,
+        frame: [f32; 4],
+        width: u32,
+        height: u32,
+        bytes: &[u8],
+    ) -> bool {
+        let expected = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(4));
+        if width == 0 || height == 0 || expected != Some(bytes.len()) {
+            self.error = format!("child {index}: {} bytes for {width}x{height}", bytes.len());
+            return false;
+        }
+        let Some(gpu) = self.gpu.as_ref() else {
+            self.error = "no device".into();
+            return false;
+        };
+        let Some(inst) = self.instances.get_mut(&id) else {
+            self.error = "no such canvas".into();
+            return false;
+        };
+        // Children arrive in order: the next index appends, an earlier one
+        // replaces; a gap is a host's mistake, refused — never an allocation
+        // the host's number sizes.
+        if index > inst.each.len() {
+            self.error = format!(
+                "child {index}: out of order ({} children so far)",
+                inst.each.len()
+            );
+            return false;
+        }
+        if inst.each.len() == index {
+            inst.each.push(None);
+        }
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let same = matches!(&inst.each[index], Some(c) if c.width == width && c.height == height);
+        if !same {
+            let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("child"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&Default::default());
+            inst.surface.child(index, Some(&view), frame);
+            inst.each[index] = Some(ChildTexture {
+                texture,
+                width,
+                height,
+            });
+        } else {
+            // The same texture; the frame may have moved.
+            let texture = &inst.each[index].as_ref().expect("checked").texture;
+            let view = texture.create_view(&Default::default());
+            inst.surface.child(index, Some(&view), frame);
+        }
+        let child = inst.each[index].as_ref().expect("just set");
+        gpu.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &child.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytes,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: None,
+            },
+            size,
+        );
+        inst.children_generation += 1;
+        inst.dirty = true;
+        true
+    }
+
+    /// How many direct children a canvas has now (LLP 1014 D5): the textures
+    /// past it are dropped and the surface told.
+    pub fn children_count(&mut self, id: u32, count: usize) -> bool {
+        let Some(inst) = self.instances.get_mut(&id) else {
+            self.error = "no such canvas".into();
+            return false;
+        };
+        if inst.each.len() > count {
+            for index in count..inst.each.len() {
+                inst.surface.child(index, None, [0.0; 4]);
+            }
+            inst.each.truncate(count);
+        }
+        inst.surface.children_count(count);
+        inst.dirty = true;
+        true
+    }
+
+    /// Where a canvas's surface put its `index`th child (LLP 1014 D5).
+    pub fn placement(&self, id: u32, index: usize) -> Option<Placement> {
+        self.instances
+            .get(&id)
+            .and_then(|i| i.surface.placement(index))
+    }
+
     /// The canvas's children, painted by the host (LLP 1014 D3): `width`×`height`
     /// premultiplied RGBA, rows top-down, tightly packed. Creates or
     /// replaces the texture at a new size, writes the pixels, and marks the
     /// canvas dirty.
     pub fn texture(&mut self, id: u32, width: u32, height: u32, bytes: &[u8]) -> bool {
-        let expected = width as usize * height as usize * 4;
-        if width == 0 || height == 0 || bytes.len() != expected {
+        let expected = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(4));
+        if width == 0 || height == 0 || expected != Some(bytes.len()) {
             self.error = format!("children: {} bytes for {width}x{height}", bytes.len());
             return false;
         }
@@ -235,24 +423,52 @@ impl Module {
         };
         let same = matches!(&inst.children, Some(c) if c.width == width && c.height == height);
         if !same {
-            let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("children"),
-                size,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
+            let make = |label: &str| {
+                gpu.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                })
+            };
+            let texture = make("children");
             let view = texture.create_view(&Default::default());
             inst.surface.children(Some(&view));
+            let previous = inst.surface.wants_previous_children().then(|| {
+                let previous = make("previous children");
+                let view = previous.create_view(&Default::default());
+                inst.surface.previous_children(Some(&view));
+                previous
+            });
             inst.children = Some(Children {
                 texture,
+                previous,
                 width,
                 height,
             });
+        } else if let Some(Children {
+            texture,
+            previous: Some(previous),
+            ..
+        }) = &inst.children
+        {
+            // What the children were, before the write below lands: a copy
+            // submitted now runs before a write enqueued after it.
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            encoder.copy_texture_to_texture(
+                texture.as_image_copy(),
+                previous.as_image_copy(),
+                size,
+            );
+            gpu.queue.submit([encoder.finish()]);
         }
+        inst.children_generation += 1;
         let children = inst.children.as_ref().expect("just set");
         gpu.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -330,9 +546,13 @@ impl Module {
             }
         };
         let view = texture.texture.create_view(&Default::default());
+        let frame = Frame {
+            children_generation: inst.children_generation,
+            ..*frame
+        };
         let wants = inst
             .surface
-            .render(frame, &gpu.device, &gpu.queue, &view, inst.config.format);
+            .render(&frame, &gpu.device, &gpu.queue, &view, inst.config.format);
         gpu.queue.present(texture);
         inst.dirty = false;
         Some(wants)
@@ -341,6 +561,40 @@ impl Module {
     /// Drop a canvas's surface.
     pub fn destroy(&mut self, id: u32) {
         self.instances.remove(&id);
+    }
+
+    /// A canvas's picture as pixels, rendered again into a module-owned
+    /// texture (LLP 1014: a canvas nested under a canvas painted through its
+    /// surface paints this into its ancestor's capture), and whether the
+    /// surface wants another frame. Nothing before the first bind.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn readback(&mut self, id: u32, frame: &Frame) -> Option<(fixture::Pixels, bool)> {
+        let Some(gpu) = self.gpu.as_ref() else {
+            self.error = "no device".into();
+            return None;
+        };
+        let Some(inst) = self.instances.get_mut(&id) else {
+            self.error = "no such canvas".into();
+            return None;
+        };
+        if !inst.bound {
+            return None;
+        }
+        let frame = Frame {
+            children_generation: inst.children_generation,
+            ..*frame
+        };
+        match fixture::render(gpu, inst.surface.as_mut(), &frame) {
+            Ok((pixels, wants)) => {
+                // The picture was taken: nothing is unshown any more.
+                inst.dirty = false;
+                Some((pixels, wants))
+            }
+            Err(e) => {
+                self.error = e;
+                None
+            }
+        }
     }
 }
 

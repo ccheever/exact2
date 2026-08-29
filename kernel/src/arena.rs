@@ -215,13 +215,15 @@ impl NodeArena {
         let style = TextStyle::from_style(&self.styles[s]);
         match self.node_types[s] {
             NodeType::TextInput => {
+                // An input has a line box even when empty (the web's
+                // `<input>`): its value, else its placeholder, else one space.
                 let props = &self.props[s];
-                if let Some(text) = props
+                let text = props
                     .str(PropId::Value)
-                    .or_else(|| props.str(PropId::Placeholder))
-                {
-                    out.push(TextRun { text, style });
-                }
+                    .filter(|v| !v.is_empty())
+                    .or_else(|| props.str(PropId::Placeholder).filter(|p| !p.is_empty()))
+                    .unwrap_or(" ");
+                out.push(TextRun { text, style });
             }
             _ => {
                 if let Some(text) = self.props[s].str(PropId::Text) {

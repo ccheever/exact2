@@ -34,16 +34,19 @@ sits on that list carries the trade it would take.
    watch that rebuilds the wasm and pushes a reload, and the same plan push into a
    running macOS app (`build.mjs --run` per iteration today). Charlie to confirm the
    shape.
-5. **Linux host follow-ups** (LLP 1015 landed 2026-08-29: CPU raster, cosmic-text,
-   DRM/KMS + evdev, the agent API; green on `expo-build-1000` and headless on macOS).
-   Owed: the DRM path has never run — it needs a Linux box with a VT (the builders'
-   user is in neither `video` nor `input`, no `sudo`); `canvas` on Linux (the module
-   into a `COPY_SRC` texture, read back, composited by the painter; lavapipe on a
-   server); a pinned font (`EXACT_FONTS` + the sans family set to it) so a pixel
-   fixture matches across machines — then the Chrome comparison the instrument was
-   built for; a font cache when a machine's scan (25 ms for 787 faces on a Mac)
-   matters; lifting the shared ~120 lines of orchestration out of `host/apple` and
-   `host/linux`.
+5. **Linux host follow-ups** (LLP 1015 landed 2026-08-29; r2 the same day: vello on
+   the GPU is the main painter, tiny-skia the fallback and pixel oracle; green on
+   `expo-build-1000` (CPU), the minisforum (Vulkan/llvmpipe), and headless on macOS
+   (Metal)). The DRM path ran on the minisforum 2026-08-29 (LLP 1015 §6: 1920×1080 @ 60 Hz on
+   RADV, boot to first flip ~160 ms), seen and driven over the host's own VNC server
+   (`EXACT_VNC=1`) since the KVM was unplugged; evdev itself has still carried no real
+   event. Owed, in order: **a KMS surface for the GPU**
+   (`VK_KHR_display`) so the frame is presented, not read back (17–19 ms of latency
+   per frame on Metal today); `canvas` on this painter's device; a pinned font
+   (`EXACT_FONTS` + the sans family set to it) so a pixel fixture matches across
+   machines — then the Chrome comparison; a font cache when a machine's scan (25 ms
+   for 787 faces on a Mac) matters; lifting the shared ~120 lines of orchestration
+   out of `host/apple` and `host/linux`; one wgpu when vello moves to 30.
 6. **Events beyond `click` and `input`** — hover, keyboard, pointer, focus, on both
    hosts (`glue.js` has two listeners). Gate for selection, gestures (`hold`/`observe`
    reach no page event, LLP 1007 §9), and any real app.
@@ -66,10 +69,18 @@ sits on that list carries the trade it would take.
   transcribes it: kernel, corpus, the web wrapper, the macOS overlay and capture with
   D4's four sources, the smoke's steps 6a, 9, and 10 with the readback fixture (native:
   `caltrain-gpu` `tests/children.rs`; per host: `scripts/fixtures/canvas-sky.*.png`,
-  cross-host mean 1.48/255 as measured — a first number for 1009 §4.1); Accepted
-  2026-08-29. Left: Chrome's flag as the oracle for children *through* a surface, and
-  the §5 doing-list take, Charlie's to name (the `Svg` swap was withdrawn — it frees no
-  v1 capacity, 1009 r3). Delete this line then.
+  cross-host mean 1.48/255 as measured — a first number for 1009 §4.1); the line map's
+  stations as children (the second use); the render tail measured and closed (0.5 ms
+  steady; occluded windows now skip rendering); Accepted 2026-08-29, the §5 take applied
+  (the three gradient rows are out — 1009's proposal for the same door). 2026-08-30:
+  the app inside the sky (glass/ink/crt materials, the previous-children crossfade,
+  nested canvases by readback) and D5 built — per-child textures, placements with
+  depth, hit-testing and accessibility through them, the card deck (LLP 1014.000 §1a,
+  §1b); two code reviews folded the same day (§1c: placements are the only place a
+  placed child is; `clock`/`tap`/`type` settle the canvases before replying; a resize
+  shows at once; the ABI checks its pointers). Left: Chrome's flag as the oracle for
+  children *through* a surface; a hermetic test of the glass crossfade; LLP 1013 on
+  this machinery. Delete this line then.
 - `overflowX`/`overflowY` and `transition` in the Contract tag table (rows exist,
   attributes do not; LLP 1010 §5, LLP 1006 §8).
 - Compile-time checking of attribute values against kernel rows; handler arity through
@@ -82,15 +93,14 @@ sits on that list carries the trade it would take.
 ## Open decisions (Charlie's)
 
 - **LLP 1009** is `Review` while the canvas is built. Its §5 trades: the three
-  gradient rows leave `schema.json`; amend NOT-DOING's "compiles no shaders at
+  gradient rows leave `schema.json` (done under LLP 1014 §5); amend NOT-DOING's "compiles no shaders at
   runtime" to "compiles nothing on the boot path"; the refine-loop take. Then the
   1009.000 spec transcribes the landing.
-- **Linux painter: wgpu or CPU raster.** v1 took CPU raster (LLP 1015 §7: boots
-  with nothing compiled, runs and pixel-tests on a GPU-less fleet box, deterministic
-  pixels) and pays the named cost — no `canvas` on Linux until the module renders
-  into a texture the painter reads back. wgpu would make LLP 1014's
-  children-through-the-shader free and is a one-module swap (`paint.rs` and the
-  glyph blit) if the cold-shader-compile trade is taken. Charlie's to reverse.
+- **Linux painter: decided 2026-08-29 — vello on the GPU** (Charlie), with tiny-skia
+  kept as the CPU fallback and the pixel oracle (LLP 1015 §7). What it owes: the
+  NOT-DOING wording "compiles no shaders at runtime" now needs the clause "the GPU
+  painter compiles its shaders on the first launch on a machine and reads them from
+  the pipeline cache after" beside LLP 1009 §5's — Charlie's to write.
 - **The app's name** (`rules/NOT-DOING.md` opens with it; the recommendation is
   Caltrain and Caltrain is what exists).
 
@@ -114,7 +124,7 @@ sits on that list carries the trade it would take.
 - **Apple host** (LLP 1008 §7): images; toggles; accessibility beyond `testId` and
   `accessibilityLabel`; justified text; per-corner radii; rubber-banding on inner
   scroll nodes; a generated header.
-- **Linux host** (LLP 1015 §7): the DRM path unexercised; `canvas`; libinput and
+- **Linux host** (LLP 1015 §7): evdev has carried no real event yet; `canvas`; libinput and
   xkbcommon (acceleration, touchpad gestures, hotplug, non-US keymaps); Wayland/X11
   windows; selection, IME, a caret blink; `text_decoration`, `font_family`, RTL;
   shadows, gradients, grid; JPEG, image URLs; accessibility; a font cache; pixel

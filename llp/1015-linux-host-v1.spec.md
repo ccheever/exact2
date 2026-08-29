@@ -1,7 +1,8 @@
 # LLP 1015: Linux host v1 — what `host/linux` is, as built
 
 **Type:** Spec
-**Status:** Draft (unreviewed; transcribes what landed 2026-08-29)
+**Status:** Draft (r3; transcribes what landed 2026-08-29; r3 the same day after two code reviews of r2 — `llp/reviews/code-2026-08-29-linux-painter.{codex,grok}.md` — whose folds §2a records)
+**Revised:** 2026-08-29 (r2: the painter is a walk over a backend; vello on the GPU is the main one, tiny-skia the fallback and the pixel oracle — Charlie's call the same day; §2, §7)
 **Systems:** Linux host (new), Kernel (one default corrected), Tooling (`scripts/agent.mjs` — a third carrier; `scripts/smoke.mjs`)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
@@ -14,14 +15,17 @@
 and kernel run natively; after every commit the host lays the tree out
 with the kernel's own layout (Taffy, measuring text with cosmic-text),
 seeks the motion engine to the app's clock, and the painter draws the
-kernel tree itself with tiny-skia — **the kernel is the display list**:
-no batch, no mirror, no view tree of the platform's, because Linux offers
-none. The pixels go to DRM/KMS dumb buffers with evdev input, or into a
-buffer with no display at all — which is how the host is tested: the
-agent API over stdio, a screenshot, a smoke run, on a fleet Linux box with
-no GPU or on macOS in the seconds-loop. Pure Rust end to end (tiny-skia,
-cosmic-text, png, drm-rs, evdev): no system library is linked, so it
-builds on any Linux with no packages and on macOS as a headless binary.
+kernel tree itself — **the kernel is the display list**: no batch, no
+mirror, no view tree of the platform's, because Linux offers none. One
+walk emits to a backend; **vello over wgpu is the main backend** (the
+GPU), tiny-skia on the CPU is the fallback where there is no adapter and
+the deterministic oracle for pixels. The pixels go to DRM/KMS dumb
+buffers with evdev input, or into a buffer with no display at all — which
+is how the host is tested: the agent API over stdio, a screenshot, a smoke
+run, on a fleet Linux box with no GPU or on macOS in the seconds-loop.
+Pure Rust end to end (vello, wgpu, tiny-skia, cosmic-text, png, drm-rs,
+evdev): no system library is linked, so it builds on any Linux with no
+packages and on macOS as a headless binary.
 Measured on `expo-build-1000` (EPYC 9454, 43 font faces), the Caltrain app
 in smoke mode, warm: **process start → first frame painted 20 ms** — fonts
 3.7 ms, runner + layout + 878 text measurements (498 from cache) 15.6 ms,
@@ -57,10 +61,13 @@ tall as its content**, so the window is a viewport over a document (LLP
 (the roots' frames, never smaller than the viewport) are the same rule as
 macOS, deviation included.
 
-## 2. The painter (`host/linux/src/paint.rs`)
+## 2. The painter (`host/linux/src/paint.rs`, `gpu.rs`, `raster.rs`)
 
-One walk of the live tree in preorder, into a premultiplied RGBA
-`tiny_skia::Pixmap` at the device scale. Per node, in order: **background**
+One walk of the live tree in preorder, emitted to a **`Backend`** — fill
+and stroke a shape (a box with per-corner radii), an image into a box
+under clips, a paragraph at an origin, push/pop a clip, push/pop an
+opacity, the pointer, finish — and two backends draw it into the same
+premultiplied RGBA frame at the device scale. Per node, in order: **background**
 over the border box as a path with per-corner radii (CSS
 `background-clip: border-box`); **borders** — a uniform border with a
 radius is a stroke inset by half its width, anything else is four side
@@ -68,7 +75,8 @@ rectangles (the Apple presenter's rule); an **image** by `object_fit`
 (`fill`, `contain`, `cover`, `none`, `scale-down`) in the content box,
 clipped to it and to the border box's rounded path (LLP 1011 §4); a
 **text** node's paragraph — the one the kernel measured at this width,
-§3 — in the content box; an **input**'s value, or its placeholder in
+§3 — in the content box (vello draws the glyph outlines from the same
+cosmic-text layout; tiny-skia blits swash's rasterized glyphs); an **input**'s value, or its placeholder in
 `#757575`, vertically centred, with a caret when focused; then the
 **children**, clipped when the node's effective overflow (`style.rs`'s rule
 from LLP 1010: a `ScrollView`/`List` scrolls on y unless its row says
@@ -77,8 +85,9 @@ otherwise, an unset axis beside a non-visible one is scrollable) is not
 its scroll offset when it scrolls. Motion presentation values become one
 transform about the box's centre, CSS's `translate · rotate · scale`, and a
 **group opacity**: when it is not 1 the subtree paints into a layer and
-composites once (per node, a viewport-sized allocation — fine for a
-transition, a cost for a hundred translucent cards). `display: none`
+composites once (a vello layer; on the CPU a viewport-sized pixmap per
+node — fine for a transition, a cost for a hundred translucent cards).
+`display: none`
 paints nothing. `Canvas`, `Toggle`, `Svg`, `NativeView`, and `Pressable`
 are boxes: background, borders, children. Colors are the kernel's
 `0xRRGGBBAA` straight into tiny-skia.
@@ -90,6 +99,23 @@ agent's `layout` reports and what hit-testing reads, so there is no second
 geometry: a box is where its pixels went. The pointer, when the host draws
 one (DRM has no compositor), is an arrow painted last.
 
+**The GPU backend** (`gpu.rs`) creates a wgpu device at boot (`Backends::
+PRIMARY`, the high-performance adapter) and vello's renderer with area
+anti-aliasing only; encodes the walk into a `vello::Scene` (shapes as
+`RoundedRect`s, clips as clip layers, opacity as a blend layer over the
+viewport, images as `ImageBrush`es cached by picture, text as
+`draw_glyphs` runs — the font's data handle from cosmic-text, glyph ids
+and positions in points, hinted); renders into an `Rgba8Unorm` texture;
+copies it to a mappable buffer and reads it back into the frame. Shader
+compilation is on the boot path — the trade Charlie took (§7) — behind a
+wgpu **pipeline cache persisted to disk** (`~/.cache/exact/pipelines-*.bin`,
+`EXACT_CACHE`) where the driver has one (Vulkan; Metal keeps its own).
+**`EXACT_PAINTER=gpu|cpu`** chooses; unset, the GPU when an adapter exists,
+else the CPU with a note on stderr — the fleet's builders have no GPU and
+run every check on the CPU backend. **The CPU backend** (`raster.rs`) is
+the tiny-skia code r1 described, behind the same trait: masks for clips,
+a layer pixmap for opacity, swash glyph bitmaps for text.
+
 **The one kernel change.** `text_color`'s default in `schema.json` was
 `4278190335` — `0xFF0000FF`, opaque red in the kernel's packing — and no
 host had read it: the web host lowers only set rows and the browser's
@@ -97,6 +123,44 @@ default is black, the Apple presenter falls back to black itself. The
 first painter to read `style.text_color` directly painted every unset text
 red. It is `255` now (`0x000000FF`, the web's black); `Color::BLACK` says
 the same. The other rgba8 defaults are transparent and were right.
+
+### 2a. The review folds (2026-08-29, r3)
+
+Two code reviews of r2 (codex and grok, mutually blind, both NOT READY on
+the reviewed tree) converged on the same defects, folded the same day:
+
+- **A failed GPU frame no longer blanks the app.** `Presenter::frame` used
+  to answer a backend error with a white frame and *no painted boxes*, so
+  every later press missed — and `Auto` fell back to the CPU only at boot.
+  Now, under `Auto`, the CPU painter takes over from the failed frame on
+  (a note on stderr) and paints it; a forced painter that fails keeps the
+  last frame's boxes so input still lands where things were.
+- **The VNC server takes nothing from the wire at face value.** A
+  `ClientCutText` length (a `u32`) was allocated as given — a client that
+  finished the handshake could ask for 4 GiB; it is drained in 4 KiB
+  reads now, as are `SetEncodings` and `FixColourMapEntries` (which was an
+  unknown message before). A pixel format whose shift would overflow the
+  pixel is refused (kept at ours), and the channel arithmetic is 64-bit.
+  A client's writer thread, which waited on a condition variable forever
+  after the client left, is told under both locks it waits on and joined.
+  The bind-all default (`0.0.0.0:5900`) stands as the spec wrote it — the
+  KVM-replacement use needs the LAN — with these bounds in place of the
+  authentication it does not have.
+- **The pipeline cache is written whole or not at all** — beside its path
+  and renamed into place (a crash mid-write or two launches at once leave
+  the old file or none). `cached` in the boot report means a cache file
+  was found and handed to the driver; whether it was used shows in the
+  shaders' milliseconds.
+- **The GPU's image cache holds the picture it keys.** It was keyed by an
+  `Rc<Pixmap>`'s address alone, which an allocator may reuse after a reload
+  drops the picture; each entry now holds the `Rc`, and `begin` drops
+  entries nobody else holds.
+- **Parity is a test, not a sentence.** `the_two_painters_agree_within_a_band`
+  in `tests/paint.rs` (§5 has the numbers).
+
+Left from the reviews, declared: the empty `<input>`'s space (§6); the
+glyph-placement deviation (§5); the r1 wording that survived in
+`display.rs` and `Cargo.toml` is corrected.
 
 ## 3. Text: one engine (`host/linux/src/text.rs`)
 
@@ -124,7 +188,17 @@ transform when it has one (a scaled node resamples its glyphs, as a
 browser does mid-transition).
 
 Fonts are the system's (`fontdb`; `EXACT_FONTS` adds a directory), the
-family always `sans-serif`; with no fonts at all the host says so on
+family always `sans-serif` — **resolved to an installed family at boot**:
+`EXACT_FONT` when set (the pinned font a cross-machine fixture needs),
+else cosmic-text's default when it is installed, else the first present
+of fontconfig's own preference order (`60-latin.conf`: Noto Sans, DejaVu
+Sans, …; on macOS the browser's: Helvetica Neue, Helvetica, Arial). Left
+to cosmic-text, the generic family named "Open Sans" on Linux, which the
+minisforum does not have, and its per-glyph fallback then scored every
+font on the machine by weight: the app's weight-600 button came out in
+URW Bookman with a space from Noto Color Emoji, 16 pt wide, on both
+painters — a shaper's answer, and the same on both, which is how it was
+told apart from a painter's. With no fonts at all the host says so on
 stderr and text measures zero. The scan is the one boot cost that is the
 machine's, not the app's: **3.7 ms for 43 faces** on the builder, **25 ms
 for 787** on this Mac — a font cache is the known answer when it matters.
@@ -209,31 +283,92 @@ plan (the Apple crate's), `main.rs` is three lines; `cargo build --release
 -p caltrain-linux` is the build — **20 s cold for the whole tree on 96
 cores, 7–11 s to relink after a host edit**.
 
-**Exercised:** the whole headless path on two machines (§8). **Built,
-cross-checked (`cargo check --target x86_64-unknown-linux-gnu` from
-macOS, clippy clean), and not yet run:** the DRM path and evdev — the
-builders' user is in neither `video` nor `input` and has no `sudo`, and
-no other Linux box with a VT was in reach this session. The first run
-needs a Linux machine with a seat: from a VT, `EXACT_ASSETS=apps/caltrain
-target/release/caltrain-linux`.
+**Exercised:** the whole headless path on three machines (§8): the GPU
+painter on Metal (this Mac) and on Vulkan/RADV (the minisforum's Radeon
+890M, once its user was in `render`), the CPU painter everywhere. **The
+DRM path ran on the minisforum on 2026-08-29** — Charlie stopped `gdm3`
+and added the user to `render` and `input` — from an ssh session, no VT:
+`EXACT_DRM=/dev/dri/card1 EXACT_SCALE=1.5 EXACT_ASSETS=apps/caltrain
+target/release/caltrain-linux` took master (nobody held it), set
+`HDMI-A-1` to 1920×1080 @ 60 Hz, and has been flipping frames as the
+countdown timers tick: **boot to the first flip 155–164 ms on the GPU
+painter** (device 23 ms + shaders 6 ms from the pipeline cache, fonts 8 ms,
+runner + layout 17 ms, the first 1920×1080 frame 12.6 ms — render 7.6,
+readback 4.8 — and the rest the mode set). RADV's first launch ever paid
+93 ms for the device and 77 ms for the shaders. Declared: the one input
+device on that box is its i8042 keyboard controller — the KVM's HID is
+not on its USB — so evdev has carried no real event yet, and absolute
+pointers (`ABS_X`/`ABS_Y`, what a KVM's mouse reports) were added on the
+strength of the code alone; the KVM on that HDMI was unplugged.
+
+**The screen over VNC** (`vnc.rs`, `EXACT_VNC=1`, Charlie's ask the same
+day when the KVM turned out to be unplugged): the display loop publishes
+every frame it presents, and a small RFB server — protocol 3.3/3.7/3.8 as
+the client speaks it, `Raw` encoding, the client's 32-bit pixel format
+honoured, one reader and one writer thread per client — serves it on port
+5900 and
+feeds the client's pointer, buttons, wheel, and keys back into the loop
+through the same `InputEvent`s evdev produces, over a socketpair the loop
+polls. It is a development tool on a private network and encrypts
+nothing. This is how the first DRM run was seen: a scripted client took
+the 1920×1080 frame the box was presenting, clicked "Change station" at
+its pixel, and took the stations screen — the display path and the input
+path both exercised, from a Mac, with no KVM. macOS Screen Sharing
+(`vnc://<host>:5900`) is the everyday client, and it taught the server two
+things through a logging proxy: it answers a 3.8 server with **3.3**, and
+in 3.3 it will not proceed past security `None` — it wants VNC
+authentication, so a 3.3 client is sent a challenge that any password
+answers (nobody is authenticated either way; `EXACT_VNC` is for a private
+network), while 3.7/3.8 clients get `None`.
+
+**A kernel fix this run found** (`kernel/src/arena.rs`): a `TextInput`'s
+measured runs were its `value` else its `placeholder`, and the runner
+sets `value=""` — `Some("")` short-circuited, the input measured an empty
+run, and a measurer that gives empty text no line box (this host's; the
+web's rule for a `<div>`) laid the search field out 26 pt tall with its
+placeholder over the row below. An `<input>` always has a line box; here
+it is given one by measuring a space — a declared deviation from the
+browser, whose empty `<input>` gets its line box from the font's metrics
+with no advance (the space's width shows only in a shrink-to-fit input's
+min-content, and nothing paints it). The runs are now the value when
+non-empty, else the placeholder, else one
+space — 380×45 here against Chrome's 199×42 (the width is the block's;
+Chrome's is `size=20`).
 
 ## 7. Not in v1 (and the trades taken)
 
-**The painter is CPU raster.** `QUEUE.md` §Open decisions asked wgpu or
-CPU; v1 takes CPU, for the reasons the question named: it boots with
-nothing compiled (the 100 ms budget, "the boot path compiles nothing"),
-it runs and pixel-tests on a fleet box with no GPU, and its pixels are
-deterministic. The cost the question also named is real: a `canvas` on
-Linux is not rendered — the box paints its background and its children
-over it (LLP 1014 D2's "over"), and the GPU module is not loaded. The path
-to it is the module rendering into a module-owned texture and reading it
-back for the painter to composite (LLP 1009 D4's fixture path, `COPY_SRC`),
-with lavapipe on a server; a wgpu painter would make LLP 1014's children-
-through-the-shader free and is a one-module swap (`paint.rs` and the glyph
-blit) if the cold-shader-compile trade is ever taken. Charlie's to
-reverse; nothing else in the host cares which.
+**The painter is vello on the GPU (r2), with tiny-skia on the CPU as the
+fallback and the pixel oracle.** r1 took CPU raster for the reasons
+`QUEUE.md` §Open decisions named — boots with nothing compiled, runs on
+the GPU-less fleet, deterministic pixels — and Charlie reversed it the
+same day: the GPU is the main painter going forward, because it is what
+makes `canvas` and LLP 1014's children-through-the-shader one pass rather
+than a readback, and because the display that matters is a GPU's. The
+costs, measured: **shader compilation on the boot path** — 773 ms on the
+first launch on this Mac (Metal), 9.8 ms on every later one from the
+driver's cache; on Vulkan the wgpu pipeline cache on disk plays that role
+(on RADV: 77 ms the first launch on the machine, 6 ms from the cache after — §6) — which is the "boot path compiles nothing"
+rule not met, and the amendment LLP 1009 §5 already proposes ("compiles
+nothing on the boot path; a canvas compiles its shaders at first use")
+now needs a second clause for this host: *the GPU painter compiles its
+shaders on the first launch on a machine and reads them from the cache
+after*. And **the readback**: 4 ms to render and 17–19 ms to wait and map
+per frame on Metal, at 420×860 and at 840×1720 alike — latency, not
+bandwidth — against 3.8–6.9 ms for the CPU painter; on RADV the same
+readback is 3–5 ms and a 1920×1080 frame is 12.6 ms against the CPU's
+10.2 ms. Until the frame is
+presented from the GPU (a KMS surface through `VK_KHR_display`, the
+follow-up), the CPU backend paints the small pictures faster; the GPU
+backend is right for the display, wrong for the readback that is its
+only path today. Nothing else in the host knows which backend paints;
+`EXACT_PAINTER=cpu` is one environment variable away. The two-wgpu build
+(vello 0.10 pins 29, the GPU module 30) ends when vello moves.
 
-Also not in v1, each declared: libinput and xkbcommon (pointer
+Also not in v1, each declared: authentication or encryption on the VNC
+server (`EXACT_VNC` is for a private network), and its `Raw` encoding
+only (8 MB a frame at 1080p — a LAN's, not a WAN's); a KMS surface for the GPU (`VK_KHR_display`
+/ `VK_EXT_acquire_drm_display`, no readback); the GPU module on this
+painter's device (`canvas`); libinput and xkbcommon (pointer
 acceleration, touchpad gestures, hotplug, non-US keymaps — evdev reads
 raw, and nothing links); Wayland or X11 windows (DRM or headless only);
 a cursor blink, selection, IME; `text_decoration`, `font_family` (always
@@ -241,9 +376,9 @@ sans-serif), RTL untested; shadows, gradients, grid (as on macOS); JPEG
 and other image formats (PNG only), image URLs (ibex2); accessibility of
 any kind; HiDPI beyond `EXACT_SCALE`; a font cache for the scan;
 pixel fixtures against Chrome (the instrument exists — `screenshot`, the
-smoke's canvas reference — the pinned font does not: a fixture that must
-match across machines needs `EXACT_FONTS` pointing at one font and the
-sans family set to it); the page extent past the root's frame (LLP 1010
+smoke's canvas reference — and `EXACT_FONT` pins the family; a fixture
+that must match across machines still needs the same font file on each,
+`EXACT_FONTS`); the page extent past the root's frame (LLP 1010
 §3's deviation, shared); lifting the orchestration out of `host/apple`
 and `host/linux` into one crate.
 
@@ -259,13 +394,23 @@ presentation values frame by frame and settles at 1.5 / 0.5; the clock
 fires timers at their due times; an image lays out from its decoded size
 and never resolves outside the asset root; every agent request answers on
 the wire; a reload carries state and starts the pictures over.
-`host/linux/tests/paint.rs` (6), pixel by pixel: backgrounds land in their
-boxes with their radii (`#eeeeee` inside the button, the page at its
-corner; `#f7f7f7` inside the card past the 16 pt radius); text and images
+`host/linux/tests/paint.rs` (7, each run under both painters where a GPU
+exists, under the CPU alone where none does — said, never failed on),
+pixel by pixel: backgrounds land in their boxes with their radii (`#eeeeee` inside the app's button, the page at its
+corner; `#f7f7f7` inside an inline fixture's card past the 16 pt radius —
+the app's own panels became translucent white over the sky in LLP 1014
+§1a, which a review caught as a stale assertion); **the two painters agree
+within a band** over the whole app at 390×844 — measured on Metal
+2026-08-29 at mean 3.24/255 with 2.98% of pixels differing by more than 32,
+asserted at 5 and 6% (glyphs are where they part: vello draws hinted
+outlines at the layout's positions, tiny-skia blits swash's bitmaps at
+snapped ones — a declared deviation, the band its measure); text and images
 leave ink in their boxes and none between; motion presents as a transform
 and a group opacity (the box 1.5× wider, the ink lighter); a scroll
 container clips what it scrolled out; a device scale of 2 paints 780×1688
 for the same 390×844 points; a screenshot is the viewport as a PNG.
 `node scripts/smoke.mjs linux`: ok on `expo-build-1000` (Ubuntu 24.04,
-Rust 1.97.0) in 0.5 s and on macOS 26.6 in 7 s (the canvas reference step
-aside, §5), 2026-08-29. Under the five checks the same day, on both.
+Rust 1.97.0, the CPU painter) in 0.9 s and on macOS 26.6 (the GPU painter
+on Metal) in 7 s (the canvas reference step aside, §5), 2026-08-29; the
+peer lane's motion step (LLP 1012 r2's fixture) gives the same numbers as
+the other hosts. Under the five checks the same day.

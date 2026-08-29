@@ -56,6 +56,9 @@ change can break.
 
 - No `video`, `webview`, `canvas`, `lottie`, `rive`, `fileinput`, `pager`.
 - No camera anything.
+- No gradient style rows. A gradient with anything on it is a canvas surface with
+  children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
+  host earns them).
 - No virtualList v2 (cert wires, extent demand, proxy lanes). A straightforward windowed
   list — and if it misses 60fps, that is a kernel bug worth fixing properly.
 

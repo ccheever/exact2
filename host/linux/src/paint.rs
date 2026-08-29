@@ -3,30 +3,30 @@
 //! @ref LLP 1015 §2; LLP 1014 D4 (a host that paints has the exact
 //! invalidation answer because it *is* the display list)
 //!
-//! One walk of the live tree in preorder paints every node into a
-//! premultiplied RGBA pixmap with tiny-skia: background (the border box,
-//! per-corner radii), borders, an image by `object-fit`, a text node's
-//! paragraph (the one the kernel measured, [`crate::text`]), an input's
-//! value or placeholder and caret, then the children — clipped when the
-//! node's effective overflow is not `visible`, offset by its scroll
-//! position. Motion presentation values become a transform about the box's
-//! center (CSS `translate` · `rotate` · `scale`) and a group opacity (a
-//! layer, only when it is not 1). The walk also records every node's
-//! painted box — the transformed bounding box in viewport points and the
-//! clip it was painted under — which is what the agent's `layout` reports
-//! and what hit-testing reads: no second geometry.
+//! One walk of the live tree in preorder emits every node to a [`Backend`]:
+//! background (the border box, per-corner radii), borders, an image by
+//! `object-fit`, a text node's paragraph (the one the kernel measured,
+//! [`crate::text`]), an input's value or placeholder and caret, then the
+//! children — clipped when the node's effective overflow is not `visible`,
+//! offset by its scroll position. Motion presentation values become a
+//! transform about the box's center (CSS `translate` · `rotate` · `scale`)
+//! and a group opacity (a layer, only when it is not 1). The walk also
+//! records every node's painted box — the transformed bounding box in
+//! viewport points and the clip it was painted under — which is what the
+//! agent's `layout` reports and what hit-testing reads: no second geometry.
+//!
+//! Two backends draw what the walk emits: [`crate::gpu`] (vello over wgpu,
+//! the main one) and [`crate::raster`] (tiny-skia on the CPU — the fallback
+//! where there is no adapter, and the deterministic oracle for pixels).
 
-use crate::text::{Run, Shared, Spec};
+use crate::text::{Paragraph, Run, Shared, Spec, TextEngine};
 use exact_kernel::{
     Dimension, Display, FontStyle, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId,
     StyleProps, ViewId,
 };
 use std::collections::BTreeMap;
 use std::rc::Rc;
-use tiny_skia::{
-    Color, FillRule, FilterQuality, Mask, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Point,
-    Rect, Stroke, Transform,
-};
+use tiny_skia::{Pixmap, Point, Transform};
 
 /// A node's presentation values: what the motion engine says to paint.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -67,6 +67,53 @@ impl Presented {
 
 /// A rectangle as (x, y, w, h).
 pub type Rect4 = (f32, f32, f32, f32);
+
+/// A rectangle with per-corner radii (top-left, top-right, bottom-right,
+/// bottom-left), each clamped so neighbours never overlap.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shape {
+    /// The box.
+    pub rect: Rect4,
+    /// The radii.
+    pub radii: [f32; 4],
+}
+
+impl Shape {
+    /// A box with radii, clamped.
+    pub fn new(rect: Rect4, radii: [f32; 4]) -> Shape {
+        let limit = (rect.2 / 2.0).min(rect.3 / 2.0).max(0.0);
+        Shape {
+            rect,
+            radii: radii.map(|r| r.max(0.0).min(limit)),
+        }
+    }
+
+    /// A plain box.
+    pub fn rect(rect: Rect4) -> Shape {
+        Shape {
+            rect,
+            radii: [0.0; 4],
+        }
+    }
+
+    /// Whether any corner is rounded.
+    pub fn rounded(&self) -> bool {
+        self.radii.iter().any(|r| *r > 0.0)
+    }
+
+    /// The same box inset on every side (radii shrink with it).
+    pub fn inset(&self, by: f32) -> Shape {
+        Shape::new(
+            (
+                self.rect.0 + by,
+                self.rect.1 + by,
+                (self.rect.2 - 2.0 * by).max(0.0),
+                (self.rect.3 - 2.0 * by).max(0.0),
+            ),
+            self.radii.map(|r| (r - by).max(0.0)),
+        )
+    }
+}
 
 /// A node's box as painted: its transformed bounding box in viewport
 /// points, the clip it was painted under (viewport points, axis-aligned),
@@ -119,68 +166,114 @@ pub struct Frame {
     pub boxes: Vec<PaintedBox>,
 }
 
-/// The painter.
+/// What draws the walk's output. Coordinates are viewport points with a
+/// transform (points → points); a backend applies the device scale itself.
+pub trait Backend {
+    /// `"gpu"` or `"cpu"`.
+    fn name(&self) -> &'static str;
+    /// A new frame of this size in points at this scale, cleared to white.
+    fn begin(&mut self, width: f32, height: f32, scale: f32);
+    /// Fill a shape.
+    fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
+    /// Stroke a shape's outline, centred on it.
+    fn stroke(&mut self, shape: &Shape, width: f32, color: [u8; 4], ts: Transform);
+    /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
+    fn image(&mut self, image: &Rc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform);
+    /// Paint a paragraph with its top-left at `origin`.
+    fn text(
+        &mut self,
+        text: &mut TextEngine,
+        paragraph: &Paragraph,
+        color: [u8; 4],
+        origin: (f32, f32),
+        ts: Transform,
+    );
+    /// Clip everything until the matching pop to a shape.
+    fn push_clip(&mut self, shape: &Shape, ts: Transform);
+    /// End a clip.
+    fn pop_clip(&mut self);
+    /// Composite everything until the matching pop at an opacity.
+    fn push_opacity(&mut self, alpha: f32);
+    /// End an opacity layer.
+    fn pop_opacity(&mut self);
+    /// The pointer arrow at a point.
+    fn pointer(&mut self, x: f32, y: f32);
+    /// The frame's pixels.
+    fn finish(&mut self) -> Result<Pixmap, String>;
+    /// The last frame's (encode + render, readback) milliseconds, on a
+    /// backend that has them.
+    fn last_frame_ms(&self) -> Option<(f64, f64)> {
+        None
+    }
+}
+
+/// The painter: the walk over one backend.
 pub struct Painter {
     /// The text engine, shared with the kernel's measurer.
     pub text: Shared,
     /// Device pixels per point.
     pub scale: f32,
+    backend: Box<dyn Backend>,
 }
 
 struct Walk<'a, 'b> {
     scene: &'b Scene<'a>,
     boxes: Vec<PaintedBox>,
-    width: u32,
-    height: u32,
 }
 
 impl Painter {
+    /// A painter over a backend.
+    pub fn new(text: Shared, scale: f32, backend: Box<dyn Backend>) -> Painter {
+        Painter {
+            text,
+            scale,
+            backend,
+        }
+    }
+
+    /// The backend's name.
+    pub fn backend(&self) -> &'static str {
+        self.backend.name()
+    }
+
+    /// Another backend from here on (the CPU's, once the GPU's failed a
+    /// frame).
+    pub fn replace_backend(&mut self, backend: Box<dyn Backend>) {
+        self.backend = backend;
+    }
+
+    /// The last frame's (encode + render, readback) milliseconds, on the GPU.
+    pub fn last_frame_ms(&self) -> Option<(f64, f64)> {
+        self.backend.last_frame_ms()
+    }
+
     /// Paint the scene into a viewport of the given size (points).
-    pub fn paint(&mut self, scene: &Scene<'_>, viewport: (f32, f32)) -> Frame {
-        let width = ((viewport.0 * self.scale).round() as u32).max(1);
-        let height = ((viewport.1 * self.scale).round() as u32).max(1);
-        let mut pixmap = Pixmap::new(width, height).expect("a viewport has pixels");
-        pixmap.fill(Color::WHITE);
+    pub fn paint(&mut self, scene: &Scene<'_>, viewport: (f32, f32)) -> Result<Frame, String> {
+        self.backend.begin(viewport.0, viewport.1, self.scale);
         let mut walk = Walk {
             scene,
             boxes: Vec::new(),
-            width,
-            height,
         };
         for root in scene.roots {
-            self.node(
-                &mut walk,
-                *root,
-                Transform::identity(),
-                scene.page,
-                None,
-                None,
-                &mut pixmap,
-            );
+            self.node(&mut walk, *root, Transform::identity(), scene.page, None);
         }
         if let Some((px, py)) = scene.pointer {
-            self.pointer(&mut pixmap, px, py);
+            self.backend.pointer(px, py);
         }
-        Frame {
+        let pixmap = self.backend.finish()?;
+        Ok(Frame {
             pixmap,
             boxes: walk.boxes,
-        }
+        })
     }
 
-    fn device(&self, ts: Transform) -> Transform {
-        Transform::from_scale(self.scale, self.scale).pre_concat(ts)
-    }
-
-    #[allow(clippy::too_many_arguments)]
     fn node(
         &mut self,
         walk: &mut Walk<'_, '_>,
         id: ViewId,
         ts: Transform,
         offset: (f32, f32),
-        clip: Option<&Rc<Mask>>,
         clip_rect: Option<Rect4>,
-        target: &mut Pixmap,
     ) {
         let Some(node) = walk.scene.kernel.node(id) else {
             return;
@@ -217,40 +310,14 @@ impl Painter {
             return;
         }
         if opacity < 1.0 {
-            // Group opacity: the subtree into a layer, composited once.
-            let Some(mut layer) = Pixmap::new(walk.width, walk.height) else {
-                return;
-            };
-            self.content(
-                walk,
-                &node,
-                (x, y, w, h),
-                ts,
-                offset,
-                clip,
-                clip_rect,
-                &mut layer,
-            );
-            let paint = PixmapPaint {
-                opacity,
-                ..PixmapPaint::default()
-            };
-            target.draw_pixmap(0, 0, layer.as_ref(), &paint, Transform::identity(), None);
-        } else {
-            self.content(
-                walk,
-                &node,
-                (x, y, w, h),
-                ts,
-                offset,
-                clip,
-                clip_rect,
-                target,
-            );
+            self.backend.push_opacity(opacity);
+        }
+        self.content(walk, &node, (x, y, w, h), ts, offset, clip_rect);
+        if opacity < 1.0 {
+            self.backend.pop_opacity();
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn content(
         &mut self,
         walk: &mut Walk<'_, '_>,
@@ -258,31 +325,21 @@ impl Painter {
         rect: Rect4,
         ts: Transform,
         offset: (f32, f32),
-        clip: Option<&Rc<Mask>>,
         clip_rect: Option<Rect4>,
-        target: &mut Pixmap,
     ) {
         let s = node.style;
         let (x, y, w, h) = rect;
-        let dev = self.device(ts);
-        let mask = clip.map(|m| &**m);
-        let radii = [
-            s.border_radius_top_left,
-            s.border_radius_top_right,
-            s.border_radius_bottom_right,
-            s.border_radius_bottom_left,
-        ];
-        let outer = rounded_rect(rect, radii);
-        if let Some(outer) = &outer {
-            if s.background_color.a() > 0 {
-                target.fill_path(
-                    outer,
-                    &solid(color(s.background_color)),
-                    FillRule::Winding,
-                    dev,
-                    mask,
-                );
-            }
+        let outer = Shape::new(
+            rect,
+            [
+                s.border_radius_top_left,
+                s.border_radius_top_right,
+                s.border_radius_bottom_right,
+                s.border_radius_bottom_left,
+            ],
+        );
+        if s.background_color.a() > 0 && w > 0.0 && h > 0.0 {
+            self.backend.fill(&outer, rgba(s.background_color), ts);
         }
         // Borders: a uniform border with a radius is a stroke inset by half
         // its width; anything else is four side rectangles (as the Apple
@@ -302,22 +359,10 @@ impl Painter {
         if widths.iter().any(|b| *b > 0.0) {
             let uniform =
                 widths.iter().all(|b| *b == widths[0]) && colors.iter().all(|c| *c == colors[0]);
-            if uniform && radii.iter().any(|r| *r > 0.0) && colors[0].a() > 0 {
+            if uniform && outer.rounded() && colors[0].a() > 0 {
                 let bw = widths[0];
-                let inset = (
-                    x + bw / 2.0,
-                    y + bw / 2.0,
-                    (w - bw).max(0.0),
-                    (h - bw).max(0.0),
-                );
-                let inner_radii = radii.map(|r| (r - bw / 2.0).max(0.0));
-                if let Some(path) = rounded_rect(inset, inner_radii) {
-                    let stroke = Stroke {
-                        width: bw,
-                        ..Stroke::default()
-                    };
-                    target.stroke_path(&path, &solid(color(colors[0])), &stroke, dev, mask);
-                }
+                self.backend
+                    .stroke(&outer.inset(bw / 2.0), bw, rgba(colors[0]), ts);
             } else {
                 let sides = [
                     (x, y, w, widths[0]),
@@ -326,10 +371,8 @@ impl Painter {
                     (x, y, widths[3], h),
                 ];
                 for (i, side) in sides.iter().enumerate() {
-                    if widths[i] > 0.0 && colors[i].a() > 0 {
-                        if let Some(r) = Rect::from_xywh(side.0, side.1, side.2, side.3) {
-                            target.fill_rect(r, &solid(color(colors[i])), dev, mask);
-                        }
+                    if widths[i] > 0.0 && colors[i].a() > 0 && side.2 > 0.0 && side.3 > 0.0 {
+                        self.backend.fill(&Shape::rect(*side), rgba(colors[i]), ts);
                     }
                 }
             }
@@ -349,30 +392,23 @@ impl Painter {
         match node.node_type {
             NodeType::Image => {
                 if let Some(img) = walk.scene.images.get(&node.id) {
-                    self.image(
-                        walk,
-                        target,
-                        img,
-                        s.object_fit,
-                        content,
-                        outer.as_ref(),
-                        dev,
-                        clip,
-                    );
+                    if let Some(dst) = object_fit(img, s.object_fit, content) {
+                        self.backend
+                            .image(img, dst, &[Shape::rect(content), outer], ts);
+                    }
                 }
             }
             NodeType::Text => {
                 if let Some(text) = node.props.str(PropId::Text) {
                     let spec = text_spec(s, text);
                     let paragraph = self.text.borrow_mut().paragraph(&spec, Some(content.2));
-                    self.text.borrow_mut().paint(
-                        target,
+                    let mut engine = self.text.borrow_mut();
+                    self.backend.text(
+                        &mut engine,
                         &paragraph,
                         rgba(s.text_color),
                         (content.0, content.1),
-                        self.scale,
-                        dev,
-                        mask,
+                        ts,
                     );
                 }
             }
@@ -392,15 +428,11 @@ impl Painter {
                 } else {
                     rgba(s.text_color)
                 };
-                self.text.borrow_mut().paint(
-                    target,
-                    &paragraph,
-                    ink,
-                    (content.0, oy),
-                    self.scale,
-                    dev,
-                    mask,
-                );
+                {
+                    let mut engine = self.text.borrow_mut();
+                    self.backend
+                        .text(&mut engine, &paragraph, ink, (content.0, oy), ts);
+                }
                 if walk.scene.focus == Some(node.id) {
                     let caret_x = content.0 + if placeholder { 0.0 } else { paragraph.width };
                     let caret_h = if paragraph.height > 0.0 {
@@ -408,9 +440,11 @@ impl Painter {
                     } else {
                         s.font_size * 1.2
                     };
-                    if let Some(r) = Rect::from_xywh(caret_x, oy, 1.0, caret_h) {
-                        target.fill_rect(r, &solid(color(s.text_color)), dev, mask);
-                    }
+                    self.backend.fill(
+                        &Shape::rect((caret_x, oy, 1.0, caret_h)),
+                        rgba(s.text_color),
+                        ts,
+                    );
                 }
             }
             _ => {}
@@ -419,25 +453,9 @@ impl Painter {
         // moved by its scroll offset when it scrolls.
         let (ox, oy) = effective_overflow(node);
         let clips = ox != Overflow::Visible || oy != Overflow::Visible;
-        let mut child_clip: Option<Rc<Mask>> = clip.cloned();
         let mut child_rect = clip_rect;
         if clips {
-            if let Some(outer) = &outer {
-                let mut m = match clip {
-                    Some(c) => (**c).clone(),
-                    None => {
-                        let Some(mut m) = Mask::new(walk.width, walk.height) else {
-                            return;
-                        };
-                        m.fill_path(outer, FillRule::Winding, true, dev);
-                        m
-                    }
-                };
-                if clip.is_some() {
-                    m.intersect_path(outer, FillRule::Winding, true, dev);
-                }
-                child_clip = Some(Rc::new(m));
-            }
+            self.backend.push_clip(&outer, ts);
             let own = bbox(ts, rect);
             child_rect = Some(match clip_rect {
                 Some(c) => intersect(c, own),
@@ -456,107 +474,40 @@ impl Painter {
             offset
         };
         for child in node.children() {
-            self.node(
-                walk,
-                child,
-                ts,
-                child_offset,
-                child_clip.as_ref(),
-                child_rect,
-                target,
-            );
+            self.node(walk, child, ts, child_offset, child_rect);
+        }
+        if clips {
+            self.backend.pop_clip();
         }
     }
+}
 
-    /// CSS `object-fit` over the content box, clipped to it and to the
-    /// border box's rounded path (LLP 1011 §4).
-    #[allow(clippy::too_many_arguments)]
-    fn image(
-        &mut self,
-        walk: &mut Walk<'_, '_>,
-        target: &mut Pixmap,
-        img: &Pixmap,
-        fit: ObjectFit,
-        content: Rect4,
-        outer: Option<&Path>,
-        dev: Transform,
-        clip: Option<&Rc<Mask>>,
-    ) {
-        let (nw, nh) = (img.width() as f32, img.height() as f32);
-        if nw <= 0.0 || nh <= 0.0 || content.2 <= 0.0 || content.3 <= 0.0 {
-            return;
-        }
-        let (sx, sy) = (content.2 / nw, content.3 / nh);
-        let s = match fit {
-            ObjectFit::Contain => Some(sx.min(sy)),
-            ObjectFit::Cover => Some(sx.max(sy)),
-            ObjectFit::None => Some(1.0),
-            ObjectFit::ScaleDown => Some(sx.min(sy).min(1.0)),
-            ObjectFit::Fill => None,
-        };
-        let (dw, dh) = match s {
-            Some(s) => (nw * s, nh * s),
-            None => (content.2, content.3),
-        };
-        let ox = content.0 + (content.2 - dw) / 2.0;
-        let oy = content.1 + (content.3 - dh) / 2.0;
-        let Some(content_rect) = Rect::from_xywh(content.0, content.1, content.2, content.3) else {
-            return;
-        };
-        let mut m = match clip {
-            Some(c) => (**c).clone(),
-            None => {
-                let Some(mut m) = Mask::new(walk.width, walk.height) else {
-                    return;
-                };
-                m.fill_path(
-                    &PathBuilder::from_rect(content_rect),
-                    FillRule::Winding,
-                    true,
-                    dev,
-                );
-                m
-            }
-        };
-        if clip.is_some() {
-            m.intersect_path(
-                &PathBuilder::from_rect(content_rect),
-                FillRule::Winding,
-                true,
-                dev,
-            );
-        }
-        if let Some(outer) = outer {
-            m.intersect_path(outer, FillRule::Winding, true, dev);
-        }
-        let paint = PixmapPaint {
-            quality: FilterQuality::Bilinear,
-            ..PixmapPaint::default()
-        };
-        let ts = dev.pre_concat(Transform::from_translate(ox, oy).pre_scale(dw / nw, dh / nh));
-        target.draw_pixmap(0, 0, img.as_ref(), &paint, ts, Some(&m));
+/// Where a picture goes under CSS `object-fit`, centred in the content box:
+/// `fill` stretches, `contain`/`cover` keep the ratio, `none` is the natural
+/// size, `scale-down` the smaller of none and contain (LLP 1011 §4).
+pub fn object_fit(img: &Pixmap, fit: ObjectFit, content: Rect4) -> Option<Rect4> {
+    let (nw, nh) = (img.width() as f32, img.height() as f32);
+    if nw <= 0.0 || nh <= 0.0 || content.2 <= 0.0 || content.3 <= 0.0 {
+        return None;
     }
-
-    /// A pointer, when the host has no compositor to draw one.
-    fn pointer(&self, target: &mut Pixmap, px: f32, py: f32) {
-        let mut pb = PathBuilder::new();
-        pb.move_to(0.0, 0.0);
-        pb.line_to(0.0, 16.0);
-        pb.line_to(4.0, 12.5);
-        pb.line_to(7.0, 19.0);
-        pb.line_to(9.5, 18.0);
-        pb.line_to(6.5, 11.5);
-        pb.line_to(11.5, 11.5);
-        pb.close();
-        let Some(path) = pb.finish() else { return };
-        let ts = self.device(Transform::from_translate(px, py));
-        target.fill_path(&path, &solid(Color::WHITE), FillRule::Winding, ts, None);
-        let stroke = Stroke {
-            width: 1.0,
-            ..Stroke::default()
-        };
-        target.stroke_path(&path, &solid(Color::BLACK), &stroke, ts, None);
-    }
+    let (sx, sy) = (content.2 / nw, content.3 / nh);
+    let s = match fit {
+        ObjectFit::Contain => Some(sx.min(sy)),
+        ObjectFit::Cover => Some(sx.max(sy)),
+        ObjectFit::None => Some(1.0),
+        ObjectFit::ScaleDown => Some(sx.min(sy).min(1.0)),
+        ObjectFit::Fill => None,
+    };
+    let (dw, dh) = match s {
+        Some(s) => (nw * s, nh * s),
+        None => (content.2, content.3),
+    };
+    Some((
+        content.0 + (content.2 - dw) / 2.0,
+        content.1 + (content.3 - dh) / 2.0,
+        dw,
+        dh,
+    ))
 }
 
 /// A text node's paragraph spec from its rows (the kernel's defaults are
@@ -624,23 +575,13 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     (w, h)
 }
 
-fn color(c: exact_kernel::Color) -> Color {
-    Color::from_rgba8(c.r(), c.g(), c.b(), c.a())
-}
-
-fn rgba(c: exact_kernel::Color) -> [u8; 4] {
+/// A kernel color's channels.
+pub fn rgba(c: exact_kernel::Color) -> [u8; 4] {
     [c.r(), c.g(), c.b(), c.a()]
 }
 
-fn solid(c: Color) -> Paint<'static> {
-    let mut p = Paint::default();
-    p.set_color(c);
-    p.anti_alias = true;
-    p
-}
-
 /// The bounding box of a rectangle under a transform.
-fn bbox(ts: Transform, r: Rect4) -> Rect4 {
+pub fn bbox(ts: Transform, r: Rect4) -> Rect4 {
     if ts.is_identity() {
         return r;
     }
@@ -670,58 +611,13 @@ fn intersect(a: Rect4, b: Rect4) -> Rect4 {
     (x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
 }
 
-/// A rectangle with per-corner radii (top-left, top-right, bottom-right,
-/// bottom-left), each clamped so neighbours never overlap.
-pub fn rounded_rect(r: Rect4, radii: [f32; 4]) -> Option<Path> {
-    let (x, y, w, h) = r;
-    if w <= 0.0 || h <= 0.0 {
-        return None;
-    }
-    let limit = (w / 2.0).min(h / 2.0);
-    let [tl, tr, br, bl] = radii.map(|r| r.max(0.0).min(limit));
-    if tl == 0.0 && tr == 0.0 && br == 0.0 && bl == 0.0 {
-        return Some(PathBuilder::from_rect(Rect::from_xywh(x, y, w, h)?));
-    }
-    const K: f32 = 0.552_284_8;
-    let mut pb = PathBuilder::new();
-    pb.move_to(x + tl, y);
-    pb.line_to(x + w - tr, y);
-    if tr > 0.0 {
-        pb.cubic_to(
-            x + w - tr + tr * K,
-            y,
-            x + w,
-            y + tr - tr * K,
-            x + w,
-            y + tr,
-        );
-    }
-    pb.line_to(x + w, y + h - br);
-    if br > 0.0 {
-        pb.cubic_to(
-            x + w,
-            y + h - br + br * K,
-            x + w - br + br * K,
-            y + h,
-            x + w - br,
-            y + h,
-        );
-    }
-    pb.line_to(x + bl, y + h);
-    if bl > 0.0 {
-        pb.cubic_to(
-            x + bl - bl * K,
-            y + h,
-            x,
-            y + h - bl + bl * K,
-            x,
-            y + h - bl,
-        );
-    }
-    pb.line_to(x, y + tl);
-    if tl > 0.0 {
-        pb.cubic_to(x, y + tl - tl * K, x + tl - tl * K, y, x + tl, y);
-    }
-    pb.close();
-    pb.finish()
-}
+/// The pointer arrow's outline, at the origin, in points.
+pub const POINTER: [(f32, f32); 7] = [
+    (0.0, 0.0),
+    (0.0, 16.0),
+    (4.0, 12.5),
+    (7.0, 19.0),
+    (9.5, 18.0),
+    (6.5, 11.5),
+    (11.5, 11.5),
+];

@@ -70,12 +70,6 @@ pub fn css_text(style: &StyleProps) -> (String, Vec<Skipped>) {
                     });
                 }
             }
-            ("gradient_type", _) | ("gradient_angle", _) | ("gradient_colors", _) => {
-                skipped.push(Skipped {
-                    row: id,
-                    reason: "gradients are not lowered in v1",
-                })
-            }
             ("font_family", _)
             | ("font_variant_numeric", _)
             | ("line_clamp", _)

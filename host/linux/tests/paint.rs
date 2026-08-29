@@ -3,6 +3,7 @@
 //! and a group opacity, a scroll container clips, a screenshot is the
 //! viewport.
 
+use exact_linux::presenter::PainterChoice;
 use exact_linux::Presenter;
 use exact_runner::{DataError, DataSource, Value};
 use std::path::PathBuf;
@@ -13,14 +14,36 @@ fn assets() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"))
 }
 
-fn boot() -> Presenter<caltrain_data::Caltrain> {
+/// Whether a GPU is there to test on (the fleet has none; say so, never
+/// fail on it — the DRM run on a machine with one is the GPU's check).
+fn gpu_available() -> bool {
+    match exact_linux::gpu::Gpu::new() {
+        Ok(_) => true,
+        Err(e) => {
+            eprintln!("no GPU here ({e}); the GPU painter's pixels are not checked");
+            false
+        }
+    }
+}
+
+/// Every painter that can run here.
+fn painters() -> Vec<PainterChoice> {
+    let mut v = vec![PainterChoice::Cpu];
+    if gpu_available() {
+        v.push(PainterChoice::Gpu);
+    }
+    v
+}
+
+fn boot(choice: PainterChoice) -> Presenter<caltrain_data::Caltrain> {
     let plan = caltrain::build().unwrap();
-    let (mut p, _) = Presenter::boot(
+    let (mut p, _) = Presenter::boot_with(
         &plan.encode(),
         caltrain_data::Caltrain,
         (390.0, 844.0),
         1.0,
         assets(),
+        choice,
     )
     .unwrap();
     p.wait_images(Duration::from_secs(2));
@@ -34,16 +57,36 @@ impl DataSource for NoData {
     }
 }
 
-fn fixture(name: &str, scale: f32) -> Presenter<NoData> {
+fn fixture(name: &str, scale: f32, choice: PainterChoice) -> Presenter<NoData> {
     let src = std::fs::read_to_string(format!(
         "{}/../../contract/corpus/{name}.contract",
         env!("CARGO_MANIFEST_DIR")
     ))
     .unwrap();
-    let plan = contract::compile(&src).unwrap();
-    Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), scale, assets())
-        .unwrap()
-        .0
+    compiled(&src, scale, choice)
+}
+
+/// A card with an opaque colour and a radius on a white page: the fixture
+/// for radii (the app's own panels are translucent white over the sky since
+/// LLP 1014 §1a, and say nothing about a corner).
+const CARD: &str = "component Card
+  view
+    column background=\"#ffffff\" padding=20 width=\"100%\" height=\"100%\"
+      view width=300 height=120 radius=16 background=\"#f7f7f7\" testId=\"card\"
+";
+
+fn compiled(src: &str, scale: f32, choice: PainterChoice) -> Presenter<NoData> {
+    let plan = contract::compile(src).unwrap();
+    Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (390.0, 844.0),
+        scale,
+        assets(),
+        choice,
+    )
+    .unwrap()
+    .0
 }
 
 fn view<D: DataSource>(p: &Presenter<D>, test_id: &str) -> u32 {
@@ -76,127 +119,185 @@ fn darkest(frame: &Pixmap, r: (f32, f32, f32, f32)) -> u32 {
 
 #[test]
 fn backgrounds_land_in_their_boxes_with_their_radii() {
-    let mut p = boot();
-    let frame = p.frame();
-    assert_eq!(px(&frame, 2.0, 2.0), (255, 255, 255), "the page is white");
-    let button = rect(&mut p, "change-station");
-    let (cx, cy) = (button.0 + button.2 / 2.0, button.1 + button.3 / 2.0);
-    // Inside the button but off its text: the top-left corner's inset.
-    assert_eq!(
-        px(&frame, button.0 + 10.0, button.1 + 3.0),
-        (238, 238, 238),
-        "#eeeeee at {cx},{cy}"
-    );
-    assert_eq!(
-        px(&frame, button.0 + 0.5, button.1 + 0.5),
-        (255, 255, 255),
-        "radius 8: the corner pixel is outside"
-    );
-    let card = rect(&mut p, "board-north");
-    assert_eq!(
-        px(&frame, card.0 + 20.0, card.1 + 3.0),
-        (247, 247, 247),
-        "#f7f7f7 in the card"
-    );
-    assert_eq!(
-        px(&frame, card.0 + 1.0, card.1 + 1.0),
-        (255, 255, 255),
-        "radius 16: the corner is the page"
-    );
-    assert_eq!(
-        px(&frame, card.0 + 16.0, card.1 + 16.0),
-        (247, 247, 247),
-        "past the radius it is the card"
-    );
+    for choice in painters() {
+        let mut p = boot(choice);
+        let frame = p.frame();
+        assert_eq!(px(&frame, 2.0, 2.0), (255, 255, 255), "the page is white");
+        let button = rect(&mut p, "change-station");
+        let (cx, cy) = (button.0 + button.2 / 2.0, button.1 + button.3 / 2.0);
+        // Inside the button but off its text: the top-left corner's inset.
+        assert_eq!(
+            px(&frame, button.0 + 10.0, button.1 + 3.0),
+            (238, 238, 238),
+            "#eeeeee at {cx},{cy} ({choice:?})"
+        );
+        assert_eq!(
+            px(&frame, button.0 + 0.5, button.1 + 0.5),
+            (255, 255, 255),
+            "radius 8: the corner pixel is outside"
+        );
+        let mut p = compiled(CARD, 1.0, choice);
+        let frame = p.frame();
+        let card = rect(&mut p, "card");
+        assert_eq!(
+            px(&frame, card.0 + 20.0, card.1 + 3.0),
+            (247, 247, 247),
+            "#f7f7f7 in the card ({choice:?})"
+        );
+        assert_eq!(
+            px(&frame, card.0 + 1.0, card.1 + 1.0),
+            (255, 255, 255),
+            "radius 16: the corner is the page"
+        );
+        assert_eq!(
+            px(&frame, card.0 + 16.0, card.1 + 16.0),
+            (247, 247, 247),
+            "past the radius it is the card"
+        );
+    }
 }
 
 #[test]
 fn text_and_images_leave_ink_in_their_boxes() {
-    let mut p = boot();
-    let frame = p.frame();
-    let name = rect(&mut p, "station-name");
-    assert!(darkest(&frame, name) < 120, "24 pt bold text is dark ink");
-    let logo = rect(&mut p, "logo");
-    assert!(
-        darkest(&frame, logo) < 700,
-        "the picture painted: darkest {}",
-        darkest(&frame, logo)
-    );
-    let outside = (name.0, name.1 + name.3 + 2.0, name.2, 1.0);
-    assert!(
-        darkest(&frame, outside) > 600,
-        "a line between boxes is light"
-    );
+    for choice in painters() {
+        let mut p = boot(choice);
+        let frame = p.frame();
+        let name = rect(&mut p, "station-name");
+        assert!(
+            darkest(&frame, name) < 120,
+            "24 pt bold text is dark ink ({choice:?})"
+        );
+        let logo = rect(&mut p, "logo");
+        assert!(
+            darkest(&frame, logo) < 700,
+            "the picture painted: darkest {}",
+            darkest(&frame, logo)
+        );
+        let outside = (name.0, name.1 + name.3 + 2.0, name.2, 1.0);
+        assert!(
+            darkest(&frame, outside) > 600,
+            "a line between boxes is light"
+        );
+    }
 }
 
 #[test]
 fn motion_presents_as_a_transform_and_a_group_opacity() {
-    let mut p = fixture("spring", 1.0);
-    let before = rect(&mut p, "hello");
-    let ink_before = darkest(&p.frame(), before);
-    let _ = p.tap(view(&p, "toggle")).unwrap();
-    let _ = p.clock(20_000.0);
-    let after = rect(&mut p, "hello");
-    assert!(
-        after.2 > before.2 * 1.4,
-        "scaled 1.5×: {before:?} → {after:?}"
-    );
-    // The lower half: scaled about its center, the box now reaches up into
-    // the button above it, whose text is at full opacity.
-    let lower = (after.0, after.1 + after.3 / 2.0, after.2, after.3 / 2.0);
-    let ink_after = darkest(&p.frame(), lower);
-    assert!(
-        ink_after > ink_before + 60,
-        "opacity 0.5 lightens the ink: {ink_before} → {ink_after}"
-    );
+    for choice in painters() {
+        let mut p = fixture("spring", 1.0, choice);
+        let before = rect(&mut p, "hello");
+        let ink_before = darkest(&p.frame(), before);
+        let _ = p.tap(view(&p, "toggle")).unwrap();
+        let _ = p.clock(20_000.0);
+        let after = rect(&mut p, "hello");
+        assert!(
+            after.2 > before.2 * 1.4,
+            "scaled 1.5×: {before:?} → {after:?}"
+        );
+        // The lower half: scaled about its center, the box now reaches up into
+        // the button above it, whose text is at full opacity.
+        let lower = (after.0, after.1 + after.3 / 2.0, after.2, after.3 / 2.0);
+        let ink_after = darkest(&p.frame(), lower);
+        assert!(
+            ink_after > ink_before + 60,
+            "opacity 0.5 lightens the ink: {ink_before} → {ink_after} ({choice:?})"
+        );
+    }
 }
 
 #[test]
 fn a_scroll_container_clips_what_it_scrolled_out() {
-    let mut p = fixture("scroll", 1.0);
-    let rows = rect(&mut p, "rows");
-    let above = rect(&mut p, "above");
-    let _ = p.wheel(view(&p, "row-1"), 0.0, 100.0);
-    let frame = p.frame();
-    assert!(
-        darkest(&frame, above) < 200,
-        "text above the container still shows"
-    );
-    let row0 = rect(&mut p, "row-0");
-    assert!(row0.1 < rows.1, "row 0 is above the container's top");
-    // Between the container's top and the first visible row there is only
-    // the container's background: nothing of row 0 leaks out above.
-    let strip = (rows.0 + 1.0, rows.1 - 1.0, rows.2 - 2.0, 1.0);
-    assert_eq!(
-        darkest(&frame, strip),
-        255 * 3,
-        "the page above the container is white"
-    );
+    for choice in painters() {
+        let mut p = fixture("scroll", 1.0, choice);
+        let rows = rect(&mut p, "rows");
+        let above = rect(&mut p, "above");
+        let _ = p.wheel(view(&p, "row-1"), 0.0, 100.0);
+        let frame = p.frame();
+        assert!(
+            darkest(&frame, above) < 200,
+            "text above the container still shows"
+        );
+        let row0 = rect(&mut p, "row-0");
+        assert!(row0.1 < rows.1, "row 0 is above the container's top");
+        // Between the container's top and the first visible row there is only
+        // the container's background: nothing of row 0 leaks out above.
+        let strip = (rows.0 + 1.0, rows.1 - 1.0, rows.2 - 2.0, 1.0);
+        assert_eq!(
+            darkest(&frame, strip),
+            255 * 3,
+            "the page above the container is white ({choice:?})"
+        );
+    }
 }
 
 #[test]
 fn a_device_scale_paints_more_pixels_for_the_same_points() {
-    let mut p = fixture("scroll", 2.0);
-    let frame = p.frame();
-    assert_eq!((frame.width(), frame.height()), (780, 1688));
-    let l = p.layout_json();
-    assert!(
-        l.contains("\"viewport\":{\"w\":390,\"h\":844}"),
-        "points, not pixels"
-    );
-    let above = rect(&mut p, "above");
-    let scaled = (above.0 * 2.0, above.1 * 2.0, above.2 * 2.0, above.3 * 2.0);
-    assert!(darkest(&frame, scaled) < 200, "ink where the box is, at 2×");
+    for choice in painters() {
+        let mut p = fixture("scroll", 2.0, choice);
+        let frame = p.frame();
+        assert_eq!((frame.width(), frame.height()), (780, 1688));
+        let l = p.layout_json();
+        assert!(
+            l.contains("\"viewport\":{\"w\":390,\"h\":844}"),
+            "points, not pixels"
+        );
+        let above = rect(&mut p, "above");
+        let scaled = (above.0 * 2.0, above.1 * 2.0, above.2 * 2.0, above.3 * 2.0);
+        assert!(darkest(&frame, scaled) < 200, "ink where the box is, at 2×");
+    }
 }
 
 #[test]
 fn a_screenshot_is_the_viewport_as_a_png() {
-    let mut p = boot();
-    let path = std::env::temp_dir().join(format!("exact-paint-{}.png", std::process::id()));
-    let reply = p.screenshot(path.to_str().unwrap()).unwrap();
-    assert!(reply.ends_with(",\"w\":390,\"h\":844}"), "{reply}");
-    let png = Pixmap::load_png(&path).unwrap();
-    assert_eq!((png.width(), png.height()), (390, 844));
-    assert_eq!(px(&png, 2.0, 2.0), (255, 255, 255));
-    let _ = std::fs::remove_file(path);
+    for choice in painters() {
+        let mut p = boot(choice);
+        let path = std::env::temp_dir().join(format!("exact-paint-{}.png", std::process::id()));
+        let reply = p.screenshot(path.to_str().unwrap()).unwrap();
+        assert!(reply.ends_with(",\"w\":390,\"h\":844}"), "{reply}");
+        let png = Pixmap::load_png(&path).unwrap();
+        assert_eq!((png.width(), png.height()), (390, 844));
+        assert_eq!(px(&png, 2.0, 2.0), (255, 255, 255));
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// The two painters over one frame: the mean absolute difference per
+/// channel and the share of pixels where any channel differs by more than
+/// 32, in 0–255 terms.
+fn band(a: &Pixmap, b: &Pixmap) -> (f64, f64) {
+    assert_eq!((a.width(), a.height()), (b.width(), b.height()));
+    let (mut sum, mut over) = (0u64, 0u64);
+    for (pa, pb) in a.pixels().iter().zip(b.pixels()) {
+        let (ca, cb) = (pa.demultiply(), pb.demultiply());
+        let d = [
+            (ca.red() as i32 - cb.red() as i32).unsigned_abs(),
+            (ca.green() as i32 - cb.green() as i32).unsigned_abs(),
+            (ca.blue() as i32 - cb.blue() as i32).unsigned_abs(),
+        ];
+        sum += d.iter().map(|x| *x as u64).sum::<u64>();
+        if d.iter().any(|x| *x > 32) {
+            over += 1;
+        }
+    }
+    let n = (a.width() * a.height()) as f64;
+    (sum as f64 / (3.0 * n), 100.0 * over as f64 / n)
+}
+
+#[test]
+fn the_two_painters_agree_within_a_band() {
+    // LLP 1015 §2: tiny-skia is the pixel oracle and vello must land within
+    // a band of it over the same frame — the whole app at 390×844, text and
+    // all. Glyphs are where they part (outlines hinted by vello against
+    // swash's bitmaps at snapped positions), so the band is on the frame,
+    // not a pixel. Measured on Metal 2026-08-29: mean 3.24/255, 2.98% of
+    // pixels differing by more than 32 — the band is that with room.
+    if !gpu_available() {
+        return;
+    }
+    let cpu = boot(PainterChoice::Cpu).frame();
+    let gpu = boot(PainterChoice::Gpu).frame();
+    let (mean, over) = band(&cpu, &gpu);
+    eprintln!("cpu vs gpu at 390x844: mean {mean:.2}/255, {over:.2}% of pixels differ by > 32");
+    assert!(mean < 5.0, "mean {mean:.2}/255");
+    assert!(over < 6.0, "{over:.2}% of pixels differ by > 32");
 }
