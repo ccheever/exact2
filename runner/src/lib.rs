@@ -17,6 +17,8 @@
 //! - [`instance`] — the instance tree: nodes, `when`/`match` arms, keyed
 //!   `each` rows, and the ops that keep the kernel equal to it.
 //! - [`runner`] — boot, actions, events, resources, timers, the clock.
+//! - [`agent`] — the agent API's read operations (`tree`, `state`, `logs`),
+//!   answered from the runner and kernel for every host.
 //!
 //! Time is a number the host supplies (`Runner::advance`); timers fire from it,
 //! so an agent seeks instead of waiting — the same clock discipline as
@@ -25,6 +27,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod agent;
 pub mod bridge;
 pub mod instance;
 pub mod runner;
@@ -33,5 +36,8 @@ pub mod vm;
 
 pub use exact_plan::Value;
 pub use instance::SurfaceUpdate;
-pub use runner::{Carried, Command, DataError, DataSource, Event, Runner, RunnerError};
+pub use runner::{
+    Advanced, Carried, Command, DataError, DataSource, Event, Runner, RunnerError, Timed,
+    JOURNAL_RING,
+};
 pub use vm::Trap;

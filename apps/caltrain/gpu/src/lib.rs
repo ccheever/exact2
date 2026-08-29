@@ -18,8 +18,17 @@ use exact_gpu::json::{list, number, text};
 use exact_gpu::wgpu;
 use exact_gpu::{Frame, Registry, Surface, SurfaceError, Value};
 
-/// The shader, validated at build (`build.rs`).
-pub const MAP_WGSL: &str = include_str!("../shaders/map.wgsl");
+/// The shaders under `shaders/`, reflected at build (`build.rs`,
+/// `exact-gpu-reflect`): each one's source, entry points, bindings, and
+/// layouts as Rust. The WGSL is the declaration authority — a binding
+/// number, an offset, or an entry point's name is never restated here by
+/// hand, and a shader edit that moves one is a build error, not a wrong
+/// picture.
+pub mod shaders {
+    include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
+}
+
+pub use shaders::map::Vertex;
 
 /// The line-map surface.
 #[derive(Default)]
@@ -38,7 +47,7 @@ impl MapSurface {
     }
 
     /// The vertices for the current inputs at a size in points.
-    pub fn vertices(&self, width: f32, height: f32) -> Vec<[f32; 6]> {
+    pub fn vertices(&self, width: f32, height: f32) -> Vec<Vertex> {
         let mut out = Vec::new();
         let n = self.stations.len();
         if n == 0 {
@@ -54,8 +63,8 @@ impl MapSurface {
             let b = ndc(cx + w / 2.0, cy - h / 2.0);
             let c = ndc(cx + w / 2.0, cy + h / 2.0);
             let d = ndc(cx - w / 2.0, cy + h / 2.0);
-            for p in [a, b, c, a, c, d] {
-                out.push([p[0], p[1], color[0], color[1], color[2], color[3]]);
+            for position in [a, b, c, a, c, d] {
+                out.push(Vertex { position, color });
             }
         };
         let line = [0.75, 0.75, 0.75, 1.0];
@@ -124,10 +133,7 @@ impl Surface for MapSurface {
         }
         let (_, pipeline) = self.pipeline.as_ref().unwrap();
         let vertices = self.vertices(frame.width, frame.height);
-        let bytes: Vec<u8> = vertices
-            .iter()
-            .flat_map(|v| v.iter().flat_map(|f| f.to_le_bytes()))
-            .collect();
+        let bytes: Vec<u8> = vertices.iter().flat_map(|v| v.bytes()).collect();
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("map vertices"),
             size: (bytes.len().max(4) as u64 + 3) & !3,
@@ -170,26 +176,20 @@ impl Surface for MapSurface {
 }
 
 fn pipeline(device: &wgpu::Device, format: wgpu::TextureFormat) -> wgpu::RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("map"),
-        source: wgpu::ShaderSource::Wgsl(MAP_WGSL.into()),
-    });
+    use shaders::map::{entry, MODULE};
+    let shader = device.create_shader_module(MODULE);
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("map"),
         layout: None,
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: Some("vs"),
-            buffers: &[Some(wgpu::VertexBufferLayout {
-                array_stride: 24,
-                step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x4],
-            })],
+            entry_point: Some(entry::VS),
+            buffers: &[Some(Vertex::LAYOUT)],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: Some("fs"),
+            entry_point: Some(entry::FS),
             targets: &[Some(format.into())],
             compilation_options: Default::default(),
         }),

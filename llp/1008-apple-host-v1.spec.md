@@ -140,6 +140,21 @@ auto`). The AppKit-first fallback this paragraph once described is gone
 "did it move?" can double a delta); see LLP 1010 §3–§4 for the rule and
 the smoke that holds it.
 
+**Images** (LLP 1011 §4 is the spec). An `image` node's `NodeView` loads
+and decodes its source off the main thread — an `http(s)` URL as is, a
+relative path contained under `EXACT_ASSETS` (the app's directory;
+`build.mjs --run` and the smoke set it), the way a page resolves `src`
+against its URL; nothing else loads — then, if it is still the current
+load of a live view, reports the bitmap's pixel counts through
+`exact_intrinsic(view, w, h)`: the kernel lays the image out as a replaced
+element (LLP 1001 §1) and the batch carries every frame that moved.
+`draw` paints it with CSS `object-fit` (`fill`, `contain`, `cover`,
+`none`, `scale-down`; unknown = `fill`) centered in the content box,
+clipped to it and to the border radius. Held by the smoke (not blocking):
+the Caltrain header's `assets/caltrain.png` (a generated 320×120 PNG)
+loads at 320×120 and lays out 96×36 from `width=96`; and by
+`host/apple/tests/host.rs` (the batches after `set_intrinsic`).
+
 **The dev loop** landed here too (LLP 1007 §6's shape): `EXACT_DEV_PLAN`
 names the plan `host/web/dev.mjs` writes on every save; the app restarts
 from it with state carried (`exact_boot_plan`, `Runner::carry`) in ~7 ms.
@@ -200,8 +215,7 @@ height). Each is a number `metrics.mjs` prints; none is a mystery.
 Core Animation delegation for transitions (LLP 1002 §4's measured question;
 `rules/NOT-DOING.md` §Motion — the engine presents every frame through the
 display link today); UIKit/iOS (the same package shape, the same batch; the
-presenter's `NSView` becomes `UIView`); images (`image` nodes draw as boxes);
-toggles; keyboard and pointer events beyond click and typing; scroll
+presenter's `NSView` becomes `UIView`); toggles; keyboard and pointer events beyond click and typing; scroll
 position and focus across a reload; accessibility beyond `testId` as the
 identifier and `accessibilityLabel`; justified text; per-corner radii
 (the first set radius rounds all four); text selection; scroll position

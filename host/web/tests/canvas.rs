@@ -54,10 +54,19 @@ fn a_canvas_is_a_canvas_element_with_the_webs_default_size() {
         )),
         "{batch}"
     );
+    // The sky (LLP 1014): a canvas with children, its surface's one input
+    // a string from state.
+    let sky = view(&host, "sky");
+    assert!(
+        batch.contains(&format!(
+            "\"op\":\"surface\",\"id\":{sky},\"name\":\"aurora\",\"values\":[\"1\"]}}"
+        )),
+        "{batch}"
+    );
     assert_eq!(
         batch.matches("\"op\":\"surface\"").count(),
-        1,
-        "the bare canvas has no surface"
+        2,
+        "the bare canvas has no surface; `map` and `sky` do"
     );
 }
 
@@ -78,7 +87,7 @@ fn surface_inputs_are_published_when_they_change_and_only_then() {
         )),
         "{batch}"
     );
-    assert_eq!(host.runner().plan().surfaces.len(), 1);
+    assert_eq!(host.runner().plan().surfaces.len(), 2);
 }
 
 #[test]

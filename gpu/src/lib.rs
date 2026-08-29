@@ -15,6 +15,7 @@
 //! - [`Module`] — the device and the instances, one per canvas node.
 //! - [`json`] — the values as the batch carries them.
 //! - [`module!`] — the exports for one app's registry.
+//! - `fixture` (native) — a surface rendered and read back, for fixtures.
 
 #![deny(missing_docs)]
 
@@ -67,6 +68,19 @@ pub trait Surface {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool;
+    /// Whether the surface samples the canvas's children (LLP 1014 D2). A
+    /// host that can paint a subtree then hands it to [`Surface::children`]
+    /// and stops compositing the children itself; a host that cannot, or a
+    /// surface that answers `false`, leaves them composited over the surface.
+    fn wants_children(&self) -> bool {
+        false
+    }
+    /// The canvas's children as a texture (LLP 1014 D2, D3) — laid
+    /// out by the kernel in the canvas's box, painted by the host at the
+    /// canvas's scale, premultiplied RGBA — for the surface to sample;
+    /// `None` when there are none. Called when the texture is created or
+    /// replaced; its contents update in place.
+    fn children(&mut self, _texture: Option<&wgpu::TextureView>) {}
 }
 
 /// Makes a surface.
@@ -102,6 +116,14 @@ struct Instance {
     config: wgpu::SurfaceConfiguration,
     bound: bool,
     dirty: bool,
+    children: Option<Children>,
+}
+
+/// A canvas's children, painted by the host, on the device (LLP 1014 D3).
+struct Children {
+    texture: wgpu::Texture,
+    width: u32,
+    height: u32,
 }
 
 impl Module {
@@ -175,9 +197,80 @@ impl Module {
                 config,
                 bound: false,
                 dirty: false,
+                children: None,
             },
         );
         Some(id)
+    }
+
+    /// Whether a canvas's surface samples its children (LLP 1014 D2).
+    pub fn wants_children(&self, id: u32) -> bool {
+        self.instances
+            .get(&id)
+            .is_some_and(|i| i.surface.wants_children())
+    }
+
+    /// The canvas's children, painted by the host (LLP 1014 D3): `width`×`height`
+    /// premultiplied RGBA, rows top-down, tightly packed. Creates or
+    /// replaces the texture at a new size, writes the pixels, and marks the
+    /// canvas dirty.
+    pub fn texture(&mut self, id: u32, width: u32, height: u32, bytes: &[u8]) -> bool {
+        let expected = width as usize * height as usize * 4;
+        if width == 0 || height == 0 || bytes.len() != expected {
+            self.error = format!("children: {} bytes for {width}x{height}", bytes.len());
+            return false;
+        }
+        let Some(gpu) = self.gpu.as_ref() else {
+            self.error = "no device".into();
+            return false;
+        };
+        let Some(inst) = self.instances.get_mut(&id) else {
+            self.error = "no such canvas".into();
+            return false;
+        };
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let same = matches!(&inst.children, Some(c) if c.width == width && c.height == height);
+        if !same {
+            let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("children"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&Default::default());
+            inst.surface.children(Some(&view));
+            inst.children = Some(Children {
+                texture,
+                width,
+                height,
+            });
+        }
+        let children = inst.children.as_ref().expect("just set");
+        gpu.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &children.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytes,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: None,
+            },
+            size,
+        );
+        inst.dirty = true;
+        true
     }
 
     /// New inputs for a canvas; a refusal is reported and the surface keeps
@@ -301,6 +394,8 @@ pub async fn load_gpu(
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod fixture;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
 #[cfg(target_arch = "wasm32")]

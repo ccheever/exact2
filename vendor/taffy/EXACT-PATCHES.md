@@ -149,3 +149,32 @@ an inline small-vector; both signed targets are met without it. Tracked in
 
 Authority: RFC 0491 WS-A; W0-A signed precommitment axes
 `allocation-full-relayout-1k-{calls,bytes}`.
+
+## Patch 5: replaced-element constraints for leaves with an aspect ratio (LLP 1011 §1)
+
+**Files:** `src/compute/leaf.rs` (`compute_leaf_layout_with_baselines`, the
+final size; `replaced_constraints`; the `SizingMode::ContentSize` arm).
+
+**Why.** An `Image` is a measure-function leaf with a Taffy `aspect_ratio`
+(its natural ratio, LLP 1011 §1). Upstream sizes such a leaf by clamping each
+axis independently against min/max and then only flooring the height from the
+width, so a 320×120 image with `max-width: 100` became 100×120 and one with
+`max-height: 40` stayed 320×120 — where CSS (2.1 §10.4, the constraint table
+for replaced elements with an intrinsic ratio) gives 100×37.5 and 106.67×40.
+Upstream also dropped the ratio entirely under `SizingMode::ContentSize`, so a
+flex container measuring the item's content-based flex basis at a stretched
+cross size (css-flexbox §9.2 rule B) got the natural height (390×120 in a
+stretching column) instead of the height by ratio (390×146.25).
+
+**What.** With a ratio, the leaf's tentative size is the known/set dimension
+and the other by ratio (both when both are known; the measured natural size
+when neither is), resolved against min/max by the §10.4 table
+(`replaced_constraints`), never axis-by-axis. `ContentSize` mode keeps the
+style's ratio (rows and min/max are still ignored). Leaves without a ratio are
+untouched (`_ =>` is the upstream code verbatim).
+
+**Held by** `kernel/tests/image.rs` (`the_css_replaced_element_constraint_table`,
+`in_a_stretching_flex_column_an_auto_width_image_fills_it_too`) and
+`kernel/tests/layout_equality.rs` unchanged.
+
+**Upstream status:** Exact-local; upstreamable as a correctness fix.

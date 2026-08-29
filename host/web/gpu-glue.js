@@ -15,11 +15,15 @@ function size(el) {
   return { w: Math.max(r.width, 1), h: Math.max(r.height, 1), s: devicePixelRatio || 1 };
 }
 
+// The surfaces' clock: the page's in agent mode (LLP 1012: the driver owns
+// time, and a picture is a function of it), else the frame's.
+const clockFor = (frameNow) => exact.now?.() ?? frameNow;
+
 function render(entry, now) {
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
-  const r = gpu.gpu_render(entry.id, w, h, s, now);
+  const r = gpu.gpu_render(entry.id, w, h, s, clockFor(now));
   if (r === 2) console.error("exact gpu:", gpu.gpu_error());
   entry.wants = r === 1;
 }
@@ -32,7 +36,9 @@ function frame(now) {
     if (entry.wants || gpu.gpu_dirty(entry.id)) render(entry, now);
     more ||= entry.wants;
   }
-  if (more) schedule();
+  // Under the agent's clock a frame is asked for by `clock`, never by the
+  // last frame: a surface that wants more renders again when time moves.
+  if (more && !exact.now) schedule();
 }
 
 function schedule() { if (raf === null) raf = requestAnimationFrame(frame); }
@@ -44,14 +50,18 @@ function ensure(entry) {
   entry.el.height = Math.max(1, Math.round(h * s));
   entry.id = gpu.gpu_create(entry.name, entry.el, entry.el.width, entry.el.height);
   if (!entry.id) { console.error("exact gpu:", gpu.gpu_error()); return; }
-  new ResizeObserver(() => { if (entry.id) { render(entry, performance.now()); } }).observe(entry.el);
+  entry.observer = new ResizeObserver(() => { if (entry.id) { render(entry, performance.now()); } });
+  // (`render` takes the agent's clock over that timestamp in agent mode.)
+  entry.observer.observe(entry.el);
   if (!gpu.gpu_bind(entry.id, JSON.stringify(entry.values))) console.error("exact gpu:", gpu.gpu_error());
   schedule();
 }
 
 exact.gpu = {
   surface(view, name, values) {
-    const el = exact.views.get(view);
+    // The node's element hosts its surface <canvas> (glue.js, LLP 1014 D2).
+    const host = exact.views.get(view);
+    const el = host?.matches("canvas") ? host : host?.querySelector(":scope > canvas[data-surface]");
     if (!el) return;
     let entry = surfaces.get(view);
     if (entry && entry.el !== el) { this.destroy(view); entry = null; } // a reload reuses ids
@@ -62,10 +72,16 @@ exact.gpu = {
   destroy(view) {
     const entry = surfaces.get(view);
     if (entry?.id) gpu.gpu_destroy(entry.id);
+    // The observer would fire once more as the element leaves the page, for
+    // a surface the module no longer has (found by the agent smoke, which
+    // is the first thing to navigate away from a canvas and back).
+    if (entry) { entry.observer?.disconnect(); entry.id = 0; }
     surfaces.delete(view);
   },
   /// A restart: every surface goes with its element.
   reset() { for (const view of [...surfaces.keys()]) this.destroy(view); },
+  /// Time moved (the agent's `clock`): render what wants a frame, once.
+  schedule() { for (const entry of surfaces.values()) if (entry.id && entry.wants) { entry.wants = false; gpu.gpu_bind(entry.id, JSON.stringify(entry.values)); } schedule(); },
 };
 
 const t0 = performance.now();

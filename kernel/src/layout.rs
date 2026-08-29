@@ -165,6 +165,22 @@ impl LayoutTree {
                 let Some(slot) = context.map(|c| *c) else {
                     return MeasureOutput::ZERO;
                 };
+                if arena.node_type(slot) == NodeType::Image {
+                    // A replaced element: its intrinsic size where nothing
+                    // is known (Taffy has already applied the aspect ratio
+                    // to a known dimension); nothing at all before it loads,
+                    // as a broken `<img>` is 0×0.
+                    let Some((iw, ih)) = arena.intrinsic(slot) else {
+                        return MeasureOutput::ZERO;
+                    };
+                    return MeasureOutput {
+                        size: Size {
+                            width: known.width.unwrap_or(iw),
+                            height: known.height.unwrap_or(ih),
+                        },
+                        first_baselines: taffy::geometry::Point { x: None, y: None },
+                    };
+                }
                 runs.clear();
                 arena.text_runs(slot, &mut runs);
                 if runs.is_empty() {
@@ -209,7 +225,7 @@ impl LayoutTree {
             let node = tree.new_leaf(
                 taffy_style(arena, *slot),
                 *slot,
-                arena.node_type(*slot).is_text_leaf(),
+                arena.node_type(*slot).is_measured_leaf(),
             );
             arena.set_taffy(*slot, Some(node));
         }

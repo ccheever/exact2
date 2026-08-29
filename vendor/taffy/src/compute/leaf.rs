@@ -5,7 +5,7 @@ use crate::style::{AvailableSpace, Overflow, Position};
 use crate::tree::{CollapsibleMarginSet, MeasureOutput, RunMode};
 use crate::tree::{LayoutInput, LayoutOutput, SizingMode};
 use crate::util::debug::debug_log;
-use crate::util::sys::f32_max;
+use crate::util::sys::{f32_max, f32_min};
 use crate::util::MaybeMath;
 use crate::util::{MaybeResolve, ResolveOrZero};
 use crate::{BoxSizing, CoreStyle};
@@ -56,7 +56,10 @@ where
             let node_size = known_dimensions;
             let node_min_size = Size::NONE;
             let node_max_size = Size::NONE;
-            (node_size, node_min_size, node_max_size, None)
+            // EXACT PATCH (LLP 1011 §1): the ratio is part of the content —
+            // a replaced element's content size follows its cross size by
+            // ratio (css-flexbox §9.2 rule B) even when the rows are ignored.
+            (node_size, node_min_size, node_max_size, style.aspect_ratio())
         }
         SizingMode::InherentSize => {
             let aspect_ratio = style.aspect_ratio();
@@ -162,9 +165,26 @@ where
         .or(node_size)
         .unwrap_or(measured_size + content_box_inset.sum_axes())
         .maybe_clamp(node_min_size, node_max_size);
-    let size = Size {
-        width: clamped_size.width,
-        height: f32_max(clamped_size.height, aspect_ratio.map(|ratio| clamped_size.width / ratio).unwrap_or(0.0)),
+    // EXACT PATCH (LLP 1011 §1): a leaf with an aspect ratio is a replaced
+    // element; its tentative size (the set dimension and the other by ratio,
+    // else the measured natural size) resolves against min/max by CSS 2.1
+    // §10.4's constraint table, keeping the ratio — never clamping each axis
+    // on its own.
+    let size = match aspect_ratio {
+        Some(ratio) if ratio > 0.0 => {
+            let known = known_dimensions.or(node_size);
+            let tentative = match (known.width, known.height) {
+                (Some(w), Some(h)) => Size { width: w, height: h },
+                (Some(w), None) => Size { width: w, height: w / ratio },
+                (None, Some(h)) => Size { width: h * ratio, height: h },
+                (None, None) => measured_size + content_box_inset.sum_axes(),
+            };
+            replaced_constraints(tentative, node_min_size, node_max_size)
+        }
+        _ => Size {
+            width: clamped_size.width,
+            height: f32_max(clamped_size.height, aspect_ratio.map(|ratio| clamped_size.width / ratio).unwrap_or(0.0)),
+        },
     };
     let size = size.maybe_max(padding_border.sum_axes().map(Some));
 
@@ -184,3 +204,40 @@ where
     }
 }
 // END EXACT PATCH (LLP 0440 D5)
+
+// EXACT PATCH (LLP 1011 §1): CSS 2.1 §10.4, the min/max constraint table for
+// replaced elements with an intrinsic ratio. `w`/`h` are the tentative size.
+fn replaced_constraints(size: Size<f32>, min: Size<Option<f32>>, max: Size<Option<f32>>) -> Size<f32> {
+    let (w, h) = (size.width, size.height);
+    if w <= 0.0 || h <= 0.0 {
+        return Size { width: w, height: h }.maybe_clamp(min, max);
+    }
+    let min_w = min.width.unwrap_or(0.0);
+    let min_h = min.height.unwrap_or(0.0);
+    let max_w = max.width.unwrap_or(f32::INFINITY).max(min_w);
+    let max_h = max.height.unwrap_or(f32::INFINITY).max(min_h);
+    let (rw, rh) = match (w > max_w, w < min_w, h > max_h, h < min_h) {
+        (false, false, false, false) => (w, h),
+        (true, _, true, _) => {
+            if max_w / w <= max_h / h {
+                (max_w, f32_max(min_h, max_w * h / w))
+            } else {
+                (f32_max(min_w, max_h * w / h), max_h)
+            }
+        }
+        (_, true, _, true) => {
+            if min_w / w <= min_h / h {
+                (f32_min(max_w, min_h * w / h), min_h)
+            } else {
+                (min_w, f32_min(max_h, min_w * h / w))
+            }
+        }
+        (_, true, true, _) => (min_w, max_h),
+        (true, _, _, true) => (max_w, min_h),
+        (true, _, _, _) => (max_w, f32_max(max_w * h / w, min_h)),
+        (_, true, _, _) => (min_w, f32_min(min_w * h / w, max_h)),
+        (_, _, true, _) => (f32_max(max_h * w / h, min_w), max_h),
+        (_, _, _, true) => (f32_min(min_h * w / h, max_w), min_h),
+    };
+    Size { width: rw, height: rh }
+}

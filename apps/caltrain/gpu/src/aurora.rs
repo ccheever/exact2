@@ -1,25 +1,32 @@
 //! Aurora: a full-screen fragment shader driven by the frame clock — the
 //! canvas that wants a frame every frame (LLP 1009 D4), with a uniform
-//! buffer behind an explicit bind-group layout.
+//! buffer and the canvas's children behind the bind-group layout the shader
+//! declares (`shaders::aurora`, reflected at build).
 
+use crate::shaders::aurora::{entry, Uniforms, CHILDREN, CHILDREN_SAMPLER, GROUP_0, MODULE, U};
 use exact_gpu::json::text;
 use exact_gpu::wgpu;
 use exact_gpu::{Frame, Surface, SurfaceError, Value};
-
-/// The shader, validated at build (`build.rs`).
-pub const AURORA_WGSL: &str = include_str!("../shaders/aurora.wgsl");
 
 /// The aurora surface: one input, a seed string (the selected station).
 #[derive(Default)]
 pub struct AuroraSurface {
     seed: f32,
     gpu: Option<Gpu>,
+    /// The canvas's children, painted by the host, when there are any (LLP 1014 D2).
+    children: Option<wgpu::TextureView>,
+    /// The bind group must be rebuilt around a new children texture.
+    rebind: bool,
 }
 
 struct Gpu {
     format: wgpu::TextureFormat,
     pipeline: wgpu::RenderPipeline,
     uniforms: wgpu::Buffer,
+    layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    /// A 1×1 transparent texture: the children when there are none.
+    blank: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
 }
 
@@ -61,19 +68,29 @@ impl Surface for AuroraSurface {
         format: wgpu::TextureFormat,
     ) -> bool {
         if self.gpu.as_ref().map(|g| g.format) != Some(format) {
-            self.gpu = Some(build(device, format));
+            self.gpu = Some(build(device, queue, format));
+            self.rebind = true;
         }
-        let gpu = self.gpu.as_ref().unwrap();
+        let children = self.children.as_ref();
+        let gpu = self.gpu.as_mut().unwrap();
+        if self.rebind {
+            gpu.bind_group = bind_group(
+                device,
+                &gpu.layout,
+                &gpu.uniforms,
+                children.unwrap_or(&gpu.blank),
+                &gpu.sampler,
+            );
+            self.rebind = false;
+        }
         let (w, h) = frame.pixels();
-        let uniforms: [f32; 4] = [frame.now_ms as f32, w as f32, h as f32, self.seed];
-        queue.write_buffer(
-            &gpu.uniforms,
-            0,
-            &uniforms
-                .iter()
-                .flat_map(|f| f.to_le_bytes())
-                .collect::<Vec<u8>>(),
-        );
+        let uniforms = Uniforms {
+            time: frame.now_ms as f32,
+            width: w as f32,
+            height: h as f32,
+            seed: self.seed,
+        };
+        queue.write_buffer(&gpu.uniforms, 0, &uniforms.bytes());
         let mut encoder = device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -100,40 +117,96 @@ impl Surface for AuroraSurface {
         // Lit from the clock: another frame, always.
         true
     }
+
+    fn wants_children(&self) -> bool {
+        true
+    }
+
+    fn children(&mut self, texture: Option<&wgpu::TextureView>) {
+        self.children = texture.cloned();
+        self.rebind = true;
+    }
 }
 
-fn build(device: &wgpu::Device, format: wgpu::TextureFormat) -> Gpu {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+fn bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    uniforms: &wgpu::Buffer,
+    children: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("aurora"),
-        source: wgpu::ShaderSource::Wgsl(AURORA_WGSL.into()),
-    });
-    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("aurora uniforms"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: wgpu::BufferSize::new(16),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: U.binding,
+                resource: uniforms.as_entire_binding(),
             },
-            count: None,
-        }],
+            wgpu::BindGroupEntry {
+                binding: CHILDREN.binding,
+                resource: wgpu::BindingResource::TextureView(children),
+            },
+            wgpu::BindGroupEntry {
+                binding: CHILDREN_SAMPLER.binding,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
+
+fn build(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Gpu {
+    let shader = device.create_shader_module(MODULE);
+    let layout = device.create_bind_group_layout(&GROUP_0);
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("children"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
     });
+    let blank_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("no children"),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &blank_texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &[0, 0, 0, 0],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: None,
+        },
+        wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+    );
+    let blank = blank_texture.create_view(&Default::default());
     let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("aurora uniforms"),
-        size: 16,
+        size: Uniforms::SIZE as u64,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("aurora"),
-        layout: &layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: uniforms.as_entire_binding(),
-        }],
-    });
+    let bind_group = bind_group(device, &layout, &uniforms, &blank, &sampler);
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("aurora"),
         bind_group_layouts: &[Some(&layout)],
@@ -144,13 +217,13 @@ fn build(device: &wgpu::Device, format: wgpu::TextureFormat) -> Gpu {
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: Some("vs"),
+            entry_point: Some(entry::VS),
             buffers: &[],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: Some("fs"),
+            entry_point: Some(entry::FS),
             targets: &[Some(format.into())],
             compilation_options: Default::default(),
         }),
@@ -164,6 +237,9 @@ fn build(device: &wgpu::Device, format: wgpu::TextureFormat) -> Gpu {
         format,
         pipeline,
         uniforms,
+        layout,
+        sampler,
+        blank,
         bind_group,
     }
 }

@@ -175,6 +175,10 @@ pub enum LayoutError {
     UnknownView(ViewId),
     /// The id is live but not a root; layout runs per root.
     NotARoot(ViewId),
+    /// An intrinsic size was reported for a node that is not an image.
+    NotAnImage(ViewId),
+    /// An intrinsic size that is not finite and positive on both axes.
+    InvalidIntrinsicSize(ViewId),
     /// The layout engine reported an error (a kernel bug, never a producer error).
     Engine(String),
 }

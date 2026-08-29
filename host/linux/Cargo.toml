@@ -1,0 +1,39 @@
+# The Linux host: the runner and kernel natively, laying out with Taffy and
+# measuring text with cosmic-text, running exact-motion, painting the kernel
+# tree itself with tiny-skia — the kernel is the display list — onto DRM/KMS
+# dumb buffers with evdev input, or into a buffer with no display at all.
+# Pure Rust end to end: no system library is linked, so it builds on any
+# Linux (and on macOS, headless, for the seconds-loop).
+#
+# @ref LLP 1015 (this host) / LLP 1001 §6 (injected text measurement) /
+# LLP 1002 D2, §4 (every non-web host runs exact-motion)
+[package]
+name = "exact-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Linux host: the kernel tree painted by the host, on DRM/KMS or into a buffer"
+publish = false
+
+[lib]
+name = "exact_linux"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-kernel = { path = "../../kernel" }
+exact-motion = { path = "../../motion" }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }
+tiny-skia = "0.12"
+cosmic-text = "0.19"
+png = "0.18"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+drm = "0.15"
+evdev = "0.13"
+libc = "0.2"
+
+[dev-dependencies]
+caltrain = { path = "../../apps/caltrain" }
+caltrain-data = { path = "../../apps/caltrain/data" }
+contract = { path = "../../contract/cli" }

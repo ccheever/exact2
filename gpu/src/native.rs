@@ -95,6 +95,20 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
     }
 }
 
+/// Whether a canvas's surface samples its children (LLP 1014 D2).
+pub fn wants_children(id: u32) -> bool {
+    with(|m| m.wants_children(id)).unwrap_or(false)
+}
+
+/// The canvas's children as pixels (LLP 1014 D3) (`width`×`height` premultiplied
+/// RGBA). 0 on success.
+pub fn texture(id: u32, width: u32, height: u32, bytes: &[u8]) -> u32 {
+    match with(|m| m.texture(id, width, height, bytes)) {
+        Some(true) => 0,
+        _ => 1,
+    }
+}
+
 /// Whether a canvas has inputs it has not rendered.
 pub fn dirty(id: u32) -> bool {
     with(|m| m.dirty(id)).unwrap_or(false)
@@ -155,6 +169,23 @@ macro_rules! module {
         #[no_mangle]
         pub extern "C" fn gpu_render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
             $crate::native::render(id, width, height, scale, now_ms)
+        }
+
+        /// Whether a canvas's surface samples its children (LLP 1014 D2): 1 or 0.
+        #[no_mangle]
+        pub extern "C" fn gpu_wants_children(id: u32) -> u32 {
+            u32::from($crate::native::wants_children(id))
+        }
+
+        /// The canvas's children, painted (LLP 1014 D3): `len` bytes of premultiplied
+        /// RGBA, `width`×`height`, rows top-down. 0 on success.
+        ///
+        /// # Safety
+        /// `bytes` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_texture(id: u32, width: u32, height: u32, bytes: *const u8, len: usize) -> u32 {
+            let bytes = unsafe { ::std::slice::from_raw_parts(bytes, len) };
+            $crate::native::texture(id, width, height, bytes)
         }
 
         /// Whether a canvas has unrendered inputs.

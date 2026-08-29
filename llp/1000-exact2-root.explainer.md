@@ -39,7 +39,8 @@ and this one does not. Read them first.
 
 ## System map
 
-- `kernel/` — `exact-kernel`, the layout/wire/export kernel. Specified by LLP 1001.
+- `kernel/` — `exact-kernel`, the layout/wire/export kernel. Specified by LLP 1001;
+  images (a replaced element across kernel and hosts) by LLP 1011.
   Design lineage: RFC 0491 (kernel refresh), LLP 0507 (EXWF wire), LLP 0486/0487
   (layout language), LLP 0297 (threading contract).
 - `motion/` — `exact-motion`, the motion evaluator: CSS `transition` semantics
@@ -77,14 +78,26 @@ and this one does not. Read them first.
 - `skills/`, `.claude/skills/` — the orchestrate skill and the LLP skills (installed
   from `ccheever/llp@v0.5.1`; receipt in `.llp/skills-receipt.json`).
 
+The graph is layered on purpose, and that is the whole modularity story: each
+crate depends on strictly less than the one above it — `plan` and `motion` on
+nothing, `kernel` on `motion` and Taffy, `runner` on `kernel` and `plan`, a host
+on those — and anything optional is a separate artifact loaded on demand or
+another executor (the GPU module after first pixel, LLP 1009 D2; the compiler,
+never in the wasm; motion on the web, the browser's), never a feature flag on a
+core crate. There is no build matrix. An embedder links the crate it wants and
+the linker drops the rest: the web wasm carries no Taffy because nothing on the
+web calls layout. (Stated 2026-08-29.)
+
 Not built yet, in the order they are expected (decided 2026-08-28: **the web
-version works really well first, then Apple, then Linux**): the Linux DRM host, the
-eight-operation agent API, iOS on the Apple host's shape. (The macOS host landed
-2026-08-29, LLP 1008, with the C ABI its consumer made concrete. The plan
-format, runner, and compiler landed together as one lane — LLP 1006 §7; the web
-host followed the same day, LLP 1007, and its owed pieces — springs lowered to
-frames, the browser-driven motion parity harness, the resident dev driver — the
-same day again, LLP 1007 §3, §5, §6.)
+version works really well first, then Apple, then Linux**): the Linux DRM host,
+iOS on the Apple host's shape. (The macOS host landed 2026-08-29, LLP 1008, with
+the C ABI its consumer made concrete. The plan format, runner, and compiler
+landed together as one lane — LLP 1006 §7; the web host followed the same day,
+LLP 1007, and its owed pieces — springs lowered to frames, the browser-driven
+motion parity harness, the resident dev driver — the same day again, LLP 1007
+§3, §5, §6. The eight-operation agent API landed 2026-08-29, LLP 1012: the read
+operations once in the runner, one export on each ABI, one driver with a carrier
+per host, and the smoke as a script of its operations.)
 
 ## The five checks
 

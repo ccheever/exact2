@@ -3,7 +3,7 @@
 // when binaryen is on PATH, then `dist/` = index.html + glue.js + app.wasm.
 // Usage: node host/web/build.mjs [crate=caltrain-web]
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
@@ -24,6 +24,11 @@ if (opt.error?.code === 'ENOENT') { copyFileSync(built, out); optNote = 'wasm-op
 else if (opt.status !== 0) process.exit(opt.status ?? 1);
 else optNote = 'wasm-opt -Oz';
 
+// The app's assets (images) ride beside the page: `assets/…` sources resolve
+// here. Replaced whole, so a deleted asset does not linger in dist.
+const assets = resolve(root, 'apps', crate.replace(/-web$/, ''), 'assets');
+rmSync(resolve(dist, 'assets'), { recursive: true, force: true });
+if (existsSync(assets)) cpSync(assets, resolve(dist, 'assets'), { recursive: true });
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(dist, 'index.html'));
 copyFileSync(resolve(root, 'host/web/glue.js'), resolve(dist, 'glue.js'));
 

@@ -777,3 +777,83 @@ fn keys_follow_one_rule_and_a_poisoned_runner_leaks_no_commands() {
         Err(RunnerError::Poisoned)
     ));
 }
+
+#[test]
+fn the_journal_is_a_ring_and_logs_reports_where_its_window_starts() {
+    use exact_runner::JOURNAL_RING;
+    let mut r = boot();
+    // The boot line, then more lines than the ring holds: the oldest go.
+    for i in 0..JOURNAL_RING + 10 {
+        r.log(format!("line {i}"));
+    }
+    assert_eq!(
+        r.journal_start(),
+        11,
+        "the boot line and ten more were dropped"
+    );
+    assert_eq!(r.journal().count(), JOURNAL_RING);
+    assert_eq!(r.journal().next(), Some("t=0 line 10"));
+    let logs = exact_runner::agent::logs(&r, 0);
+    let total = JOURNAL_RING + 11;
+    assert!(
+        logs.starts_with(&format!(
+            "{{\"next\":{total},\"from\":11,\"lines\":[\"t=0 line 10\""
+        )),
+        "{}",
+        &logs[..80]
+    );
+    let tail = exact_runner::agent::logs(&r, total - 2);
+    assert_eq!(
+        tail,
+        format!(
+            "{{\"next\":{total},\"from\":{},\"lines\":[\"t=0 line {}\",\"t=0 line {}\"]}}",
+            total - 2,
+            JOURNAL_RING + 8,
+            JOURNAL_RING + 9
+        )
+    );
+}
+
+#[test]
+fn an_advance_stops_at_a_refusing_timer_with_the_refusal_and_the_clock() {
+    // A poisoned runner refuses every action: the first timer of a seek
+    // refuses, the advance stops at that timer's due time with no commits,
+    // and the refusal rides along — the kernel is exactly as it was.
+    struct Dupes {
+        calls: u32,
+    }
+    impl DataSource for Dupes {
+        fn query(&mut self, source: &str, _args: &[Value]) -> Result<Value, DataError> {
+            self.calls += 1;
+            match source {
+                "stations" => Ok(Value::list(vec![])),
+                "departures" if self.calls == 1 => Ok(Value::list(vec![departure("d1", 1.0, 1.0)])),
+                "departures" => Ok(Value::list(vec![
+                    departure("same", 1.0, 1.0),
+                    departure("same", 2.0, 2.0),
+                ])),
+                other => Err(DataError::UnknownSource(other.into())),
+            }
+        }
+    }
+    let (plan, _) = now_screen();
+    let mut r = Runner::boot(plan, Dupes { calls: 0 }, Kernel::with_monospace()).unwrap();
+    // One timer fires cleanly first: its commit is kept and timed.
+    let ok = r.advance_timed(1_500.0);
+    assert_eq!(ok.receipts.len(), 1);
+    assert_eq!(ok.receipts[0].at_ms, 1_000.0);
+    assert_eq!(ok.now_ms, 1_500.0);
+    assert!(ok.error.is_none());
+    let _ = r.act("selectStation", vec![Value::str("pa")]);
+    assert!(r.is_poisoned());
+    let a = r.advance_timed(5_000.0);
+    assert!(a.receipts.is_empty());
+    assert_eq!(
+        a.now_ms, 2_000.0,
+        "the clock stays at the refusing timer's due time"
+    );
+    assert!(matches!(a.error, Some(RunnerError::Poisoned)));
+    assert_eq!(r.now_ms(), 2_000.0);
+    let logs = exact_runner::agent::logs(&r, 0);
+    assert!(logs.contains("timer 0 (tick) refused: Poisoned"), "{logs}");
+}

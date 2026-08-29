@@ -63,6 +63,7 @@ component Caltrain
           header width="100%"
             row justify="space-between" align="center"
               column gap=2
+                image "assets/caltrain.png" width=96 fit="contain" label="A Caltrain train" testId="logo"
                 text "Caltrain" size=13 weight=700 letterSpacing=1.2 color="#c0392b"
                 text station.name size=24 weight=700 testId="station-name" headingLevel=1
                 text `${formatDistance(station.distance)} · ${formatWalk(station.distance)}` size=12 color="#666666"
@@ -77,6 +78,10 @@ component Caltrain
 
           when screen == "home"
             canvas surface=aurora(selectedId) width="100%" height=220 testId="aurora"
+              column padding=20 gap=4 height="100%" boxSizing="border-box" justify="flex-end"
+                text "Next stop" size=12 weight=700 letterSpacing=1.2 color="#9ad8ff"
+                text station.name size=34 weight=800 color="#ffffff" testId="aurora-title"
+                text `${formatDistance(station.distance)} · ${formatWalk(station.distance)} · laid out by the kernel, painted by CoreText, refracted by the aurora` size=12 color="#d0e4ff"
             canvas surface=map(allStations, selectedId, northBoard, nowMs) width="100%" height=160 testId="line-map"
             section role="region" label="Departures" gap=14 testId="home-screen"
               DirectionCard(title="Northbound", board=northBoard, nowMs=nowMs, testId="board-north")

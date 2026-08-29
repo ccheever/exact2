@@ -359,7 +359,7 @@ pub fn apply(
                         what: "validated batch exhausted slot space",
                     })?;
                 let node =
-                    layout.new_leaf(taffy_style(arena, slot), slot, node_type.is_text_leaf());
+                    layout.new_leaf(taffy_style(arena, slot), slot, node_type.is_measured_leaf());
                 arena.set_taffy(slot, Some(node));
                 created.insert(slot);
                 receipt.created.push(arena.key(slot));

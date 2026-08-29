@@ -1,13 +1,24 @@
 // Accept fixture: a `canvas` bound to a surface in the app's GPU module
 // (LLP 1009 D3). The surface's arguments are state; the runner publishes
-// them, evaluated, whenever they change.
+// them, evaluated, whenever they change. A canvas holds children, laid out
+// in its box (LLP 1014 D1).
 component Map
   state zoom = 1
+  state label = ""
   action zoomIn writes zoom
     zoom = zoom + 1
+  action setLabel(value) writes label
+    label = value
   view
     column testId="root"
       button press=zoomIn label="Zoom" testId="zoom"
         text "Zoom"
       canvas surface=map(zoom, "caltrain") width="100%" height=240 testId="map"
+        column padding=12 testId="map-children"
+          text `Zoom ${zoom}` testId="zoom-label"
       canvas testId="bare"
+      canvas surface=aurora(`${zoom}`) width="100%" height=120 testId="sky"
+        column padding=12 gap=8
+          button press=zoomIn label="Zoom in the sky" testId="sky-zoom"
+            text "Zoom"
+          input value=label change=setLabel placeholder="Label" label="Label" testId="sky-label"

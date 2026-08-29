@@ -12,6 +12,7 @@ use crate::instance::{Ids, InstanceError, SurfaceUpdate, Tree, Update};
 use crate::vm::{self, Env, Frame, Trap};
 use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
 use exact_plan::{ActionsId, Code, EventKind, Plan, PlanError, Value};
+use std::fmt::Write as _;
 
 /// The app's data source: the one seam through which computation enters
 /// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
@@ -37,6 +38,29 @@ pub struct Command {
     pub name: String,
     /// Its arguments.
     pub args: Vec<Value>,
+}
+
+/// One timer's commit and the clock it fired at (`Runner::advance_timed`).
+#[derive(Debug, Clone)]
+pub struct Timed {
+    /// The runner's clock when the timer ran, milliseconds.
+    pub at_ms: f64,
+    /// The commit.
+    pub receipt: CommitReceipt,
+}
+
+/// What one `advance_timed` did: the commits in order, each at its due
+/// time; the clock afterwards — the requested time, or the due time of the
+/// timer that refused; and that refusal, if any. Commits before a refusal
+/// are kept: they are in the kernel, and a host must show them.
+#[derive(Debug)]
+pub struct Advanced {
+    /// The commits, in order.
+    pub receipts: Vec<Timed>,
+    /// The clock after the call, milliseconds.
+    pub now_ms: f64,
+    /// The refusal that stopped the advance, if one did.
+    pub error: Option<RunnerError>,
 }
 
 /// A host event aimed at a view.
@@ -163,7 +187,15 @@ pub struct Runner<D: DataSource> {
     commands: Vec<Command>,
     surfaces: Vec<SurfaceUpdate>,
     poisoned: bool,
+    /// What happened, one line each, for the agent API's `logs`: the last
+    /// [`JOURNAL_RING`] lines, and how many were dropped before them.
+    journal: std::collections::VecDeque<String>,
+    journal_start: usize,
 }
+
+/// How many journal lines the runner retains (about an hour of a one-second
+/// timer); older ones are dropped, and `logs` reports where its window starts.
+pub const JOURNAL_RING: usize = 4096;
 
 impl<D: DataSource> Runner<D> {
     /// Boot: refuse a plan built against another kernel schema, evaluate
@@ -266,6 +298,8 @@ impl<D: DataSource> Runner<D> {
             commands: Vec::new(),
             surfaces: Vec::new(),
             poisoned: false,
+            journal: std::collections::VecDeque::new(),
+            journal_start: 0,
         };
         // Slots: carried values where the name and type still fit, else
         // initial values, in order (an initializer may read earlier slots).
@@ -330,9 +364,64 @@ impl<D: DataSource> Runner<D> {
         };
         runner.ids = ids;
         runner.tree = Some(tree);
-        runner.apply(ops)?;
+        let receipt = runner.apply(ops)?;
         runner.surfaces = surfaces;
+        let line = format!(
+            "boot{}: {} nodes, epoch {}",
+            if carried.is_some() { " (carried)" } else { "" },
+            runner.kernel.live_count(),
+            receipt.epoch
+        );
+        runner.log(line);
         Ok(runner)
+    }
+
+    /// Append a line to the journal the agent API's `logs` reads, stamped
+    /// with the clock. Hosts add their own lines here (an image loaded, a
+    /// layout refusal) so one read sees everything in order.
+    pub fn log(&mut self, line: impl Into<String>) {
+        let line = line.into();
+        self.journal
+            .push_back(format!("t={} {line}", crate::agent::num(self.now_ms)));
+        if self.journal.len() > JOURNAL_RING {
+            self.journal.pop_front();
+            self.journal_start += 1;
+        }
+    }
+
+    /// The retained journal lines, oldest first.
+    pub fn journal(&self) -> impl Iterator<Item = &str> {
+        self.journal.iter().map(String::as_str)
+    }
+
+    /// The index (since boot) of the first retained journal line: how many
+    /// were dropped by the ring.
+    pub fn journal_start(&self) -> usize {
+        self.journal_start
+    }
+
+    /// Journal an outcome. `was_poisoned` is the runner's state before the
+    /// attempt: only the failure that poisons it is written as such.
+    fn log_outcome(
+        &mut self,
+        what: &str,
+        result: &Result<CommitReceipt, RunnerError>,
+        was_poisoned: bool,
+    ) {
+        let line = match result {
+            Ok(r) => format!(
+                "{what} → epoch {} (+{} −{} ~{})",
+                r.epoch,
+                r.created.len(),
+                r.destroyed.len(),
+                r.touched.len()
+            ),
+            Err(e) if self.poisoned && !was_poisoned => {
+                format!("{what} poisoned the runner: {e:?}")
+            }
+            Err(e) => format!("{what} refused: {e:?}"),
+        };
+        self.log(line);
     }
 
     /// The kernel, for layout and export.
@@ -426,6 +515,25 @@ impl<D: DataSource> Runner<D> {
     /// Deliver a host event to `view`: find its handler, evaluate the curried
     /// arguments in the instance's scope now, run the action, update.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
+        let mut what = format!(
+            "{} view {view}",
+            match &event {
+                Event::Press => "press",
+                Event::Change(_) => "change",
+            }
+        );
+        let was_poisoned = self.poisoned;
+        let result = self.dispatch_inner(view, event, &mut what);
+        self.log_outcome(&what, &result, was_poisoned);
+        result
+    }
+
+    fn dispatch_inner(
+        &mut self,
+        view: ViewId,
+        event: Event,
+        what: &mut String,
+    ) -> Result<CommitReceipt, RunnerError> {
         let (node, frames) = self
             .tree
             .as_ref()
@@ -451,32 +559,66 @@ impl<D: DataSource> Runner<D> {
         if let Some(p) = payload {
             args.push(p);
         }
+        let _ = write!(
+            what,
+            " ({})",
+            self.plan.str(self.plan.action(handler.action).name)
+        );
         self.run_action(handler.action, args)
     }
 
     /// Run an action by name with `args` — what a test or an agent does.
     pub fn act(&mut self, name: &str, args: Vec<Value>) -> Result<CommitReceipt, RunnerError> {
-        let id = self
+        let what = format!("act {name}");
+        let was_poisoned = self.poisoned;
+        let result = match self
             .plan
             .actions
             .iter()
             .position(|a| self.plan.str(a.name) == name)
             .map(|i| ActionsId(i as u32))
-            .ok_or(RunnerError::NoHandler {
+        {
+            Some(id) => self.run_action(id, args),
+            None => Err(RunnerError::NoHandler {
                 view: 0,
                 event: "action",
-            })?;
-        self.run_action(id, args)
+            }),
+        };
+        self.log_outcome(&what, &result, was_poisoned);
+        result
     }
 
-    /// Move the clock to `now_ms`, firing every timer due, in order.
+    /// Move the clock to `now_ms`, firing every timer due, in order — the
+    /// commits alone, or the refusal that stopped it. Tests use this; a host
+    /// uses [`Runner::advance_timed`], which keeps the commits before a
+    /// refusal and the time each was made.
     pub fn advance(&mut self, now_ms: f64) -> Result<Vec<CommitReceipt>, RunnerError> {
+        let a = self.advance_timed(now_ms);
+        match a.error {
+            Some(e) => Err(e),
+            None => Ok(a.receipts.into_iter().map(|t| t.receipt).collect()),
+        }
+    }
+
+    /// Move the clock to `now_ms`, firing every timer due, in order, each at
+    /// its own due time. A refusal stops the advance there: the commits so
+    /// far are returned with their times, the clock stays at the refusing
+    /// timer's due time, and the refusal rides along.
+    pub fn advance_timed(&mut self, now_ms: f64) -> Advanced {
         let mut receipts = Vec::new();
         if !now_ms.is_finite() {
-            return Err(RunnerError::NonFiniteClock);
+            return Advanced {
+                receipts,
+                now_ms: self.now_ms,
+                error: Some(RunnerError::NonFiniteClock),
+            };
         }
         if now_ms < self.now_ms {
-            return Ok(receipts);
+            return Advanced {
+                receipts,
+                now_ms: self.now_ms,
+                error: None,
+            };
         }
         loop {
             // The earliest due timer, deterministic by index on ties.
@@ -494,10 +636,41 @@ impl<D: DataSource> Runner<D> {
             let interval = self.plan.timers[i].interval_ms as f64;
             self.timers[i].next_ms += interval;
             let action = self.plan.timers[i].action;
-            receipts.push(self.run_action(action, Vec::new())?);
+            let was_poisoned = self.poisoned;
+            let result = self.run_action(action, Vec::new());
+            match result {
+                Ok(receipt) => receipts.push(Timed { at_ms: at, receipt }),
+                Err(e) => {
+                    let what = format!(
+                        "timer {} ({})",
+                        i,
+                        self.plan.str(self.plan.action(action).name)
+                    );
+                    let failed = Err(e);
+                    self.log_outcome(&what, &failed, was_poisoned);
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: failed.err(),
+                    };
+                }
+            }
         }
         self.now_ms = now_ms;
-        Ok(receipts)
+        if !receipts.is_empty() {
+            let line = format!(
+                "advance → {} timer{} fired, epoch {}",
+                receipts.len(),
+                if receipts.len() == 1 { "" } else { "s" },
+                receipts.last().map_or(0, |t| t.receipt.epoch)
+            );
+            self.log(line);
+        }
+        Advanced {
+            receipts,
+            now_ms,
+            error: None,
+        }
     }
 
     fn run_action(
@@ -561,7 +734,29 @@ impl<D: DataSource> Runner<D> {
             self.commands.truncate(saved_commands);
             return Err(e);
         }
-        self.update()
+        let commands: Vec<String> = self.commands[saved_commands..]
+            .iter()
+            .map(|c| {
+                let mut s = format!("command {}(", c.name);
+                for (i, a) in c.args.iter().enumerate() {
+                    if i > 0 {
+                        s.push_str(", ");
+                    }
+                    crate::agent::untyped_json(a, &mut s);
+                }
+                s.push(')');
+                s
+            })
+            .collect();
+        let result = self.update();
+        // Commands are journaled only once the update committed: a failure
+        // there poisons the runner and clears them.
+        if result.is_ok() {
+            for line in commands {
+                self.log(line);
+            }
+        }
+        result
     }
 
     /// Re-evaluate every site and apply one batch. A failure here means the

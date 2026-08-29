@@ -136,7 +136,7 @@ enum name, `auto`, `N%`, or a hex color; a number is the row's number.
 **Events.** `dispatch(view, Press | Change(text))` finds the site and the
 frames in force at that view, evaluates the handler's curried arguments there
 at dispatch time, appends the event payload, and runs the action.
-`act(name, args)` runs an action by name (tests, agents). Arguments must
+`act(name, args)` runs an action by name (tests; an agent goes through the host's input path, LLP 1012 §1). Arguments must
 conform to the parameters' declared types (`ArgumentType`) and every write to
 its slot's (`SlotType`) — so an authored `width = 1/0` is a typed refusal with
 rollback, never a poisoned runner. An action's `writes` bound `StoreSlot`;

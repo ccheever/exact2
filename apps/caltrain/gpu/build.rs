@@ -1,29 +1,17 @@
-//! Validate every shader under `shaders/` at build (LLP 1009 D5): a bad one
-//! fails the build with its line and column, never a canvas at runtime.
+//! Reflect every shader under `shaders/` at build (LLP 1009 D5): naga
+//! validates each one — a bad shader fails the build with its line and
+//! column, never a canvas at runtime — and what it declares (bindings,
+//! layouts, vertex inputs, entry points) is generated as Rust into
+//! `OUT_DIR/shaders.rs`, which `src/lib.rs` includes as `shaders`. The WGSL is
+//! the one declaration authority; see `exact-gpu-reflect`.
 
 fn main() {
-    println!("cargo:rerun-if-changed=shaders");
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders");
-    let mut entries: Vec<_> = std::fs::read_dir(&dir)
-        .expect("shaders/")
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "wgsl"))
-        .collect();
-    entries.sort();
-    for path in entries {
-        println!("cargo:rerun-if-changed={}", path.display());
-        let src = std::fs::read_to_string(&path).unwrap();
-        let module = match naga::front::wgsl::parse_str(&src) {
-            Ok(m) => m,
-            Err(e) => panic!("{}: {}", path.display(), e.emit_to_string(&src)),
-        };
-        let mut validator = naga::valid::Validator::new(
-            naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::empty(),
-        );
-        if let Err(e) = validator.validate(&module) {
-            panic!("{}: {}", path.display(), e.emit_to_string(&src));
-        }
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let generated = exact_gpu_reflect::generate(&dir).unwrap_or_else(|e| panic!("{e}"));
+    for source in &generated.sources {
+        println!("cargo:rerun-if-changed={}", source.display());
     }
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("shaders.rs");
+    std::fs::write(&out, generated.rust).unwrap();
 }

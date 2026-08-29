@@ -60,7 +60,15 @@ relative` on every node to match); `text_align` defaults to `left`, not `start`,
 because logical alignment is not yet lowered. A `ScrollView`/`List` scrolls on its
 block axis unless the producer sets `overflow_y` — the only per-tag default,
 applied in `StyleProps::to_taffy` (a scroll container is `overflow: auto` on the
-web).
+web). An `Image` is a replaced element: the host reports its intrinsic size
+(`Kernel::set_intrinsic_size`, the bitmap's pixel counts one-for-one as points,
+after the image loads; before that each unknown axis measures 0, so a `width`
+row still sizes the box), the node is measured from it, and it keeps its ratio
+unless an `aspect_ratio` row is set — one dimension given, the other follows,
+and min/max resolve by CSS 2.1 §10.4's table (Taffy patch 5). Declared: in
+*block* flow Taffy stretches an auto-width image to its container where CSS
+would use the intrinsic width (in a stretching flex column both stretch, by
+ratio); the ratio still holds (`kernel/tests/image.rs`; LLP 1011).
 
 ## 2. The data model (WS-A)
 

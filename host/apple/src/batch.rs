@@ -186,10 +186,13 @@ impl Batch {
 
     /// The batch as one JSON document:
     /// `{"ops":[…],"timers":bool,"motion":bool,"error":null|"…"}`.
-    pub fn finish(self, timers: bool, motion: bool, error: Option<&str>) -> String {
+    pub fn finish(self, timers: bool, motion: bool, clock_ms: f64, error: Option<&str>) -> String {
         let mut s = String::from("{\"ops\":[");
         s.push_str(&self.ops.join(","));
-        let _ = write!(s, "],\"timers\":{timers},\"motion\":{motion},\"error\":");
+        let _ = write!(
+            s,
+            "],\"timers\":{timers},\"motion\":{motion},\"clock\":{clock_ms},\"error\":"
+        );
         match error {
             Some(e) => quote(e, &mut s),
             None => s.push_str("null"),

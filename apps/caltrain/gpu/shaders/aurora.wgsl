@@ -9,6 +9,10 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
+// The canvas's children (LLP 1014) — laid out by the kernel,
+// painted by the host — premultiplied, the canvas's box at its scale.
+@group(0) @binding(1) var children: texture_2d<f32>;
+@group(0) @binding(2) var children_sampler: sampler;
 
 struct Fragment {
     @builtin(position) position: vec4<f32>,
@@ -58,7 +62,8 @@ fn palette(t: f32) -> vec3<f32> {
 @fragment
 fn fs(f: Fragment) -> @location(0) vec4<f32> {
     let res = vec2<f32>(u.width, u.height);
-    var uv = f.position.xy / res;
+    let uv0 = f.position.xy / res;
+    var uv = uv0;
     uv.x = uv.x * (res.x / res.y);
     let t = u.time * 0.001;
     let base = uv * 2.4 + vec2<f32>(u.seed * 7.0, u.seed * 3.0);
@@ -72,5 +77,16 @@ fn fs(f: Fragment) -> @location(0) vec4<f32> {
     col = col + vec3<f32>(0.10, 0.25, 0.20) * pow(max(r.x - 0.4, 0.0), 2.0) * 3.0;
     let centre = vec2<f32>(res.x / res.y * 0.5, 0.5);
     let vignette = 1.0 - 0.55 * dot(uv - centre, uv - centre);
-    return vec4<f32>(col * vignette, 1.0);
+    let sky = col * vignette;
+    // The children through the aurora: refracted by the warp field (a slow
+    // shimmer from the clock), split slightly per channel, glowing where the
+    // ribbons are bright, composed premultiplied over the sky.
+    let warp = (r - vec2<f32>(0.5, 0.5)) * 0.012;
+    let tr = textureSample(children, children_sampler, uv0 + warp * 1.25);
+    let tg = textureSample(children, children_sampler, uv0 + warp);
+    let tb = textureSample(children, children_sampler, uv0 + warp * 0.75);
+    let ink = vec4<f32>(tr.r, tg.g, tb.b, tg.a);
+    let glow = ink.rgb * (0.35 + 0.65 * ribbon);
+    let out = ink.rgb + glow * 0.35 + sky * (1.0 - ink.a);
+    return vec4<f32>(out, 1.0);
 }

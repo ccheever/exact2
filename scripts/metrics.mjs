@@ -72,7 +72,7 @@ step('boot', () => {
 {
   const t = Date.now();
   const dist = resolve(ROOT, 'host/web/dist');
-  const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm' };
+  const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.png': 'image/png' };
   const server = createServer((req, res) => {
     const path = resolve(dist, '.' + (req.url === '/' ? '/index.html' : req.url.split('?')[0]));
     if (!path.startsWith(dist) || !existsSync(path)) { res.writeHead(404); res.end(); return; }

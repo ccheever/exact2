@@ -174,6 +174,14 @@ impl Batch {
         self.ops.push(format!("{{\"op\":\"destroy\",\"id\":{id}}}"));
     }
 
+    /// `{"op":"at","ms":…}` — the clock at which the ops that follow were
+    /// committed (a timer's due time inside one `advance`), so a page that
+    /// owns time can attribute the transitions they start to that instant
+    /// (LLP 1012: one seek and sixty give the same bits).
+    pub fn at(&mut self, ms: f64) {
+        self.ops.push(format!("{{\"op\":\"at\",\"ms\":{ms}}}"));
+    }
+
     /// `{"op":"roots","ids":[…]}`.
     pub fn roots(&mut self, ids: &[u32]) {
         let mut s = String::from("{\"op\":\"roots\",\"ids\":[");
@@ -187,11 +195,14 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// The batch as one JSON document: `{"ops":[…],"timers":bool,"error":null|"…"}`.
-    pub fn finish(self, timers: bool, error: Option<&str>) -> String {
+    /// The batch as one JSON document:
+    /// `{"ops":[…],"timers":bool,"clock":ms,"error":null|"…"}` — `clock` is
+    /// the runner's clock after the call (an advance a timer refused stops at
+    /// that timer's due time).
+    pub fn finish(self, timers: bool, clock_ms: f64, error: Option<&str>) -> String {
         let mut s = String::from("{\"ops\":[");
         s.push_str(&self.ops.join(","));
-        let _ = write!(s, "],\"timers\":{timers},\"error\":");
+        let _ = write!(s, "],\"timers\":{timers},\"clock\":{clock_ms},\"error\":");
         match error {
             Some(e) => quote(e, &mut s),
             None => s.push_str("null"),

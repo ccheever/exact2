@@ -1,0 +1,379 @@
+#!/usr/bin/env node
+// The agent API's driver (LLP 1012): the eight operations —
+//   tree · screenshot · tap · type · state · layout · logs · clock
+// — against a running app on either host, from one script, with the clock in
+// the driver's hands: nothing moves between two calls unless a call moved it.
+//
+// Usage:  node scripts/agent.mjs <web|macos> [--plan <file>] [--json] <op> [<op> …]
+//   tree | layout | state | logs | screenshot <png> [window]
+//   tap <target> [wheel <dx> <dy>] | type <target> <text…> | clock <ms|+ms|settle>
+// A target is a testId or a view id; each op is one argument (quote it).
+// As a library:  import { open } from '../scripts/agent.mjs'
+//   const s = await open({ host: 'web' }); await s.tap('change-station'); const t = await s.tree(); await s.close();
+//
+// Carriers. The web app runs in headless Chrome driven over the DevTools
+// protocol on a pipe (no port, no dependency): `tap` and `type` are CDP
+// input events — Chrome's own hit-testing and dispatch, the path a click
+// takes — `screenshot` is Page.captureScreenshot, and the rest is
+// `exact.agent(…)` in the page (`host/web/glue.js`). The macOS app runs
+// with EXACT_AGENT=1 and answers JSON lines on stdio (`Agent.swift`); the
+// driver resolves a target to a view id through `tree` first, so both hosts
+// see the same request. Console and stderr lines ride along with `logs`.
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { extname, resolve } from 'node:path';
+
+const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---------------------------------------------------------------- web
+
+/** The DevTools protocol over Chrome's --remote-debugging-pipe (fd 3 in, fd 4 out; NUL-delimited JSON). A closed pipe or a dead Chrome fails every pending call; every call has a deadline. */
+class Cdp {
+  constructor(input, output) {
+    this.input = input;
+    this.next = 1;
+    this.pending = new Map();
+    this.listeners = [];
+    this.closed = null;
+    let buf = '';
+    output.setEncoding('utf8');
+    output.on('data', (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf('\0')) >= 0) {
+        const msg = JSON.parse(buf.slice(0, i));
+        buf = buf.slice(i + 1);
+        if (msg.id) {
+          const p = this.pending.get(msg.id);
+          this.pending.delete(msg.id);
+          if (msg.error) p?.reject(new Error(`${msg.error.message} (${p.method})`));
+          else p?.resolve(msg.result);
+        } else for (const l of this.listeners) l(msg);
+      }
+    });
+    output.on('end', () => this.fail('the DevTools pipe closed'));
+    output.on('error', (e) => this.fail(`the DevTools pipe failed: ${e.message}`));
+    input.on('error', (e) => this.fail(`the DevTools pipe failed: ${e.message}`));
+  }
+  fail(why) {
+    this.closed ??= why;
+    for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error(`${why} (${p.method})`)); }
+  }
+  send(method, params = {}, sessionId, timeoutMs = 15000) {
+    if (this.closed) return Promise.reject(new Error(`${this.closed} (${method})`));
+    const id = this.next++;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${method} did not answer within ${timeoutMs} ms`)); }, timeoutMs);
+      this.pending.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); }, method });
+      this.input.write(JSON.stringify({ id, method, params, sessionId }) + '\0');
+    });
+  }
+}
+
+async function openWeb({ plan, size = [420, 900] }) {
+  const dist = resolve(ROOT, 'host/web/dist');
+  if (!existsSync(resolve(dist, 'app.wasm'))) throw new Error('run node host/web/build.mjs first');
+  const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.png': 'image/png' };
+  let gpuMs = null;
+  const server = createServer((req, res) => {
+    if (req.url.startsWith('/__gpu')) { gpuMs = Number(new URL(req.url, 'http://x').searchParams.get('ms')); res.writeHead(204); res.end(); return; }
+    if (req.url === '/__plan' && plan) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(readFileSync(plan)); return; }
+    if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
+    const route = req.url.split('?')[0];
+    const path = resolve(dist, '.' + (route === '/' ? '/index.html' : route));
+    if (!path.startsWith(dist + '/') || !existsSync(path) || !path.match(/\.[a-z]+$/)) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': types[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
+    res.end(readFileSync(path));
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  const port = server.address().port;
+  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const profile = mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
+  const child = spawn(chrome, [
+    '--headless=new', '--remote-debugging-pipe', `--window-size=${size[0]},${size[1]}`, '--hide-scrollbars',
+    '--enable-unsafe-webgpu', '--disable-smooth-scrolling', `--user-data-dir=${profile}`, '--no-sandbox',
+    '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--no-first-run',
+    '--no-default-browser-check', 'about:blank',
+  ], { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+  const hostLines = [];
+  child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !/crashpad|updater|gcm|VERBOSE|DevTools listening/i.test(l)) hostLines.push('chrome: ' + l); });
+  const cdp = new Cdp(child.stdio[3], child.stdio[4]);
+  const exited = new Promise((r) => child.on('exit', (code, signal) => { cdp.fail(`Chrome exited (${code ?? signal})`); r(); }));
+  const close = async () => {
+    try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+    await Promise.race([exited, sleep(2000)]);
+    server.close();
+    rmSync(profile, { recursive: true, force: true });
+  };
+  try {
+    const { targetInfos } = await cdp.send('Target.getTargets');
+    const target = targetInfos.find((t) => t.type === 'page') ?? (await cdp.send('Target.createTarget', { url: 'about:blank' }));
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+    const call = (method, params) => cdp.send(method, params, sessionId);
+    cdp.listeners.push((msg) => {
+      if (msg.sessionId !== sessionId) return;
+      if (msg.method === 'Runtime.consoleAPICalled') hostLines.push(`console.${msg.params.type}: ` + msg.params.args.map((a) => a.value ?? a.description ?? a.type).join(' '));
+      else if (msg.method === 'Runtime.exceptionThrown') hostLines.push('exception: ' + (msg.params.exceptionDetails.exception?.description ?? msg.params.exceptionDetails.text));
+      else if (msg.method === 'Log.entryAdded' && msg.params.entry.level !== 'verbose') hostLines.push(`${msg.params.entry.level}: ${msg.params.entry.text}`);
+    });
+    await call('Runtime.enable');
+    await call('Log.enable');
+    await call('Page.enable');
+    // The viewport exactly: Chrome will not make a window narrower than 500.
+    await call('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
+    const evaluate = async (expression) => {
+      const r = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+      if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
+      return r.result.value;
+    };
+    await call('Page.navigate', { url: `http://127.0.0.1:${port}/?agent=1&smoke=1` });
+    // The first frame: the glue stamps the root when it is in the DOM. A fresh profile's first launch can be slow.
+    const t = Date.now();
+    let boot = null;
+    while (boot == null) {
+      if (Date.now() - t > 30000) throw new Error('the page never booted; ' + hostLines.join('\n'));
+      await sleep(15);
+      boot = await evaluate("document.getElementById('exact-root')?.dataset.bootMs ?? null").catch(() => null);
+    }
+    if (plan) await evaluate("fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => exact.reload(new Uint8Array(b)))");
+    const frame = () => Promise.race([evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), sleep(250)]);
+    const ask = async (req) => JSON.parse(await evaluate(`JSON.stringify(exact.agent(${JSON.stringify(req)}))`));
+    return {
+      host: 'web', boot: Number(boot), hostLines, gpuMs: () => gpuMs,
+      ask,
+      async input(id, kind, opts) {
+        const r = (await ask({ op: 'layout' })).nodes.find((n) => n.id === id);
+        if (!r || (r.w === 0 && r.h === 0)) throw new Error(`view ${id} has no box on screen`);
+        const x = r.x + r.w / 2, y = r.y + r.h / 2;
+        if (kind === 'wheel') await call('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: opts.wheel[0], deltaY: opts.wheel[1] });
+        else if (kind === 'press') {
+          await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+          await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+          await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+        } else if (kind === 'type') {
+          const f = await ask({ op: 'focus', id });
+          if (f.error) throw new Error(f.error);
+          await call('Input.insertText', { text: opts.text });
+        }
+        await frame();
+        return { at: [x, y] };
+      },
+      async screenshot(path) {
+        await frame();
+        const { data } = await call('Page.captureScreenshot', { format: 'png' });
+        writeFileSync(path, Buffer.from(data, 'base64'));
+        return { screenshot: path, w: size[0], h: size[1] };
+      },
+      close,
+    };
+  } catch (e) {
+    await close();
+    throw e;
+  }
+}
+
+// ---------------------------------------------------------------- macOS
+
+async function openMac({ plan, app = 'caltrain' }) {
+  const bin = resolve(ROOT, 'host/apple/macos/.build/release/ExactMac');
+  if (!existsSync(bin)) throw new Error('run node host/apple/build.mjs first');
+  const env = { EXACT_ASSETS: resolve(ROOT, 'apps', app), ...process.env, EXACT_AGENT: '1' };
+  if (plan) env.EXACT_PLAN = plan;
+  const child = spawn(bin, [], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const hostLines = [];
+  child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
+  const waiting = [];
+  let buf = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (d) => {
+    buf += d;
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i);
+      buf = buf.slice(i + 1);
+      const w = waiting.shift();
+      if (!w) { hostLines.push('app: ' + line); continue; }
+      try { w.resolve(JSON.parse(line)); } catch { w.reject(new Error('unreadable reply: ' + line)); }
+    }
+  });
+  const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); for (const w of waiting.splice(0)) w.reject(new Error(`the app exited (${code ?? signal}); ` + hostLines.join('\n'))); }));
+  const next = () => new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+  const close = async () => { try { child.stdin.end(); } catch {} await Promise.race([exited, sleep(2000)]); try { process.kill(child.pid, 'SIGKILL'); } catch {} };
+  try {
+    const readyLine = next();
+    const ready = await Promise.race([readyLine, sleep(20000).then(() => { throw new Error('the app never became ready; ' + hostLines.join('\n')); })]);
+    if (!ready.ready) throw new Error('unexpected first line: ' + JSON.stringify(ready));
+    if (ready.error) throw new Error('the app booted with an error: ' + ready.error);
+    const ask = (req) => { const p = next(); child.stdin.write(JSON.stringify(req) + '\n'); return p; };
+    return {
+      host: 'macos', boot: ready.boot, hostLines, gpuMs: () => null,
+      ask,
+      async input(id, kind, opts) {
+        const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'press' ? await ask({ op: 'tap', id }) : await ask({ op: 'type', id, text: opts.text });
+        if (r.error) throw new Error(r.error);
+        return r;
+      },
+      async screenshot(path, window = false) {
+        const r = await ask({ op: 'screenshot', path, window });
+        if (r.error) throw new Error(r.error);
+        return r;
+      },
+      close,
+    };
+  } catch (e) {
+    await close();
+    throw e;
+  }
+}
+
+// ---------------------------------------------------------------- the eight operations
+
+/** Open a session on `host` ('web' | 'macos'); `plan` boots a compiled contract instead of the app's baked plan. */
+export async function open({ host, plan, size } = {}) {
+  const carrier = host === 'macos' || host === 'mac' ? await openMac({ plan }) : await openWeb({ plan, size });
+  const s = {
+    host: carrier.host,
+    /** Milliseconds from launch to the first frame. */
+    boot: carrier.boot,
+    /** The agent's clock, milliseconds: the last `clock` value (0 at boot). */
+    now: 0,
+    logCursor: 0,
+    gpuMs: carrier.gpuMs,
+    async op(req) {
+      const r = await carrier.ask(req);
+      if (r.error) throw new Error(`${req.op}: ${r.error}`);
+      return r;
+    },
+    /** Every live node in preorder: id, parent, depth, type, props by name, handlers, children; plus epoch, incarnation, clock. */
+    tree: () => s.op({ op: 'tree' }),
+    /** Every slot, derive, and resource by name, as typed JSON. */
+    state: () => s.op({ op: 'state' }),
+    /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
+    async logs() {
+      const r = await s.op({ op: 'logs', since: s.logCursor });
+      const dropped = Math.max(0, r.from - s.logCursor);
+      s.logCursor = r.next;
+      return { lines: r.lines, host: carrier.hostLines.splice(0), from: r.from, next: r.next, dropped };
+    },
+    /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. */
+    async layout() {
+      const [l, t] = await Promise.all([s.op({ op: 'layout' }), s.tree()]);
+      const by = new Map(t.nodes.map((n) => [n.id, n]));
+      for (const n of l.nodes) { const k = by.get(n.id); if (k) { n.type = k.type; if (k.props.testId) n.testId = k.props.testId; } }
+      return l;
+    },
+    /** The node for a target: a testId (first in preorder) or a view id. */
+    async find(target) {
+      const t = await s.tree();
+      const node = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.find((n) => n.id === Number(target)) : t.nodes.find((n) => n.props.testId === target);
+      if (!node) throw new Error(`no view matches ${target}`);
+      return node;
+    },
+    /** A press on the target through the host's input path; with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down). */
+    async tap(target, opts = {}) {
+      const node = await s.find(target);
+      const r = await carrier.input(node.id, opts.wheel ? 'wheel' : 'press', opts);
+      return { ...r, tapped: node.id, target };
+    },
+    /** Set an input's text through the host's text input path (the value replaced, one change event). */
+    async type(target, text) {
+      const node = await s.find(target);
+      const r = await carrier.input(node.id, 'type', { text: String(text) });
+      return { ...r, typed: node.id, target };
+    },
+    /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
+    async clock(spec = 'settle') {
+      const req = { op: 'clock' };
+      if (spec === 'settle') req.settle = true;
+      else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));
+      else req.to = Number(spec);
+      if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}`);
+      const r = await s.op(req);
+      s.now = r.clock;
+      return r;
+    },
+    /** The pixels, as a PNG at `path`. On macOS `window: true` asks the window server (Metal layers included). */
+    screenshot: (path, window = false) => carrier.screenshot(resolve(path), window),
+    close: carrier.close,
+  };
+  return s;
+}
+
+// ---------------------------------------------------------------- the CLI
+
+/**
+ * The transcript form (LLP 1012 §7): the one text rendering of a reply, for
+ * eyes — a pure function of the JSON, lossy on purpose (the JSON is
+ * complete; only text, value, and label ride along), never parsed back.
+ * `scripts/fixtures/transcript.txt` pins it. A part in [brackets] appears
+ * only when its field is present (not null); strings are JSON-quoted.
+ *
+ *   tree    epoch E · incarnation I · clock C ms · N nodes
+ *           {"  " × depth}{Type}#{id} [{testId}] "{text}" value="…" label="…" ({handlers, comma-separated})
+ *   layout  viewport W×H · clock C ms
+ *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy}
+ *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
+ *           the host's lines indented two spaces; "(nothing new)" when there is nothing
+ *   state   the JSON, indented two spaces
+ *   others  the JSON on one line
+ */
+export function render(op, r) {
+  const q = JSON.stringify;
+  switch (op) {
+    case 'tree':
+      return [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · ${r.nodes.length} nodes`].concat(r.nodes.map((n) => {
+        const p = n.props ?? {};
+        return `${'  '.repeat(n.depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}`;
+      })).join('\n');
+    case 'layout':
+      return [`viewport ${r.viewport.w}×${r.viewport.h} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}`)).join('\n');
+    case 'logs':
+      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
+    case 'state':
+      return q(r, null, 2);
+    default:
+      return q(r);
+  }
+}
+
+async function main(argv) {
+  const flags = { json: false };
+  const rest = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--json') flags.json = true;
+    else if (argv[i] === '--plan') flags.plan = resolve(argv[++i]);
+    else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
+    else rest.push(argv[i]);
+  }
+  const [host, ...ops] = rest;
+  if (!host || !ops.length) {
+    console.error('usage: node scripts/agent.mjs <web|macos> [--plan <file>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy>] | type <target> <text…> | clock <ms|+ms|settle>');
+    return 2;
+  }
+  const s = await open({ host, plan: flags.plan, size: flags.size });
+  try {
+    for (const line of ops) {
+      const [op, ...args] = line.trim().split(/\s+/);
+      let r;
+      switch (op) {
+        case 'tree': case 'state': case 'logs': case 'layout': r = await s[op](); break;
+        case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[1] === 'window'); break;
+        case 'tap': r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])] }) : await s.tap(args[0]); break;
+        case 'type': r = await s.type(args[0], args.slice(1).join(' ')); break;
+        case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
+        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock)`);
+      }
+      console.log(flags.json ? JSON.stringify(r) : render(op, r));
+    }
+    return 0;
+  } finally {
+    await s.close();
+  }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { console.error(e.message); process.exit(1); });
+}

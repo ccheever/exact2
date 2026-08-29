@@ -68,6 +68,15 @@ uint32_t exact_dispatch(uint32_t view, uint32_t kind, size_t len, double now_ms)
 uint32_t exact_advance(double now_ms);   /* the runner's clock: timers */
 uint32_t exact_resize(float width, float height);
 uint32_t exact_tick(double now_ms);      /* a motion frame, only while "motion" is true */
+/* An image node loaded: its bitmap's pixel counts, taken one-for-one as
+ * points (never divided by the backing scale — the web without srcset); a
+ * finite value ≤ 0 clears it, a non-finite one is an error. The kernel lays
+ * the image out from it as CSS does a replaced element. */
+uint32_t exact_intrinsic(uint32_t view, float width, float height);
+/* The agent API (LLP 1012): a JSON request in the input buffer's first len
+ * bytes — {"op":"tree"|"state"|"settle"} or {"op":"logs","since":N} — and
+ * the reply (JSON, not a batch) in the output buffer. */
+uint32_t exact_agent(size_t len);
 
 #ifdef __cplusplus
 }

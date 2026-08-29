@@ -65,7 +65,7 @@ fn the_first_batch_creates_places_and_sizes_the_whole_tree() {
     let (host, batch) = boot();
     assert!(batch.starts_with("{\"ops\":["));
     assert!(
-        batch.ends_with(",\"timers\":true,\"motion\":false,\"error\":null}"),
+        batch.ends_with(",\"timers\":true,\"motion\":false,\"clock\":0,\"error\":null}"),
         "{}",
         &batch[batch.len() - 80..]
     );
@@ -256,4 +256,54 @@ fn text_is_measured_through_the_registered_callback() {
     assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("\"motion\":false"));
     let len = bridge.resize(500.0, 844.0);
     assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("\"w\":500"));
+}
+
+#[test]
+fn an_image_lays_out_from_the_intrinsic_size_the_presenter_reports() {
+    let (mut host, first) = boot();
+    let logo = view(&host, "logo");
+    assert!(
+        first.contains(&format!(
+            "\"op\":\"frame\",\"id\":{logo},\"x\":0,\"y\":0,\"w\":96,\"h\":0"
+        )),
+        "nothing until it loads: {}",
+        &first[..300]
+    );
+    let batch = host.set_intrinsic(logo, Some((320.0, 120.0)));
+    assert!(
+        batch.contains(&format!(
+            "\"op\":\"frame\",\"id\":{logo},\"x\":0,\"y\":0,\"w\":96,\"h\":36"
+        )),
+        "width 96 by ratio → 36: {batch}"
+    );
+    let name = view(&host, "station-name");
+    assert!(
+        batch.contains(&format!("\"op\":\"frame\",\"id\":{name},")),
+        "the station name below it moved down: {batch}"
+    );
+    let again = host.set_intrinsic(logo, Some((320.0, 120.0)));
+    assert_eq!(
+        again.matches("\"op\":\"frame\"").count(),
+        0,
+        "the same size moves nothing"
+    );
+    let cleared = host.set_intrinsic(logo, None);
+    assert!(
+        cleared.contains(&format!(
+            "\"op\":\"frame\",\"id\":{logo},\"x\":0,\"y\":0,\"w\":96,\"h\":0"
+        )),
+        "a source that failed or was cleared is 96×0 again: {cleared}"
+    );
+}
+
+#[test]
+fn an_intrinsic_size_is_refused_for_a_non_image_and_for_a_bad_value() {
+    let (mut host, _) = boot();
+    let name = view(&host, "station-name");
+    let batch = host.set_intrinsic(name, Some((320.0, 120.0)));
+    assert!(batch.contains("NotAnImage"), "{batch}");
+    let logo = view(&host, "logo");
+    let batch = host.set_intrinsic(logo, Some((f32::INFINITY, 120.0)));
+    assert!(batch.contains("InvalidIntrinsicSize"), "{batch}");
+    assert!(!batch.contains("\"op\":\"frame\""), "{batch}");
 }

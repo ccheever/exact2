@@ -16,12 +16,12 @@ use crate::batch::Batch;
 use crate::style;
 use exact_kernel::motion::{motion_node, targets, MotionSync};
 use exact_kernel::{
-    CommitReceipt, Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue,
-    TextMeasurer, ViewId,
+    Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue, TextMeasurer,
+    ViewId,
 };
 use exact_motion::{Change, Engine, Property};
 use exact_plan::{EventKind, Plan};
-use exact_runner::{Carried, DataSource, Event, Runner, RunnerError};
+use exact_runner::{Carried, DataSource, Event, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
 
 /// Why the host refused.
@@ -134,7 +134,8 @@ impl<D: DataSource> Host<D> {
         host.present(&mut batch, true);
         let timers = host.runner.has_timers();
         let motion = !host.engine.quiescent();
-        Ok((host, batch.finish(timers, motion, error.as_deref())))
+        let clock = host.runner.now_ms();
+        Ok((host, batch.finish(timers, motion, clock, error.as_deref())))
     }
 
     /// The runner.
@@ -152,6 +153,20 @@ impl<D: DataSource> Host<D> {
         &self.engine
     }
 
+    /// The agent API's read operations (LLP 1012): `tree`, `state`, and
+    /// `logs` from the runner; `settle` — the clock at which the last
+    /// transition in flight ends, milliseconds, `null` when quiescent — from
+    /// the engine, which is what the presenter's `clock` advances to.
+    pub fn agent(&self, request: &str) -> String {
+        if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
+            return match self.engine.settle_time() {
+                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t * 1000.0)),
+                None => "{\"settle\":null}".to_string(),
+            };
+        }
+        exact_runner::agent::handle(&self.runner, request)
+    }
+
     /// Deliver an event at the app's clock (milliseconds); the batch makes
     /// the presenter equal to the tree after the commit, laid out, with any
     /// motion the change started. A refusal is reported in the batch's
@@ -159,7 +174,10 @@ impl<D: DataSource> Host<D> {
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
         self.now_ms = now_ms.max(self.now_ms);
         match self.runner.dispatch(view, event) {
-            Ok(receipt) => self.commit(&[receipt], None),
+            Ok(receipt) => {
+                let at_ms = self.now_ms;
+                self.commit(&[Timed { at_ms, receipt }], None)
+            }
             Err(e) => self.commit(&[], Some(format!("{e:?}"))),
         }
     }
@@ -169,13 +187,28 @@ impl<D: DataSource> Host<D> {
         self.dispatch_at(view, event, self.now_ms)
     }
 
-    /// Move the clock; every timer due fires; one batch for all of them.
+    /// Move the clock; every timer due fires at its own time; one batch for
+    /// all of them, the engine hearing each commit at the time it was made.
+    /// A timer's refusal stops the clock there: the commits before it are in
+    /// the batch, the refusal in `error`, and `clock` says where the runner
+    /// stands.
     pub fn advance(&mut self, now_ms: f64) -> String {
-        self.now_ms = now_ms.max(self.now_ms);
-        match self.runner.advance(now_ms) {
-            Ok(receipts) => self.commit(&receipts, None),
-            Err(e) => self.commit(&[], Some(format!("{e:?}"))),
-        }
+        let a = self.runner.advance_timed(now_ms);
+        self.now_ms = a.now_ms.max(self.now_ms);
+        let error = a.error.map(|e| format!("{e:?}"));
+        self.commit(&a.receipts, error)
+    }
+
+    /// An image loaded: its intrinsic size, in points (`None` when it failed
+    /// or was cleared). Lays out again; the batch carries the frames that
+    /// moved — the image's, and everything its size pushed.
+    pub fn set_intrinsic(&mut self, view: ViewId, size: Option<(f32, f32)>) -> String {
+        let mut batch = Batch::new();
+        let error = match self.runner.kernel_mut().set_intrinsic_size(view, size) {
+            Ok(()) => self.layout(&mut batch).err(),
+            Err(e) => Some(format!("intrinsic: {e:?}")),
+        };
+        self.finish(batch, error)
     }
 
     /// The viewport changed: lay out again; the batch carries the frames
@@ -202,13 +235,15 @@ impl<D: DataSource> Host<D> {
         batch.finish(
             self.runner.has_timers(),
             !self.engine.quiescent(),
+            self.runner.now_ms(),
             error.as_deref(),
         )
     }
 
-    fn commit(&mut self, receipts: &[CommitReceipt], error: Option<String>) -> String {
+    fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> String {
         let mut batch = Batch::new();
-        for r in receipts {
+        for t in receipts {
+            let r = &t.receipt;
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
                     self.mirror.remove(&id);
@@ -244,13 +279,22 @@ impl<D: DataSource> Host<D> {
         for s in self.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
         }
-        // Motion last: targets are in place before the engine hears them.
-        let seek = self.engine.advance(self.now_ms / 1000.0);
-        debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        for r in receipts {
-            let applied = self.runner.kernel().motion_sync(r).apply(&mut self.engine);
+        // Motion last, each commit at its own time: targets are in place
+        // before the engine hears them, and a transition a timer started is
+        // born at that timer's due time — so one seek and sixty give the same
+        // bits (LLP 1002 D3; LLP 1012).
+        for t in receipts {
+            let seek = self.engine.advance(t.at_ms / 1000.0);
+            debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+            let applied = self
+                .runner
+                .kernel()
+                .motion_sync(&t.receipt)
+                .apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
         }
+        let seek = self.engine.advance(self.now_ms / 1000.0);
+        debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         self.present(&mut batch, false);
         self.finish(batch, error.or(layout_error))
     }

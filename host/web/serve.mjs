@@ -6,7 +6,7 @@ import { resolve, extname } from 'node:path';
 
 const dist = resolve(new URL('./dist', import.meta.url).pathname);
 if (!existsSync(resolve(dist, 'app.wasm'))) { console.error('run node host/web/build.mjs first'); process.exit(2); }
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.png': 'image/png' };
 const port = Number(process.argv[2] ?? 8765);
 createServer((req, res) => {
   const path = resolve(dist, '.' + (req.url === '/' ? '/index.html' : req.url.split('?')[0]));

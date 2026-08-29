@@ -16,6 +16,7 @@ use crate::id::{Frame, NodeKey, Offer, ViewId};
 use crate::layout::{self, LayoutReceipt, LayoutTree};
 use crate::props::PropList;
 use crate::selector::SelectorIndex;
+use crate::style::taffy_style;
 use crate::text::{MonospaceMeasurer, TextMeasurer};
 use crate::txn::{self, CommitReceipt, Target};
 use crate::wire::{self, Op};
@@ -198,6 +199,40 @@ impl Kernel {
             root: self.arena.key(slot),
             changed: changed.iter().map(|s| self.arena.key(*s)).collect(),
         })
+    }
+
+    /// A replaced element's intrinsic size — the bitmap's pixel counts,
+    /// taken one-for-one as layout units — reported by the host once the
+    /// image has loaded (`None` to forget it): the node is measured from it
+    /// and keeps its ratio unless a row sets one. Refused for a node that is
+    /// not an `Image` and for a size that is not finite and positive on both
+    /// axes. Marks layout dirty.
+    pub fn set_intrinsic_size(
+        &mut self,
+        view: ViewId,
+        size: Option<(f32, f32)>,
+    ) -> Result<(), KernelError> {
+        let slot = self
+            .arena
+            .slot_of(view)
+            .ok_or(LayoutError::UnknownView(view))?;
+        if self.arena.node_type(slot) != NodeType::Image {
+            return Err(LayoutError::NotAnImage(view).into());
+        }
+        if let Some((w, h)) = size {
+            if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+                return Err(LayoutError::InvalidIntrinsicSize(view).into());
+            }
+        }
+        if self.arena.intrinsic(slot) == size {
+            return Ok(());
+        }
+        self.arena.set_intrinsic(slot, size);
+        if let Some(node) = self.arena.taffy(slot) {
+            self.layout.set_style(node, taffy_style(&self.arena, slot));
+            self.layout.mark_dirty(node);
+        }
+        Ok(())
     }
 
     /// The EXNODE envelope for `root`, or for every root when `None`.

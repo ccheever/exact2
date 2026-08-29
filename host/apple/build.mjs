@@ -30,8 +30,16 @@ const swift = spawnSync('swift', ['build', '-c', 'release'], { cwd: resolve(root
 if (swift.status !== 0) process.exit(swift.status ?? 1);
 const t2 = Date.now();
 const bin = resolve(root, 'host/apple/macos/.build/release/ExactMac');
-if (gpuNote.endsWith('.dylib')) copyFileSync(resolve(root, 'target/release', gpuNote), resolve(root, 'host/apple/macos/.build/release', gpuNote));
+// Replace the dylib, never overwrite it in place: a running app may still
+// have the old one mapped, and rewriting a mapped, ad-hoc-signed file poisons
+// the kernel's cached signature for that inode — every later dlopen dies with
+// SIGKILL (Code Signature Invalid). A new file is a new inode.
+if (gpuNote.endsWith('.dylib')) {
+  const dest = resolve(root, 'host/apple/macos/.build/release', gpuNote);
+  rmSync(dest, { force: true });
+  copyFileSync(resolve(root, 'target/release', gpuNote), dest);
+}
 console.log(`host/apple: ${bin.replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s); GPU: ${gpuNote}`);
 // --run: the app, with the dev loop's plan watched when host/web/dev.mjs is
 // running (it writes host/web/dist/app.plan on every save).
-if (args.includes('--run')) spawnSync(bin, [], { stdio: 'inherit', env: { ...env, EXACT_DEV_PLAN: resolve(root, 'host/web/dist/app.plan') } });
+if (args.includes('--run')) spawnSync(bin, [], { stdio: 'inherit', env: { ...env, EXACT_DEV_PLAN: resolve(root, 'host/web/dist/app.plan'), EXACT_ASSETS: resolve(root, 'apps', crate.replace(/-apple$/, '')) } });

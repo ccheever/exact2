@@ -15,7 +15,7 @@ use crate::motion::{Lowered, Springs};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeRef, NodeType, PropId, PropValue, ViewId};
 use exact_motion::Property;
 use exact_plan::{EventKind, Plan};
-use exact_runner::{Carried, DataSource, Event, Runner, RunnerError};
+use exact_runner::{Carried, DataSource, Event, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
 
 /// Why the host refused.
@@ -107,12 +107,18 @@ impl<D: DataSource> Host<D> {
             batch.surface(s.view, &s.name, &s.values);
         }
         let timers = host.runner.has_timers();
-        Ok((host, batch.finish(timers, None)))
+        let clock = host.runner.now_ms();
+        Ok((host, batch.finish(timers, clock, None)))
     }
 
     /// The runner.
     pub fn runner(&self) -> &Runner<D> {
         &self.runner
+    }
+
+    /// The runner, mutably — for tests that drive it past the host.
+    pub fn runner_mut(&mut self) -> &mut Runner<D> {
+        &mut self.runner
     }
 
     /// Deliver an event at the page's clock (milliseconds from script
@@ -123,7 +129,10 @@ impl<D: DataSource> Host<D> {
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
         self.now_ms = now_ms.max(self.now_ms);
         match self.runner.dispatch(view, event) {
-            Ok(receipt) => self.batch_for(&[receipt], None),
+            Ok(receipt) => {
+                let at_ms = self.now_ms;
+                self.batch_for(&[Timed { at_ms, receipt }], None)
+            }
             Err(e) => self.batch_for(&[], Some(&format!("{e:?}"))),
         }
     }
@@ -143,18 +152,38 @@ impl<D: DataSource> Host<D> {
         &self.springs
     }
 
-    /// Move the clock; every timer due fires; one batch for all of them.
-    pub fn advance(&mut self, now_ms: f64) -> String {
-        self.now_ms = now_ms.max(self.now_ms);
-        match self.runner.advance(now_ms) {
-            Ok(receipts) => self.batch_for(&receipts, None),
-            Err(e) => self.batch_for(&[], Some(&format!("{e:?}"))),
+    /// The agent API's read operations (LLP 1012): `tree`, `state`, and
+    /// `logs` from the runner; `settle` — the clock at which the last spring
+    /// in flight ends, milliseconds, `null` when none — from the engine here.
+    /// CSS transitions are the browser's; the glue folds their end times in.
+    pub fn agent(&self, request: &str) -> String {
+        if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
+            return match self.springs.engine().settle_time() {
+                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t * 1000.0)),
+                None => "{\"settle\":null}".to_string(),
+            };
         }
+        exact_runner::agent::handle(&self.runner, request)
     }
 
-    fn batch_for(&mut self, receipts: &[CommitReceipt], error: Option<&str>) -> String {
+    /// Move the clock; every timer due fires at its own time; one batch for
+    /// all of them, each commit's ops behind an `at` marker carrying the
+    /// time it was made, so a page that owns time attributes the transitions
+    /// they start to that instant (LLP 1012; LLP 1002 D3). A timer's refusal
+    /// stops the clock there: the commits before it are in the batch, the
+    /// refusal in `error`, and `clock` says where the runner stands.
+    pub fn advance(&mut self, now_ms: f64) -> String {
+        let a = self.runner.advance_timed(now_ms);
+        self.now_ms = a.now_ms.max(self.now_ms);
+        let error = a.error.map(|e| format!("{e:?}"));
+        self.batch_for(&a.receipts, error.as_deref())
+    }
+
+    fn batch_for(&mut self, receipts: &[Timed], error: Option<&str>) -> String {
         let mut batch = Batch::new();
-        for r in receipts {
+        for t in receipts {
+            let r = &t.receipt;
+            batch.at(t.at_ms);
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
                     self.mirror.remove(&id);
@@ -176,6 +205,9 @@ impl<D: DataSource> Host<D> {
                     self.emit_children(id, &mut batch);
                 }
             }
+            // This commit's springs, at its own time: the style (the target)
+            // is in the page before the frames that approach it start playing.
+            self.emit_springs(&mut batch, std::slice::from_ref(r), t.at_ms / 1000.0);
         }
         let roots = self.runner.roots();
         if roots != self.roots {
@@ -187,9 +219,11 @@ impl<D: DataSource> Host<D> {
         for s in self.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
         }
-        // Springs last: the style (the target) is in the page before the
-        // frames that approach it start playing.
-        let now_s = self.now_ms / 1000.0;
+        let timers = self.runner.has_timers();
+        batch.finish(timers, self.runner.now_ms(), error)
+    }
+
+    fn emit_springs(&mut self, batch: &mut Batch, receipts: &[CommitReceipt], now_s: f64) {
         for lowered in self.springs.commit(self.runner.kernel(), receipts, now_s) {
             match lowered {
                 Lowered::Start {
@@ -214,8 +248,6 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
-        let timers = self.runner.has_timers();
-        batch.finish(timers, error)
     }
 
     fn create(&mut self, id: ViewId, batch: &mut Batch) {
@@ -224,6 +256,7 @@ impl<D: DataSource> Host<D> {
         let tag = tag_for(&node);
         let props = props_for(&node);
         let (css, _skipped) = css::css_text(node.style);
+        let css = host_css(&node, css);
         let handlers: Vec<&str> = self
             .runner
             .handlers_of(id)
@@ -251,6 +284,7 @@ impl<D: DataSource> Host<D> {
         let node = self.runner.kernel().node(id).expect("live");
         let props = props_for(&node);
         let (css, _skipped) = css::css_text(node.style);
+        let css = host_css(&node, css);
         let m = self.mirror.entry(id).or_default();
         if props != m.props {
             let set: Vec<(&str, String)> = props
@@ -281,6 +315,21 @@ impl<D: DataSource> Host<D> {
             m.children = children;
         }
     }
+}
+
+/// A canvas's element hosts its surface element under its children
+/// (`glue.js`, LLP 1014 D2): a containing block for it, unless the author
+/// positioned the canvas, and a stacking context of its own — the
+/// `isolation: isolate` the web's `drawable` implies — so the surface paints
+/// above the canvas's background and below its children.
+fn host_css(node: &NodeRef<'_>, mut css: String) -> String {
+    if node.node_type == NodeType::Canvas {
+        if !(css.starts_with("position:") || css.contains(";position:")) {
+            css.push_str("position:relative;");
+        }
+        css.push_str("isolation:isolate;");
+    }
+    css
 }
 
 /// The element for a node: its type, refined by `semanticTag`.
@@ -328,6 +377,9 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         let name = match id {
             PropId::Text => "text",
             PropId::TestId => "data-testid",
+            // An image's label is its `alt`: the replaced element's text
+            // alternative, shown when it does not load.
+            PropId::AccessibilityLabel if node.node_type == NodeType::Image => "alt",
             PropId::AccessibilityLabel => "aria-label",
             PropId::AccessibilityRole => "role",
             PropId::AccessibilityHint => "aria-description",

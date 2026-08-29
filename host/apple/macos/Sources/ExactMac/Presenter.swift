@@ -68,7 +68,89 @@ final class NodeView: NSView, NSTextFieldDelegate {
     var scroll: ChainingScrollView?
     /// A canvas node's Metal layer (LLP 1009).
     var metal: MetalView?
+    /// A canvas's children live here (LLP 1014): laid out by the kernel in
+    /// the canvas's box, over the Metal layer; when the surface samples them
+    /// they are painted into its children texture and this view composites
+    /// at alpha 0. `needsCapture`: painted again at the next capture;
+    /// `paintedThisTurn`: a draw on this turn is the capture's own.
+    var overlay: FlippedView?
+    var needsCapture = false
+    var paintedThisTurn = false
+    /// An image node's picture, once loaded (decoded off the main thread),
+    /// the source it came from, and which load is current: a completion
+    /// from an older load, or for a view that was destroyed, is dropped.
+    var image: NSImage?
+    var imageSource: String?
+    var loadGeneration = 0
     var pressed = false
+    /// Images loaded since launch (smoke reporting).
+    nonisolated(unsafe) static var imagesLoaded: [(String, CGSize)] = []
+
+    /// Where an image source resolves, as a page resolves `src`: an `http(s)`
+    /// URL as is; a relative path under the asset root (`EXACT_ASSETS`, else
+    /// the current directory) and never outside it; anything else (`file:`,
+    /// `..` escaping the root) does not load.
+    static func resolveSource(_ source: String) -> URL? {
+        if let u = URL(string: source), let scheme = u.scheme {
+            return scheme == "http" || scheme == "https" ? u : nil
+        }
+        let base = ProcessInfo.processInfo.environment["EXACT_ASSETS"] ?? FileManager.default.currentDirectoryPath
+        let root = URL(fileURLWithPath: base).standardizedFileURL.path
+        let url = URL(fileURLWithPath: base).appendingPathComponent(source).standardizedFileURL
+        return url.path == root || url.path.hasPrefix(root.hasSuffix("/") ? root : root + "/") ? url : nil
+    }
+
+    /// Decode an image completely, off the main thread: the bitmap and its
+    /// pixel size, or nil when the data is not an image (or has no pixels).
+    static func decode(_ data: Data) -> (CGImage, CGSize)? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let cg = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary),
+              cg.width > 0, cg.height > 0
+        else { return nil }
+        return (cg, CGSize(width: cg.width, height: cg.height))
+    }
+
+    /// Load the image off the main thread; on the main thread — if this is
+    /// still the current load of a live view — keep it, tell the kernel its
+    /// size, and repaint.
+    func loadImage(_ source: String) {
+        imageSource = source
+        // The old picture (and its size in the kernel) stay until the new
+        // one has loaded, as a browser keeps showing the old `src`.
+        loadGeneration += 1
+        let generation = loadGeneration
+        guard let url = NodeView.resolveSource(source) else {
+            image = nil
+            FileHandle.standardError.write(Data("exact: image \(source) is not a loadable source\n".utf8))
+            presenter?.intrinsic(id, nil)
+            return
+        }
+        let id = self.id
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let loaded = (try? Data(contentsOf: url)).flatMap(NodeView.decode)
+            DispatchQueue.main.async {
+                guard let self, self.loadGeneration == generation, let presenter = self.presenter, presenter.views[id] === self else { return }
+                self.needsDisplay = true
+                if let (cg, size) = loaded {
+                    self.image = NSImage(cgImage: cg, size: size)
+                    NodeView.imagesLoaded.append((source, size))
+                    presenter.intrinsic(id, size)
+                } else {
+                    self.image = nil
+                    FileHandle.standardError.write(Data("exact: image \(source) did not load\n".utf8))
+                    presenter.intrinsic(id, nil)
+                }
+            }
+        }
+    }
+
+    /// The view is gone: no load in flight may report for it.
+    func forget() {
+        loadGeneration += 1
+        imageSource = nil
+        image = nil
+        presenter = nil
+    }
 
     init(id: UInt32, kind: String, presenter: Presenter) {
         self.id = id
@@ -83,6 +165,10 @@ final class NodeView: NSView, NSTextFieldDelegate {
             let m = MetalView(frame: .zero)
             addSubview(m)
             metal = m
+            let o = FlippedView(frame: .zero)
+            o.autoresizingMask = [.width, .height]
+            addSubview(o)
+            overlay = o
         }
         if kind == "input" {
             let f = NSTextField(frame: .zero)
@@ -99,7 +185,29 @@ final class NodeView: NSView, NSTextFieldDelegate {
     override var isFlipped: Bool { true }
 
     /// Where children go: the scroll document view, or this view.
-    var container: NSView { scroll?.documentView ?? self }
+    var container: NSView { scroll?.documentView ?? overlay ?? self }
+
+    /// The canvas this node is painted through, if any: the nearest canvas
+    /// above whose overlay holds it.
+    var canvasAbove: NodeView? {
+        var v: NSView = self
+        while let s = v.superview {
+            if let c = s as? NodeView, c.overlay === v { return c }
+            v = s
+        }
+        return nil
+    }
+
+    /// Something under a canvas repainted outside a batch (LLP 1014 D4 b, c):
+    /// the canvas captures again on this run-loop turn — unless the draw is
+    /// the capture's own, or follows a batch that already captured.
+    func repaintThrough() {
+        guard !Capture.capturing, let c = canvasAbove, !c.paintedThisTurn else { return }
+        c.needsCapture = true
+        canvases.scheduleCapture()
+    }
+
+    @objc func clipScrolled() { repaintThrough() }
 
     func color(_ key: String, _ fallback: NSColor) -> NSColor {
         guard let c = style[key] as? [Double], c.count == 4 else { return fallback }
@@ -119,6 +227,8 @@ final class NodeView: NSView, NSTextFieldDelegate {
         }
         setAccessibilityIdentifier(props["testId"])
         setAccessibilityLabel(props["accessibilityLabel"])
+        if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
+        if kind == "image", props["imageSource"] == nil, imageSource != nil { imageSource = nil; image = nil; presenter?.intrinsic(id, nil) }
         needsDisplay = true
     }
 
@@ -138,6 +248,9 @@ final class NodeView: NSView, NSTextFieldDelegate {
             sv.automaticallyAdjustsContentInsets = false
             sv.contentInsets = NSEdgeInsetsZero
             sv.documentView = FlippedView(frame: .zero)
+            // A scroll under a canvas repaints it (LLP 1014 D4 c).
+            sv.contentView.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(self, selector: #selector(clipScrolled), name: NSView.boundsDidChangeNotification, object: sv.contentView)
             sv.autoresizingMask = [.width, .height]
             for child in subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
             addSubview(sv)
@@ -169,12 +282,13 @@ final class NodeView: NSView, NSTextFieldDelegate {
     }
 
     override func layout() {
-        if firstLayoutMs == nil { firstLayoutMs = now() }
+        if firstLayoutMs == nil { firstLayoutMs = wall() }
         super.layout()
     }
 
     override func draw(_ rect: NSRect) {
-        if firstDrawMs == nil { firstDrawMs = now() }
+        repaintThrough()
+        if firstDrawMs == nil { firstDrawMs = wall() }
         let radius = number("border_radius", number("border_radius_top_left"))
         let path = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
         let bg = color("background_color", .clear)
@@ -194,6 +308,39 @@ final class NodeView: NSView, NSTextFieldDelegate {
             color(key.replacingOccurrences(of: "width", with: "color"), borderColor).setFill()
             r.fill()
         }
+        if kind == "image", let img = image {
+            // CSS object-fit over the content box (the frame inside border
+            // and padding), clipped by the border box's radius: `fill`
+            // stretches, `contain`/`cover` keep the ratio, `none` is the
+            // natural size, `scale-down` the smaller of none and contain;
+            // an unknown value is the initial `fill`.
+            let fit = style["object_fit"] as? String ?? "fill"
+            let content = bounds.insetBy(
+                left: number("border_width_left", uniform) + number("padding_left"),
+                top: number("border_width_top", uniform) + number("padding_top"),
+                right: number("border_width_right", uniform) + number("padding_right"),
+                bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+            let natural = img.size
+            var size = content.size
+            if natural.width > 0 && natural.height > 0 {
+                let sx = content.width / natural.width, sy = content.height / natural.height
+                let s: CGFloat?
+                switch fit {
+                case "contain": s = min(sx, sy)
+                case "cover": s = max(sx, sy)
+                case "none": s = 1
+                case "scale-down": s = min(1, min(sx, sy))
+                default: s = nil // fill
+                }
+                if let s { size = CGSize(width: natural.width * s, height: natural.height * s) }
+            }
+            let origin = CGPoint(x: content.minX + (content.width - size.width) / 2, y: content.minY + (content.height - size.height) / 2)
+            NSGraphicsContext.current?.saveGraphicsState()
+            path.addClip()
+            NSBezierPath(rect: content).addClip()
+            img.draw(in: NSRect(origin: origin, size: size), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            NSGraphicsContext.current?.restoreGraphicsState()
+        }
         if kind == "text", let text = props["text"] {
             // The same paragraph the kernel measured at this width, painted.
             let spec = textSpec(text)
@@ -211,6 +358,12 @@ final class NodeView: NSView, NSTextFieldDelegate {
             runs: [Run(text: text, size: number("font_size", 16), weight: Int(number("font_weight", 400)), italic: (style["font_style"] as? String) == "italic", lineHeight: number("line_height"), letterSpacing: number("letter_spacing"))],
             align: align, lineClamp: Int(number("line_clamp")), color: c)
     }
+
+    /// A click counts even when it is the one that activates the window —
+    /// the web's rule (a click on an unfocused page still clicks). AppKit's
+    /// default swallows it, which made a `tap` sent before the window became
+    /// key vanish (found driving the app by hand over stdin).
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     // Press: down and up inside the bounds.
     override func mouseDown(with event: NSEvent) {
@@ -248,8 +401,10 @@ final class Presenter {
     /// A restart: every view goes.
     func reset() {
         canvases.reset()
+        views.values.forEach { $0.forget() }
         root.subviews.forEach { $0.removeFromSuperview() }
         views.removeAll()
+        NodeView.imagesLoaded.removeAll()
     }
 
     /// Size the document to its roots, never smaller than the viewport.
@@ -263,15 +418,18 @@ final class Presenter {
     }
     var onPress: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
+    var onIntrinsic: ((UInt32, CGSize?) -> Void)?
 
     func press(_ id: UInt32) { onPress?(id) }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
+    func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         for op in batch.ops {
             guard let kind = op["op"] as? String else { continue }
             let id = UInt32(op["id"] as? Int ?? 0)
+            if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id) }
             switch kind {
             case "create":
                 let v = NodeView(id: id, kind: op["kind"] as? String ?? "view", presenter: self)
@@ -299,6 +457,7 @@ final class Presenter {
                 if let v = views[id] { canvases.surface(view: v, name: op["name"] as? String ?? "", values: op["values"] as? [Any] ?? []) }
             case "destroy":
                 canvases.destroy(view: id)
+                views[id]?.forget()
                 views[id]?.removeFromSuperview()
                 views.removeValue(forKey: id)
             case "roots":
@@ -310,6 +469,7 @@ final class Presenter {
                 v.scroll?.frame = v.bounds
                 v.field?.frame = v.bounds
                 v.metal?.frame = v.bounds
+                v.overlay?.frame = v.bounds
                 v.applyTransform()
             case "content":
                 views[id]?.scroll?.documentView?.frame = NSRect(x: 0, y: 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
@@ -327,5 +487,48 @@ final class Presenter {
             }
         }
         fitDocument()
+        canvases.captureIfNeeded()
+    }
+
+    /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
+    /// through captures again at the end of the batch — the canvas above
+    /// it, and itself for its own `children` op.
+    func touched(_ id: UInt32, children: Bool = false) {
+        guard let start = views[id] else { return }
+        if children, start.overlay != nil { start.needsCapture = true }
+        if let c = start.canvasAbove { c.needsCapture = true }
+    }
+}
+
+/// A view's subtree as pixels (LLP 1014 D3).
+enum Capture {
+    /// A capture is drawing: its draws are not repaints (D4 b).
+    nonisolated(unsafe) static var capturing = false
+
+    /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
+    /// `pixelsWide * 4` bytes per row, transparent where nothing painted.
+    static func bitmap(of view: NSView, scale: CGFloat) -> NSBitmapImageRep? {
+        let w = Int((view.bounds.width * scale).rounded()), h = Int((view.bounds.height * scale).rounded())
+        guard w > 0, h > 0,
+              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32)
+        else { return nil }
+        rep.size = view.bounds.size
+        if let p = rep.bitmapData { memset(p, 0, h * w * 4) }
+        // A subtree painted through its canvas composites at alpha 0; paint
+        // it opaque into the bitmap regardless.
+        let alpha = view.alphaValue
+        view.alphaValue = 1
+        capturing = true
+        view.cacheDisplay(in: view.bounds, to: rep)
+        capturing = false
+        view.alphaValue = alpha
+        return rep
+    }
+}
+
+extension NSRect {
+    /// The rect inside the given edges (never negative in size).
+    func insetBy(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) -> NSRect {
+        NSRect(x: minX + left, y: minY + top, width: max(0, width - left - right), height: max(0, height - top - bottom))
     }
 }

@@ -1,0 +1,565 @@
+//! The presenter: what a painter holds beyond the kernel — scroll offsets,
+//! images, focus, the pointer — and the operations that touch it: frames,
+//! hit-testing, presses, wheels, typing, the clock, screenshots.
+//!
+//! @ref LLP 1015 §4; LLP 1010 §3 (scroll chaining: the web's
+//! `overscroll-behavior: auto`); LLP 1012 (the five host-side operations)
+//!
+//! Scroll offsets are host state, never plan state (LLP 1010). The window
+//! is a viewport over a document: the page scrolls when the roots' extent
+//! exceeds it. A press is a hit at a point — the deepest painted box under
+//! it, then up to the nearest node with a `press` handler, the path a click
+//! takes in a browser. A wheel goes to the innermost scroll container under
+//! the point that can take its dominant axis, else to the page.
+
+use crate::host::{Host, HostError};
+use crate::image::Images;
+use crate::paint::{content_size, effective_overflow, Frame, PaintedBox, Painter, Rect4, Scene};
+use crate::text::{Measurer, Shared, TextEngine};
+use exact_kernel::{NodeType, Overflow, PropId, ViewId};
+use exact_plan::EventKind;
+use exact_runner::agent::{num, quote};
+use exact_runner::{DataSource, Event};
+use std::collections::BTreeMap;
+use std::fmt::Write as _;
+use std::path::PathBuf;
+use std::time::Duration;
+use tiny_skia::Pixmap;
+
+/// The presenter: one host, its painter, and the host state.
+pub struct Presenter<D: DataSource> {
+    host: Host<D>,
+    text: Shared,
+    painter: Painter,
+    viewport: (f32, f32),
+    scroll: BTreeMap<ViewId, (f32, f32)>,
+    page: (f32, f32),
+    images: Images,
+    focus: Option<ViewId>,
+    pointer: Option<(f32, f32)>,
+    boxes: Vec<PaintedBox>,
+    dirty: bool,
+}
+
+/// Two decimals, the agent API's precision.
+fn r2(x: f32) -> f64 {
+    (x as f64 * 100.0).round() / 100.0
+}
+
+impl<D: DataSource> Presenter<D> {
+    /// Boot the app under a viewport (points) at a device scale, with its
+    /// asset root. The boot error, if any, is reported beside the presenter
+    /// (the tree is what booted).
+    pub fn boot(
+        plan: &[u8],
+        data: D,
+        viewport: (f32, f32),
+        scale: f32,
+        assets: PathBuf,
+    ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        let text = TextEngine::shared();
+        let (host, error) = Host::boot(
+            plan,
+            data,
+            Box::new(Measurer(text.clone())),
+            viewport.0,
+            viewport.1,
+        )?;
+        let mut p = Presenter {
+            host,
+            painter: Painter {
+                text: text.clone(),
+                scale,
+            },
+            text,
+            viewport,
+            scroll: BTreeMap::new(),
+            page: (0.0, 0.0),
+            images: Images::new(assets),
+            focus: None,
+            pointer: None,
+            boxes: Vec::new(),
+            dirty: true,
+        };
+        let e = p.after_commit();
+        Ok((p, error.or(e)))
+    }
+
+    /// The dev loop's restart: boot the new plan with state carried; every
+    /// picture, offset, and focus goes (LLP 1007 §6).
+    pub fn reload(&mut self, plan: &[u8], data: D) -> Result<Option<String>, HostError> {
+        let carried = self.host.carry();
+        let (host, error) = Host::boot_with(
+            plan,
+            data,
+            Box::new(Measurer(self.text.clone())),
+            self.viewport.0,
+            self.viewport.1,
+            Some(&carried),
+        )?;
+        self.host = host;
+        self.scroll.clear();
+        self.page = (0.0, 0.0);
+        self.images.reset();
+        self.focus = None;
+        let e = self.after_commit();
+        Ok(error.or(e))
+    }
+
+    /// The host.
+    pub fn host(&self) -> &Host<D> {
+        &self.host
+    }
+
+    /// The text engine.
+    pub fn text(&self) -> &Shared {
+        &self.text
+    }
+
+    /// The images.
+    pub fn images(&self) -> &Images {
+        &self.images
+    }
+
+    /// The viewport, points.
+    pub fn viewport(&self) -> (f32, f32) {
+        self.viewport
+    }
+
+    /// The page's scroll offset.
+    pub fn page(&self) -> (f32, f32) {
+        self.page
+    }
+
+    /// The focused input.
+    pub fn focus(&self) -> Option<ViewId> {
+        self.focus
+    }
+
+    /// Whether the picture is stale.
+    pub fn dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// Where the pointer is drawn (`None` draws none).
+    pub fn set_pointer(&mut self, pointer: Option<(f32, f32)>) {
+        if self.pointer != pointer {
+            self.pointer = pointer;
+            self.dirty = true;
+        }
+    }
+
+    /// The viewport changed.
+    pub fn resize(&mut self, width: f32, height: f32) -> Option<String> {
+        self.viewport = (width, height);
+        let e = self.host.resize(width, height);
+        self.dirty = true;
+        self.clamp_scroll();
+        e
+    }
+
+    /// After anything that may have committed: images follow the tree,
+    /// offsets stay in range, focus stays on a live input, the picture is
+    /// stale.
+    fn after_commit(&mut self) -> Option<String> {
+        self.dirty = true;
+        let live = self.host.preorder();
+        let reports = self.images.sync(self.host.kernel(), &live);
+        let mut error = None;
+        for (view, size) in reports {
+            error = error.or(self.host.set_intrinsic(view, size));
+        }
+        if let Some(f) = self.focus {
+            if self.host.kernel().node(f).is_none() {
+                self.focus = None;
+            }
+        }
+        self.clamp_scroll();
+        error
+    }
+
+    /// Loads that arrived since the last call: their sizes reach the kernel.
+    /// Whether anything changed.
+    pub fn poll_images(&mut self) -> bool {
+        let reports = self.images.poll();
+        self.apply_reports(reports)
+    }
+
+    /// Wait for every load in flight (bounded).
+    pub fn wait_images(&mut self, timeout: Duration) -> bool {
+        let reports = self.images.wait(timeout);
+        self.apply_reports(reports)
+    }
+
+    fn apply_reports(&mut self, reports: Vec<crate::image::Report>) -> bool {
+        let any = !reports.is_empty();
+        for (view, size) in reports {
+            if let Some(e) = self.host.set_intrinsic(view, size) {
+                eprintln!("exact: {e}");
+            }
+        }
+        if any {
+            self.dirty = true;
+            self.clamp_scroll();
+        }
+        any
+    }
+
+    /// The document's extent: the roots' frames, never smaller than the
+    /// viewport (`fitDocument`, LLP 1010 §3).
+    fn document(&self) -> (f32, f32) {
+        let kernel = self.host.kernel();
+        let mut size = self.viewport;
+        for root in self.host.roots() {
+            if let Some(n) = kernel.node(root) {
+                size.0 = size.0.max(n.frame.x + n.frame.width);
+                size.1 = size.1.max(n.frame.y + n.frame.height);
+            }
+        }
+        size
+    }
+
+    fn clamp_scroll(&mut self) {
+        let kernel = self.host.kernel();
+        let mut gone = Vec::new();
+        for (id, off) in self.scroll.iter_mut() {
+            match kernel.node(*id) {
+                Some(n) => {
+                    let (cw, ch) = content_size(&n, kernel);
+                    off.0 = off.0.clamp(0.0, (cw - n.frame.width).max(0.0));
+                    off.1 = off.1.clamp(0.0, (ch - n.frame.height).max(0.0));
+                }
+                None => gone.push(*id),
+            }
+        }
+        for id in gone {
+            self.scroll.remove(&id);
+        }
+        let doc = self.document();
+        self.page.0 = self.page.0.clamp(0.0, (doc.0 - self.viewport.0).max(0.0));
+        self.page.1 = self.page.1.clamp(0.0, (doc.1 - self.viewport.1).max(0.0));
+    }
+
+    /// Paint a frame: the pixels, with every box recorded for `layout` and
+    /// hit-testing.
+    pub fn frame(&mut self) -> Pixmap {
+        let roots = self.host.roots();
+        let host = &self.host;
+        let presented = |id: ViewId| host.presented(id);
+        let scene = Scene {
+            kernel: host.kernel(),
+            roots: &roots,
+            presented: &presented,
+            scroll: &self.scroll,
+            page: self.page,
+            images: &self.images.bitmaps,
+            focus: self.focus,
+            pointer: self.pointer,
+        };
+        let Frame { pixmap, boxes } = self.painter.paint(&scene, self.viewport);
+        self.boxes = boxes;
+        self.dirty = false;
+        pixmap
+    }
+
+    /// Every node's painted box, in paint order (a fresh frame when stale).
+    pub fn boxes(&mut self) -> &[PaintedBox] {
+        if self.dirty {
+            let _ = self.frame();
+        }
+        &self.boxes
+    }
+
+    fn box_of(&mut self, id: ViewId) -> Option<PaintedBox> {
+        self.boxes().iter().find(|b| b.id == id).copied()
+    }
+
+    /// The agent's `layout`: every node's box in the viewport (scroll
+    /// folded in), scroll containers with their offsets, by id.
+    pub fn layout_json(&mut self) -> String {
+        let clock = self.host.now();
+        let (vw, vh) = self.viewport;
+        let mut boxes: Vec<PaintedBox> = self.boxes().to_vec();
+        boxes.sort_by_key(|b| b.id);
+        let mut s = String::new();
+        let _ = write!(
+            s,
+            "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"nodes\":[",
+            num(clock),
+            num(r2(vw)),
+            num(r2(vh))
+        );
+        for (i, b) in boxes.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            let _ = write!(
+                s,
+                "{{\"id\":{},\"x\":{},\"y\":{},\"w\":{},\"h\":{}",
+                b.id,
+                num(r2(b.rect.0)),
+                num(r2(b.rect.1)),
+                num(r2(b.rect.2)),
+                num(r2(b.rect.3))
+            );
+            if let Some((sx, sy)) = b.scroll {
+                let _ = write!(s, ",\"sx\":{},\"sy\":{}", num(r2(sx)), num(r2(sy)));
+            }
+            s.push('}');
+        }
+        s.push_str("]}");
+        s
+    }
+
+    /// The deepest painted box under a point (viewport points), through
+    /// every clip.
+    pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
+        self.boxes()
+            .iter()
+            .rev()
+            .find(|b| b.contains(x, y))
+            .map(|b| b.id)
+    }
+
+    /// The nearest node at or above `id` with a handler for `kind`.
+    fn handler_target(&self, id: ViewId, kind: EventKind) -> Option<ViewId> {
+        let kernel = self.host.kernel();
+        let mut at = Some(id);
+        while let Some(n) = at {
+            if self.host.runner().handlers_of(n).contains(&kind) {
+                return Some(n);
+            }
+            at = kernel.node(n).and_then(|node| node.parent);
+        }
+        None
+    }
+
+    /// A press at a point, the path a click takes: hit, then up to a
+    /// `press` handler; focus follows the click (an input takes it, anything
+    /// else drops it). Returns the node pressed, if any.
+    pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
+        let hit = self.hit(x, y)?;
+        let kernel = self.host.kernel();
+        let focus =
+            (kernel.node(hit).map(|n| n.node_type) == Some(NodeType::TextInput)).then_some(hit);
+        if self.focus != focus {
+            self.focus = focus;
+            self.dirty = true;
+        }
+        let target = self.handler_target(hit, EventKind::Press)?;
+        if let Some(e) = self.host.dispatch_at(target, Event::Press, now_ms) {
+            eprintln!("exact: {e}");
+        }
+        let e = self.after_commit();
+        if let Some(e) = e {
+            eprintln!("exact: {e}");
+        }
+        Some(target)
+    }
+
+    /// The agent's `tap`: a press at the node's center through the same
+    /// path a pointer takes.
+    pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
+        let b = self
+            .box_of(id)
+            .ok_or_else(|| format!("no view {id} on screen"))?;
+        let (x, y) = (b.rect.0 + b.rect.2 / 2.0, b.rect.1 + b.rect.3 / 2.0);
+        let now = self.host.now();
+        self.press_at(x, y, now);
+        Ok(format!(
+            "{{\"tapped\":{id},\"at\":[{},{}]}}",
+            num(r2(x)),
+            num(r2(y))
+        ))
+    }
+
+    /// A wheel at a point (the web's sign: a positive `dy` scrolls down),
+    /// LLP 1010 §3: the innermost scroll container under the point that can
+    /// take the dominant axis takes what it can of both; otherwise the page.
+    pub fn wheel_at(&mut self, x: f32, y: f32, dx: f32, dy: f32) {
+        if dx == 0.0 && dy == 0.0 {
+            return;
+        }
+        let mut at = self.hit(x, y);
+        let kernel = self.host.kernel();
+        while let Some(id) = at {
+            let Some(node) = kernel.node(id) else { break };
+            let (ox, oy) = effective_overflow(&node);
+            if ox == Overflow::Scroll || oy == Overflow::Scroll {
+                let (cw, ch) = content_size(&node, kernel);
+                let max = (
+                    (cw - node.frame.width).max(0.0),
+                    (ch - node.frame.height).max(0.0),
+                );
+                let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+                let take_x = ox == Overflow::Scroll
+                    && dx != 0.0
+                    && max.0 > 0.0
+                    && ((dx > 0.0 && off.0 < max.0) || (dx < 0.0 && off.0 > 0.0));
+                let take_y = oy == Overflow::Scroll
+                    && dy != 0.0
+                    && max.1 > 0.0
+                    && ((dy > 0.0 && off.1 < max.1) || (dy < 0.0 && off.1 > 0.0));
+                let dominant = if dy.abs() >= dx.abs() { take_y } else { take_x };
+                if dominant {
+                    let nx = if take_x {
+                        (off.0 + dx).clamp(0.0, max.0)
+                    } else {
+                        off.0
+                    };
+                    let ny = if take_y {
+                        (off.1 + dy).clamp(0.0, max.1)
+                    } else {
+                        off.1
+                    };
+                    self.scroll.insert(id, (nx, ny));
+                    self.dirty = true;
+                    return;
+                }
+            }
+            at = node.parent;
+        }
+        let doc = self.document();
+        let max = (
+            (doc.0 - self.viewport.0).max(0.0),
+            (doc.1 - self.viewport.1).max(0.0),
+        );
+        let next = (
+            (self.page.0 + dx).clamp(0.0, max.0),
+            (self.page.1 + dy).clamp(0.0, max.1),
+        );
+        if next != self.page {
+            self.page = next;
+            self.dirty = true;
+        }
+    }
+
+    /// The agent's wheel: over the node's center.
+    pub fn wheel(&mut self, id: ViewId, dx: f32, dy: f32) -> Result<String, String> {
+        let b = self
+            .box_of(id)
+            .ok_or_else(|| format!("no view {id} on screen"))?;
+        let (x, y) = (b.rect.0 + b.rect.2 / 2.0, b.rect.1 + b.rect.3 / 2.0);
+        self.wheel_at(x, y, dx, dy);
+        Ok(format!(
+            "{{\"tapped\":{id},\"wheel\":[{},{}],\"at\":[{},{}]}}",
+            num(dx as f64),
+            num(dy as f64),
+            num(r2(x)),
+            num(r2(y))
+        ))
+    }
+
+    /// Set an input's value as typing does: focused, the value replaced,
+    /// one `change` heard by the runner.
+    pub fn type_text(&mut self, id: ViewId, text: &str) -> Result<String, String> {
+        let kernel = self.host.kernel();
+        let node = kernel.node(id).ok_or_else(|| format!("no view {id}"))?;
+        if node.node_type != NodeType::TextInput {
+            return Err(format!("view {id} is not an input"));
+        }
+        self.focus = Some(id);
+        let now = self.host.now();
+        let error = self
+            .host
+            .dispatch_at(id, Event::Change(text.to_string()), now);
+        let e = self.after_commit();
+        if let Some(e) = error.or(e) {
+            return Err(e);
+        }
+        let value = self
+            .host
+            .kernel()
+            .node(id)
+            .and_then(|n| n.props.str(PropId::Value).map(str::to_string))
+            .unwrap_or_default();
+        let mut s = format!("{{\"typed\":{id},\"value\":");
+        quote(&value, &mut s);
+        s.push('}');
+        Ok(s)
+    }
+
+    /// A key for the focused input: a character appended, a backspace, or
+    /// nothing. The runner hears one `change` with the new value.
+    pub fn key(&mut self, ch: Option<char>, backspace: bool, now_ms: f64) {
+        let Some(id) = self.focus else { return };
+        let Some(node) = self.host.kernel().node(id) else {
+            return;
+        };
+        let mut value = node.props.str(PropId::Value).unwrap_or("").to_string();
+        match (ch, backspace) {
+            (Some(c), _) => value.push(c),
+            (None, true) => {
+                value.pop();
+            }
+            _ => return,
+        }
+        if let Some(e) = self.host.dispatch_at(id, Event::Change(value), now_ms) {
+            eprintln!("exact: {e}");
+        }
+        if let Some(e) = self.after_commit() {
+            eprintln!("exact: {e}");
+        }
+    }
+
+    /// Drop focus.
+    pub fn blur(&mut self) {
+        if self.focus.take().is_some() {
+            self.dirty = true;
+        }
+    }
+
+    /// Move the clock: timers fire, motion is seeked to where the clock
+    /// landed (LLP 1012 `clock`). Returns the landing time and the error.
+    pub fn clock(&mut self, to_ms: f64) -> (f64, Option<String>) {
+        let e = self.host.advance(to_ms);
+        let landed = self.host.now();
+        self.host.tick(landed);
+        let after = self.after_commit();
+        (landed, e.or(after))
+    }
+
+    /// The runner's clock (timers), from the presenter's loop.
+    pub fn advance(&mut self, now_ms: f64) -> Option<String> {
+        let e = self.host.advance(now_ms);
+        let after = self.after_commit();
+        e.or(after)
+    }
+
+    /// A motion frame.
+    pub fn tick(&mut self, now_ms: f64) {
+        self.host.tick(now_ms);
+        self.dirty = true;
+    }
+
+    /// The pixels, as a PNG at `path`.
+    pub fn screenshot(&mut self, path: &str) -> Result<String, String> {
+        let frame = self.frame();
+        let png = frame.encode_png().map_err(|e| format!("png: {e}"))?;
+        std::fs::write(path, png).map_err(|e| format!("write {path}: {e}"))?;
+        let mut s = String::from("{\"screenshot\":");
+        quote(path, &mut s);
+        let _ = write!(
+            s,
+            ",\"w\":{},\"h\":{}}}",
+            num(r2(self.viewport.0)),
+            num(r2(self.viewport.1))
+        );
+        Ok(s)
+    }
+
+    /// The box of a node, if painted.
+    pub fn rect_of(&mut self, id: ViewId) -> Option<Rect4> {
+        self.box_of(id).map(|b| b.rect)
+    }
+
+    /// A scroll container's offset.
+    pub fn scroll_of(&self, id: ViewId) -> (f32, f32) {
+        self.scroll.get(&id).copied().unwrap_or((0.0, 0.0))
+    }
+
+    /// How many nodes are live.
+    pub fn node_count(&self) -> usize {
+        self.host.kernel().live_count()
+    }
+}

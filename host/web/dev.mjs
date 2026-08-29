@@ -56,7 +56,7 @@ dev.stdout.on('data', (chunk) => {
 });
 dev.on('exit', (code) => { console.error(`dev compiler exited ${code}`); process.exit(code ?? 1); });
 
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.plan': 'application/octet-stream' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.plan': 'application/octet-stream', '.png': 'image/png' };
 const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/__dev') {

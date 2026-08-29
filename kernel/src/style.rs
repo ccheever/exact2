@@ -555,6 +555,16 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // A root with `width: auto` fills what it is offered, as a `<div>` fills
     // the body: CSS's block rule, which Taffy does not apply to a root.
     // Height stays auto — as tall as its content, the page a viewport scrolls.
+    // A replaced element keeps its intrinsic ratio unless a row sets one:
+    // CSS sizes an `<img>` with one dimension given from the other by ratio.
+    if arena.node_type(slot) == NodeType::Image && !arena.style(slot).mask.has(StyleId::AspectRatio)
+    {
+        if let Some((w, h)) = arena.intrinsic(slot) {
+            if w > 0.0 && h > 0.0 {
+                s.aspect_ratio = Some(w / h);
+            }
+        }
+    }
     if arena.is_root(slot)
         && s.size.width.is_auto()
         && s.position != taffy::style::Position::Absolute

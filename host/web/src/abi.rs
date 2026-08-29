@@ -2,7 +2,8 @@
 //!
 //! @ref LLP 1007 §3
 //!
-//! Five exports (plus `exact_boot_plan` for the dev loop, `dev.rs`). The glue never hands the host a pointer it did not get from
+//! Five exports (plus `exact_boot_plan` for the dev loop, `dev.rs`, and
+//! `exact_agent` for the agent API, LLP 1012). The glue never hands the host a pointer it did not get from
 //! the host: `exact_in(len)` resizes a host-owned input buffer and returns its
 //! address; the glue writes the payload there; every call returns the length
 //! of the output buffer, whose address `exact_out()` reports. Both buffers
@@ -118,6 +119,18 @@ impl<D: DataSource> Bridge<D> {
         };
         self.emit(out)
     }
+
+    /// An agent request (the input buffer's first `len` bytes, JSON); the
+    /// output is the reply, not a batch.
+    pub fn agent(&mut self, len: usize) -> u32 {
+        let request =
+            String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        let out = match self.host.as_ref() {
+            Some(h) => h.agent(&request),
+            None => exact_runner::agent::error("not booted"),
+        };
+        self.emit(out)
+    }
 }
 
 impl<D: DataSource> Default for Bridge<D> {
@@ -179,6 +192,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_advance(now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().advance(now_ms))
+        }
+
+        /// An agent request from the input buffer; returns the reply's length.
+        #[no_mangle]
+        pub extern "C" fn exact_agent(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().agent(len as usize))
         }
     };
 }

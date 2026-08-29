@@ -34,6 +34,9 @@ pub struct NodeArena {
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
+    /// A replaced element's intrinsic size (an image's natural pixels in
+    /// points), reported by the host once it has loaded; `None` until then.
+    intrinsic: Vec<Option<(f32, f32)>>,
     taffy: Vec<Option<NodeId>>,
     is_root: Vec<bool>,
     free: Vec<u32>,
@@ -255,6 +258,7 @@ impl NodeArena {
                 self.flags.push(NodeFlags::default());
                 self.frames.push(Frame::default());
                 self.contents.push((0.0, 0.0));
+                self.intrinsic.push(None);
                 self.taffy.push(None);
                 self.is_root.push(false);
                 (self.generations.len() - 1) as u32
@@ -273,6 +277,7 @@ impl NodeArena {
         self.flags[s] = NodeFlags::CREATED;
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
+        self.intrinsic[s] = None;
         self.taffy[s] = None;
         self.is_root[s] = false;
         self.by_local.insert(id, slot);
@@ -292,6 +297,7 @@ impl NodeArena {
         self.flags[s] = NodeFlags::default();
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
+        self.intrinsic[s] = None;
         self.taffy[s] = None;
         if self.is_root[s] {
             self.roots.retain(|r| *r != slot);
@@ -328,6 +334,15 @@ impl NodeArena {
     /// The content's extent from the last layout (width, height).
     pub fn content(&self, slot: u32) -> (f32, f32) {
         self.contents[slot as usize]
+    }
+
+    /// A replaced element's intrinsic size, when the host has reported it.
+    pub fn intrinsic(&self, slot: u32) -> Option<(f32, f32)> {
+        self.intrinsic[slot as usize]
+    }
+
+    pub(crate) fn set_intrinsic(&mut self, slot: u32, size: Option<(f32, f32)>) {
+        self.intrinsic[slot as usize] = size;
     }
 
     pub(crate) fn set_content(&mut self, slot: u32, content: (f32, f32)) {

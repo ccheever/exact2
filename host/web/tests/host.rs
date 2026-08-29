@@ -22,7 +22,7 @@ fn the_first_batch_creates_the_tree_with_css_from_the_rows() {
     let (host, batch) = boot();
     assert!(batch.starts_with("{\"ops\":["));
     assert!(
-        batch.ends_with(",\"timers\":true,\"error\":null}"),
+        batch.ends_with(",\"timers\":true,\"clock\":0,\"error\":null}"),
         "{}",
         &batch[batch.len() - 60..]
     );
@@ -243,4 +243,24 @@ fn view_with_test_id_any<D: exact_runner::DataSource>(host: &Host<D>, test_id: &
     let k = host.runner().kernel();
     let key = k.find_by_test_id(test_id)[0];
     k.node_by_key(key).unwrap().id
+}
+
+#[test]
+fn an_image_is_an_img_with_its_source_and_object_fit() {
+    let (host, batch) = boot();
+    let logo = view_with_test_id(&host, "logo");
+    let at = batch
+        .find(&format!("\"id\":{logo},\"tag\":\"img\""))
+        .unwrap();
+    let create = &batch[at..at + 400];
+    assert!(
+        create.contains("\"src\":\"assets/caltrain.png\""),
+        "{create}"
+    );
+    assert!(
+        create.contains("\"alt\":\"A Caltrain train\"") && !create.contains("aria-label"),
+        "{create}"
+    );
+    assert!(create.contains("object-fit:contain;"), "{create}");
+    assert!(create.contains("width:96px;"), "{create}");
 }

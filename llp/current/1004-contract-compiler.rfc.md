@@ -1,1 +1,0 @@
-../1004-contract-compiler.rfc.md

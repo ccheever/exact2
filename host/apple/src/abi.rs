@@ -162,12 +162,37 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// An image's intrinsic size (pixel counts, one-for-one as points); a
+    /// finite width or height ≤ 0 clears it; a non-finite value is refused
+    /// by the kernel and comes back as an error.
+    pub fn intrinsic(&mut self, view: u32, width: f32, height: f32) -> u32 {
+        let clears = width.is_finite() && height.is_finite() && (width <= 0.0 || height <= 0.0);
+        let size = (!clears).then_some((width, height));
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_intrinsic(view, size));
+        self.emit(out)
+    }
+
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) -> u32 {
         let out = self
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.tick(now_ms));
+        self.emit(out)
+    }
+
+    /// An agent request (the input buffer's first `len` bytes, JSON); the
+    /// output is the reply, not a batch.
+    pub fn agent(&mut self, len: usize) -> u32 {
+        let request =
+            String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        let out = match self.host.as_ref() {
+            Some(h) => h.agent(&request),
+            None => exact_runner::agent::error("not booted"),
+        };
         self.emit(out)
     }
 }
@@ -267,10 +292,22 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height))
         }
 
+        /// An image loaded (or failed: a size ≤ 0); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_intrinsic(view: u32, width: f32, height: f32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().intrinsic(view, width, height))
+        }
+
         /// A motion frame; returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_tick(now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().tick(now_ms))
+        }
+
+        /// An agent request from the input buffer; returns the reply's length.
+        #[no_mangle]
+        pub extern "C" fn exact_agent(len: usize) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().agent(len))
         }
     };
 }

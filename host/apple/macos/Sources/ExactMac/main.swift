@@ -1,8 +1,10 @@
 // ExactMac: a window, a presenter, the clock. Host glue; the app is the
 // static library (runner + kernel + data crate + baked plan).
 //
-// EXACT_SMOKE=1 prints the boot time and a summary after the first frames
-// and exits — the headless check `host/apple/smoke.mjs` reads.
+// EXACT_SMOKE=1 prints the boot time and the startup phases after the first
+// frames and exits — what `scripts/metrics.mjs` reads. EXACT_AGENT=1 is the
+// agent API (LLP 1012, `Agent.swift`): the driver owns the clock and drives
+// the app over stdio; `host/apple/smoke.mjs` is a script of its operations.
 import AppKit
 
 // The process's own start (exec), from the kernel: what happened before
@@ -19,17 +21,24 @@ let mainAt = Date().timeIntervalSince1970
 let execToMainMs = processStart().map { (mainAt - $0) * 1000 }
 
 let smoke = ProcessInfo.processInfo.environment["EXACT_SMOKE"] == "1"
+let agentMode = ProcessInfo.processInfo.environment["EXACT_AGENT"] == "1"
 setvbuf(stdout, nil, _IOLBF, 0)
 let t0 = CACurrentMediaTime()
-func now() -> Double { (CACurrentMediaTime() - t0) * 1000 }
+/// Milliseconds since `main`: the wall clock, for startup stamps.
+func wall() -> Double { (CACurrentMediaTime() - t0) * 1000 }
+/// The agent's clock (milliseconds), when the driver owns time; `nil` runs
+/// on the wall clock.
+nonisolated(unsafe) var agentClock: Double? = agentMode ? 0 : nil
+/// The app's clock: what events, timers, motion, and canvases see.
+func now() -> Double { agentClock ?? wall() }
 /// Startup stamps, milliseconds from `main`, in order.
 nonisolated(unsafe) var stamps: [(String, Double)] = []
-func stamp(_ label: String) { stamps.append((label, now())) }
+func stamp(_ label: String) { stamps.append((label, wall())) }
 let app = NSApplication.shared
 stamp("NSApplication.shared")
 app.setActivationPolicy(.regular)
 stamp("setActivationPolicy")
-let appReadyMs = now()
+let appReadyMs = wall()
 
 let presenter = Presenter()
 let canvases = Canvases()
@@ -65,12 +74,13 @@ func apply(_ batch: Batch) {
     // The GPU module: after the first painted frame, only when a canvas exists.
     if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) } }
     frames.run(batch.motion || canvases.wantsFrames)
-    if batch.timers, clockTimer == nil {
+    if batch.timers, clockTimer == nil, !agentMode {
         clockTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in apply(Exact.advance(now: now())) }
     }
 }
 presenter.onPress = { id in apply(Exact.press(id, now: now())) }
 presenter.onChange = { id, value in apply(Exact.change(id, value, now: now())) }
+presenter.onIntrinsic = { id, size in apply(Exact.intrinsic(id, width: size?.width ?? 0, height: size?.height ?? 0)) }
 
 let size = NSSize(width: 420, height: 860)
 let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -84,7 +94,10 @@ stamp("center")
 final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationDidFinishLaunching(_ notification: Notification) { stamp("didFinishLaunching") }
-    func windowDidBecomeKey(_ notification: Notification) { if !stamps.contains(where: { $0.0 == "windowDidBecomeKey" }) { stamp("windowDidBecomeKey") } }
+    func windowDidBecomeKey(_ notification: Notification) {
+        if !stamps.contains(where: { $0.0 == "windowDidBecomeKey" }) { stamp("windowDidBecomeKey") }
+        agentReady()
+    }
     func windowDidResize(_ notification: Notification) {
         let s = presenter.viewport.contentSize
         apply(Exact.resize(width: s.width, height: s.height))
@@ -132,96 +145,35 @@ stamp("runner + layout")
 let tApply = CACurrentMediaTime()
 apply(boot)
 let applyMs = (CACurrentMediaTime() - tApply) * 1000
-let bootMs = now()
+let bootMs = wall()
 stamp("first frame applied")
 window.makeKeyAndOrderFront(nil)
 stamp("makeKeyAndOrderFront")
 app.activate(ignoringOtherApps: true)
 stamp("activate")
 
+/// Agent mode: the driver owns the process from here — one JSON line in,
+/// one out. `ready` goes out once the window is key (a `type` as the first
+/// request needs the field editor, which needs a key window), or after a
+/// second regardless, so a session never hangs where no window can be key.
+nonisolated(unsafe) var readySent = false
+func agentReady() {
+    guard agentMode, !readySent else { return }
+    readySent = true
+    Agent.reply(["ready": true, "boot": bootMs, "views": presenter.views.count, "error": boot.error ?? NSNull()])
+    Agent.start()
+}
+if agentMode {
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { agentReady() }
+}
 if smoke {
-    let ids = presenter.views.values.compactMap { $0.props["testId"] }.sorted()
     print("boot \(String(format: "%.1f", bootMs)) ms; \(presenter.views.count) views; root \(Int(presenter.root.subviews.first?.frame.width ?? 0))x\(Int(presenter.root.subviews.first?.frame.height ?? 0)); error \(boot.error ?? "none")")
     print("startup: exec→main \(execToMainMs.map { String(format: "%.1f", $0) } ?? "?") ms; main→NSApplication \(String(format: "%.1f", appReadyMs)) ms; →window \(String(format: "%.1f", (tBoot - t0) * 1000 - appReadyMs)) ms")
     print("phases: process→boot \(String(format: "%.1f", (tBoot - t0) * 1000)) ms; runner+layout \(String(format: "%.1f", rustMs)) ms of which \(measureCount) text measurements (\(measureHits) cached) \(String(format: "%.1f", measureSeconds * 1000)) ms in CoreText; apply \(String(format: "%.1f", applyMs)) ms")
-    print("testIds \(ids.joined(separator: " "))")
-    // Scrolling: synthesize wheel events over the first `scroll` node and
-    // report which scroll view moved — the window's document (the page) or
-    // the node's own.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-        guard let inner = presenter.views.values.first(where: { $0.kind == "scroll" || $0.kind == "list" }), let sv = inner.scroll, let win = inner.window else { print("scroll: no scroll node"); return }
-        let before = (presenter.viewport.contentView.bounds.origin.y, sv.contentView.bounds.origin.y)
-        let point = inner.convert(NSPoint(x: inner.bounds.midX, y: inner.bounds.minY + 40), to: nil)
-        let screen = win.convertPoint(toScreen: point)
-        let flippedY = (NSScreen.screens.first?.frame.height ?? 0) - screen.y
-        // Phase-less wheel events: a gesture's phases would put AppKit's
-        // top-level scroll view into a tracking loop that a synchronous
-        // sendEvent cannot feed. AppKit declines to scroll a *nested* scroll
-        // view for these — the presenter's fallback covers that case.
-        func wheel() -> NSEvent? {
-            guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -40, wheel2: 0, wheel3: 0) else { return nil }
-            cg.location = CGPoint(x: screen.x, y: flippedY)
-            return NSEvent(cgEvent: cg)
-        }
-        let page = { Int(presenter.viewport.contentView.bounds.origin.y) }
-        var report = "scroll: page document \(Int(presenter.root.frame.height)) tall in \(Int(presenter.viewport.contentSize.height)); inner document \(Int(sv.documentView?.frame.height ?? 0)) in \(Int(sv.bounds.height));"
-        let p0 = page()
-        if let e = wheel() { presenter.viewport.scrollWheel(with: e) }
-        report += " direct→viewport \(p0)→\(page());"
-        let p1 = page()
-        if let e = wheel() { sv.scrollWheel(with: e) }
-        report += " direct→inner: page \(p1)→\(page()), inner \(Int(before.1))→\(Int(sv.contentView.bounds.origin.y));"
-        let p2 = page()
-        let i2 = Int(sv.contentView.bounds.origin.y)
-        // What the window does for a real trackpad: the hit-tested view gets it,
-        // and the responder chain carries it up.
-        let hit = win.contentView?.hitTest(point)
-        if let e = wheel() { hit?.scrollWheel(with: e) }
-        report += " via hit view (\(hit.map { String(describing: type(of: $0)) } ?? "none")): page \(p2)→\(page()), inner \(i2)→\(Int(sv.contentView.bounds.origin.y));"
-        // An overflowing inner view: wheels over it scroll it until its edge,
-        // then chain to the page.
-        let p3 = page()
-        let i0 = Int(sv.contentView.bounds.origin.y)
-        let innerMax = Int(max(0, (sv.documentView?.frame.height ?? 0) - sv.contentView.bounds.height))
-        var pageMovedEarly = false
-        for _ in 0..<200 {
-            let pBefore = page(), iBefore = Int(sv.contentView.bounds.origin.y)
-            if let e = wheel() { hit?.scrollWheel(with: e) }
-            if iBefore < innerMax && page() != pBefore { pageMovedEarly = true }
-        }
-        let pageMax = Int(max(0, presenter.root.frame.height - presenter.viewport.contentSize.height))
-        report += " after 200 more: inner \(i0)→\(Int(sv.contentView.bounds.origin.y)) (limit \(innerMax)), page \(p3)→\(page()) (limit \(pageMax)), page moved before the inner limit: \(pageMovedEarly ? "yes" : "no"); viewport \(Int(presenter.viewport.contentSize.width)) wide"
-        sv.contentView.scroll(to: NSPoint(x: 0, y: 100))
-        sv.reflectScrolledClipView(sv.contentView)
-        if let e = wheel() { report += "; deltas: scrolling \(e.scrollingDeltaY) delta \(e.deltaY) precise \(e.hasPreciseScrollingDeltas) phase \(e.phase.rawValue)" }
-        report += "; diag: sv.frame \(sv.frame.size), clip \(sv.contentView.bounds), doc \(sv.documentView?.frame ?? .zero), programmatic scroll(to:100) → \(Int(sv.contentView.bounds.origin.y)), scroller \(sv.verticalScroller.map { "\($0.isEnabled)" } ?? "none"), inner.frame \(inner.frame)"
-        print(report)
-    }
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
         print("painted \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?") ms")
         print("stamps: " + stamps.map { "\($0.0) \(String(format: "%.1f", $0.1))" }.joined(separator: " · ") + " · first layout \(firstLayoutMs.map { String(format: "%.1f", $0) } ?? "?") · first draw \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?")")
-        let texts = presenter.views.values.filter { $0.kind == "text" }.compactMap { $0.props["text"] }
-        let station = presenter.views.values.first { $0.props["testId"] == "station-name" }
         print("gpu: \(canvases.module != nil ? "module loaded in \(String(format: "%.1f", canvases.loadedMs ?? 0)) ms; \(canvases.entries.count) canvases; \(canvases.rendered) renders" : "not loaded: \(canvases.failed ?? (canvases.entries.isEmpty ? "no canvas" : "not requested"))")")
-        print("station \(station?.props["text"] ?? "?") frame \(station.map { "\(Int($0.frame.origin.x)),\(Int($0.frame.origin.y)) \(Int($0.frame.width))x\(Int($0.frame.height))" } ?? "?"); \(texts.count) texts")
-        if let path = ProcessInfo.processInfo.environment["EXACT_SHOT"] {
-            let v = presenter.viewport
-            if let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
-                v.cacheDisplay(in: v.bounds, to: rep)
-                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
-                print("shot \(path)")
-            }
-        }
-        if let path = ProcessInfo.processInfo.environment["EXACT_SHOT_WINDOW"] {
-            // The window server's picture of this window — Metal layers included,
-            // which cacheDisplay cannot see. Needs screen-capture permission.
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-            p.arguments = ["-x", "-o", "-l", String(window.windowNumber), path]
-            try? p.run()
-            p.waitUntilExit()
-            print("window shot \(path) (\(p.terminationStatus == 0 ? "ok" : "failed"))")
-        }
         print("smoke ok")
         exit(0)
     }
