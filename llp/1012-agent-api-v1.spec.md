@@ -90,9 +90,9 @@ session setup, not a drive. `Runner::act` runs an action by name for **tests**
 (LLP 1005 §6 now says so); an agent never takes it.
 
 **Eight, and a wheel is a form of `tap`** (Charlie, 2026-08-29: "A"). A drag
-would be another form. NOT-DOING binds the count; the trade rule — a ninth
-public operation replaces one of the eight — is proposed for NOT-DOING and
-cited here, not made law twice.
+would be another form. `rules/NOT-DOING.md` §Agent API binds the count and
+the trade — a ninth operation replaces one of the eight, same PR — and this
+document cites it rather than restating it as a second law.
 
 ## 2. The clock
 
@@ -293,7 +293,7 @@ mode; replaying two timers' writes to one animatable row within a seek;
 attaching to an already running app (a session is a process; the dev loop
 wants the same resident channel).
 
-**Open, Charlie's:** the "ninth replaces one" line in NOT-DOING; whether the
+**Open, Charlie's:** whether the
 agent read operations become a second wasm artifact (13.5 KiB in every
 normal build today, against the rule that optional capability is a separate
 artifact) — or whether an export nobody calls is fine.

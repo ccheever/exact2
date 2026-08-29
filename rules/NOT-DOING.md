@@ -95,6 +95,11 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
 
 `tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `clock`
 
+**A ninth operation replaces one of the eight, same PR.** A new input is a form of
+`tap` or `type` (a wheel is a `tap`; so would a drag be); a new question is answered
+from `tree`, `state`, or `layout`. The old repo's six primitives grew eighty wire names
+one reasonable "view" at a time; the count is the cost. (Charlie, 2026-08-29.)
+
 Not shipping: session record/replay, causal trace, behavior diff and verify, mutation
 dry-run, contract witness / dataflow / source-map / bindings, accessibility audit, plan
 drag, correlate, visual query, network, perf, preferences, pasteboard, onboarding,
