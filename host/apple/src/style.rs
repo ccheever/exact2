@@ -10,7 +10,7 @@
 //! applies their *presentation* values from `present` ops, never the style.
 //! Rows a presenter cannot use yet are named, not guessed.
 
-use exact_kernel::{Dimension, RowValue, StyleId, StyleProps};
+use exact_kernel::{Dimension, NodeRef, Overflow, RowValue, StyleId, StyleProps};
 use std::fmt::Write as _;
 
 /// A row this host does not lower (and why).
@@ -60,6 +60,62 @@ pub fn style_json(style: &StyleProps) -> (String, Vec<Skipped>) {
     }
     out.push('}');
     (out, skipped)
+}
+
+/// A node's effective overflow per axis — the kernel's own rule
+/// (`StyleProps::to_taffy`): a `ScrollView`/`List` scrolls on y unless its
+/// row says otherwise, and an unset x follows a non-visible y (CSS Overflow
+/// §3). The presenter scrolls and clips from these, never from the node
+/// type.
+pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
+    let s = node.style;
+    let y = if s.mask.has(StyleId::OverflowY) {
+        s.overflow_y
+    } else if node.node_type.scrolls_by_default() {
+        Overflow::Scroll
+    } else {
+        Overflow::Visible
+    };
+    let mut x = if s.mask.has(StyleId::OverflowX) {
+        s.overflow_x
+    } else {
+        Overflow::Visible
+    };
+    let mut y = y;
+    // Symmetric, as the kernel computes: a `visible` axis beside a
+    // non-visible one is scrollable (CSS's `auto`; the schema has no `auto`).
+    if x == Overflow::Visible && y != Overflow::Visible {
+        x = Overflow::Scroll;
+    } else if y == Overflow::Visible && x != Overflow::Visible {
+        y = Overflow::Scroll;
+    }
+    (x, y)
+}
+
+/// The style dictionary with the effective overflow written in when it is
+/// not `visible` — a derived value the presenter must see even when no row
+/// is set.
+pub fn style_json_for(node: &NodeRef<'_>) -> (String, Vec<Skipped>) {
+    let (mut json, skipped) = style_json(node.style);
+    let (x, y) = effective_overflow(node);
+    let name = |o: Overflow| match o {
+        Overflow::Visible => "visible",
+        Overflow::Hidden => "hidden",
+        Overflow::Scroll => "scroll",
+    };
+    if x != Overflow::Visible || y != Overflow::Visible {
+        let head = format!(
+            "{{\"overflow_x\":\"{}\",\"overflow_y\":\"{}\"",
+            name(x),
+            name(y)
+        );
+        json = if json == "{}" {
+            head + "}"
+        } else {
+            head + "," + &json[1..]
+        };
+    }
+    (json, skipped)
 }
 
 /// Shortest exact decimal for a number: `24`, not `24.0`; `0.5`.

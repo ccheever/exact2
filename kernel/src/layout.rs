@@ -264,6 +264,7 @@ pub fn compute(
                 continue;
             };
             let l = tree.layout(node);
+            arena.set_content(slot, (l.content_size.width, l.content_size.height));
             Frame {
                 x: ox + l.location.x,
                 y: oy + l.location.y,

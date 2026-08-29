@@ -129,7 +129,23 @@ affine transform about the bounds' center (translate · rotate · scale) and
 with a `press` handler; an input's `controlTextDidChange` is a `change`.
 Motion frames come from `NSView.displayLink` while `motion` is true and from
 nothing otherwise; the runner's clock is a 250 ms timer while `timers` is
-true. `EXACT_SMOKE=1` prints the boot phases and a summary and exits;
+true.
+
+**Scrolling** is LLP 1010's: the window is a viewport over the document,
+a scroll container is a `ChainingScrollView` made from the node's
+effective `overflow` rows, a wheel it can take it applies itself and one it
+cannot chains to the next responder (the web's `overscroll-behavior:
+auto`). The AppKit-first fallback this paragraph once described is gone
+(a nested `NSScrollView` may move the enclosing view or animate later, so
+"did it move?" can double a delta); see LLP 1010 §3–§4 for the rule and
+the smoke that holds it.
+
+**The dev loop** landed here too (LLP 1007 §6's shape): `EXACT_DEV_PLAN`
+names the plan `host/web/dev.mjs` writes on every save; the app restarts
+from it with state carried (`exact_boot_plan`, `Runner::carry`) in ~7 ms.
+`node host/apple/build.mjs --run` sets it. `build.mjs` also forces the
+Swift relink, since `swift build` does not see the Rust archive change —
+a stale link that hid two lanes' changes before it was found. `EXACT_SMOKE=1` prints the boot phases and a summary and exits;
 `EXACT_SHOT=<path>` writes a PNG of the window — the run and the picture
 `host/apple/smoke.mjs` and a reviewer read.
 
@@ -188,10 +204,8 @@ presenter's `NSView` becomes `UIView`); images (`image` nodes draw as boxes);
 toggles; keyboard and pointer events beyond click and typing; scroll
 position and focus across a reload; accessibility beyond `testId` as the
 identifier and `accessibilityLabel`; justified text; per-corner radii
-(the first set radius rounds all four); text selection; a dev loop (the
-`exact_boot_plan` export exists; the driver from LLP 1007 §6 needs a file
-watcher and a relaunch or a reboot call in the presenter); a generated
-header (§4).
+(the first set radius rounds all four); text selection; scroll position
+across a reload; a generated header (§4).
 
 ## 8. Checks that hold this
 

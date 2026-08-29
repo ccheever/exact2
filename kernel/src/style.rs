@@ -449,8 +449,19 @@ impl StyleProps {
         } else {
             overflow(self.overflow_y)
         };
+        // CSS Overflow §3: when one axis is not `visible`, a `visible` other
+        // axis computes to `auto`. The schema has no `auto`; `scroll` is its
+        // stand-in (Taffy's sizing is the same). Symmetric, either axis.
+        let mut overflow_x = overflow(self.overflow_x);
+        let mut overflow_y = overflow_y;
+        use taffy::style::Overflow as O;
+        if overflow_x == O::Visible && overflow_y != O::Visible {
+            overflow_x = O::Scroll;
+        } else if overflow_y == O::Visible && overflow_x != O::Visible {
+            overflow_y = O::Scroll;
+        }
         s.overflow = taffy::geometry::Point {
-            x: overflow(self.overflow_x),
+            x: overflow_x,
             y: overflow_y,
         };
         s.scrollbar_width = 0.0;
@@ -540,7 +551,21 @@ impl StyleProps {
 
 /// The engine style for a live slot.
 pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
-    arena.style(slot).to_taffy(arena.node_type(slot))
+    let mut s = arena.style(slot).to_taffy(arena.node_type(slot));
+    // A root with `width: auto` fills what it is offered, as a `<div>` fills
+    // the body: CSS's block rule, which Taffy does not apply to a root.
+    // Height stays auto — as tall as its content, the page a viewport scrolls.
+    if arena.is_root(slot)
+        && s.size.width.is_auto()
+        && s.position != taffy::style::Position::Absolute
+    {
+        // CSS block `width: auto`: the border box fills the containing block
+        // (padding and border inside it), which is `100%` under border-box
+        // sizing. Margins on a root are not subtracted (LLP 1010 §1).
+        s.size.width = taffy::style::Dimension::percent(1.0);
+        s.box_sizing = taffy::style::BoxSizing::BorderBox;
+    }
+    s
 }
 
 #[cfg(test)]
@@ -571,7 +596,23 @@ mod tests {
     fn scroll_containers_scroll_on_the_block_axis_by_default() {
         let s = StyleProps::default().to_taffy(NodeType::ScrollView);
         assert_eq!(s.overflow.y, taffy::style::Overflow::Scroll);
-        assert_eq!(s.overflow.x, taffy::style::Overflow::Visible);
+        // CSS Overflow §3: a `visible` axis beside a non-visible one computes
+        // to `auto` — `scroll` here — so a scroll container clips both axes.
+        assert_eq!(s.overflow.x, taffy::style::Overflow::Scroll);
+        let plain = StyleProps::default().to_taffy(NodeType::View);
+        assert_eq!(plain.overflow.x, taffy::style::Overflow::Visible);
+        // Symmetric: a hidden x makes an unset y scrollable, not hidden.
+        let mut hidden_x = StyleProps::default();
+        hidden_x.overflow_x = Overflow::Hidden;
+        hidden_x.mask.set(StyleId::OverflowX);
+        let t = hidden_x.to_taffy(NodeType::View);
+        assert_eq!(
+            (t.overflow.x, t.overflow.y),
+            (
+                taffy::style::Overflow::Hidden,
+                taffy::style::Overflow::Scroll
+            )
+        );
         let mut explicit = StyleProps::default();
         explicit.overflow_y = Overflow::Hidden;
         explicit.mask.set(StyleId::OverflowY);

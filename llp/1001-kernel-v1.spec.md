@@ -105,7 +105,11 @@ The closed op list (revision 1): `CreateView`, `DestroyView` (**subtree** — th
 WS-I correction, from day one), `SetProp`, `ClearProp`, `SetStyle` (a **masked
 patch**), `ClearStyle` (a mask), `SetChildren`, `AttachRoot`. There is no
 `ComputeLayout` op: layout is a host call (`Kernel::compute_layout`), because the
-host owns the frame clock.
+host owns the frame clock. A root with `width: auto` fills the width it is
+offered — CSS's block rule, which Taffy does not apply to a root — and stays
+as tall as its content: the page a viewport scrolls (added 2026-08-29 when the
+Apple host's first bare-root fixture laid out 89 pt wide; a root's engine
+style is re-derived on `AttachRoot`).
 
 `SetChildren` rejects: duplicate children, self-child, a root as a child, a cycle
 (child is an ancestor of the parent), children on a leaf type, and a non-`Text`

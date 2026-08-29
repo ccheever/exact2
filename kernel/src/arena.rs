@@ -31,6 +31,9 @@ pub struct NodeArena {
     props: Vec<PropList>,
     flags: Vec<NodeFlags>,
     frames: Vec<Frame>,
+    /// Scrollable overflow from the last layout: the content's extent in the
+    /// node's own space (width, height), Taffy's `content_size`.
+    contents: Vec<(f32, f32)>,
     taffy: Vec<Option<NodeId>>,
     is_root: Vec<bool>,
     free: Vec<u32>,
@@ -251,6 +254,7 @@ impl NodeArena {
                 self.props.push(PropList::new());
                 self.flags.push(NodeFlags::default());
                 self.frames.push(Frame::default());
+                self.contents.push((0.0, 0.0));
                 self.taffy.push(None);
                 self.is_root.push(false);
                 (self.generations.len() - 1) as u32
@@ -268,6 +272,7 @@ impl NodeArena {
         self.props[s].clear();
         self.flags[s] = NodeFlags::CREATED;
         self.frames[s] = Frame::default();
+        self.contents[s] = (0.0, 0.0);
         self.taffy[s] = None;
         self.is_root[s] = false;
         self.by_local.insert(id, slot);
@@ -286,6 +291,7 @@ impl NodeArena {
         self.props[s] = PropList::new();
         self.flags[s] = NodeFlags::default();
         self.frames[s] = Frame::default();
+        self.contents[s] = (0.0, 0.0);
         self.taffy[s] = None;
         if self.is_root[s] {
             self.roots.retain(|r| *r != slot);
@@ -317,6 +323,15 @@ impl NodeArena {
 
     pub(crate) fn flags_mut(&mut self, slot: u32) -> &mut NodeFlags {
         &mut self.flags[slot as usize]
+    }
+
+    /// The content's extent from the last layout (width, height).
+    pub fn content(&self, slot: u32) -> (f32, f32) {
+        self.contents[slot as usize]
+    }
+
+    pub(crate) fn set_content(&mut self, slot: u32, content: (f32, f32)) {
+        self.contents[slot as usize] = content;
     }
 
     pub(crate) fn set_frame(&mut self, slot: u32, frame: Frame) {

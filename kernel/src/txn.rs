@@ -466,6 +466,11 @@ pub fn apply(
                 let slot = live_slot(arena, op_index, *id)?;
                 if !arena.is_root(slot) {
                     arena.set_root(slot, true);
+                    // A root's engine style differs from a child's (it fills its
+                    // offered width): re-derive it now that the node is one.
+                    if let Some(node) = arena.taffy(slot) {
+                        layout.set_style(node, taffy_style(arena, slot));
+                    }
                     touched.insert(slot);
                     receipt.layout_invalidated = true;
                 }

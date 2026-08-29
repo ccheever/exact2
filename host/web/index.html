@@ -10,6 +10,9 @@
   button, input { all: unset; display: block; box-sizing: content-box; cursor: default; }
   input { cursor: text; -webkit-user-select: text; user-select: text; }
   [data-scroll="true"] { overflow: auto; }
+  /* LLP 1001 §1: the kernel has no `position: static`; every node is `relative`
+     (an absolute node's inline style wins). */
+  #exact-root * { position: relative; }
   img { display: block; }
 </style>
 <div id="exact-root"></div>

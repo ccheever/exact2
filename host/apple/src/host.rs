@@ -16,7 +16,7 @@ use crate::batch::Batch;
 use crate::style;
 use exact_kernel::motion::{motion_node, targets, MotionSync};
 use exact_kernel::{
-    CommitReceipt, Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, PropId, PropValue,
+    CommitReceipt, Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue,
     TextMeasurer, ViewId,
 };
 use exact_motion::{Change, Engine, Property};
@@ -272,9 +272,8 @@ impl<D: DataSource> Host<D> {
             };
             let parent = node.parent.and_then(|p| kernel.node(p)).map(|p| p.frame);
             let rel = relative(node.frame, parent);
-            let content = node
-                .node_type
-                .scrolls_by_default()
+            let content = (style::effective_overflow(&node)
+                != (Overflow::Visible, Overflow::Visible))
                 .then(|| content_size(&node, kernel));
             let m = self.mirror.entry(id).or_default();
             if m.frame != Some(rel) {
@@ -335,7 +334,7 @@ impl<D: DataSource> Host<D> {
         let key = node.key;
         let kind = kind_for(&node);
         let props = props_for(&node);
-        let (style, _skipped) = style::style_json(node.style);
+        let (style, _skipped) = style::style_json_for(&node);
         let handlers: Vec<&str> = self
             .runner
             .handlers_of(id)
@@ -362,7 +361,7 @@ impl<D: DataSource> Host<D> {
     fn update(&mut self, id: ViewId, batch: &mut Batch) {
         let node = self.runner.kernel().node(id).expect("live");
         let props = props_for(&node);
-        let (style, _skipped) = style::style_json(node.style);
+        let (style, _skipped) = style::style_json_for(&node);
         let m = self.mirror.entry(id).or_default();
         if props != m.props {
             let set: Vec<(&str, String)> = props
@@ -403,15 +402,26 @@ fn relative(frame: Frame, parent: Option<Frame>) -> (f32, f32, f32, f32) {
     }
 }
 
-/// The extent of a scroll container's children in its own space: what the
-/// presenter's document view must be sized to.
+/// A scroll container's content extent: the kernel's scrollable overflow
+/// (Taffy's `content_size`, padding and every descendant included), never
+/// less than the box itself.
 fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
-    let mut w = node.frame.width;
-    let mut h = node.frame.height;
+    // Taffy's block containers do not always count end-edge padding in
+    // `content_size` (its flex containers do); CSS's `scrollHeight` does.
+    // Floor with the direct children's extent plus the end padding.
+    let pad = |d: exact_kernel::Dimension, against: f32| match d {
+        exact_kernel::Dimension::Points(p) => p,
+        exact_kernel::Dimension::Percent(p) => against * p / 100.0,
+        exact_kernel::Dimension::Auto => 0.0,
+    };
+    let pad_right = pad(node.style.padding_right, node.frame.width);
+    let pad_bottom = pad(node.style.padding_bottom, node.frame.width);
+    let mut w = node.frame.width.max(node.content.0);
+    let mut h = node.frame.height.max(node.content.1);
     for child in node.children() {
         if let Some(c) = kernel.node(child) {
-            w = w.max(c.frame.x - node.frame.x + c.frame.width);
-            h = h.max(c.frame.y - node.frame.y + c.frame.height);
+            w = w.max(c.frame.x - node.frame.x + c.frame.width + pad_right);
+            h = h.max(c.frame.y - node.frame.y + c.frame.height + pad_bottom);
         }
     }
     (w, h)

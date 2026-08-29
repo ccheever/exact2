@@ -12,6 +12,48 @@ nonisolated(unsafe) var firstDrawMs: Double? = nil
 /// Milliseconds from script start to the first node's first layout pass.
 nonisolated(unsafe) var firstLayoutMs: Double? = nil
 
+/// A scroll container that chains: a wheel event it cannot consume in its
+/// dominant direction — nothing to scroll, or already at that edge — goes
+/// to the next responder, so an inner `scroll` node never traps the page.
+/// The web's rule (`overscroll-behavior: auto`); AppKit's default is to
+/// swallow it.
+final class ChainingScrollView: NSScrollView {
+    /// Points per line for a wheel without precise deltas — the browser's
+    /// tick.
+    static let lineHeight: CGFloat = 40
+    /// Which axes scroll (the node's effective `overflow_x`/`overflow_y`).
+    var scrollsX = true
+    var scrollsY = true
+
+    override func scrollWheel(with event: NSEvent) {
+        // Precise deltas (a trackpad) are in points; a wheel's are in lines.
+        let precise = event.hasPreciseScrollingDeltas
+        var dx = precise ? event.scrollingDeltaX : event.deltaX * ChainingScrollView.lineHeight
+        var dy = precise ? event.scrollingDeltaY : event.deltaY * ChainingScrollView.lineHeight
+        if dx == 0 && dy == 0 { return }
+        let doc = documentView?.frame.size ?? .zero
+        let origin = contentView.bounds.origin
+        let visible = contentView.bounds.size
+        // Per axis: can this view move in the delta's direction? (Flipped
+        // document: origin grows as content scrolls up; a negative delta
+        // scrolls content up.)
+        let maxX = max(0, doc.width - visible.width), maxY = max(0, doc.height - visible.height)
+        let takeX = scrollsX && dx != 0 && maxX > 0 && ((dx < 0 && origin.x < maxX) || (dx > 0 && origin.x > 0))
+        let takeY = scrollsY && dy != 0 && maxY > 0 && ((dy < 0 && origin.y < maxY) || (dy > 0 && origin.y > 0))
+        // The dominant axis decides who owns the event (a gesture is one
+        // thing); what this view can take of it, it takes itself — never
+        // through AppKit, whose nested-scroll routing may move the enclosing
+        // view or animate later, doubling a delta applied here.
+        let dominantTaken = abs(dy) >= abs(dx) ? takeY : takeX
+        guard dominantTaken else { nextResponder?.scrollWheel(with: event); return }
+        if !takeX { dx = 0 }
+        if !takeY { dy = 0 }
+        let target = NSPoint(x: min(max(origin.x - dx, 0), maxX), y: min(max(origin.y - dy, 0), maxY))
+        contentView.scroll(to: target)
+        reflectScrolledClipView(contentView)
+    }
+}
+
 final class NodeView: NSView, NSTextFieldDelegate {
     let id: UInt32
     let kind: String
@@ -23,7 +65,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     var rotate: CGFloat = 0
     weak var presenter: Presenter?
     var field: NSTextField?
-    var scroll: NSScrollView?
+    var scroll: ChainingScrollView?
     /// A canvas node's Metal layer (LLP 1009).
     var metal: MetalView?
     var pressed = false
@@ -37,16 +79,6 @@ final class NodeView: NSView, NSTextFieldDelegate {
         // A frame change during live resize repaints at the new width
         // instead of stretching stale pixels.
         layerContentsRedrawPolicy = .duringViewResize
-        if kind == "scroll" || kind == "list" {
-            let sv = NSScrollView(frame: .zero)
-            sv.drawsBackground = false
-            sv.hasVerticalScroller = true
-            sv.autohidesScrollers = true
-            sv.documentView = FlippedView(frame: .zero)
-            sv.autoresizingMask = [.width, .height]
-            addSubview(sv)
-            scroll = sv
-        }
         if kind == "canvas" {
             let m = MetalView(frame: .zero)
             addSubview(m)
@@ -92,6 +124,36 @@ final class NodeView: NSView, NSTextFieldDelegate {
 
     func applyStyle(_ s: [String: Any]) {
         style = s
+        // Scrolling and clipping come from the effective overflow the host
+        // wrote in (never from the node's kind): `scroll` on an axis makes a
+        // scroll container that scrolls that axis; `hidden` clips.
+        let ox = s["overflow_x"] as? String ?? "visible", oy = s["overflow_y"] as? String ?? "visible"
+        if (ox == "scroll" || oy == "scroll") && scroll == nil {
+            let sv = ChainingScrollView(frame: bounds)
+            sv.drawsBackground = false
+            sv.scrollerStyle = .overlay
+            sv.hasVerticalScroller = true
+            sv.hasHorizontalScroller = true
+            sv.autohidesScrollers = true
+            sv.automaticallyAdjustsContentInsets = false
+            sv.contentInsets = NSEdgeInsetsZero
+            sv.documentView = FlippedView(frame: .zero)
+            sv.autoresizingMask = [.width, .height]
+            for child in subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
+            addSubview(sv)
+            scroll = sv
+        }
+        if ox != "scroll" && oy != "scroll", let sv = scroll {
+            // Neither axis scrolls any more: the children come back out.
+            for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); addSubview(child) }
+            sv.removeFromSuperview()
+            scroll = nil
+        }
+        scroll?.scrollsX = ox == "scroll"
+        scroll?.scrollsY = oy == "scroll"
+        scroll?.hasHorizontalScroller = ox == "scroll"
+        scroll?.hasVerticalScroller = oy == "scroll"
+        clipsToBounds = ox == "hidden" || oy == "hidden"
         if let f = field {
             f.font = Text.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), italic: false)
             f.textColor = color("text_color", .black)
@@ -176,6 +238,9 @@ final class Presenter {
         viewport.hasVerticalScroller = true
         viewport.hasHorizontalScroller = true
         viewport.autohidesScrollers = true
+        viewport.scrollerStyle = .overlay
+        viewport.automaticallyAdjustsContentInsets = false
+        viewport.contentInsets = NSEdgeInsetsZero
         viewport.drawsBackground = true
         viewport.backgroundColor = .white
     }

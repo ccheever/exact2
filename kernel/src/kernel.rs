@@ -40,6 +40,11 @@ pub struct NodeRef<'a> {
     pub props: &'a PropList,
     /// Absolute frame from the last layout.
     pub frame: Frame,
+    /// Scrollable overflow from the last layout: the content's extent in the
+    /// node's own space (width, height) — what a scroll container's document
+    /// is sized to. Includes padding and every descendant's overflow, as CSS's
+    /// `scrollWidth`/`scrollHeight` do.
+    pub content: (f32, f32),
     /// Whether the node is a root.
     pub is_root: bool,
     arena: &'a NodeArena,
@@ -237,6 +242,7 @@ impl Kernel {
             style: self.arena.style(slot),
             props: self.arena.props(slot),
             frame: self.arena.frame(slot),
+            content: self.arena.content(slot),
             is_root: self.arena.is_root(slot),
             arena: &self.arena,
             slot,

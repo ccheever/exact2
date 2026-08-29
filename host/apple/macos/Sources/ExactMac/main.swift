@@ -118,7 +118,15 @@ if let planPath = ProcessInfo.processInfo.environment["EXACT_DEV_PLAN"] {
     planWatch = t
 }
 
-let boot = Exact.boot(width: presenter.viewport.contentSize.width, height: presenter.viewport.contentSize.height)
+// EXACT_PLAN=<file> boots that plan instead of the one baked into the
+// library — any compiled contract, no rebuild (smokes, fixtures).
+let boot: Batch = {
+    let size = presenter.viewport.contentSize
+    if let path = ProcessInfo.processInfo.environment["EXACT_PLAN"], let bytes = FileManager.default.contents(atPath: path) {
+        return Exact.bootPlan(bytes, width: size.width, height: size.height)
+    }
+    return Exact.boot(width: size.width, height: size.height)
+}()
 let rustMs = (CACurrentMediaTime() - tBoot) * 1000
 stamp("runner + layout")
 let tApply = CACurrentMediaTime()
@@ -137,6 +145,58 @@ if smoke {
     print("startup: exec→main \(execToMainMs.map { String(format: "%.1f", $0) } ?? "?") ms; main→NSApplication \(String(format: "%.1f", appReadyMs)) ms; →window \(String(format: "%.1f", (tBoot - t0) * 1000 - appReadyMs)) ms")
     print("phases: process→boot \(String(format: "%.1f", (tBoot - t0) * 1000)) ms; runner+layout \(String(format: "%.1f", rustMs)) ms of which \(measureCount) text measurements (\(measureHits) cached) \(String(format: "%.1f", measureSeconds * 1000)) ms in CoreText; apply \(String(format: "%.1f", applyMs)) ms")
     print("testIds \(ids.joined(separator: " "))")
+    // Scrolling: synthesize wheel events over the first `scroll` node and
+    // report which scroll view moved — the window's document (the page) or
+    // the node's own.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+        guard let inner = presenter.views.values.first(where: { $0.kind == "scroll" || $0.kind == "list" }), let sv = inner.scroll, let win = inner.window else { print("scroll: no scroll node"); return }
+        let before = (presenter.viewport.contentView.bounds.origin.y, sv.contentView.bounds.origin.y)
+        let point = inner.convert(NSPoint(x: inner.bounds.midX, y: inner.bounds.minY + 40), to: nil)
+        let screen = win.convertPoint(toScreen: point)
+        let flippedY = (NSScreen.screens.first?.frame.height ?? 0) - screen.y
+        // Phase-less wheel events: a gesture's phases would put AppKit's
+        // top-level scroll view into a tracking loop that a synchronous
+        // sendEvent cannot feed. AppKit declines to scroll a *nested* scroll
+        // view for these — the presenter's fallback covers that case.
+        func wheel() -> NSEvent? {
+            guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -40, wheel2: 0, wheel3: 0) else { return nil }
+            cg.location = CGPoint(x: screen.x, y: flippedY)
+            return NSEvent(cgEvent: cg)
+        }
+        let page = { Int(presenter.viewport.contentView.bounds.origin.y) }
+        var report = "scroll: page document \(Int(presenter.root.frame.height)) tall in \(Int(presenter.viewport.contentSize.height)); inner document \(Int(sv.documentView?.frame.height ?? 0)) in \(Int(sv.bounds.height));"
+        let p0 = page()
+        if let e = wheel() { presenter.viewport.scrollWheel(with: e) }
+        report += " direct→viewport \(p0)→\(page());"
+        let p1 = page()
+        if let e = wheel() { sv.scrollWheel(with: e) }
+        report += " direct→inner: page \(p1)→\(page()), inner \(Int(before.1))→\(Int(sv.contentView.bounds.origin.y));"
+        let p2 = page()
+        let i2 = Int(sv.contentView.bounds.origin.y)
+        // What the window does for a real trackpad: the hit-tested view gets it,
+        // and the responder chain carries it up.
+        let hit = win.contentView?.hitTest(point)
+        if let e = wheel() { hit?.scrollWheel(with: e) }
+        report += " via hit view (\(hit.map { String(describing: type(of: $0)) } ?? "none")): page \(p2)→\(page()), inner \(i2)→\(Int(sv.contentView.bounds.origin.y));"
+        // An overflowing inner view: wheels over it scroll it until its edge,
+        // then chain to the page.
+        let p3 = page()
+        let i0 = Int(sv.contentView.bounds.origin.y)
+        let innerMax = Int(max(0, (sv.documentView?.frame.height ?? 0) - sv.contentView.bounds.height))
+        var pageMovedEarly = false
+        for _ in 0..<200 {
+            let pBefore = page(), iBefore = Int(sv.contentView.bounds.origin.y)
+            if let e = wheel() { hit?.scrollWheel(with: e) }
+            if iBefore < innerMax && page() != pBefore { pageMovedEarly = true }
+        }
+        let pageMax = Int(max(0, presenter.root.frame.height - presenter.viewport.contentSize.height))
+        report += " after 200 more: inner \(i0)→\(Int(sv.contentView.bounds.origin.y)) (limit \(innerMax)), page \(p3)→\(page()) (limit \(pageMax)), page moved before the inner limit: \(pageMovedEarly ? "yes" : "no"); viewport \(Int(presenter.viewport.contentSize.width)) wide"
+        sv.contentView.scroll(to: NSPoint(x: 0, y: 100))
+        sv.reflectScrolledClipView(sv.contentView)
+        if let e = wheel() { report += "; deltas: scrolling \(e.scrollingDeltaY) delta \(e.deltaY) precise \(e.hasPreciseScrollingDeltas) phase \(e.phase.rawValue)" }
+        report += "; diag: sv.frame \(sv.frame.size), clip \(sv.contentView.bounds), doc \(sv.documentView?.frame ?? .zero), programmatic scroll(to:100) → \(Int(sv.contentView.bounds.origin.y)), scroller \(sv.verticalScroller.map { "\($0.isEnabled)" } ?? "none"), inner.frame \(inner.frame)"
+        print(report)
+    }
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
         print("painted \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?") ms")
         print("stamps: " + stamps.map { "\($0.0) \(String(format: "%.1f", $0.1))" }.joined(separator: " · ") + " · first layout \(firstLayoutMs.map { String(format: "%.1f", $0) } ?? "?") · first draw \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?")")

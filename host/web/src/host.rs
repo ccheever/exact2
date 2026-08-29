@@ -348,7 +348,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         };
         out.insert(name.to_string(), text);
     }
-    if node.node_type == NodeType::ScrollView {
+    if node.node_type.scrolls_by_default() {
         out.insert("data-scroll".into(), "true".into());
     }
     if node.node_type == NodeType::Toggle {

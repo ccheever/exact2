@@ -85,7 +85,14 @@ fn surface_inputs_are_published_when_they_change_and_only_then() {
 fn the_caltrain_app_boots_with_both_surfaces() {
     let plan = caltrain::build().unwrap();
     let (_, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
-    assert!(batch.contains("\"name\":\"aurora\",\"values\":[\"mv\"]"), "{}", &batch[batch.len().saturating_sub(600)..]);
-    assert!(batch.contains("\"name\":\"map\",\"values\":[[["), "the map's inputs start with the station list");
+    assert!(
+        batch.contains("\"name\":\"aurora\",\"values\":[\"mv\"]"),
+        "{}",
+        &batch[batch.len().saturating_sub(600)..]
+    );
+    assert!(
+        batch.contains("\"name\":\"map\",\"values\":[[["),
+        "the map's inputs start with the station list"
+    );
     assert_eq!(batch.matches("\"op\":\"surface\"").count(), 2);
 }
