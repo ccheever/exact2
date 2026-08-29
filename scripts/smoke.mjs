@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 // The smoke: the Caltrain app driven through the agent API (LLP 1012) — the
-// same script on the web (headless Chrome) and on macOS. Asserts the
+// same script on the web (headless Chrome), on macOS, and on the Linux host
+// (headless, wherever it was built). Asserts the
 // landmarks, the layout (root width, the image's box from its ratio), the
 // clock, one whole interaction through the host's real input path, scrolling
 // in the app and in the nested fixture (LLP 1010), the GPU module, and a
 // clean journal; prints the numbers. Not a blocking check (it needs Chrome or
-// a window server): `node scripts/smoke.mjs <web|macos> [--shot <png>]`
-// after `node host/web/build.mjs` / `node host/apple/build.mjs`.
+// a window server): `node scripts/smoke.mjs <web|macos|linux> [--shot <png>]`
+// after `node host/web/build.mjs` / `node host/apple/build.mjs` /
+// `cargo build --release -p caltrain-linux`.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { open, render } from './agent.mjs';
+import { crop, decodePng, diff, encodePng } from './png.mjs';
 
 const argv = process.argv.slice(2);
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -28,9 +31,12 @@ const transcript = () => {
 const pinned = resolve(ROOT, 'scripts/fixtures/transcript.txt');
 if (argv.includes('--record')) { writeFileSync(pinned, transcript()); console.log(`recorded ${pinned.replace(ROOT + '/', '')}`); process.exit(0); }
 
-const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : null;
-if (!host) { console.error('usage: node scripts/smoke.mjs <web|macos> [--shot <png>] | --record'); process.exit(2); }
+const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'linux' ? 'linux' : null;
+if (!host) { console.error('usage: node scripts/smoke.mjs <web|macos|linux> [--shot <png>] | --record'); process.exit(2); }
 const shot = argv.includes('--shot') ? argv[argv.indexOf('--shot') + 1] : process.env.EXACT_SHOT;
+// --record-canvas rewrites this host's reference picture of the canvas
+// fixture (step 10) after a deliberate change to what it shows.
+const recordCanvas = argv.includes('--record-canvas');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const failures = [];
 const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
@@ -197,6 +203,32 @@ rmSync(tmp, { recursive: true, force: true });
         for (let i = 0; i < 200 && !/captured/.test(logs); i++) { await sleep(50); logs += JSON.stringify(await f.logs()); }
         check(/captured/.test(logs), 'the canvas fixture was never captured within 10 s (did the surface want its children?)');
       }
+
+      // 10. The readback (LLP 1014 §2 step 3, LLP 1009 D1): the canvas as
+      // this host composes it — the sky at clock 0 with its children through
+      // it on macOS, over it on the web — cropped from the screenshot by the
+      // canvas's box and held against this host's recorded reference,
+      // scripts/fixtures/canvas-sky.<host>.png (`--record-canvas` rewrites
+      // it). The clock is the agent's, so the sky is the same picture every
+      // run; the band is for the GPU's arithmetic. Taken before the tap and
+      // the edit: a caret blinks on the wall clock.
+      if (host === 'web') { let g = f.gpuMs(); for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = f.gpuMs(); } }
+      await sleep(150); // one frame of the surface after its first capture
+      const shotPath = resolve(tmp, 'canvas.png');
+      await f.screenshot(shotPath, true);
+      const image = decodePng(readFileSync(shotPath));
+      const scale = image.width / l.viewport.w;
+      const top = image.height - Math.round(l.viewport.h * scale); // a window shot carries the title bar above the content
+      const region = crop(image, Math.round(sky.x * scale), top + Math.round(sky.y * scale), Math.round(sky.w * scale), Math.round(sky.h * scale));
+      const reference = resolve(ROOT, `scripts/fixtures/canvas-sky.${host}.png`);
+      if (recordCanvas) { writeFileSync(reference, encodePng(region)); console.log(`recorded ${reference.replace(ROOT + '/', '')} (${region.width}×${region.height})`); }
+      else if (!existsSync(reference)) failures.push(`no reference picture ${reference.replace(ROOT + '/', '')}: node scripts/smoke.mjs ${host} --record-canvas`);
+      else {
+        const d = diff(region, decodePng(readFileSync(reference)));
+        check(d.differing <= 0.01, `the canvas differs from its reference: ${(d.differing * 100).toFixed(2)}% of pixels beyond the band, mean ${d.mean.toFixed(2)} (${d.size})`);
+        console.log(`${host} readback: the canvas matches its reference — ${(d.differing * 100).toFixed(2)}% beyond the band, mean ${d.mean.toFixed(2)} (${d.size})`);
+      }
+
       await f.tap('sky-zoom');
       const st = await f.state();
       check(st.slots.zoom === 2, `a tap on a button inside the canvas did not reach it (zoom ${JSON.stringify(st.slots.zoom)})`);
@@ -213,6 +245,62 @@ rmSync(tmp, { recursive: true, force: true });
     } finally {
       await f.close();
     }
+  }
+  rmSync(tmp, { recursive: true, force: true });
+}
+
+// 11. Motion under the clock (LLP 1012 §2, the motion fixture): three boxes
+// scale 1 → 2 — a 250 ms linear transition and a spring on a press, a 500 ms
+// linear transition when a timer fires at t = 1000. Nothing plays between
+// operations; a seek lands on the curve; `settle` is a fixed point that
+// crosses the timer; and one seek across the timer gives what stepping
+// across it gives (LLP 1002 D3) — on both hosts, the same numbers.
+{
+  const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
+  const plan = resolve(tmp, 'motion.plan');
+  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/motion.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  if (c.status !== 0) failures.push('the motion fixture did not compile: ' + c.stderr);
+  else {
+    const w = (l, id) => box(l, id)?.w;
+    const near = (a, b, tol = 0.05) => Math.abs(a - b) <= tol;
+    const m = await open({ host, plan });
+    try {
+      await m.tap('toggle');
+      // Frozen: the press started two transitions; a wall-clock pause between
+      // two reads changes nothing (this sleep tests that nothing moves — it
+      // is not a wait for anything).
+      const a = await m.layout();
+      await sleep(300);
+      const b = await m.layout();
+      check(w(a, 'linear') === 50 && w(a, 'spring') === 50 && w(b, 'linear') === 50 && w(b, 'spring') === 50, `after a press the boxes sit at local time 0: ${w(a, 'linear')}, ${w(a, 'spring')} then ${w(b, 'linear')}, ${w(b, 'spring')}`);
+      await m.clock('+125');
+      let l = await m.layout();
+      check(w(l, 'linear') === 75, `at 125 ms of a 250 ms linear scale 1→2 the box is ${w(l, 'linear')} wide, not 75`);
+      check(near(w(l, 'spring'), 86.55, 0.5), `at 125 ms the spring(180, 12, 1) box is ${w(l, 'spring')} wide (both hosts: 86.55)`);
+      check(w(l, 'timed') === 50, `the timer has not fired yet: ${w(l, 'timed')}`);
+      await m.clock('+125');
+      l = await m.layout();
+      check(w(l, 'linear') === 100, `at 250 ms the linear box is ${w(l, 'linear')} wide, not 100`);
+      const settled = await m.clock('settle');
+      l = await m.layout();
+      // Two rounds: the spring settles at 1295.8 ms (the same on both hosts), the
+      // seek there crosses the timer at 1000, whose transition ends at 1500.
+      check(settled.settled === true && settled.clock === 1500, `settle: ${JSON.stringify(settled)} (expected a fixed point at 1500: the spring's 1295.8, then the timer's transition)`);
+      check(w(l, 'spring') === 100 && w(l, 'timed') === 100, `after settle the spring box is ${w(l, 'spring')} and the timer's ${w(l, 'timed')}; both should be 100`);
+    } finally {
+      await m.close();
+    }
+    // One seek across the timer versus stepping across it: the transition is
+    // born at the timer's due time either way.
+    const once = await open({ host, plan });
+    let oneShot;
+    try { await once.clock(1250); oneShot = [w(await once.layout(), 'timed')]; await once.clock(1500); oneShot.push(w(await once.layout(), 'timed')); } finally { await once.close(); }
+    const steps = await open({ host, plan });
+    let stepwise;
+    try { await steps.clock(1000); stepwise = [w(await steps.layout(), 'timed')]; await steps.clock(1250); stepwise.push(w(await steps.layout(), 'timed')); await steps.clock(1500); stepwise.push(w(await steps.layout(), 'timed')); } finally { await steps.close(); }
+    check(oneShot[0] === 75 && oneShot[1] === 100, `one seek to 1250 then 1500 across the timer: ${oneShot.join(', ')} (expected 75, 100)`);
+    check(stepwise[0] === 50 && stepwise[1] === 75 && stepwise[2] === 100, `stepping 1000, 1250, 1500: ${stepwise.join(', ')} (expected 50, 75, 100)`);
+    console.log(`${host} motion: linear 75 at 125 ms, spring in flight, settle a fixed point; across the timer one seek = steps (${oneShot.join('/')} vs ${stepwise.slice(1).join('/')})`);
   }
   rmSync(tmp, { recursive: true, force: true });
 }

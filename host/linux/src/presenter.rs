@@ -39,6 +39,9 @@ pub struct Presenter<D: DataSource> {
     pointer: Option<(f32, f32)>,
     boxes: Vec<PaintedBox>,
     dirty: bool,
+    /// How long the font scan took at boot, milliseconds (the one cost that
+    /// is the machine's, not the app's).
+    pub fonts_ms: f64,
 }
 
 /// Two decimals, the agent API's precision.
@@ -57,7 +60,9 @@ impl<D: DataSource> Presenter<D> {
         scale: f32,
         assets: PathBuf,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        let t = std::time::Instant::now();
         let text = TextEngine::shared();
+        let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
         let (host, error) = Host::boot(
             plan,
             data,
@@ -80,6 +85,7 @@ impl<D: DataSource> Presenter<D> {
             pointer: None,
             boxes: Vec::new(),
             dirty: true,
+            fonts_ms,
         };
         let e = p.after_commit();
         Ok((p, error.or(e)))

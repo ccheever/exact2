@@ -1,1 +1,0 @@
-../research/0507-exwf-wire-format.spec.md

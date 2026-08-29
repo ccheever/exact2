@@ -150,8 +150,10 @@ function apply(batch) {
 function applyBatch(batch) {
   const timers = apply(batch);
   if (agentMode) {
-    if (batch.clock != null && batch.clock > agentClock) agentClock = batch.clock;
+    // What the ops since the last marker started belongs to that marker's
+    // time — register before the clock moves on to where the batch landed.
     register(agentClock);
+    if (batch.clock != null && batch.clock > agentClock) agentClock = batch.clock;
     seek(agentClock);
   }
   return { timers, batch };

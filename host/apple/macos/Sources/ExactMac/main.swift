@@ -87,6 +87,12 @@ let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask:
 stamp("NSWindow")
 window.title = "Exact"
 window.contentView = presenter.viewport
+// Nothing is focused at launch — the web's rule (a page focuses no field on
+// load). AppKit would otherwise make the first key view the first responder
+// when the window becomes key, and a canvas holding an input would show a
+// caret from its first frame (found by the readback fixture, LLP 1014).
+window.initialFirstResponder = presenter.viewport
+window.autorecalculatesKeyViewLoop = false
 stamp("contentView")
 window.center()
 stamp("center")

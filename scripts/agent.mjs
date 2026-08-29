@@ -4,7 +4,7 @@
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
-// Usage:  node scripts/agent.mjs <web|macos> [--plan <file>] [--json] <op> [<op> …]
+// Usage:  node scripts/agent.mjs <web|macos|linux> [--plan <file>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window]
 //   tap <target> [wheel <dx> <dy>] | type <target> <text…> | clock <ms|+ms|settle>
 // A target is a testId or a view id; each op is one argument (quote it).
@@ -15,10 +15,12 @@
 // protocol on a pipe (no port, no dependency): `tap` and `type` are CDP
 // input events — Chrome's own hit-testing and dispatch, the path a click
 // takes — `screenshot` is Page.captureScreenshot, and the rest is
-// `exact.agent(…)` in the page (`host/web/glue.js`). The macOS app runs
-// with EXACT_AGENT=1 and answers JSON lines on stdio (`Agent.swift`); the
-// driver resolves a target to a view id through `tree` first, so both hosts
-// see the same request. Console and stderr lines ride along with `logs`.
+// `exact.agent(…)` in the page (`host/web/glue.js`). The macOS app and the
+// Linux host run with EXACT_AGENT=1 and answer JSON lines on stdio
+// (`Agent.swift`; `host/linux/src/agent.rs` — the Linux binary runs headless
+// on any machine, macOS included, so `linux` works wherever it was built);
+// the driver resolves a target to a view id through `tree` first, so every
+// host sees the same request. Console and stderr lines ride along with `logs`.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -175,13 +177,16 @@ async function openWeb({ plan, size = [420, 900] }) {
   }
 }
 
-// ---------------------------------------------------------------- macOS
+// ---------------------------------------------------------------- macOS and Linux, over stdio
 
-async function openMac({ plan, app = 'caltrain' }) {
-  const bin = resolve(ROOT, 'host/apple/macos/.build/release/ExactMac');
-  if (!existsSync(bin)) throw new Error('run node host/apple/build.mjs first');
+/** The stdio carrier: an app that answers JSON lines under EXACT_AGENT=1 — the macOS presenter (`Agent.swift`) and the Linux host (`host/linux/src/agent.rs`), one protocol. */
+async function openStdio({ host, plan, size, app = 'caltrain' }) {
+  const linux = host === 'linux';
+  const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(ROOT, `target/release/${app}-linux`)) : resolve(ROOT, 'host/apple/macos/.build/release/ExactMac');
+  if (!existsSync(bin)) throw new Error(linux ? `run cargo build --release -p ${app}-linux first` : 'run node host/apple/build.mjs first');
   const env = { EXACT_ASSETS: resolve(ROOT, 'apps', app), ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;
+  if (linux && size) env.EXACT_SIZE = `${size[0]}x${size[1]}`;
   const child = spawn(bin, [], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
@@ -209,7 +214,7 @@ async function openMac({ plan, app = 'caltrain' }) {
     if (ready.error) throw new Error('the app booted with an error: ' + ready.error);
     const ask = (req) => { const p = next(); child.stdin.write(JSON.stringify(req) + '\n'); return p; };
     return {
-      host: 'macos', boot: ready.boot, hostLines, gpuMs: () => null,
+      host, boot: ready.boot, hostLines, gpuMs: () => null,
       ask,
       async input(id, kind, opts) {
         const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'press' ? await ask({ op: 'tap', id }) : await ask({ op: 'type', id, text: opts.text });
@@ -231,9 +236,9 @@ async function openMac({ plan, app = 'caltrain' }) {
 
 // ---------------------------------------------------------------- the eight operations
 
-/** Open a session on `host` ('web' | 'macos'); `plan` boots a compiled contract instead of the app's baked plan. */
+/** Open a session on `host` ('web' | 'macos' | 'linux'); `plan` boots a compiled contract instead of the app's baked plan. */
 export async function open({ host, plan, size } = {}) {
-  const carrier = host === 'macos' || host === 'mac' ? await openMac({ plan }) : await openWeb({ plan, size });
+  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size }) : await openWeb({ plan, size });
   const s = {
     host: carrier.host,
     /** Milliseconds from launch to the first frame. */
@@ -350,7 +355,7 @@ async function main(argv) {
   }
   const [host, ...ops] = rest;
   if (!host || !ops.length) {
-    console.error('usage: node scripts/agent.mjs <web|macos> [--plan <file>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy>] | type <target> <text…> | clock <ms|+ms|settle>');
+    console.error('usage: node scripts/agent.mjs <web|macos|linux> [--plan <file>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy>] | type <target> <text…> | clock <ms|+ms|settle>');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, size: flags.size });

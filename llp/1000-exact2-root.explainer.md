@@ -67,6 +67,14 @@ and this one does not. Read them first.
   measurement through a registered callback, `exact-motion` as the executor, typed
   batches; `macos/` is the AppKit presenter (SwiftPM, no SwiftUI) with its smoke and
   screenshot. LLP 1008.
+- `host/linux/` — `exact-linux`, the Linux host and the first that paints: the
+  runner and kernel natively, cosmic-text measuring and painting from one
+  paragraph cache, `exact-motion` as the executor, and the kernel tree drawn
+  with tiny-skia — the kernel is the display list, no batch and no mirror —
+  onto DRM/KMS dumb buffers with evdev input, or into a buffer with no display
+  at all (the agent API over stdio, a screenshot, the smoke — on fleet Linux
+  and on macOS). Pure Rust; no system library is linked. `apps/caltrain/linux`
+  is the app's executable. LLP 1015.
 - `gpu/` — `exact-gpu`, the GPU canvas (LLP 1009): the `Surface` trait an app's
   GPU crate implements against wgpu, the module that runs surfaces on a device,
   and its ABI — a C ABI for the `dylib` the macOS presenter `dlopen`s, wasm-bindgen
@@ -88,9 +96,10 @@ core crate. There is no build matrix. An embedder links the crate it wants and
 the linker drops the rest: the web wasm carries no Taffy because nothing on the
 web calls layout. (Stated 2026-08-29.)
 
-Not built yet, in the order they are expected (decided 2026-08-28: **the web
-version works really well first, then Apple, then Linux**): the Linux DRM host,
-iOS on the Apple host's shape. (The macOS host landed 2026-08-29, LLP 1008, with
+Not built yet: iOS on the Apple host's shape. (The decided order — 2026-08-28:
+**the web version works really well first, then Apple, then Linux** — is done:
+the Linux host landed 2026-08-29, LLP 1015, a painter over DRM/KMS whose
+headless form runs the same smoke as the other two hosts. (The macOS host landed 2026-08-29, LLP 1008, with
 the C ABI its consumer made concrete. The plan format, runner, and compiler
 landed together as one lane — LLP 1006 §7; the web host followed the same day,
 LLP 1007, and its owed pieces — springs lowered to frames, the browser-driven

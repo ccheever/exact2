@@ -161,7 +161,7 @@
     { "bit": 78, "field": "font_variant_numeric", "codec": "u8", "text": true, "layout": true, "default": 0 },
     { "bit": 79, "field": "line_clamp", "codec": "u32", "text": true, "layout": true, "default": 0 },
     { "bit": 80, "field": "text_overflow", "codec": "enum:TextOverflow" },
-    { "bit": 81, "field": "text_color", "codec": "rgba8", "default": 4278190335 },
+    { "bit": 81, "field": "text_color", "codec": "rgba8", "default": 255 },
     { "bit": 82, "field": "transition", "codec": "transitions" }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

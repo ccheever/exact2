@@ -288,7 +288,15 @@ final class NodeView: NSView, NSTextFieldDelegate {
 
     override func draw(_ rect: NSRect) {
         repaintThrough()
-        if firstDrawMs == nil { firstDrawMs = wall() }
+        if firstDrawMs == nil {
+            firstDrawMs = wall()
+            // The first pixel is on its way: the GPU module may load now
+            // (LLP 1009 D4), on the next turn. A batch's own attempt runs
+            // before the display pass and finds no first draw yet; an app
+            // with no later batch — no image, no timer, no motion — would
+            // never load it (found by the readback fixture, LLP 1014).
+            DispatchQueue.main.async { canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) }
+        }
         let radius = number("border_radius", number("border_radius_top_left"))
         let path = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
         let bg = color("background_color", .clear)

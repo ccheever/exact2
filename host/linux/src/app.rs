@@ -171,7 +171,9 @@ fn headless<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
             )
         };
         println!(
-            "phases: runner+layout {runner_ms:.1} ms of which {measures} text measurements ({hits} cached) {shaping:.1} ms shaping ({faces} font faces); paint {paint_ms:.1} ms at {}x{}",
+            "phases: fonts {:.1} ms ({faces} faces); runner+layout {:.1} ms of which {measures} text measurements ({hits} cached) {shaping:.1} ms shaping; paint {paint_ms:.1} ms at {}x{}",
+            p.fonts_ms,
+            runner_ms - p.fonts_ms,
             frame.width(),
             frame.height()
         );

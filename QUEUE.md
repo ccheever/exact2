@@ -27,20 +27,24 @@ sits on that list carries the trade it would take.
    Two things the first screenshots showed (2026-08-29): `tap scheme-dark` journals
    `command setScheme("dark")` and changes nothing — neither host executes the
    runner's commands (`take_commands` has no reader); and at 420 wide the departure
-   rows wrap on macOS ("Limited to San Francisco" → two lines) but not on the web —
-   `layout` on both hosts would quantify the text-measurement gap.
+   rows wrap on macOS ("Limited to San Francisco" → two lines) and on Linux (DejaVu
+   Sans; root 3244 tall there, 3246 on macOS) but not on the web — `layout` on all
+   three would quantify the text-measurement gap.
 4. **Dev loop: every host live from one edit.** Not Vite — there is nothing to bundle
    (no app JS by rule, 180 lines of glue, no npm deps). What is missing: a Rust-source
    watch that rebuilds the wasm and pushes a reload, and the same plan push into a
    running macOS app (`build.mjs --run` per iteration today). Charlie to confirm the
    shape.
-5. **Linux host** (the decided order: web → Apple → Linux). No toolkit to lean on, so
-   the presenter paints — which makes it the GPU-drawn presenter LLP 1009 left
-   undecided, and the most testable host: render to a buffer, pixel fixtures against
-   Chrome, runs on fleet Linux. Needs a painter (wgpu — vello adopted, not built — or
-   CPU raster), a text engine that measures and paints in one (cosmic-text; the LLP
-   1008 §3 lesson), DRM/KMS and libinput. `host/apple/src` is mostly reusable; the
-   C ABI only exists because Swift consumes it. Decision first: see Open decisions.
+5. **Linux host follow-ups** (LLP 1015 landed 2026-08-29: CPU raster, cosmic-text,
+   DRM/KMS + evdev, the agent API; green on `expo-build-1000` and headless on macOS).
+   Owed: the DRM path has never run — it needs a Linux box with a VT (the builders'
+   user is in neither `video` nor `input`, no `sudo`); `canvas` on Linux (the module
+   into a `COPY_SRC` texture, read back, composited by the painter; lavapipe on a
+   server); a pinned font (`EXACT_FONTS` + the sans family set to it) so a pixel
+   fixture matches across machines — then the Chrome comparison the instrument was
+   built for; a font cache when a machine's scan (25 ms for 787 faces on a Mac)
+   matters; lifting the shared ~120 lines of orchestration out of `host/apple` and
+   `host/linux`.
 6. **Events beyond `click` and `input`** — hover, keyboard, pointer, focus, on both
    hosts (`glue.js` has two listeners). Gate for selection, gestures (`hold`/`observe`
    reach no page event, LLP 1007 §9), and any real app.
@@ -59,10 +63,12 @@ sits on that list carries the trade it would take.
 
 ## Cheap, any time
 
-- **Canvas children** → LLP 1014 (RFC, Draft) — built 2026-08-29, LLP 1014.000
+- **Canvas children** → LLP 1014 (RFC, Accepted) — built 2026-08-29, LLP 1014.000
   transcribes it: kernel, corpus, the web wrapper, the macOS overlay and capture with
-  D4's four sources, the smoke's steps 6a and 9; Accepted 2026-08-29. Left: §2 step 3
-  (a screenshot fixture against a reference; Chrome's flag as the readback oracle) and
+  D4's four sources, the smoke's steps 6a, 9, and 10 with the readback fixture (native:
+  `caltrain-gpu` `tests/children.rs`; per host: `scripts/fixtures/canvas-sky.*.png`,
+  cross-host mean 1.48/255 as measured — a first number for 1009 §4.1); Accepted
+  2026-08-29. Left: Chrome's flag as the oracle for children *through* a surface, and
   the §5 doing-list take, Charlie's to name (the `Svg` swap was withdrawn — it frees no
   v1 capacity, 1009 r3). Delete this line then.
 - `overflowX`/`overflowY` and `transition` in the Contract tag table (rows exist,
@@ -80,11 +86,12 @@ sits on that list carries the trade it would take.
   gradient rows leave `schema.json`; amend NOT-DOING's "compiles no shaders at
   runtime" to "compiles nothing on the boot path"; the refine-loop take. Then the
   1009.000 spec transcribes the landing.
-- **Linux painter: wgpu or CPU raster.** wgpu makes `canvas` one more pass and pays
-  for children-through-the-GPU (LLP 1014 D4: a painter host has the exact invalidation answer), but puts shader compile on the boot path — against
-  the 100 ms cold start and "the boot path compiles nothing" — so it forces the
-  precompiled-pipeline question (LLP 1009 D5 deferred it; 0559 F8). CPU raster boots
-  instantly and composes badly with `canvas`.
+- **Linux painter: wgpu or CPU raster.** v1 took CPU raster (LLP 1015 §7: boots
+  with nothing compiled, runs and pixel-tests on a GPU-less fleet box, deterministic
+  pixels) and pays the named cost — no `canvas` on Linux until the module renders
+  into a texture the painter reads back. wgpu would make LLP 1014's
+  children-through-the-shader free and is a one-module swap (`paint.rs` and the
+  glyph blit) if the cold-shader-compile trade is taken. Charlie's to reverse.
 - **The app's name** (`rules/NOT-DOING.md` opens with it; the recommendation is
   Caltrain and Caltrain is what exists).
 
@@ -108,6 +115,11 @@ sits on that list carries the trade it would take.
 - **Apple host** (LLP 1008 §7): images; toggles; accessibility beyond `testId` and
   `accessibilityLabel`; justified text; per-corner radii; rubber-banding on inner
   scroll nodes; a generated header.
+- **Linux host** (LLP 1015 §7): the DRM path unexercised; `canvas`; libinput and
+  xkbcommon (acceleration, touchpad gestures, hotplug, non-US keymaps); Wayland/X11
+  windows; selection, IME, a caret blink; `text_decoration`, `font_family`, RTL;
+  shadows, gradients, grid; JPEG, image URLs; accessibility; a font cache; pixel
+  fixtures against Chrome (needs a pinned font).
 - **GPU** (LLP 1009 §4): readback bands for blending and MSAA; a generated module ABI
   once there is a second consumer; the `Custom(u16)` animatable-property extension
   when a surface needs it.

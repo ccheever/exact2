@@ -28,11 +28,12 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   restarts from the new plan in ~20 ms. `node scripts/metrics.mjs` prints every number
   (`--long` adds the macOS build and boot). macOS: `node host/apple/build.mjs --run`.
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
-- To see a change work, drive the app: `node scripts/agent.mjs <web|macos> tree "tap
-  change-station" "type station-search Palo" "clock +60000" state logs "screenshot
-  out.png"` — the eight operations of LLP 1012, the same on both hosts, with the clock
-  in your hands (`clock settle` instead of waiting). `node scripts/smoke.mjs <web|macos>`
-  is the whole app driven that way.
+- To see a change work, drive the app: `node scripts/agent.mjs <web|macos|linux> tree
+  "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot
+  out.png"` — the eight operations of LLP 1012, the same on every host, with the clock
+  in your hands (`clock settle` instead of waiting). `node scripts/smoke.mjs
+  <web|macos|linux>` is the whole app driven that way. The Linux host
+  (`cargo build --release -p caltrain-linux`) runs headless anywhere, macOS included.
 - `QUEUE.md` is what would make sense to do next. Add a line when you find something
   worth doing; delete it when it lands. It decides nothing.
 - Never `git stash`. Kill only PIDs you recorded. Agents remove apparatus freely and add
