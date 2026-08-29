@@ -59,7 +59,7 @@ component Caltrain
   view
     main testId="caltrain-main" width="100%"
       scroll width="100%" flex=1
-        column gap=16 padding=20 maxWidth=640 alignSelf="center" width="100%"
+        column gap=16 padding=20 maxWidth=640 alignSelf="center" width="100%" boxSizing="border-box"
           header width="100%"
             row justify="space-between" align="center"
               column gap=2

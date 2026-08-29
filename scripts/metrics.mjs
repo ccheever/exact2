@@ -7,6 +7,8 @@
  *   node scripts/metrics.mjs            table
  *   node scripts/metrics.mjs --json     one JSON object
  *   node scripts/metrics.mjs --rebuild  also time an app edit → wasm rebuild (the cold path)
+ *   node scripts/metrics.mjs --long     also the macOS host: a warm build, a touch-one-line
+ *                                       rebuild, and the app's boot phases (minutes, not seconds)
  *
  * Budgets are read from rules/RULES.md so they cannot drift from the prose.
  */
@@ -21,6 +23,7 @@ const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const json = process.argv.includes('--json');
 const rebuild = process.argv.includes('--rebuild');
+const long = process.argv.includes('--long');
 const rules = readFileSync(resolve(ROOT, 'rules/RULES.md'), 'utf8');
 const budget = (label) => rules.match(new RegExp(`\\|\\s*${label}[^|]*\\|\\s*([^|\\n]+)`, 'i'))?.[1].trim() ?? '?';
 const out = {};
@@ -159,6 +162,69 @@ if (rebuild) {
   });
 }
 
+// 6. The macOS app's startup, when it has been built (`node host/apple/build.mjs`;
+// --long builds it): exec → main (dyld), NSApplication, the window, the runner
+// with layout and text measurement, the batch applied, the first paint.
+const macBin = resolve(ROOT, 'host/apple/macos/.build/release/ExactMac');
+const macRun = () => spawnSync(macBin, [], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_SMOKE: '1' }, timeout: 20000 });
+const macParse = (o) => {
+  out.macos_boot_ms = Number(/^boot ([\d.]+) ms/m.exec(o)?.[1] ?? NaN);
+  const s = /startup: exec→main ([\d.?]+) ms; main→NSApplication ([\d.]+) ms; →window ([\d.]+) ms/.exec(o);
+  if (s) { out.macos_exec_ms = Number(s[1]); out.macos_nsapp_ms = Number(s[2]); out.macos_window_ms = Number(s[3]); }
+  const p = /runner\+layout ([\d.]+) ms of which (\d+) text measurements \((\d+) cached\) ([\d.]+) ms in CoreText; apply ([\d.]+) ms/.exec(o);
+  if (p) { out.macos_runner_ms = Number(p[1]); out.macos_measurements = Number(p[2]); out.macos_measure_hits = Number(p[3]); out.macos_measure_ms = Number(p[4]); out.macos_apply_ms = Number(p[5]); }
+  out.macos_paint_ms = Number(/^painted ([\d.]+) ms/m.exec(o)?.[1] ?? NaN);
+  out.macos_views = Number(/; (\d+) views/.exec(o)?.[1] ?? NaN);
+  const stampOf = (line, label) => Number(new RegExp(`${label.replace(/[.()]/g, '\\$&')} ([\\d.]+)`).exec(line)?.[1] ?? NaN);
+  const st = /^stamps: (.*)$/m.exec(o)?.[1] ?? '';
+  out.macos_finish_launching_ms = stampOf(st, 'didFinishLaunching');
+  out.macos_first_frame_ms = stampOf(st, 'first frame applied');
+};
+// The platform floor: an empty AppKit app with the same stamps, built once.
+const floorBin = resolve(ROOT, 'target/exact-floor');
+const floorRun = () => {
+  if (!existsSync(floorBin)) spawnSync('swiftc', ['-O', '-o', floorBin, resolve(ROOT, 'host/apple/macos/floor.swift')], { stdio: 'ignore' });
+  if (!existsSync(floorBin)) return;
+  spawnSync(floorBin, [], { encoding: 'utf8', timeout: 10000 }); // warm up
+  const line = /^floor: (.*)$/m.exec(spawnSync(floorBin, [], { encoding: 'utf8', timeout: 10000 }).stdout ?? '')?.[1] ?? '';
+  const stampOf = (label) => Number(new RegExp(`${label.replace(/[.()]/g, '\\$&')} ([\\d.]+)`).exec(line)?.[1] ?? NaN);
+  out.floor_nsapp_ms = stampOf('NSApplication.shared');
+  out.floor_window_ms = stampOf('NSWindow') - stampOf('NSScrollView');
+  out.floor_finish_launching_ms = stampOf('didFinishLaunching') - stampOf('activate');
+  out.floor_draw_ms = stampOf('first draw');
+};
+step('macos-boot', () => {
+  if (!existsSync(macBin)) { out.macos_boot_ms = NaN; out.macos_note = 'not built (node host/apple/build.mjs)'; return; }
+  macRun(); // the first launch of a fresh binary is a cold outlier: warm up, report the second
+  macParse(macRun().stdout ?? '');
+  floorRun();
+});
+
+// 7. Long: the macOS host's builds — a warm build (cargo release staticlib +
+// swift), then the budget row "touch one line, rebuild that crate" for the
+// host crate — and the startup again on the fresh binary.
+if (long) {
+  step('macos', () => {
+    const build = () => {
+      const t = Date.now();
+      const r = spawnSync('node', [resolve(ROOT, 'host/apple/build.mjs')], { cwd: ROOT, encoding: 'utf8' });
+      const m = /cargo ([\d.]+) s, swift ([\d.]+) s/.exec(r.stdout ?? '');
+      return { ok: r.status === 0, total_s: (Date.now() - t) / 1000, cargo_s: m ? Number(m[1]) : NaN, swift_s: m ? Number(m[2]) : NaN };
+    };
+    const warm = build();
+    out.macos_build_s = warm.ok ? warm.total_s : NaN;
+    out.macos_build_cargo_s = warm.cargo_s;
+    out.macos_build_swift_s = warm.swift_s;
+    const src = resolve(ROOT, 'host/apple/src/host.rs');
+    const now = new Date();
+    utimesSync(src, now, now);
+    const touched = build();
+    out.macos_touch_s = touched.ok ? touched.total_s : NaN;
+    macRun();
+    macParse(macRun().stdout ?? '');
+  });
+}
+
 out.total_s = (Date.now() - t0) / 1000;
 
 if (json) { console.log(JSON.stringify(out)); process.exit(0); }
@@ -180,8 +246,23 @@ const rows = [
   ['browser: → painted', ms(out.browser_paint_ms), Number.isFinite(out.browser_paint_ms) ? '' : 'headless has no compositor frame'],
   ['boot modules before first pixel', `${out.boot_modules}`, `budget: ${budget('App JS executed')} app JS; ${out.boot_ok ? 'ok' : 'VIOLATION'}`],
   ['edit → present (resident dev loop)', ms(out.reload_ms), Number.isFinite(out.reload_ms) ? `plan ready ${ms(out.reload_plan_ms)} after save; budget ${budget('Dev restart')}` : out.reload_note ?? ''],
+  ['macOS: exec → first paint', ms(out.macos_exec_ms + out.macos_paint_ms), Number.isFinite(out.macos_paint_ms) ? `${out.macos_views} views; budget ${budget('Cold start')}` : out.macos_note ?? ''],
 ];
+if (Number.isFinite(out.macos_paint_ms)) rows.push(
+  ['  ours: runner + layout', ms(out.macos_runner_ms), `${out.macos_measurements} text measurements (${out.macos_measure_hits} cached), ${ms(out.macos_measure_ms)} in CoreText`],
+  ['  ours: batch → NSViews', ms(out.macos_apply_ms), ''],
+  ['  AppKit: exec → main', ms(out.macos_exec_ms), 'dyld, the Swift runtime'],
+  ['  AppKit: NSApplication', ms(out.macos_nsapp_ms), `floor ${ms(out.floor_nsapp_ms)} (waits on the window server)`],
+  ['  AppKit: NSWindow', ms(out.macos_window_ms), `floor ${ms(out.floor_window_ms)} (NSThemeFrame, a dlopen)`],
+  ['  AppKit: run → didFinishLaunching', ms(out.macos_finish_launching_ms - out.macos_first_frame_ms), `floor ${ms(out.floor_finish_launching_ms)} (Dock registration ≈ 65 ms of it)`],
+  ['  main → first paint', ms(out.macos_paint_ms), `floor ${ms(out.floor_draw_ms)}: an empty window on this machine`],
+);
 if (rebuild) rows.push(['edit → wasm rebuilt (no driver)', ms(out.rebuild_ms), 'the cold path: cargo build of the app crate']);
+if (long) {
+  const s = (v) => (Number.isFinite(v) ? `${v.toFixed(1)} s` : 'n/a');
+  rows.push(['macOS: warm build', s(out.macos_build_s), `cargo ${s(out.macos_build_cargo_s)} · swift ${s(out.macos_build_swift_s)}; budget ${budget('Full build')}`]);
+  rows.push(['macOS: touch one line, rebuild', s(out.macos_touch_s), `host/apple/src/host.rs; budget ${budget('Touch one line')}`]);
+}
 console.log(`exact2 metrics — ${new Date().toISOString().slice(0, 19)}Z, warm cache, p50 where repeated`);
 for (const [k, v, note] of rows) console.log(`  ${k.padEnd(34)} ${v.padStart(11)}   ${note}`);
-console.log(`  ${'total'.padEnd(34)} ${`${out.total_s.toFixed(1)} s`.padStart(11)}   native ${out._native_s.toFixed(1)} s · wasm ${out._wasm_s.toFixed(1)} s · browser ${out._browser_s.toFixed(1)} s · dev loop ${out._reload_s.toFixed(1)} s${rebuild ? ` · rebuild ${out._rebuild_s.toFixed(1)} s` : ''}`);
+console.log(`  ${'total'.padEnd(34)} ${`${out.total_s.toFixed(1)} s`.padStart(11)}   native ${out._native_s.toFixed(1)} s · wasm ${out._wasm_s.toFixed(1)} s · browser ${out._browser_s.toFixed(1)} s · dev loop ${out._reload_s.toFixed(1)} s · macOS boot ${out['_macos-boot_s'].toFixed(1)} s${rebuild ? ` · rebuild ${out._rebuild_s.toFixed(1)} s` : ''}${long ? ` · macOS ${out._macos_s.toFixed(1)} s` : ''}`);

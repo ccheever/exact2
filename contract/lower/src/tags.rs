@@ -192,6 +192,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "display" => styles(&["display"]),
         "align" | "alignItems" => styles(&["align_items"]),
         "alignSelf" => styles(&["align_self"]),
+        "boxSizing" => styles(&["box_sizing"]),
         "justify" | "justifyContent" => styles(&["justify_content"]),
         "position" => styles(&["position_type"]),
         "top" => styles(&["top"]),

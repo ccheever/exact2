@@ -195,9 +195,10 @@ Selection, semantics/accessibility tree, islands, SVG rasterization, crash
 capsules, a module registry, virtualized lists, portals, choice layout (0487's
 operator — the corpus stays research until a producer needs it), the direction
 truth table (RTL box layout), the 0507 raw-address namespace, EXWF extension
-chunks, event frames, the C ABI, the wasm host interface. Each is either on
+chunks, event frames, the wasm host interface. Each is either on
 `rules/NOT-DOING.md` or waits for the consumer that would make its spec
-transcription rather than speculation.
+transcription rather than speculation. (The C ABI found its consumer on
+2026-08-29: the Apple host, LLP 1008 §4.)
 
 ## 10. Checks that hold this
 

@@ -61,6 +61,11 @@ and this one does not. Read them first.
   frames, a no-`unsafe` ABI, the glue, the headless-Chrome smoke, the motion
   parity harness (`parity.mjs`), and the dev loop (`node host/web/dev.mjs`:
   edit `app.contract`, the page restarts in ~20 ms). LLP 1007.
+- `host/apple/` — `exact-apple`, the Apple host: the runner and kernel as a static
+  library with a C ABI (`include/exact.h`), the kernel's own layout with CoreText
+  measurement through a registered callback, `exact-motion` as the executor, typed
+  batches; `macos/` is the AppKit presenter (SwiftPM, no SwiftUI) with its smoke and
+  screenshot. LLP 1008.
 - `vendor/taffy/` — Taffy 0.9.2 plus two Exact patches (`EXACT-PATCHES.md`).
 - `scripts/` — `caps` and `boot` (two of the five checks), `metrics` (the startup and
   speed numbers in one run, diagnostic), and `issue` (filesystem issues, `docs/issues.md`).
@@ -68,8 +73,9 @@ and this one does not. Read them first.
   from `ccheever/llp@v0.5.1`; receipt in `.llp/skills-receipt.json`).
 
 Not built yet, in the order they are expected (decided 2026-08-28: **the web
-version works really well first, then Apple, then Linux**): the Apple host and
-the generated C ABI, the Linux DRM host, the eight-operation agent API. (The plan
+version works really well first, then Apple, then Linux**): the Linux DRM host, the
+eight-operation agent API, iOS on the Apple host's shape. (The macOS host landed
+2026-08-29, LLP 1008, with the C ABI its consumer made concrete. The plan
 format, runner, and compiler landed together as one lane — LLP 1006 §7; the web
 host followed the same day, LLP 1007, and its owed pieces — springs lowered to
 frames, the browser-driven motion parity harness, the resident dev driver — the

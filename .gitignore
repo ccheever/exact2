@@ -4,3 +4,5 @@ node_modules/
 *.swp
 # Built web artifacts: the wasm and its copies, never committed.
 host/web/dist/
+# The macOS presenter's SwiftPM build products.
+host/apple/macos/.build/

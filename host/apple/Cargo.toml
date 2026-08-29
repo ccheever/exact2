@@ -1,0 +1,28 @@
+# The Apple host: the runner and kernel natively, laying out with Taffy and
+# measuring text through a callback the app registers, running exact-motion,
+# and emitting typed batches an AppKit (later UIKit) presenter applies.
+#
+# @ref LLP 1008 (this host) / LLP 1001 §6 (injected text measurement) /
+# LLP 1002 D2, §4 (every non-web host runs exact-motion)
+[package]
+name = "exact-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Apple host: kernel tree → typed batches with layout frames and motion presentations, over a C ABI"
+publish = false
+
+[lib]
+name = "exact_apple"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-kernel = { path = "../../kernel" }
+exact-motion = { path = "../../motion" }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }
+
+[dev-dependencies]
+caltrain = { path = "../../apps/caltrain" }
+caltrain-data = { path = "../../apps/caltrain/data" }
+contract = { path = "../../contract/cli" }

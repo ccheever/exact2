@@ -1,0 +1,262 @@
+//! The C ABI, with no `unsafe` on this side.
+//!
+//! @ref LLP 1008 §4; `host/apple/include/exact.h` (the header)
+//!
+//! The web host's buffer discipline over `extern "C"`: the app never hands
+//! the host a pointer the host did not give out. `exact_in(len)` resizes a
+//! host-owned input buffer and returns its address; the app writes a payload
+//! there; every call returns the length of the output buffer, whose address
+//! `exact_out()` reports; the app reads a UTF-8 JSON batch from it. Text
+//! measurement is the one call the other way: a function the app registers
+//! at boot ([`crate::measure`]). All calls are on one thread (the main
+//! thread); the bridge is thread-local. [`host!`] instantiates the exports
+//! for one app: its data source and its baked plan bytes.
+
+use crate::host::Host;
+use crate::measure::{CallbackMeasurer, MeasureFn};
+use exact_kernel::{MonospaceMeasurer, TextMeasurer};
+use exact_runner::{DataSource, Event};
+use std::cell::RefCell;
+use std::ffi::c_void;
+
+/// The buffers and the host behind the exports.
+pub struct Bridge<D: DataSource> {
+    host: Option<Host<D>>,
+    input: Vec<u8>,
+    output: Vec<u8>,
+}
+
+fn not_booted() -> String {
+    "{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"not booted\"}".to_string()
+}
+
+impl<D: DataSource> Bridge<D> {
+    /// Empty; `boot` fills it.
+    pub const fn new() -> Bridge<D> {
+        Bridge {
+            host: None,
+            input: Vec::new(),
+            output: Vec::new(),
+        }
+    }
+
+    /// Resize the input buffer and return its address.
+    pub fn input(&mut self, len: usize) -> *mut u8 {
+        self.input.clear();
+        self.input.resize(len, 0);
+        self.input.as_mut_ptr()
+    }
+
+    /// Write `bytes` into the input buffer (what the app does through the
+    /// address `input` returned); the length written.
+    pub fn input_write(&mut self, bytes: &[u8]) -> usize {
+        self.input.clear();
+        self.input.extend_from_slice(bytes);
+        self.input.len()
+    }
+
+    /// The output buffer's address.
+    pub fn output(&self) -> *const u8 {
+        self.output.as_ptr()
+    }
+
+    /// The output buffer's first `len` bytes.
+    pub fn output_bytes(&self, len: usize) -> &[u8] {
+        &self.output[..len.min(self.output.len())]
+    }
+
+    fn emit(&mut self, s: String) -> u32 {
+        self.output = s.into_bytes();
+        self.output.len() as u32
+    }
+
+    /// Boot from `plan` with `data`, measuring text through `measure` (or
+    /// the monospace reference measurer when none is given) under a
+    /// viewport; the output is the first batch.
+    pub fn boot(
+        &mut self,
+        plan: &[u8],
+        data: D,
+        measure: Option<MeasureFn>,
+        ctx: *mut c_void,
+        width: f32,
+        height: f32,
+    ) -> u32 {
+        let measurer: Box<dyn TextMeasurer> = match measure {
+            Some(f) => Box::new(CallbackMeasurer::new(f, ctx)),
+            None => Box::new(MonospaceMeasurer::default()),
+        };
+        self.host = None;
+        match Host::boot(plan, data, measurer, width, height) {
+            Ok((host, batch)) => {
+                self.host = Some(host);
+                self.emit(batch)
+            }
+            Err(e) => self.emit(format!(
+                "{{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"boot: {}\"}}",
+                escape(&format!("{e:?}"))
+            )),
+        }
+    }
+
+    /// Boot from the input buffer's first `len` bytes (a plan the app
+    /// fetched — the dev loop's restart).
+    pub fn boot_plan(
+        &mut self,
+        len: usize,
+        data: D,
+        measure: Option<MeasureFn>,
+        ctx: *mut c_void,
+        width: f32,
+        height: f32,
+    ) -> u32 {
+        let plan = self.input[..len.min(self.input.len())].to_vec();
+        self.boot(&plan, data, measure, ctx, width, height)
+    }
+
+    /// Dispatch an event at `now_ms`; `kind` is 0 = press, 1 = change
+    /// (payload = the input buffer's first `len` bytes, UTF-8).
+    pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
+        let payload =
+            String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        let event = match kind {
+            0 => Event::Press,
+            _ => Event::Change(payload),
+        };
+        let out = match self.host.as_mut() {
+            Some(h) => h.dispatch_at(view, event, now_ms),
+            None => not_booted(),
+        };
+        self.emit(out)
+    }
+
+    /// Move the clock (timers).
+    pub fn advance(&mut self, now_ms: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.advance(now_ms));
+        self.emit(out)
+    }
+
+    /// The viewport changed.
+    pub fn resize(&mut self, width: f32, height: f32) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.resize(width, height));
+        self.emit(out)
+    }
+
+    /// A motion frame.
+    pub fn tick(&mut self, now_ms: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.tick(now_ms));
+        self.emit(out)
+    }
+}
+
+impl<D: DataSource> Default for Bridge<D> {
+    fn default() -> Self {
+        Bridge::new()
+    }
+}
+
+fn escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// A thread-local bridge cell, for the exports.
+pub type Cell<D> = RefCell<Bridge<D>>;
+
+/// Instantiate the C exports for one app (see `include/exact.h`).
+///
+/// `$data` is the app's `DataSource` type (constructed with `Default`);
+/// `$plan` a `&'static [u8]` of baked plan bytes.
+#[macro_export]
+macro_rules! host {
+    ($data:ty, $plan:expr) => {
+        thread_local! {
+            static EXACT_BRIDGE: $crate::abi::Cell<$data> = ::std::cell::RefCell::new($crate::abi::Bridge::new());
+        }
+
+        /// Resize the input buffer; returns its address.
+        #[no_mangle]
+        pub extern "C" fn exact_in(len: usize) -> *mut u8 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().input(len))
+        }
+
+        /// The output buffer's address.
+        #[no_mangle]
+        pub extern "C" fn exact_out() -> *const u8 {
+            EXACT_BRIDGE.with(|b| b.borrow().output())
+        }
+
+        /// Boot the baked plan; returns the first batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_boot(
+            measure: ::std::option::Option<$crate::measure::MeasureFn>,
+            ctx: *mut ::std::ffi::c_void,
+            width: f32,
+            height: f32,
+        ) -> u32 {
+            EXACT_BRIDGE.with(|b| {
+                b.borrow_mut().boot(
+                    $plan,
+                    <$data as ::std::default::Default>::default(),
+                    measure,
+                    ctx,
+                    width,
+                    height,
+                )
+            })
+        }
+
+        /// Boot from plan bytes in the input buffer; returns the first batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_boot_plan(
+            len: usize,
+            measure: ::std::option::Option<$crate::measure::MeasureFn>,
+            ctx: *mut ::std::ffi::c_void,
+            width: f32,
+            height: f32,
+        ) -> u32 {
+            EXACT_BRIDGE.with(|b| {
+                b.borrow_mut().boot_plan(
+                    len,
+                    <$data as ::std::default::Default>::default(),
+                    measure,
+                    ctx,
+                    width,
+                    height,
+                )
+            })
+        }
+
+        /// Dispatch an event; returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_dispatch(view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().dispatch(view, kind, len, now_ms))
+        }
+
+        /// Move the clock; returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_advance(now_ms: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().advance(now_ms))
+        }
+
+        /// The viewport changed; returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_resize(width: f32, height: f32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height))
+        }
+
+        /// A motion frame; returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_tick(now_ms: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().tick(now_ms))
+        }
+    };
+}
