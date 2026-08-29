@@ -39,8 +39,12 @@ dependencies = [
 name = "caltrain-web"
 version = "0.1.0"
 dependencies = [
+ "caltrain",
  "caltrain-data",
  "contract",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
  "exact-web",
 ]
 

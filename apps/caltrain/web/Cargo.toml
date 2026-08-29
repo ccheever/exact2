@@ -14,8 +14,17 @@ name = "caltrain_web"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+caltrain = { path = ".." }
 caltrain-data = { path = "../data" }
+contract = { path = "../../../contract/cli" }
+exact-kernel = { path = "../../../kernel" }
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
 exact-web = { path = "../../../host/web" }
+
+[[bin]]
+name = "metrics"
+path = "src/bin/metrics.rs"
 
 [build-dependencies]
 caltrain-data = { path = "../data" }

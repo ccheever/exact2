@@ -19,7 +19,7 @@ and the motion engine; ~120 lines of JavaScript glue apply batches, forward
 events, and tick the clock, and nothing runs per frame. The plan is baked into
 the wasm at build time, so a page fetches one wasm and one module. Measured
 in headless Chrome on the Caltrain app: **script start → first frame in the
-DOM, 9 ms** (fetch and instantiate 423 KiB of wasm, boot, ~130 elements).
+DOM, 9–11 ms** (fetch and instantiate 348 KiB of wasm, boot, ~200 elements).
 Where this document and the code disagree, the code and its tests are the
 authority.
 
@@ -89,9 +89,23 @@ styles), because the kernel's defaults are already CSS's.
 
 ## 4. Building and measuring
 
-`node host/web/build.mjs` — `cargo build --release --target
-wasm32-unknown-unknown` for the app's crate, then `host/web/dist/` (ignored
-by git): `app.wasm`, `index.html`, `glue.js`. `node host/web/smoke.mjs` —
+`node host/web/build.mjs` — `cargo build --profile web --target
+wasm32-unknown-unknown` for the app's crate (the `web` profile is release with
+`opt-level = "z"` and fat LTO: the runner's work is sub-millisecond, so every
+byte is fetch, parse, and compile), then `wasm-opt -Oz` when binaryen is on
+PATH (the build says so when it is not, and ships unoptimized), then
+`host/web/dist/` (ignored by git): `app.wasm`, `index.html`, `glue.js`.
+
+**Where the bytes are (2026-08-28, 348 KiB; 149 KiB gzip).** Measured from the
+name section of an unstripped build: std/core/alloc ≈ 43% (string and slice
+helpers, `core::fmt`, float print and parse for `px` values and JSON), kernel
+16%, runner 15%, web host 8%, plan decoder 8%, motion (the `transition`
+parser) 3%, hashbrown 2%, plus ≈ 60 KiB of data (the baked plan and strings).
+**Taffy is 0%**: nothing on the web reaches `compute_layout`, so the linker
+drops the layout algorithms; a "kernel without Taffy" feature would save
+nothing here. The profile and `wasm-opt` took 436 → 348 KiB (164 → 149 KiB
+gzip) with no change to script-start → DOM. The next real cut is in our own
+code and in what it asks of `core::fmt`, not in dependencies. `node host/web/smoke.mjs` —
 serves `dist/` and renders it in headless Chrome (`--dump-dom`, a fresh
 temporary profile, the process group killed on exit), asserting the app's
 landmarks and printing the boot stamp. On 2026-08-28, three runs: 9.0–9.1 ms
@@ -115,7 +129,8 @@ parity harness holding `exact-motion` to the browser (LLP 1002 §5, still
 owed); dev-loop reload (edit → rebuild → restart is `build.mjs` by hand; the
 resident driver is LLP 1006 §8's); a text-measurement bridge for the kernel's
 layout on web (the browser lays out; the kernel's Taffy layout is not run
-here, and `Kernel::with_monospace` is only a placeholder measurer); gradients,
+here — and is dead-code-eliminated from the wasm, §4 — and
+`Kernel::with_monospace` is only a placeholder measurer); gradients,
 grid, `line_clamp`, `font_family` rows; touch/keyboard events beyond `click`
 and `input`; scroll position and focus restoration across reloads.
 

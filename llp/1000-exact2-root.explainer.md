@@ -60,14 +60,18 @@ and this one does not. Read them first.
   the real DOM, CSS computed once from the kernel's rows, a no-`unsafe` ABI, the
   glue, and the headless-Chrome smoke. LLP 1007.
 - `vendor/taffy/` — Taffy 0.9.2 plus two Exact patches (`EXACT-PATCHES.md`).
-- `scripts/` — `caps` (the budget check) and `issue` (filesystem issues, `docs/issues.md`).
+- `scripts/` — `caps` and `boot` (two of the five checks), `metrics` (the startup and
+  speed numbers in one run, diagnostic), and `issue` (filesystem issues, `docs/issues.md`).
 - `skills/`, `.claude/skills/` — the orchestrate skill and the LLP skills (installed
   from `ccheever/llp@v0.5.1`; receipt in `.llp/skills-receipt.json`).
 
-Not built yet, in the order they are expected: the Apple host and the generated
-C ABI, the Linux DRM host, the eight-operation agent API. (The plan format, runner,
-and compiler landed together as one lane — LLP 1006 §7 — and the web host followed
-the same day, LLP 1007.)
+Not built yet, in the order they are expected (decided 2026-08-28: **the web
+version works really well first, then Apple, then Linux**): the web host's owed
+pieces — springs lowered to keyframes, the browser-driven motion parity harness
+(LLP 1002 §5), the resident dev driver (LLP 1006 §8) — then the Apple host and
+the generated C ABI, the Linux DRM host, the eight-operation agent API. (The plan
+format, runner, and compiler landed together as one lane — LLP 1006 §7 — and the
+web host followed the same day, LLP 1007.)
 
 ## The five checks
 
