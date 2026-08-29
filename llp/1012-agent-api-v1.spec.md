@@ -293,7 +293,12 @@ mode; replaying two timers' writes to one animatable row within a seek;
 attaching to an already running app (a session is a process; the dev loop
 wants the same resident channel).
 
-**Open, Charlie's:** whether the
-agent read operations become a second wasm artifact (13.5 KiB in every
-normal build today, against the rule that optional capability is a separate
-artifact) — or whether an export nobody calls is fine.
+**Decided (Charlie, 2026-08-29):** the agent read operations stay in every
+normal wasm — a read of the runner's own memory has no second artifact to
+live in, and a second build of the app wasm would be the build matrix the
+rules forbid. Baseline to watch: at `e0a69bb` the agent code is 13,780 B of a
+431,782 B wasm (3.2%; 6 KiB of 181 KiB gzip); if it passes ~5% or ~25 KiB,
+revisit. Measured by building the previous commit in a scratch worktree with
+the same `web` profile and `wasm-opt -Oz`; `scripts/metrics.mjs` prints the
+total. A second review round on r2 was skipped for now (Charlie, 2026-08-29:
+"skip it for now"); the Linux host's author is r2's next reader.
