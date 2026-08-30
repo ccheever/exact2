@@ -379,6 +379,8 @@ impl<D: DataSource> Host<D> {
                 EventKind::Blur => "blur",
                 EventKind::Key => "key",
                 EventKind::Submit => "submit",
+                EventKind::Load => "load",
+                EventKind::Message => "message",
             })
             .collect();
         let pairs: Vec<(&str, String)> =
@@ -547,6 +549,7 @@ fn tag_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::Pressable => "button",
         NodeType::Toggle => "input",
         NodeType::Canvas => "canvas",
+        NodeType::WebView => "iframe",
     }
 }
 
@@ -576,6 +579,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::Disabled => "disabled",
             PropId::Lang => "lang",
             PropId::ImageSource => "src",
+            PropId::Src => "src",
+            PropId::Sandbox => "sandbox",
             PropId::SemanticTag => continue,
             PropId::ToggleValue => "checked",
             other => {

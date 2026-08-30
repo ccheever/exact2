@@ -95,6 +95,8 @@ presenter.onFocus = { id in apply(Exact.focus(id, now: now())) }
 presenter.onBlur = { id in apply(Exact.blur(id, now: now())) }
 presenter.onKey = { id, name in apply(Exact.key(id, name, now: now())) }
 presenter.onSubmit = { id in apply(Exact.submit(id, now: now())) }
+presenter.onLoad = { id in apply(Exact.load(id, now: now())) }
+presenter.onMessage = { id, value in apply(Exact.message(id, value, now: now())) }
 // The capabilities: `setScheme` is the app's appearance — light or dark, as
 // the web's `color-scheme`; anything else is named and refused.
 presenter.onCommand = { name, args in
@@ -219,6 +221,7 @@ if smoke {
         print("painted \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?") ms")
         print("stamps: " + stamps.map { "\($0.0) \(String(format: "%.1f", $0.1))" }.joined(separator: " · ") + " · first layout \(firstLayoutMs.map { String(format: "%.1f", $0) } ?? "?") · first draw \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?")")
         print("gpu: \(canvases.module != nil ? "module loaded in \(String(format: "%.1f", canvases.loadedMs ?? 0)) ms; \(canvases.entries.count) canvases; \(canvases.rendered) renders" : "not loaded: \(canvases.failed ?? (canvases.entries.isEmpty ? "no canvas" : "not requested"))")")
+        print("web: \(webviews.status)")
         print("smoke ok")
         exit(0)
     }

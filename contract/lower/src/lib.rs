@@ -1330,7 +1330,7 @@ impl<'a> Lowerer<'a> {
                 // prop names the real action here: its arity is checked now,
                 // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
                 let params = self.root.actions[ai].params.len();
-                let payload = usize::from(matches!(event, "change" | "key" | "hover"));
+                let payload = usize::from(matches!(event, "change" | "key" | "hover" | "message"));
                 if args.len() + payload != params {
                     return err(
                         "lower-handler-arity",
@@ -1341,6 +1341,7 @@ impl<'a> Lowerer<'a> {
                                 "hover" => " plus whether the pointer is over",
                                 "key" => " plus the key's name",
                                 "change" => " plus the new value",
+                                "message" => " plus the guest's message",
                                 _ => "",
                             }
                         ),
@@ -1358,7 +1359,10 @@ impl<'a> Lowerer<'a> {
                     "focus" => EventKind::Focus,
                     "blur" => EventKind::Blur,
                     "submit" => EventKind::Submit,
-                    _ => EventKind::Key,
+                    "key" => EventKind::Key,
+                    "load" => EventKind::Load,
+                    "message" => EventKind::Message,
+                    _ => unreachable!("tag table admitted an unknown handler"),
                 };
                 handlers.push((kind, self.actions[ai], codes));
             }

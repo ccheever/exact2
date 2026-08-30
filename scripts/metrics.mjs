@@ -181,6 +181,7 @@ const macParse = (o) => {
   if (p) { out.macos_runner_ms = Number(p[1]); out.macos_measurements = Number(p[2]); out.macos_measure_hits = Number(p[3]); out.macos_measure_ms = Number(p[4]); out.macos_apply_ms = Number(p[5]); }
   out.macos_paint_ms = Number(/^painted ([\d.]+) ms/m.exec(o)?.[1] ?? NaN);
   out.macos_gpu_ms = Number(/^gpu: module loaded in ([\d.]+) ms/m.exec(o)?.[1] ?? NaN);
+  out.macos_web_loaded = /^web: module loaded/m.test(o);
   out.macos_views = Number(/; (\d+) views/.exec(o)?.[1] ?? NaN);
   const stampOf = (line, label) => Number(new RegExp(`${label.replace(/[.()]/g, '\\$&')} ([\\d.]+)`).exec(line)?.[1] ?? NaN);
   const st = /^stamps: (.*)$/m.exec(o)?.[1] ?? '';
@@ -265,6 +266,7 @@ if (Number.isFinite(out.macos_paint_ms)) rows.push(
   ['  AppKit: run → didFinishLaunching', ms(out.macos_finish_launching_ms - out.macos_first_frame_ms), `floor ${ms(out.floor_finish_launching_ms)} (Dock registration ≈ 65 ms of it)`],
   ['  main → first paint', ms(out.macos_paint_ms), `floor ${ms(out.floor_draw_ms)}: an empty window on this machine`],
   ['  GPU module (dlopen + device)', ms(out.macos_gpu_ms), 'after first paint, first canvas'],
+  ['  web arm (dlopen)', out.macos_web_loaded ? 'loaded' : 'not loaded', out.macos_web_loaded ? 'VIOLATION: first screen has no iframe' : 'first iframe commit only'],
 );
 if (rebuild) rows.push(['edit → wasm rebuilt (no driver)', ms(out.rebuild_ms), 'the cold path: cargo build of the app crate']);
 if (long) {

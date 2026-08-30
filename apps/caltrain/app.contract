@@ -39,6 +39,8 @@ component Caltrain
   state hoverOn = false
   state searchFocused = false
   state lastKey = ""
+  state deckLoaded = false
+  state deckMessage = ""
 
   resource location = defaultLocation() as shape Location
   derive selectedId = match stationId { case some(id) => id, case none => "mv" }
@@ -53,6 +55,10 @@ component Caltrain
     nowMs = nowMs + 1000
   action openStations writes screen
     screen = "stations"
+  action openDeck writes screen, deckLoaded, deckMessage
+    screen = "web-deck"
+    deckLoaded = false
+    deckMessage = ""
   action goHome writes screen, query
     screen = "home"
     query = ""
@@ -82,6 +88,10 @@ component Caltrain
     searchFocused = false
   action searchKey(k) writes lastKey
     lastKey = k
+  action recordDeckLoad writes deckLoaded
+    deckLoaded = true
+  action recordDeckMessage(payload) writes deckMessage
+    deckMessage = payload
   action toggleSky writes sky
     sky = match sky { case some(c) => none, case none => some("#05081a") }
 
@@ -95,12 +105,25 @@ component Caltrain
     // root's background is what a phone paints behind the status bar and
     // the home indicator (the web's rule): the sky's dark, or white.
     main testId="caltrain-main" width="100%" height="100%" background-color=canvasColor
-      // One accent for every card and header below, provided once (LLP 1017 P4a).
-      provide accent = "#c0392b"
-        // The sky or the plain page around the same content, written once:
-        // `Sky` declares a slot and the content is what is indented under it.
-        Sky(on=skyOn, material=material, selectedId=selectedId)
-          Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, openStations=openStations, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey)
+      // @ref LLP 1020 D6 — the iframe screen is outside the live canvas.
+      when screen == "web-deck"
+        section role="region" aria-label="Deck fixture" testId="deck-screen" padding=20 gap=12
+          row align-items="center" justify-content="space-between"
+            text "Web deck" font-size=20 font-weight=700 color="#ffffff"
+            button press=goHome aria-label="Back" testId="deck-back" padding=8 background-color="#ffffff"
+              text "Back" font-size=13
+          // The hosted-deck sandbox pair (LLP 1020 §8 Q1's survey): same-origin
+          // scripts, so the agent's guest outline is live on the web arm too.
+          iframe src="/deck/index.html" sandbox="allow-scripts allow-same-origin" testId="deck-frame" load=recordDeckLoad message=recordDeckMessage
+          text `${deckLoaded}` testId="deck-loaded" color="#ffffff"
+          text deckMessage testId="deck-message" color="#ffffff"
+      else
+        // One accent for every card and header below, provided once (LLP 1017 P4a).
+        provide accent = "#c0392b"
+          // The sky or the plain page around the same content, written once:
+          // `Sky` declares a slot and the content is what is indented under it.
+          Sky(on=skyOn, material=material, selectedId=selectedId)
+            Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, openStations=openStations, openDeck=openDeck, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey)
 
 component Sky
   props
@@ -143,6 +166,7 @@ component Content
     allStations: list<Station>
     matches: list<Station>
     openStations: action
+    openDeck: action
     setScheme: action
     setMaterial: action
     toggleDeck: action
@@ -167,6 +191,8 @@ component Content
           column gap=6 align-items="flex-end"
             button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=8 background-color="#eeeeee"
               text "Change station" font-size=13 font-weight=600
+            button press=openDeck aria-label="Open web deck" testId="open-deck" padding=8 border-radius=8 background-color="#eeeeee"
+              text "Web deck" font-size=12 font-weight=600
             row gap=6
               button press=setScheme("light") aria-label="Light" testId="scheme-light"
                 text "Light" font-size=12

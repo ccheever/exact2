@@ -1186,7 +1186,15 @@ fn refine_params_from_view(
                 for a in attrs {
                     if matches!(
                         a.name.as_str(),
-                        "press" | "change" | "hover" | "focus" | "blur" | "key" | "submit"
+                        "press"
+                            | "change"
+                            | "hover"
+                            | "focus"
+                            | "blur"
+                            | "key"
+                            | "submit"
+                            | "load"
+                            | "message"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),
@@ -1202,11 +1210,10 @@ fn refine_params_from_view(
                                     }
                                 }
                             }
-                            // The event's payload is the action's last parameter:
-                            // `change` the new text, `key` the key's name (strings),
-                            // `hover` whether the pointer is over (a bool).
+                            // Event payloads: change/key/message are strings;
+                            // hover is whether the pointer is over.
                             let payload = match a.name.as_str() {
-                                "change" | "key" => Some(Ty::String),
+                                "change" | "key" | "message" => Some(Ty::String),
                                 "hover" => Some(Ty::Bool),
                                 _ => None,
                             };

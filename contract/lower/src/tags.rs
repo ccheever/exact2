@@ -110,6 +110,13 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: vec![],
             positional: None,
         },
+        // @ref LLP 1020 D1 — a bare <iframe> is a 300×150 replaced element.
+        "iframe" => Tag {
+            node_type: NodeType::WebView,
+            fixed_styles: vec![(s("width"), "300"), (s("height"), "150")],
+            fixed_props: vec![],
+            positional: Some(p("src")),
+        },
         "image" => Tag {
             node_type: NodeType::Image,
             fixed_styles: vec![],
@@ -158,6 +165,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "blur" => AttrTarget::Handler("blur"),
         "key" => AttrTarget::Handler("key"),
         "submit" => AttrTarget::Handler("submit"),
+        "load" => AttrTarget::Handler("load"),
+        "message" => AttrTarget::Handler("message"),
         // the canvas's surface (LLP 1009 D3)
         "surface" => AttrTarget::Surface,
         // props (HTML and ARIA attribute names; `testId` is Exact's)
@@ -184,6 +193,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "href" => AttrTarget::Prop(p("href")),
         "disabled" => AttrTarget::Prop(p("disabled")),
         "lang" => AttrTarget::Prop(p("lang")),
+        "src" => AttrTarget::Prop(p("src")),
+        "sandbox" => AttrTarget::Prop(p("sandbox")),
         // style rows, by their CSS property names
         "font-size" => styles(&["font_size"]),
         "font-weight" => styles(&["font_weight"]),

@@ -156,6 +156,16 @@ fn font_sources_are_portable_local_relative_paths() {
 }
 
 #[test]
+fn iframe_event_kinds_round_trip_through_the_enum_codec() {
+    for event in [EventKind::Load, EventKind::Message] {
+        let mut plan = sample();
+        plan.handlers[0].event = event;
+        let decoded = Plan::decode(&plan.encode()).unwrap();
+        assert_eq!(decoded.handlers[0].event, event);
+    }
+}
+
+#[test]
 fn loading_is_a_validation_pass() {
     let plan = sample();
     let good = plan.encode();

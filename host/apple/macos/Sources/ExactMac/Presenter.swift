@@ -66,6 +66,8 @@ final class NodeView: NSView, NSTextFieldDelegate {
     weak var presenter: Presenter?
     var field: NSTextField?
     var scroll: ChainingScrollView?
+    /// The platform view returned by the dlopened iframe arm (@ref LLP 1020 D3).
+    var web: NSView?
     /// A canvas node's Metal layer (LLP 1009).
     var metal: MetalView?
     /// A canvas's children live here (LLP 1014): laid out by the kernel in
@@ -239,6 +241,8 @@ final class NodeView: NSView, NSTextFieldDelegate {
         loadGeneration += 1
         imageSource = nil
         image = nil
+        webviews.destroy(id: id)
+        web = nil
         presenter = nil
     }
 
@@ -264,6 +268,12 @@ final class NodeView: NSView, NSTextFieldDelegate {
             let f = makeField(secure: false)
             addSubview(f)
             field = f
+        }
+        if kind == "webview", let w = webviews.create(owner: self) {
+            w.frame = bounds
+            w.autoresizingMask = [.width, .height]
+            addSubview(w)
+            web = w
         }
     }
     required init?(coder: NSCoder) { nil }
@@ -432,6 +442,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
         setAccessibilityLabel(props["accessibilityLabel"])
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { imageSource = nil; image = nil; presenter?.intrinsic(id, nil) }
+        if kind == "webview" { webviews.update(self) }
         needsDisplay = true
     }
 
@@ -565,6 +576,11 @@ final class NodeView: NSView, NSTextFieldDelegate {
             let spec = textSpec(text)
             if let ctx = NSGraphicsContext.current?.cgContext { Text.draw(Text.paragraph(spec, width: bounds.width), spec: spec, in: bounds, context: ctx) }
         }
+        if Capture.capturing, let picture = Capture.web[id] {
+            // Remote WebKit layers supply their own picture for this capture
+            // turn, at the node's normal hierarchy position (@ref LLP 1020 D4).
+            picture.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
     }
 
     /// The paragraph spec from this node's rows, with CSS's defaults for the
@@ -663,6 +679,8 @@ final class Presenter {
     var onBlur: ((UInt32) -> Void)?
     var onKey: ((UInt32, String) -> Void)?
     var onSubmit: ((UInt32) -> Void)?
+    var onLoad: ((UInt32) -> Void)?
+    var onMessage: ((UInt32, String) -> Void)?
     /// The node the pointer is over, of those with a hover handler: it hears
     /// the leave when the pointer moves onto another (the agent's `hover`).
     weak var hovered: NodeView?
@@ -695,6 +713,8 @@ final class Presenter {
     func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
     func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
+    func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
+    func message(_ id: UInt32, _ value: String) { send(id) { [self] in onMessage?(id, value) } }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
@@ -757,6 +777,7 @@ final class Presenter {
                 v.field?.frame = v.bounds
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
+                v.web?.frame = v.bounds
                 v.applyTransform()
             case "content":
                 views[id]?.scroll?.documentView?.frame = NSRect(x: 0, y: 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
@@ -796,6 +817,9 @@ final class Presenter {
 enum Capture {
     /// A capture is drawing: its draws are not repaints (D4 b).
     nonisolated(unsafe) static var capturing = false
+    /// Guest pictures for this turn; the remote platform views are hidden
+    /// while their owning nodes draw these (@ref LLP 1020 D4/D6).
+    nonisolated(unsafe) static var web: [UInt32: ExactWebImage] = [:]
 
     /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
     /// `pixelsWide * 4` bytes per row, transparent where nothing painted.

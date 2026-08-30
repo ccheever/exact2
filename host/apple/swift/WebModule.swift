@@ -1,0 +1,391 @@
+// The Apple iframe arm's opaque C ABI (@ref LLP 1020 D3/D4). This file is
+// shared by both presenters and deliberately imports no WebKit.
+import Foundation
+
+#if os(macOS)
+import AppKit
+typealias ExactWebPlatformView = NSView
+typealias ExactWebImage = NSImage
+#else
+import UIKit
+typealias ExactWebPlatformView = UIView
+typealias ExactWebImage = UIImage
+#endif
+
+private typealias WebEventFn = @convention(c) (
+    UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32
+) -> Void
+private typealias WebReplyFn = @convention(c) (
+    UnsafeMutableRawPointer?, UInt32, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32
+) -> Void
+
+private struct WebLoadError: Error { let message: String }
+private struct WebRequestError: Error { let message: String }
+
+private final class WebModule {
+    typealias CreateFn = @convention(c) (UInt32, UnsafeMutableRawPointer?, WebEventFn?, WebReplyFn?) -> UnsafeMutableRawPointer?
+    typealias PlatformViewFn = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
+    typealias SetFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32) -> Void
+    typealias SnapshotFn = @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void
+    typealias EvalFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
+    typealias DestroyFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
+
+    let library: UnsafeMutableRawPointer
+    let create: CreateFn
+    let platformView: PlatformViewFn
+    let setSrc: SetFn
+    let setSandbox: SetFn
+    let snapshot: SnapshotFn
+    let evaluate: EvalFn
+    let destroy: DestroyFn
+
+    static func load(path: String) -> Result<WebModule, WebLoadError> {
+        guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
+            return .failure(WebLoadError(message: "dlopen \(path): \(String(cString: dlerror()))"))
+        }
+        func symbol<T>(_ name: String, _: T.Type) -> T? {
+            dlsym(library, name).map { unsafeBitCast($0, to: T.self) }
+        }
+        guard let create = symbol("exact_web_create", CreateFn.self),
+              let platformView = symbol("exact_web_platform_view", PlatformViewFn.self),
+              let setSrc = symbol("exact_web_set_src", SetFn.self),
+              let setSandbox = symbol("exact_web_set_sandbox", SetFn.self),
+              let snapshot = symbol("exact_web_snapshot", SnapshotFn.self),
+              let evaluate = symbol("exact_web_agent_eval", EvalFn.self),
+              let destroy = symbol("exact_web_destroy", DestroyFn.self)
+        else {
+            dlclose(library)
+            return .failure(WebLoadError(message: "\(path) is not an exact web arm (missing exports)"))
+        }
+        return .success(WebModule(
+            library: library, create: create, platformView: platformView,
+            setSrc: setSrc, setSandbox: setSandbox, snapshot: snapshot,
+            evaluate: evaluate, destroy: destroy))
+    }
+
+    private init(
+        library: UnsafeMutableRawPointer, create: @escaping CreateFn,
+        platformView: @escaping PlatformViewFn, setSrc: @escaping SetFn,
+        setSandbox: @escaping SetFn, snapshot: @escaping SnapshotFn,
+        evaluate: @escaping EvalFn, destroy: @escaping DestroyFn
+    ) {
+        self.library = library
+        self.create = create
+        self.platformView = platformView
+        self.setSrc = setSrc
+        self.setSandbox = setSandbox
+        self.snapshot = snapshot
+        self.evaluate = evaluate
+        self.destroy = destroy
+    }
+}
+
+private final class WebCallbackBox {
+    weak var manager: WebViews?
+    let id: UInt32
+    init(manager: WebViews, id: UInt32) { self.manager = manager; self.id = id }
+}
+
+private final class WebEntry {
+    weak var owner: NodeView?
+    let callback: WebCallbackBox
+    var handle: UnsafeMutableRawPointer?
+    var platformView: ExactWebPlatformView?
+    var src: String?
+    var sandbox: String?
+    var initialized = false
+    var loading = true
+    var unavailable = false
+
+    init(owner: NodeView, callback: WebCallbackBox) {
+        self.owner = owner
+        self.callback = callback
+    }
+}
+
+private final class WebWait {
+    var data: Data?
+    var error: String?
+    var done = false
+}
+
+private let exactWebEventCallback: WebEventFn = { context, _, kind, bytes, length in
+    guard let context else { return }
+    let box = Unmanaged<WebCallbackBox>.fromOpaque(context).takeUnretainedValue()
+    let data = bytes.map { Data(bytes: $0, count: Int(length)) } ?? Data()
+    let deliver = { if let manager = box.manager { manager.receivedEvent(id: box.id, kind: kind, data: data) } }
+    if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
+}
+
+private let exactWebReplyCallback: WebReplyFn = { context, _, token, kind, bytes, length in
+    guard let context else { return }
+    let box = Unmanaged<WebCallbackBox>.fromOpaque(context).takeUnretainedValue()
+    let data = bytes.map { Data(bytes: $0, count: Int(length)) } ?? Data()
+    let deliver = { if let manager = box.manager { manager.receivedReply(token: token, kind: kind, data: data) } }
+    if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
+}
+
+final class WebViews {
+    private var module: WebModule?
+    private var attempted = false
+    private var entries: [UInt32: WebEntry] = [:]
+    private var waits: [UInt32: WebWait] = [:]
+    private var nextToken: UInt32 = 1
+    private(set) var failure: String?
+
+    var status: String {
+        if module != nil { return "module loaded; \(entries.count) webviews" }
+        return "not loaded: \(failure ?? (entries.isEmpty ? "no webviews" : "not requested"))"
+    }
+
+    static func modulePath() -> String {
+        #if os(macOS)
+        return Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("libexact_web.dylib").path
+        #else
+        return (Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath) + "/libexact_web.dylib"
+        #endif
+    }
+
+    private func loadIfNeeded() -> WebModule? {
+        if let module { return module }
+        guard !attempted else { return nil }
+        attempted = true
+        switch WebModule.load(path: WebViews.modulePath()) {
+        case .success(let loaded):
+            module = loaded
+            return loaded
+        case .failure(let error):
+            failure = error.message
+            FileHandle.standardError.write(Data("exact web: \(error.message)\n".utf8))
+            return nil
+        }
+    }
+
+    /// The sole dlopen gate: called only from a `webview` NodeView's create
+    /// commit, so an iframe-free first screen never touches WebKit (@ref LLP 1020 D3).
+    func create(owner: NodeView) -> ExactWebPlatformView? {
+        let callback = WebCallbackBox(manager: self, id: owner.id)
+        let entry = WebEntry(owner: owner, callback: callback)
+        entries[owner.id] = entry
+        guard let module = loadIfNeeded() else {
+            entry.loading = false
+            entry.unavailable = true
+            return nil
+        }
+        let context = Unmanaged.passUnretained(callback).toOpaque()
+        guard let handle = module.create(owner.id, context, exactWebEventCallback, exactWebReplyCallback) else {
+            entry.loading = false
+            entry.unavailable = true
+            failure = "libexact_web.dylib refused webview \(owner.id)"
+            FileHandle.standardError.write(Data("exact web: \(failure!)\n".utf8))
+            return nil
+        }
+        guard let rawView = module.platformView(handle) else {
+            module.destroy(handle)
+            entry.loading = false
+            entry.unavailable = true
+            failure = "libexact_web.dylib returned no platform view for \(owner.id)"
+            FileHandle.standardError.write(Data("exact web: \(failure!)\n".utf8))
+            return nil
+        }
+        let view = Unmanaged<ExactWebPlatformView>.fromOpaque(rawView).takeUnretainedValue()
+        entry.handle = handle
+        entry.platformView = view
+        return view
+    }
+
+    func update(_ owner: NodeView) {
+        guard let entry = entries[owner.id] else { return }
+        let src = owner.props["src"]
+        let sandbox = owner.props["sandbox"]
+        let changedSrc = !entry.initialized || entry.src != src
+        let changedSandbox = !entry.initialized || entry.sandbox != sandbox
+        entry.src = src
+        entry.sandbox = sandbox
+        entry.initialized = true
+        guard let module, let handle = entry.handle else { return }
+        if changedSrc || changedSandbox { entry.loading = true }
+        if changedSandbox { send(sandbox, to: handle, using: module.setSandbox) }
+        if changedSrc { send(src, to: handle, using: module.setSrc) }
+    }
+
+    private func send(_ value: String?, to handle: UnsafeMutableRawPointer, using setter: WebModule.SetFn) {
+        guard let value else { setter(handle, nil, 0, 0); return }
+        let data = Data(value.utf8)
+        data.withUnsafeBytes { bytes in
+            setter(handle, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count), 1)
+        }
+    }
+
+    func destroy(id: UInt32) {
+        guard let entry = entries.removeValue(forKey: id) else { return }
+        if let handle = entry.handle { module?.destroy(handle) }
+    }
+
+    func reset() {
+        for id in Array(entries.keys) { destroy(id: id) }
+    }
+
+    fileprivate func receivedEvent(id: UInt32, kind: UInt32, data: Data) {
+        guard let entry = entries[id], let owner = entry.owner else { return }
+        switch kind {
+        case 0:
+            if owner.handlers.contains("load") { DispatchQueue.main.async { [weak owner] in owner?.presenter?.load(id) } }
+        case 1:
+            if owner.handlers.contains("message") {
+                let text = String(decoding: data, as: UTF8.self)
+                DispatchQueue.main.async { [weak owner] in owner?.presenter?.message(id, text) }
+            }
+        case 2: entry.loading = false
+        case 3: entry.loading = true
+        default: break
+        }
+    }
+
+    fileprivate func receivedReply(token: UInt32, kind: UInt32, data: Data) {
+        guard let wait = waits[token] else { return }
+        if kind == 2 { wait.error = String(decoding: data, as: UTF8.self) }
+        else { wait.data = data }
+        wait.done = true
+    }
+
+    private func request(_ entry: WebEntry, script: String? = nil) -> Result<Data, WebRequestError> {
+        guard let module, let handle = entry.handle else { return .failure(WebRequestError(message: failure ?? "web arm unavailable")) }
+        let token = nextToken
+        nextToken &+= 1
+        let wait = WebWait()
+        waits[token] = wait
+        if let script {
+            let data = Data(script.utf8)
+            data.withUnsafeBytes { bytes in
+                module.evaluate(handle, token, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count))
+            }
+        } else {
+            module.snapshot(handle, token)
+        }
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while !wait.done && Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        waits.removeValue(forKey: token)
+        if let error = wait.error { return .failure(WebRequestError(message: error)) }
+        guard wait.done, let data = wait.data else { return .failure(WebRequestError(message: "web arm reply timed out")) }
+        return .success(data)
+    }
+
+    func tree() -> [String: Any] {
+        guard let data = Exact.agent("{\"op\":\"tree\"}").data(using: .utf8),
+              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var nodes = root["nodes"] as? [[String: Any]]
+        else { return ["error": "unreadable tree"] }
+        for index in nodes.indices {
+            guard let id = (nodes[index]["id"] as? NSNumber)?.uint32Value,
+                  let entry = entries[id]
+            else { continue }
+            nodes[index]["url"] = entry.src ?? ""
+            nodes[index]["loading"] = entry.loading
+            if entry.unavailable { nodes[index]["unavailable"] = true }
+            guard !entry.loading,
+                  case .success(let outline) = request(entry, script: WebViews.outlineScript),
+                  let guest = try? JSONSerialization.jsonObject(with: outline) as? [[String: Any]]
+            else { continue }
+            nodes[index]["guest"] = guest
+        }
+        root["nodes"] = nodes
+        return root
+    }
+
+    func tap(_ owner: NodeView, request values: [String: Any], at: [Double]) -> [String: Any] {
+        guard let entry = entries[owner.id] else { return ["error": "webview \(owner.id) is unavailable"] }
+        let selector = javascriptString(values["selector"] as? String)
+        let x = (values["x"] as? Double).map { String($0) } ?? "innerWidth / 2"
+        let y = (values["y"] as? Double).map { String($0) } ?? "innerHeight / 2"
+        let script = """
+        (() => {
+          const x = \(x), y = \(y);
+          const selector = \(selector);
+          const target = (selector ? document.querySelector(selector) : null) || document.elementFromPoint(x, y) || document.body;
+          if (!target) return JSON.stringify({ok:false});
+          // Script input is intentionally untrusted (@ref LLP 1020 D4;
+          // exact1 20260806-webview-frame-guest-click-delivery).
+          target.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, composed:true, clientX:x, clientY:y, button:0, buttons:1}));
+          target.dispatchEvent(new PointerEvent('pointerup', {bubbles:true, composed:true, clientX:x, clientY:y, button:0, buttons:0}));
+          target.dispatchEvent(new MouseEvent('click', {bubbles:true, composed:true, clientX:x, clientY:y, button:0}));
+          return JSON.stringify({ok:true});
+        })()
+        """
+        guard case .success = request(entry, script: script) else { return ["error": "guest tap failed"] }
+        return ["tapped": Int(owner.id), "guest": true, "at": at]
+    }
+
+    func type(_ owner: NodeView, request values: [String: Any]) -> [String: Any] {
+        guard let entry = entries[owner.id] else { return ["error": "webview \(owner.id) is unavailable"] }
+        let selector = javascriptString(values["selector"] as? String)
+        let key = values["key"] as? String
+        let text = values["text"] as? String ?? ""
+        let action: String
+        if let key {
+            action = "target.dispatchEvent(new KeyboardEvent('keydown', {key:\(javascriptString(key)), bubbles:true, composed:true})); target.dispatchEvent(new KeyboardEvent('keyup', {key:\(javascriptString(key)), bubbles:true, composed:true}));"
+        } else {
+            action = "target.focus(); if ('value' in target) target.value = \(javascriptString(text)); else target.textContent = \(javascriptString(text)); target.dispatchEvent(new InputEvent('input', {data:\(javascriptString(text)), inputType:'insertText', bubbles:true, composed:true})); target.dispatchEvent(new Event('change', {bubbles:true, composed:true}));"
+        }
+        let script = """
+        (() => {
+          const selector = \(selector);
+          const active = document.activeElement;
+          const editable = active && active.matches?.('input,textarea,[contenteditable]') ? active : null;
+          const target = (selector ? document.querySelector(selector) : null) || editable || document.querySelector('input,textarea,[contenteditable]');
+          if (!target) return JSON.stringify({ok:false});
+          // Script input is intentionally isTrusted:false (@ref LLP 1020 D4).
+          \(action)
+          return JSON.stringify({ok:true, value:'value' in target ? target.value : target.textContent});
+        })()
+        """
+        guard case .success(let data) = request(entry, script: script) else { return ["error": "guest type failed"] }
+        var result: [String: Any] = ["typed": Int(owner.id), "guest": true]
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let value = object["value"] { result["value"] = value }
+        if let key { result["key"] = key }
+        return result
+    }
+
+    func snapshots() -> [UInt32: ExactWebImage] {
+        var out: [UInt32: ExactWebImage] = [:]
+        for (id, entry) in entries.sorted(by: { $0.key < $1.key }) {
+            guard entry.owner?.window != nil, case .success(let data) = request(entry) else { continue }
+            #if os(macOS)
+            if let image = NSImage(data: data) { out[id] = image }
+            #else
+            if let image = UIImage(data: data) { out[id] = image }
+            #endif
+        }
+        return out
+    }
+
+    private static let outlineScript = """
+    (() => {
+      const out = [];
+      const visit = (el, depth) => {
+        if (depth > 4 || out.length >= 32) return;
+        const id = el.id || undefined;
+        const testId = el.getAttribute('data-testid') || el.getAttribute('testId') || undefined;
+        const text = Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).filter(Boolean).join(' ').replace(/\\s+/g, ' ').slice(0, 160) || undefined;
+        if (id || testId || text) out.push({guest:true, depth, tag:el.localName, ...(id ? {id} : {}), ...(testId ? {testId} : {}), ...(text ? {text} : {})});
+        for (const child of el.children) visit(child, depth + 1);
+      };
+      for (const child of document.body?.children || []) visit(child, 0);
+      return JSON.stringify(out);
+    })()
+    """
+
+    private func javascriptString(_ value: String?) -> String {
+        guard let value,
+              let data = try? JSONSerialization.data(withJSONObject: [value]),
+              var text = String(data: data, encoding: .utf8)
+        else { return "null" }
+        text.removeFirst()
+        text.removeLast()
+        return text
+    }
+}
+
+let webviews = WebViews()

@@ -7,6 +7,9 @@
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
 const animations = new Map(); // "view/property" -> Animation (a spring in flight)
+const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
+const messageFrames = new Set(); // iframes whose node handles `message`
+let messageListening = false;
 let wasm = null;
 let memory = null;
 const encoder = new TextEncoder();
@@ -36,6 +39,7 @@ function writeIn(text) {
 
 function applyProps(el, set, clear) {
   for (const name of clear || []) {
+    if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
     if (name === "text") el.textContent = "";
     else if (name === "value") el.value = "";
     else if (name === "checked") el.checked = false;
@@ -51,10 +55,34 @@ function applyProps(el, set, clear) {
     } else if (name === "disabled") {
       if (value === "true") el.setAttribute("disabled", ""); else el.removeAttribute("disabled");
     } else {
+      if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
       el.setAttribute(name, value);
     }
   }
   if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
+}
+
+// @ref LLP 1020 D2 — one page listener routes a guest by source identity.
+// Strings cross unchanged; every other structured-clone value narrows to
+// JSON, and a value JSON cannot represent is not an event.
+function ensureMessageListener() {
+  if (messageListening) return;
+  messageListening = true;
+  window.addEventListener("message", (event) => {
+    for (const el of messageFrames) {
+      if (event.source !== el.contentWindow) continue;
+      let payload = event.data;
+      if (typeof payload !== "string") {
+        try { payload = JSON.stringify(payload); } catch { return; }
+      }
+      if (typeof payload !== "string") return;
+      const id = Number(el.dataset.view);
+      if (views.get(id) !== el) return;
+      const n = writeIn(payload);
+      send(wasm.exact_dispatch(id, 9, n, now()));
+      return;
+    }
+  });
 }
 
 // The viewport meta follows the first root's `viewport-fit` and
@@ -96,6 +124,19 @@ function environment() {
 
 function attach(el, id, handlers) {
   el.dataset.view = String(id);
+  if (el instanceof HTMLIFrameElement) {
+    if (!iframeLoading.has(el)) iframeLoading.set(el, true);
+    const dispatchLoad = handlers.includes("load");
+    el.addEventListener("load", () => {
+      if (views.get(id) !== el) return;
+      iframeLoading.set(el, false);
+      if (dispatchLoad) send(wasm.exact_dispatch(id, 8, 0, now()));
+    });
+    if (handlers.includes("message")) {
+      messageFrames.add(el);
+      ensureMessageListener();
+    }
+  }
   // A node with focus, blur, or key handlers can take the focus (an input
   // or a button does by itself): the web's rule that only a focusable
   // element hears these.
@@ -223,7 +264,7 @@ function apply(batch) {
         else console.warn(`exact: unknown command ${op.name}`);
         break;
       }
-      case "destroy": { const el = views.get(op.id); if (el) el.remove(); views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
+      case "destroy": { const el = views.get(op.id); if (el) { messageFrames.delete(el); el.remove(); } views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
       case "roots": {
         root.replaceChildren(...op.ids.map((i) => views.get(i)).filter(Boolean));
         syncViewportFit();
@@ -343,6 +384,46 @@ function ask(request) {
   const n = writeIn(JSON.stringify(request));
   return JSON.parse(readOut(wasm.exact_agent(n)));
 }
+
+// A same-origin guest joins `tree` as a compact, bounded outline. Access to
+// a sandboxed or cross-origin document is simply absent (@ref LLP 1020 D4).
+function guestOutline(frame) {
+  let doc;
+  try { doc = frame.contentDocument; } catch { return null; }
+  if (!doc) return null;
+  const outline = [];
+  const visit = (el, depth) => {
+    if (depth > 4 || outline.length >= 32) return;
+    const id = el.id || undefined;
+    const testId = el.getAttribute("data-testid") ?? el.getAttribute("testId") ?? undefined;
+    const text = [...el.childNodes]
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => n.textContent.trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .slice(0, 160) || undefined;
+    if (id || testId || text) {
+      outline.push({ guest: true, depth, tag: el.localName, ...(id ? { id } : {}), ...(testId ? { testId } : {}), ...(text ? { text } : {}) });
+    }
+    for (const child of el.children) visit(child, depth + 1);
+  };
+  for (const child of doc.body?.children ?? []) visit(child, 0);
+  return outline;
+}
+
+function tree() {
+  const reply = ask({ op: "tree" });
+  for (const node of reply.nodes ?? []) {
+    const el = views.get(node.id);
+    if (!(el instanceof HTMLIFrameElement)) continue;
+    node.url = el.getAttribute("src") ?? "";
+    node.loading = iframeLoading.get(el) !== false;
+    const guest = guestOutline(el);
+    if (guest !== null) node.guest = guest;
+  }
+  return reply;
+}
 function register(t) {
   for (const a of document.getAnimations()) if (!starts.has(a)) starts.set(a, t);
 }
@@ -396,6 +477,8 @@ function agent(request) {
       }
       case "clock":
         return clock(request);
+      case "tree":
+        return tree();
       default:
         return ask(request);
     }
@@ -440,6 +523,7 @@ async function boot(bytes) {
   animations.clear();
   globalThis.exact?.gpu?.reset();
   views.clear();
+  messageFrames.clear();
   grants = [];
   inflight.clear();
   root.replaceChildren();

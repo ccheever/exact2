@@ -88,6 +88,7 @@ extension Agent {
             (win.contentView?.hitTest(p) ?? v).scrollWheel(with: e)
             return ["tapped": Int(v.id), "wheel": wheel, "at": at]
         }
+        if v.kind == "webview" { return webviews.tap(v, request: req, at: at) }
         let t = ProcessInfo.processInfo.systemUptime
         guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
               let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)
@@ -101,6 +102,7 @@ extension Agent {
     /// the text inserted — the delegate hears one change with the new value.
     static func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        if v.kind == "webview" { return webviews.type(v, request: req) }
         if let key = req["key"] as? String {
             // A key down at the target through the window — the field
             // editor's commands, or a focused node's keyDown — by the web's
@@ -164,11 +166,16 @@ extension Agent {
         }
         let v = presenter.viewport
         guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return ["error": "no bitmap for the viewport"] }
+        Capture.web = webviews.snapshots()
+        let hidden = presenter.views.values.compactMap(\.web).map { ($0, $0.isHidden) }
+        hidden.forEach { $0.0.isHidden = true }
         // As a capture: every canvas paints its picture, read back from the
-        // module, where `cacheDisplay` would leave a Metal layer blank.
+        // module, and every iframe paints its arm snapshot at its node.
         Capture.capturing = true
         v.cacheDisplay(in: v.bounds, to: rep)
         Capture.capturing = false
+        hidden.forEach { $0.0.isHidden = $0.1 }
+        Capture.web = [:]
         guard let png = rep.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         return ["screenshot": path, "w": r2(v.bounds.width), "h": r2(v.bounds.height)]

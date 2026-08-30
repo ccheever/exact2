@@ -189,6 +189,33 @@ fn later_batches_carry_only_what_changed_and_frames_follow() {
     assert!(count(&wider, "frame") > 1, "children reflow");
 }
 
+#[test]
+fn an_iframe_batch_and_its_events_match_the_web_arm() {
+    let (mut host, _) = boot();
+    let open = view(&host, "open-deck");
+    let batch = host.dispatch_at(open, Event::Press, 0.0);
+    let iframe = view(&host, "deck-frame");
+    assert!(
+        batch.contains(&format!(
+            "\"op\":\"create\",\"id\":{iframe},\"kind\":\"webview\""
+        )),
+        "{batch}"
+    );
+    assert!(batch.contains("\"sandbox\":\"allow-scripts allow-same-origin\""));
+    assert!(batch.contains("\"src\":\"/deck/index.html\""));
+    assert!(
+        batch.contains("\"handlers\":[\"load\",\"message\"]"),
+        "{batch}"
+    );
+    host.dispatch_at(iframe, Event::Load, 0.0);
+    host.dispatch_at(iframe, Event::Message("deck-ready".into()), 0.0);
+    assert_eq!(host.runner().slot("deckLoaded"), Some(&Value::Bool(true)));
+    assert_eq!(
+        host.runner().slot("deckMessage"),
+        Some(&Value::str("deck-ready"))
+    );
+}
+
 struct NoData;
 impl DataSource for NoData {
     fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {

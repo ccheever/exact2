@@ -261,7 +261,8 @@ async function openStdio({ host, plan, size, app, env: extra = {} }) {
       host, boot: ready.boot, hostLines, gpuMs: () => null,
       ask,
       async input(id, kind, opts) {
-        const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key }) : await ask({ op: 'type', id, text: opts.text });
+        const guest = { selector: opts.selector, x: opts.x, y: opts.y };
+        const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -324,7 +325,8 @@ async function openIOS({ plan, app, env: extra = {} }) {
       host: 'ios', boot: ready.boot, hostLines, gpuMs: () => null,
       ask: lines.ask,
       async input(id, kind, opts) {
-        const r = kind === 'wheel' ? await lines.ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'hover' ? await lines.ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await lines.ask({ op: 'tap', id }) : kind === 'key' ? await lines.ask({ op: 'type', id, key: opts.key }) : await lines.ask({ op: 'type', id, text: opts.text });
+        const guest = { selector: opts.selector, x: opts.x, y: opts.y };
+        const r = kind === 'wheel' ? await lines.ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'hover' ? await lines.ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await lines.ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await lines.ask({ op: 'type', id, key: opts.key, ...guest }) : await lines.ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -359,7 +361,7 @@ export async function open({ host, plan, size, env, app } = {}) {
       if (r.error) throw new Error(`${req.op}: ${r.error}`);
       return r;
     },
-    /** Every live node in preorder: id, parent, depth, type, props by name, handlers, children; plus epoch, incarnation, clock. */
+    /** Every live node in preorder; an iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */
     tree: () => s.op({ op: 'tree' }),
     /** Every slot, derive, and resource by name, as typed JSON. */
     state: () => s.op({ op: 'state' }),
@@ -384,17 +386,18 @@ export async function open({ host, plan, size, env, app } = {}) {
       if (!node) throw new Error(`no view matches ${target}`);
       return node;
     },
-    /** A press on the target through the host's input path; with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over). */
+    /** A press on the target through the host's input path (an iframe target accepts guest `selector` or `x`/`y`); with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over). */
     async tap(target, opts = {}) {
       const node = await s.find(target);
       const r = await carrier.input(node.id, opts.wheel ? 'wheel' : opts.hover ? 'hover' : 'press', opts);
       return { ...r, tapped: node.id, target };
     },
-    /** Set an input's text through the host's text input path (the value replaced, one change event); with `{ key: 'Enter' }` instead of text, a key pressed at the target, by the web's key names. */
+    /** Set an input's text through the host's text input path; an iframe accepts `{text, selector}` or `{key, selector}` for its guest. */
     async type(target, text) {
       const node = await s.find(target);
-      const key = typeof text === 'object' && text !== null ? text.key : undefined;
-      const r = key != null ? await carrier.input(node.id, 'key', { key: String(key) }) : await carrier.input(node.id, 'type', { text: String(text) });
+      const options = typeof text === 'object' && text !== null ? text : { text };
+      const key = options.key;
+      const r = key != null ? await carrier.input(node.id, 'key', { ...options, key: String(key) }) : await carrier.input(node.id, 'type', { ...options, text: String(options.text ?? '') });
       return { ...r, typed: node.id, target };
     },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
@@ -426,6 +429,7 @@ export async function open({ host, plan, size, env, app } = {}) {
  *
  *   tree    epoch E · incarnation I · clock C ms · N nodes
  *           {"  " × depth}{Type}#{id} [{testId}] "{text}" value="…" label="…" ({handlers, comma-separated})
+ *           an iframe adds url="…" loading=true|false and `[guest]` outline lines
  *   layout  viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] · clock C ms
  *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy}
  *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
@@ -436,11 +440,15 @@ export async function open({ host, plan, size, env, app } = {}) {
 export function render(op, r) {
   const q = JSON.stringify;
   switch (op) {
-    case 'tree':
-      return [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · ${r.nodes.length} nodes`].concat(r.nodes.map((n) => {
+    case 'tree': {
+      const lines = [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · ${r.nodes.length} nodes`];
+      for (const n of r.nodes) {
         const p = n.props ?? {};
-        return `${'  '.repeat(n.depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}`;
-      })).join('\n');
+        lines.push(`${'  '.repeat(n.depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
+        for (const g of n.guest ?? []) lines.push(`${'  '.repeat(n.depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
+      }
+      return lines.join('\n');
+    }
     case 'layout': {
       const e = r.env;
       const env = e && Object.values(e).some((v) => v) ? ` · safe-area ${e['safe-area-inset-top']} ${e['safe-area-inset-right']} ${e['safe-area-inset-bottom']} ${e['safe-area-inset-left']} · keyboard ${e['keyboard-inset-height']}` : '';

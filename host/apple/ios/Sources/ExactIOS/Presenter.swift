@@ -67,6 +67,8 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     weak var presenter: Presenter?
     var field: UITextField?
     var scroll: ScrollView?
+    /// The platform view returned by the dlopened iframe arm (@ref LLP 1020 D3).
+    var web: UIView?
     /// A scroll container's content extent (the `content` op), before the
     /// axes that do not scroll are held to the box.
     var content = CGSize.zero
@@ -218,6 +220,8 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         loadGeneration += 1
         imageSource = nil
         image = nil
+        webviews.destroy(id: id)
+        web = nil
         presenter = nil
     }
 
@@ -249,6 +253,12 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             f.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             addSubview(f)
             field = f
+        }
+        if kind == "webview", let w = webviews.create(owner: self) {
+            w.frame = bounds
+            w.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            addSubview(w)
+            web = w
         }
     }
     required init?(coder: NSCoder) { nil }
@@ -406,6 +416,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         accessibilityLabel = props["accessibilityLabel"]
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { imageSource = nil; image = nil; presenter?.intrinsic(id, nil) }
+        if kind == "webview" { webviews.update(self) }
         setNeedsDisplay()
     }
 
@@ -536,6 +547,11 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             // The same paragraph the kernel measured at this width, painted.
             let spec = textSpec(text)
             Text.draw(Text.paragraph(spec, width: bounds.width), spec: spec, in: bounds, context: ctx)
+        }
+        if Capture.capturing, let picture = Capture.web[id] {
+            // Remote WebKit layers supply their own picture for this capture
+            // turn, at the node's normal hierarchy position (@ref LLP 1020 D4).
+            picture.draw(in: bounds)
         }
     }
 
@@ -788,6 +804,8 @@ final class Presenter {
     var onBlur: ((UInt32) -> Void)?
     var onKey: ((UInt32, String) -> Void)?
     var onSubmit: ((UInt32) -> Void)?
+    var onLoad: ((UInt32) -> Void)?
+    var onMessage: ((UInt32, String) -> Void)?
     /// The node the pointer is over, of those with a hover handler: it hears
     /// the leave when the pointer moves onto another (the agent's `hover`).
     weak var hovered: NodeView?
@@ -820,6 +838,8 @@ final class Presenter {
     func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
     func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
+    func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
+    func message(_ id: UInt32, _ value: String) { send(id) { [self] in onMessage?(id, value) } }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
@@ -882,6 +902,7 @@ final class Presenter {
                 v.field?.frame = v.bounds
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
+                v.web?.frame = v.bounds
                 v.fitScroll()
                 v.applyTransform()
             case "content":
@@ -952,6 +973,9 @@ struct Bitmap {
 enum Capture {
     /// A capture is drawing: its draws are not repaints (D4 b).
     nonisolated(unsafe) static var capturing = false
+    /// Guest pictures for this turn; the remote platform views are hidden
+    /// while their owning nodes draw these (@ref LLP 1020 D4/D6).
+    nonisolated(unsafe) static var web: [UInt32: ExactWebImage] = [:]
     /// EXACT_CAPTURE=cpu: the Core Graphics capture even where Metal is
     /// present — the measure's baseline, and the fixture's oracle.
     static let cpu = ProcessInfo.processInfo.environment["EXACT_CAPTURE"] == "cpu"

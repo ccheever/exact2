@@ -1,8 +1,8 @@
 //! The corpus (LLP 1004 D6): every accept fixture compiles byte-identically,
 //! round-trips, and runs; every reject fixture is refused with exactly its id.
 
-use exact_kernel::{Kernel, PropId};
-use exact_plan::{Plan, Value};
+use exact_kernel::{Dimension, Kernel, NodeType, PropId};
+use exact_plan::{EventKind, Plan, Value};
 use exact_runner::{DataError, DataSource, Event, Runner};
 use std::path::Path;
 
@@ -158,4 +158,26 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
 
     r.act("setDark", vec![Value::str("dark")]).unwrap();
     assert_eq!(r.take_commands()[0].name, "setScheme");
+}
+
+#[test]
+fn the_iframe_fixture_lowers_and_records_its_events() {
+    let src = corpus("iframe.contract");
+    let plan = contract::compile(&src).unwrap();
+    assert_eq!(contract::compile(&src).unwrap().encode(), plan.encode());
+    let plan = Plan::decode(&plan.encode()).unwrap();
+    let mut r = Runner::boot(plan, Schedule, Kernel::with_monospace()).unwrap();
+    let key = r.kernel().find_by_test_id("deck")[0];
+    let node = r.kernel().node_by_key(key).unwrap();
+    assert_eq!(node.node_type, NodeType::WebView);
+    assert_eq!(node.props.str(PropId::Src), Some("/deck/index.html"));
+    assert_eq!(node.props.str(PropId::Sandbox), Some("allow-scripts"));
+    assert_eq!(node.style.width, Dimension::Points(300.0));
+    assert_eq!(node.style.height, Dimension::Points(150.0));
+    let id = node.id;
+    assert_eq!(r.handlers_of(id), vec![EventKind::Load, EventKind::Message]);
+    r.dispatch(id, Event::Load).unwrap();
+    r.dispatch(id, Event::Message("deck-ready".into())).unwrap();
+    assert_eq!(r.slot("loaded"), Some(&Value::Bool(true)));
+    assert_eq!(r.slot("received"), Some(&Value::str("deck-ready")));
 }

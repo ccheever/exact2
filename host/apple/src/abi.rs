@@ -225,9 +225,9 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Dispatch an event at `now_ms`; `kind` is 0 = press, 1 = change,
-    /// 2 = hover in, 3 = hover out, 4 = focus, 5 = blur, 6 = key (the payload
-    /// — a change's text, a key's name — is the input buffer's first `len`
-    /// bytes, UTF-8).
+    /// 2 = hover in, 3 = hover out, 4 = focus, 5 = blur, 6 = key, 7 = submit,
+    /// 8 = load, 9 = message (the payload — a change's text, a key's name,
+    /// or a guest message — is the input buffer's first `len` bytes, UTF-8).
     pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -239,6 +239,8 @@ impl<D: DataSource> Bridge<D> {
             5 => Event::Blur,
             6 => Event::Key(payload),
             7 => Event::Submit,
+            8 => Event::Load,
+            9 => Event::Message(payload),
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {

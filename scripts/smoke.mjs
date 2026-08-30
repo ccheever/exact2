@@ -72,6 +72,58 @@ try {
   for (let i = 0; i < 40 && !(logo && Math.round(logo.h) === 36); i++) { await sleep(50); logo = box(await s.layout(), 'logo'); }
   check(logo && Math.round(logo.w) === 96 && Math.round(logo.h) === 36, `the logo is ${logo?.w}×${logo?.h}, not 96×36 from its 320×120 ratio`);
 
+  // 2a. The iframe parity oracle and Apple arm (@ref LLP 1020 M1/M2): load
+  // and message enter the runner, the guest joins tree/input, and the
+  // screenshot carries its pixels. Loading is host I/O, so poll it.
+  if (host === 'web' || apple) {
+    await s.tap('open-deck');
+    await s.clock('settle');
+    let frameNode, deckState;
+    for (let i = 0; i < 40; i++) {
+      tree = await s.tree();
+      deckState = await s.state();
+      frameNode = byTestId(tree, 'deck-frame');
+      if (frameNode?.loading === false && deckState.slots.deckLoaded === true && deckState.slots.deckMessage === 'deck-ready') break;
+      await sleep(50);
+    }
+    check(frameNode?.type === 'WebView' && frameNode.url === '/deck/index.html', `the iframe tree node is ${JSON.stringify(frameNode)}`);
+    check(frameNode?.loading === false, `the iframe is still loading: ${JSON.stringify(frameNode)}`);
+    check(deckState?.slots.deckLoaded === true, `load did not record its flag: ${JSON.stringify(deckState?.slots)}`);
+    check(deckState?.slots.deckMessage === 'deck-ready', `message recorded ${JSON.stringify(deckState?.slots.deckMessage)}, not "deck-ready"`);
+    // The same-origin guest joins `tree` as an outline (LLP 1020 D4).
+    const guest = frameNode?.guest ?? [];
+    check(guest.some((g) => g.testId === 'deck-guest') && guest.some((g) => g.id === 'deck-title'),
+      `the guest outline is ${JSON.stringify(guest)}`);
+    const deckTmp = mkdtempSync(resolve(tmpdir(), 'exact-deck-'));
+    try {
+      const deckShot = resolve(deckTmp, 'deck.png');
+      await s.screenshot(deckShot);
+      check(existsSync(deckShot) && readFileSync(deckShot).length > 0, 'the iframe screenshot was not written');
+      const image = decodePng(readFileSync(deckShot));
+      const deckLayout = await s.layout();
+      const frameBox = box(deckLayout, 'deck-frame');
+      const scale = image.width / deckLayout.viewport.w;
+      const region = crop(image, Math.round(frameBox.x * scale), Math.round(frameBox.y * scale), Math.round(frameBox.w * scale), Math.round(frameBox.h * scale));
+      let cyan = 0;
+      for (let i = 0; i < region.data.length; i += 4) if (region.data[i] < 190 && region.data[i + 1] > 150 && region.data[i + 2] > 190) cyan++;
+      check(cyan > 5, `the iframe screenshot has ${cyan} guest-blue pixels in ${region.width}×${region.height}`);
+    } finally {
+      rmSync(deckTmp, { recursive: true, force: true });
+    }
+    // A tap addressed to the iframe enters its guest in-process. Native
+    // delivery is script-dispatched and therefore isTrusted:false (D4).
+    await s.tap('deck-frame');
+    for (let i = 0; i < 20; i++) {
+      deckState = await s.state();
+      if (deckState.slots.deckMessage === 'deck-tapped') break;
+      await sleep(25);
+    }
+    check(deckState.slots.deckMessage === 'deck-tapped', `guest tap recorded ${JSON.stringify(deckState.slots.deckMessage)}, not "deck-tapped"`);
+    await s.tap('deck-back');
+    tree = await s.tree();
+    check(byTestId(tree, 'home-screen'), 'leaving the iframe did not return home');
+  }
+
   // 3. The clock: a minute later every countdown still shown is one less —
   // sixty timer fires from one seek, and nothing waited.
   const before = new Map(countdowns.map((n) => [n.props.testId, Number(n.props.text)]));

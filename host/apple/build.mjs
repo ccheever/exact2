@@ -180,6 +180,9 @@ function main(args) {
   // sit side by side in the shared build directory with the presenter
   // loading whichever one it was compiled to name.
   const loadName = 'libexact_gpu.dylib';
+  const webLoadName = 'libexact_web.dylib';
+  const webBuildDir = mkdtempSync(resolve(tmpdir(), 'exact-webarm-'));
+  const webBuilt = resolve(webBuildDir, webLoadName);
   const t0 = Date.now();
   const target = device ? 'aarch64-apple-ios' : iosTarget;
   const targetArgs = ios ? ['--target', target] : [];
@@ -202,6 +205,17 @@ function main(args) {
     swiftArgs.push('--triple', device ? 'arm64-apple-ios17.0' : iosTriple, '--sdk', sdk);
   }
   run('swift', swiftArgs, { cwd: pkg, env });
+  // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.
+  // It is built beside the presenter but never linked into it; WebModule.swift
+  // dlopens this file at the first webview create commit.
+  const webArgs = ['swiftc', '-module-cache-path', resolve(webBuildDir, 'module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), '-o', webBuilt, '-framework', 'WebKit'];
+  if (ios) {
+    const sdk = read('xcrun', ['--sdk', device ? 'iphoneos' : 'iphonesimulator', '--show-sdk-path']).stdout.trim();
+    webArgs.push('-target', device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk);
+  } else {
+    webArgs.push('-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`);
+  }
+  run('xcrun', webArgs);
   const t2 = Date.now();
   const bin = resolve(pkg, '.build/release', product);
 
@@ -215,13 +229,18 @@ function main(args) {
       rmSync(dest, { force: true });
       copyFileSync(resolve(libDir, dylib), dest);
     }
+    const webDest = resolve(pkg, '.build/release', webLoadName);
+    rmSync(webDest, { force: true });
+    copyFileSync(webBuilt, webDest);
     // The app's kept secrets live in the login keychain, whose ACL trusts the
     // creating app by its code signature (LLP 1018 D7): signed with the team's
     // identity a rebuild keeps them; ad-hoc, every rebuild is a new app and
     // the keychain asks again — before the first frame.
     const sha1 = macIdentity();
+    run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bin], { stdio: 'ignore' });
-    console.log(`host/apple: ${bin.replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}`);
+    rmSync(webBuildDir, { recursive: true, force: true });
+    console.log(`host/apple: ${bin.replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${webLoadName}`);
     // --run: the app, with the dev loop's plan watched when host/web/dev.mjs is
     // running (it writes host/web/dist/app.plan on every save).
     if (args.includes('--run')) spawnSync(bin, [], { stdio: 'inherit', env: { ...env, EXACT_DEV_PLAN: resolve(root, 'host/web/dist/app.plan'), EXACT_ASSETS: app.dir } });
@@ -238,7 +257,9 @@ function main(args) {
   copyFileSync(bin, resolve(bundle, product));
   writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(crate, device));
   if (existsSync(resolve(app.dir, 'assets'))) cpSync(resolve(app.dir, 'assets'), resolve(bundle, 'assets'), { recursive: true });
+  if (existsSync(resolve(app.dir, 'deck'))) cpSync(resolve(app.dir, 'deck'), resolve(bundle, 'deck'), { recursive: true });
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
+  copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
   if (device) {
     let ph, prof, sha1;
     try {
@@ -250,8 +271,10 @@ function main(args) {
     const ent = resolve(root, 'host/apple/ios/.build/entitlements.plist');
     writeFileSync(ent, entitlements(prof.team, bundleId(crate)));
     if (hasGpu) run('codesign', ['--force', '--sign', sha1, '--timestamp=none', resolve(bundle, 'Frameworks', loadName)], { stdio: 'ignore' });
+    run('codesign', ['--force', '--sign', sha1, '--timestamp=none', resolve(bundle, 'Frameworks', webLoadName)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', sha1, '--timestamp=none', '--entitlements', ent, bundle], { stdio: 'ignore' });
-    console.log(`host/apple: ${bundle.replace(root + '/', '')} for ${ph.name} (${ph.model}, iOS ${ph.os}) — signed as ${prof.name} (${prof.team}) (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s); GPU: ${gpuNote}`);
+    rmSync(webBuildDir, { recursive: true, force: true });
+    console.log(`host/apple: ${bundle.replace(root + '/', '')} for ${ph.name} (${ph.model}, iOS ${ph.os}) — signed as ${prof.name} (${prof.team}) (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s); GPU: ${gpuNote}; web arm: ${webLoadName}`);
     if (!ph.reachable) { console.error(`${ph.name} is not connected: plug it in (or have it on this network), unlock it, and trust this Mac; then run this again`); process.exit(1); }
     const i = read('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, bundle]);
     if (i.status !== 0) { console.error(i.stderr || i.stdout); process.exit(i.status ?? 1); }
@@ -264,11 +287,13 @@ function main(args) {
     return;
   }
   if (hasGpu) run('codesign', ['--force', '--sign', '-', resolve(appBundle, 'Frameworks', loadName)], { stdio: 'ignore' });
+  run('codesign', ['--force', '--sign', '-', resolve(appBundle, 'Frameworks', webLoadName)], { stdio: 'ignore' });
   run('codesign', ['--force', '--sign', '-', appBundle], { stdio: 'ignore' });
+  rmSync(webBuildDir, { recursive: true, force: true });
   const dev = simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined);
   install(dev);
   const t3 = Date.now();
-  console.log(`host/apple: ${appBundle.replace(root + '/', '')} on ${dev.name} (${dev.runtime.replace(/.*SimRuntime\./, '')}, ${dev.udid}) (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s, install ${((t3 - t2) / 1000).toFixed(1)} s); GPU: ${gpuNote}`);
+  console.log(`host/apple: ${appBundle.replace(root + '/', '')} on ${dev.name} (${dev.runtime.replace(/.*SimRuntime\./, '')}, ${dev.udid}) (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s, install ${((t3 - t2) / 1000).toFixed(1)} s); GPU: ${gpuNote}; web arm: ${webLoadName}`);
   if (args.includes('--run')) {
     // Simulator.app showing this device, then the app — with the dev loop's
     // plan watched when host/web/dev.mjs is running. simctl passes the

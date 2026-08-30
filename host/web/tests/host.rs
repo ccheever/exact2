@@ -339,3 +339,25 @@ fn declared_font_identity_reaches_the_readiness_barrier_and_css() {
         catalog
     );
 }
+
+#[test]
+fn an_iframe_is_the_element_with_html_props_and_handlers() {
+    let (mut host, _) = boot();
+    let open = view_with_test_id(&host, "open-deck");
+    let batch = host.dispatch(open, Event::Press);
+    let deck = view_with_test_id(&host, "deck-frame");
+    let at = batch
+        .find(&format!("\"id\":{deck},\"tag\":\"iframe\""))
+        .unwrap();
+    let create = &batch[at..at + 500];
+    assert!(create.contains("\"src\":\"/deck/index.html\""), "{create}");
+    assert!(
+        create.contains("\"sandbox\":\"allow-scripts allow-same-origin\""),
+        "{create}"
+    );
+    assert!(
+        create.contains("\"handlers\":[\"load\",\"message\"]"),
+        "{create}"
+    );
+    assert!(create.contains("width:300px;height:150px;"), "{create}");
+}

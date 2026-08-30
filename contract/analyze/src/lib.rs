@@ -161,15 +161,17 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 }
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
-/// `change`, `hover`, `focus`, `blur`, `key`.
-pub const HANDLERS: [&str; 7] = ["press", "change", "hover", "focus", "blur", "key", "submit"];
+/// `change`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
+pub const HANDLERS: [&str; 9] = [
+    "press", "change", "hover", "focus", "blur", "key", "submit", "load", "message",
+];
 
 /// What a handler's event carries as its action's last argument: `change`
-/// the new text, `hover` whether the pointer is over, `key` the key's name;
-/// the others nothing.
+/// the new text, `hover` whether the pointer is over, `key` the key's name,
+/// `message` the iframe guest's string; the others nothing.
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
-        "change" | "key" => Some("string"),
+        "change" | "key" | "message" => Some("string"),
         "hover" => Some("bool"),
         _ => None,
     }
@@ -291,6 +293,7 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
                     match handler_payload(attr) {
                         Some("bool") => " plus whether the pointer is over",
                         Some(_) if attr == "key" => " plus the key's name",
+                        Some(_) if attr == "message" => " plus the guest's message",
                         Some(_) => " plus the new value",
                         None => "",
                     }

@@ -531,6 +531,41 @@ fn a_text_change_flips_the_when_region_and_back() {
 }
 
 #[test]
+fn an_iframe_message_records_its_string_payload() {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = b.primitive(TypeKind::String);
+    let empty = b.constant(&Value::str(""));
+    let received = b.slot("received", string, empty);
+    let mut body = Asm::new();
+    body.load_param(0).store_slot(received);
+    let body = b.code(body);
+    let record = b.action("record", &[("payload", string)], &[received], body);
+    b.node(
+        NodeType::WebView as u8,
+        None,
+        None,
+        0,
+        &[],
+        &[(EventKind::Message, record, &[])],
+        None,
+    );
+    let mut r = Runner::boot(
+        b.finish().unwrap(),
+        Schedule::default(),
+        Kernel::with_monospace(),
+    )
+    .unwrap();
+    let iframe = r.roots()[0];
+    r.dispatch(iframe, Event::Message("deck-ready".into()))
+        .unwrap();
+    assert_eq!(r.slot("received"), Some(&Value::str("deck-ready")));
+    assert!(matches!(
+        r.dispatch(iframe, Event::Load),
+        Err(RunnerError::NoHandler { event: "load", .. })
+    ));
+}
+
+#[test]
 fn the_timer_fires_under_the_seekable_clock() {
     let mut r = boot();
     let d1 = test_ids(&r, "dep-")[0].1;

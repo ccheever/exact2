@@ -26,11 +26,15 @@ if (opt.error?.code === 'ENOENT') { copyFileSync(built, out); optNote = 'wasm-op
 else if (opt.status !== 0) process.exit(opt.status ?? 1);
 else optNote = 'wasm-opt -Oz';
 
-// The app's assets (images) ride beside the page: `assets/…` sources resolve
-// here. Replaced whole, so a deleted asset does not linger in dist.
+// The app's static files ride beside the page: `assets/…` images and an
+// optional `deck/` iframe guest (@ref LLP 1020 M1). Replaced whole, so a
+// deleted file does not linger in dist.
 const assets = resolve(app.dir, 'assets');
 rmSync(resolve(dist, 'assets'), { recursive: true, force: true });
 if (existsSync(assets)) cpSync(assets, resolve(dist, 'assets'), { recursive: true });
+const deck = resolve(app.dir, 'deck');
+rmSync(resolve(dist, 'deck'), { recursive: true, force: true });
+if (existsSync(deck)) cpSync(deck, resolve(dist, 'deck'), { recursive: true });
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(dist, 'index.html'));
 copyFileSync(resolve(root, 'host/web/glue.js'), resolve(dist, 'glue.js'));
 

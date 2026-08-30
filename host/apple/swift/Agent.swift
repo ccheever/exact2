@@ -40,6 +40,7 @@ enum Agent {
         else { reply(["error": "unreadable request: \(line)"]); return }
         switch op {
         case "quit": exit(0)
+        case "tree": reply(webviews.tree())
         case "layout": reply(layout())
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements

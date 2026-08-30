@@ -549,6 +549,8 @@ impl<D: DataSource> Host<D> {
                 EventKind::Blur => "blur",
                 EventKind::Key => "key",
                 EventKind::Submit => "submit",
+                EventKind::Load => "load",
+                EventKind::Message => "message",
             })
             .collect();
         let pairs: Vec<(&str, String)> =
@@ -650,6 +652,7 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::Pressable => "button",
         NodeType::Toggle => "toggle",
         NodeType::Canvas => "canvas",
+        NodeType::WebView => "webview",
     }
 }
 

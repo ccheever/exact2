@@ -201,6 +201,7 @@ func bootNow(_ size: CGSize) {
             print("painted \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?") ms")
             print("stamps: " + stamps.map { "\($0.0) \(String(format: "%.1f", $0.1))" }.joined(separator: " · ") + " · first layout \(firstLayoutMs.map { String(format: "%.1f", $0) } ?? "?") · first draw \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?")")
             print("gpu: \(canvases.module != nil ? "module loaded in \(String(format: "%.1f", canvases.loadedMs ?? 0)) ms; \(canvases.entries.count) canvases; \(canvases.rendered) renders" : "not loaded: \(canvases.failed ?? (canvases.entries.isEmpty ? "no canvas" : "not requested"))")")
+            print("web: \(webviews.status)")
             print("smoke ok")
             exit(0)
         }
@@ -327,6 +328,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         presenter.onBlur = { id in apply(Exact.blur(id, now: now())) }
         presenter.onKey = { id, name in apply(Exact.key(id, name, now: now())) }
         presenter.onSubmit = { id in apply(Exact.submit(id, now: now())) }
+        presenter.onLoad = { id in apply(Exact.load(id, now: now())) }
+        presenter.onMessage = { id, value in apply(Exact.message(id, value, now: now())) }
         let w = UIWindow(windowScene: ws)
         w.backgroundColor = .white
         // The capabilities: `setScheme` is the window's interface style —

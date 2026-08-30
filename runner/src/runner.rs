@@ -129,6 +129,10 @@ pub enum Event {
     /// Enter in an input with a `submit` handler — the web's implicit
     /// submission (HTML forms §4.10.21.2), without a form.
     Submit,
+    /// An iframe finished loading (including an error document on the web).
+    Load,
+    /// An iframe guest posted a string to its parent (@ref LLP 1020 D2).
+    Message(String),
 }
 
 /// Why the runner refused. The kernel is unchanged.
@@ -682,6 +686,8 @@ impl<D: DataSource> Runner<D> {
                 Event::Blur => "blur",
                 Event::Key(_) => "key",
                 Event::Submit => "submit",
+                Event::Load => "load",
+                Event::Message(_) => "message",
             }
         );
         let was_poisoned = self.poisoned;
@@ -709,6 +715,8 @@ impl<D: DataSource> Runner<D> {
             Event::Blur => (EventKind::Blur, None, "blur"),
             Event::Key(key) => (EventKind::Key, Some(Value::str(key)), "key"),
             Event::Submit => (EventKind::Submit, None, "submit"),
+            Event::Load => (EventKind::Load, None, "load"),
+            Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),
         };
         let row = self.plan.node(node);
         let handler = row

@@ -96,9 +96,9 @@ uint32_t exact_boot_plan(size_t len, ExactMeasureFn measure, void *ctx, ExactWak
 uint32_t exact_pump(double now_ms);
 
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
- * 5 = blur, 6 = key (a change's text or a key's name is the payload, the
- * input buffer's first len bytes), 7 = submit (Enter in an input — the
- * web's implicit submission). */
+ * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message.
+ * A change's text, key's name, or guest message is the payload in the input
+ * buffer's first len bytes. */
 uint32_t exact_dispatch(uint32_t view, uint32_t kind, size_t len, double now_ms);
 uint32_t exact_advance(double now_ms);   /* the runner's clock: timers */
 uint32_t exact_resize(float width, float height);
