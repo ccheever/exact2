@@ -89,6 +89,18 @@ sits on that list carries the trade it would take.
   this machinery. Delete this line then.
 
 
+- **Menus** → LLP 1021 (RFC, Draft 2026-08-30): the Popover API by its HTML names
+  (`popover`, `popovertarget`, `id`, `aria-checked`, `hr`), open state host state like
+  scroll, the top layer outside every canvas capture; a menu-shaped popover may present
+  as UIMenu/NSMenu with selection dispatching by view id, kernel-painted under
+  `EXACT_AGENT`. First consumer: Weird Castle's account switcher (today a hand-rolled
+  overlay with no light dismiss). M1 web+kernel · M2 Apple/Linux · M3 the switcher.
+- A store write from `parse` does not re-answer resources that read the store (LLP
+  1018): a reply that keeps a secret leaves a `remember()`-shaped resource stale until
+  an action says `refresh`. Weird Castle's account switcher dodges it (the menu's
+  opening refreshes `accounts`; the mutation slot shadows `remembered`), but the
+  general rule — a parse-time store write marks store-reading resources dirty — belongs
+  in the runner, likely with LLP 1005 §8's deps table.
 - `fitDocument` reading the root's `content` so the page's extent includes overflow
   past the root, as `scrollHeight` does (LLP 1010 §3's declared deviation).
 - The untested-but-built list in LLP 1010 §5: horizontal scroll on macOS, `overflow:
@@ -179,3 +191,8 @@ sits on that list carries the trade it would take.
   demand after first pixel (the GPU-module shape, LLP 1009 D2) — the plan, kernel, and
   Contract do not change. On the web the browser is the executor, so one module runs
   under two loaders; design that first. Zero app JS until then.
+
+- The dev menu (Apple hosts) is on by default — EXACT_DEV_MENU=0 is the only off
+  switch, and "Quit Exact"/"Exact" are hardcoded names. Before any build of
+  weird-castle goes to someone who isn't developing it, decide the release gating
+  (and take the app's name from the bundle).
