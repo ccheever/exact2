@@ -152,6 +152,8 @@ fn err<T>(id: &'static str, message: impl Into<String>, span: Span) -> Result<T,
 pub struct Shapes {
     /// Shape name → fields in order.
     pub map: BTreeMap<String, Vec<(String, Ty)>>,
+    /// `fn` name → (parameter types, result type) (LLP 1017 P5).
+    pub fns: BTreeMap<String, (Vec<Ty>, Ty)>,
 }
 
 impl Shapes {
@@ -433,6 +435,31 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     ),
                 };
             }
+            if let Some((params, ret)) = shapes.fns.get(name) {
+                // A `fn` (LLP 1017 P5): typed like a roster call.
+                if args.len() != params.len() {
+                    return err(
+                        "type-arity",
+                        format!(
+                            "`{name}` takes {} argument(s), given {}",
+                            params.len(),
+                            args.len()
+                        ),
+                        *span,
+                    );
+                }
+                for (arg, want) in args.iter().zip(params) {
+                    let t = infer(arg, scope, shapes)?;
+                    if want.unify(&t).is_none() {
+                        return err(
+                            "type-argument",
+                            format!("`{name}` expects `{want}`, given `{t}`"),
+                            arg.span(),
+                        );
+                    }
+                }
+                return Ok(ret.clone());
+            }
             if let Some(f) = Stdlib::from_name(name) {
                 if args.len() != f.arity() {
                     return err(
@@ -620,6 +647,46 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
     })
 }
 
+/// Every function name an expression calls, for the `fn` cycle check.
+fn calls_in(e: &Expr, out: &mut Vec<String>) {
+    match e {
+        Expr::Call(n, args, _) => {
+            out.push(n.clone());
+            for a in args {
+                calls_in(a, out);
+            }
+        }
+        Expr::Some(x, _) | Expr::Unary(_, x, _) | Expr::Member(x, _, _) => calls_in(x, out),
+        Expr::Binary(_, a, b, _) => {
+            calls_in(a, out);
+            calls_in(b, out);
+        }
+        Expr::Ternary(a, b, c, _) => {
+            calls_in(a, out);
+            calls_in(b, out);
+            calls_in(c, out);
+        }
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            calls_in(subject, out);
+            calls_in(some, out);
+            calls_in(none, out);
+        }
+        Expr::Template(parts, _) => {
+            for p in parts {
+                if let TemplatePart::Expr(x) = p {
+                    calls_in(x, out);
+                }
+            }
+        }
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
+    }
+}
+
 /// Check a file: shapes, then every component.
 pub fn check(file: &File) -> Result<Types, TypeError> {
     let mut shapes = Shapes::default();
@@ -639,6 +706,106 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
             fields.push((f.name.clone(), shapes.resolve(&f.ty)?));
         }
         shapes.map.insert(s.name.clone(), fields);
+    }
+    // `fn`s (LLP 1017 P5): signatures first, then each body in a scope of
+    // its parameters only — pure by construction — against the declared
+    // result; a cycle through calls is refused, since a body is expanded
+    // where it is called.
+    for f in &file.fns {
+        if Stdlib::from_name(&f.name).is_some() {
+            return err(
+                "contract-fn-shadows-roster",
+                format!(
+                    "`fn {}` has the roster's name; a roster entry is the framework's — pick another",
+                    f.name
+                ),
+                f.span,
+            );
+        }
+        if shapes.fns.contains_key(&f.name) {
+            return err(
+                "type-duplicate-fn",
+                format!("`fn {}` declared twice", f.name),
+                f.span,
+            );
+        }
+        let mut params = Vec::new();
+        for p in &f.params {
+            let Some(t) = &p.ty else {
+                return err(
+                    "type-fn-param",
+                    format!("parameter `{}` of `fn {}` needs a type", p.name, f.name),
+                    p.span,
+                );
+            };
+            params.push(shapes.resolve(t)?);
+        }
+        let ret = shapes.resolve(&f.ret)?;
+        shapes.fns.insert(f.name.clone(), (params, ret));
+    }
+    for f in &file.fns {
+        let (params, ret) = shapes.fns[&f.name].clone();
+        let mut scope = Scope::default();
+        scope.push(
+            f.params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (p.name.clone(), Ref::Local(i as u32), params[i].clone()))
+                .collect(),
+        );
+        let t = infer(&f.body, &scope, &shapes)?;
+        if ret.unify(&t).is_none() {
+            return err(
+                "type-fn-return",
+                format!("`fn {}` declares `{ret}` but its body is `{t}`", f.name),
+                f.body.span(),
+            );
+        }
+    }
+    {
+        // Acyclic: depth-first over the calls each body makes to other fns.
+        let graph: BTreeMap<&str, Vec<String>> = file
+            .fns
+            .iter()
+            .map(|f| {
+                let mut out = Vec::new();
+                calls_in(&f.body, &mut out);
+                (f.name.as_str(), out)
+            })
+            .collect();
+        fn visit(
+            name: &str,
+            graph: &BTreeMap<&str, Vec<String>>,
+            path: &mut Vec<String>,
+        ) -> Option<Vec<String>> {
+            if path.iter().any(|p| p == name) {
+                path.push(name.to_string());
+                return Some(path.clone());
+            }
+            path.push(name.to_string());
+            for callee in graph.get(name).into_iter().flatten() {
+                if graph.contains_key(callee.as_str()) {
+                    if let Some(cycle) = visit(callee, graph, path) {
+                        return Some(cycle);
+                    }
+                }
+            }
+            path.pop();
+            None
+        }
+        for f in &file.fns {
+            if let Some(cycle) = visit(&f.name, &graph, &mut Vec::new()) {
+                return err(
+                    "type-fn-recursive",
+                    format!(
+                        "`fn {}` calls itself ({}): a fn is expanded where it is called, so it cannot recurse — a traversal is the data crate's",
+                        f.name,
+                        cycle.join(" → ")
+                    ),
+                    f.span,
+                );
+            }
+        }
     }
     let mut types = Types {
         shapes,

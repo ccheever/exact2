@@ -1,0 +1,22 @@
+// Accept fixture: `fn` — a pure function written in Contract (LLP 1017 P5),
+// one expression over its parameters and the roster, expanded where it is
+// called: the escape for a price string or a choice, never a traversal.
+fn dollars(cents: number): string = `$${floor(cents / 100)}`
+fn pick(on: bool, a: string, b: string): string = on ? a : b
+fn twice(n: number): number = n * 2
+fn quad(n: number): number = twice(twice(n))
+
+component Fns
+  state cents = 1250
+  state on = true
+  derive price = dollars(cents)
+  derive label = pick(on, "yes", "no")
+  action flip writes on
+    on = not on
+  action bump writes cents
+    cents = quad(cents)
+  view
+    column testId="root"
+      text price testId="price"
+      text label testId="label"
+      text `${quad(3)}` testId="quad"

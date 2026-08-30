@@ -345,3 +345,21 @@ component App
     column
       children
 ---
+== type-fn-return
+fn f(n: number): string = n + 1
+component A
+  view
+    text f(1)
+---
+== type-fn-recursive
+fn f(n: number): number = f(n)
+component A
+  view
+    text `${f(1)}`
+---
+== contract-fn-shadows-roster
+fn floor(n: number): number = n
+component A
+  view
+    text `${floor(1)}`
+---

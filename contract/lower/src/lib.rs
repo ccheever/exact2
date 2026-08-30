@@ -23,7 +23,7 @@ pub mod expr;
 pub mod tags;
 
 use contract_analyze::Analysis;
-use contract_syntax::{Attr, Expr, File, Node, Span, Stmt};
+use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt};
 use contract_types::{Ref, Scope, Ty, Types};
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
 use exact_plan::asm::Asm;
@@ -111,6 +111,12 @@ pub(crate) struct Lowerer<'a> {
     pub actions: Vec<exact_plan::ActionsId>,
     /// The file's `style` declarations, by name (LLP 1017 P6).
     pub styles: BTreeMap<String, Vec<Attr>>,
+    /// The file's `fn` declarations, by name, expanded inline at each call
+    /// (LLP 1017 P5).
+    pub fns: BTreeMap<String, FnDecl>,
+    /// How many `fn` bodies are being expanded right now (a guard; the type
+    /// pass already refuses a cycle).
+    pub fn_depth: u32,
 }
 
 /// Lower a checked file to a plan.
@@ -129,6 +135,12 @@ pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, L
         mutation_slots: Vec::new(),
         actions: Vec::new(),
         styles: BTreeMap::new(),
+        fns: file
+            .fns
+            .iter()
+            .map(|f| (f.name.clone(), f.clone()))
+            .collect(),
+        fn_depth: 0,
     };
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {

@@ -178,13 +178,14 @@ impl Parser {
                 }
                 TokenKind::Ident(w) if w == "shape" => file.shapes.push(self.shape()?),
                 TokenKind::Ident(w) if w == "style" => file.styles.push(self.style()?),
+                TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "component" => file.components.push(self.component()?),
                 TokenKind::Ident(w) if w == "use" => file.uses.push(self.use_decl()?),
                 other => {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                            "expected `shape`, `style`, `use`, or `component`, found {}",
+                            "expected `shape`, `style`, `fn`, `use`, or `component`, found {}",
                             describe(other)
                         ),
                     )
@@ -222,6 +223,40 @@ impl Parser {
         }
         self.newline()?;
         Ok(UseDecl { name, path, span })
+    }
+
+    /// `fn name(param: type, …): type = expr` (LLP 1017 P5).
+    fn fn_decl(&mut self) -> R<FnDecl> {
+        let span = self.expect_word("fn")?;
+        let (name, _) = self.ident()?;
+        self.expect_punct("(")?;
+        let mut params = Vec::new();
+        while !self.at_punct(")") {
+            let (pname, pspan) = self.ident()?;
+            self.expect_punct(":")?;
+            let ty = self.type_expr()?;
+            params.push(Param {
+                name: pname,
+                ty: Some(ty),
+                span: pspan,
+            });
+            if !self.eat_punct(",") {
+                break;
+            }
+        }
+        self.expect_punct(")")?;
+        self.expect_punct(":")?;
+        let ret = self.type_expr()?;
+        self.expect_punct("=")?;
+        let body = self.expr()?;
+        self.newline()?;
+        Ok(FnDecl {
+            name,
+            params,
+            ret,
+            body,
+            span,
+        })
     }
 
     /// `style Name` then lines of `attr=literal` (LLP 1017 P6).
@@ -1013,6 +1048,7 @@ fn is_keyword(w: &str) -> bool {
             | "if"
             | "else"
             | "style"
+            | "fn"
             | "from"
             | "provide"
             | "children"

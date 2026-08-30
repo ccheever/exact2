@@ -63,6 +63,10 @@ keys, spelled as the web spells them; `viewportFit`, `safeArea`,
 `interactiveWidget` props, which a host reads from the first root (LLP 1008
 §9, LLP 1007 §4). `contract/corpus/insets.contract`,
 `contract/corpus/keyboard-bar.contract`, `tests/insets.rs`.
+**Functions** (LLP 1017 P5, 2026-08-30): `fn name(param: type, …): type =
+expr` at file scope — one expression over its parameters and the roster only,
+typed like a roster call, expanded inline at each call (no opcode, no table);
+a cycle is `type-fn-recursive`, a roster name `contract-fn-shadows-roster`.
 **Composition** (LLP 1017 P4a/b, 2026-08-30): a component may declare `inject`
 (typed names, like `props`) that a use site does not pass — the nearest
 enclosing `provide name = expr` fills them at inlining, the innermost winning,

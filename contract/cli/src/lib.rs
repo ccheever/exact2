@@ -184,7 +184,8 @@ fn load(path: &Path, seen: &mut Vec<PathBuf>) -> Result<File, CompileError> {
         seen.pop();
         let known = used.components.iter().any(|c| c.name == u.name)
             || used.shapes.iter().any(|s| s.name == u.name)
-            || used.styles.iter().any(|s| s.name == u.name);
+            || used.styles.iter().any(|s| s.name == u.name)
+            || used.fns.iter().any(|f| f.name == u.name);
         if !known {
             return Err(use_error(
                 "contract-use-unknown",
@@ -220,6 +221,13 @@ fn merge(into: &mut File, from: File, u: &UseDecl) -> Result<(), CompileError> {
             Some(x) if *x == s => {}
             Some(_) => return Err(dup("style", &s.name)),
             None => into.styles.push(s),
+        }
+    }
+    for f in from.fns {
+        match into.fns.iter().find(|x| x.name == f.name) {
+            Some(x) if *x == f => {}
+            Some(_) => return Err(dup("fn", &f.name)),
+            None => into.fns.push(f),
         }
     }
     for c in from.components {

@@ -12,8 +12,29 @@ pub struct File {
     pub shapes: Vec<ShapeDecl>,
     /// `style` declarations, in order (LLP 1017 P6).
     pub styles: Vec<StyleDecl>,
+    /// `fn` declarations, in order (LLP 1017 P5).
+    pub fns: Vec<FnDecl>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
+}
+
+/// `fn name(param: type, …): type = expr` — a pure function written in
+/// Contract: one expression over its parameters and the roster, expanded
+/// inline wherever it is called (LLP 1017 P5). No recursion, no loops, no
+/// state: the escape for a price string or a palette choice, not for a
+/// traversal, which is the data crate's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FnDecl {
+    /// The name.
+    pub name: String,
+    /// Typed parameters.
+    pub params: Vec<Param>,
+    /// The declared result type.
+    pub ret: TypeExpr,
+    /// The body, one expression.
+    pub body: Expr,
+    /// Where.
+    pub span: Span,
 }
 
 /// `use Name from "./file.contract"` — a component, shape, or style from

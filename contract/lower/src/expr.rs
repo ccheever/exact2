@@ -147,6 +147,49 @@ pub(crate) fn compile(
                 };
                 return Ok(());
             }
+            if let Some(f) = l.fns.get(name).cloned() {
+                // A `fn` (LLP 1017 P5), expanded here: each argument bound
+                // as a local, the body compiled in a scope of the parameters
+                // only, the locals dropped after — no new opcode, no table,
+                // and (the type pass having refused a cycle) no recursion.
+                if l.fn_depth > 32 {
+                    return err(
+                        "lower-fn-depth",
+                        format!("`{name}` expands too deeply"),
+                        *span,
+                    );
+                }
+                let base = *locals;
+                for a in args {
+                    compile(l, asm, a, scope, locals)?;
+                    asm.bind_local();
+                    *locals += 1;
+                }
+                let param_tys = l.types.shapes.fns[name].0.clone();
+                let mut inner = Scope::default();
+                inner.push(
+                    f.params
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| {
+                            (
+                                p.name.clone(),
+                                Ref::Local((base + i as u16) as u32),
+                                param_tys[i].clone(),
+                            )
+                        })
+                        .collect(),
+                );
+                l.fn_depth += 1;
+                let body = compile(l, asm, &f.body, &inner, locals);
+                l.fn_depth -= 1;
+                body?;
+                for _ in &f.params {
+                    *locals -= 1;
+                    asm.drop_local();
+                }
+                return Ok(());
+            }
             let Some(f) = Stdlib::from_name(name) else {
                 return err(
                     "lower-unknown-function",
