@@ -196,3 +196,10 @@ sits on that list carries the trade it would take.
   switch, and "Quit Exact"/"Exact" are hardcoded names. Before any build of
   weird-castle goes to someone who isn't developing it, decide the release gating
   (and take the app's name from the bundle).
+
+- The env()/keyboard + serial-runtime-owner working-tree state (ExactRuntime in
+  Bridge.swift, Env.keyboard in the kernel, the presenter field work) fails the macOS
+  smoke ~6 of 8 runs where HEAD passes 6 of 6 — the motion seek lands 75,50 where
+  75,100 is expected, and canvas captures over-count; measured 2026-08-30 on
+  detached-worktree builds of exactly that state. It stayed uncommitted for a reason.
+  The smoke is the repro; whoever owns the lane, land it only through that gate.

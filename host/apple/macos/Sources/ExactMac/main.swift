@@ -146,6 +146,7 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 let delegate = Delegate()
 app.delegate = delegate
 window.delegate = delegate
+DevMenu.install()
 
 stamp("before boot")
 let tBoot = CACurrentMediaTime()

@@ -299,6 +299,18 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         c.delegateClass = SceneDelegate.self
         return c
     }
+    /// The dev menu's keyboard (`DevMenu.swift`): the app delegate is the
+    /// responder every chain ends at, so these fire whatever has focus.
+    override var keyCommands: [UIKeyCommand]? {
+        guard DevMenu.enabled else { return nil }
+        return [
+            UIKeyCommand(title: "Exact Menu", action: #selector(devMenu), input: "d", modifierFlags: .command),
+            UIKeyCommand(title: "Reload", action: #selector(devReload), input: "r", modifierFlags: .command),
+            UIKeyCommand(title: "Reload", action: #selector(devReload), input: "r", modifierFlags: [.command, .shift]),
+        ]
+    }
+    @objc func devMenu() { DevMenu.toggle() }
+    @objc func devReload() { DevMenu.reload() }
 }
 
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
@@ -337,6 +349,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         controller = c
         w.rootViewController = c
         window = w
+        DevMenu.install(on: w)
         w.makeKeyAndVisible()
         stamp("window")
     }

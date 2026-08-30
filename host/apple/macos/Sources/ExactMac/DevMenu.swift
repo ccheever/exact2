@@ -1,0 +1,89 @@
+// The dev menu, the macOS half of the iOS presenter's: a real menu bar
+// where iOS has a four-finger tap. The app menu (Quit ⌘Q — the bare window
+// had no menu bar at all) always; Develop — Reload ⌘R, App Info… ⌘D —
+// unless EXACT_DEV_MENU=0. Native AppKit above the presenter, so it is
+// alive even when the plan is broken; reload restarts from the dev loop's
+// plan when one is named (the watcher's own path, state carried), else
+// from the baked plan, fresh.
+import AppKit
+
+final class DevMenuTarget: NSObject {
+    @objc func reload(_ sender: Any?) { DevMenu.reload() }
+    @objc func info(_ sender: Any?) { DevMenu.showInfo() }
+}
+
+enum DevMenu {
+    static let target = DevMenuTarget()
+    static var enabled: Bool { ProcessInfo.processInfo.environment["EXACT_DEV_MENU"] != "0" }
+
+    static func install() {
+        let bar = NSMenu()
+        let appItem = NSMenuItem()
+        bar.addItem(appItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit Exact", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+        if enabled {
+            let devItem = NSMenuItem()
+            bar.addItem(devItem)
+            let dev = NSMenu(title: "Develop")
+            dev.addItem(withTitle: "Reload", action: #selector(DevMenuTarget.reload(_:)), keyEquivalent: "r").target = target
+            dev.addItem(withTitle: "App Info…", action: #selector(DevMenuTarget.info(_:)), keyEquivalent: "d").target = target
+            devItem.submenu = dev
+        }
+        app.mainMenu = bar
+    }
+
+    static func reload() {
+        let started = CACurrentMediaTime()
+        presenter.reset()
+        let size = presenter.viewport.contentSize
+        Exact.wake = exactWake
+        let env = ProcessInfo.processInfo.environment
+        let batch: Batch
+        if let path = env["EXACT_DEV_PLAN"] ?? env["EXACT_PLAN"], let bytes = FileManager.default.contents(atPath: path) {
+            batch = Exact.bootPlan(bytes, width: size.width, height: size.height)
+        } else {
+            batch = Exact.boot(width: size.width, height: size.height)
+        }
+        apply(batch)
+        print("reloaded in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+    }
+
+    static func info() -> String {
+        let env = ProcessInfo.processInfo.environment
+        var lines = [CommandLine.arguments[0]]
+        if let path = env["EXACT_DEV_PLAN"] {
+            let m = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+            lines.append("plan: \(path)\(m.map { " (\(time.string(from: $0)))" } ?? " (missing)")")
+        } else if let path = env["EXACT_PLAN"] {
+            lines.append("plan: \(path)")
+        } else {
+            lines.append("plan: baked")
+        }
+        lines.append("app dir: \(env["EXACT_ASSETS"] ?? FileManager.default.currentDirectoryPath)")
+        let size = presenter.viewport.contentSize
+        lines.append("viewport: \(Int(size.width))×\(Int(size.height)) · \(presenter.views.count) views")
+        lines.append("boot: \(String(format: "%.1f", bootMs)) ms")
+        return lines.joined(separator: "\n")
+    }
+
+    static func showInfo() {
+        let text = info()
+        let alert = NSAlert()
+        alert.messageText = "Exact"
+        alert.informativeText = text
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Copy")
+        if alert.runModal() == .alertSecondButtonReturn {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+    }
+
+    static let time: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+}
