@@ -437,7 +437,7 @@ component App
     send session = login()
   view
     column testId="app"
-      button press=submit label="Log in" testId="login"
+      button press=submit aria-label="Log in" testId="login"
         text "Log in"
       when busy
         text "Logging in…" testId="busy"
