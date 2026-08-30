@@ -457,7 +457,16 @@ the simulator; the email keyboard and the default) — and laying out for
 each flashed the page (the second bug it found). No-duration changes now
 wait 80 ms for the last of them (`keyboardDebounce`), which usually
 changes nothing; an animated change — the show, the hide — is applied at
-once, in the keyboard's own transaction. **Dismissing it** is the web's
+once, in the keyboard's own transaction. What remains of a hand-off is the
+keyboard's own one-frame blink — its accessory bar torn down for the
+outgoing responder and rebuilt for the incoming one — and it is UIKit's,
+not this host's: a from-scratch UIKit app with two bare `UITextField`s
+produces the same 308 → 335 burst on every switch, programmatic or
+touched, with any traits (identical plain fields included) and even when
+one field is re-traited in place with `reloadInputViews`; a phone shows it
+faintly too (Charlie, 2026-08-30: "bearable"). Safari masks it below the
+responder, in WebKit's own input-assistant handling — how is an open
+question, in the queue. **Dismissing it** is the web's
 rule: a tap that lands on nothing that takes the focus blurs the field
 and the keyboard goes — a touch nothing consumed reaching the viewport
 (`ScrollView.touchesEnded`), a press on a node that does not take the
