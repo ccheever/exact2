@@ -197,15 +197,17 @@ extension Agent {
         // 16-bit PNG, which nothing downstream (scripts/png.mjs) reads.
         format.preferredRange = .standard
         let size = vp.bounds.size
+        // The arm's takeSnapshot picture composes UNDER the live view
+        // (NodeView.draw): on a simulator the snapshot can arrive as the
+        // guest's background alone, while `drawHierarchy` renders the
+        // WKWebView's content in-process — the webview stays visible and
+        // non-opaque, so whichever path has the pixels wins (LLP 1020 D4).
         Capture.web = webviews.snapshots()
-        let hidden = presenter.views.values.compactMap(\.web).map { ($0, $0.isHidden) }
-        hidden.forEach { $0.0.isHidden = true }
         Capture.capturing = true
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
             vp.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
         }
         Capture.capturing = false
-        hidden.forEach { $0.0.isHidden = $0.1 }
         Capture.web = [:]
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": r2(size.width), "h": r2(size.height), "scale": r2(scale)]
