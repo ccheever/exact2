@@ -194,3 +194,54 @@ The content-world bridge is not guest-visible. H1 is an *agent* targeting bug, n
 | Kernel `WebView` is a leaf | `schema.json` has no leaf bit; `kernel/build.rs` is not in this change. **FLAG:** confirm `can_hold_children()` is false, matching Canvas |
 
 Codec compatibility is the part I *would* trust from the text: new `EventKind` values are appended; new prop ids are appended; `SCHEMA_DIGEST` will change and old plans refuse (`runner.rs` boot checks it). That matches “no compat before 1.0.”
+
+---
+
+## Fold (the orchestrator, 2026-08-30, commit 2a586b8)
+
+Every finding was verified against the live tree before folding; all held. Applied in
+`2a586b8` (codex gpt-5.6-sol xhigh executed the fold from a per-finding brief):
+
+- **sol HIGH 1 (teardown UAF + arm leak)** — confirmed by reading: the handler
+  retain cycle keeps the arm alive past `destroy` while its callback box is freed.
+  Fixed: `invalidate()` (stop loading, remove both handlers, delegate nil, an
+  `invalidated` gate on emit/reply) before release; destroy order corrected.
+- **grok H1 / sol M2 (guestFrame last-writer)** — fixed: the ready script posts only
+  from the wrapper's direct child (`parent === top && self !== top`), first-wins.
+- **grok H2 / sol M1 / grok M7 (src-then-srcdoc; generation races)** — fixed: every
+  `src` change re-serves the wrapper (navigationScript deleted); a local fixture's
+  inner iframe is srcdoc-only, no `src` attribute, so no doomed navigation exists.
+- **sol M6 (wrapper self-reload bypass)** — fixed: `serving`-gated navigation policy;
+  anything not host-initiated cancels and re-serves.
+- **grok M1 / sol M5 (iOS double-composite)** — applied as reviewed, then
+  **re-measured and adjusted**: the single-source simulator arrangement regressed to
+  0 guest pixels — `takeSnapshot` is also the flush that makes `drawHierarchy`
+  rasterize the remote layer. Final: simulator = snapshot composed as underlay
+  beneath the visible live render (both halves measured necessary); device = macOS's
+  hide-and-compose, single source. The RFC's D4 note records the split.
+- **grok M3 / sol M3 (agent honesty)** — fixed: `ok:false` is an error on Apple; the
+  web arm implements selector/coordinate guest tap and guest type, with a stable
+  cross-origin error, mirroring the Apple guest script.
+- **grok M6 (web sandbox change)** — fixed: re-navigation applies the new tokens,
+  matching D2's re-serve.
+- **sol M7 / grok L2 (global attrs)** — fixed: `lower-attr-tag` rejection + corpus.
+- **sol M4 / grok L4/L5 (symlinks; srcdoc limit)** — fixed: symlink-resolved
+  containment; the single-file limitation is now an in-code constraint comment.
+- **grok L1 (kind name)** — fixed: `iframe`.
+- **grok M4 (Linux D5)** — fixed: the Linux carrier's `tree` marks a WebView
+  `{unavailable: true}`.
+- **grok FLAG (leaf)** — confirmed already-false by omission; asserted in the kernel
+  node tests.
+- **sol LOW 1 / grok M5 (the NOT-DOING trade)** — applied by the orchestrator:
+  `webview` off §Components with LLP 1020 §6's line and take; QUEUE §5 reordered.
+- **grok RFC 3/4** — the RFC is amended as built (srcdoc materialization declared
+  with its multi-file limit; the error document restated for frame topology).
+
+Verification after the fold: the five checks, the web smoke, the iOS-simulator
+smoke, and the Linux smoke are green. The macOS smoke's canvas steps fail on this
+machine with the display asleep/locked (the LLP 1008 §8 occlusion trap, reproduced
+3/3 with the same signature at both the lane and its base) — the macOS rerun is owed
+the moment a display is on; the pre-fold macOS smoke, deck steps included, was green.
+Open evidence gaps grok's table names (device `EXACT_ASSETS`, restriction-fidelity
+under a locked-down sandbox, destroy-mid-load under WebKit) stay open as test debt,
+recorded here rather than papered over.
