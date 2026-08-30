@@ -6,3 +6,4 @@ node_modules/
 host/web/dist/
 # The macOS presenter's SwiftPM build products.
 host/apple/macos/.build/
+host/apple/ios/.build/

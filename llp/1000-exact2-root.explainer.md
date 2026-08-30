@@ -65,8 +65,10 @@ and this one does not. Read them first.
 - `host/apple/` — `exact-apple`, the Apple host: the runner and kernel as a static
   library with a C ABI (`include/exact.h`), the kernel's own layout with CoreText
   measurement through a registered callback, `exact-motion` as the executor, typed
-  batches; `macos/` is the AppKit presenter (SwiftPM, no SwiftUI) with its smoke and
-  screenshot. LLP 1008.
+  batches; `macos/` is the AppKit presenter (SwiftPM, no SwiftUI) and `ios/` the
+  UIKit one — the same package shape, run on a simulator — with `swift/` what the
+  two share: the bridge, CoreText, the agent's clock, the GPU module's ABI. LLP
+  1008 (§9 for iOS).
 - `host/linux/` — `exact-linux`, the Linux host and the first that paints: the
   runner and kernel natively, cosmic-text measuring and painting from one
   paragraph cache, `exact-motion` as the executor, and the kernel tree drawn
@@ -97,7 +99,9 @@ core crate. There is no build matrix. An embedder links the crate it wants and
 the linker drops the rest: the web wasm carries no Taffy because nothing on the
 web calls layout. (Stated 2026-08-29.)
 
-Not built yet: iOS on the Apple host's shape. (The decided order — 2026-08-28:
+All four surfaces run the app: iOS landed 2026-08-29 on the Apple host's shape
+(LLP 1008 §9 — the UIKit presenter over the same archive, built for the
+simulator, the same smoke green). (The decided order — 2026-08-28:
 **the web version works really well first, then Apple, then Linux** — is done:
 the Linux host landed 2026-08-29, LLP 1015, a painter over DRM/KMS whose
 headless form runs the same smoke as the other two hosts. (The macOS host landed 2026-08-29, LLP 1008, with

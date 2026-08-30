@@ -65,6 +65,16 @@ sits on that list carries the trade it would take.
 
 ## Cheap, any time
 
+- **The sky's capture on the phone** landed at the display's rate 2026-08-30 (LLP 1008
+  §9): a shadow layer tree rendered by `CARenderer`, a nested canvas's readback cached,
+  the texture handed to the module as it is (`gpu_texture_metal`, `gpu_sync`) — 119 fps
+  on average scrolling with the sky on, a capture 7.1 ms, from 42–64 fps and 20–25 ms.
+  Left: the deck's 48 per-child textures still cross as bytes (a `gpu_child_metal`
+  would spare ~30 ms when the deck opens); the macOS presenter still captures on the
+  CPU (`cacheDisplay`, 5–18 ms at 2×) — the same `Shadow` would serve it; the
+  cross-queue wait (`gpu_sync`, ~3 ms of the 7.1) could be a shared Metal event if
+  wgpu exposed one. Tried and declined on the way: capture at 2× (slower), `CARenderer`
+  on the live overlay (crashes — a layer is in one tree only), `drawHierarchy` (no gain).
 - **Canvas children** → LLP 1014 (RFC, Accepted) — built 2026-08-29, LLP 1014.000
   transcribes it: kernel, corpus, the web wrapper, the macOS overlay and capture with
   D4's four sources, the smoke's steps 6a, 9, and 10 with the readback fixture (native:
@@ -81,6 +91,16 @@ sits on that list carries the trade it would take.
   shows at once; the ABI checks its pointers). Left: Chrome's flag as the oracle for
   children *through* a surface; a hermetic test of the glass crossfade; LLP 1013 on
   this machinery. Delete this line then.
+- **`viewport-fit=cover` and `env(safe-area-inset-*)`** — the sky under a phone's status
+  bar and home indicator, the content padded by what the host reports (LLP 1008 §9
+  paints the root's background there today, Safari's rule without the meta). An `env()`
+  dimension in the kernel and Contract, the insets set by the host with the viewport,
+  a relayout when they change (a rotation).
+- **The compiler accepts a root-level `when` that the runner refuses** (`RootRegion`,
+  found 2026-08-30 putting the Caltrain root inside one): a view whose root is a region
+  compiles and bakes only to fail at boot, in every host's `build.rs` at once. The
+  compiler should refuse it with the reason (a root is a node, LLP 1010 §1), or the
+  runner should allow a region root.
 - `overflowX`/`overflowY` and `transition` in the Contract tag table (rows exist,
   attributes do not; LLP 1010 §5, LLP 1006 §8).
 - Compile-time checking of attribute values against kernel rows; handler arity through
@@ -123,7 +143,12 @@ sits on that list carries the trade it would take.
   `prefers-reduced-motion`; a spring interrupted by an easing.
 - **Apple host** (LLP 1008 §7): images; toggles; accessibility beyond `testId` and
   `accessibilityLabel`; justified text; per-corner radii; rubber-banding on inner
-  scroll nodes; a generated header.
+  scroll nodes; a generated header. **iOS** (LLP 1008 §9): the agent API on a
+  phone (`build.mjs --device --run` installs over USB or Wi-Fi, but nothing drives
+  the app there); the keyboard's inset on the viewport; a
+  synthesized touch for the agent's `tap` (UIKit's hit-test and the responder-chain
+  rule today); a pan chaining out of a nested scroll view at its edge (UIKit's own;
+  the agent's wheel chains).
 - **Linux host** (LLP 1015 §7): evdev has carried no real event yet; `canvas`; libinput and
   xkbcommon (acceleration, touchpad gestures, hotplug, non-US keymaps); Wayland/X11
   windows; selection, IME, a caret blink; `text_decoration`, `font_family`, RTL;
@@ -139,8 +164,6 @@ sits on that list carries the trade it would take.
   (LLP 1010 §5): a logical total extent, window-origin compensation, and a
   scroll-offset event to the runner. `List` and `ScrollView` are the same thing on
   every host today.
-- **iOS** on the Apple host's shape: the same package and batch, `NSView` → `UIView`.
-  One of the v1 bar's four surfaces; cheaper than Linux.
 - **Windows, Android** — `rules/NOT-DOING.md` §Surfaces; after the loop is proven.
 - **ibex2** (`~/projects/ibex/crates/ibex2`; ibex LLP 0057 §5.2 targets Exact 2). Two
   things, two triggers (Charlie, 2026-08-29). `ibex2::host` — the Rust standard library

@@ -47,10 +47,11 @@ fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
     assert_eq!(a.encode(), b.encode(), "compiling twice is byte-identical");
     assert_eq!(a.kernel_schema_digest, exact_kernel::SCHEMA_DIGEST);
     // nowMs, screen, stationId, query; material, deck, focus (LLP 1014: the
-    // sky's material, the card deck and its focus).
-    assert_eq!(a.slots.len(), 7);
+    // sky's material, the card deck and its focus); sky (whether the app is
+    // inside the aurora canvas at all — a phone's frame-rate switch).
+    assert_eq!(a.slots.len(), 8);
     assert_eq!(a.resources.len(), 7);
-    assert_eq!(a.actions.len(), 9);
+    assert_eq!(a.actions.len(), 10);
     assert_eq!(a.timers.len(), 1);
     assert!(
         a.resources.iter().all(|r| r.initial.len == 0),
@@ -207,7 +208,7 @@ fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
         Some("San Francisco")
     );
     let carried = r.carry();
-    assert_eq!(carried.slots.len(), 7);
+    assert_eq!(carried.slots.len(), 8);
     assert_eq!(carried.now_ms, 30_000.0);
 
     // The edited plan: unbaked (no compiled data) and with a visible change.

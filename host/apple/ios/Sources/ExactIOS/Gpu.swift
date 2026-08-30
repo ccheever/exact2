@@ -1,36 +1,30 @@
-// The GPU module on macOS (LLP 1009 D2/D4): the app's `<app>-gpu` dylib,
-// loaded with dlopen the first time a canvas is on screen — after the first
-// painted frame — and driven from the presenter: a surface per canvas node
-// on its CAMetalLayer, inputs bound as they arrive, frames rendered while
-// a surface is dirty or wants more, from the same display link motion uses.
-import AppKit
+// The GPU module on iOS (LLP 1009 D2/D4): the app's `<app>-gpu` dylib —
+// built for the simulator, carried in the bundle's Frameworks — loaded
+// with dlopen the first time a canvas is on screen, after the first painted
+// frame, and driven from the presenter: a surface per canvas node on its
+// CAMetalLayer, inputs bound as they arrive, frames rendered while a
+// surface is dirty or wants more, from the same display link motion uses.
+// The AppKit presenter's `Canvases` (host/apple/macos/…/Gpu.swift) on UIKit.
 import QuartzCore
+import UIKit
 
 /// A canvas node's backing view: a CAMetalLayer the module renders into.
-final class MetalView: NSView {
-    override var isFlipped: Bool { true }
-    override func makeBackingLayer() -> CALayer {
-        let layer = CAMetalLayer()
-        // Composited, never direct-to-display: a layer that covers the whole
-        // window and says it is opaque gets a presentation path whose
-        // drawables come back only at the next vsync, and every
-        // `nextDrawable` then waits a full frame on the main thread — a
-        // full-window canvas rendered on the display link starved the app
-        // (LLP 1014, the app inside the sky). A translucent layer stays in
-        // the compositor, where a drawable comes back as soon as it is read.
-        layer.isOpaque = false
-        return layer
-    }
-    override init(frame: NSRect) {
+final class MetalView: UIView {
+    override class var layerClass: AnyClass { CAMetalLayer.self }
+    override init(frame: CGRect) {
         super.init(frame: frame)
-        wantsLayer = true
-        layerContentsRedrawPolicy = .never
-        autoresizingMask = [.width, .height]
+        isUserInteractionEnabled = false
+        isOpaque = false
+        // Composited, never direct-to-display: a translucent layer stays in
+        // the compositor, where a drawable comes back as soon as it is read
+        // (LLP 1014, the app inside the sky).
+        (layer as? CAMetalLayer)?.isOpaque = false
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
     }
     required init?(coder: NSCoder) { nil }
-    override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        layer?.contentsScale = window?.backingScaleFactor ?? 2
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        layer.contentsScale = window?.screen.scale ?? traitCollection.displayScale
     }
 }
 
@@ -56,12 +50,10 @@ final class Canvases {
         /// frames is read back again only once the clock has moved, so a
         /// clock that stands still — the agent's — never spins it.
         var readAt: Double = -1
-        /// A render blocked in `nextDrawable`: the layer's drawables are not
-        /// coming back (the window is covered and the occlusion notice has
-        /// not landed yet). No presenting until the occlusion state changes
-        /// or this much wall time has passed, so one lost second is not
-        /// every frame lost.
-        var starvedUntil: Double = 0
+        /// The last readback's picture, kept while the module reports
+        /// nothing dirty and the surface wants no frame at a new clock —
+        /// so the line map, once drawn, costs the sky's capture nothing.
+        var picture: CGImage?
         init(view: NodeView, name: String, values: [Any]) { self.view = view; self.name = name; self.values = values }
     }
     var entries: [UInt32: Entry] = [:]
@@ -72,13 +64,18 @@ final class Canvases {
     var rendered = 0
     /// Captures since launch (LLP 1014 D3).
     var captures = 0
+    /// The measure's window (EXACT_FPS): renders and captures since the last
+    /// report, and the time they took (capture: paint and upload).
+    var windowRenders = 0
+    var windowRenderSeconds = 0.0
+    var windowCaptures = 0
+    var windowCaptureSeconds = 0.0
     private var captureScheduled = false
 
-    /// Where the module lives: EXACT_GPU_DYLIB, or beside the executable.
+    /// Where the module lives: EXACT_GPU_DYLIB, or the bundle's Frameworks.
     static func modulePath() -> String {
         if let p = ProcessInfo.processInfo.environment["EXACT_GPU_DYLIB"] { return p }
-        let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
-        return exe.deletingLastPathComponent().appendingPathComponent("libcaltrain_gpu.dylib").path
+        return (Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath) + "/libcaltrain_gpu.dylib"
     }
 
     /// A surface op: new inputs for a canvas node.
@@ -102,7 +99,7 @@ final class Canvases {
     func reset() { for view in Array(entries.keys) { destroy(view: view) } }
 
     /// Load the module — once, after the first painted frame, only when a
-    /// canvas exists. Returns whether a frame source is now wanted.
+    /// canvas exists.
     func loadIfNeeded() {
         guard !loadRequested, !entries.isEmpty, firstDrawMs != nil else { return }
         loadRequested = true
@@ -118,9 +115,22 @@ final class Canvases {
         }
     }
 
+    private func scale(of metal: MetalView) -> CGFloat {
+        metal.window?.screen.scale ?? metal.traitCollection.displayScale
+    }
+
+    /// The scale the children are captured at: the screen's (LLP 1014 D3).
+    /// Tried and measured 2026-08-30 (LLP 1008 §9): capturing at 2 on a 3×
+    /// phone is slower, not faster — `layer.render(in:)` then resamples
+    /// every view's 3× backing store instead of blitting it, 28–39 ms a
+    /// capture against 20–25 — so the scale stays the screen's.
+    private func captureScale(of metal: MetalView) -> CGFloat {
+        scale(of: metal)
+    }
+
     private func create(_ m: GpuModule, _ e: Entry) {
-        guard let metal = e.view.metal, let layer = metal.layer else { return }
-        layer.contentsScale = metal.window?.backingScaleFactor ?? 2
+        guard let metal = e.view.metal, let layer = metal.layer as? CAMetalLayer else { return }
+        layer.contentsScale = scale(of: metal)
         let scale = Float(layer.contentsScale)
         let w = UInt32(max(1, (Float(metal.bounds.width) * scale).rounded()))
         let h = UInt32(max(1, (Float(metal.bounds.height) * scale).rounded()))
@@ -138,14 +148,15 @@ final class Canvases {
     /// its frame (LLP 1014 D5); the overlay composites at alpha 0 as for a
     /// whole capture, and hit-testing goes through the placements the
     /// surface reports after each frame.
-    private func captureEach(_ m: GpuModule, _ e: Entry, overlay: NSView, scale: CGFloat) -> Bool {
+    private func captureEach(_ m: GpuModule, _ e: Entry, overlay: UIView, scale: CGFloat) -> Bool {
         let children = overlay.subviews.compactMap { $0 as? NodeView }
         var uploaded = 0
         let t0 = CACurrentMediaTime()
+        defer { windowCaptures += 1; windowCaptureSeconds += CACurrentMediaTime() - t0 }
         for (i, child) in children.enumerated() {
-            guard let rep = Capture.bitmap(of: child, scale: scale), let data = rep.bitmapData else { continue }
+            guard let bitmap = Capture.bitmap(of: child, scale: scale), let data = bitmap.bytes else { continue }
             let f = child.frame
-            let r = m.child(e.id, UInt32(i), Float(f.origin.x), Float(f.origin.y), Float(f.width), Float(f.height), UInt32(rep.pixelsWide), UInt32(rep.pixelsHigh), UnsafePointer(data), rep.pixelsHigh * rep.bytesPerRow)
+            let r = m.child(e.id, UInt32(i), Float(f.origin.x), Float(f.origin.y), Float(f.width), Float(f.height), UInt32(bitmap.width), UInt32(bitmap.height), UnsafePointer(data.assumingMemoryBound(to: UInt8.self)), bitmap.height * bitmap.bytesPerRow)
             if r != 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return false }
             uploaded += 1
         }
@@ -154,11 +165,6 @@ final class Canvases {
             FileHandle.standardError.write(Data(String(format: "canvas %d: captured %d children in %.2f ms\n", Int(e.view.id), uploaded, (CACurrentMediaTime() - t0) * 1000).utf8))
         }
         return true
-    }
-
-    /// The window's occlusion changed: whatever was starved may try again.
-    func occlusionChanged() {
-        for e in entries.values { e.starvedUntil = 0 }
     }
 
     /// After a frame, where the surface put each child (LLP 1014 D5): the
@@ -175,7 +181,7 @@ final class Canvases {
 
     /// Every canvas whose children changed since its last capture is painted
     /// again (LLP 1014 D3): the overlay's subtree into a bitmap at the
-    /// window's scale, uploaded as the surface's children texture. Called at
+    /// screen's scale, uploaded as the surface's children texture. Called at
     /// the end of every batch, and once per run-loop turn for changes that
     /// arrive outside one (D4 b, c).
     func captureIfNeeded() {
@@ -190,42 +196,55 @@ final class Canvases {
         DispatchQueue.main.async { self.captureScheduled = false; self.captureIfNeeded() }
     }
 
-    /// Whether the first responder — a field's editor — is under the overlay
-    /// (D4 d): carets and selection repaint without any batch.
-    static func editing(under overlay: NSView) -> Bool {
-        guard let r = overlay.window?.firstResponder else { return false }
-        let v = (r as? NSView) ?? ((r as? NSText)?.delegate as? NSView)
-        return v?.isDescendant(of: overlay) ?? false
+    /// Whether the input being edited is under the overlay (D4 d): carets
+    /// and selection repaint without any batch.
+    static func editing(under overlay: UIView) -> Bool {
+        presenter.editing?.isDescendant(of: overlay) ?? false
     }
 
     private func capture(_ m: GpuModule, _ e: Entry) {
-        guard let overlay = e.view.overlay, let win = e.view.window else { return }
+        guard let overlay = e.view.overlay, e.view.window != nil, let metal = e.view.metal else { return }
         e.view.needsCapture = false
         // Nothing to paint and nothing painted before: no texture at all.
         guard !overlay.subviews.isEmpty || e.uploaded else { return }
-        let scale = win.backingScaleFactor
+        let scale = captureScale(of: metal)
         if e.each {
-            if captureEach(m, e, overlay: overlay, scale: scale) { e.uploaded = true; captures += 1; overlay.alphaValue = 0; e.view.paintedThisTurn = true; DispatchQueue.main.async { e.view.paintedThisTurn = false } }
+            if captureEach(m, e, overlay: overlay, scale: scale) { e.uploaded = true; captures += 1; overlay.alpha = 0; e.view.paintedThisTurn = true; DispatchQueue.main.async { e.view.paintedThisTurn = false } }
             return
         }
         let t0 = CACurrentMediaTime()
-        guard let rep = Capture.bitmap(of: overlay, scale: scale), let data = rep.bitmapData else { return }
-        let t1 = CACurrentMediaTime()
-        let w = UInt32(rep.pixelsWide), h = UInt32(rep.pixelsHigh)
-        let len = rep.pixelsHigh * rep.bytesPerRow
-        let r = m.texture(e.id, w, h, UnsafePointer(data), len)
+        let w: UInt32, h: UInt32, len: Int, r: UInt32, t1: Double
+        // The texture about to be drawn into may be the one the module is
+        // reading (its last frame; its copy into the previous children):
+        // its work first.
+        if !Capture.cpu, m.textureMetal != nil, Shadow.shared != nil, let sync = m.sync { _ = sync() }
+        if !Capture.cpu, let hand = m.textureMetal, let shadow = Shadow.shared, let texture = shadow.renderTexture(overlay, scale: scale) {
+            // Zero-copy (LLP 1008 §9): the module samples the texture the
+            // renderer drew, as it is.
+            t1 = CACurrentMediaTime()
+            w = UInt32(texture.width); h = UInt32(texture.height); len = 0
+            r = hand(e.id, w, h, Unmanaged.passUnretained(texture).toOpaque())
+        } else {
+            guard let bitmap = Capture.bitmap(of: overlay, scale: scale), let data = bitmap.bytes else { return }
+            t1 = CACurrentMediaTime()
+            w = UInt32(bitmap.width); h = UInt32(bitmap.height)
+            len = bitmap.height * bitmap.bytesPerRow
+            r = m.texture(e.id, w, h, UnsafePointer(data.assumingMemoryBound(to: UInt8.self)), len)
+        }
         let t2 = CACurrentMediaTime()
+        windowCaptures += 1
+        windowCaptureSeconds += t2 - t0
         if r != 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return }
         e.uploaded = true
         captures += 1
         // Painted through the surface from here on: the overlay stays laid
         // out — hit-testable, in the accessibility hierarchy — and is no
         // longer composited itself (D5: pixels may distort, boxes may not).
-        overlay.alphaValue = 0
+        overlay.alpha = 0
         e.view.paintedThisTurn = true
         DispatchQueue.main.async { e.view.paintedThisTurn = false }
         if agentMode {
-            FileHandle.standardError.write(Data(String(format: "canvas %d: captured %dx%d in %.2f ms, uploaded %d KiB in %.2f ms\n", Int(e.view.id), Int(w), Int(h), (t1 - t0) * 1000, len / 1024, (t2 - t1) * 1000).utf8))
+            FileHandle.standardError.write(Data(len == 0 ? String(format: "canvas %d: captured %dx%d in %.2f ms, handed over in %.2f ms\n", Int(e.view.id), Int(w), Int(h), (t1 - t0) * 1000, (t2 - t1) * 1000).utf8 : String(format: "canvas %d: captured %dx%d in %.2f ms, uploaded %d KiB in %.2f ms\n", Int(e.view.id), Int(w), Int(h), (t1 - t0) * 1000, len / 1024, (t2 - t1) * 1000).utf8))
         }
     }
 
@@ -237,20 +256,26 @@ final class Canvases {
         }
     }
 
+    /// A nested canvas's picture for its ancestor's capture: the last
+    /// readback while the module reports nothing dirty on it and its
+    /// surface wants no frame at a new clock, else a fresh one.
+    func picture(of view: NodeView) -> CGImage? {
+        guard let m = module, let e = entries[view.id], e.id != 0 else { return nil }
+        if let p = e.picture, m.dirty(e.id) == 0, !(e.wants && now() != e.readAt) { return p }
+        e.picture = readback(view: view)?.cgImage
+        return e.picture
+    }
+
     /// A canvas's picture as pixels, rendered again by the module (LLP 1014):
     /// what a canvas nested under a canvas painted through its surface paints
     /// into its ancestor's capture, since its Metal layer is not seen there.
-    func readback(view: NodeView) -> NSBitmapImageRep? {
+    func readback(view: NodeView) -> UIImage? {
         guard let m = module, let e = entries[view.id], e.id != 0, let metal = view.metal else { return nil }
-        let scale = CGFloat(metal.layer?.contentsScale ?? 2)
+        let scale = CGFloat(metal.layer.contentsScale)
         let w = Int((metal.bounds.width * scale).rounded()), h = Int((metal.bounds.height * scale).rounded())
-        guard w > 0, h > 0,
-              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32),
-              let data = rep.bitmapData
-        else { return nil }
-        rep.size = metal.bounds.size
+        guard let bitmap = Bitmap.blank(width: w, height: h), let data = bitmap.bytes else { return nil }
         let at = now()
-        let r = m.readback(e.id, Float(metal.bounds.width), Float(metal.bounds.height), Float(scale), at, data, w * h * 4)
+        let r = m.readback(e.id, Float(metal.bounds.width), Float(metal.bounds.height), Float(scale), at, data.assumingMemoryBound(to: UInt8.self), w * h * 4)
         e.readAt = at
         if r == 1 {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
@@ -259,16 +284,15 @@ final class Canvases {
         // 2: the surface wants another frame — the ancestor will capture again.
         e.wants = r == 2
         readPlacements(m, e)
-        return rep
+        return bitmap.image
     }
 
-    /// Whether the window can be seen (LLP 1009 D4: the host judges what is
-    /// on screen). An occluded window's Metal layer hands out no drawables,
-    /// and asking blocks the main thread — up to a second — for a frame
-    /// nobody gets (measured closing LLP 1014 §4.1); so nothing renders
-    /// and nothing wants a frame until the window is seen again, when the
-    /// delegate asks `Frames` to run.
-    var visible: Bool { presenter.viewport.window?.occlusionState.contains(.visible) ?? true }
+    /// Whether the app can be seen (LLP 1009 D4: the host judges what is on
+    /// screen). A backgrounded app's Metal layer hands out no drawables, and
+    /// asking blocks the main thread for a frame nobody gets; so nothing
+    /// renders and nothing wants a frame until the app is active again,
+    /// when the scene delegate asks `Frames` to run.
+    var visible: Bool { UIApplication.shared.applicationState != .background }
 
     /// Whether any surface has something to render — or an edit is under a
     /// canvas painted through its surface, which captures every frame (D4 d).
@@ -312,14 +336,16 @@ final class Canvases {
             // twice on the turn a batch already captured.
             if e.through, !e.view.paintedThisTurn, let overlay = e.view.overlay, Canvases.editing(under: overlay) { capture(m, e) }
             guard e.wants || m.dirty(e.id) != 0, let metal = e.view.metal else { continue }
-            let wall = CACurrentMediaTime()
-            if wall < e.starvedUntil { more = true; continue }
-            let scale = Float(metal.layer?.contentsScale ?? 2)
+            // No starvation guard here (the AppKit presenter pauses a canvas
+            // whose render took over 200 ms, a covered window's drawable
+            // wait): iOS has no occlusion of that kind — a backgrounded app
+            // is `visible == false` — and on the simulator the first render
+            // of a surface, its pipelines compiling, honestly takes that long.
+            let scale = Float(metal.layer.contentsScale)
+            let t0 = CACurrentMediaTime()
             let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
-            if CACurrentMediaTime() - wall > 0.2 {
-                e.starvedUntil = CACurrentMediaTime() + 1.0
-                if agentMode { FileHandle.standardError.write(Data("exact gpu: canvas \(e.view.id) waited \(Int((CACurrentMediaTime() - wall) * 1000)) ms for a drawable; not presenting for a second\n".utf8)) }
-            }
+            windowRenders += 1
+            windowRenderSeconds += CACurrentMediaTime() - t0
             if r == 2 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)) }
             e.wants = r == 1
             rendered += 1

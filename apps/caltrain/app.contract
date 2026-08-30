@@ -30,6 +30,9 @@ component Caltrain
   state material = "glass"
   state deck = false
   state focus = none
+  // The sky: its colour behind the status bar and the home indicator, or
+  // none for the plain page (the "Sky off" button).
+  state sky = some("#05081a")
 
   resource location = defaultLocation() as shape Location
   derive selectedId = match stationId { case some(id) => id, case none => "mv" }
@@ -61,93 +64,139 @@ component Caltrain
     deck = not deck
   action focusDeparture(id) writes focus
     focus = some(id)
+  derive skyOn = match sky { case some(c) => true, case none => false }
+  derive canvasColor = match sky { case some(c) => c, case none => "#ffffff" }
+  action toggleSky writes sky
+    sky = match sky { case some(c) => none, case none => some("#05081a") }
 
   task ticker mount
     every(1000, tick)
 
   view
-    main testId="caltrain-main" width="100%" height="100%"
-      canvas surface=glass(material, selectedId) width="100%" height="100%" testId="sky"
+    // The sky is optional (the "Sky off" button): the same content inside
+    // the aurora canvas — captured through its surface, the shader every
+    // frame — or in a plain scroll, to see what each costs on a phone. The
+    // root's background is what a phone paints behind the status bar and
+    // the home indicator (the web's rule): the sky's dark, or white.
+    main testId="caltrain-main" width="100%" height="100%" background=canvasColor
+      when skyOn
+        canvas surface=glass(material, selectedId) width="100%" height="100%" testId="sky"
+          scroll width="100%" height="100%"
+            Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, openStations=openStations, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome)
+      else
         scroll width="100%" height="100%"
-          column gap=16 padding=20 maxWidth=640 alignSelf="center" width="100%" boxSizing="border-box"
-            header width="100%" background="#ffffffd9" radius=16 padding=14 boxSizing="border-box"
-              row justify="space-between" align="center"
-                column gap=2
-                  image "assets/caltrain.png" width=96 fit="contain" label="A Caltrain train" testId="logo"
-                  text "Caltrain" size=13 weight=700 letterSpacing=1.2 color="#c0392b"
-                  text station.name size=24 weight=700 testId="station-name" headingLevel=1
-                  text `${formatDistance(station.distance)} · ${formatWalk(station.distance)}` size=12 color="#666666"
-                column gap=6 align="flex-end"
-                  button press=openStations label="Change station" testId="change-station" padding=8 radius=8 background="#eeeeee"
-                    text "Change station" size=13 weight=600
-                  row gap=6
-                    button press=setScheme("light") label="Light" testId="scheme-light"
-                      text "Light" size=12
-                    button press=setScheme("dark") label="Dark" testId="scheme-dark"
-                      text "Dark" size=12
-                  row gap=6
-                    button press=setMaterial("glass") label="Glass" testId="material-glass"
-                      text "Glass" size=12 weight=600
-                    button press=setMaterial("ink") label="Ink" testId="material-ink"
-                      text "Ink" size=12 weight=600
-                    button press=setMaterial("crt") label="CRT" testId="material-crt"
-                      text "CRT" size=12 weight=600
-                    button press=toggleDeck label="Deck" testId="deck-toggle"
-                      text "Deck" size=12 weight=600 color="#c0392b"
+          Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, openStations=openStations, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome)
 
-            when screen == "home"
-              column padding=20 gap=4 height=220 boxSizing="border-box" justify="flex-end" testId="aurora"
-                when material == "glass"
-                  text "Next stop" size=12 weight=700 letterSpacing=1.2 color="#9ad8ff"
-                  text station.name size=34 weight=800 color="#ffffff" testId="aurora-title"
-                  text `${formatDistance(station.distance)} · ${formatWalk(station.distance)} · the whole app laid out by the kernel, painted by CoreText, refracted by the aurora` size=12 color="#d0e4ff"
+component Content
+  props
+    station: Station
+    selectedId: string
+    screen: string
+    material: string
+    deck: bool
+    focus: option<string>
+    nowMs: number
+    query: string
+    sky: bool
+    northBoard: list<Departure>
+    southBoard: list<Departure>
+    nearby: list<Station>
+    allStations: list<Station>
+    matches: list<Station>
+    openStations: action
+    setScheme: action
+    setMaterial: action
+    toggleDeck: action
+    toggleSky: action
+    focusDeparture: action
+    selectStation: action
+    setQuery: action
+    goHome: action
+  view
+    column gap=16 padding=20 maxWidth=640 alignSelf="center" width="100%" boxSizing="border-box"
+      header width="100%" background="#ffffffd9" radius=16 padding=14 boxSizing="border-box"
+        row justify="space-between" align="center"
+          column gap=2
+            image "assets/caltrain.png" width=96 fit="contain" label="A Caltrain train" testId="logo"
+            text "Caltrain" size=13 weight=700 letterSpacing=1.2 color="#c0392b"
+            text station.name size=24 weight=700 testId="station-name" headingLevel=1
+            text `${formatDistance(station.distance)} · ${formatWalk(station.distance)}` size=12 color="#666666"
+          column gap=6 align="flex-end"
+            button press=openStations label="Change station" testId="change-station" padding=8 radius=8 background="#eeeeee"
+              text "Change station" size=13 weight=600
+            row gap=6
+              button press=setScheme("light") label="Light" testId="scheme-light"
+                text "Light" size=12
+              button press=setScheme("dark") label="Dark" testId="scheme-dark"
+                text "Dark" size=12
+              button press=toggleSky label="Toggle the sky" testId="sky-toggle"
+                when sky
+                  text "Sky off" size=12
                 else
-                  text "Next stop" size=12 weight=700 letterSpacing=1.2 color="#8a5a2b"
-                  text station.name size=34 weight=800 color="#2a1f14" testId="aurora-title"
-                  text `${formatDistance(station.distance)} · ${formatWalk(station.distance)} · the whole app laid out by the kernel, painted by CoreText, composed by the surface` size=12 color="#5a4a3a"
-              canvas surface=map(allStations, selectedId, northBoard, nowMs) width="100%" height=160 radius=16 testId="line-map"
-                column height="100%" boxSizing="border-box" paddingTop=16 paddingBottom=16 justify="space-between"
-                  each s in allStations key=s.id
-                    row align="center" height=14 testId=`map-${s.id}`
-                      view flex=1
-                      view width=14 height=14 align="center" justify="center"
-                        when s.id == selectedId
-                          view width=14 height=14 radius=7 background="#bf382b"
-                        else
-                          view width=7 height=7 radius=3.5 background="#666666"
-                      view flex=1 paddingLeft=10
-                        text s.name size=11 color="#444444" testId=`map-name-${s.id}`
-              section role="region" label="Departures" gap=14 testId="home-screen"
-                when deck
-                  canvas surface=stack(northBoard, focus, deck, nowMs) width="100%" height=460 testId="deck"
-                    each d in northBoard key=d.id
-                      button press=focusDeparture(d.id) label=`Train ${d.train}` testId=`card-${d.id}` width="100%"
-                        column radius=16 padding=16 gap=6 background="#ffffff" width="100%" boxSizing="border-box"
-                          row gap=8 align="flex-end"
-                            text formatCountdownMinutes(d.at, nowMs) size=30 weight=800
-                            text "min" size=13 color="#666666"
-                          text `${formatClockTime(d.at)} · Train ${d.train} · ${d.service} to ${d.headsign}` size=13 color="#444444"
-                else
-                  DirectionCard(title="Northbound", board=northBoard, nowMs=nowMs, testId="board-north")
-                DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, testId="board-south")
-            else
-              section role="region" label="Stations" gap=12 testId="stations-screen" background="#ffffffd9" radius=16 padding=14 boxSizing="border-box"
-                input value=query change=setQuery placeholder="Search stations" label="Search stations" testId="station-search" padding=12 radius=10 borderWidth=1 borderColor="#cccccc"
-                when query == ""
-                  column gap=8
-                    text "Nearest" size=12 weight=700 letterSpacing=0.8 color="#999999"
-                    each s in nearby key=s.id
-                      StationRow(station=s, press=selectStation)
-                    text "All stations" size=12 weight=700 letterSpacing=0.8 color="#999999"
-                    each s in allStations key=s.id
-                      StationRow(station=s, press=selectStation)
-                else
-                  column gap=8
-                    text "Matches" size=12 weight=700 letterSpacing=0.8 color="#999999"
-                    each s in matches key=s.id
-                      StationRow(station=s, press=selectStation)
-                button press=goHome label="Back" testId="stations-back"
-                  text "Back" size=13
+                  text "Sky on" size=12
+            row gap=6
+              button press=setMaterial("glass") label="Glass" testId="material-glass"
+                text "Glass" size=12 weight=600
+              button press=setMaterial("ink") label="Ink" testId="material-ink"
+                text "Ink" size=12 weight=600
+              button press=setMaterial("crt") label="CRT" testId="material-crt"
+                text "CRT" size=12 weight=600
+              button press=toggleDeck label="Deck" testId="deck-toggle"
+                text "Deck" size=12 weight=600 color="#c0392b"
+
+      when screen == "home"
+        column padding=20 gap=4 height=220 boxSizing="border-box" justify="flex-end" testId="aurora"
+          when material == "glass"
+            text "Next stop" size=12 weight=700 letterSpacing=1.2 color="#9ad8ff"
+            text station.name size=34 weight=800 color="#ffffff" testId="aurora-title"
+            text `${formatDistance(station.distance)} · ${formatWalk(station.distance)} · the whole app laid out by the kernel, painted by CoreText, refracted by the aurora` size=12 color="#d0e4ff"
+          else
+            text "Next stop" size=12 weight=700 letterSpacing=1.2 color="#8a5a2b"
+            text station.name size=34 weight=800 color="#2a1f14" testId="aurora-title"
+            text `${formatDistance(station.distance)} · ${formatWalk(station.distance)} · the whole app laid out by the kernel, painted by CoreText, composed by the surface` size=12 color="#5a4a3a"
+        canvas surface=map(allStations, selectedId, northBoard, nowMs) width="100%" height=160 radius=16 testId="line-map"
+          column height="100%" boxSizing="border-box" paddingTop=16 paddingBottom=16 justify="space-between"
+            each s in allStations key=s.id
+              row align="center" height=14 testId=`map-${s.id}`
+                view flex=1
+                view width=14 height=14 align="center" justify="center"
+                  when s.id == selectedId
+                    view width=14 height=14 radius=7 background="#bf382b"
+                  else
+                    view width=7 height=7 radius=3.5 background="#666666"
+                view flex=1 paddingLeft=10
+                  text s.name size=11 color="#444444" testId=`map-name-${s.id}`
+        section role="region" label="Departures" gap=14 testId="home-screen"
+          when deck
+            canvas surface=stack(northBoard, focus, deck, nowMs) width="100%" height=460 testId="deck"
+              each d in northBoard key=d.id
+                button press=focusDeparture(d.id) label=`Train ${d.train}` testId=`card-${d.id}` width="100%"
+                  column radius=16 padding=16 gap=6 background="#ffffff" width="100%" boxSizing="border-box"
+                    row gap=8 align="flex-end"
+                      text formatCountdownMinutes(d.at, nowMs) size=30 weight=800
+                      text "min" size=13 color="#666666"
+                    text `${formatClockTime(d.at)} · Train ${d.train} · ${d.service} to ${d.headsign}` size=13 color="#444444"
+          else
+            DirectionCard(title="Northbound", board=northBoard, nowMs=nowMs, testId="board-north")
+          DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, testId="board-south")
+      else
+        section role="region" label="Stations" gap=12 testId="stations-screen" background="#ffffffd9" radius=16 padding=14 boxSizing="border-box"
+          input value=query change=setQuery placeholder="Search stations" label="Search stations" testId="station-search" padding=12 radius=10 borderWidth=1 borderColor="#cccccc"
+          when query == ""
+            column gap=8
+              text "Nearest" size=12 weight=700 letterSpacing=0.8 color="#999999"
+              each s in nearby key=s.id
+                StationRow(station=s, press=selectStation)
+              text "All stations" size=12 weight=700 letterSpacing=0.8 color="#999999"
+              each s in allStations key=s.id
+                StationRow(station=s, press=selectStation)
+          else
+            column gap=8
+              text "Matches" size=12 weight=700 letterSpacing=0.8 color="#999999"
+              each s in matches key=s.id
+                StationRow(station=s, press=selectStation)
+          button press=goHome label="Back" testId="stations-back"
+            text "Back" size=13
 
 component DirectionCard
   props

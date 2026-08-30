@@ -1,60 +1,45 @@
-// The presenter: one NSView per kernel node, in a flipped root, applying the
-// host's batches. Backgrounds, borders, and text are drawn; frames come from
-// the kernel's layout; transforms and opacity from presentation values.
-import AppKit
-
-final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
-}
+// The presenter: one UIView per kernel node, in a document inside a scroll
+// view, applying the host's batches — the AppKit presenter's shape
+// (host/apple/macos/…/Presenter.swift) on UIKit. Nothing flips (UIKit's
+// origin is the top-left already); a scroll container is a UIScrollView;
+// a press is a touch down and up inside the bounds, and a touch on a node
+// without a handler goes up the responder chain as a DOM click bubbles;
+// transforms and opacity come from presentation values, about the center.
+import ImageIO
+import UIKit
 
 /// Milliseconds from script start to the first node's first draw.
 nonisolated(unsafe) var firstDrawMs: Double? = nil
 /// Milliseconds from script start to the first node's first layout pass.
 nonisolated(unsafe) var firstLayoutMs: Double? = nil
 
-/// A scroll container that chains: a wheel event it cannot consume in its
-/// dominant direction — nothing to scroll, or already at that edge — goes
-/// to the next responder, so an inner `scroll` node never traps the page.
-/// The web's rule (`overscroll-behavior: auto`); AppKit's default is to
-/// swallow it.
-final class ChainingScrollView: NSScrollView {
-    /// Points per line for a wheel without precise deltas — the browser's
-    /// tick.
-    static let lineHeight: CGFloat = 40
-    /// Which axes scroll (the node's effective `overflow_x`/`overflow_y`).
-    var scrollsX = true
-    var scrollsY = true
-
-    override func scrollWheel(with event: NSEvent) {
-        // Precise deltas (a trackpad) are in points; a wheel's are in lines.
-        let precise = event.hasPreciseScrollingDeltas
-        var dx = precise ? event.scrollingDeltaX : event.deltaX * ChainingScrollView.lineHeight
-        var dy = precise ? event.scrollingDeltaY : event.deltaY * ChainingScrollView.lineHeight
-        if dx == 0 && dy == 0 { return }
-        let doc = documentView?.frame.size ?? .zero
-        let origin = contentView.bounds.origin
-        let visible = contentView.bounds.size
-        // Per axis: can this view move in the delta's direction? (Flipped
-        // document: origin grows as content scrolls up; a negative delta
-        // scrolls content up.)
-        let maxX = max(0, doc.width - visible.width), maxY = max(0, doc.height - visible.height)
-        let takeX = scrollsX && dx != 0 && maxX > 0 && ((dx < 0 && origin.x < maxX) || (dx > 0 && origin.x > 0))
-        let takeY = scrollsY && dy != 0 && maxY > 0 && ((dy < 0 && origin.y < maxY) || (dy > 0 && origin.y > 0))
-        // The dominant axis decides who owns the event (a gesture is one
-        // thing); what this view can take of it, it takes itself — never
-        // through AppKit, whose nested-scroll routing may move the enclosing
-        // view or animate later, doubling a delta applied here.
-        let dominantTaken = abs(dy) >= abs(dx) ? takeY : takeX
-        guard dominantTaken else { nextResponder?.scrollWheel(with: event); return }
-        if !takeX { dx = 0 }
-        if !takeY { dy = 0 }
-        let target = NSPoint(x: min(max(origin.x - dx, 0), maxX), y: min(max(origin.y - dy, 0), maxY))
-        contentView.scroll(to: target)
-        reflectScrolledClipView(contentView)
+/// A plain container: the document, a canvas's overlay (LLP 1014). Hit-
+/// testable at alpha 0 — a canvas's children painted through its surface
+/// composite at alpha 0 and must still take a tap, which UIKit's default
+/// hit-test refuses below 0.01 — and transparent to a hit on nothing, so
+/// the touch reaches what holds it (the canvas, the viewport).
+final class PlainView: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
+        for sub in subviews.reversed() {
+            if let hit = sub.hitTest(convert(point, to: sub), with: event) { return hit }
+        }
+        return nil
     }
 }
 
-final class NodeView: NSView, NSTextFieldDelegate {
+/// A scroll container — the viewport over the document, and a node whose
+/// effective `overflow` scrolls. The platform pans it (LLP 1002 D4: scroll
+/// always wins; UIKit does not chain a pan out of a nested scroll view at
+/// its edge). Which axes it scrolls comes from the node's rows; a tap's
+/// wheel (the agent's) applies the web's chaining rule itself
+/// (`AgentIOS.swift`).
+final class ScrollView: UIScrollView {
+    var scrollsX = true
+    var scrollsY = true
+}
+
+final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     let id: UInt32
     let kind: String
     var props: [String: String] = [:]
@@ -64,8 +49,11 @@ final class NodeView: NSView, NSTextFieldDelegate {
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
     weak var presenter: Presenter?
-    var field: NSTextField?
-    var scroll: ChainingScrollView?
+    var field: UITextField?
+    var scroll: ScrollView?
+    /// A scroll container's content extent (the `content` op), before the
+    /// axes that do not scroll are held to the box.
+    var content = CGSize.zero
     /// A canvas node's Metal layer (LLP 1009).
     var metal: MetalView?
     /// A canvas's children live here (LLP 1014): laid out by the kernel in
@@ -73,7 +61,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     /// they are painted into its children texture and this view composites
     /// at alpha 0. `needsCapture`: painted again at the next capture;
     /// `paintedThisTurn`: a draw on this turn is the capture's own.
-    var overlay: FlippedView?
+    var overlay: PlainView?
     var needsCapture = false
     var paintedThisTurn = false
     /// Where a canvas's surface put this direct child (LLP 1014 D5): a 3×3
@@ -85,7 +73,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     /// An image node's picture, once loaded (decoded off the main thread),
     /// the source it came from, and which load is current: a completion
     /// from an older load, or for a view that was destroyed, is dropped.
-    var image: NSImage?
+    var image: UIImage?
     var imageSource: String?
     var loadGeneration = 0
     var pressed = false
@@ -94,13 +82,14 @@ final class NodeView: NSView, NSTextFieldDelegate {
 
     /// Where an image source resolves, as a page resolves `src`: an `http(s)`
     /// URL as is; a relative path under the asset root (`EXACT_ASSETS`, else
-    /// the current directory) and never outside it; anything else (`file:`,
+    /// the app bundle, which carries the app's `assets/` — a phone reads no
+    /// other machine's paths) and never outside it; anything else (`file:`,
     /// `..` escaping the root) does not load.
     static func resolveSource(_ source: String) -> URL? {
         if let u = URL(string: source), let scheme = u.scheme {
             return scheme == "http" || scheme == "https" ? u : nil
         }
-        let base = ProcessInfo.processInfo.environment["EXACT_ASSETS"] ?? FileManager.default.currentDirectoryPath
+        let base = ProcessInfo.processInfo.environment["EXACT_ASSETS"] ?? Bundle.main.bundlePath
         let root = URL(fileURLWithPath: base).standardizedFileURL.path
         let url = URL(fileURLWithPath: base).appendingPathComponent(source).standardizedFileURL
         return url.path == root || url.path.hasPrefix(root.hasSuffix("/") ? root : root + "/") ? url : nil
@@ -136,9 +125,9 @@ final class NodeView: NSView, NSTextFieldDelegate {
             let loaded = (try? Data(contentsOf: url)).flatMap(NodeView.decode)
             DispatchQueue.main.async {
                 guard let self, self.loadGeneration == generation, let presenter = self.presenter, presenter.views[id] === self else { return }
-                self.needsDisplay = true
+                self.setNeedsDisplay()
                 if let (cg, size) = loaded {
-                    self.image = NSImage(cgImage: cg, size: size)
+                    self.image = UIImage(cgImage: cg)
                     NodeView.imagesLoaded.append((source, size))
                     presenter.intrinsic(id, size)
                 } else {
@@ -163,40 +152,40 @@ final class NodeView: NSView, NSTextFieldDelegate {
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
-        wantsLayer = true
-        // A frame change during live resize repaints at the new width
-        // instead of stretching stale pixels.
-        layerContentsRedrawPolicy = .duringViewResize
+        isOpaque = false
+        backgroundColor = .clear
+        // A frame change repaints at the new width instead of stretching
+        // stale pixels.
+        contentMode = .redraw
         if kind == "canvas" {
             let m = MetalView(frame: .zero)
             addSubview(m)
             metal = m
-            let o = FlippedView(frame: .zero)
-            o.autoresizingMask = [.width, .height]
+            let o = PlainView(frame: .zero)
+            o.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             addSubview(o)
             overlay = o
         }
         if kind == "input" {
-            let f = NSTextField(frame: .zero)
-            f.isBordered = false
-            f.drawsBackground = false
-            f.focusRingType = .none
+            let f = UITextField(frame: .zero)
+            f.borderStyle = .none
+            f.backgroundColor = .clear
             f.delegate = self
-            f.autoresizingMask = [.width, .height]
+            f.addTarget(self, action: #selector(fieldChanged), for: .editingChanged)
+            f.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             addSubview(f)
             field = f
         }
     }
     required init?(coder: NSCoder) { nil }
-    override var isFlipped: Bool { true }
 
-    /// Where children go: the scroll document view, or this view.
-    var container: NSView { scroll?.documentView ?? overlay ?? self }
+    /// Where children go: the scroll container, the overlay, or this view.
+    var container: UIView { scroll ?? overlay ?? self }
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
     var canvasAbove: NodeView? {
-        var v: NSView = self
+        var v: UIView = self
         while let s = v.superview {
             if let c = s as? NodeView, c.overlay === v { return c }
             v = s
@@ -213,25 +202,26 @@ final class NodeView: NSView, NSTextFieldDelegate {
         canvases.scheduleCapture()
     }
 
-    @objc func clipScrolled() { repaintThrough() }
+    /// A scroll under a canvas repaints it (LLP 1014 D4 c).
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { repaintThrough() }
 
     /// The direct child of a canvas this node is under, when that child is
     /// placed by the surface: the node whose `placement` maps this subtree.
     var placedAncestor: NodeView? {
-        var v: NSView? = self
+        var v: UIView? = self
         while let n = v {
             if let node = n as? NodeView, node.placement != nil { return node }
-            if let s = n.superview as? FlippedView, s.superview is NodeView, (s.superview as? NodeView)?.overlay === s { return nil }
+            if let s = n.superview as? PlainView, let c = s.superview as? NodeView, c.overlay === s { return nil }
             v = n.superview
         }
         return nil
     }
 
     /// A homography applied to a point (row major, projective).
-    static func map(_ h: [Double], _ p: NSPoint) -> NSPoint {
+    static func map(_ h: [Double], _ p: CGPoint) -> CGPoint {
         let w = h[6] * p.x + h[7] * p.y + h[8]
-        guard abs(w) > 1e-9 else { return NSPoint(x: CGFloat.infinity, y: CGFloat.infinity) }
-        return NSPoint(x: (h[0] * p.x + h[1] * p.y + h[2]) / w, y: (h[3] * p.x + h[4] * p.y + h[5]) / w)
+        guard abs(w) > 1e-9 else { return CGPoint(x: CGFloat.infinity, y: CGFloat.infinity) }
+        return CGPoint(x: (h[0] * p.x + h[1] * p.y + h[2]) / w, y: (h[3] * p.x + h[4] * p.y + h[5]) / w)
     }
 
     /// The inverse of a 3×3 (row major), or nil when singular.
@@ -247,8 +237,8 @@ final class NodeView: NSView, NSTextFieldDelegate {
 
     /// A window point in this node's own coordinates — through the surface's
     /// placement when this node is under a placed child (LLP 1014 D5), else
-    /// AppKit's own conversion.
-    func local(_ windowPoint: NSPoint) -> NSPoint {
+    /// UIKit's own conversion.
+    func local(_ windowPoint: CGPoint) -> CGPoint {
         guard let placed = placedAncestor, let h = placed.placement, let inv = NodeView.invert(h),
               let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
             return convert(windowPoint, from: nil)
@@ -262,34 +252,32 @@ final class NodeView: NSView, NSTextFieldDelegate {
 
     /// The placement changed: accessibility sees the new box.
     func placementChanged() {
-        NSAccessibility.post(element: self, notification: .layoutChanged)
+        UIAccessibility.post(notification: .layoutChanged, argument: nil)
     }
 
     /// Hit-testing through the surface's placements (LLP 1014 D5): a canvas
     /// whose children are placed maps the point through each child's
     /// inverse, topmost first — straight from the canvas to the child,
-    /// skipping the box AppKit would test. A placed child is only where the
+    /// skipping the box UIKit would test. A placed child is only where the
     /// surface put it, never at its kernel frame: the rest of the overlay
-    /// (children the surface left in place) is tested in AppKit's order
-    /// without them, and then the canvas itself is the hit.
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let overlay, let sup = superview else { return super.hitTest(point) }
+    /// (children the surface left in place) is tested in UIKit's order
+    /// without them, and then the canvas itself is the hit. (`point` is in
+    /// this view's own coordinates — UIKit's convention, not AppKit's.)
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let overlay else { return super.hitTest(point, with: event) }
         let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil }
-        guard !placed.isEmpty else { return super.hitTest(point) }
-        let inCanvas = convert(point, from: sup)
-        guard !isHidden, bounds.contains(inCanvas) else { return nil }
+        guard !placed.isEmpty else { return super.hitTest(point, with: event) }
+        guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
         // Nearest first: what is seen on top is what a tap reaches.
         for child in placed.sorted(by: { ($0.placement?[9] ?? 0) > ($1.placement?[9] ?? 0) }) {
             guard let h = child.placement, let inv = NodeView.invert(h) else { continue }
-            let p = NodeView.map(inv, inCanvas)
+            let p = NodeView.map(inv, point)
             guard child.bounds.contains(p) else { continue }
-            // Into the child's superview's space, where AppKit expects it.
-            let inOverlay = NSPoint(x: child.frame.minX + p.x, y: child.frame.minY + p.y)
-            if let hit = child.hitTest(inOverlay) { return hit }
+            if let hit = child.hitTest(p, with: event) { return hit }
         }
-        let inOverlay = overlay.convert(inCanvas, from: self)
+        let inOverlay = overlay.convert(point, from: self)
         for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil {
-            if let hit = child.hitTest(inOverlay) { return hit }
+            if let hit = child.hitTest(child.convert(inOverlay, from: overlay), with: event) { return hit }
         }
         return self
     }
@@ -297,17 +285,20 @@ final class NodeView: NSView, NSTextFieldDelegate {
     /// The box on screen, through the placement of the placed child this
     /// node is (or is under), for assistive technology — the same box the
     /// agent's `layout` reports.
-    override func accessibilityFrame() -> NSRect {
-        guard let placed = placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView, let win = window else { return super.accessibilityFrame() }
-        let corners = [NSPoint(x: 0, y: 0), NSPoint(x: bounds.width, y: 0), NSPoint(x: bounds.width, y: bounds.height), NSPoint(x: 0, y: bounds.height)].map { NodeView.map(h, placed.convert($0, from: self)) }
-        let xs = corners.map { $0.x }, ys = corners.map { $0.y }
-        let inCanvas = NSRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-        return win.convertToScreen(canvas.convert(inCanvas, to: nil))
+    override var accessibilityFrame: CGRect {
+        get {
+            guard let placed = placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView else { return super.accessibilityFrame }
+            let corners = [CGPoint(x: 0, y: 0), CGPoint(x: bounds.width, y: 0), CGPoint(x: bounds.width, y: bounds.height), CGPoint(x: 0, y: bounds.height)].map { NodeView.map(h, placed.convert($0, from: self)) }
+            let xs = corners.map { $0.x }, ys = corners.map { $0.y }
+            let inCanvas = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+            return UIAccessibility.convertToScreenCoordinates(inCanvas, in: canvas)
+        }
+        set { super.accessibilityFrame = newValue }
     }
 
-    func color(_ key: String, _ fallback: NSColor) -> NSColor {
+    func color(_ key: String, _ fallback: UIColor) -> UIColor {
         guard let c = style[key] as? [Double], c.count == 4 else { return fallback }
-        return NSColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+        return Text.color(c)
     }
     func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key] as? Double { return CGFloat(n) }
@@ -318,14 +309,14 @@ final class NodeView: NSView, NSTextFieldDelegate {
         for k in clear { props.removeValue(forKey: k) }
         for (k, v) in set { props[k] = v }
         if let f = field {
-            if let v = props["value"], f.stringValue != v { f.stringValue = v }
-            f.placeholderString = props["placeholder"]
+            if let v = props["value"], f.text != v { f.text = v }
+            f.placeholder = props["placeholder"]
         }
-        setAccessibilityIdentifier(props["testId"])
-        setAccessibilityLabel(props["accessibilityLabel"])
+        accessibilityIdentifier = props["testId"]
+        accessibilityLabel = props["accessibilityLabel"]
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { imageSource = nil; image = nil; presenter?.intrinsic(id, nil) }
-        needsDisplay = true
+        setNeedsDisplay()
     }
 
     func applyStyle(_ s: [String: Any]) {
@@ -335,90 +326,88 @@ final class NodeView: NSView, NSTextFieldDelegate {
         // scroll container that scrolls that axis; `hidden` clips.
         let ox = s["overflow_x"] as? String ?? "visible", oy = s["overflow_y"] as? String ?? "visible"
         if (ox == "scroll" || oy == "scroll") && scroll == nil {
-            let sv = ChainingScrollView(frame: bounds)
-            sv.drawsBackground = false
-            sv.scrollerStyle = .overlay
-            sv.hasVerticalScroller = true
-            sv.hasHorizontalScroller = true
-            sv.autohidesScrollers = true
-            sv.automaticallyAdjustsContentInsets = false
-            sv.contentInsets = NSEdgeInsetsZero
-            sv.documentView = FlippedView(frame: .zero)
-            // A scroll under a canvas repaints it (LLP 1014 D4 c).
-            sv.contentView.postsBoundsChangedNotifications = true
-            NotificationCenter.default.addObserver(self, selector: #selector(clipScrolled), name: NSView.boundsDidChangeNotification, object: sv.contentView)
-            sv.autoresizingMask = [.width, .height]
-            for child in subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
+            let sv = ScrollView(frame: bounds)
+            sv.backgroundColor = .clear
+            sv.contentInsetAdjustmentBehavior = .never
+            sv.delegate = self
+            sv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            for child in subviews where child is NodeView { child.removeFromSuperview(); sv.addSubview(child) }
             addSubview(sv)
             scroll = sv
         }
         if ox != "scroll" && oy != "scroll", let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
-            for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); addSubview(child) }
+            for child in sv.subviews where child is NodeView { child.removeFromSuperview(); addSubview(child) }
             sv.removeFromSuperview()
             scroll = nil
         }
         scroll?.scrollsX = ox == "scroll"
         scroll?.scrollsY = oy == "scroll"
-        scroll?.hasHorizontalScroller = ox == "scroll"
-        scroll?.hasVerticalScroller = oy == "scroll"
+        scroll?.showsHorizontalScrollIndicator = ox == "scroll"
+        scroll?.showsVerticalScrollIndicator = oy == "scroll"
+        fitScroll()
         clipsToBounds = ox == "hidden" || oy == "hidden"
         if let f = field {
             f.font = Text.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), italic: false)
             f.textColor = color("text_color", .black)
         }
-        needsDisplay = true
+        setNeedsDisplay()
+    }
+
+    /// The scroll container's content size: the kernel's extent on an axis
+    /// that scrolls, the box on one that does not (so UIKit cannot pan it
+    /// there), never less than the box.
+    func fitScroll() {
+        guard let sv = scroll else { return }
+        let size = CGSize(width: sv.scrollsX ? max(content.width, sv.bounds.width) : sv.bounds.width, height: sv.scrollsY ? max(content.height, sv.bounds.height) : sv.bounds.height)
+        if sv.contentSize != size { sv.contentSize = size }
     }
 
     func applyTransform() {
-        let b = bounds
-        var t = CGAffineTransform(translationX: translate.x, y: translate.y)
-        t = t.translatedBy(x: b.midX, y: b.midY).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale).translatedBy(x: -b.midX, y: -b.midY)
-        layer?.setAffineTransform(t)
+        // CSS's individual transforms: translate, then rotate, then scale,
+        // about the center (UIKit's anchor).
+        transform = CGAffineTransform(translationX: translate.x, y: translate.y).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale)
     }
 
-    override func layout() {
+    override func layoutSubviews() {
         if firstLayoutMs == nil { firstLayoutMs = wall() }
-        super.layout()
+        super.layoutSubviews()
     }
 
-    override func draw(_ rect: NSRect) {
+    override func draw(_ rect: CGRect) {
         repaintThrough()
-        if Capture.capturing, kind == "canvas", let rep = canvases.readback(view: self) {
+        guard let ctx = UIGraphicsGetCurrentContext() else { return }
+        if Capture.capturing, kind == "canvas", let picture = canvases.picture(of: self) {
             // A canvas nested under a canvas painted through its surface: its
             // picture into the ancestor's capture (LLP 1014); its own Metal
             // layer is not seen there.
-            let picture = NSImage(size: bounds.size)
-            picture.addRepresentation(rep)
-            picture.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            UIImage(cgImage: picture).draw(in: bounds)
         }
         if firstDrawMs == nil {
             firstDrawMs = wall()
             // The first pixel is on its way: the GPU module may load now
-            // (LLP 1009 D4), on the next turn. A batch's own attempt runs
-            // before the display pass and finds no first draw yet; an app
-            // with no later batch — no image, no timer, no motion — would
-            // never load it (found by the readback fixture, LLP 1014).
+            // (LLP 1009 D4), on the next turn (LLP 1014's readback fixture
+            // found a batch's own attempt too early).
             DispatchQueue.main.async { canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) }
         }
         let radius = number("border_radius", number("border_radius_top_left"))
-        let path = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
+        let path = UIBezierPath(roundedRect: bounds, cornerRadius: radius)
         let bg = color("background_color", .clear)
-        if bg.alphaComponent > 0 {
+        if bg.cgColor.alpha > 0 {
             bg.setFill()
             path.fill()
         }
         let borderColor = color("border_color", .clear)
         let uniform = number("border_width")
-        let sides: [(String, NSRect)] = [
-            ("border_width_top", NSRect(x: 0, y: 0, width: bounds.width, height: number("border_width_top", uniform))),
-            ("border_width_bottom", NSRect(x: 0, y: bounds.height - number("border_width_bottom", uniform), width: bounds.width, height: number("border_width_bottom", uniform))),
-            ("border_width_left", NSRect(x: 0, y: 0, width: number("border_width_left", uniform), height: bounds.height)),
-            ("border_width_right", NSRect(x: bounds.width - number("border_width_right", uniform), y: 0, width: number("border_width_right", uniform), height: bounds.height)),
+        let sides: [(String, CGRect)] = [
+            ("border_width_top", CGRect(x: 0, y: 0, width: bounds.width, height: number("border_width_top", uniform))),
+            ("border_width_bottom", CGRect(x: 0, y: bounds.height - number("border_width_bottom", uniform), width: bounds.width, height: number("border_width_bottom", uniform))),
+            ("border_width_left", CGRect(x: 0, y: 0, width: number("border_width_left", uniform), height: bounds.height)),
+            ("border_width_right", CGRect(x: bounds.width - number("border_width_right", uniform), y: 0, width: number("border_width_right", uniform), height: bounds.height)),
         ]
         for (key, r) in sides where number(key, uniform) > 0 {
-            color(key.replacingOccurrences(of: "width", with: "color"), borderColor).setFill()
-            r.fill()
+            ctx.setFillColor(color(key.replacingOccurrences(of: "width", with: "color"), borderColor).cgColor)
+            ctx.fill(r)
         }
         if kind == "image", let img = image {
             // CSS object-fit over the content box (the frame inside border
@@ -447,16 +436,16 @@ final class NodeView: NSView, NSTextFieldDelegate {
                 if let s { size = CGSize(width: natural.width * s, height: natural.height * s) }
             }
             let origin = CGPoint(x: content.minX + (content.width - size.width) / 2, y: content.minY + (content.height - size.height) / 2)
-            NSGraphicsContext.current?.saveGraphicsState()
+            ctx.saveGState()
             path.addClip()
-            NSBezierPath(rect: content).addClip()
-            img.draw(in: NSRect(origin: origin, size: size), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-            NSGraphicsContext.current?.restoreGraphicsState()
+            UIBezierPath(rect: content).addClip()
+            img.draw(in: CGRect(origin: origin, size: size))
+            ctx.restoreGState()
         }
         if kind == "text", let text = props["text"] {
             // The same paragraph the kernel measured at this width, painted.
             let spec = textSpec(text)
-            if let ctx = NSGraphicsContext.current?.cgContext { Text.draw(Text.paragraph(spec, width: bounds.width), spec: spec, in: bounds, context: ctx) }
+            Text.draw(Text.paragraph(spec, width: bounds.width), spec: spec, in: bounds, context: ctx)
         }
     }
 
@@ -471,42 +460,69 @@ final class NodeView: NSView, NSTextFieldDelegate {
             align: align, lineClamp: Int(number("line_clamp")), color: c)
     }
 
-    /// A click counts even when it is the one that activates the window —
-    /// the web's rule (a click on an unfocused page still clicks). AppKit's
-    /// default swallows it, which made a `tap` sent before the window became
-    /// key vanish (found driving the app by hand over stdin).
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    // Press: down and up inside the bounds.
-    override func mouseDown(with event: NSEvent) {
-        if handlers.contains("press") { pressed = true } else { super.mouseDown(with: event) }
+    // Press: a touch down and up inside the bounds. A node without a
+    // handler passes the touch up the responder chain (UIView's default),
+    // so a touch on a button's text reaches the button, as a DOM click
+    // bubbles. A pan cancels it (the scroll view's `canCancelContentTouches`):
+    // scroll always wins.
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if handlers.contains("press") { pressed = true } else { super.touchesBegan(touches, with: event) }
     }
-    override func mouseUp(with event: NSEvent) {
-        guard pressed else { return super.mouseUp(with: event) }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if !pressed { super.touchesMoved(touches, with: event) }
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard pressed else { return super.touchesEnded(touches, with: event) }
         pressed = false
-        if bounds.contains(local(event.locationInWindow)) { presenter?.press(id) }
+        if let t = touches.first, bounds.contains(local(t.location(in: nil))) { presenter?.press(id) }
     }
-    func controlTextDidChange(_ obj: Notification) {
-        if handlers.contains("change") { presenter?.change(id, field?.stringValue ?? "") }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if pressed { pressed = false } else { super.touchesCancelled(touches, with: event) }
     }
+
+    /// A press delivered by the rule a touch gets: to this node when it has
+    /// a handler, else to the nearest ancestor with one, if the point (in
+    /// the window) is inside that node's box. The agent's `tap` and
+    /// VoiceOver's activation come here — UIKit offers no public touch
+    /// synthesis.
+    @discardableResult
+    func activate(at windowPoint: CGPoint) -> NodeView? {
+        var v: UIView? = self
+        while let cur = v {
+            if let n = cur as? NodeView, n.handlers.contains("press") {
+                guard n.bounds.contains(n.local(windowPoint)) else { return nil }
+                n.presenter?.press(n.id)
+                return n
+            }
+            v = cur.superview
+        }
+        return nil
+    }
+    override func accessibilityActivate() -> Bool {
+        activate(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil)) != nil
+    }
+
+    @objc func fieldChanged() {
+        if handlers.contains("change") { presenter?.change(id, field?.text ?? "") }
+    }
+    func textFieldDidBeginEditing(_ textField: UITextField) { presenter?.editing = self }
+    func textFieldDidEndEditing(_ textField: UITextField) { if presenter?.editing === self { presenter?.editing = nil } }
 }
 
 final class Presenter {
     /// The document: the roots live here, content-sized like a page.
-    let root = FlippedView(frame: .zero)
-    /// The viewport over it: the window's content view, scrolling like a browser's.
-    let viewport = NSScrollView(frame: .zero)
+    let root = PlainView(frame: .zero)
+    /// The viewport over it: the window's content, scrolling like a browser's.
+    let viewport = ScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    /// The input being edited, if any (UIKit exposes no first responder):
+    /// what a canvas painted through its surface captures every frame for
+    /// (LLP 1014 D4 d).
+    weak var editing: NodeView?
 
     init() {
-        viewport.documentView = root
-        viewport.hasVerticalScroller = true
-        viewport.hasHorizontalScroller = true
-        viewport.autohidesScrollers = true
-        viewport.scrollerStyle = .overlay
-        viewport.automaticallyAdjustsContentInsets = false
-        viewport.contentInsets = NSEdgeInsetsZero
-        viewport.drawsBackground = true
+        viewport.addSubview(root)
+        viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .white
     }
 
@@ -521,12 +537,13 @@ final class Presenter {
 
     /// Size the document to its roots, never smaller than the viewport.
     func fitDocument() {
-        var size = viewport.contentSize
+        var size = viewport.bounds.size
         for r in root.subviews {
             size.width = max(size.width, r.frame.maxX)
             size.height = max(size.height, r.frame.maxY)
         }
-        if root.frame.size != size { root.frame = NSRect(origin: .zero, size: size) }
+        if root.frame.size != size { root.frame = CGRect(origin: .zero, size: size) }
+        if viewport.contentSize != size { viewport.contentSize = size }
     }
     var onPress: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
@@ -557,14 +574,11 @@ final class Presenter {
                 guard let parent = views[id] else { continue }
                 let want = (op["ids"] as? [Int] ?? []).compactMap { views[UInt32($0)] }
                 let container = parent.container
-                for child in container.subviews where !(want as [NSView]).contains(child) && child is NodeView { child.removeFromSuperview() }
-                for (i, child) in want.enumerated() {
-                    if child.superview !== container { container.addSubview(child) }
-                    if container.subviews.firstIndex(of: child) != i {
-                        child.removeFromSuperview()
-                        container.addSubview(child, positioned: .above, relativeTo: i > 0 ? want[i - 1] : nil)
-                    }
-                }
+                for child in container.subviews where !(want as [UIView]).contains(child) && child is NodeView { child.removeFromSuperview() }
+                // In order, below anything else in the container (a scroll
+                // view's indicators): inserting a subview at an index moves
+                // it when it is already there.
+                for (i, child) in want.enumerated() { container.insertSubview(child, at: i) }
             case "surface":
                 if let v = views[id] { canvases.surface(view: v, name: op["name"] as? String ?? "", values: op["values"] as? [Any] ?? []) }
             case "destroy":
@@ -577,14 +591,20 @@ final class Presenter {
                 for r in (op["ids"] as? [Int] ?? []).compactMap({ views[UInt32($0)] }) { root.addSubview(r) }
             case "frame":
                 guard let v = views[id] else { continue }
-                v.frame = NSRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
+                // A frame is set untransformed (UIKit's `frame` is undefined
+                // under a transform); the presentation goes back on after.
+                v.transform = .identity
+                v.frame = CGRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
                 v.scroll?.frame = v.bounds
                 v.field?.frame = v.bounds
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
+                v.fitScroll()
                 v.applyTransform()
             case "content":
-                views[id]?.scroll?.documentView?.frame = NSRect(x: 0, y: 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
+                guard let v = views[id] else { continue }
+                v.content = CGSize(width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
+                v.fitScroll()
             case "present":
                 guard let v = views[id] else { continue }
                 let x = CGFloat(op["x"] as? Double ?? 0)
@@ -592,19 +612,25 @@ final class Presenter {
                 case "translate": v.translate = CGPoint(x: x, y: CGFloat(op["y"] as? Double ?? 0)); v.applyTransform()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
-                case "opacity": v.alphaValue = x
+                case "opacity": v.alpha = x
                 default: break
                 }
             default: break
             }
         }
         fitDocument()
-        // The page's canvas colour is the first root's background — what
-        // shows beyond a document shorter than the viewport, as a browser
-        // paints the root element's background over the whole canvas.
-        let color = (root.subviews.first as? NodeView)?.color("background_color", .white) ?? .white
-        if viewport.backgroundColor != color { viewport.backgroundColor = color }
+        paintCanvas()
         canvases.captureIfNeeded()
+    }
+
+    /// The page's canvas colour — behind the document and into the safe
+    /// areas the layout keeps out of — is the first root's background, as
+    /// Safari paints the root element's background under the status bar
+    /// and the home indicator; white when the root sets none.
+    var onCanvasColor: ((UIColor) -> Void)?
+    func paintCanvas() {
+        let color = (root.subviews.first as? NodeView)?.color("background_color", .white) ?? .white
+        if viewport.backgroundColor != color { viewport.backgroundColor = color; onCanvasColor?(color) }
     }
 
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
@@ -617,48 +643,99 @@ final class Presenter {
     }
 }
 
+/// Pixels a view's subtree was painted into: premultiplied RGBA, rows
+/// top-down, `width * 4` bytes per row, owned by the context.
+struct Bitmap {
+    let context: CGContext
+    let width: Int
+    let height: Int
+    var bytes: UnsafeMutableRawPointer? { context.data }
+    var bytesPerRow: Int { context.bytesPerRow }
+    /// Empty pixels for the module to fill (a readback).
+    static func blank(width: Int, height: Int) -> Bitmap? {
+        guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+        else { return nil }
+        return Bitmap(context: ctx, width: width, height: height)
+    }
+    var image: UIImage? { context.makeImage().map { UIImage(cgImage: $0) } }
+}
+
 /// A view's subtree as pixels (LLP 1014 D3).
 enum Capture {
     /// A capture is drawing: its draws are not repaints (D4 b).
     nonisolated(unsafe) static var capturing = false
-
+    /// EXACT_CAPTURE=cpu: the Core Graphics capture even where Metal is
+    /// present — the measure's baseline, and the fixture's oracle.
+    static let cpu = ProcessInfo.processInfo.environment["EXACT_CAPTURE"] == "cpu"
     /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
-    /// `pixelsWide * 4` bytes per row, transparent where nothing painted.
-    static func bitmap(of view: NSView, scale: CGFloat) -> NSBitmapImageRep? {
+    /// transparent where nothing painted.
+    static func bitmap(of view: UIView, scale: CGFloat) -> Bitmap? {
         let w = Int((view.bounds.width * scale).rounded()), h = Int((view.bounds.height * scale).rounded())
-        guard w > 0, h > 0,
-              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32)
-        else { return nil }
-        rep.size = view.bounds.size
-        if let p = rep.bitmapData { memset(p, 0, h * w * 4) }
+        guard let bitmap = Bitmap.blank(width: w, height: h) else { return nil }
+        // The GPU, where there is one (`Shadow`); Core Graphics otherwise.
+        if !cpu, let shadow = Shadow.shared {
+            capturing = true
+            let ok = shadow.render(view, scale: scale, into: bitmap)
+            capturing = false
+            if ok {
+                // EXACT_CAPTURE_DUMP=<dir>: this render and the CPU one of the
+                // same frame, as PNGs, to compare the two by eye.
+                if let dir = ProcessInfo.processInfo.environment["EXACT_CAPTURE_DUMP"], dumped < 4 {
+                    dumped += 1
+                    try? bitmap.image?.pngData()?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("gpu-\(dumped).png"))
+                    if let cpuBitmap = Bitmap.blank(width: w, height: h) { draw(view, scale: scale, into: cpuBitmap); try? cpuBitmap.image?.pngData()?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("cpu-\(dumped).png")) }
+                }
+                return bitmap
+            }
+        }
+        draw(view, scale: scale, into: bitmap)
+        return bitmap
+    }
+    nonisolated(unsafe) static var dumped = 0
+
+    /// The CPU capture: Core Graphics rasterizes the subtree into `bitmap`.
+    static func draw(_ view: UIView, scale: CGFloat, into bitmap: Bitmap) {
+        let h = bitmap.height
+        let ctx = bitmap.context
+        // UIKit's geometry — y down from the top — into a context whose y
+        // is up from the bottom: the first row in memory is then the top.
+        ctx.translateBy(x: 0, y: CGFloat(h))
+        ctx.scaleBy(x: scale, y: -scale)
         // A subtree painted through its canvas composites at alpha 0; paint
         // it opaque into the bitmap regardless.
-        let alpha = view.alphaValue
-        view.alphaValue = 1
+        let alpha = view.alpha
+        view.alpha = 1
         // A canvas nested under this one that is painted through its own
         // surface: its picture comes by readback (its draw), not from its
-        // overlay's views, which cacheDisplay would paint regardless of their
+        // overlay's views, which the render would paint regardless of their
         // alpha — so those are hidden for the duration.
-        var hidden: [NSView] = []
-        func hide(_ v: NSView) {
+        var hidden: [UIView] = []
+        func hide(_ v: UIView) {
             for s in v.subviews {
-                if let n = s as? NodeView, let o = n.overlay, o.alphaValue == 0, !o.isHidden { o.isHidden = true; hidden.append(o); continue }
+                // A nested canvas paints its readback in `draw` (LLP 1014):
+                // drop the layer's cached picture so the render calls `draw`
+                // instead of copying what it drew last time (its placements
+                // are read there too, so the cards of a deck in the sky move).
+                if let n = s as? NodeView, n.kind == "canvas" { n.layer.contents = nil; n.setNeedsDisplay() }
+                if let n = s as? NodeView, let o = n.overlay, o.alpha == 0, !o.isHidden { o.isHidden = true; hidden.append(o); continue }
                 hide(s)
             }
         }
         hide(view)
         capturing = true
-        view.cacheDisplay(in: view.bounds, to: rep)
+        UIGraphicsPushContext(ctx)
+        view.layer.render(in: ctx)
+        UIGraphicsPopContext()
         capturing = false
         for o in hidden { o.isHidden = false }
-        view.alphaValue = alpha
-        return rep
+        view.alpha = alpha
     }
 }
 
-extension NSRect {
+extension CGRect {
     /// The rect inside the given edges (never negative in size).
-    func insetBy(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) -> NSRect {
-        NSRect(x: minX + left, y: minY + top, width: max(0, width - left - right), height: max(0, height - top - bottom))
+    func insetBy(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) -> CGRect {
+        CGRect(x: minX + left, y: minY + top, width: max(0, width - left - right), height: max(0, height - top - bottom))
     }
 }

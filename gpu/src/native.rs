@@ -179,6 +179,29 @@ pub fn texture(id: u32, width: u32, height: u32, bytes: &[u8]) -> u32 {
     }
 }
 
+/// The module's GPU work complete (LLP 1008 §9). 0 on success.
+pub fn sync() -> u32 {
+    match with(|m| m.sync()) {
+        Some(true) => 0,
+        _ => 1,
+    }
+}
+
+/// The canvas's children as a Metal texture the host rendered, imported as
+/// it is (LLP 1008 §9). 0 on success.
+///
+/// # Safety
+/// `raw` is a live `MTLTexture` of `width`×`height`, `rgba8Unorm`, kept
+/// alive by the host while the canvas lives.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub unsafe fn texture_from_metal(id: u32, width: u32, height: u32, raw: *mut c_void) -> u32 {
+    // SAFETY: the caller's contract, passed on.
+    match with(|m| unsafe { m.texture_from_metal(id, width, height, raw) }) {
+        Some(true) => 0,
+        _ => 1,
+    }
+}
+
 /// A canvas's picture as pixels into `out` — `width`×`height` points at
 /// `scale`, RGBA rows top-down, `out` at least the pixel count × 4 (LLP
 /// 1014, nested canvases). 0 on success, 2 on success when the surface wants
@@ -341,6 +364,25 @@ macro_rules! module {
         pub unsafe extern "C" fn gpu_texture(id: u32, width: u32, height: u32, bytes: *const u8, len: usize) -> u32 {
             let Some(bytes) = (unsafe { $crate::native::bytes("gpu_texture", bytes, len) }) else { return 1 };
             $crate::native::texture(id, width, height, bytes)
+        }
+
+        /// The module's GPU work complete, so a texture it was reading may be
+        /// drawn into (LLP 1008 §9). 0 on success.
+        #[no_mangle]
+        pub extern "C" fn gpu_sync() -> u32 {
+            $crate::native::sync()
+        }
+
+        /// The canvas's children as a Metal texture the host rendered (LLP
+        /// 1008 §9): imported as it is. 0 on success.
+        ///
+        /// # Safety
+        /// `raw` is a live `MTLTexture` of that size, `rgba8Unorm`, alive
+        /// while the canvas is.
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_texture_metal(id: u32, width: u32, height: u32, raw: *mut ::std::ffi::c_void) -> u32 {
+            unsafe { $crate::native::texture_from_metal(id, width, height, raw) }
         }
 
         /// A canvas's picture as pixels into `out`, `len` bytes (LLP 1014,

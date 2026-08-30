@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // The smoke: the Caltrain app driven through the agent API (LLP 1012) — the
-// same script on the web (headless Chrome), on macOS, and on the Linux host
-// (headless, wherever it was built). Asserts the
+// same script on the web (headless Chrome), on macOS, on iOS (a simulator),
+// and on the Linux host (headless, wherever it was built). Asserts the
 // landmarks, the layout (root width, the image's box from its ratio), the
 // clock, one whole interaction through the host's real input path, scrolling
 // in the app and in the nested fixture (LLP 1010), the GPU module, and a
 // clean journal; prints the numbers. Not a blocking check (it needs Chrome or
-// a window server): `node scripts/smoke.mjs <web|macos|linux> [--shot <png>]`
-// after `node host/web/build.mjs` / `node host/apple/build.mjs` /
+// a window server): `node scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`
+// after `node host/web/build.mjs` / `node host/apple/build.mjs [--ios]` /
 // `cargo build --release -p caltrain-linux`.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -31,8 +31,11 @@ const transcript = () => {
 const pinned = resolve(ROOT, 'scripts/fixtures/transcript.txt');
 if (argv.includes('--record')) { writeFileSync(pinned, transcript()); console.log(`recorded ${pinned.replace(ROOT + '/', '')}`); process.exit(0); }
 
-const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'linux' ? 'linux' : null;
-if (!host) { console.error('usage: node scripts/smoke.mjs <web|macos|linux> [--shot <png>] | --record'); process.exit(2); }
+const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : null;
+if (!host) { console.error('usage: node scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>] | --record'); process.exit(2); }
+// The two Apple presenters share one Canvases: children captured through the
+// surface, placements (LLP 1014 D2, D5) — what the canvas steps below assert.
+const apple = host === 'macos' || host === 'ios';
 const shot = argv.includes('--shot') ? argv[argv.indexOf('--shot') + 1] : process.env.EXACT_SHOT;
 // --record-canvas rewrites this host's reference picture of the canvas
 // fixture (step 10) after a deliberate change to what it shows.
@@ -198,7 +201,7 @@ rmSync(tmp, { recursive: true, force: true });
       const sky = box(l, 'sky'), zoom = box(l, 'sky-zoom');
       check(sky && zoom && zoom.y >= sky.y - 0.5 && zoom.y + zoom.h <= sky.y + sky.h + 0.5, `the button ${JSON.stringify(zoom)} is not inside the canvas ${JSON.stringify(sky)}`);
       let logs = '';
-      if (host === 'macos') {
+      if (apple) {
         // The module loads after the first paint; the first capture puts the
         // overlay at alpha 0 — the tap below must go through it. The first
         // dlopen of a freshly built dylib can take seconds (macOS checks a
@@ -241,12 +244,12 @@ rmSync(tmp, { recursive: true, force: true });
       await f.type('sky-label', 'aurora');
       t = await f.tree();
       check(byTestId(t, 'sky-label')?.props.value === 'aurora', `typing into an input inside the canvas left it at ${JSON.stringify(byTestId(t, 'sky-label')?.props.value)}`);
-      if (host === 'macos') {
+      if (apple) {
         await sleep(100);
         logs += JSON.stringify(await f.logs());
         const captures = (logs.match(/canvas \d+: captured/g) ?? []).length;
         check(captures >= 3, `the presenter captured the canvas ${captures} time(s); expected the first, the tap's batch, and the edit`);
-        console.log(`macos fixture: the canvas captured ${captures} times`);
+        console.log(`${host} fixture: the canvas captured ${captures} times`);
       }
     } finally {
       await f.close();
@@ -272,7 +275,7 @@ rmSync(tmp, { recursive: true, force: true });
     let l = await d.layout();
     const cards = l.nodes.filter((n) => n.testId?.startsWith('card-'));
     check(cards.length >= 2, `the deck has ${cards.length} card(s)`);
-    if (host === 'macos') {
+    if (apple) {
       const deck = box(l, 'deck');
       const onCanvas = cards.filter((c) => c.x < deck.x + deck.w && c.x + c.w > deck.x);
       check(onCanvas.length > 0 && onCanvas.length < cards.length, `${onCanvas.length} of ${cards.length} cards placed on the canvas (a closed deck shows a few; the rest are off it)`);
@@ -294,7 +297,7 @@ rmSync(tmp, { recursive: true, force: true });
     // when a later redraw happens to ask).
     await d.clock('+100');
     l = await d.layout();
-    if (host === 'macos') {
+    if (apple) {
       const later = l.nodes.filter((n) => n.testId?.startsWith('card-'));
       const moved = later.filter((c, i) => cards[i] && Math.abs(c.y - cards[i].y) > 1).length;
       check(moved > 0, 'a tenth of a second on, no card moved: the deck was not read back for the clock (placements refresh late)');

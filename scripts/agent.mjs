@@ -4,7 +4,7 @@
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
-// Usage:  node scripts/agent.mjs <web|macos|linux> [--plan <file>] [--json] <op> [<op> …]
+// Usage:  node scripts/agent.mjs <web|macos|ios|linux> [--plan <file>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window]
 //   tap <target> [wheel <dx> <dy>] | type <target> <text…> | clock <ms|+ms|settle>
 // A target is a testId or a view id; each op is one argument (quote it).
@@ -24,11 +24,18 @@
 // The Linux host is launched with the pinned font (scripts/fixtures/fonts,
 // LLP 1015 §5) so a pixel taken through this driver is the same pixel on
 // every machine; an `env` option, or the environment, overrides it.
+// The iOS app runs on a simulator (`host/apple/build.mjs --ios` builds and
+// installs it; a booted iPhone is used, else the newest, EXACT_SIM names
+// one) and answers the same JSON lines over a Unix socket — a simulator app
+// has no stdin (`AgentIOS.swift`); its stdout and stderr come through the
+// `simctl launch --console` that stays attached.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { extname, resolve } from 'node:path';
+import { appBundle, bundleId, install, simulator } from '../host/apple/build.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -182,6 +189,30 @@ async function openWeb({ plan, size = [420, 900] }) {
 
 // ---------------------------------------------------------------- macOS and Linux, over stdio
 
+/** JSON lines over a duplex: each request is answered by the next line the app writes; unmatched lines are host output (`hostLines`). `fail` rejects every pending request (the app is gone). */
+function jsonLines(readable, writable, hostLines) {
+  const waiting = [];
+  let buf = '';
+  readable.setEncoding('utf8');
+  readable.on('data', (d) => {
+    buf += d;
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i);
+      buf = buf.slice(i + 1);
+      const w = waiting.shift();
+      if (!w) { hostLines.push('app: ' + line); continue; }
+      try { w.resolve(JSON.parse(line)); } catch { w.reject(new Error('unreadable reply: ' + line)); }
+    }
+  });
+  const next = () => new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+  return {
+    next,
+    ask: (req) => { const p = next(); writable.write(JSON.stringify(req) + '\n'); return p; },
+    fail: (why) => { for (const w of waiting.splice(0)) w.reject(new Error(why)); },
+  };
+}
+
 /** The stdio carrier: an app that answers JSON lines under EXACT_AGENT=1 — the macOS presenter (`Agent.swift`) and the Linux host (`host/linux/src/agent.rs`), one protocol. */
 async function openStdio({ host, plan, size, app = 'caltrain', env: extra = {} }) {
   const linux = host === 'linux';
@@ -201,29 +232,15 @@ async function openStdio({ host, plan, size, app = 'caltrain', env: extra = {} }
   const child = spawn(bin, [], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
-  const waiting = [];
-  let buf = '';
-  child.stdout.setEncoding('utf8');
-  child.stdout.on('data', (d) => {
-    buf += d;
-    let i;
-    while ((i = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, i);
-      buf = buf.slice(i + 1);
-      const w = waiting.shift();
-      if (!w) { hostLines.push('app: ' + line); continue; }
-      try { w.resolve(JSON.parse(line)); } catch { w.reject(new Error('unreadable reply: ' + line)); }
-    }
-  });
-  const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); for (const w of waiting.splice(0)) w.reject(new Error(`the app exited (${code ?? signal}); ` + hostLines.join('\n'))); }));
-  const next = () => new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+  const lines = jsonLines(child.stdout, child.stdin, hostLines);
+  const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); lines.fail(`the app exited (${code ?? signal}); ` + hostLines.join('\n')); }));
   const close = async () => { try { child.stdin.end(); } catch {} await Promise.race([exited, sleep(2000)]); try { process.kill(child.pid, 'SIGKILL'); } catch {} };
   try {
-    const readyLine = next();
+    const readyLine = lines.next();
     const ready = await Promise.race([readyLine, sleep(20000).then(() => { throw new Error('the app never became ready; ' + hostLines.join('\n')); })]);
     if (!ready.ready) throw new Error('unexpected first line: ' + JSON.stringify(ready));
     if (ready.error) throw new Error('the app booted with an error: ' + ready.error);
-    const ask = (req) => { const p = next(); child.stdin.write(JSON.stringify(req) + '\n'); return p; };
+    const ask = lines.ask;
     return {
       host, boot: ready.boot, hostLines, gpuMs: () => null,
       ask,
@@ -245,11 +262,73 @@ async function openStdio({ host, plan, size, app = 'caltrain', env: extra = {} }
   }
 }
 
+// ---------------------------------------------------------------- iOS, over a Unix socket
+
+/** The simulator carrier: the bundle `build.mjs --ios` assembled, installed and launched on a simulator with the agent socket's path in its environment (simctl passes SIMCTL_CHILD_*); then the same JSON lines over that socket (`AgentIOS.swift`). A `simctl launch --console` stays attached for the app's stdout and stderr (its `--stdout=`/`--stderr=` files stay empty on Xcode 26). One app per bundle id per device: a session replaces a running copy; closing hangs up the socket, which ends the app, and kills the pid the app reported if it lingers. */
+async function openIOS({ plan, app = 'caltrain', env: extra = {} }) {
+  if (!existsSync(appBundle)) throw new Error('run node host/apple/build.mjs --ios first');
+  const dev = simulator();
+  install(dev);
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
+  const sock = resolve(dir, 'agent.sock');
+  const env = { EXACT_ASSETS: resolve(ROOT, 'apps', app), EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...extra };
+  const childEnv = { ...process.env };
+  for (const [k, v] of Object.entries(env)) childEnv[`SIMCTL_CHILD_${k}`] = v;
+  const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, bundleId(`${app}-apple`)], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  const hostLines = [];
+  for (const stream of [console_.stdout, console_.stderr]) stream.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !/^com\.exact\.\w+: \d+$/.test(l)) hostLines.push('app: ' + l); });
+  const consoleExited = new Promise((r) => console_.on('exit', r));
+  let pid = null;
+  // The app binds the socket once its first frame is applied: connect when it appears.
+  let socket = null;
+  const t = Date.now();
+  while (!socket) {
+    if (Date.now() - t > 20000) { try { console_.kill('SIGKILL'); } catch {} rmSync(dir, { recursive: true, force: true }); throw new Error('the app never opened its agent socket; ' + hostLines.join('\n')); }
+    socket = await new Promise((ok) => { const s = connect(sock); s.once('connect', () => ok(s)); s.once('error', () => { s.destroy(); ok(null); }); });
+    if (!socket) await sleep(50);
+  }
+  socket.on('error', () => {});
+  const lines = jsonLines(socket, socket, hostLines);
+  const exited = new Promise((r) => socket.on('close', () => { lines.fail('the app hung up; ' + hostLines.join('\n')); r(); }));
+  const close = async () => {
+    try { socket.end(); } catch {}
+    await Promise.race([exited, sleep(2000)]);
+    if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    await Promise.race([consoleExited, sleep(1000)]);
+    try { console_.kill('SIGKILL'); } catch {}
+    rmSync(dir, { recursive: true, force: true });
+  };
+  try {
+    const ready = await Promise.race([lines.next(), sleep(20000).then(() => { throw new Error('the app never became ready; ' + hostLines.join('\n')); })]);
+    if (!ready.ready) throw new Error('unexpected first line: ' + JSON.stringify(ready));
+    if (ready.error) throw new Error('the app booted with an error: ' + ready.error);
+    pid = ready.pid ?? null;
+    return {
+      host: 'ios', boot: ready.boot, hostLines, gpuMs: () => null,
+      ask: lines.ask,
+      async input(id, kind, opts) {
+        const r = kind === 'wheel' ? await lines.ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'press' ? await lines.ask({ op: 'tap', id }) : await lines.ask({ op: 'type', id, text: opts.text });
+        if (r.error) throw new Error(r.error);
+        return r;
+      },
+      async screenshot(path, window = false) {
+        const r = await lines.ask({ op: 'screenshot', path, window });
+        if (r.error) throw new Error(r.error);
+        return r;
+      },
+      close,
+    };
+  } catch (e) {
+    await close();
+    throw e;
+  }
+}
+
 // ---------------------------------------------------------------- the eight operations
 
-/** Open a session on `host` ('web' | 'macos' | 'linux'); `plan` boots a compiled contract instead of the app's baked plan; `env` adds to a stdio host's environment. */
+/** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `plan` boots a compiled contract instead of the app's baked plan; `env` adds to a native host's environment. */
 export async function open({ host, plan, size, env } = {}) {
-  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env }) : await openWeb({ plan, size });
+  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env }) : host === 'ios' ? await openIOS({ plan, env }) : await openWeb({ plan, size });
   const s = {
     host: carrier.host,
     /** Milliseconds from launch to the first frame. */
@@ -366,7 +445,7 @@ async function main(argv) {
   }
   const [host, ...ops] = rest;
   if (!host || !ops.length) {
-    console.error('usage: node scripts/agent.mjs <web|macos|linux> [--plan <file>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy>] | type <target> <text…> | clock <ms|+ms|settle>');
+    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux> [--plan <file>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy>] | type <target> <text…> | clock <ms|+ms|settle>');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, size: flags.size });

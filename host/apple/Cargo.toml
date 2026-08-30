@@ -1,6 +1,6 @@
 # The Apple host: the runner and kernel natively, laying out with Taffy and
 # measuring text through a callback the app registers, running exact-motion,
-# and emitting typed batches an AppKit (later UIKit) presenter applies.
+# and emitting typed batches the AppKit and UIKit presenters apply.
 #
 # @ref LLP 1008 (this host) / LLP 1001 §6 (injected text measurement) /
 # LLP 1002 D2, §4 (every non-web host runs exact-motion)
