@@ -5,10 +5,11 @@
 //! from the grants the data crate declares (D6; ibex LLP 0067/0068) over one
 //! `ibex2::host::Host`, the platform transport (`NSURLSession` here) and its
 //! secret store (`crate::store`, LLP 1018 D6). Each outcome
-//! is queued for the main thread and the host's wake callback is called
-//! from here, carrying nothing; the presenter hops to its main thread and
-//! calls `exact_pump`, which delivers every queued outcome to the runner as
-//! one batch. Requests run one at a time, in order; parallelism is later.
+//! is queued for the runtime owner and the host's wake callback is called
+//! from here, carrying nothing; the Apple glue hops through main to capture
+//! its clock, then calls `exact_pump` on the dedicated runtime thread. That
+//! delivers every queued outcome to the runner as one batch. Requests run
+//! one at a time, in order; parallelism is later.
 
 use exact_runner::{FailureKind, Outcome, Request, RequestOut, Response};
 use std::ffi::c_void;

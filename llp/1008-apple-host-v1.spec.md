@@ -5,7 +5,7 @@
 **Systems:** Apple host (AppKit and UIKit presenters), Kernel (layout, text measurement), Runner (seam), Motion (native executor), C ABI, Boot
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-08-29 (§9: iOS — the UIKit presenter over the same archive, the Swift the two presenters share, the simulator as the run; §7 and the summary follow); 2026-08-30 (§9: `viewport-fit=cover` with the insets to the kernel, and the keyboard's inset on the viewport; §4: `exact_insets`)
+**Revised:** 2026-08-29 (§9: iOS — the UIKit presenter over the same archive, the Swift the two presenters share, the simulator as the run; §7 and the summary follow); 2026-08-30 (§9: `viewport-fit=cover` with the insets to the kernel, and the keyboard's inset on the viewport; §4: `exact_insets`); 2026-08-30 (§§3–6, §9–11: one dedicated runtime thread prepares native frames off-main; copied CoreText glyph snapshots cross to main; complete batches alone are published)
 **Implementer:** Claude (Fable 5), landing 2026-08-29 (this document transcribes the landing; iOS the same day, §9)
 **Related:** LLP 1007 (the web host whose shape this repeats), LLP 1001 §5–6 (layout is a host call; text measurement is an injected trait object) and §9 (the C ABI waited for its consumer — this is it), LLP 1002 D2/§4 (every host but the web runs `exact-motion`; Core Animation delegation is a measured question), LLP 1003 §4 (the seam), LLP 1000 (the map: web first, then Apple, then Linux), `rules/RULES.md` §Time budgets, `rules/NOT-DOING.md` §Motion (no CA executor yet). Research, never authority, whose lessons this applies: exact1's LLP 0113/0116/0169 (SwiftUI's delivery hop measured), 0223 (the AppKit/UIKit cutover), 0418/0430/0432 (CoreText as the one text engine), 0323 (measurement caching — shelved there, adopted here at its cheap end).
 
@@ -29,6 +29,15 @@ UIKit presenter of the same shape applying the same batches, and the Swift
 that is not about a window — the bridge, CoreText, the agent's clock, the GPU
 module's ABI — shared between the two presenters rather than copied. Where
 this document and the code disagree, the code and its tests are the authority.
+
+**Runtime ownership, added 2026-08-30.** AppKit/UIKit no longer run the
+runner, kernel, Taffy, motion evaluation, CoreText shaping, or Keychain work
+on main. One persistent `exact.runtime` thread owns the thread-local C bridge
+from boot until exit and prepares every batch in FIFO order. Main admits
+platform input and applies a complete batch; it never waits for preparation.
+This is the native-frame half of the architecture discussed in the prompt:
+non-main work moves as early as the lifecycle permits, leaving one
+main-thread frame publication. §11 is the exact contract.
 
 ## 1. The seams and the batch (`host/apple/src/host.rs`, `batch.rs`)
 
@@ -82,12 +91,17 @@ unconstrained offers). No `unsafe` on the Rust side: calling a safe
 `extern "C"` fn pointer is safe Rust, and the structs live for the call.
 
 The Swift side is CoreText and nothing else. A **`Paragraph`** is a
-width-specific snapshot — the wrapped `CTLine`s from a `CTTypesetter`, each
-line's baseline from the top, the size with the same `ceil` the kernel
-receives — cached by `(spec, width)`. The measure callback answers from it,
-and `NodeView.draw` paints from it: one `CTLineDraw` per line, baselines
-snapped to the point grid, flush by alignment. What was measured is what is
-painted, by construction. `line-height: normal` is the font's ascent +
+width-specific, immutable snapshot: a `CTTypesetter` and its `CTLine`/`CTRun`
+objects exist only for one layout operation on `exact.runtime`; before that
+operation returns, every glyph id and position is copied into Swift arrays,
+with its `CTFont`, and the queue-confined layout objects are discarded. Each
+line's baseline from the top and the size use the same `ceil` the kernel
+receives. The snapshot is cached by `(spec, width)` behind a lock because the
+measure callback reads it on the runtime thread and `NodeView.draw` reads it
+on main. Drawing uses `CTFontDrawGlyphs` over those copies, applying the
+current text color on main; color is deliberately not part of shaping or the
+cache key. What was measured is what is painted, by construction.
+`line-height: normal` is the font's ascent +
 descent + leading; a set line height centers the glyphs in the box; the
 first baseline is reported so Taffy's baseline alignment works; `line_clamp`
 truncates the last line with `…`; min-content is the widest unbreakable
@@ -122,32 +136,37 @@ runs an **executor thread** (`host/apple/src/executor.rs`) that owns one
 `../ibex`, the way Weird Castle takes exact2). After every call that
 produced a batch, the bridge hands the runner's new requests to that thread;
 each outcome is queued and the wake is called *from the executor's thread*,
-carrying nothing; the presenter hops to its main thread and calls
-`exact_pump(now_ms)`, which delivers every queued outcome to the runner
+carrying nothing; the host hops to main only to capture the app clock, then
+enqueues `exact_pump(now_ms)` on `exact.runtime`, which delivers every queued outcome to the runner
 (`parse`, the resource's value or the mutation's slot, one settlement each)
 and returns one batch of their commits. A forced request (`refresh`) goes
 with `cache-control: no-cache`. `ibex2`'s transport is Objective-C++, so the
 Swift packages link `c++` beside the archive. The agent's `clock settle`
-pumps the queue itself while the run loop turns (its handler runs inside a
-main-queue block, so the wake's own main-queue pump cannot run until it
-returns) and reports `settled: false` after twenty seconds of a request
-still out.
+polls asynchronously while main and the executor continue to run and reports
+`settled: false` after twenty seconds of a request still out; it never spins
+or blocks the main run loop.
 
 LLP 1001 §9 left the C ABI "waiting for the consumer that would make its spec
 transcription rather than speculation"; this is that consumer, and the ABI
 is the web host's buffer discipline over `extern "C"`: `exact_in(len)`
 resizes a host-owned input buffer and returns its address; `exact_out()`
 returns the output buffer's; `exact_boot(measure, ctx, width, height)`,
+`exact_prepare(measure, ctx)` followed by `exact_present(width, height)`,
 `exact_boot_plan(len, …)`, `exact_dispatch(view, kind, len, now_ms)`,
 `exact_advance(now_ms)`, `exact_resize(width, height)`, `exact_insets(top,
 right, bottom, left)` (the safe-area insets under `viewport-fit=cover`, §9;
 2026-08-30), and `exact_tick(now_ms)` each return the output's length, a
 UTF-8 JSON batch. The app never hands the
 host a pointer the host did not give out; the one call the other way is the
-measure function. All calls on one thread; the bridge is thread-local.
+measure function. All calls run on the same persistent `exact.runtime`
+`Thread`; the bridge is thread-local. A serial GCD queue is insufficient here:
+it preserves FIFO order but may move successive blocks between physical
+threads, which would select a fresh thread-local bridge. The first run of the
+implementation caught exactly that as later calls returning `not booted`;
+the dedicated thread is therefore correctness, not an optimization detail.
 `exact_apple::host!(DataType, PLAN)` instantiates the exports for one app;
 `apps/caltrain/apple` is that one line plus the same `build.rs` as the web
-crate, producing `libcaltrain_apple.a`. The header is written by hand (ten
+crate, producing `libcaltrain_apple.a`. The header is written by hand (fourteen
 functions, three structs); a header generated from `schema.json` — enum
 values for rows, node types, props — waits for a consumer that reads
 binary batches instead of names, as §9 of LLP 1001 said it should.
@@ -181,11 +200,13 @@ field editor reports (`insertNewline` → `Enter`, `cancelOperation` →
 the field's `change`, where the web's `keydown` fires per character. A view
 the presenter no longer has sends nothing (AppKit ends editing as a destroyed
 field leaves the window; the browser fires no blur on removal, so neither
-does this host), and an event arriving while a batch is being applied waits
-for the batch to finish — the runner is never re-entered.
-Motion frames come from `NSView.displayLink` while `motion` is true and from
-nothing otherwise; the runner's clock is a 250 ms timer while `timers` is
-true.
+does this host). Platform events capture their id/value and clock on main,
+then enter `exact.runtime`; its result returns as an immutable `Batch` and is
+applied in one main turn. FIFO ownership means a batch apply can enqueue more
+work but can never re-enter the runner. Motion frames come from
+`NSView.displayLink` while `motion` is true: at most one runtime tick may be
+pending, so a slow preparation cannot accumulate stale display frames. The
+runner's clock is a 250 ms main timer that likewise enqueues its advance.
 
 **Scrolling** is LLP 1010's: the window is a viewport over the document,
 a scroll container is a `ChainingScrollView` made from the node's
@@ -271,6 +292,30 @@ window here is ~135 ms (accessory) to ~200 ms (Dock). A claim like "boots
 in 20 ms" is a claim about the part after AppKit is up — our 11 ms — or a
 different machine.
 
+**The main-thread split (2026-08-30).** Before §11, the current Caltrain app
+(275 views, 145 text nodes) measured **10.3 ms runner + layout**, including
+**6.7 ms CoreText**, followed by **4.9 ms apply**: about **15.2 ms of main
+thread** for one prepared frame. The new ownership moves the first number in
+its entirety to `exact.runtime`; main retains the ~5 ms publication. A smoke
+of the dedicated-thread build reported 35.3 ms end-to-end runtime preparation
+on that fresh launch (10.8 ms CoreText) and 4.7 ms apply; the value of the
+change is isolation from main, not a claim that cold work became faster.
+
+**UIKit follow-through (2026-08-30).** An asynchronous publication submitted
+from UIKit's first layout missed the initial scene turn and waited another
+~30 ms for the main queue. Baked-plan boot is now split: `exact_prepare`
+decodes and validates the plan, boots the runner, constructs the initial
+mirror/batch, and synchronizes motion before `UIApplicationMain`;
+`exact_present` performs only the sized Taffy/CoreText layout. `UIWindow`
+already reports its scene bounds and safe-area insets before it is visible,
+so UIKit submits the sized phase there, performs the window's required initial
+layout, then non-blockingly publishes any ready batch in the same scene turn.
+On the iPhone 17 Pro simulator, five launches measured **16.2 ms p50** from
+sized submission through publication (11.8 ms CoreText), **14.1 ms apply**,
+and **359.2 ms `main` → first paint**. The isolated pre-change `HEAD` measured
+380.4 ms p50 on the same booted simulator; the first dedicated-thread form,
+before split boot, measured 413.8 ms p50.
+
 What scales with the app, and is therefore what will get slower: text
 measurement (~17 µs per uncached paragraph, ~3 misses per text node at
 boot, so ~50 µs per text node — 1,000 text nodes would be 50 ms, and the
@@ -310,6 +355,14 @@ deck's placements stand still until a timer redraws text — and
 `screencapture -l` refuses it (`screencapture exited 1`); a run while the
 display slept, 2026-08-29, showed both, and HEAD's own presenter the same.
 
+The §11 revision was driven end to end on 2026-08-30 after rebuilding both
+Swift packages: `node scripts/smoke.mjs macos` green in 5.3 s and
+`node scripts/smoke.mjs ios` green in 23.1 s. Both held nested scrolling,
+canvas readback, deck placement/input, the motion fixed point and one-seek
+parity, safe-area reporting, and the three app tests; iOS additionally held
+the atomic keyboard content resize (viewport 874 → 539, bottom bar 840 →
+539 under the 335-point keyboard).
+
 ## 9. iOS: the UIKit presenter (`host/apple/ios`, `host/apple/swift`; 2026-08-29)
 
 iOS is this host on its fourth surface, not a fifth host. **The archive is the
@@ -322,9 +375,10 @@ the same shape**: `host/apple/ios` is a SwiftPM package (tools 5.9, iOS 17, a
 `CExact` system-library target over `exact.h`) whose executable target holds
 `main.swift`, `Presenter.swift`, `Gpu.swift`, and `AgentIOS.swift`, and links
 the archive the way `macos` does. **What is not about a window is shared, not
-copied**: `host/apple/swift/` holds `Bridge.swift` (verbatim), `Text.swift`
-(CoreText for both — a `PlatformFont`/`PlatformColor` alias, the italic
-trait per platform, the context passed to `draw`), `Agent.swift` (the
+copied**: `host/apple/swift/` holds `Bridge.swift` (the ABI plus the one
+persistent runtime thread), `Text.swift` (CoreText for both — copied glyph
+snapshots, a `PlatformFont`/`PlatformColor` alias, the italic trait per
+platform, the context passed to `draw`), `Agent.swift` (the
 request loop, `reply`, `settle`, the `clock` fixed point — everything of
 LLP 1012's presenter half that is not `layout`/`tap`/`type`/`screenshot`),
 and `GpuModule.swift` (the dylib's ABI, `dlopen`); both packages symlink
@@ -336,10 +390,11 @@ for the split and stayed green through it.
 the top-left). The viewport is a `UIScrollView` over a content-sized
 document, framed to the **safe area** — where a browser lays a page out on
 a phone without `viewport-fit=cover`: 402×778 on the iPhone 17 Pro (874 less
-the Dynamic Island's 62 and the home indicator's 34), and the plan boots at
-the first layout pass that has a size, following every later size
-(`Exact.resize`). `NodeView.draw(_:)` paints with `UIBezierPath` and the
-same `CTLineDraw` into the UIKit context; an `input` is a `UITextField`
+the Dynamic Island's 62 and the home indicator's 34). Size-independent plan
+boot starts before `UIApplicationMain`; the first sized layout uses
+`UIWindow.bounds.inset(by: safeAreaInsets)` before the window is visible,
+and every later size follows it (`runtime.resize`). `NodeView.draw(_:)` paints with `UIBezierPath` and the
+same copied-glyph draw into the UIKit context; an `input` is a `UITextField`
 reporting `.editingChanged`; a scroll container is a `UIScrollView` whose
 content size is held to the box on an axis that does not scroll (UIKit would
 pan it otherwise); presentation values go on `transform` about the center,
@@ -357,7 +412,10 @@ are `change`, §5's deviation), which is also a `submit` handler's event and
 sets the return key to *Go*. `type="password"` is `isSecureTextEntry` (with
 the password content type); `inputMode` (`email`, `numeric`, `decimal`,
 `tel`, `url`, `search`) picks the keyboard, and `type` alone does the same
-for `email`/`url`/`tel`. The agent's `tap … hover` and `type … key`
+for `email`/`url`/`tel`. The field is framed to the content box (padding and
+border, the web's rule); `inputMode=email` (and `url`/`tel`) takes
+`autocapitalizationType = .none` the way `type=email` does — a username
+field is not a sentence. The agent's `tap … hover` and `type … key`
 deliver directly by the responder-chain rule, as its press does. The canvas machinery of
 LLP 1014 is ported whole (the overlay, placements, `hitTest` through them,
 `accessibilityFrame`), with two UIKit facts folded in: the overlay is a
@@ -394,8 +452,9 @@ where the app's `env(safe-area-inset-*)` lengths resolve to them — Weird
 Castle's root pads itself by the four and its dark runs under the status
 bar. `Controller.fit` frames the viewport from the prop after each layout
 pass: the plan boots at the safe area's size (the prop arrives in the first
-batch) and a cover root is reframed and re-inset in the same turn, before
-anything is drawn; a rotation changes size and insets and sends both; the
+batch), the viewport is reframed immediately, and one runtime publication
+prepares the new insets and size in that order. Agent readiness waits for
+that publication; ordinary UIKit never blocks for it. A rotation changes size and insets and sends both; the
 dev loop's restart hands the new runner the insets again (`rebooted`). The
 style dictionary carries an `env()` length as its resolved points (§2),
 re-sent by the batch that changes the insets. `layout` reports the insets
@@ -419,8 +478,9 @@ agent's wheel scrolls without one: its world is settled between calls, and
 UIKit hit-tests a scroll view at its *presentation* offset while the
 keyboard's spring is still settling — a `tap` computed from the model
 offset missed the button for half a second (found by the smoke's dismiss
-step). The notification arrives inside `becomeFirstResponder`, so the
-agent's `type` sees the inset in its next `layout`; `layout.env["keyboard-inset-height"]` is the overlap (335 on the
+step). The notification normally arrives inside `becomeFirstResponder`; the
+agent polls until the complete publication makes the inset observable.
+`layout.env["keyboard-inset-height"]` is the overlap (335 on the
 iPhone 17 Pro simulator). The agent's `tap` now also does what a touch up
 does first — the nearest node that takes the focus takes it — so a tap on a
 node with a `focus` handler resigns the field and the keyboard goes.
@@ -435,14 +495,15 @@ web's opt-in for what the default cannot do — a bar pinned to the bottom
 that rides on the keyboard (Chrome Android's mode; Safari has none): the
 layout viewport ends at the keyboard's top. When the first root's
 `interactiveWidget` prop says so, `keyboardChanged` does not inset; it
-records the keyboard's top and, *inside the keyboard's animation block*,
-has `Controller.fit` frame the viewport to end there with the bottom
-safe-area inset zeroed (the keyboard's edge has none — the web's reading)
-and send `exact_insets` and `exact_resize`; the batch's frame ops are set
-inside that block, so every frame that moves is a Core Animation move with
-the keyboard's own duration and curve, in the keyboard's transaction — the
-bar, the form above it, the shrunken column — one layout, nothing per
-frame. A container whose height animates stretches its own bitmap for the
+records the keyboard's top and has `Controller.fit` calculate the viewport
+ending there with the bottom safe-area inset zeroed (the keyboard's edge has
+none — the web's reading). One runtime job prepares `exact_insets` then
+`exact_resize`; when both complete, main applies both batches and the
+viewport frame in one `UIView.animate` using the keyboard's curve and the
+duration remaining after preparation. The inset reported to the agent is
+changed in that same publication, never ahead of its kernel frame. Thus the
+bar, the form above it, and the shrunken column are one layout and one
+observable frame, with nothing computed per animation frame. A container whose height animates stretches its own bitmap for the
 duration (`contentMode = .redraw` repaints once, at the new size); a solid
 background does not show it, text nodes keep their size and translate. The
 field being edited is revealed after, through the scroll containers above
@@ -470,7 +531,9 @@ question, in the queue. **Dismissing it** is the web's
 rule: a tap that lands on nothing that takes the focus blurs the field
 and the keyboard goes — a touch nothing consumed reaching the viewport
 (`ScrollView.touchesEnded`), a press on a node that does not take the
-focus (`NodeView.touchesEnded`), the agent's `tap` the same way; the macOS
+focus (`NodeView.touchesEnded`), the agent's `tap` the same way —
+except a control whose box sits on the field being edited (a password
+reveal: the web keeps focus with `mousedown` `preventDefault`); the macOS
 presenter does the same for a click (`PageScrollView.mouseDown`, a pressed
 node's `mouseDown`: `makeFirstResponder(nil)`), since a browser blurs on a
 click anywhere else. The smoke's step 13 taps the fixture's title to send
@@ -478,7 +541,17 @@ the keyboard away on iOS, the web, and macOS. `contract/corpus/keyboard-bar.cont
 the smoke's step 13: the iPhone 17 Pro simulator's viewport 874 → 539 under
 a 335 keyboard, the bar's bottom 840 → 539, the bottom inset 34 → 0, all
 back on dismiss; Weird Castle's root uses it, with a yellow bar under its
-screens. Not built: `env(keyboard-inset-*)`, the `overlays-content` mode.
+screens. **`overlays-content` and `env(keyboard-inset-height)` (2026-08-30).**
+The layout viewport stays; the overlap is published as `Env.keyboard`
+(`exact_keyboard`, wire kind 7) and authors pad with
+`env(keyboard-inset-height)` (or `keyboard-inset-bottom`). The controller
+prepares that layout off-main and publishes the frames in the keyboard's
+animation, the same path as `resizes-content`, without shrinking the viewport
+or scrolling it — a full-bleed canvas (Weird Castle's night) stays put, the
+form above it moves. Because that form is painted *through* the canvas, the
+display link captures **presentation** frames for the keyboard's duration
+(the model is already at the end; capturing it snapped). The web host emits
+the `env()` in CSS and the viewport meta; Safari still has only `resizes-visual`.
 
 **The agent (LLP 1012) on iOS.** A simulator app has no stdin, so
 `EXACT_AGENT=1` with `EXACT_AGENT_SOCKET=<path>` listens on a Unix socket
@@ -656,9 +729,92 @@ Nothing crosses the ABI: `host/apple/src/store.rs` endows the app's
 unless `EXACT_STORE=real`), reads each granted name through `Secrets::get`
 into the runner's snapshot (`Host::boot_stored`), and hands the same bindings
 to the executor thread; after every commit `Host::persist` writes the
-runner's `StoreWrite`s through `Secrets::set`/`forget` on the main thread —
+runner's `StoreWrite`s through `Secrets::set`/`forget` on `exact.runtime` —
 the Keychain (ibex LLP 0069): the login keychain on macOS,
 `AfterFirstUnlockThisDeviceOnly` on iOS. `build.mjs` signs the macOS binary
 with the first Apple Development identity in the keychain (`EXACT_IDENTITY`
 names one) so the item's ACL survives a rebuild; ad-hoc otherwise, and the
 keychain asks on every rebuild, before the first frame (LLP 1018 D7).
+
+## 11. One runtime owner; one main publication (built 2026-08-30)
+
+### 11.1 Ownership and lifecycle
+
+`host/apple/swift/Bridge.swift` constructs one long-lived `ExactRuntime` at
+the first runtime submission. It starts a named, user-interactive `Thread` and
+feeds it closures through an `NSCondition`-protected FIFO. That physical
+thread — not merely a dispatch queue — is the only caller of every `exact_*`
+entry. It consequently owns the Rust thread-local `Bridge`, runner, kernel,
+Taffy tree, motion engine, platform text measurement, and host store for the
+process lifetime. The executor of §4 remains a separate I/O thread and owns
+no runner state.
+
+The earliest size a native app can honestly know is used: AppKit submits boot
+as soon as its content view exists. UIKit submits size-independent baked-plan
+preparation before `UIApplicationMain`, then submits the first layout when its
+`UIWindow` has scene bounds and safe-area insets, before visibility. The
+runtime retains the prepared host between `exact_prepare` and `exact_present`.
+Its complete `Batch` is posted to main, applied, and only then is the macOS
+window ordered or the agent declared ready. UIKit follow-up insets and size
+for a cover root are another ordered runtime publication; agent readiness
+includes that publication through `runtime.barrier`.
+
+### 11.2 The publication protocol
+
+All platform entrances have the same shape:
+
+1. Main captures the platform fact: view id and input value, viewport or
+   insets, or the current app clock.
+2. `ExactRuntime` increments a main-owned pending-publication count and
+   appends one job to its FIFO.
+3. The dedicated thread calls the synchronous C ABI, including every layout
+   and CoreText measurement, and parses its JSON into a `Batch` that is not
+   mutated afterwards.
+4. Main applies that complete batch through `Presenter.apply`, then decrements
+   the count. No view is touched by the runtime thread and main never waits.
+
+Prepared results wait in a lock-protected publication queue as well as posting
+an ordinary main-queue delivery. UIKit drains that queue without waiting after
+its required initial window layout and again at foreground/active lifecycle
+boundaries. This lets a batch that completed during `willConnect` publish in
+that same main turn instead of waiting for UIKit to service the dispatch queue;
+an empty drain is an immediate no-op. Other publications use the ordinary
+delivery path.
+
+This covers boot/reload; press, change, hover, focus, blur, key, and submit;
+image intrinsic size; timers; viewport/inset changes; network pumps; motion
+ticks; and agent reads. FIFO order is the serialization rule. A callback
+during apply may submit another job, but cannot call the runner synchronously,
+so runner re-entry is impossible. A display link allows only one outstanding
+motion job; later display ticks are coalesced until its batch is applied.
+
+`runtime.barrier` is an agent/testing primitive, not application flow. Its
+counter includes prepared results already posted to main, so the barrier runs
+only after every earlier batch has actually been applied. The JSON-line reader
+waits on its own background thread for each asynchronous answer; it never
+blocks main. `clock settle` polls pending requests through asynchronous agent
+calls, allowing executor wakes and main publication to continue.
+
+The iOS `resizes-content` case is a compound publication. One runtime job
+prepares insets first and resize second; main applies both batches and the
+viewport frame in one animation with the keyboard curve and its remaining
+duration. `keyboard-inset-height`, the safe-area environment, the root frame,
+and the bottom bar become observable together. The agent's no-animation path
+uses the same batches and delays the reported environment until they apply.
+
+### 11.3 CoreText boundary and what remains on main
+
+Apple documents Core Text's font objects as shareable while recommending that
+layout objects such as typesetters, runs, lines, and frames stay within one
+operation or work queue. `Text.layout` follows the stronger rule: it copies
+glyph ids and positions out and publishes only value arrays plus `CTFont`.
+The paragraph and font caches are locked; the platform-font cache remains
+main-owned. See [Core Text](https://developer.apple.com/documentation/CoreText)
+and Apple's [thread-safety summary](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/ThreadSafetySummary/ThreadSafetySummary.html).
+
+Main still does the work only the UI process can do: create/destroy native
+views, assign properties and frames, draw copied glyphs, run responder/input
+paths, and capture or present GPU canvases. This change does not claim a
+zero-cost main turn: Caltrain's publication is about 5 ms today (§6). It
+removes runner/layout/text preparation from that turn and gives later work a
+single place to optimize without changing the native view contract.

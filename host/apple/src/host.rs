@@ -62,6 +62,27 @@ pub struct Host<D: DataSource> {
     secrets: Option<Secrets>,
 }
 
+/// A booted runner and its initial presenter operations before the one piece
+/// that needs a platform viewport: layout and presentation.
+pub struct PreparedHost<D: DataSource> {
+    host: Host<D>,
+    batch: Batch,
+}
+
+impl<D: DataSource> PreparedHost<D> {
+    /// Lay out at the first honest viewport and finish the initial batch.
+    pub fn present(mut self, width: f32, height: f32) -> (Host<D>, String) {
+        self.host.viewport = (width, height);
+        let error = self.host.layout(&mut self.batch).err();
+        self.host.present(&mut self.batch, true);
+        let timers = self.host.runner.has_timers();
+        let motion = !self.host.engine.quiescent();
+        let clock = self.host.runner.now_ms();
+        let batch = self.batch.finish(timers, motion, clock, error.as_deref());
+        (self.host, batch)
+    }
+}
+
 impl<D: DataSource> Host<D> {
     /// Boot from plan bytes with the app's text measurer and viewport (points):
     /// decode (a validation pass), boot the runner, lay out, and produce the
@@ -123,6 +144,23 @@ impl<D: DataSource> Host<D> {
         snapshot: Vec<(String, String)>,
         secrets: Option<Secrets>,
     ) -> Result<(Host<D>, String), HostError> {
+        Ok(
+            Host::prepare_stored(plan_bytes, data, measurer, carried, snapshot, secrets)?
+                .present(width, height),
+        )
+    }
+
+    /// Perform every size-independent part of boot. The returned host owns
+    /// the runner and initial presenter operations; [`PreparedHost::present`]
+    /// performs the first layout once the platform has a viewport.
+    pub fn prepare_stored(
+        plan_bytes: &[u8],
+        data: D,
+        measurer: Box<dyn TextMeasurer>,
+        carried: Option<&Carried>,
+        snapshot: Vec<(String, String)>,
+        secrets: Option<Secrets>,
+    ) -> Result<PreparedHost<D>, HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         let kernel = Kernel::new(measurer);
         let runner = match carried {
@@ -136,7 +174,7 @@ impl<D: DataSource> Host<D> {
             keys: BTreeMap::new(),
             roots: Vec::new(),
             engine: Engine::new(),
-            viewport: (width, height),
+            viewport: (0.0, 0.0),
             now_ms: 0.0,
             secrets,
         };
@@ -175,12 +213,7 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
-        let error = host.layout(&mut batch).err();
-        host.present(&mut batch, true);
-        let timers = host.runner.has_timers();
-        let motion = !host.engine.quiescent();
-        let clock = host.runner.now_ms();
-        Ok((host, batch.finish(timers, motion, clock, error.as_deref())))
+        Ok(PreparedHost { host, batch })
     }
 
     /// The runner.
@@ -323,14 +356,26 @@ impl<D: DataSource> Host<D> {
     /// rotation): the kernel's environment is set, every node whose style
     /// holds an `env()` length gets its dictionary re-sent with the new
     /// points and is laid out again; the batch carries what moved. Empty
-    /// when nothing reads the insets, or they did not change.
+    /// when nothing reads the insets, or they did not change. The keyboard
+    /// overlap is kept: it is a different publication (`set_keyboard`).
     pub fn set_insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) -> String {
+        let keyboard = self.runner.kernel().env().keyboard;
+        self.apply_env(
+            Env::new(top, right, bottom, left).with_keyboard(keyboard),
+            "insets",
+        )
+    }
+
+    /// The software keyboard's overlap with the layout viewport, in points
+    /// (`env(keyboard-inset-height)`). Empty when nothing reads it, or it
+    /// did not change. The safe-area insets are kept.
+    pub fn set_keyboard(&mut self, height: f32) -> String {
+        self.apply_env(self.runner.kernel().env().with_keyboard(height), "keyboard")
+    }
+
+    fn apply_env(&mut self, env: Env, what: &str) -> String {
         let mut batch = Batch::new();
-        let error = match self
-            .runner
-            .kernel_mut()
-            .set_env(Env::new(top, right, bottom, left))
-        {
+        let error = match self.runner.kernel_mut().set_env(env) {
             Ok(false) => None,
             Ok(true) => {
                 for id in self.preorder() {
@@ -338,7 +383,7 @@ impl<D: DataSource> Host<D> {
                 }
                 self.layout(&mut batch).err()
             }
-            Err(e) => Some(format!("insets: {e:?}")),
+            Err(e) => Some(format!("{what}: {e:?}")),
         };
         self.finish(batch, error)
     }
@@ -592,7 +637,9 @@ fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     let pad = |d: exact_kernel::Dimension, against: f32| match d.resolve(&env) {
         exact_kernel::Dimension::Points(p) => p,
         exact_kernel::Dimension::Percent(p) => against * p / 100.0,
-        exact_kernel::Dimension::Auto | exact_kernel::Dimension::Env(..) => 0.0,
+        exact_kernel::Dimension::Auto
+        | exact_kernel::Dimension::Env(..)
+        | exact_kernel::Dimension::Keyboard(_) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);

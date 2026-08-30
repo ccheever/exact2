@@ -246,7 +246,10 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             f.backgroundColor = .clear
             f.delegate = self
             f.addTarget(self, action: #selector(fieldChanged), for: .editingChanged)
-            f.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            // Laid out in the content box (`fitField`), not stretched to the
+            // border box — CSS padding is inside the field, and a UITextField
+            // that fills the node sits flush on the left.
+            f.overrideUserInterfaceStyle = .light
             addSubview(f)
             field = f
         }
@@ -384,14 +387,30 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         for (k, v) in set { props[k] = v }
         if let f = field {
             if let v = props["value"], f.text != v { f.text = v }
-            f.placeholder = props["placeholder"]
             // The web's `type` and `inputmode`, as UIKit spells them.
             let type = props["type"] ?? "text"
-            f.isSecureTextEntry = type == "password"
-            f.textContentType = type == "password" ? .password : type == "email" ? .emailAddress : nil
-            f.autocapitalizationType = (type == "password" || type == "email" || type == "url") ? .none : .sentences
-            f.autocorrectionType = (type == "password" || type == "email" || type == "url") ? .no : .default
-            switch props["inputMode"] ?? type {
+            let mode = props["inputMode"] ?? type
+            let secure = type == "password"
+            // Toggling `isSecureTextEntry` can drop the text and the caret;
+            // keep both so a "show password" control does not wipe the field.
+            if f.isSecureTextEntry != secure {
+                let t = f.text
+                let sel = f.selectedTextRange
+                let focused = f.isFirstResponder
+                f.isSecureTextEntry = secure
+                f.text = t
+                f.selectedTextRange = sel
+                if focused, !f.isFirstResponder { _ = f.becomeFirstResponder() }
+            }
+            f.textContentType = secure ? .password : (type == "email" || mode == "email") ? .username : type == "url" ? .URL : nil
+            // Credentials and addresses are not sentences — a username field
+            // with `inputmode=email` was taking `.sentences` and capitalizing
+            // the first letter.
+            let cred = secure || type == "email" || type == "url" || type == "tel" || mode == "email" || mode == "url" || mode == "tel"
+            f.autocapitalizationType = cred ? .none : .sentences
+            f.autocorrectionType = cred ? .no : .default
+            f.spellCheckingType = cred ? .no : .default
+            switch mode {
             case "email": f.keyboardType = .emailAddress
             case "numeric": f.keyboardType = .numberPad
             case "decimal", "number": f.keyboardType = .decimalPad
@@ -401,6 +420,14 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             default: f.keyboardType = .default
             }
             f.returnKeyType = handlers.contains("submit") ? .go : .default
+            if let ph = props["placeholder"] {
+                f.attributedPlaceholder = NSAttributedString(string: ph, attributes: [
+                    .foregroundColor: UIColor(white: 0.42, alpha: 1),
+                    .font: f.font as Any,
+                ])
+            } else {
+                f.attributedPlaceholder = nil
+            }
         }
         accessibilityIdentifier = props["testId"]
         accessibilityLabel = props["accessibilityLabel"]
@@ -440,8 +467,21 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         if let f = field {
             f.font = Text.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), italic: false)
             f.textColor = color("text_color", .black)
+            fitField()
         }
         setNeedsDisplay()
+    }
+
+    /// The field sits in the content box: padding and border, the web's rule.
+    func fitField() {
+        guard let f = field else { return }
+        let uniform = number("border_width")
+        let box = bounds.insetBy(
+            left: number("border_width_left", uniform) + number("padding_left"),
+            top: number("border_width_top", uniform) + number("padding_top"),
+            right: number("border_width_right", uniform) + number("padding_right"),
+            bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+        if f.frame != box { f.frame = box }
     }
 
     /// The scroll container's content size: the kernel's extent on an axis
@@ -462,6 +502,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     override func layoutSubviews() {
         if firstLayoutMs == nil { firstLayoutMs = wall() }
         super.layoutSubviews()
+        fitField()
     }
 
     override func draw(_ rect: CGRect) {
@@ -535,7 +576,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         if kind == "text", let text = props["text"] {
             // The same paragraph the kernel measured at this width, painted.
             let spec = textSpec(text)
-            Text.draw(Text.paragraph(spec, width: bounds.width), spec: spec, in: bounds, context: ctx)
+            Text.draw(Text.paragraph(spec, width: bounds.width), spec: spec, color: color("text_color", .black), in: bounds, context: ctx)
         }
     }
 
@@ -544,10 +585,9 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     func textSpec(_ text: String) -> Spec {
         let align: Int
         switch style["text_align"] as? String { case "center": align = 1; case "right": align = 2; case "justify": align = 3; default: align = 0 }
-        let c = (style["text_color"] as? [Double]) ?? [0, 0, 0, 255]
         return Spec(
             runs: [Run(text: text, size: number("font_size", 16), weight: Int(number("font_weight", 400)), italic: (style["font_style"] as? String) == "italic", lineHeight: number("line_height"), letterSpacing: number("letter_spacing"))],
-            align: align, lineClamp: Int(number("line_clamp")), color: c)
+            align: align, lineClamp: Int(number("line_clamp")))
     }
 
     // Press: a touch down and up inside the bounds. A node without a
@@ -565,10 +605,14 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         if canBecomeFirstResponder, !isFirstResponder { _ = becomeFirstResponder() }
         guard pressed else { return super.touchesEnded(touches, with: event) }
         pressed = false
-        // A pressed node that did not take the focus: the field being edited
-        // loses it, as a click on a button blurs a page's input.
-        if !isFirstResponder { window?.endEditing(true) }
-        if let t = touches.first, bounds.contains(local(t.location(in: nil))) { presenter?.press(id) }
+        let at = touches.first.map { $0.location(in: nil) }
+        // A pressed node that did not take the focus blurs the field — a
+        // click on a button blurs a page's input — except a control that
+        // sits on the field itself (a password-reveal): the web keeps focus
+        // there with mousedown preventDefault.
+        let keep = at.flatMap { presenter?.keepsEditing(at: $0) } ?? false
+        if !isFirstResponder, !keep { window?.endEditing(true) }
+        if let at, bounds.contains(local(at)) { presenter?.press(id) }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         if pressed { pressed = false } else { super.touchesCancelled(touches, with: event) }
@@ -625,14 +669,17 @@ final class Presenter {
     private(set) var viewportFit: String?
     var onViewportFit: (() -> Void)?
     /// The first root's `interactiveWidget` prop: `resizes-content` ends the
-    /// layout viewport at the keyboard's top (the controller lays out again,
-    /// inside the keyboard's animation, so every frame that moves moves with
-    /// it); anything else is the default, `resizes-visual` — the inset below.
+    /// layout viewport at the keyboard's top (the controller prepares that
+    /// layout off-main, then publishes it in the keyboard's animation);
+    /// `overlays-content` keeps the layout viewport and publishes the
+    /// overlap as `env(keyboard-inset-height)` so the author pads; anything
+    /// else is the default, `resizes-visual` — the inset below.
     private(set) var interactiveWidget: String?
     /// The keyboard's top edge in the window while one is shown, else nil.
     private(set) var keyboardTop: CGFloat?
-    /// The controller's: frame the viewport again (`Controller.fit`).
-    var onKeyboardResize: (() -> Void)?
+    /// The controller's: prepare and frame the viewport again
+    /// (`Controller.fit`), using the keyboard's duration and curve.
+    var onKeyboardResize: ((Double, UInt) -> Void)?
     /// The safe-area insets the kernel was given (LLP 1008 §9): the
     /// screen's under `viewport-fit=cover`, zero when the viewport is the
     /// safe area itself. Reported to the agent as `env`.
@@ -664,7 +711,7 @@ final class Presenter {
     /// transaction, so the content moves in lockstep with the keyboard,
     /// never a frame behind it.
     @objc func keyboardChanged(_ n: Notification) {
-        guard let info = n.userInfo, let window = viewport.window, let parent = viewport.superview else { return }
+        guard let info = n.userInfo, let window = viewport.window else { return }
         let end = (info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
         let hiding = n.name == UIResponder.keyboardWillHideNotification
         // The keyboard's frame is the screen's; the viewport's, the window's.
@@ -697,29 +744,35 @@ final class Presenter {
     private var keyboardDebounce: DispatchWorkItem?
 
     /// The keyboard's top edge (nil: hidden) takes effect: the viewport is
-    /// inset by the overlap (`resizes-visual`, the default) or laid out to
-    /// end there (`resizes-content`, the controller's `fit`), the field
-    /// being edited revealed after — inside an animation with the keyboard's
-    /// own duration and curve, so the frames the batch sets are Core
-    /// Animation moves in the keyboard's transaction, never a frame behind.
+    /// inset by the overlap (`resizes-visual`, the default), laid out to
+    /// end there (`resizes-content`, the controller's `fit`), or kept and
+    /// the overlap published as `env(keyboard-inset-height)` (`overlays-content`)
+    /// — the field being edited revealed after, except under overlays, where
+    /// scrolling would move a full-bleed canvas. Inside an animation with
+    /// the keyboard's own duration and curve. A content-resize asks the
+    /// controller to prepare its kernel frame first and animate the complete
+    /// publication.
     func applyKeyboard(top: CGFloat?, duration: Double, curve: UInt) {
         guard let window = viewport.window, let parent = viewport.superview else { return }
         keyboardTop = top
+        let overlay = interactiveWidget == "overlays-content"
+        let resizeContent = interactiveWidget == "resizes-content"
         let change = {
-            if self.interactiveWidget == "resizes-content" {
-                self.onKeyboardResize?()
+            if resizeContent || overlay {
+                self.onKeyboardResize?(agentMode ? 0 : duration, curve)
             } else {
                 let frame = parent.convert(self.viewport.frame, to: window)
                 let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
                 self.setKeyboardInset(overlap)
+                self.reveal(self.editing ?? self.views.values.first { $0.field?.isFirstResponder == true })
             }
-            self.reveal(self.editing ?? self.views.values.first { $0.field?.isFirstResponder == true })
         }
         // Under the agent (LLP 1012) the change applies at once, as the
         // agent's wheel scrolls at once: its world is settled between calls,
         // and UIKit hit-tests a scroll view at its presentation offset while
         // the keyboard's spring is still settling — a tap there would miss.
         if agentMode || duration <= 0 { change(); return }
+        if resizeContent || overlay { change(); return }
         UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState], animations: change)
     }
 
@@ -731,6 +784,13 @@ final class Presenter {
         var indicators = viewport.verticalScrollIndicatorInsets
         indicators.bottom = h
         viewport.verticalScrollIndicatorInsets = indicators
+    }
+
+    /// Whether a window point lands on the field being edited — a password
+    /// reveal sits in that box, and a tap there must not blur it.
+    func keepsEditing(at windowPoint: CGPoint) -> Bool {
+        guard let ed = editing, ed.window != nil else { return false }
+        return ed.bounds.contains(ed.convert(windowPoint, from: nil))
     }
 
     /// Scroll a node into the part of the viewport the keyboard leaves —
@@ -879,7 +939,7 @@ final class Presenter {
                 v.transform = .identity
                 v.frame = CGRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
                 v.scroll?.frame = v.bounds
-                v.field?.frame = v.bounds
+                v.fitField()
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
                 v.fitScroll()
@@ -907,7 +967,14 @@ final class Presenter {
         interactiveWidget = first?.props["interactiveWidget"]
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
-        canvases.captureIfNeeded()
+        // During a keyboard interpolation the model is already at the end;
+        // capturing it now would snap the surface. The display link captures
+        // presentation frames instead (Canvases.keyboardAnimating).
+        if canvases.keyboardAnimating {
+            for e in canvases.entries.values where e.through { e.view.needsCapture = true }
+        } else {
+            canvases.captureIfNeeded()
+        }
     }
 
     /// The page's canvas colour — behind the document and into the safe
@@ -1012,7 +1079,9 @@ enum Capture {
         hide(view)
         capturing = true
         UIGraphicsPushContext(ctx)
-        view.layer.render(in: ctx)
+        // Presentation while the keyboard interpolates: `render(in:)` on the
+        // model is the end layout and would snap.
+        if canvases.keyboardAnimating, let p = view.layer.presentation() { p.render(in: ctx) } else { view.layer.render(in: ctx) }
         UIGraphicsPopContext()
         capturing = false
         for o in hidden { o.isHidden = false }

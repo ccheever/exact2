@@ -58,10 +58,12 @@ impl Edge {
     }
 }
 
-/// The page's environment: what CSS's `env(safe-area-inset-*)` resolve to,
-/// in points, set by the host with the viewport (a phone's status bar and
-/// home indicator under `viewport-fit=cover`; zero everywhere else, as a
-/// browser reports them for a page without it).
+/// The page's environment: what CSS's `env(safe-area-inset-*)` and
+/// `env(keyboard-inset-height)` resolve to, in points, set by the host with
+/// the viewport (a phone's status bar and home indicator under
+/// `viewport-fit=cover`; a software keyboard's overlap under
+/// `interactive-widget=overlays-content`; zero everywhere else, as a
+/// browser reports them for a page without those).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Env {
     /// `safe-area-inset-top`.
@@ -72,17 +74,28 @@ pub struct Env {
     pub bottom: f32,
     /// `safe-area-inset-left`.
     pub left: f32,
+    /// `keyboard-inset-height` (and `keyboard-inset-bottom` when the
+    /// keyboard is docked): the points of the layout viewport a software
+    /// keyboard covers. Zero with no keyboard.
+    pub keyboard: f32,
 }
 
 impl Env {
-    /// The four insets, top right bottom left.
+    /// The four safe-area insets, top right bottom left; no keyboard.
     pub const fn new(top: f32, right: f32, bottom: f32, left: f32) -> Env {
         Env {
             top,
             right,
             bottom,
             left,
+            keyboard: 0.0,
         }
+    }
+
+    /// The same environment with a keyboard overlap.
+    pub const fn with_keyboard(mut self, keyboard: f32) -> Env {
+        self.keyboard = keyboard;
+        self
     }
 
     /// The inset at an edge.
@@ -97,14 +110,15 @@ impl Env {
 
     /// Whether every inset is a finite number.
     pub fn is_finite(&self) -> bool {
-        Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
+        Edge::ALL.iter().all(|e| self.inset(*e).is_finite()) && self.keyboard.is_finite()
     }
 }
 
 /// A length: automatic, absolute points, a percentage of the parent (0–100),
-/// or a safe-area inset of the viewport plus points — CSS's
-/// `env(safe-area-inset-<edge>)` and `calc(env(safe-area-inset-<edge>) + <n>px)`,
-/// resolved against the kernel's [`Env`] at layout.
+/// a safe-area inset of the viewport plus points — CSS's
+/// `env(safe-area-inset-<edge>)` and `calc(env(safe-area-inset-<edge>) + <n>px)` —
+/// or the software keyboard's overlap, `env(keyboard-inset-height)`, resolved
+/// against the kernel's [`Env`] at layout.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Dimension {
     /// Let the engine decide.
@@ -117,6 +131,10 @@ pub enum Dimension {
     /// The viewport's safe-area inset at an edge, plus points (zero for a
     /// bare `env()`).
     Env(Edge, f32),
+    /// The software keyboard's overlap with the layout viewport, plus
+    /// points — CSS's `env(keyboard-inset-height)` and, when the keyboard
+    /// is docked, `env(keyboard-inset-bottom)`.
+    Keyboard(f32),
 }
 
 impl Dimension {
@@ -124,34 +142,41 @@ impl Dimension {
     pub fn is_finite(self) -> bool {
         match self {
             Dimension::Auto => true,
-            Dimension::Points(v) | Dimension::Percent(v) | Dimension::Env(_, v) => v.is_finite(),
+            Dimension::Points(v)
+            | Dimension::Percent(v)
+            | Dimension::Env(_, v)
+            | Dimension::Keyboard(v) => v.is_finite(),
         }
     }
 
     /// An `env()` length by CSS's grammar, or `None` when the text is not one:
-    /// `env(safe-area-inset-<edge>)`, or `calc(env(safe-area-inset-<edge>) + <n>px)`
-    /// (`-` as well). No fallback argument: the host always defines the four
-    /// insets, so CSS would never use one.
+    /// `env(safe-area-inset-<edge>)`, `env(keyboard-inset-height)` (and
+    /// `keyboard-inset-bottom`), or `calc(env(...) ± <n>px)`. No fallback
+    /// argument: the host always defines the insets, so CSS would never use one.
     pub fn parse_env(text: &str) -> Option<Dimension> {
         let t = text.trim();
-        let edge_of = |inner: &str| -> Option<Edge> {
-            let inner = inner.trim();
-            let name = inner
-                .strip_prefix("env(")?
-                .strip_suffix(')')?
-                .trim()
-                .strip_prefix("safe-area-inset-")?;
-            Edge::from_name(name)
+        let term_of = |inner: &str| -> Option<Dimension> {
+            let name = inner.trim().strip_prefix("env(")?.strip_suffix(')')?.trim();
+            if let Some(edge) = name
+                .strip_prefix("safe-area-inset-")
+                .and_then(Edge::from_name)
+            {
+                return Some(Dimension::Env(edge, 0.0));
+            }
+            if name == "keyboard-inset-height" || name == "keyboard-inset-bottom" {
+                return Some(Dimension::Keyboard(0.0));
+            }
+            None
         };
-        if let Some(edge) = edge_of(t) {
-            return Some(Dimension::Env(edge, 0.0));
+        if let Some(d) = term_of(t) {
+            return Some(d);
         }
         let body = t.strip_prefix("calc(")?.strip_suffix(')')?.trim();
         // `env(...) ± <n>px`: the operator is the first `+`/`-` after the
         // closing paren of the `env(...)` term.
         let close = body.find(')')?;
         let (term, rest) = body.split_at(close + 1);
-        let edge = edge_of(term)?;
+        let base = term_of(term)?;
         let rest = rest.trim();
         let (sign, number) = match rest.as_bytes().first() {
             Some(b'+') => (1.0, &rest[1..]),
@@ -160,8 +185,11 @@ impl Dimension {
         };
         let number = number.trim().strip_suffix("px")?.trim();
         let plus: f32 = number.parse().ok()?;
-        plus.is_finite()
-            .then_some(Dimension::Env(edge, sign * plus))
+        plus.is_finite().then_some(match base {
+            Dimension::Env(edge, _) => Dimension::Env(edge, sign * plus),
+            Dimension::Keyboard(_) => Dimension::Keyboard(sign * plus),
+            _ => return None,
+        })
     }
 
     /// The points an `env()` length resolves to under `env`; any other
@@ -169,6 +197,7 @@ impl Dimension {
     pub fn resolve(self, env: &Env) -> Dimension {
         match self {
             Dimension::Env(edge, plus) => Dimension::Points(env.inset(edge) + plus),
+            Dimension::Keyboard(plus) => Dimension::Points(env.keyboard + plus),
             other => other,
         }
     }
@@ -178,7 +207,7 @@ impl Dimension {
             Dimension::Auto => auto(),
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
-            Dimension::Env(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Keyboard(_) => unreachable!("resolved above"),
         }
     }
 
@@ -187,7 +216,7 @@ impl Dimension {
             Dimension::Auto => auto(),
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
-            Dimension::Env(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Keyboard(_) => unreachable!("resolved above"),
         }
     }
 
@@ -198,7 +227,7 @@ impl Dimension {
             Dimension::Auto => length(0.0_f32),
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
-            Dimension::Env(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Keyboard(_) => unreachable!("resolved above"),
         }
     }
 }
@@ -317,7 +346,7 @@ impl StyleValue {
             }
             _ => Err(StyleValueError::WrongKind {
                 style,
-                expected: "number, percent, auto, or env(safe-area-inset-*)",
+                expected: "number, percent, auto, or env(safe-area-inset-*|keyboard-inset-*)",
             }),
         }
     }
@@ -694,10 +723,12 @@ impl StyleProps {
 /// Whether any set dimension row of `style` is an `env()` length — the
 /// rows a change of the kernel's environment re-derives.
 pub fn uses_env(style: &StyleProps) -> bool {
-    style
-        .mask
-        .iter()
-        .any(|id| matches!(style.get(id), RowValue::Dimension(Dimension::Env(..))))
+    style.mask.iter().any(|id| {
+        matches!(
+            style.get(id),
+            RowValue::Dimension(Dimension::Env(..) | Dimension::Keyboard(_))
+        )
+    })
 }
 
 /// The engine style for a live slot, its `env()` lengths resolved against
@@ -763,9 +794,21 @@ mod tests {
             Dimension::parse_env("calc(env(safe-area-inset-right)-2.5px)"),
             Some(Dimension::Env(Edge::Right, -2.5))
         );
+        assert_eq!(
+            Dimension::parse_env("env(keyboard-inset-height)"),
+            Some(Dimension::Keyboard(0.0))
+        );
+        assert_eq!(
+            Dimension::parse_env("env(keyboard-inset-bottom)"),
+            Some(Dimension::Keyboard(0.0))
+        );
+        assert_eq!(
+            Dimension::parse_env("calc(env(keyboard-inset-height) + 8px)"),
+            Some(Dimension::Keyboard(8.0))
+        );
         for bad in [
             "env(safe-area-inset-middle)",
-            "env(keyboard-inset-height)",
+            "env(keyboard-inset-width)",
             "calc(env(safe-area-inset-top) + 12)",
             "calc(env(safe-area-inset-top) * 2)",
             "calc(12px + env(safe-area-inset-top))",
@@ -785,6 +828,9 @@ mod tests {
             Dimension::Env(Edge::Left, 8.0).to_taffy(&env),
             length(8.0_f32)
         );
+        let env = env.with_keyboard(335.0);
+        assert_eq!(Dimension::Keyboard(0.0).to_lp(&env), length(335.0_f32));
+        assert_eq!(Dimension::Keyboard(-12.0).to_lp(&env), length(323.0_f32));
         // Through the untyped value: text is an `env()` length or nothing.
         let mut s = StyleProps::default();
         s.set_dynamic(

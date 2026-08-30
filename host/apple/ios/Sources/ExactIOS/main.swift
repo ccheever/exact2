@@ -62,6 +62,7 @@ nonisolated(unsafe) var tBoot = 0.0
 final class Frames: NSObject {
     var link: CADisplayLink?
     var motion = false
+    var motionPending = false
     /// The measure (EXACT_FPS): ticks since the last report, the longest
     /// gap between two, and when the last report went out.
     var ticks = 0
@@ -70,7 +71,13 @@ final class Frames: NSObject {
     var reported = 0.0
     @objc func tick(_ link: CADisplayLink) {
         if fpsMode { measure(link.timestamp) }
-        if motion { apply(Exact.tick(now: now())) }
+        if motion, !agentMode, !motionPending {
+            motionPending = true
+            runtime.tick(now: now()) { [weak self] batch in
+                self?.motionPending = false
+                apply(batch)
+            }
+        }
         let more = canvases.tick(now: now())
         run(motion || more || canvases.wantsFrames)
     }
@@ -115,9 +122,9 @@ final class Frames: NSObject {
 let frames = Frames()
 
 /// A request's reply is in (LLP 1016 D2): the executor's thread says so;
-/// the pump runs here on the main thread, where the runner lives.
+/// main captures the current clock, then the serial runtime owner pumps.
 func exactWake(_ ctx: UnsafeMutableRawPointer?) {
-    DispatchQueue.main.async { apply(Exact.pump(now: now())) }
+    DispatchQueue.main.async { runtime.pump(now: now()) }
 }
 
 func apply(_ batch: Batch) {
@@ -127,7 +134,7 @@ func apply(_ batch: Batch) {
     if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) } }
     frames.run(batch.motion || canvases.wantsFrames)
     if batch.timers, clockTimer == nil, !agentMode {
-        clockTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in apply(Exact.advance(now: now())) }
+        clockTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in runtime.advance(now: now()) }
     }
 }
 
@@ -144,13 +151,13 @@ func watchPlan() {
         last = m
         guard let bytes = FileManager.default.contents(atPath: planPath) else { return }
         let started = CACurrentMediaTime()
-        presenter.reset()
         let size = presenter.viewport.bounds.size
-        Exact.wake = exactWake
-        let batch = Exact.bootPlan(bytes, width: size.width, height: size.height)
-        apply(batch)
-        controller?.rebooted()
-        print("reloaded \(planPath.split(separator: "/").last ?? "plan") in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+        runtime.bootPlan(bytes, width: size.width, height: size.height) { batch in
+            presenter.reset()
+            apply(batch)
+            controller?.rebooted()
+            print("reloaded \(planPath.split(separator: "/").last ?? "plan") in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+        }
     }
     t.resume()
     planWatch = t
@@ -175,47 +182,50 @@ func bootNow(_ size: CGSize) {
     stamp("before boot")
     tBoot = CACurrentMediaTime()
     watchPlan()
-    Exact.wake = exactWake
     // EXACT_PLAN=<file> boots that plan instead of the one baked into the
     // library — any compiled contract, no rebuild (smokes, fixtures).
-    let b: Batch = {
-        if let path = environment["EXACT_PLAN"], let bytes = FileManager.default.contents(atPath: path) {
-            return Exact.bootPlan(bytes, width: size.width, height: size.height)
+    let finish: (Batch) -> Void = { b in
+        rustMs = (CACurrentMediaTime() - tBoot) * 1000
+        stamp("runner + layout")
+        let tApply = CACurrentMediaTime()
+        apply(b)
+        applyMs = (CACurrentMediaTime() - tApply) * 1000
+        bootMs = wall()
+        stamp("first frame applied")
+        boot = b
+        controller?.fit()
+        if agentMode { runtime.barrier { agentReady() } }
+        if smoke {
+            print("boot \(String(format: "%.1f", bootMs)) ms; \(presenter.views.count) views; root \(Int(presenter.root.subviews.first?.frame.width ?? 0))x\(Int(presenter.root.subviews.first?.frame.height ?? 0)); error \(b.error ?? "none")")
+            print("startup: exec→main \(execToMainMs.map { String(format: "%.1f", $0) } ?? "?") ms; main→didFinishLaunching \(String(format: "%.1f", stamps.first(where: { $0.0 == "didFinishLaunching" })?.1 ?? 0)) ms; →window \(String(format: "%.1f", stamps.first(where: { $0.0 == "window" })?.1 ?? 0)) ms")
+            print("phases: process→boot \(String(format: "%.1f", (tBoot - t0) * 1000)) ms; runner+layout \(String(format: "%.1f", rustMs)) ms of which \(measureCount) text measurements (\(measureHits) cached) \(String(format: "%.1f", measureSeconds * 1000)) ms in CoreText; apply \(String(format: "%.1f", applyMs)) ms")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                print("painted \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?") ms")
+                print("stamps: " + stamps.map { "\($0.0) \(String(format: "%.1f", $0.1))" }.joined(separator: " · ") + " · first layout \(firstLayoutMs.map { String(format: "%.1f", $0) } ?? "?") · first draw \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?")")
+                print("gpu: \(canvases.module != nil ? "module loaded in \(String(format: "%.1f", canvases.loadedMs ?? 0)) ms; \(canvases.entries.count) canvases; \(canvases.rendered) renders" : "not loaded: \(canvases.failed ?? (canvases.entries.isEmpty ? "no canvas" : "not requested"))")")
+                print("smoke ok")
+                exit(0)
+            }
         }
-        return Exact.boot(width: size.width, height: size.height)
-    }()
-    rustMs = (CACurrentMediaTime() - tBoot) * 1000
-    stamp("runner + layout")
-    let tApply = CACurrentMediaTime()
-    apply(b)
-    applyMs = (CACurrentMediaTime() - tApply) * 1000
-    bootMs = wall()
-    stamp("first frame applied")
-    boot = b
-    if agentMode { DispatchQueue.main.async { agentReady() } }
-    if smoke {
-        print("boot \(String(format: "%.1f", bootMs)) ms; \(presenter.views.count) views; root \(Int(presenter.root.subviews.first?.frame.width ?? 0))x\(Int(presenter.root.subviews.first?.frame.height ?? 0)); error \(b.error ?? "none")")
-        print("startup: exec→main \(execToMainMs.map { String(format: "%.1f", $0) } ?? "?") ms; main→didFinishLaunching \(String(format: "%.1f", stamps.first(where: { $0.0 == "didFinishLaunching" })?.1 ?? 0)) ms; →window \(String(format: "%.1f", stamps.first(where: { $0.0 == "window" })?.1 ?? 0)) ms")
-        print("phases: process→boot \(String(format: "%.1f", (tBoot - t0) * 1000)) ms; runner+layout \(String(format: "%.1f", rustMs)) ms of which \(measureCount) text measurements (\(measureHits) cached) \(String(format: "%.1f", measureSeconds * 1000)) ms in CoreText; apply \(String(format: "%.1f", applyMs)) ms")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            print("painted \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?") ms")
-            print("stamps: " + stamps.map { "\($0.0) \(String(format: "%.1f", $0.1))" }.joined(separator: " · ") + " · first layout \(firstLayoutMs.map { String(format: "%.1f", $0) } ?? "?") · first draw \(firstDrawMs.map { String(format: "%.1f", $0) } ?? "?")")
-            print("gpu: \(canvases.module != nil ? "module loaded in \(String(format: "%.1f", canvases.loadedMs ?? 0)) ms; \(canvases.entries.count) canvases; \(canvases.rendered) renders" : "not loaded: \(canvases.failed ?? (canvases.entries.isEmpty ? "no canvas" : "not requested"))")")
-            print("smoke ok")
-            exit(0)
-        }
+    }
+    if let path = environment["EXACT_PLAN"], let bytes = FileManager.default.contents(atPath: path) {
+        runtime.bootPlan(bytes, width: size.width, height: size.height, then: finish)
+    } else {
+        runtime.present(width: size.width, height: size.height, then: finish)
     }
 }
 
 /// The one screen: the viewport fills the safe area — or, when the first
 /// root says `viewport-fit="cover"`, the whole screen, the safe-area insets
-/// handed to the kernel for its `env()` lengths (LLP 1008 §9). The plan
-/// boots at the first layout and follows every later size (a rotation, a
-/// split) and every change of the insets.
+/// handed to the kernel for its `env()` lengths (LLP 1008 §9).
+/// Baked-plan preparation starts before UIApplicationMain; its first sized
+/// layout uses the window scene's safe viewport before the window is visible.
+/// Every later size (a rotation, a split) and inset change follows it.
 final class Controller: UIViewController {
     var booted = false
     var lastSize = CGSize.zero
     var lastInsets = UIEdgeInsets.zero
+    var lastKeyboard: CGFloat = 0
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .white
@@ -239,51 +249,102 @@ final class Controller: UIViewController {
         if !booted, lastSize.width > 0, lastSize.height > 0 {
             booted = true
             bootNow(lastSize)
-            // The first batch made the roots: one that covers the screen is
-            // framed to it now, before anything is drawn.
-            fit()
         }
     }
 
     /// Frame the viewport to the safe area or the screen — and, under
     /// `interactive-widget="resizes-content"`, to the keyboard's top, where
     /// the bottom inset is the keyboard's and not the home indicator's (the
-    /// web's rule) — and, once booted, tell the kernel about new insets or a
-    /// new size. Called inside the keyboard's animation block, so the frames
-    /// the batch sets animate with the keyboard (LLP 1008 §9).
-    func fit() {
+    /// web's rule); under `overlays-content` the viewport stays and the
+    /// overlap is `env(keyboard-inset-height)`. Once booted, tell the kernel
+    /// about new insets, a new size, or a new keyboard overlap. A keyboard
+    /// change prepares kernel batches on the runtime owner, then publishes
+    /// the viewport and frames in one animation with the keyboard's remaining
+    /// duration (LLP 1008 §9).
+    func fit(duration: Double = 0, curve: UInt = 0) {
+        let started = CACurrentMediaTime()
         let safe = view.safeAreaInsets
         let cover = presenter.viewportFit == "cover"
         var frame = cover ? view.bounds : view.bounds.inset(by: safe)
         var insets = cover ? safe : .zero
-        if presenter.interactiveWidget == "resizes-content" {
+        var keyboardInset: CGFloat = 0
+        let widget = presenter.interactiveWidget
+        if widget == "resizes-content" || widget == "overlays-content" {
             let top = presenter.keyboardTop ?? .infinity
-            presenter.keyboardInset = min(max(0, frame.maxY - max(top, frame.minY)), frame.height)
-            if top < frame.maxY {
+            keyboardInset = min(max(0, frame.maxY - max(top, frame.minY)), frame.height)
+            if widget == "resizes-content", top < frame.maxY {
                 frame.size.height = max(0, top - frame.minY)
                 insets.bottom = 0
             }
         }
-        if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
-        if let l = fpsLabel { l.frame = CGRect(x: frame.minX, y: frame.minY + safe.top, width: frame.width, height: 26); view.bringSubviewToFront(l) }
         let size = frame.size
         guard size.width > 0, size.height > 0 else { return }
-        if !booted { lastSize = size; lastInsets = insets; return }
-        if insets != lastInsets {
-            lastInsets = insets
-            presenter.insets = insets
-            apply(Exact.insets(top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left))
+        let setFrame = {
+            if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
+            if let l = fpsLabel {
+                l.frame = CGRect(x: frame.minX, y: frame.minY + safe.top, width: frame.width, height: 26)
+                self.view.bringSubviewToFront(l)
+            }
         }
-        if size != lastSize {
+        if !booted {
+            setFrame()
             lastSize = size
-            apply(Exact.resize(width: size.width, height: size.height))
+            lastInsets = insets
+            lastKeyboard = keyboardInset
+            return
         }
+        let changedInsets = insets != lastInsets
+        let changedSize = size != lastSize
+        let changedKeyboard = keyboardInset != lastKeyboard
+        // The agent has no animation transaction: expose the visual viewport
+        // immediately, while its barrier still waits for the prepared kernel
+        // batches below. Real keyboard motion publishes both together.
+        if agentMode || duration <= 0 { setFrame() }
+        let overlay = widget == "overlays-content"
+        let publish: ([Batch]) -> Void = { batches in
+            let changes = {
+                setFrame()
+                for batch in batches { apply(batch) }
+                self.lastInsets = insets
+                self.lastSize = size
+                self.lastKeyboard = keyboardInset
+                presenter.insets = insets
+                presenter.keyboardInset = keyboardInset
+                // overlays-content: the author pads; scrolling the viewport
+                // would move a full-bleed canvas (the night, the moon).
+                if !overlay {
+                    presenter.reveal(presenter.editing ?? presenter.views.values.first { $0.field?.isFirstResponder == true })
+                }
+            }
+            let remaining = max(0, duration - (CACurrentMediaTime() - started))
+            if agentMode || remaining <= 0 { changes() }
+            else {
+                // The overlay is painted through the night: capture
+                // presentation frames for the keyboard's duration so the
+                // mark and the form travel with the keys (LLP 1008 §9).
+                canvases.keyboardAnimatingUntil = CACurrentMediaTime() + remaining
+                frames.run(true)
+                UIView.animate(withDuration: remaining, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState], animations: changes, completion: { _ in
+                    canvases.keyboardAnimatingUntil = 0
+                    for e in canvases.entries.values where e.through { e.view.needsCapture = true }
+                    canvases.captureIfNeeded()
+                    frames.run(frames.motion || canvases.wantsFrames)
+                })
+            }
+        }
+        guard changedInsets || changedSize || changedKeyboard else {
+            publish([])
+            return
+        }
+        let nextInsets: (CGFloat, CGFloat, CGFloat, CGFloat)? = changedInsets ? (insets.top, insets.right, insets.bottom, insets.left) : nil
+        runtime.viewport(insets: nextInsets, size: changedSize ? size : nil, keyboard: changedKeyboard ? keyboardInset : nil, then: publish)
     }
 
     /// After a restart from a new plan (the dev loop): the new runner knows
     /// nothing of the insets — hand them over again, and fit the root.
     func rebooted() {
-        if lastInsets != .zero { apply(Exact.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left)) }
+        if lastInsets != .zero { runtime.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left) }
+        if lastKeyboard != 0 { runtime.keyboard(lastKeyboard) }
         fit()
     }
 }
@@ -318,17 +379,32 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let ws = scene as? UIWindowScene else { return }
         stamp("scene")
-        presenter = Presenter()
-        presenter.onPress = { id in apply(Exact.press(id, now: now())) }
-        presenter.onChange = { id, value in apply(Exact.change(id, value, now: now())) }
-        presenter.onIntrinsic = { id, size in apply(Exact.intrinsic(id, width: size?.width ?? 0, height: size?.height ?? 0)) }
-        presenter.onHover = { id, over in apply(Exact.hover(id, over: over, now: now())) }
-        presenter.onFocus = { id in apply(Exact.focus(id, now: now())) }
-        presenter.onBlur = { id in apply(Exact.blur(id, now: now())) }
-        presenter.onKey = { id, name in apply(Exact.key(id, name, now: now())) }
-        presenter.onSubmit = { id in apply(Exact.submit(id, now: now())) }
         let w = UIWindow(windowScene: ws)
         w.backgroundColor = .white
+
+        // UIWindow knows its scene's bounds and safe-area insets before it is
+        // visible. Submit boot before constructing the presenter/controller
+        // so runtime preparation overlaps all remaining scene and window work.
+        let initialFrame = w.bounds.inset(by: w.safeAreaInsets)
+        bootNow(initialFrame.size)
+
+        presenter = Presenter()
+        let c = Controller()
+        controller = c
+        w.rootViewController = c
+        window = w
+        c.lastSize = initialFrame.size
+        c.lastInsets = .zero
+        c.booted = true
+
+        presenter.onPress = { id in runtime.press(id, now: now()) }
+        presenter.onChange = { id, value in runtime.change(id, value, now: now()) }
+        presenter.onIntrinsic = { id, size in runtime.intrinsic(id, width: size?.width ?? 0, height: size?.height ?? 0) }
+        presenter.onHover = { id, over in runtime.hover(id, over: over, now: now()) }
+        presenter.onFocus = { id in runtime.focus(id, now: now()) }
+        presenter.onBlur = { id in runtime.blur(id, now: now()) }
+        presenter.onKey = { id, name in runtime.key(id, name, now: now()) }
+        presenter.onSubmit = { id in runtime.submit(id, now: now()) }
         // The capabilities: `setScheme` is the window's interface style —
         // light or dark, as the web's `color-scheme`; anything else is
         // named and refused.
@@ -343,21 +419,24 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // The first root's `viewport-fit` changed (a restart, a prop): the
         // controller frames the viewport again.
         presenter.onViewportFit = { [weak w] in w?.rootViewController?.view.setNeedsLayout() }
-        presenter.onKeyboardResize = { controller?.fit() }
+        presenter.onKeyboardResize = { duration, curve in controller?.fit(duration: duration, curve: curve) }
         presenter.observeKeyboard()
-        let c = Controller()
-        controller = c
-        w.rootViewController = c
-        window = w
         DevMenu.install(on: w)
         w.makeKeyAndVisible()
         stamp("window")
+        w.layoutIfNeeded()
+        runtime.publishReady()
+    }
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        runtime.publishReady()
     }
     /// Seen again: the canvases follow (`Canvases.visible`).
     func sceneDidBecomeActive(_ scene: UIScene) {
+        runtime.publishReady()
         frames.run(frames.motion || canvases.wantsFrames)
     }
 }
 
+runtime.prepare()
 stamp("main")
 UIApplicationMain(CommandLine.argc, CommandLine.unsafeArgv, nil, NSStringFromClass(AppDelegate.self))

@@ -491,6 +491,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::ImageSource => "src",
             PropId::SemanticTag => continue,
             PropId::ToggleValue => "checked",
+            PropId::Type => "type",
+            PropId::InputMode => "inputmode",
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 out.insert(format!("data-{}", other.name().to_lowercase()), text);
@@ -504,6 +506,23 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     }
     if node.node_type == NodeType::Toggle {
         out.insert("type".into(), "checkbox".into());
+    }
+    if node.node_type == NodeType::TextInput {
+        let t = node.props.str(PropId::Type).unwrap_or("");
+        let m = node.props.str(PropId::InputMode).unwrap_or("");
+        // Credentials and addresses are not sentences (HTML `autocapitalize`).
+        if t == "password"
+            || t == "email"
+            || t == "url"
+            || t == "tel"
+            || m == "email"
+            || m == "url"
+            || m == "tel"
+        {
+            out.entry("autocapitalize".into()).or_insert("none".into());
+            out.entry("autocorrect".into()).or_insert("off".into());
+            out.entry("spellcheck".into()).or_insert("false".into());
+        }
     }
     out
 }

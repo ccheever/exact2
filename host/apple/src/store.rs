@@ -1,7 +1,7 @@
 //! The app's kept secrets on Apple platforms (LLP 1018 D6): `ibex2::host`'s
 //! `Secrets` — the Keychain (ibex LLP 0069) — read into a snapshot before the
-//! runner boots and written after each commit, on the main thread, never
-//! through Swift.
+//! runner boots and written after each commit, on the serial runtime owner,
+//! never through Swift.
 //!
 //! Agent mode (`EXACT_AGENT=1`, LLP 1012) gets a memory store unless
 //! `EXACT_STORE=real` says otherwise: a scripted drive starts from nothing

@@ -36,18 +36,18 @@ enum DevMenu {
 
     static func reload() {
         let started = CACurrentMediaTime()
-        presenter.reset()
         let size = presenter.viewport.contentSize
-        Exact.wake = exactWake
-        let env = ProcessInfo.processInfo.environment
-        let batch: Batch
-        if let path = env["EXACT_DEV_PLAN"] ?? env["EXACT_PLAN"], let bytes = FileManager.default.contents(atPath: path) {
-            batch = Exact.bootPlan(bytes, width: size.width, height: size.height)
-        } else {
-            batch = Exact.boot(width: size.width, height: size.height)
+        let finish: (Batch) -> Void = { batch in
+            presenter.reset()
+            apply(batch)
+            print("reloaded in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
         }
-        apply(batch)
-        print("reloaded in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+        let env = ProcessInfo.processInfo.environment
+        if let path = env["EXACT_DEV_PLAN"] ?? env["EXACT_PLAN"], let bytes = FileManager.default.contents(atPath: path) {
+            runtime.bootPlan(bytes, width: size.width, height: size.height, then: finish)
+        } else {
+            runtime.boot(width: size.width, height: size.height, then: finish)
+        }
     }
 
     static func info() -> String {

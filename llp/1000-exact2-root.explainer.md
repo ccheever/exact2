@@ -87,7 +87,7 @@ and this one does not. Read them first.
 - `scripts/` — `caps` and `boot` (two of the five checks), `metrics` (the startup and
   speed numbers in one run, diagnostic), and `issue` (filesystem issues, `docs/issues.md`).
 - `skills/`, `.claude/skills/` — the orchestrate skill and the LLP skills (installed
-  from `ccheever/llp@v0.5.1`; receipt in `.llp/skills-receipt.json`).
+  from `ccheever/llp@v0.5.2`; receipt in `.llp/skills-receipt.json`).
 
 The graph is layered on purpose, and that is the whole modularity story: each
 crate depends on strictly less than the one above it — `plan` and `motion` on

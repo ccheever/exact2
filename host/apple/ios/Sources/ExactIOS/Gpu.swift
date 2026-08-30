@@ -71,6 +71,13 @@ final class Canvases {
     var windowCaptures = 0
     var windowCaptureSeconds = 0.0
     private var captureScheduled = false
+    /// Until this media time, a software-keyboard `UIView.animate` is
+    /// interpolating overlay frames (the model is already at the end).
+    /// Capture every display-link frame from the presentation tree so the
+    /// surface follows the keyboard instead of snapping.
+    var keyboardAnimatingUntil: CFTimeInterval = 0
+    /// Whether that interpolation is still running.
+    var keyboardAnimating: Bool { CACurrentMediaTime() < keyboardAnimatingUntil }
 
     /// Where the module lives: EXACT_GPU_DYLIB, or the bundle's Frameworks.
     static func modulePath() -> String {
@@ -295,9 +302,11 @@ final class Canvases {
     var visible: Bool { UIApplication.shared.applicationState != .background }
 
     /// Whether any surface has something to render — or an edit is under a
-    /// canvas painted through its surface, which captures every frame (D4 d).
+    /// canvas painted through its surface, which captures every frame (D4 d),
+    /// or the keyboard's frame animation is still interpolating.
     var wantsFrames: Bool {
         guard let m = module, visible else { return false }
+        if keyboardAnimating { return true }
         return entries.values.contains { e in
             e.id != 0 && (e.wants || m.dirty(e.id) != 0 || (e.through && e.view.overlay.map { Canvases.editing(under: $0) } == true))
         }
@@ -332,9 +341,10 @@ final class Canvases {
                 if m.dirty(e.id) != 0 || (e.wants && now != e.readAt) { outer.needsCapture = true; scheduleCapture() }
                 continue
             }
-            // D4 (d): every frame while editing under the overlay — but not
-            // twice on the turn a batch already captured.
-            if e.through, !e.view.paintedThisTurn, let overlay = e.view.overlay, Canvases.editing(under: overlay) { capture(m, e) }
+            // D4 (d): every frame while editing under the overlay — and
+            // every frame while the keyboard interpolates overlay frames —
+            // but not twice on the turn a batch already captured.
+            if e.through, !e.view.paintedThisTurn, let overlay = e.view.overlay, Canvases.editing(under: overlay) || keyboardAnimating { capture(m, e) }
             guard e.wants || m.dirty(e.id) != 0, let metal = e.view.metal else { continue }
             // No starvation guard here (the AppKit presenter pauses a canvas
             // whose render took over 200 ms, a covered window's drawable

@@ -228,7 +228,7 @@ extern "C" fn wide_glyphs(_ctx: *mut c_void, request: *const CRequest) -> CMetri
 fn text_is_measured_through_the_registered_callback() {
     let plan = caltrain::build().unwrap().encode();
     let mut bridge: Bridge<caltrain_data::Caltrain> = Bridge::new();
-    let len = bridge.boot(
+    bridge.prepare(
         &plan,
         caltrain_data::Caltrain,
         exact_apple::abi::Hooks {
@@ -237,9 +237,8 @@ fn text_is_measured_through_the_registered_callback() {
             wake: None,
             wake_ctx: std::ptr::null_mut(),
         },
-        390.0,
-        844.0,
     );
+    let len = bridge.present(390.0, 844.0);
     let batch = String::from_utf8(bridge.output_bytes(len as usize).to_vec()).unwrap();
     assert!(
         batch.contains("\"error\":null"),

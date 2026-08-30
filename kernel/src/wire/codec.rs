@@ -134,8 +134,8 @@ impl<'a> Reader<'a> {
     }
 
     /// Read a dimension: kind byte (0 auto, 1 points, 2 percent, 3–6 an
-    /// `env()` length at the top/right/bottom/left safe-area inset) then
-    /// `f32` (the points added to an inset).
+    /// `env()` length at the top/right/bottom/left safe-area inset, 7
+    /// `env(keyboard-inset-height)`) then `f32` (the points added to an inset).
     pub fn dimension(
         &mut self,
         style: StyleId,
@@ -153,6 +153,7 @@ impl<'a> Reader<'a> {
             1 => Dimension::Points(value),
             2 => Dimension::Percent(value),
             3..=6 => Dimension::Env(Edge::from_index(kind - 3).expect("3..=6 is an edge"), value),
+            7 => Dimension::Keyboard(value),
             other => return Err(DecodeError::UnknownDimensionKind(other)),
         };
         if kind != 0 && !value.is_finite() {
@@ -427,6 +428,10 @@ impl Writer {
                 self.u8(2);
                 self.f32(v);
             }
+            Dimension::Keyboard(v) => {
+                self.u8(7);
+                self.f32(v);
+            }
         }
     }
 
@@ -603,10 +608,19 @@ mod tests {
                 Ok(Dimension::Env(*edge, i as f32 * 1.5))
             );
         }
-        let mut r = Reader::new(&[7u8, 0, 0, 0, 0]);
+        let mut w = Writer::new();
+        w.dimension(Dimension::Keyboard(12.0));
+        let bytes = w.into_vec();
+        assert_eq!(bytes[0], 7, "keyboard is kind 7");
+        let mut r = Reader::new(&bytes);
+        assert_eq!(
+            r.dimension(StyleId::PaddingBottom, false),
+            Ok(Dimension::Keyboard(12.0))
+        );
+        let mut r = Reader::new(&[8u8, 0, 0, 0, 0]);
         assert_eq!(
             r.dimension(StyleId::Width, true),
-            Err(DecodeError::UnknownDimensionKind(7))
+            Err(DecodeError::UnknownDimensionKind(8))
         );
     }
 

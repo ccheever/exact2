@@ -9,8 +9,9 @@
 import AppKit
 
 extension Agent {
-    /// Read requests off stdin on a thread; answer each on the main thread,
-    /// in order, before reading the next. Stdin closing ends the process.
+    /// Read requests off stdin on a thread; admit each on main, then answer
+    /// after any runtime work, in order, before reading the next. Stdin
+    /// closing ends the process.
     static func start() {
         Thread { serve(fd: 0) }.start()
     }

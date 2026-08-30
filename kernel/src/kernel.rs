@@ -235,17 +235,18 @@ impl Kernel {
         Ok(())
     }
 
-    /// The page's environment: what `env(safe-area-inset-*)` lengths
-    /// resolve to (LLP 1001 §2).
+    /// The page's environment: what `env(safe-area-inset-*)` and
+    /// `env(keyboard-inset-height)` lengths resolve to (LLP 1001 §2).
     pub fn env(&self) -> Env {
         *self.arena.env()
     }
 
     /// Set the environment — the safe-area insets the host reports with
-    /// the viewport (a rotation changes them). Every node whose style holds
-    /// an `env()` length gets its engine style re-derived and is marked
-    /// dirty; returns whether any did (a layout is owed then). A non-finite
-    /// inset is refused. A `reset` keeps the environment: it is the host's.
+    /// the viewport (a rotation changes them) and the software keyboard's
+    /// overlap. Every node whose style holds an `env()` length gets its
+    /// engine style re-derived and is marked dirty; returns whether any did
+    /// (a layout is owed then). A non-finite inset is refused. A `reset`
+    /// keeps the environment: it is the host's.
     pub fn set_env(&mut self, env: Env) -> Result<bool, KernelError> {
         if !env.is_finite() {
             return Err(LayoutError::InvalidEnv.into());

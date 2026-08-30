@@ -37,7 +37,7 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                 Dimension::Auto => "\"auto\"".to_string(),
                 Dimension::Points(p) => num(p),
                 Dimension::Percent(p) => format!("{{\"pct\":{}}}", num(p)),
-                Dimension::Env(..) => unreachable!("resolved"),
+                Dimension::Env(..) | Dimension::Keyboard(_) => unreachable!("resolved"),
             },
             RowValue::Color(c) => format!("[{},{},{},{}]", c.r(), c.g(), c.b(), c.a()),
             RowValue::Enum(e) => format!("\"{e}\""),

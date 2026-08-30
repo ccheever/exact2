@@ -5,6 +5,7 @@
 **Systems:** Runner (the `Store`: snapshot in, writes out; the data seam), Contract compiler (bake: no compiled value for a resource that read the store), Web host (`exact_store`; the `store` op over `localStorage`), Apple host (`ibex2::host::Secrets` → the Keychain; the store read before boot and written after commit, never through Swift), Linux host (memory until ibex2 lands there), Agent API (`state` lists store names; agent mode never touches a real store), ibex2 (LLP 0069: the `Secrets` binding and the `secret.keep` grant), Weird Castle (the first consumer: the Castle session token), `host/apple/build.mjs` (macOS signed with the team identity)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
+**Revised:** 2026-08-30 (Apple snapshot and writes run on the dedicated runtime-owner thread, not main; the snapshot/ops seam is unchanged.)
 **Related:** LLP 1016 (asynchronous data settlement — D1 "the runner never does I/O", amended here; D6 grants; §5 named this document: "secure storage of a token across launches (Weird Castle's next ask)"); LLP 1005 §5 (settlement), §6/`Runner::boot_carrying` (the dev reload's carry — the mechanism this reuses across launches), §7 (the seam); LLP 1004 D4 (app data logic lives in a Rust data crate); LLP 1007 §6 (the dev loop carries slots and resources; scroll and focus do not survive); LLP 1012 (the agent API: `state`, `settle`, determinism); ibex LLP 0067 (grants: authority is carried, never inferred), LLP 0068 (`Host`, `endow`, `Bindings`; §2 "synchronous, and why"), LLP 0069 (`Secrets`); Weird Castle `llp/0000` §Authentication and session boundary ("session tokens use Exact's native secure store where the host provides it and browser storage on web"); `rules/NOT-DOING.md` §Runtime (a dev reload carries state; no Aquifer data tier; no durable capability grants), §Process (written because it is being built); `rules/RULES.md` §Scope ("the web is the standard")
 
 ## Summary
@@ -232,8 +233,8 @@ first frame that cannot know the user.
   smoke against real credentials leaves nothing in the profile.
 - **Apple** (`host/apple/src/{abi,host,executor}.rs`). At boot the bridge
   parses the data crate's grants, endows `ibex2::host::Bindings` once, reads
-  each granted name through `Secrets::get` into the snapshot — on the main
-  thread, synchronous, local — and boots the runner with it. After every
+  each granted name through `Secrets::get` into the snapshot — on the
+  dedicated runtime-owner thread, synchronous and local — and boots the runner with it. After every
   commit `Host` executes the runner's `StoreWrite`s through `Secrets::set`
   and `Secrets::forget` on the same thread (a Keychain write is milliseconds,
   once per login); a write that fails is journaled and the app is otherwise

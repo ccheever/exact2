@@ -5,7 +5,7 @@
 **Systems:** Runner (`agent.rs`, the journal, `advance_timed`), Web host (`exact_agent`, `at` markers, `glue.js` agent mode), Apple host (`exact_agent`, timed motion sync, `Agent.swift`), Tooling (`scripts/agent.mjs`, `scripts/smoke.mjs`)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-08-29 (r2: after the round-1 reviews — the clock made true on both hosts, the contract a host implements, the smoke walked back to what it checks, the private messages named, the numbers dated)
+**Revised:** 2026-08-29 (r2: after the round-1 reviews — the clock made true on both hosts, the contract a host implements, the smoke walked back to what it checks, the private messages named, the numbers dated); 2026-08-30 (Apple agent admission stays on main but all runner work is asynchronous on the dedicated runtime thread; barriers include main publication; `clock settle` no longer blocks the run loop)
 **Implementer:** Claude (Fable 5); landed 2026-08-29 (this document transcribes it)
 **Related:** `rules/NOT-DOING.md` §Agent API (the eight; `clock` replaces `wait`), LLP 1002 D3 (the clock is a seek), LLP 1005 §6 (`dispatch`, `advance`; `act` is for tests), LLP 1007 §3 (the web glue), LLP 1008 §4 (the C ABI this adds one call to), LLP 1010 §5 (the scrolling the smoke holds), LLP 1011 (the image whose box it holds); research: exact1 `llp/0495-acto-on-the-substrate.rfc.md` §4.1
 
@@ -118,6 +118,11 @@ hosts). `state` gains `pending: [{name, ticket}]`, the requests in flight by
 the resource's or mutation's name. `clock` with a time does not wait: a
 reply lands when it lands, as a fetch does under a real clock.
 
+On Apple this wait is an asynchronous poll through `exact.runtime`. The
+stdio/socket reader waits on its own thread, main remains available for the
+executor wake and complete-batch publication, and the reply is written only
+after `runtime.barrier` says every earlier batch has been applied.
+
 Agent mode is opt-in per launch: `?agent=1` on the page (only then does
 `globalThis.exact` carry `agent` and `now`), `EXACT_AGENT=1` for the macOS
 app. In it the driver owns time: the page's `now()` is the last clock
@@ -157,9 +162,9 @@ for a frame.
 **What still moves on its own** — host I/O, not the clock: an image
 finishing decoding (the kernel relays out; poll `layout`), the GPU module
 loading after the first paint. The smoke polls for both and says so. On
-macOS the display link keeps ticking under agent mode; every tick seeks the
-engine and the canvases to the same agent clock, so it repaints the same
-picture.
+Apple the display link may keep canvases current under agent mode, but it
+does not tick the motion engine; each explicit `clock` prepares one motion
+batch on the runtime owner and settles the canvases before replying.
 
 **Errors.** A batch's `error` from `exact_advance` is the `clock` reply's
 error; the clock still reports where it landed. Non-agent launches are
@@ -203,8 +208,9 @@ stepped over, surrogate pairs decode, no serde); `runner/src/runner.rs`
 batches); `host/web/src/batch.rs` (`at`, `clock`); `host/apple/include/exact.h`
 (`exact_agent(len)`); `host/web/glue.js` (agent mode: `applyBatch`, `register`,
 `seek`, `settleCandidate`, `agent`); `host/web/gpu-glue.js` (the page's clock
-for surfaces); `host/apple/macos/Sources/ExactMac/{Agent,Bridge,main}.swift`
-(`EXACT_AGENT=1`: JSON lines on stdio answered in order on the main thread;
+for surfaces); `host/apple/swift/{Agent,Bridge}.swift` and the two platform
+agent files (`EXACT_AGENT=1`: JSON lines admitted in order on main, runner
+work on the dedicated runtime thread, replies after complete main publication;
 `ready` once the window is key or after a second; `wall()` for the startup
 stamps, `now()` for the app); `scripts/agent.mjs` (the driver: a ~130-line
 DevTools-protocol client over `--remote-debugging-pipe` with deadlines and

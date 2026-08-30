@@ -50,8 +50,10 @@ inline run, `ScrollView`→`div[data-scroll]`, `TextInput`→`input`,
 by `semanticTag` (`main`, `header`, `nav`, `section`, `footer`, `article`,
 `aside`). Props → DOM names: `text`→`textContent`, `testId`→`data-testid`,
 `accessibilityLabel`→`aria-label`, `accessibilityRole`→`role`,
-`placeholder`, `value`, `disabled`, `lang`, `imageSource`→`src`; any other
-prop rides as `data-<name>` so nothing is lost.
+`placeholder`, `value`, `disabled`, `lang`, `imageSource`→`src`, `type`,
+`inputMode`→`inputmode`; a credential or address field also gets
+`autocapitalize=none` (and `autocorrect=off`); any other prop rides as
+`data-<name>` so nothing is lost.
 
 ## 2. CSS, once (`host/web/src/css.rs`)
 

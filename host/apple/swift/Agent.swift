@@ -1,7 +1,8 @@
 // The agent API's presenter half, the part both presenters share (LLP
 // 1012). Requests arrive as JSON lines on a stream the platform opened —
 // stdin on macOS, a Unix socket on iOS (a simulator app has no stdin) —
-// and are answered in order on the main thread; the clock is the last
+// and are admitted in order on main, while runner/kernel work stays on the
+// dedicated runtime thread; the clock is the last
 // `clock` value: no timer advances the runner, events carry the agent's
 // time, the engine is seeked to it. `tree`, `state`, `logs`, and `settle`
 // go to the library (`exact_agent`); `clock` moves both clocks here;
@@ -15,7 +16,7 @@ enum Agent {
     nonisolated(unsafe) static var out = FileHandle.standardOutput
 
     /// Serve requests from `fd` until it closes — on the calling thread:
-    /// each line is answered on the main thread before the next is read.
+    /// each line is admitted on main and answered before the next is read.
     /// The stream closing ends the process.
     static func serve(fd: Int32) {
         var pending = Data()
@@ -27,29 +28,37 @@ enum Agent {
             while let i = pending.firstIndex(of: UInt8(ascii: "\n")) {
                 let line = String(decoding: pending[pending.startIndex..<i], as: UTF8.self)
                 pending.removeSubrange(pending.startIndex...i)
-                DispatchQueue.main.sync { handle(line) }
+                let answered = DispatchSemaphore(value: 0)
+                DispatchQueue.main.async { handle(line) { answered.signal() } }
+                answered.wait()
             }
         }
         DispatchQueue.main.async { exit(0) }
     }
 
-    static func handle(_ line: String) {
+    static func handle(_ line: String, done: @escaping () -> Void) {
         guard let data = line.data(using: .utf8),
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let op = req["op"] as? String
-        else { reply(["error": "unreadable request: \(line)"]); return }
+        else { reply(["error": "unreadable request: \(line)"]); done(); return }
+        let finish: ([String: Any]) -> Void = { response in reply(response); done() }
         switch op {
         case "quit": exit(0)
-        case "layout": reply(layout())
+        case "layout": finish(layout())
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
         // after a frame, so the frame is rendered here, not left to the
         // display link to get to between two calls).
-        case "tap": let r = tap(req); canvases.settle(now: now()); reply(r)
-        case "type": let r = type(req); canvases.settle(now: now()); reply(r)
-        case "clock": let r = clock(req); canvases.settle(now: now()); reply(r)
-        case "screenshot": reply(screenshot(req))
-        default: raw(Exact.agent(line))
+        case "tap":
+            let response = tap(req)
+            runtime.barrier { canvases.settle(now: now()); finish(response) }
+        case "type":
+            let response = type(req)
+            runtime.barrier { canvases.settle(now: now()); finish(response) }
+        case "clock":
+            clock(req) { response in canvases.settle(now: now()); finish(response) }
+        case "screenshot": finish(screenshot(req))
+        default: runtime.agent(line) { response in raw(response); done() }
         }
     }
 
@@ -65,10 +74,13 @@ enum Agent {
 
     static func r2(_ x: CGFloat) -> Double { (Double(x) * 100).rounded() / 100 }
 
-    static func settle() -> Double? {
-        guard let d = Exact.agent("{\"op\":\"settle\"}").data(using: .utf8),
-              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
-        return o["settle"] as? Double
+    static func settle(_ completion: @escaping (Double?) -> Void) {
+        runtime.agent("{\"op\":\"settle\"}") { json in
+            guard let d = json.data(using: .utf8),
+                  let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
+            else { completion(nil); return }
+            completion(o["settle"] as? Double)
+        }
     }
 
     /// Move both clocks to one instant: the runner's (timers, each fired at
@@ -78,58 +90,71 @@ enum Agent {
     /// point: advance to when the last transition in flight ends, and if
     /// the timers crossed on the way started more, again — bounded, and
     /// `settled: false` when the bound is hit.
-    static func clock(_ req: [String: Any]) -> [String: Any] {
+    static func clock(_ req: [String: Any], completion: @escaping ([String: Any]) -> Void) {
         let from = agentClock ?? 0
-        let settle = req["settle"] as? Bool == true
-        // A request in flight (LLP 1016) is waited for first: its reply
-        // commits — and may start motion or ask for more — before the fixed
-        // point is measured. The wake lands on the main queue, which the
-        // run loop drains here.
-        if settle { waitForReplies() }
-        var target = req["to"] as? Double
-        if settle { target = max(from, Agent.settle() ?? from) }
-        guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
-        guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
-        var rounds = 0
-        while true {
-            let batch = Exact.advance(now: to)
+        let shouldSettle = req["settle"] as? Bool == true
+        if !shouldSettle {
+            guard let to = req["to"] as? Double, to.isFinite else { completion(["error": "clock needs \"to\" (ms) or \"settle\": true"]); return }
+            guard to >= from else { completion(["error": "the clock cannot go backwards (\(from) → \(to))"]); return }
+            advanceClock(to: to, settle: false, rounds: 0, deadline: Date(), completion: completion)
+            return
+        }
+        let deadline = Date(timeIntervalSinceNow: 20)
+        waitForReplies(until: deadline) { settled in
+            guard settled else { completion(["clock": from, "settled": false]); return }
+            Agent.settle { candidate in
+                advanceClock(to: max(from, candidate ?? from), settle: true, rounds: 0, deadline: deadline, completion: completion)
+            }
+        }
+    }
+
+    private static func advanceClock(to: Double, settle shouldSettle: Bool, rounds: Int, deadline: Date, completion: @escaping ([String: Any]) -> Void) {
+        runtime.advance(now: to) { batch in
             apply(batch)
             let landed = batch.clock ?? to
             agentClock = landed
-            apply(Exact.tick(now: landed))
-            if let e = batch.error { return ["error": "clock: \(e)", "clock": landed] }
-            guard settle else { return ["clock": landed] }
-            if pendingCount() > 0 {
-                rounds += 1
-                if rounds >= 16 { return ["clock": landed, "settled": false] }
-                waitForReplies()
-                continue
+            runtime.tick(now: landed) { motionBatch in
+                apply(motionBatch)
+                if let e = batch.error { completion(["error": "clock: \(e)", "clock": landed]); return }
+                guard shouldSettle else { completion(["clock": landed]); return }
+                guard rounds < 16 else { completion(["clock": landed, "settled": false]); return }
+                pendingCount { count in
+                    let continueAtSettle = {
+                        Agent.settle { candidate in
+                            let next = max(landed, candidate ?? landed)
+                            if next <= landed { completion(["clock": landed, "settled": true]) }
+                            else { advanceClock(to: next, settle: true, rounds: rounds + 1, deadline: deadline, completion: completion) }
+                        }
+                    }
+                    if count == 0 { continueAtSettle(); return }
+                    waitForReplies(until: deadline) { allIn in
+                        if allIn { continueAtSettle() }
+                        else { completion(["clock": landed, "settled": false]) }
+                    }
+                }
             }
-            let next = max(landed, Agent.settle() ?? landed)
-            if next <= landed { return ["clock": landed, "settled": true] }
-            rounds += 1
-            if rounds >= 16 { return ["clock": landed, "settled": false] }
-            to = next
         }
     }
 
     /// How many requests the runner has in flight (`state.pending`).
-    static func pendingCount() -> Int {
-        guard let d = Exact.agent("{\"op\":\"state\"}").data(using: .utf8),
-              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return 0 }
-        return (o["pending"] as? [Any])?.count ?? 0
+    static func pendingCount(_ completion: @escaping (Int) -> Void) {
+        runtime.agent("{\"op\":\"state\"}") { json in
+            guard let d = json.data(using: .utf8),
+                  let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
+            else { completion(0); return }
+            completion((o["pending"] as? [Any])?.count ?? 0)
+        }
     }
 
-    /// Pump the executor's queue until no request is in flight, or for at
-    /// most twenty seconds (a network's worth; `settled: false` past it).
-    /// The wake's own pump is a main-queue block, and this runs inside one
-    /// — so the queue is drained here directly, the run loop turning in
-    /// between for the executor's thread to make progress.
-    static func waitForReplies() {
-        let deadline = Date(timeIntervalSinceNow: 20)
-        while pendingCount() > 0 && Date() < deadline {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
-            apply(Exact.pump(now: now()))
+    /// Wait without blocking main. The executor's wake queues `pump` on the
+    /// runtime owner; this polls only the runner's pending set.
+    static func waitForReplies(until deadline: Date, completion: @escaping (Bool) -> Void) {
+        pendingCount { count in
+            if count == 0 { completion(true); return }
+            if Date() >= deadline { completion(false); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+                waitForReplies(until: deadline, completion: completion)
+            }
         }
     }
 }

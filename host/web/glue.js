@@ -59,7 +59,8 @@ function applyProps(el, set, clear) {
 // `interactive-widget` (LLP 1008 §9): `cover` lays the page out under a
 // phone's status bar and home indicator, and `env(safe-area-inset-*)` in the
 // CSS carry the insets; `resizes-content` shrinks the layout viewport to the
-// software keyboard (Chrome; Safari knows only the default, the visual
+// software keyboard; `overlays-content` leaves it and `env(keyboard-inset-height)`
+// carries the overlap (Chrome; Safari knows only the default, the visual
 // viewport). Safari re-reads the meta when its content changes.
 function syncViewportFit() {
   const first = root.firstElementChild;
@@ -100,6 +101,14 @@ function attach(el, id, handlers) {
   if (handlers.some((k) => k === "focus" || k === "blur" || k === "key") && !(el instanceof HTMLInputElement || el instanceof HTMLButtonElement) && !el.hasAttribute("tabindex")) el.tabIndex = 0;
   for (const kind of handlers) {
     if (kind === "press") {
+      // A password-reveal sits on the field: mousedown would blur it (and
+      // the keyboard would go). The web's own trick is preventDefault.
+      el.addEventListener("pointerdown", (e) => {
+        const a = document.activeElement;
+        if (!(a instanceof HTMLInputElement) || a === el) return;
+        const br = el.getBoundingClientRect(), ar = a.getBoundingClientRect();
+        if (br.left < ar.right && br.right > ar.left && br.top < ar.bottom && br.bottom > ar.top) e.preventDefault();
+      });
       el.addEventListener("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch(id, 0, 0, now())); });
     } else if (kind === "change") {
       el.addEventListener("input", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); });

@@ -241,6 +241,17 @@ fn dimension(d: Dimension) -> String {
                 )
             }
         }
+        Dimension::Keyboard(plus) => {
+            if plus == 0.0 {
+                "env(keyboard-inset-height)".into()
+            } else {
+                format!(
+                    "calc(env(keyboard-inset-height) {} {}px)",
+                    if plus < 0.0 { "-" } else { "+" },
+                    num(plus.abs())
+                )
+            }
+        }
     }
 }
 

@@ -256,15 +256,19 @@ final class Shadow {
     /// container's bounds move); a shape, text, or gradient layer's own
     /// state besides.
     private func copy(_ a: CALayer, to b: CALayer) {
-        if b.bounds != a.bounds { b.bounds = a.bounds }
-        if b.position != a.position { b.position = a.position }
-        if b.anchorPoint != a.anchorPoint { b.anchorPoint = a.anchorPoint }
-        if b.anchorPointZ != a.anchorPointZ { b.anchorPointZ = a.anchorPointZ }
-        if !CATransform3DEqualToTransform(b.transform, a.transform) { b.transform = a.transform }
-        if !CATransform3DEqualToTransform(b.sublayerTransform, a.sublayerTransform) { b.sublayerTransform = a.sublayerTransform }
+        // Geometry from the presentation layer while the keyboard animates:
+        // the model is already at the end, and capturing it snaps the
+        // surface; the in-flight frames are what the user sees moving.
+        let g = canvases.keyboardAnimating ? (a.presentation() ?? a) : a
+        if b.bounds != g.bounds { b.bounds = g.bounds }
+        if b.position != g.position { b.position = g.position }
+        if b.anchorPoint != g.anchorPoint { b.anchorPoint = g.anchorPoint }
+        if b.anchorPointZ != g.anchorPointZ { b.anchorPointZ = g.anchorPointZ }
+        if !CATransform3DEqualToTransform(b.transform, g.transform) { b.transform = g.transform }
+        if !CATransform3DEqualToTransform(b.sublayerTransform, g.sublayerTransform) { b.sublayerTransform = g.sublayerTransform }
         if b.isGeometryFlipped != a.isGeometryFlipped { b.isGeometryFlipped = a.isGeometryFlipped }
         if b.isDoubleSided != a.isDoubleSided { b.isDoubleSided = a.isDoubleSided }
-        if b.opacity != a.opacity { b.opacity = a.opacity }
+        if b.opacity != g.opacity { b.opacity = g.opacity }
         if b.isHidden != a.isHidden { b.isHidden = a.isHidden }
         if b.masksToBounds != a.masksToBounds { b.masksToBounds = a.masksToBounds }
         if b.cornerRadius != a.cornerRadius { b.cornerRadius = a.cornerRadius }

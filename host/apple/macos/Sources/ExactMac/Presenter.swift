@@ -402,7 +402,8 @@ final class NodeView: NSView, NSTextFieldDelegate {
         f.drawsBackground = false
         f.focusRingType = .none
         f.delegate = self
-        f.autoresizingMask = [.width, .height]
+        // Laid out in the content box (`fitField`); stretching to the border
+        // box would sit the text flush on the left.
         return f
     }
 
@@ -426,7 +427,14 @@ final class NodeView: NSView, NSTextFieldDelegate {
         }
         if let f = field {
             if let v = props["value"], f.stringValue != v { f.stringValue = v }
-            f.placeholderString = props["placeholder"]
+            if let ph = props["placeholder"] {
+                f.placeholderAttributedString = NSAttributedString(string: ph, attributes: [
+                    .foregroundColor: NSColor(white: 0.42, alpha: 1),
+                    .font: f.font as Any,
+                ])
+            } else {
+                f.placeholderAttributedString = nil
+            }
         }
         setAccessibilityIdentifier(props["testId"])
         setAccessibilityLabel(props["accessibilityLabel"])
@@ -473,8 +481,21 @@ final class NodeView: NSView, NSTextFieldDelegate {
         if let f = field {
             f.font = Text.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), italic: false)
             f.textColor = color("text_color", .black)
+            fitField()
         }
         needsDisplay = true
+    }
+
+    /// The field sits in the content box: padding and border, the web's rule.
+    func fitField() {
+        guard let f = field else { return }
+        let uniform = number("border_width")
+        let box = bounds.insetBy(
+            left: number("border_width_left", uniform) + number("padding_left"),
+            top: number("border_width_top", uniform) + number("padding_top"),
+            right: number("border_width_right", uniform) + number("padding_right"),
+            bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+        if f.frame != box { f.frame = box }
     }
 
     func applyTransform() {
@@ -487,6 +508,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     override func layout() {
         if firstLayoutMs == nil { firstLayoutMs = wall() }
         super.layout()
+        fitField()
     }
 
     override func draw(_ rect: NSRect) {
@@ -563,7 +585,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
         if kind == "text", let text = props["text"] {
             // The same paragraph the kernel measured at this width, painted.
             let spec = textSpec(text)
-            if let ctx = NSGraphicsContext.current?.cgContext { Text.draw(Text.paragraph(spec, width: bounds.width), spec: spec, in: bounds, context: ctx) }
+            if let ctx = NSGraphicsContext.current?.cgContext { Text.draw(Text.paragraph(spec, width: bounds.width), spec: spec, color: color("text_color", .black), in: bounds, context: ctx) }
         }
     }
 
@@ -572,10 +594,9 @@ final class NodeView: NSView, NSTextFieldDelegate {
     func textSpec(_ text: String) -> Spec {
         let align: Int
         switch style["text_align"] as? String { case "center": align = 1; case "right": align = 2; case "justify": align = 3; default: align = 0 }
-        let c = (style["text_color"] as? [Double]) ?? [0, 0, 0, 255]
         return Spec(
             runs: [Run(text: text, size: number("font_size", 16), weight: Int(number("font_weight", 400)), italic: (style["font_style"] as? String) == "italic", lineHeight: number("line_height"), letterSpacing: number("letter_spacing"))],
-            align: align, lineClamp: Int(number("line_clamp")), color: c)
+            align: align, lineClamp: Int(number("line_clamp")))
     }
 
     /// A click counts even when it is the one that activates the window —
@@ -591,7 +612,11 @@ final class NodeView: NSView, NSTextFieldDelegate {
     override func mouseDown(with event: NSEvent) {
         if acceptsFirstResponder { window?.makeFirstResponder(self) }
         if handlers.contains("press") {
-            if !acceptsFirstResponder { window?.makeFirstResponder(nil) }
+            // A click on a button blurs a page's input, except a control
+            // that sits on the field itself (a password-reveal).
+            if !acceptsFirstResponder, presenter?.keepsEditing(at: event.locationInWindow) != true {
+                window?.makeFirstResponder(nil)
+            }
             pressed = true
         } else { super.mouseDown(with: event) }
     }
@@ -621,6 +646,20 @@ final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     let viewport = PageScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+
+    /// Whether a window point lands on the field being edited — a password
+    /// reveal sits in that box, and a click there must not blur it.
+    func keepsEditing(at windowPoint: NSPoint) -> Bool {
+        guard let win = viewport.window else { return false }
+        var v: NSView? = win.firstResponder as? NSView
+        while let cur = v {
+            if let n = cur as? NodeView, n.field != nil {
+                return n.bounds.contains(n.convert(windowPoint, from: nil))
+            }
+            v = cur.superview
+        }
+        return false
+    }
 
     init() {
         viewport.documentView = root

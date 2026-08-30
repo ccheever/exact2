@@ -110,7 +110,12 @@ ratio); the ratio still holds (`kernel/tests/image.rs`; LLP 1011).
   reads an inset (`uses_env`) and says whether any did, so a host lays out only
   when something can move. Zero until the host says otherwise, as a browser
   reports the insets for a page without `viewport-fit=cover` (LLP 1008 §9).
-  `tests/env.rs`.
+  **Keyboard inset (2026-08-30).** A fifth kind, wire 7: `env(keyboard-inset-height)`
+  and `env(keyboard-inset-bottom)` (the same value when the keyboard is docked),
+  `Env.keyboard`, the overlap a software keyboard covers of the layout viewport.
+  The host publishes it (`exact_keyboard` on Apple; the browser's `env()` on the
+  web) under `interactive-widget=overlays-content` so the viewport stays and the
+  author pads. `tests/env.rs`.
 
 ## 3. One write path (WS-D, WS-F, 0507 §4)
 

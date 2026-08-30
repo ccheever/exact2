@@ -83,3 +83,38 @@ fn resizes_content_reaches_the_kernel_and_a_bottom_bar_follows_the_viewport() {
     assert_eq!(f.y + f.height, 539.0);
     assert_eq!(k.node(root).unwrap().frame.height, 539.0);
 }
+
+#[test]
+fn overlays_content_and_keyboard_inset_reach_the_kernel() {
+    let src = r#"
+component Overlay
+  view
+    main testId="root" viewport-fit="cover" interactive-widget="overlays-content" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box"
+      column testId="body" flex=1 min-height=0 padding-bottom="env(keyboard-inset-height)"
+        text "hi" testId="hi"
+"#;
+    let plan = contract::compile(src).unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = Runner::boot(plan, NoData, Kernel::with_monospace()).unwrap();
+    let id_of = |k: &Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let (root, body) = (id_of(r.kernel(), "root"), id_of(r.kernel(), "body"));
+    let k = r.kernel_mut();
+    assert_eq!(
+        k.node(root).unwrap().props.str(PropId::InteractiveWidget),
+        Some("overlays-content")
+    );
+    assert_eq!(
+        k.node(body).unwrap().style.padding_bottom,
+        Dimension::Keyboard(0.0)
+    );
+    k.set_env(Env::new(62.0, 0.0, 34.0, 0.0).with_keyboard(335.0))
+        .unwrap();
+    k.compute_layout(root, Offer::definite(402.0, 874.0))
+        .unwrap();
+    assert_eq!(
+        k.node(root).unwrap().frame.height,
+        874.0,
+        "overlays-content does not shrink the viewport"
+    );
+    assert_eq!(k.node(body).unwrap().frame.height, 874.0);
+}

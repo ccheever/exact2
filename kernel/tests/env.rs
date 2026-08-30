@@ -166,6 +166,76 @@ fn a_non_finite_inset_is_refused_and_the_environment_survives_a_reset() {
 }
 
 #[test]
+fn a_keyboard_inset_pads_the_bottom_without_changing_the_viewport() {
+    let mut kernel = Kernel::with_monospace();
+    let mut root = StyleProps::default();
+    root.set_dynamic(
+        StyleId::PaddingBottom,
+        &StyleValue::Text("env(keyboard-inset-height)".into()),
+    )
+    .unwrap();
+    root.set_dynamic(StyleId::Height, &StyleValue::Percent(100.0))
+        .unwrap();
+    root.set_dynamic(StyleId::BoxSizing, &StyleValue::Text("border-box".into()))
+        .unwrap();
+    let mut child = StyleProps::default();
+    child
+        .set_dynamic(StyleId::Height, &StyleValue::Number(40.0))
+        .unwrap();
+    kernel
+        .apply(
+            0,
+            1,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 1,
+                    patch: Box::new(root),
+                },
+                Op::CreateView {
+                    id: 2,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 2,
+                    patch: Box::new(child),
+                },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2],
+                },
+                Op::AttachRoot { id: 1 },
+            ],
+        )
+        .unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(390.0, 844.0))
+        .unwrap();
+    assert_eq!(
+        kernel.node(1).unwrap().style.padding_bottom,
+        Dimension::Keyboard(0.0)
+    );
+    assert_eq!(kernel.node(1).unwrap().frame.height, 844.0);
+    assert!(kernel
+        .set_env(Env::new(62.0, 0.0, 34.0, 0.0).with_keyboard(335.0))
+        .unwrap());
+    kernel
+        .compute_layout(1, Offer::definite(390.0, 844.0))
+        .unwrap();
+    assert_eq!(
+        kernel.node(1).unwrap().frame.height,
+        844.0,
+        "the layout viewport does not shrink"
+    );
+    // The child is in the content box: the 335 of keyboard padding is
+    // inside the same 844, not instead of it.
+    assert_eq!(kernel.node(2).unwrap().frame.height, 40.0);
+}
+
+#[test]
 fn env_lengths_travel_the_wire() {
     use exact_kernel::wire;
     let mut kernel = tree();

@@ -7,7 +7,8 @@
  * exact_out() reports; the app reads a UTF-8 JSON batch from it:
  *   {"ops":[...],"timers":bool,"motion":bool,"error":null|"..."}
  * with ops create / props / style / children / destroy / roots / frame /
- * content / present (host/apple/src/batch.rs). All calls on one thread.
+ * content / present (host/apple/src/batch.rs). All calls on one serial
+ * runtime-owner thread.
  *
  * Text measurement is the one call the other way: exact_boot takes a
  * function the host calls with an ExactMeasureRequest for every paragraph
@@ -55,8 +56,9 @@ typedef struct ExactMetrics {
 typedef ExactMetrics (*ExactMeasureFn)(void *ctx, const ExactMeasureRequest *request);
 
 /* A request's reply is queued (LLP 1016 D2): called on the executor's
- * thread, carrying nothing; the host hops to its main thread and calls
- * exact_pump. May be NULL: replies then wait for the next exact_pump. */
+ * thread, carrying nothing; the host captures its clock on main and calls
+ * exact_pump on the runtime-owner thread. May be NULL: replies then wait
+ * for the next exact_pump. */
 typedef void (*ExactWakeFn)(void *ctx);
 
 uint8_t *exact_in(size_t len);
@@ -66,8 +68,12 @@ const uint8_t *exact_out(void);
  * buffer's first len bytes). measure may be NULL: a monospace reference
  * measurer is used. Returns the first batch's length. */
 uint32_t exact_boot(ExactMeasureFn measure, void *ctx, ExactWakeFn wake, void *wake_ctx, float width, float height);
+/* Split baked-plan boot: prepare before the platform knows its viewport,
+ * then present once it does. Both calls use the same runtime-owner thread. */
+void exact_prepare(ExactMeasureFn measure, void *ctx, ExactWakeFn wake, void *wake_ctx);
+uint32_t exact_present(float width, float height);
 uint32_t exact_boot_plan(size_t len, ExactMeasureFn measure, void *ctx, ExactWakeFn wake, void *wake_ctx, float width, float height);
-/* Every queued reply into the runner, on the main thread: the batch of their
+/* Every queued reply into the runner, on the runtime-owner thread: the batch of their
  * commits (empty when none). A request the app sends (LLP 1016) runs on the
  * library's own executor thread — ibex2::host — never through the host. */
 uint32_t exact_pump(double now_ms);
@@ -84,6 +90,10 @@ uint32_t exact_resize(float width, float height);
  * safe area itself. A change re-sends the style of every node that reads
  * them and lays out again. */
 uint32_t exact_insets(float top, float right, float bottom, float left);
+/* The software keyboard's overlap with the layout viewport, points — what
+ * env(keyboard-inset-height) resolves to. A change re-sends the style of
+ * every node that reads it and lays out again. */
+uint32_t exact_keyboard(float height);
 uint32_t exact_tick(double now_ms);      /* a motion frame, only while "motion" is true */
 /* An image node loaded: its bitmap's pixel counts, taken one-for-one as
  * points (never divided by the backing scale — the web without srcset); a

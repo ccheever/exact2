@@ -130,8 +130,10 @@ extension Agent {
             f = cur.superview
         }
         // Nothing took the focus: the field being edited loses it (a page
-        // blurs its input on a click anywhere else), and the keyboard goes.
-        if !took { win.endEditing(true) }
+        // blurs its input on a click anywhere else), and the keyboard goes
+        // — unless the tap is on a control that sits on the field itself
+        // (a password-reveal).
+        if !took, !presenter.keepsEditing(at: p) { win.endEditing(true) }
         (n as? NodeView)?.activate(at: p)
         return ["tapped": Int(v.id), "at": at]
     }

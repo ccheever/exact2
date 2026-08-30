@@ -8,15 +8,16 @@
 //! there; every call returns the length of the output buffer, whose address
 //! `exact_out()` reports; the app reads a UTF-8 JSON batch from it. Text
 //! measurement is the one call the other way: a function the app registers
-//! at boot ([`crate::measure`]). All calls are on one thread (the main
-//! thread); the bridge is thread-local. [`host!`] instantiates the exports
+//! at boot ([`crate::measure`]). All calls are on one host-owned serial
+//! runtime thread; the bridge is thread-local. [`host!`] instantiates the exports
 //! for one app: its data source and its baked plan bytes.
 
-use crate::host::Host;
+use crate::host::{Host, PreparedHost};
 use crate::measure::{CallbackMeasurer, MeasureFn};
 use crate::store::{endow, snapshot_of};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
 use exact_runner::{DataSource, Event};
+use ibex2::host::Bindings;
 use std::cell::RefCell;
 use std::ffi::c_void;
 
@@ -51,6 +52,8 @@ impl Hooks {
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
+    prepared: Option<(PreparedHost<D>, Option<Bindings>, Hooks)>,
+    prepare_error: Option<String>,
     executor: Option<crate::executor::Executor>,
     input: Vec<u8>,
     output: Vec<u8>,
@@ -65,6 +68,8 @@ impl<D: DataSource> Bridge<D> {
     pub const fn new() -> Bridge<D> {
         Bridge {
             host: None,
+            prepared: None,
+            prepare_error: None,
             executor: None,
             input: Vec::new(),
             output: Vec::new(),
@@ -109,7 +114,7 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// The executor's queued outcomes into the runner (LLP 1016 D2): the
-    /// presenter calls this on its thread after the wake; the output is the
+    /// host calls this on the runtime-owner thread after the wake; the output is the
     /// batch of every reply's commit.
     pub fn pump(&mut self, now_ms: f64) -> u32 {
         let outcomes = self
@@ -124,15 +129,16 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Boot from `plan` with `data`, measuring text through `measure` (or
-    /// the monospace reference measurer when none is given) under a
-    /// viewport; the output is the first batch.
-    pub fn boot(&mut self, plan: &[u8], data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
+    /// Perform every size-independent part of boot and retain it until the
+    /// platform supplies its first honest viewport.
+    pub fn prepare(&mut self, plan: &[u8], data: D, hooks: Hooks) {
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
             None => Box::new(MonospaceMeasurer::default()),
         };
         self.host = None;
+        self.prepared = None;
+        self.prepare_error = None;
         self.executor = None;
         // The app's bindings, once (LLP 1016 D6; LLP 1018 D6): the secrets it
         // kept are read into a snapshot before the runner boots, so the first
@@ -141,20 +147,38 @@ impl<D: DataSource> Bridge<D> {
         let bindings = endow(data.grants());
         let snapshot = snapshot_of(bindings.as_ref());
         let secrets = bindings.as_ref().map(|b| b.secrets.clone());
-        match Host::boot_stored(plan, data, measurer, width, height, None, snapshot, secrets) {
-            Ok((host, batch)) => {
-                self.executor = Some(crate::executor::Executor::start(
-                    bindings,
-                    hooks.wake.map(|w| (w, hooks.wake_ctx)),
-                ));
-                self.host = Some(host);
-                self.emit(batch)
-            }
-            Err(e) => self.emit(format!(
-                "{{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"boot: {}\"}}",
-                escape(&format!("{e:?}"))
-            )),
+        match Host::prepare_stored(plan, data, measurer, None, snapshot, secrets) {
+            Ok(host) => self.prepared = Some((host, bindings, hooks)),
+            Err(e) => self.prepare_error = Some(format!("{e:?}")),
         }
+    }
+
+    /// Finish a prepared boot at the platform's first viewport and emit its
+    /// initial batch.
+    pub fn present(&mut self, width: f32, height: f32) -> u32 {
+        let Some((prepared, bindings, hooks)) = self.prepared.take() else {
+            let error = self
+                .prepare_error
+                .take()
+                .unwrap_or_else(|| "not prepared".to_string());
+            return self.emit(format!(
+                "{{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"boot: {}\"}}",
+                escape(&error)
+            ));
+        };
+        let (host, batch) = prepared.present(width, height);
+        self.executor = Some(crate::executor::Executor::start(
+            bindings,
+            hooks.wake.map(|w| (w, hooks.wake_ctx)),
+        ));
+        self.host = Some(host);
+        self.emit(batch)
+    }
+
+    /// The combined boot used by hosts that already know their viewport.
+    pub fn boot(&mut self, plan: &[u8], data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
+        self.prepare(plan, data, hooks);
+        self.present(width, height)
     }
 
     /// Boot from the input buffer's first `len` bytes (a plan the app
@@ -162,6 +186,8 @@ impl<D: DataSource> Bridge<D> {
     pub fn boot_plan(&mut self, len: usize, data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
         let carried = self.host.take().map(|h| h.carry());
+        self.prepared = None;
+        self.prepare_error = None;
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
             None => Box::new(MonospaceMeasurer::default()),
@@ -243,6 +269,15 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.set_insets(top, right, bottom, left));
+        self.emit(out)
+    }
+
+    /// The software keyboard's overlap with the layout viewport.
+    pub fn keyboard(&mut self, height: f32) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_keyboard(height));
         self.emit(out)
     }
 
@@ -338,6 +373,29 @@ macro_rules! host {
             })
         }
 
+        /// Prepare the baked plan before the platform has a viewport.
+        #[no_mangle]
+        pub extern "C" fn exact_prepare(
+            measure: ::std::option::Option<$crate::measure::MeasureFn>,
+            ctx: *mut ::std::ffi::c_void,
+            wake: ::std::option::Option<$crate::executor::WakeFn>,
+            wake_ctx: *mut ::std::ffi::c_void,
+        ) {
+            EXACT_BRIDGE.with(|b| {
+                b.borrow_mut().prepare(
+                    $plan,
+                    <$data as ::std::default::Default>::default(),
+                    $crate::abi::Hooks { measure, ctx, wake, wake_ctx },
+                )
+            })
+        }
+
+        /// Finish a prepared baked plan at the first platform viewport.
+        #[no_mangle]
+        pub extern "C" fn exact_present(width: f32, height: f32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().present(width, height))
+        }
+
         /// The executor's queued replies into the runner (LLP 1016 D2), on
         /// this thread, after a wake; returns the batch's length.
         #[no_mangle]
@@ -389,6 +447,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_insets(top: f32, right: f32, bottom: f32, left: f32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().insets(top, right, bottom, left))
+        }
+
+        /// The software keyboard's overlap with the layout viewport
+        /// (`env(keyboard-inset-height)`); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_keyboard(height: f32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().keyboard(height))
         }
 
         /// An image loaded (or failed: a size ≤ 0); returns the batch's length.
