@@ -24,6 +24,9 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - The five checks: `cargo build --workspace` · `cargo test --workspace` ·
   `cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check` ·
   `node scripts/caps.mjs` · `node scripts/boot.mjs`.
+- An app outside this repo (weird-castle, `~/projects/weird-castle`) builds, runs, and is
+  driven through these same scripts with `EXACT_APP_DIR` set — `scripts/app.mjs` is the
+  one place that knows; its `exact.mjs` sets it. exact2 is consumed there by path.
 - The dev loop is `node host/web/dev.mjs`: edit `apps/caltrain/app.contract`, the page
   restarts from the new plan in ~20 ms; edit Rust under the wasm's crates, it rebuilds
   and the page reloads. `node scripts/metrics.mjs` prints every number
