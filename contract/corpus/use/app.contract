@@ -1,0 +1,15 @@
+// Accept fixture: `use Name from "./row.contract"` (LLP 1017 P8) — a
+// component from another file, with the shape and the style it needs
+// merged in after this file's own declarations, so `App` stays the root.
+use StationRow from "./row.contract"
+
+component App
+  state picked = ""
+  resource stations = stations() as shape list<Station>
+  action pick(id) writes picked
+    picked = id
+  view
+    column testId="root"
+      text picked testId="picked"
+      each s in stations key=s.id
+        StationRow(station=s, press=pick)

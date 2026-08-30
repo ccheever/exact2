@@ -44,7 +44,14 @@ action reference the use site supplies.
 
 **Resources.** `resource name = source(args) as shape T`: `source` names the
 app's data source, `args` are expressions over state, `T` is the declared
-shape (LLP 1004 D4). There is no `use … from` (`contract-no-imports`).
+shape (LLP 1004 D4). **Files.** `use Name from "./file.contract"` brings a
+component, shape, or style from another Contract file, resolved by
+`contract::compile_path` (LLP 1017 P8, 2026-08-30: the used file's
+declarations are merged in after this file's own; a cycle, a missing file, an
+unknown name, or a name declared differently in both is refused by name);
+anything but a `.contract` path is `contract-no-imports`, as before.
+**Styles.** `style Name` with lines of `attr=literal` (style rows only), applied
+by `class=Name` on a node, the node's own attribute winning (LLP 1017 P6).
 
 **Mutations (LLP 1016, decided A, 2026-08-30).** `mutation name as shape
 T` declares an `option<T>` slot, `none` at boot, that only a `send` fills:

@@ -4,8 +4,7 @@
 fn main() {
     println!("cargo:rerun-if-changed=../app.contract");
     println!("cargo:rerun-if-changed=build.rs");
-    let src = std::fs::read_to_string("../app.contract").expect("apps/caltrain/app.contract");
-    let plan = match contract::compile(&src) {
+    let plan = match contract::compile_path(std::path::Path::new("../app.contract")) {
         Ok(p) => p,
         Err(e) => panic!("app.contract:{e}"),
     };

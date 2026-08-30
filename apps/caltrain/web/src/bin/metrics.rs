@@ -37,8 +37,7 @@ fn view_of(k: &Kernel, test_id: &str) -> u32 {
 }
 
 fn main() {
-    let src = caltrain::SOURCE;
-    let (plan, compile_ms) = repeat(20, || contract::compile(src).unwrap());
+    let (plan, compile_ms) = repeat(20, || caltrain::compile().unwrap());
     let plan_bytes = plan.encode().len();
     let (baked, bake_ms) = repeat(5, || {
         contract::bake(plan.clone(), caltrain_data::Caltrain).unwrap()

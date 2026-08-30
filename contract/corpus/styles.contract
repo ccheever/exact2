@@ -1,0 +1,15 @@
+// Accept fixture: `style Name` at file scope and `class=Name` on a node
+// (LLP 1017 P6) — the web's class list without the cascade. A node's own
+// attribute replaces the style's for the same name; two bindings for one
+// row resolve to the last, so `padding=4` beats the style's `padding=16`.
+style Card
+  border-radius=16 padding=16 gap=10
+  background-color="#ffffffd9"
+
+component Styles
+  view
+    column testId="root" gap=8
+      column class=Card testId="card"
+        text "in a card"
+      column class=Card padding=4 background-color="#000000" testId="tight"
+        text "overridden"

@@ -273,3 +273,46 @@ component A
   view
     text `${n}`
 ---
+== contract-style-literal
+style Card
+  padding=16 gap=n
+component A
+  view
+    text "a"
+---
+== lower-unknown-class
+component A
+  view
+    column class=Card
+      text "a"
+---
+== lower-style-attr
+style Card
+  padding=16 testId="card"
+component A
+  view
+    column class=Card
+      text "a"
+---
+== lower-style-duplicate
+style Card
+  padding=16
+style Card
+  padding=8
+component A
+  view
+    column class=Card
+      text "a"
+---
+== type-class-name
+component A
+  view
+    column class="Card"
+      text "a"
+---
+== contract-use-unresolved
+use Row from "./row.contract"
+component A
+  view
+    text "a"
+---

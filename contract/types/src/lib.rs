@@ -1170,6 +1170,17 @@ fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Result<(), Type
                     infer(p, scope, shapes)?;
                 }
                 for a in attrs {
+                    if a.name == "class" {
+                        // `class=Name` names a `style`, resolved at lowering.
+                        if !matches!(a.value, Expr::Ident(..)) {
+                            return err(
+                                "type-class-name",
+                                "`class=` names a style declared with `style Name`",
+                                a.span,
+                            );
+                        }
+                        continue;
+                    }
                     if a.name == "surface" {
                         // `surface=name(args)`: the name is the GPU module's,
                         // not a function; the arguments are expressions.

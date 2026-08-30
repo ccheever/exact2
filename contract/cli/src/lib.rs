@@ -12,10 +12,12 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+use contract_syntax::{File, UseDecl};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{Plan, ResourcesId};
 use exact_runner::{DataSource, Runner, RunnerError};
+use std::path::{Path, PathBuf};
 
 /// A refusal from `bake`: the runner's, or the layout lint's (LLP 1017 P1d).
 #[derive(Debug)]
@@ -97,12 +99,137 @@ from_pass!(contract_types::TypeError, "types");
 from_pass!(contract_analyze::AnalyzeError, "analyze");
 from_pass!(contract_lower::LowerError, "lower");
 
-/// Compile one source text to a validated plan.
+/// Compile one source text to a validated plan. A text has no path, so a
+/// `use … from "./file.contract"` in it cannot be resolved: compile a file
+/// that uses others with [`compile_path`].
 pub fn compile(src: &str) -> Result<Plan, CompileError> {
     let file = contract_syntax::parse(src)?;
+    if let Some(u) = file.uses.first() {
+        return Err(CompileError {
+            pass: "use",
+            id: "contract-use-unresolved".into(),
+            message: format!(
+                "`use {} from \"{}\"` needs this file's own path to resolve: compile it with `contract build <file>` (`compile_path`)",
+                u.name, u.path
+            ),
+            span: (u.span.line, u.span.col),
+        });
+    }
+    compile_file(file)
+}
+
+/// Compile a file by path, resolving every `use … from "./other.contract"`
+/// (LLP 1017 P8): the used file is loaded the same way, transitively, and
+/// all of its declarations — shapes, styles, components — are merged into
+/// the using file after its own, so the using file's first component stays
+/// the root and a used component is a child. The named declaration must
+/// exist in the used file; a name declared differently in both is refused;
+/// a cycle is refused.
+pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
+    let mut seen = Vec::new();
+    let file = load(path, &mut seen)?;
+    compile_file(file)
+}
+
+fn compile_file(file: File) -> Result<Plan, CompileError> {
     let types = contract_types::check(&file)?;
     let analysis = contract_analyze::check(&file, &types)?;
     Ok(contract_lower::lower(&file, &types, &analysis)?)
+}
+
+fn use_error(id: &str, message: String, u: &UseDecl) -> CompileError {
+    CompileError {
+        pass: "use",
+        id: id.into(),
+        message,
+        span: (u.span.line, u.span.col),
+    }
+}
+
+fn load(path: &Path, seen: &mut Vec<PathBuf>) -> Result<File, CompileError> {
+    let src = std::fs::read_to_string(path).map_err(|e| CompileError {
+        pass: "use",
+        id: "contract-use-unreadable".into(),
+        message: format!("{}: {e}", path.display()),
+        span: (0, 0),
+    })?;
+    let mut file = contract_syntax::parse(&src)?;
+    let uses = std::mem::take(&mut file.uses);
+    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    for u in &uses {
+        let target = dir.join(&u.path);
+        let key = target.canonicalize().unwrap_or_else(|_| target.clone());
+        if seen.contains(&key) {
+            return Err(use_error(
+                "contract-use-cycle",
+                format!(
+                    "`use {} from \"{}\"` returns to a file already being loaded",
+                    u.name, u.path
+                ),
+                u,
+            ));
+        }
+        seen.push(key);
+        let used = load(&target, seen).map_err(|e| {
+            if e.id == "contract-use-unreadable" {
+                use_error(
+                    "contract-use-unreadable",
+                    format!("`use {} from \"{}\"`: {}", u.name, u.path, e.message),
+                    u,
+                )
+            } else {
+                e
+            }
+        })?;
+        seen.pop();
+        let known = used.components.iter().any(|c| c.name == u.name)
+            || used.shapes.iter().any(|s| s.name == u.name)
+            || used.styles.iter().any(|s| s.name == u.name);
+        if !known {
+            return Err(use_error(
+                "contract-use-unknown",
+                format!(
+                    "`{}` declares no component, shape, or style `{}`",
+                    u.path, u.name
+                ),
+                u,
+            ));
+        }
+        merge(&mut file, used, u)?;
+    }
+    Ok(file)
+}
+
+fn merge(into: &mut File, from: File, u: &UseDecl) -> Result<(), CompileError> {
+    let dup = |what: &str, name: &str| {
+        use_error(
+            "contract-use-duplicate",
+            format!("`use {}` brings a {what} `{name}` that this file already has, declared differently", u.name),
+            u,
+        )
+    };
+    for s in from.shapes {
+        match into.shapes.iter().find(|x| x.name == s.name) {
+            Some(x) if *x == s => {}
+            Some(_) => return Err(dup("shape", &s.name)),
+            None => into.shapes.push(s),
+        }
+    }
+    for s in from.styles {
+        match into.styles.iter().find(|x| x.name == s.name) {
+            Some(x) if *x == s => {}
+            Some(_) => return Err(dup("style", &s.name)),
+            None => into.styles.push(s),
+        }
+    }
+    for c in from.components {
+        match into.components.iter().find(|x| x.name == c.name) {
+            Some(x) if *x == c => {}
+            Some(_) => return Err(dup("component", &c.name)),
+            None => into.components.push(c),
+        }
+    }
+    Ok(())
 }
 
 /// Boot the plan once against `data` and write every resource's boot value

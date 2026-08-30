@@ -25,14 +25,7 @@ fn build(args: &[String]) -> ExitCode {
         .position(|a| a == "-o")
         .and_then(|i| args.get(i + 1))
         .cloned();
-    let src = match std::fs::read_to_string(input) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("{input}: {e}");
-            return ExitCode::from(1);
-        }
-    };
-    let plan = match contract::compile(&src) {
+    let plan = match contract::compile_path(std::path::Path::new(input)) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{input}:{e}");

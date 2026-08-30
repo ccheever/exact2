@@ -109,6 +109,8 @@ pub(crate) struct Lowerer<'a> {
     /// Each mutation's `option<T>` slot, by mutation index.
     pub mutation_slots: Vec<exact_plan::SlotsId>,
     pub actions: Vec<exact_plan::ActionsId>,
+    /// The file's `style` declarations, by name (LLP 1017 P6).
+    pub styles: BTreeMap<String, Vec<Attr>>,
 }
 
 /// Lower a checked file to a plan.
@@ -126,7 +128,43 @@ pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, L
         mutations: Vec::new(),
         mutation_slots: Vec::new(),
         actions: Vec::new(),
+        styles: BTreeMap::new(),
     };
+    // Styles: rows only, literal only (the parser holds the second), by name.
+    for s in &file.styles {
+        for a in &s.attrs {
+            match tags::attr(&a.name) {
+                Some(tags::AttrTarget::Styles(_)) | Some(tags::AttrTarget::Flex) => {}
+                Some(_) => {
+                    return err(
+                        "lower-style-attr",
+                        format!(
+                            "`{}` cannot be in `style {}`: a style holds style rows only — no `testId`, no handlers, no props",
+                            a.name, s.name
+                        ),
+                        a.span,
+                    )
+                }
+                None => {
+                    let hint = tags::renamed(&a.name)
+                        .map(|n| format!("; `{}` is spelled `{n}` here", a.name))
+                        .unwrap_or_default();
+                    return err(
+                        "lower-unknown-attr",
+                        format!("`style {}` has no attribute `{}`{hint}", s.name, a.name),
+                        a.span,
+                    );
+                }
+            }
+        }
+        if l.styles.insert(s.name.clone(), s.attrs.clone()).is_some() {
+            return err(
+                "lower-style-duplicate",
+                format!("`style {}` is declared twice", s.name),
+                s.span,
+            );
+        }
+    }
     // Shapes first, in declaration order, so type ids are stable.
     for s in &file.shapes {
         l.ty_id(&Ty::Record(s.name.clone()))?;
@@ -374,7 +412,33 @@ impl<'a> Lowerer<'a> {
                 // Two layout refusals the compiler can make without measuring
                 // (LLP 1017 P1c; the measured ones are bake's). Conservative:
                 // only the case nothing on the path can bound is refused.
-                let has = |names: &[&str]| attrs.iter().any(|a| names.contains(&a.name.as_str()));
+                // `class=Name` expands its style's rows first; the node's own
+                // attribute of the same name replaces the style's (LLP 1017 P6).
+                let mut expanded: Vec<Attr> = Vec::new();
+                if let Some(c) = attrs.iter().find(|a| a.name == "class") {
+                    let Expr::Ident(name, _) = &c.value else {
+                        return err(
+                            "lower-class-name",
+                            "`class=` names a style declared with `style Name`",
+                            c.span,
+                        );
+                    };
+                    let Some(style) = self.styles.get(name).cloned() else {
+                        return err(
+                            "lower-unknown-class",
+                            format!("`class={name}`: no `style {name}` in this file"),
+                            c.span,
+                        );
+                    };
+                    expanded.extend(
+                        style
+                            .into_iter()
+                            .filter(|s| !attrs.iter().any(|a| a.name == s.name)),
+                    );
+                }
+                expanded.extend(attrs.iter().filter(|a| a.name != "class").cloned());
+                let has =
+                    |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
                 let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));
                 if tag == "scroll" && parent_stacks && !has(&["height", "max-height", "flex"]) {
                     return err(
@@ -450,7 +514,7 @@ impl<'a> Lowerer<'a> {
                         positional[1].span(),
                     );
                 }
-                for a in attrs {
+                for a in &expanded {
                     self.attr(
                         tag,
                         a,
@@ -461,6 +525,20 @@ impl<'a> Lowerer<'a> {
                         &mut surface,
                     )?;
                 }
+                // Two bindings for one row — a style's and the node's own, a
+                // tag's fixed row and an attribute — the last one wins.
+                let mut seen: BTreeMap<(u8, u16), usize> = BTreeMap::new();
+                let mut deduped: Vec<BindingsRow> = Vec::new();
+                for b in bindings.drain(..) {
+                    match seen.get(&(b.kind as u8, b.id)) {
+                        Some(&i) => deduped[i] = b,
+                        None => {
+                            seen.insert((b.kind as u8, b.id), deduped.len());
+                            deduped.push(b);
+                        }
+                    }
+                }
+                let bindings = deduped;
                 let handler_refs: Vec<(EventKind, exact_plan::ActionsId, &[Code])> = handlers
                     .iter()
                     .map(|(e, a, c)| (*e, *a, c.as_slice()))

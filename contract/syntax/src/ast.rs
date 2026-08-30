@@ -5,10 +5,39 @@ use crate::Span;
 /// One source file.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct File {
+    /// `use Name from "./file.contract"` declarations, in order (LLP 1017 P8);
+    /// resolved by the driver, which merges the used file's declarations in.
+    pub uses: Vec<UseDecl>,
     /// `shape` declarations, in order.
     pub shapes: Vec<ShapeDecl>,
+    /// `style` declarations, in order (LLP 1017 P6).
+    pub styles: Vec<StyleDecl>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
+}
+
+/// `use Name from "./file.contract"` — a component, shape, or style from
+/// another Contract file; never anything else (`contract-no-imports`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UseDecl {
+    /// The declaration's name.
+    pub name: String,
+    /// The file, relative to this one.
+    pub path: String,
+    /// Where.
+    pub span: Span,
+}
+
+/// `style Name` with lines of `attr=literal` — a named set of style rows a
+/// node applies with `class=Name`; its own attributes win (LLP 1017 P6).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StyleDecl {
+    /// The name.
+    pub name: String,
+    /// The rows, as attributes with literal values.
+    pub attrs: Vec<Attr>,
+    /// Where.
+    pub span: Span,
 }
 
 /// `shape Name` with its fields.

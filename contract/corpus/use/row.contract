@@ -1,0 +1,17 @@
+// A file another file uses (LLP 1017 P8): a shape, a style, and a
+// component, and no root — every component here is a definition.
+shape Station
+  id: string
+  name: string
+
+style Line
+  padding-top=10 padding-bottom=10
+
+component StationRow
+  props
+    station: Station
+    press: action
+  view
+    button press=press(station.id) aria-label=station.name testId=`station-${station.id}` width="100%"
+      row class=Line testId=`line-${station.id}`
+        text station.name font-size=15

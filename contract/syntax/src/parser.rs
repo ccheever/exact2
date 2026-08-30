@@ -177,13 +177,93 @@ impl Parser {
                     self.next();
                 }
                 TokenKind::Ident(w) if w == "shape" => file.shapes.push(self.shape()?),
+                TokenKind::Ident(w) if w == "style" => file.styles.push(self.style()?),
                 TokenKind::Ident(w) if w == "component" => file.components.push(self.component()?),
-                TokenKind::Ident(w) if w == "use" => {
-                    return self.err("contract-no-imports", "`use … from` is not admitted: data comes from the app's Rust data source and formatting from the stdlib roster (LLP 1004 D4)")
+                TokenKind::Ident(w) if w == "use" => file.uses.push(self.use_decl()?),
+                other => {
+                    return self.err(
+                        "syntax-expected-declaration",
+                        format!(
+                            "expected `shape`, `style`, `use`, or `component`, found {}",
+                            describe(other)
+                        ),
+                    )
                 }
-                other => return self.err("syntax-expected-declaration", format!("expected `shape` or `component`, found {}", describe(other))),
             }
         }
+    }
+
+    /// `use Name from "./file.contract"` (LLP 1017 P8). Only a `.contract`
+    /// file may be used: no TypeScript, no packages, no behaviours — data
+    /// comes from the app's Rust data source and formatting from the roster
+    /// or a `fn` (LLP 1004 D4).
+    fn use_decl(&mut self) -> R<UseDecl> {
+        let span = self.expect_word("use")?;
+        let (name, _) = self.ident()?;
+        self.expect_word("from")?;
+        let path = match self.peek_kind().clone() {
+            TokenKind::Str(s) => {
+                self.next();
+                s
+            }
+            other => {
+                return self.err(
+                    "syntax-expected-path",
+                    format!("expected a file path in quotes, found {}", describe(&other)),
+                )
+            }
+        };
+        if !path.ends_with(".contract") {
+            return Err(SyntaxError {
+                id: "contract-no-imports",
+                message: format!("`use … from \"{path}\"` is not admitted: only a `.contract` file may be used — data comes from the app's Rust data source and formatting from the stdlib roster (LLP 1004 D4)"),
+                span,
+            });
+        }
+        self.newline()?;
+        Ok(UseDecl { name, path, span })
+    }
+
+    /// `style Name` then lines of `attr=literal` (LLP 1017 P6).
+    fn style(&mut self) -> R<StyleDecl> {
+        let span = self.expect_word("style")?;
+        let (name, _) = self.ident()?;
+        self.newline()?;
+        let lines = self.block(|p| {
+            let mut attrs = Vec::new();
+            while !matches!(p.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
+                let (aname, aspan) = match (p.peek_kind().clone(), p.peek2().clone()) {
+                    (TokenKind::Ident(n), TokenKind::Punct("=")) => (n, p.next().span),
+                    (other, _) => {
+                        return p.err(
+                            "syntax-expected-attr",
+                            format!("expected `attr=literal` in a style, found {}", describe(&other)),
+                        )
+                    }
+                };
+                p.next();
+                let value = p.expr()?;
+                if !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
+                    return Err(SyntaxError {
+                        id: "contract-style-literal",
+                        message: format!("`{aname}` in `style {name}` must be a literal: a style is constant, and a node's own attribute may compute"),
+                        span: aspan,
+                    });
+                }
+                attrs.push(Attr {
+                    name: aname,
+                    value,
+                    span: aspan,
+                });
+            }
+            p.newline()?;
+            Ok(attrs)
+        })?;
+        Ok(StyleDecl {
+            name,
+            attrs: lines.into_iter().flatten().collect(),
+            span,
+        })
     }
 
     fn shape(&mut self) -> R<ShapeDecl> {
@@ -899,6 +979,8 @@ fn is_keyword(w: &str) -> bool {
             | "when"
             | "if"
             | "else"
+            | "style"
+            | "from"
             | "each"
             | "in"
             | "key"

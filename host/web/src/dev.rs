@@ -82,7 +82,9 @@ impl Session {
 
     fn build<D: DataSource + Default>(&self, src: &str, saved_ms: f64) -> Result<Built, String> {
         let t = Instant::now();
-        let plan = contract::compile(src).map_err(|e| format!("{}:{e}", self.source.display()))?;
+        let _ = src;
+        let plan = contract::compile_path(&self.source)
+            .map_err(|e| format!("{}:{e}", self.source.display()))?;
         let compile_ms = t.elapsed().as_secs_f64() * 1000.0;
         let t = Instant::now();
         let baked = contract::bake(plan, D::default()).map_err(|e| format!("bake: {e:?}"))?;
