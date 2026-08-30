@@ -81,6 +81,9 @@ pub(crate) struct Lowerer<'a> {
     pub slots: Vec<exact_plan::SlotsId>,
     pub derives: Vec<exact_plan::DerivesId>,
     pub resources: Vec<exact_plan::ResourcesId>,
+    pub mutations: Vec<exact_plan::MutationsId>,
+    /// Each mutation's `option<T>` slot, by mutation index.
+    pub mutation_slots: Vec<exact_plan::SlotsId>,
     pub actions: Vec<exact_plan::ActionsId>,
 }
 
@@ -96,6 +99,8 @@ pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, L
         slots: Vec::new(),
         derives: Vec::new(),
         resources: Vec::new(),
+        mutations: Vec::new(),
+        mutation_slots: Vec::new(),
         actions: Vec::new(),
     };
     // Shapes first, in declaration order, so type ids are stable.
@@ -120,6 +125,16 @@ pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, L
         let id = l.b.resource(&r.name, &r.source, &[], ty, None);
         l.resources.push(id);
     }
+    // A mutation is a slot of `option<T>`, `none` at boot, plus its row.
+    for (i, m) in root.mutations.iter().enumerate() {
+        let t = l.ty_id(&root_types.mutations[i])?;
+        let ot = l.ty_id(&Ty::Option(Box::new(root_types.mutations[i].clone())))?;
+        let init = l.b.constant(&Value::Option(None));
+        let slot = l.b.slot(&m.name, ot, init);
+        let id = l.b.mutation(&m.name, slot, t);
+        l.mutation_slots.push(slot);
+        l.mutations.push(id);
+    }
     for (i, a) in root.actions.iter().enumerate() {
         let params: Vec<(String, TypesId)> = a
             .params
@@ -132,7 +147,14 @@ pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, L
         let writes: Vec<exact_plan::SlotsId> = a
             .writes
             .iter()
-            .map(|(w, _)| l.slots[root.states.iter().position(|s| &s.name == w).unwrap()])
+            .map(
+                |(w, _)| match root.states.iter().position(|s| &s.name == w) {
+                    Some(si) => l.slots[si],
+                    None => {
+                        l.mutation_slots[root.mutations.iter().position(|m| &m.name == w).unwrap()]
+                    }
+                },
+            )
             .collect();
         let placeholder = l.b.constant(&Value::Unit);
         let id = l.b.action(&a.name, &params_ref, &writes, placeholder);
@@ -177,8 +199,42 @@ pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, L
             match stmt {
                 Stmt::Assign { target, expr, .. } => {
                     expr::compile(&mut l, &mut asm, expr, &inner, &mut locals)?;
-                    let slot = l.slots[root.states.iter().position(|s| &s.name == target).unwrap()];
+                    let slot = match root.states.iter().position(|s| &s.name == target) {
+                        Some(si) => l.slots[si],
+                        None => {
+                            l.mutation_slots[root
+                                .mutations
+                                .iter()
+                                .position(|m| &m.name == target)
+                                .unwrap()]
+                        }
+                    };
                     asm.store_slot(slot);
+                }
+                Stmt::Send {
+                    target,
+                    source,
+                    args,
+                    ..
+                } => {
+                    for arg in args {
+                        expr::compile(&mut l, &mut asm, arg, &inner, &mut locals)?;
+                    }
+                    let m = l.mutations[root
+                        .mutations
+                        .iter()
+                        .position(|m| &m.name == target)
+                        .unwrap()];
+                    let source = l.b.str(source);
+                    asm.send(m, source, args.len() as u16);
+                }
+                Stmt::Refresh { target, .. } => {
+                    let r = l.resources[root
+                        .resources
+                        .iter()
+                        .position(|r| &r.name == target)
+                        .unwrap()];
+                    asm.refresh(r);
                 }
                 Stmt::Command { name, args, .. } => {
                     for arg in args {

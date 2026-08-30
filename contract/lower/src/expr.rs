@@ -68,6 +68,9 @@ pub(crate) fn compile(
             Some((Ref::Resource(i), _)) => {
                 asm.load_resource(l.resources[i as usize]);
             }
+            Some((Ref::Mutation(i), _)) => {
+                asm.load_slot(l.mutation_slots[i as usize]);
+            }
             Some((Ref::Param(i), _)) => {
                 asm.load_param(i as u16);
             }
@@ -122,6 +125,28 @@ pub(crate) fn compile(
             asm.field(index as u16);
         }
         Expr::Call(name, args, span) => {
+            if name == "pending" {
+                // Typed already: one name, a resource or a mutation.
+                let Some(Expr::Ident(target, _)) = args.first() else {
+                    return err(
+                        "lower-pending",
+                        "`pending(x)` names one resource or mutation",
+                        *span,
+                    );
+                };
+                match scope.lookup(target) {
+                    Some((Ref::Resource(i), _)) => asm.pending_resource(l.resources[i as usize]),
+                    Some((Ref::Mutation(i), _)) => asm.pending_mutation(l.mutations[i as usize]),
+                    _ => {
+                        return err(
+                            "lower-pending",
+                            format!("`{target}` is not a resource or a mutation"),
+                            *span,
+                        )
+                    }
+                };
+                return Ok(());
+            }
             let Some(f) = Stdlib::from_name(name) else {
                 return err(
                     "lower-unknown-function",

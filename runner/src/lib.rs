@@ -40,4 +40,5 @@ pub use runner::{
     Advanced, Carried, Command, DataError, DataSource, Event, Runner, RunnerError, Timed,
     JOURNAL_RING,
 };
+pub use runner::{Answer, FailureKind, Outcome, Request, RequestOut, Response};
 pub use vm::Trap;

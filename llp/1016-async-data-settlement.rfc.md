@@ -219,6 +219,15 @@ constant becomes a section of it. A grant in `app.contract` itself was
 considered and deferred: the language does not name hosts today, and a
 capability is the host crate's business, not the view's.
 
+**As built (2026-08-30, runner and compiler):** the seam is `query` (now,
+required — bake and every in-process source) beside `answer` (default:
+`query` now; a source that reaches outside overrides it) and `parse`, so no
+existing source changed; the source is named at each `send`, not on the
+declaration (Fable's `logout`), so the `Send` opcode carries it and the
+`mutations` row is name, slot, `T`; the assignment-forgets rule runs before
+settlement so `pending()` is right in the same commit. The hosts (D2), the
+agent's `settle`, and Weird Castle's real `loginV2` follow.
+
 ## 3. What changes, where
 
 | Where | Change |

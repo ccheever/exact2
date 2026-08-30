@@ -39,6 +39,10 @@ pub struct Env<'a> {
     pub frames: &'a [Frame],
     /// The clock, in milliseconds.
     pub now_ms: f64,
+    /// Whether each resource has a request in flight (LLP 1016 D3).
+    pub pending_resources: &'a [bool],
+    /// Whether each mutation has a request in flight.
+    pub pending_mutations: &'a [bool],
 }
 
 /// A typed evaluation failure. The plan was validated, so a trap is a
@@ -100,6 +104,10 @@ pub struct Outcome {
     pub writes: Vec<(u32, Value)>,
     /// `(name, args)` commands in execution order.
     pub commands: Vec<(String, Vec<Value>)>,
+    /// `(mutation, source, args)` sends in execution order (LLP 1016).
+    pub sends: Vec<(u32, String, Vec<Value>)>,
+    /// Resources to re-request with their current arguments.
+    pub refreshes: Vec<u32>,
 }
 
 /// Evaluate `code` in `env`. `allowed_writes` bounds `StoreSlot`; an action
@@ -129,7 +137,7 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
         let pc = r.position();
         let op = Opcode::from_wire(r.u8().map_err(|_| malformed(pc))?).ok_or(malformed(pc))?;
         // Operands, in declared order.
-        let mut args: [u64; 2] = [0, 0];
+        let mut args: [u64; 3] = [0, 0, 0];
         let mut f64_arg = 0.0;
         for (i, operand) in op.operands().iter().enumerate() {
             match operand {
@@ -325,6 +333,37 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 let cargs = stack.split_off(stack.len() - n);
                 out.commands.push((name, cargs));
             }
+            Opcode::Send => {
+                let m = args[0] as u32;
+                let slot = env.plan.mutation(exact_plan::MutationsId(m)).slot.0;
+                if !allowed_writes.contains(&slot) {
+                    return Err(Trap::WriteNotDeclared { pc, slot });
+                }
+                let source = env.plan.str(exact_plan::StrId(args[1] as u32)).to_string();
+                let n = args[2] as usize;
+                if stack.len() < n {
+                    return Err(Trap::StackUnderflow { pc });
+                }
+                let sargs = stack.split_off(stack.len() - n);
+                out.sends.push((m, source, sargs));
+            }
+            Opcode::Refresh => out.refreshes.push(args[0] as u32),
+            Opcode::PendingResource => {
+                // Known once the resource settled this pass, like its value.
+                let i = args[0] as usize;
+                if env.resources.get(i).is_none_or(Option::is_none) {
+                    return Err(Trap::Pending { pc });
+                }
+                stack.push(Value::Bool(
+                    env.pending_resources.get(i).copied().unwrap_or(false),
+                ));
+            }
+            Opcode::PendingMutation => stack.push(Value::Bool(
+                env.pending_mutations
+                    .get(args[0] as usize)
+                    .copied()
+                    .unwrap_or(false),
+            )),
             Opcode::Pop => {
                 pop!(pc);
             }

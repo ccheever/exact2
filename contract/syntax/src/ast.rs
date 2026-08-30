@@ -66,6 +66,8 @@ pub struct Component {
     pub derives: Vec<Binding>,
     /// `resource` declarations.
     pub resources: Vec<ResourceDecl>,
+    /// `mutation` declarations (LLP 1016).
+    pub mutations: Vec<MutationDecl>,
     /// `action` declarations.
     pub actions: Vec<Action>,
     /// `task` declarations.
@@ -97,6 +99,18 @@ pub struct ResourceDecl {
     /// Argument expressions.
     pub args: Vec<Expr>,
     /// The declared shape.
+    pub shape: TypeExpr,
+    /// Where.
+    pub span: Span,
+}
+
+/// `mutation name as shape T` (LLP 1016): an `option<T>` slot, `none` at
+/// boot, that a `send` fills from an action.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MutationDecl {
+    /// Name.
+    pub name: String,
+    /// The reply's shape, `T`.
     pub shape: TypeExpr,
     /// Where.
     pub span: Span,
@@ -146,6 +160,24 @@ pub enum Stmt {
         name: String,
         /// Arguments.
         args: Vec<Expr>,
+        /// Where.
+        span: Span,
+    },
+    /// `send target = source(args)` — the mutation's request (LLP 1016).
+    Send {
+        /// The mutation.
+        target: String,
+        /// The data source.
+        source: String,
+        /// Arguments.
+        args: Vec<Expr>,
+        /// Where.
+        span: Span,
+    },
+    /// `refresh target` — re-request a resource with its current arguments.
+    Refresh {
+        /// The resource.
+        target: String,
         /// Where.
         span: Span,
     },

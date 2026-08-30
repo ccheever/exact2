@@ -68,6 +68,7 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
         if !c.states.is_empty()
             || !c.derives.is_empty()
             || !c.resources.is_empty()
+            || !c.mutations.is_empty()
             || !c.actions.is_empty()
             || !c.tasks.is_empty()
         {
@@ -97,10 +98,10 @@ fn check_actions(c: &Component) -> Result<(), AnalyzeError> {
     for a in &c.actions {
         let mut declared = BTreeSet::new();
         for (w, span) in &a.writes {
-            if !c.states.iter().any(|s| &s.name == w) {
+            if !c.states.iter().any(|s| &s.name == w) && !c.mutations.iter().any(|m| &m.name == w) {
                 return err(
                     "analyze-writes-unknown-state",
-                    format!("`{w}` in `writes` is not a state"),
+                    format!("`{w}` in `writes` is not a state or a mutation"),
                     *span,
                 );
             }
@@ -113,17 +114,20 @@ fn check_actions(c: &Component) -> Result<(), AnalyzeError> {
             }
         }
         for stmt in &a.body {
-            if let Stmt::Assign { target, span, .. } = stmt {
-                if !declared.contains(target) {
-                    return err(
-                        "analyze-write-not-declared",
-                        format!(
-                            "`{}` writes `{target}` but does not declare it: add `writes {target}`",
-                            a.name
-                        ),
-                        *span,
-                    );
-                }
+            let (target, span, how) = match stmt {
+                Stmt::Assign { target, span, .. } => (target, span, "writes"),
+                Stmt::Send { target, span, .. } => (target, span, "sends"),
+                _ => continue,
+            };
+            if !declared.contains(target) {
+                return err(
+                    "analyze-write-not-declared",
+                    format!(
+                        "`{}` {how} `{target}` but does not declare it: add `writes {target}`",
+                        a.name
+                    ),
+                    *span,
+                );
             }
         }
     }

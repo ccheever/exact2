@@ -31,6 +31,11 @@
       { "name": "ty", "codec": "idx:types" },
       { "name": "initial", "codec": "bytes" }
     ]},
+    { "name": "mutations", "fields": [
+      { "name": "name", "codec": "str" },
+      { "name": "slot", "codec": "idx:slots" },
+      { "name": "ty", "codec": "idx:types" }
+    ]},
     { "name": "args", "fields": [
       { "name": "expr", "codec": "code" }
     ]},
@@ -136,7 +141,11 @@
     { "name": "BindLocal", "operands": [] },
     { "name": "LoadLocal", "operands": ["u16"] },
     { "name": "DropLocal", "operands": [] },
-    { "name": "Return", "operands": [] }
+    { "name": "Return", "operands": [] },
+    { "name": "Send", "operands": ["idx:mutations", "str", "u16"] },
+    { "name": "Refresh", "operands": ["idx:resources"] },
+    { "name": "PendingResource", "operands": ["idx:resources"] },
+    { "name": "PendingMutation", "operands": ["idx:mutations"] }
   ],
   "_stdlib": "The enumerated roster (LLP 1004 D2/D4): every callable an expression may name, with its parameter types and return type (`any` = one of number, string, bool, list). The compiler checks calls against this table; the runner's VM implements each entry once; entries are added by fixture, never by speculation.",
   "stdlib": [

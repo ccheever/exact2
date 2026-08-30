@@ -229,6 +229,14 @@ impl PlanBuilder {
         ResourcesId(self.plan.resources.len() as u32 - 1)
     }
 
+    /// A mutation (LLP 1016): the `option<T>` slot its reply fills, and `T`;
+    /// the source is named at each `send`.
+    pub fn mutation(&mut self, name: &str, slot: SlotsId, ty: TypesId) -> MutationsId {
+        let name = self.str(name);
+        self.plan.mutations.push(MutationsRow { name, slot, ty });
+        MutationsId(self.plan.mutations.len() as u32 - 1)
+    }
+
     /// A run of argument expressions.
     pub fn args(&mut self, exprs: &[Code]) -> ArgsRange {
         let start = self.plan.args.len() as u32;

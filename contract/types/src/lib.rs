@@ -200,6 +200,8 @@ pub enum Ref {
     Derive(u32),
     /// A resource, by index.
     Resource(u32),
+    /// A mutation, by index (its value is `option<T>`).
+    Mutation(u32),
     /// An action, by index.
     Action(u32),
     /// A prop, by index.
@@ -291,6 +293,8 @@ pub struct ComponentTypes {
     pub derives: Vec<Ty>,
     /// Resource types (their declared shapes).
     pub resources: Vec<Ty>,
+    /// Mutation reply types, `T` (the name reads as `option<T>`).
+    pub mutations: Vec<Ty>,
     /// Action parameter types, per action.
     pub actions: Vec<Vec<Ty>>,
 }
@@ -322,6 +326,13 @@ impl Types {
                 r.name.clone(),
                 Ref::Resource(i as u32),
                 ct.resources[i].clone(),
+            ));
+        }
+        for (i, m) in c.mutations.iter().enumerate() {
+            names.push((
+                m.name.clone(),
+                Ref::Mutation(i as u32),
+                Ty::Option(Box::new(ct.mutations[i].clone())),
             ));
         }
         for (i, a) in c.actions.iter().enumerate() {
@@ -387,6 +398,26 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             }
         }
         Expr::Call(name, args, span) => {
+            if name == "pending" {
+                // `pending(x)`: whether resource or mutation `x` has a
+                // request in flight (LLP 1016 D3). Not a roster call: its
+                // argument is a name, not a value.
+                let [Expr::Ident(target, tspan)] = args.as_slice() else {
+                    return err(
+                        "type-pending-argument",
+                        "`pending(x)` names one resource or mutation",
+                        *span,
+                    );
+                };
+                return match scope.lookup(target) {
+                    Some((Ref::Resource(_) | Ref::Mutation(_), _)) => Ok(Ty::Bool),
+                    _ => err(
+                        "type-pending-argument",
+                        format!("`{target}` is not a resource or a mutation"),
+                        *tspan,
+                    ),
+                };
+            }
             if let Some(f) = Stdlib::from_name(name) {
                 if args.len() != f.arity() {
                     return err(
@@ -731,6 +762,7 @@ fn check_component(c: &Component, types: &Types) -> Result<ComponentTypes, TypeE
         .chain(c.states.iter().map(|s| (&s.name, s.span)))
         .chain(c.derives.iter().map(|d| (&d.name, d.span)))
         .chain(c.resources.iter().map(|r| (&r.name, r.span)))
+        .chain(c.mutations.iter().map(|m| (&m.name, m.span)))
         .chain(c.actions.iter().map(|a| (&a.name, a.span)))
     {
         if seen.insert(name.clone(), span).is_some() {
@@ -756,6 +788,9 @@ fn check_component(c: &Component, types: &Types) -> Result<ComponentTypes, TypeE
     }
     for r in &c.resources {
         ct.resources.push(shapes.resolve(&r.shape)?);
+    }
+    for m in &c.mutations {
+        ct.mutations.push(shapes.resolve(&m.shape)?);
     }
     // Slots from initializers (may hold `?` inside an option).
     {
@@ -851,9 +886,23 @@ fn check_component(c: &Component, types: &Types) -> Result<ComponentTypes, TypeE
             match stmt {
                 Stmt::Assign { target, expr, span } => {
                     let Some(si) = c.states.iter().position(|s| &s.name == target) else {
+                        // A mutation's slot may be assigned (`session = none`);
+                        // its type is `option<T>` and is never inferred from here.
+                        if let Some(mi) = c.mutations.iter().position(|m| &m.name == target) {
+                            let t = infer(expr, &scope, shapes)?;
+                            let mt = Ty::Option(Box::new(ct.mutations[mi].clone()));
+                            if mt.unify(&t).is_none() {
+                                return err(
+                                    "type-assign",
+                                    format!("`{target}` is `{mt}`, cannot assign `{t}`"),
+                                    *span,
+                                );
+                            }
+                            continue;
+                        }
                         return err(
                             "type-assign-not-state",
-                            format!("`{target}` is not a state"),
+                            format!("`{target}` is not a state or a mutation"),
                             *span,
                         );
                     };
@@ -872,6 +921,29 @@ fn check_component(c: &Component, types: &Types) -> Result<ComponentTypes, TypeE
                 Stmt::Command { args, .. } => {
                     for arg in args {
                         infer(arg, &scope, shapes)?;
+                    }
+                }
+                Stmt::Send {
+                    target, args, span, ..
+                } => {
+                    if !c.mutations.iter().any(|m| &m.name == target) {
+                        return err(
+                            "type-send-not-mutation",
+                            format!("`{target}` is not a mutation: declare `mutation {target} as shape T`"),
+                            *span,
+                        );
+                    }
+                    for arg in args {
+                        infer(arg, &scope, shapes)?;
+                    }
+                }
+                Stmt::Refresh { target, span } => {
+                    if !c.resources.iter().any(|r| &r.name == target) {
+                        return err(
+                            "type-refresh-not-resource",
+                            format!("`{target}` is not a resource"),
+                            *span,
+                        );
                     }
                 }
             }

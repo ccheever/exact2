@@ -122,6 +122,27 @@ when the whole pass succeeds. A value that does not conform to its shape is
 `RunnerError::Shape`; a derive that does not conform to its declared type is
 `DeriveType`; a source refusal is `RunnerError::Data`.
 
+**Later (LLP 1016, built 2026-08-30).** A source may answer a resource with
+a *request* instead of a value (`DataSource::answer` → `Answer::Later`): the
+resource keeps the value it had — its last answer, or its compiled boot
+value — is **pending** under a fresh ticket, and the request is in
+`Runner::take_requests()` for the host to run once the pass has published
+(a pass that fails hands out nothing). One request per resource: newer
+arguments forget the older ticket. `Runner::fulfill(ticket, outcome)` is the
+reply: the source's `parse` makes the value, the resource takes it, and a
+settlement pass follows as after an action — one commit; a ticket no longer
+held is dropped with a journal line. `refresh` (an action statement) makes a
+resource re-request with its current arguments, coalesced with any argument
+change in the same transaction. A **mutation** (`plan.mutations`: a slot of
+`option<T>`, `none` at boot, and `T`) is never queried by settlement: an
+action's `send name = source(args)` asks the source once — an answer now
+lands in the slot inside the action's commit; a request goes out with the
+commit under one ticket per mutation, the newest `send` winning on
+acceptance — and an assignment to the slot forgets its ticket in flight.
+`pending(x)` in an expression reads the ticket flags. Boot with a `Later`
+and no value to keep is `RunnerError::Data` — bake's refusal of a resource
+that answers later at boot.
+
 **The instance tree** realizes sites: a node → one kernel view with a
 last-emitted value per binding; `when`/`match` → the active arm and its roots;
 `each` → rows by key in item order. An update re-evaluates every site and
@@ -174,8 +195,12 @@ is refused (`NonFiniteClock`).
 
 The runner depends on `exact-kernel` and `exact-plan`; the plan crate on
 nothing. The data seam is one trait, `DataSource::query(source, args) →
-Result<Value, DataError>`, synchronous in v1 (a settlement event in
-asynchronous shape is reserved, not built). No threads, no host, no timers
+Result<Value, DataError>`, synchronous, beside `answer(source, args) →
+Result<Answer, DataError>` (default: `query`, now) and `parse(source, args,
+outcome) → Result<Value, DataError>` for a source that hands the host a
+request (LLP 1016 D1; `Request`, `Response`, `Outcome` are the runner's own
+structs, ibex2's fields). The runner still does no I/O: requests leave
+through `take_requests` and replies enter through `fulfill`. No threads, no host, no timers
 of its own. Both crates build for `wasm32-unknown-unknown`.
 
 ## 8. Not in v1 (and where each is declared)
@@ -183,7 +208,8 @@ of its own. Both crates build for `wasm32-unknown-unknown`.
 A Deps table and dirty-set sweep (the runner re-evaluates every site; 0485
 §8.3's incremental sweep is a measured optimization for later); per-instance
 derives or resources inside `each` rows (LLP 1006 §2: only the root holds
-state); state-preserving reload (LLP 1004 D5); asynchronous data settlement;
+state); state-preserving reload (LLP 1004 D5); a request's cancellation on
+the wire (a forgotten ticket is dropped on arrival, LLP 1016 D5);
 cursors, cells, confidentiality, cost claims, speculation (LLP 1004 §3).
 
 ## 9. Checks that hold this

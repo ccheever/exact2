@@ -233,6 +233,7 @@ impl Parser {
             states: Vec::new(),
             derives: Vec::new(),
             resources: Vec::new(),
+            mutations: Vec::new(),
             actions: Vec::new(),
             tasks: Vec::new(),
             view: Vec::new(),
@@ -286,6 +287,7 @@ impl Parser {
                         }
                     }
                     "resource" => c.resources.push(self.resource()?),
+                    "mutation" => c.mutations.push(self.mutation()?),
                     "action" => c.actions.push(self.action()?),
                     "task" => c.tasks.push(self.task()?),
                     "view" => {
@@ -350,6 +352,16 @@ impl Parser {
         })
     }
 
+    fn mutation(&mut self) -> R<MutationDecl> {
+        let span = self.expect_word("mutation")?;
+        let (name, _) = self.ident()?;
+        self.expect_word("as")?;
+        self.expect_word("shape")?;
+        let shape = self.type_expr()?;
+        self.newline()?;
+        Ok(MutationDecl { name, shape, span })
+    }
+
     fn action(&mut self) -> R<Action> {
         let span = self.expect_word("action")?;
         let (name, _) = self.ident()?;
@@ -395,6 +407,27 @@ impl Parser {
     }
 
     fn stmt(&mut self) -> R<Stmt> {
+        if self.at_ident("send") {
+            let span = self.expect_word("send")?;
+            let (target, _) = self.ident()?;
+            self.expect_punct("=")?;
+            let (source, _) = self.ident()?;
+            self.expect_punct("(")?;
+            let args = self.call_args()?;
+            self.newline()?;
+            return Ok(Stmt::Send {
+                target,
+                source,
+                args,
+                span,
+            });
+        }
+        if self.at_ident("refresh") {
+            let span = self.expect_word("refresh")?;
+            let (target, _) = self.ident()?;
+            self.newline()?;
+            return Ok(Stmt::Refresh { target, span });
+        }
         let (name, span) = self.ident()?;
         if self.eat_punct("=") {
             let expr = self.expr()?;
@@ -412,7 +445,7 @@ impl Parser {
         }
         self.err(
             "syntax-expected-statement",
-            "expected `slot = expr` or `command(args)`",
+            "expected `slot = expr`, `command(args)`, `send mutation = source(args)`, or `refresh resource`",
         )
     }
 
@@ -799,6 +832,9 @@ fn is_keyword(w: &str) -> bool {
             | "state"
             | "derive"
             | "resource"
+            | "mutation"
+            | "send"
+            | "refresh"
             | "action"
             | "task"
             | "view"

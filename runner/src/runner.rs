@@ -17,9 +17,142 @@ use std::fmt::Write as _;
 /// The app's data source: the one seam through which computation enters
 /// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
 pub trait DataSource {
-    /// Answer a resource's request. `args` are the resource's argument
-    /// expressions evaluated against current state.
+    /// Answer a resource's or a mutation's request now. `args` are the
+    /// resource's argument expressions evaluated against current state, or
+    /// a `send`'s arguments. Bake and every in-process source use this.
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError>;
+
+    /// Answer now, or hand back a request the host will run (LLP 1016 D1:
+    /// the runner never does I/O). The default answers `query` now; a source
+    /// that reaches outside the process overrides this and [`parse`].
+    ///
+    /// [`parse`]: DataSource::parse
+    fn answer(&mut self, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+        self.query(source, args).map(Answer::Now)
+    }
+
+    /// The value of a resource or mutation from what the host brought back
+    /// for a request `query` handed out, in the shape the declaration
+    /// names. Pure: no I/O, no host. A failure on the wire is an `Outcome`
+    /// too — what the app sees is the source's to decide (D4). A source
+    /// that never answers later need not implement it.
+    fn parse(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Value, DataError> {
+        let _ = (args, outcome);
+        Err(DataError::UnknownSource(source.to_string()))
+    }
+}
+
+/// A data source's answer: a value now, or a request for the host.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Answer {
+    /// The value, now.
+    Now(Value),
+    /// The host runs this; `parse` reads what comes back.
+    Later(Request),
+}
+
+impl From<Value> for Answer {
+    fn from(v: Value) -> Self {
+        Answer::Now(v)
+    }
+}
+
+/// A request for the host to run (LLP 1016 D1): the fields of ibex2's
+/// `Request` a plan runner decides — not its redirect mode, not the final URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Request {
+    /// `GET`, `POST`, …
+    pub method: String,
+    /// The URL.
+    pub url: String,
+    /// Header name–value pairs.
+    pub headers: Vec<(String, String)>,
+    /// The body bytes (empty for a `GET`).
+    pub body: Vec<u8>,
+}
+
+impl Request {
+    /// A `GET`.
+    pub fn get(url: &str) -> Request {
+        Request {
+            method: "GET".into(),
+            url: url.into(),
+            headers: Vec::new(),
+            body: Vec::new(),
+        }
+    }
+
+    /// A `POST` of a JSON text.
+    pub fn post_json(url: &str, json: &str) -> Request {
+        Request {
+            method: "POST".into(),
+            url: url.into(),
+            headers: vec![("content-type".into(), "application/json".into())],
+            body: json.as_bytes().to_vec(),
+        }
+    }
+
+    /// With a header.
+    pub fn header(mut self, name: &str, value: &str) -> Request {
+        self.headers.push((name.into(), value.into()));
+        self
+    }
+}
+
+/// What the host brought back for a request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Response {
+    /// The HTTP status.
+    pub status: u16,
+    /// Header name–value pairs, as received.
+    pub headers: Vec<(String, String)>,
+    /// The body bytes.
+    pub body: Vec<u8>,
+}
+
+/// A request's outcome: a response (any status), or no response at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// The server answered.
+    Response(Response),
+    /// Nothing came back: the executor says why.
+    Failed {
+        /// The kind.
+        kind: FailureKind,
+        /// The executor's message.
+        message: String,
+    },
+}
+
+/// Why a request produced no response.
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureKind {
+    /// No connection, TLS, a rejected fetch.
+    Network,
+    /// Outside the app's grant (LLP 1016 D6).
+    Refused,
+    /// The host has no executor (Linux before its transport).
+    Unsupported,
+    /// The executor aborted it.
+    Aborted,
+}
+
+/// A request the host is to run: its ticket, the resource or mutation it
+/// answers, and the request. Taken by [`Runner::take_requests`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestOut {
+    /// Names the reply: [`Runner::fulfill`] takes it back.
+    pub ticket: u64,
+    /// The resource's or mutation's name.
+    pub target: String,
+    /// What to run.
+    pub request: Request,
 }
 
 /// Why a data source could not answer.
@@ -160,6 +293,23 @@ struct ResourceState {
     value: Value,
 }
 
+/// A resource or a mutation, as the target of a request in flight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Target {
+    Resource(usize),
+    Mutation(usize),
+}
+
+/// A request the host is running: the ticket its reply carries, what it
+/// answers, and the arguments it was asked with (what `parse` sees).
+#[derive(Clone)]
+struct PendingReq {
+    ticket: u64,
+    target: Target,
+    source: String,
+    args: Vec<Value>,
+}
+
 struct Timer {
     next_ms: f64,
 }
@@ -196,6 +346,16 @@ pub struct Runner<D: DataSource> {
     batch: u64,
     commands: Vec<Command>,
     surfaces: Vec<SurfaceUpdate>,
+    /// Requests in flight (LLP 1016): at most one per resource or mutation.
+    pending: Vec<PendingReq>,
+    /// `pending` as flags, by resource and by mutation, for expressions.
+    pending_res: Vec<bool>,
+    pending_mut: Vec<bool>,
+    next_ticket: u64,
+    /// Requests for the host, since the last take.
+    requests: Vec<RequestOut>,
+    /// Resources an action asked to re-request; consumed by the next settle.
+    refresh_next: Vec<usize>,
     poisoned: bool,
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
@@ -307,6 +467,12 @@ impl<D: DataSource> Runner<D> {
             batch: 0,
             commands: Vec::new(),
             surfaces: Vec::new(),
+            pending: Vec::new(),
+            pending_res: Vec::new(),
+            pending_mut: Vec::new(),
+            next_ticket: 1,
+            requests: Vec::new(),
+            refresh_next: Vec::new(),
             poisoned: false,
             journal: std::collections::VecDeque::new(),
             journal_start: 0,
@@ -347,6 +513,8 @@ impl<D: DataSource> Runner<D> {
             })
             .collect();
         runner.resource_values = vec![None; runner.plan.resources.len()];
+        runner.pending_res = vec![false; runner.plan.resources.len()];
+        runner.pending_mut = vec![false; runner.plan.mutations.len()];
         runner.now_ms = carried.map_or(0.0, |c| c.now_ms);
         // A carried boot never takes compiled data: it was baked for the
         // initial state, and the carried state is not that.
@@ -727,6 +895,32 @@ impl<D: DataSource> Runner<D> {
             let env = self.env(&args, &[]);
             vm::eval(self.plan.code(row.body), &env, &allowed)?
         };
+        // Sends (LLP 1016 §4): each asks the source now. An answer lands in
+        // the mutation's slot inside this commit; a request goes to the host
+        // once the commit stands.
+        let mut later: Vec<(usize, String, Vec<Value>, Request)> = Vec::new();
+        let mut answered: Vec<(u32, Value)> = Vec::new();
+        for (m, source, sargs) in &outcome.sends {
+            let m = *m as usize;
+            let mrow = self.plan.mutations[m].clone();
+            let name = self.plan.str(mrow.name).to_string();
+            let answer = self
+                .data
+                .answer(source, sargs)
+                .map_err(|error| RunnerError::Data {
+                    resource: name.clone(),
+                    error,
+                })?;
+            match answer {
+                Answer::Now(v) => {
+                    if !v.conforms(&self.plan, mrow.ty) {
+                        return Err(RunnerError::Shape { resource: name });
+                    }
+                    answered.push((mrow.slot.0, Value::some(v)));
+                }
+                Answer::Later(request) => later.push((m, source.clone(), sargs.clone(), request)),
+            }
+        }
         // Commit the writes, then everything downstream. If settlement refuses
         // (a data source or shape refusal), the writes and commands roll back
         // and the kernel is exactly as it was.
@@ -742,16 +936,45 @@ impl<D: DataSource> Runner<D> {
         }
         let saved_slots = self.slots.clone();
         let saved_commands = self.commands.len();
+        let saved_pending_mut = self.pending_mut.clone();
+        for (slot, value) in answered {
+            self.slots[slot as usize] = value;
+        }
+        let written: Vec<u32> = outcome.writes.iter().map(|(s, _)| *s).collect();
         for (slot, value) in outcome.writes {
             self.slots[slot as usize] = value;
         }
         for (name, args) in outcome.commands {
             self.commands.push(Command { name, args });
         }
+        // An assignment to a mutation's slot forgets its request in flight
+        // (LLP 1016 §4): the reply, when it comes, is dropped — a request
+        // this same action sent still goes, its reply already unwanted. The
+        // forgetting is not rolled back with the action: nothing was undone
+        // on the wire either way.
+        let assigned: Vec<usize> = (0..self.plan.mutations.len())
+            .filter(|m| written.contains(&self.plan.mutations[*m].slot.0))
+            .collect();
+        for m in &assigned {
+            self.forget(Target::Mutation(*m));
+        }
+        for (m, _, _, _) in &later {
+            if !assigned.contains(m) {
+                self.pending_mut[*m] = true;
+            }
+        }
+        self.refresh_next = outcome.refreshes.iter().map(|r| *r as usize).collect();
         if let Err(e) = self.settle(false) {
             self.slots = saved_slots;
             self.commands.truncate(saved_commands);
+            self.pending_mut = saved_pending_mut;
             return Err(e);
+        }
+        for (m, source, args, request) in later {
+            self.enqueue(Target::Mutation(m), source, args, request);
+            if assigned.contains(&m) {
+                self.forget(Target::Mutation(m));
+            }
         }
         let commands: Vec<String> = self.commands[saved_commands..]
             .iter()
@@ -836,6 +1059,8 @@ impl<D: DataSource> Runner<D> {
             params,
             frames,
             now_ms: self.now_ms,
+            pending_resources: &self.pending_res,
+            pending_mutations: &self.pending_mut,
         }
     }
 
@@ -844,13 +1069,155 @@ impl<D: DataSource> Runner<D> {
         Ok(vm::eval(self.plan.code(code), &env, &[])?.value)
     }
 
-    fn query(&mut self, i: usize, args: &[Value]) -> Result<Value, RunnerError> {
+    fn query(&mut self, i: usize, args: &[Value]) -> Result<Answer, RunnerError> {
         let row = &self.plan.resources[i];
         let source = self.plan.str(row.source).to_string();
         let resource = self.plan.str(row.name).to_string();
         self.data
-            .query(&source, args)
+            .answer(&source, args)
             .map_err(|error| RunnerError::Data { resource, error })
+    }
+
+    fn target_name(&self, t: Target) -> String {
+        match t {
+            Target::Resource(i) => self.plan.str(self.plan.resources[i].name).to_string(),
+            Target::Mutation(m) => self.plan.str(self.plan.mutations[m].name).to_string(),
+        }
+    }
+
+    /// Drop the request in flight for `target`, if any: its reply, when it
+    /// comes, is dropped too (a `POST` already sent is not unsent — LLP 1016 D5).
+    fn forget(&mut self, target: Target) {
+        if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
+            let t = self.pending.remove(pos).ticket;
+            self.log(format!("forget request {t} ({})", self.target_name(target)));
+        }
+        self.sync_pending_flags();
+    }
+
+    /// Hand `request` to the host under a fresh ticket, replacing any
+    /// request in flight for the same target.
+    fn enqueue(&mut self, target: Target, source: String, args: Vec<Value>, request: Request) {
+        if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
+            let t = self.pending.remove(pos).ticket;
+            self.log(format!("forget request {t} ({})", self.target_name(target)));
+        }
+        let ticket = self.next_ticket;
+        self.next_ticket += 1;
+        let name = self.target_name(target);
+        self.log(format!(
+            "request {ticket} ({name}): {} {}",
+            request.method, request.url
+        ));
+        self.pending.push(PendingReq {
+            ticket,
+            target,
+            source,
+            args,
+        });
+        self.requests.push(RequestOut {
+            ticket,
+            target: name,
+            request,
+        });
+        self.sync_pending_flags();
+    }
+
+    fn sync_pending_flags(&mut self) {
+        self.pending_res = vec![false; self.plan.resources.len()];
+        self.pending_mut = vec![false; self.plan.mutations.len()];
+        for p in &self.pending {
+            match p.target {
+                Target::Resource(i) => self.pending_res[i] = true,
+                Target::Mutation(m) => self.pending_mut[m] = true,
+            }
+        }
+    }
+
+    /// The requests the host is to run since the last take (LLP 1016 D2).
+    pub fn take_requests(&mut self) -> Vec<RequestOut> {
+        std::mem::take(&mut self.requests)
+    }
+
+    /// Every request in flight: the resource's or mutation's name and its ticket.
+    pub fn pending(&self) -> Vec<(String, u64)> {
+        self.pending
+            .iter()
+            .map(|p| (self.target_name(p.target), p.ticket))
+            .collect()
+    }
+
+    /// Whether any request is in flight (the agent's `settle` waits on it).
+    pub fn has_pending(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
+    /// The host brought back the outcome of request `ticket`: the source
+    /// parses it, the resource takes its value or the mutation's slot its
+    /// `some`, and everything downstream settles as after an action — one
+    /// commit. A ticket no longer held (forgotten, D5) is dropped with a
+    /// journal line and no commit.
+    pub fn fulfill(
+        &mut self,
+        ticket: u64,
+        outcome: Outcome,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let Some(pos) = self.pending.iter().position(|p| p.ticket == ticket) else {
+            self.log(format!("reply {ticket} dropped: no such request in flight"));
+            return Ok(None);
+        };
+        let p = self.pending.remove(pos);
+        self.sync_pending_flags();
+        let what = format!("fulfil {ticket} ({})", self.target_name(p.target));
+        let was_poisoned = self.poisoned;
+        let result = self.fulfill_inner(p, outcome);
+        self.log_outcome(&what, &result, was_poisoned);
+        result.map(Some)
+    }
+
+    fn fulfill_inner(
+        &mut self,
+        p: PendingReq,
+        outcome: Outcome,
+    ) -> Result<CommitReceipt, RunnerError> {
+        if self.poisoned {
+            return Err(RunnerError::Poisoned);
+        }
+        let name = self.target_name(p.target);
+        let ty = match p.target {
+            Target::Resource(i) => self.plan.resources[i].ty,
+            Target::Mutation(m) => self.plan.mutations[m].ty,
+        };
+        let value = self
+            .data
+            .parse(&p.source, &p.args, outcome)
+            .map_err(|error| RunnerError::Data {
+                resource: name.clone(),
+                error,
+            })?;
+        if !value.conforms(&self.plan, ty) {
+            return Err(RunnerError::Shape { resource: name });
+        }
+        let saved_slots = self.slots.clone();
+        let saved_resources = self.resources.clone();
+        match p.target {
+            Target::Resource(i) => {
+                self.resources[i] = Some(ResourceState {
+                    args: p.args,
+                    value,
+                });
+            }
+            Target::Mutation(m) => {
+                let slot = self.plan.mutations[m].slot.0 as usize;
+                self.slots[slot] = Value::some(value);
+            }
+        }
+        if let Err(e) = self.settle(false) {
+            self.slots = saved_slots;
+            self.resources = saved_resources;
+            return Err(e);
+        }
+        self.update()
     }
 
     fn check_shape(&self, i: usize, value: &Value) -> Result<(), RunnerError> {
@@ -874,6 +1241,13 @@ impl<D: DataSource> Runner<D> {
     fn settle(&mut self, boot: bool) -> Result<(), RunnerError> {
         let mut derives: Vec<Option<Value>> = vec![None; self.plan.derives.len()];
         let mut resources: Vec<Option<Value>> = vec![None; self.plan.resources.len()];
+        // LLP 1016: what an action asked to re-request, the requests this
+        // pass hands the host, and the pending flags as they will be —
+        // published with the rest only when the pass succeeds.
+        let force = std::mem::take(&mut self.refresh_next);
+        let mut pending_res = self.pending_res.clone();
+        let mut later: Vec<(usize, Vec<Value>, Request)> = Vec::new();
+        let mut answered: Vec<usize> = Vec::new();
         // Work on a copy of the committed resource states; publish only when
         // the whole pass succeeds, so a failure leaves every cache as it was.
         let mut states: Vec<Option<ResourceState>> = self.resources.clone();
@@ -895,6 +1269,8 @@ impl<D: DataSource> Runner<D> {
                         params: &[],
                         frames: &[],
                         now_ms: self.now_ms,
+                        pending_resources: &pending_res,
+                        pending_mutations: &self.pending_mut,
                     };
                     vm::eval(self.plan.code(code), &env, &[])
                 };
@@ -930,6 +1306,8 @@ impl<D: DataSource> Runner<D> {
                             params: &[],
                             frames: &[],
                             now_ms: self.now_ms,
+                            pending_resources: &pending_res,
+                            pending_mutations: &self.pending_mut,
                         };
                         vm::eval(self.plan.code(code), &env, &[])
                     };
@@ -946,9 +1324,10 @@ impl<D: DataSource> Runner<D> {
                     all = false;
                     continue;
                 }
+                let forced = force.contains(&i);
                 let reuse = states[i]
                     .as_ref()
-                    .filter(|s| s.args == args)
+                    .filter(|s| s.args == args && !forced)
                     .map(|s| s.value.clone());
                 let value = match reuse {
                     Some(v) => v,
@@ -956,7 +1335,39 @@ impl<D: DataSource> Runner<D> {
                         Value::from_bytes(self.plan.bytes(row.initial))
                             .map_err(RunnerError::Plan)?
                     }
-                    None => self.query(i, &args)?,
+                    None => match self.query(i, &args)? {
+                        Answer::Now(v) => {
+                            if pending_res[i] {
+                                // Newer arguments answered now: the older
+                                // request's reply is no longer wanted.
+                                answered.push(i);
+                                pending_res[i] = false;
+                            }
+                            v
+                        }
+                        Answer::Later(request) => {
+                            // The host will run it. Meanwhile the resource
+                            // keeps the value it had — its last answer, or
+                            // its compiled boot value (LLP 1016 D3).
+                            let kept = states[i].as_ref().map(|s| s.value.clone()).or_else(|| {
+                                (row.initial.len > 0)
+                                    .then(|| Value::from_bytes(self.plan.bytes(row.initial)).ok())
+                                    .flatten()
+                            });
+                            let Some(kept) = kept else {
+                                return Err(RunnerError::Data {
+                                    resource: self.plan.str(row.name).to_string(),
+                                    error: DataError::Unavailable(
+                                        "answers later at boot: declare boot arguments the source answers now"
+                                            .into(),
+                                    ),
+                                });
+                            };
+                            later.push((i, args.clone(), request));
+                            pending_res[i] = true;
+                            kept
+                        }
+                    },
                 };
                 self.check_shape(i, &value)?;
                 resources[i] = Some(value.clone());
@@ -974,6 +1385,13 @@ impl<D: DataSource> Runner<D> {
         self.derives = derives;
         self.resource_values = resources;
         self.resources = states;
+        for i in answered {
+            self.forget(Target::Resource(i));
+        }
+        for (i, args, request) in later {
+            let source = self.plan.str(self.plan.resources[i].source).to_string();
+            self.enqueue(Target::Resource(i), source, args, request);
+        }
         Ok(())
     }
 }

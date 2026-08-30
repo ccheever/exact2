@@ -9,7 +9,7 @@
 
 use crate::bytes::Writer;
 use crate::generated::{Opcode, Operand, Stdlib};
-use crate::{DerivesId, ResourcesId, SlotsId, StrId, TypesId};
+use crate::{DerivesId, MutationsId, ResourcesId, SlotsId, StrId, TypesId};
 
 /// A forward-jump label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,6 +151,29 @@ impl Asm {
     /// Emit a command with `n` arguments from the stack.
     pub fn command(&mut self, name: StrId, n: u16) -> &mut Self {
         self.op(Opcode::Command, &[Arg::Str(name), Arg::U16(n)])
+    }
+
+    /// Send a mutation to `source` with `n` arguments from the stack (LLP 1016).
+    pub fn send(&mut self, m: MutationsId, source: StrId, n: u16) -> &mut Self {
+        self.op(
+            Opcode::Send,
+            &[Arg::Idx(m.0), Arg::Str(source), Arg::U16(n)],
+        )
+    }
+
+    /// Re-request a resource with its current arguments.
+    pub fn refresh(&mut self, r: ResourcesId) -> &mut Self {
+        self.op(Opcode::Refresh, &[Arg::Idx(r.0)])
+    }
+
+    /// Push whether a resource has a request in flight.
+    pub fn pending_resource(&mut self, r: ResourcesId) -> &mut Self {
+        self.op(Opcode::PendingResource, &[Arg::Idx(r.0)])
+    }
+
+    /// Push whether a mutation has a request in flight.
+    pub fn pending_mutation(&mut self, m: MutationsId) -> &mut Self {
+        self.op(Opcode::PendingMutation, &[Arg::Idx(m.0)])
     }
 
     /// Pop into the locals stack.

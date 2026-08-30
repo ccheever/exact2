@@ -46,8 +46,16 @@ action reference the use site supplies.
 app's data source, `args` are expressions over state, `T` is the declared
 shape (LLP 1004 D4). There is no `use … from` (`contract-no-imports`).
 
-**Actions.** `action name(params) writes a, b` with a body of `slot = expr`
-assignments and `name(args)` commands; a parameter's type is written or
+**Mutations (LLP 1016, decided A, 2026-08-30).** `mutation name as shape
+T` declares an `option<T>` slot, `none` at boot, that only a `send` fills:
+`send name = source(args)` in an action asks the data source once (the
+mutation must be in the action's `writes`); `refresh resource` re-requests a
+resource with its current arguments; `pending(x)` is `bool` for a resource
+or mutation `x` — a name, not a value, so it is not a roster entry. The name
+reads as `option<T>` (`match session { case some(s) => … }`) and may be
+assigned (`session = none`), which forgets a reply in flight. **Actions.**
+`action name(params) writes a, b` with a body of `slot = expr`
+assignments, `send`/`refresh` statements, and `name(args)` commands; a parameter's type is written or
 inferred from its handler call sites (the handler attributes are `press`,
 `change`, `hover`, `focus`, `blur`, `key`, LLP 1005 §3; a `key`'s or
 `change`'s payload types the last parameter `string`, a `hover`'s `bool`);
