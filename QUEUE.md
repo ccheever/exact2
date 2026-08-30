@@ -34,8 +34,8 @@ sits on that list carries the trade it would take.
    string `match` — so `key=` today can only record the key.
 3. **Weird Castle's asks** (Charlie, 2026-08-30: the app lives in `~/projects/weird-castle`
    on exact2 by path; `scripts/app.mjs`). In order: **asynchronous data settlement** —
-   LLP 1016 (RFC, Draft, written 2026-08-30; a two-model panel on §4's mutation question,
-   then Charlie) for the runner's reserved shape (LLP 1005 §7): a data source
+   LLP 1016 (RFC, **Accepted** 2026-08-30 after a three-model panel: a `mutation` slot +
+   `send`, `refresh` for queries; being built) for the runner's reserved shape (LLP 1005 §7): a data source
    answers now or hands back a request, the host executes it (`ibex2::host` on native,
    the browser's `fetch` on the web), one ABI call brings the answer in, a pending
    resource is `none` meanwhile, bake tolerates it — the first out-of-process resource

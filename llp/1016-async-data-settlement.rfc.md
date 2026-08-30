@@ -1,11 +1,11 @@
 # LLP 1016: Asynchronous data settlement — a resource that answers later
 
 **Type:** RFC
-**Status:** Draft
+**Status:** Accepted (Charlie, 2026-08-30: §4's question answered — A in the third panelist's shape, plus `refresh`; D1–D6 as written)
 **Systems:** Runner (settlement, the data seam), Plan (nothing new in the tables; a resource's pending state is runtime), Contract (one expression function; possibly one statement — §4), Web host (the executor is the browser's `fetch`; one export), Apple host (the executor is `ibex2::host`; one entry and one callback), Linux host (deferred: ibex OQ2), Agent API (`clock settle` waits for requests; `state` shows them), Weird Castle (the first consumer)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Revised:** 2026-08-30 (r3 — a third panelist, Claude Fable 5, joined at Charlie's request; §4 "The panel" rewritten for three; D1 notes the forbidden-header parity hazard; D2's cache rule is per request, not global; D5: a forgotten ticket never holds `clock settle`, an executor may abort, nothing is undone; the recommendation is A in Fable's shape — `mutation`/`send`, `option<T>`, no `else`, no stubs — plus `refresh`.) 2026-08-30 (r2 — the panel's fold: §4 "The panel" with the recommendation; D3 keep-previous-value named Exact policy; D4 promises no executor timeout; D5 says what a forgotten ticket does not undo and that a mutation's request is never take-latest; D6 beside CORS, not instead; the HTTP-cache rule in D2.)
+**Revised:** 2026-08-30 (r4 — Accepted: the decision on §4 recorded; the working set swaps the two research links for this document.) 2026-08-30 (r3 — a third panelist, Claude Fable 5, joined at Charlie's request; §4 "The panel" rewritten for three; D1 notes the forbidden-header parity hazard; D2's cache rule is per request, not global; D5: a forgotten ticket never holds `clock settle`, an executor may abort, nothing is undone; the recommendation is A in Fable's shape — `mutation`/`send`, `option<T>`, no `else`, no stubs — plus `refresh`.) 2026-08-30 (r2 — the panel's fold: §4 "The panel" with the recommendation; D3 keep-previous-value named Exact policy; D4 promises no executor timeout; D5 says what a forgotten ticket does not undo and that a mutation's request is never take-latest; D6 beside CORS, not instead; the HTTP-cache rule in D2.)
 **Related:** LLP 1005 §5 (settlement: transactional, args-keyed re-request), §7 (the seam "synchronous in v1; a settlement event in asynchronous shape is reserved, not built"), §8; LLP 1004 D4 (app data logic is a Rust data source with arguments from state — a request/response seam); LLP 1006 §1 (`resource name = source(args) as shape T`); LLP 1007 §4 (the glue, `command` ops); LLP 1008 §4 (`exact.h`), §5; LLP 1012 §2 (the clock, `settle`); `QUEUE.md` §Later (ibex2, Charlie 2026-08-29: "`ibex2::host` at the first `resource` that needs bytes from outside the process — build it together with the runner's asynchronous data settlement"); ibex LLP 0068 (the standard library for a Rust consumer: `Host`, `endow`, `Fetch::send`, synchronous by design, §4 "Exact 2"), LLP 0067 (grants); Weird Castle `llp/0000` §Authentication and session boundary (`loginV2`), its `app.contract` and `data/src/lib.rs` (the stand-in this replaces); `rules/NOT-DOING.md` §Process (this document is written because someone is about to build it), §Runtime
 
 ## Summary
@@ -27,12 +27,12 @@ the answer is out, the resource keeps the value it had and the app can ask
 runner error. Bake stays synchronous: a source that would hand back a request
 at build time is a build error, so the first frame is still compiled data.
 
-The open question this RFC does not decide alone is how a **mutation** is
-written in Contract — Weird Castle's first request is one. §4 lays out the
-proposal (a resource whose arguments are the submitted state, with a counter
-for retry), two alternatives (an explicit effect statement; a `refresh`
-statement), and a fourth (commands with reply events), for a panel of two
-outside models and then Charlie.
+How a **mutation** is written in Contract — Weird Castle's first request is
+one — was the question this RFC put to a panel of three outside models and
+then to Charlie (§4). **Decided (Charlie, 2026-08-30): A** — `mutation name
+as shape T` declares an `option<T>` slot, `none` at boot, that `send name =
+source(args)` fills from an action; `refresh name` re-requests a query whose
+arguments did not change; no `else`, no idle stubs.
 
 ## 1. Where this sits
 
@@ -402,7 +402,13 @@ it. If Charlie prefers B′, it is B′ with the method rule, the snapshot rule,
 and the shape-miss rule written into LLP 1005 §5 as normative text — and the
 password stays in state.
 
-Question 1 remains **Charlie's**; this RFC stays Draft until it is answered.
+**Decision (Charlie, 2026-08-30): A, as recommended.** Q2: pending stays out
+of a resource's type; a mutation's reply is `option<T>`. Q3: no `else`. Q4:
+the narrowings folded into D1–D6. The build follows §3 plus: a `mutation`
+slot kind and `send`/`refresh` statements in Contract (LLP 1006), their
+opcodes in the plan (LLP 1005), the runner's mutation state beside its
+resource state. `0486` and `0491` leave `llp/current` for this document
+(Charlie, the same day).
 
 ## 5. Not in this RFC
 
