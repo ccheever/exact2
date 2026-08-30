@@ -19,6 +19,9 @@ use std::cell::RefCell;
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
+    /// The page's snapshot of the app's kept secrets (LLP 1018 D6), handed
+    /// in through `exact_store` before boot and taken by the next boot.
+    snapshot: Vec<(String, String)>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -28,9 +31,26 @@ impl<D: DataSource> Bridge<D> {
     pub const fn new() -> Bridge<D> {
         Bridge {
             host: None,
+            snapshot: Vec::new(),
             input: Vec::new(),
             output: Vec::new(),
         }
+    }
+
+    /// The page's snapshot of the app's kept secrets (LLP 1018 D6): the
+    /// input buffer's first `len` bytes as `name NUL value NUL …`, taken by
+    /// the next `boot` (a `boot_plan` carries the running store instead).
+    pub fn store(&mut self, len: usize) {
+        let bytes = &self.input[..len.min(self.input.len())];
+        let text = String::from_utf8_lossy(bytes);
+        let mut parts = text.split('\0');
+        let mut snapshot = Vec::new();
+        while let (Some(name), Some(value)) = (parts.next(), parts.next()) {
+            if !name.is_empty() {
+                snapshot.push((name.to_string(), value.to_string()));
+            }
+        }
+        self.snapshot = snapshot;
     }
 
     /// Resize the input buffer and return its address.
@@ -63,9 +83,11 @@ impl<D: DataSource> Bridge<D> {
         self.output.len() as u32
     }
 
-    /// Boot from `plan` with `data`; the output is the first batch.
+    /// Boot from `plan` with `data` and the snapshot `store` handed in; the
+    /// output is the first batch.
     pub fn boot(&mut self, plan: &[u8], data: D) -> u32 {
-        match Host::boot(plan, data) {
+        let snapshot = std::mem::take(&mut self.snapshot);
+        match Host::boot_stored(plan, data, snapshot) {
             Ok((host, batch)) => {
                 self.host = Some(host);
                 self.emit(batch)
@@ -199,6 +221,14 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_out() -> *const u8 {
             EXACT_BRIDGE.with(|b| b.borrow().output())
+        }
+
+        /// The page's snapshot of the app's kept secrets (LLP 1018 D6), from
+        /// the input buffer's first `len` bytes (`name NUL value NUL …`),
+        /// for the next `exact_boot`.
+        #[no_mangle]
+        pub extern "C" fn exact_store(len: u32) {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().store(len as usize))
         }
 
         /// Boot; returns the first batch's length.

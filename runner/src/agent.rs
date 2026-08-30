@@ -121,7 +121,8 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
 }
 
 /// The state: the clock and every slot, derive, and resource by the name the
-/// plan declares, as typed JSON (records carry their field names).
+/// plan declares, as typed JSON (records carry their field names); the
+/// requests in flight; the names the store holds (LLP 1018).
 pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     let plan = runner.plan();
     let mut s = String::new();
@@ -172,6 +173,14 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         s.push_str("{\"name\":");
         quote(name, &mut s);
         let _ = write!(s, ",\"ticket\":{ticket}}}");
+    }
+    // The store's names, never its values (LLP 1018 D5).
+    s.push_str("],\"store\":[");
+    for (i, name) in runner.store_names().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        quote(name, &mut s);
     }
     s.push_str("]}");
     s

@@ -129,6 +129,13 @@ export function identity(team) {
   throw new Error(`no valid "Apple Development" identity for team ${team} in the keychain (security find-identity -v -p codesigning); name one with EXACT_IDENTITY=<sha1>`);
 }
 
+/** The first valid "Apple Development" identity in the keychain (EXACT_IDENTITY names one), or null: the macOS binary is then ad-hoc signed. */
+function macIdentity() {
+  if (process.env.EXACT_IDENTITY) return process.env.EXACT_IDENTITY;
+  const m = /\d+\) ([0-9A-F]{40}) "Apple Development: /.exec(read('security', ['find-identity', '-v', '-p', 'codesigning']).stdout ?? '');
+  return m ? m[1] : null;
+}
+
 const entitlements = (team, bundle) => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -203,7 +210,13 @@ function main(args) {
       rmSync(dest, { force: true });
       copyFileSync(resolve(libDir, dylib), dest);
     }
-    console.log(`host/apple: ${bin.replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s); GPU: ${gpuNote}`);
+    // The app's kept secrets live in the login keychain, whose ACL trusts the
+    // creating app by its code signature (LLP 1018 D7): signed with the team's
+    // identity a rebuild keeps them; ad-hoc, every rebuild is a new app and
+    // the keychain asks again — before the first frame.
+    const sha1 = macIdentity();
+    run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bin], { stdio: 'ignore' });
+    console.log(`host/apple: ${bin.replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}`);
     // --run: the app, with the dev loop's plan watched when host/web/dev.mjs is
     // running (it writes host/web/dist/app.plan on every save).
     if (args.includes('--run')) spawnSync(bin, [], { stdio: 'inherit', env: { ...env, EXACT_DEV_PLAN: resolve(root, 'host/web/dist/app.plan'), EXACT_ASSETS: app.dir } });

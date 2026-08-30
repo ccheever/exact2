@@ -9,6 +9,8 @@
 //! anything changes; a trap or refusal leaves the kernel exactly as it was.
 
 use crate::instance::{Ids, InstanceError, SurfaceUpdate, Tree, Update};
+use crate::request::{Answer, Outcome, Request, RequestOut};
+use crate::store::{Store, StoreWrite};
 use crate::vm::{self, Env, Frame, Trap};
 use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
 use exact_plan::{ActionsId, Code, EventKind, Plan, PlanError, Value};
@@ -24,144 +26,46 @@ pub trait DataSource {
 
     /// Answer now, or hand back a request the host will run (LLP 1016 D1:
     /// the runner never does I/O). The default answers `query` now; a source
-    /// that reaches outside the process overrides this and [`parse`].
+    /// that reaches outside the process overrides this and [`parse`]. The
+    /// [`Store`] is the app's durable state (LLP 1018 D1) — the host's
+    /// snapshot, read here synchronously; a write rides the commit out.
     ///
     /// [`parse`]: DataSource::parse
-    fn answer(&mut self, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        let _ = store;
         self.query(source, args).map(Answer::Now)
     }
 
     /// The value of a resource or mutation from what the host brought back
-    /// for a request `query` handed out, in the shape the declaration
-    /// names. Pure: no I/O, no host. A failure on the wire is an `Outcome`
-    /// too — what the app sees is the source's to decide (D4). A source
-    /// that never answers later need not implement it.
+    /// for a request `answer` handed out, in the shape the declaration
+    /// names. No I/O, no host — the store is the one thing it may write
+    /// (a token from a reply, LLP 1018 D5). A failure on the wire is an
+    /// `Outcome` too — what the app sees is the source's to decide (D4). A
+    /// source that never answers later need not implement it.
     fn parse(
         &mut self,
+        store: &mut Store,
         source: &str,
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Value, DataError> {
-        let _ = (args, outcome);
+        let _ = (store, args, outcome);
         Err(DataError::UnknownSource(source.to_string()))
     }
 
-    /// The hosts the app may reach (LLP 1016 D6; ibex LLP 0067): one grant
-    /// per line, `net.fetch <url prefix>`. A request outside them fails as
-    /// `Refused` on every host, before any executor sees it. Empty: nothing.
+    /// What the app may reach and keep (LLP 1016 D6, LLP 1018 D3; ibex LLP
+    /// 0067): one grant per line — `net.fetch <url prefix>`, `secret.keep
+    /// <name>`. A request outside them fails as `Refused` on every host
+    /// before any executor sees it; a secret outside them reads as absent
+    /// and refuses a write. Empty: nothing.
     fn grants(&self) -> &'static str {
         ""
     }
-}
-
-/// A data source's answer: a value now, or a request for the host.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Answer {
-    /// The value, now.
-    Now(Value),
-    /// The host runs this; `parse` reads what comes back.
-    Later(Request),
-}
-
-impl From<Value> for Answer {
-    fn from(v: Value) -> Self {
-        Answer::Now(v)
-    }
-}
-
-/// A request for the host to run (LLP 1016 D1): the fields of ibex2's
-/// `Request` a plan runner decides — not its redirect mode, not the final URL.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Request {
-    /// `GET`, `POST`, …
-    pub method: String,
-    /// The URL.
-    pub url: String,
-    /// Header name–value pairs.
-    pub headers: Vec<(String, String)>,
-    /// The body bytes (empty for a `GET`).
-    pub body: Vec<u8>,
-}
-
-impl Request {
-    /// A `GET`.
-    pub fn get(url: &str) -> Request {
-        Request {
-            method: "GET".into(),
-            url: url.into(),
-            headers: Vec::new(),
-            body: Vec::new(),
-        }
-    }
-
-    /// A `POST` of a JSON text.
-    pub fn post_json(url: &str, json: &str) -> Request {
-        Request {
-            method: "POST".into(),
-            url: url.into(),
-            headers: vec![("content-type".into(), "application/json".into())],
-            body: json.as_bytes().to_vec(),
-        }
-    }
-
-    /// With a header.
-    pub fn header(mut self, name: &str, value: &str) -> Request {
-        self.headers.push((name.into(), value.into()));
-        self
-    }
-}
-
-/// What the host brought back for a request.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Response {
-    /// The HTTP status.
-    pub status: u16,
-    /// Header name–value pairs, as received.
-    pub headers: Vec<(String, String)>,
-    /// The body bytes.
-    pub body: Vec<u8>,
-}
-
-/// A request's outcome: a response (any status), or no response at all.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Outcome {
-    /// The server answered.
-    Response(Response),
-    /// Nothing came back: the executor says why.
-    Failed {
-        /// The kind.
-        kind: FailureKind,
-        /// The executor's message.
-        message: String,
-    },
-}
-
-/// Why a request produced no response.
-#[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FailureKind {
-    /// No connection, TLS, a rejected fetch.
-    Network,
-    /// Outside the app's grant (LLP 1016 D6).
-    Refused,
-    /// The host has no executor (Linux before its transport).
-    Unsupported,
-    /// The executor aborted it.
-    Aborted,
-}
-
-/// A request the host is to run: its ticket, the resource or mutation it
-/// answers, and the request. Taken by [`Runner::take_requests`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RequestOut {
-    /// Names the reply: [`Runner::fulfill`] takes it back.
-    pub ticket: u64,
-    /// The resource's or mutation's name.
-    pub target: String,
-    /// What to run.
-    pub request: Request,
-    /// The app forced it (`refresh`): the executor bypasses its cache.
-    pub forced: bool,
 }
 
 /// Why a data source could not answer.
@@ -340,6 +244,8 @@ pub struct Carried {
     pub resources: Vec<(String, Vec<Value>, Value)>,
     /// The clock, milliseconds.
     pub now_ms: f64,
+    /// The store's kept values (LLP 1018): what the host has persisted.
+    pub store: Vec<(String, String)>,
 }
 
 /// One plan, one data source, one kernel.
@@ -368,6 +274,12 @@ pub struct Runner<D: DataSource> {
     requests: Vec<RequestOut>,
     /// Resources an action asked to re-request; consumed by the next settle.
     refresh_next: Vec<usize>,
+    /// Durable client state (LLP 1018 D1): the host's snapshot, and the
+    /// writes since for the host to persist.
+    store: Store,
+    /// Which resources consulted the store when they settled (bake gives
+    /// them no compiled value, LLP 1018 D4).
+    store_readers: Vec<bool>,
     poisoned: bool,
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
@@ -384,7 +296,21 @@ impl<D: DataSource> Runner<D> {
     /// initial state, settle resources (compiled data first, the source
     /// otherwise), realize the tree, and apply the first frame's ops.
     pub fn boot(plan: Plan, data: D, kernel: Kernel) -> Result<Runner<D>, RunnerError> {
-        Runner::boot_inner(plan, data, kernel, None)
+        Runner::boot_inner(plan, data, kernel, None, Vec::new())
+    }
+
+    /// Boot with the host's snapshot of the app's kept secrets (LLP 1018
+    /// D1): what the platform's store holds under the names the data
+    /// crate's grants allow, read by the host before this call. A resource
+    /// with no compiled value — one that read the store at bake — answers
+    /// from it now, so the first frame is a returning user's.
+    pub fn boot_stored(
+        plan: Plan,
+        data: D,
+        kernel: Kernel,
+        snapshot: Vec<(String, String)>,
+    ) -> Result<Runner<D>, RunnerError> {
+        Runner::boot_inner(plan, data, kernel, None, snapshot)
     }
 
     /// Boot a new plan with the state of an old runner (a dev reload that
@@ -399,7 +325,7 @@ impl<D: DataSource> Runner<D> {
         kernel: Kernel,
         carried: &Carried,
     ) -> Result<Runner<D>, RunnerError> {
-        Runner::boot_inner(plan, data, kernel, Some(carried))
+        Runner::boot_inner(plan, data, kernel, Some(carried), carried.store.clone())
     }
 
     /// Everything a reload keeps.
@@ -428,6 +354,7 @@ impl<D: DataSource> Runner<D> {
                 })
                 .collect(),
             now_ms: self.now_ms,
+            store: self.store.snapshot(),
         }
     }
 
@@ -436,6 +363,7 @@ impl<D: DataSource> Runner<D> {
         data: D,
         kernel: Kernel,
         carried: Option<&Carried>,
+        snapshot: Vec<(String, String)>,
     ) -> Result<Runner<D>, RunnerError> {
         plan.validate().map_err(RunnerError::Plan)?;
         if plan.kernel_schema_digest != exact_kernel::SCHEMA_DIGEST {
@@ -464,6 +392,8 @@ impl<D: DataSource> Runner<D> {
         {
             return Err(RunnerError::RootRegion);
         }
+        let store = Store::new(data.grants(), snapshot);
+        let store_readers = vec![false; plan.resources.len()];
         let mut runner = Runner {
             plan,
             data,
@@ -485,6 +415,8 @@ impl<D: DataSource> Runner<D> {
             next_ticket: 1,
             requests: Vec::new(),
             refresh_next: Vec::new(),
+            store,
+            store_readers,
             poisoned: false,
             journal: std::collections::VecDeque::new(),
             journal_start: 0,
@@ -702,6 +634,33 @@ impl<D: DataSource> Runner<D> {
         std::mem::take(&mut self.commands)
     }
 
+    /// The store's writes since the last take, in order, for the host to
+    /// persist (LLP 1018 D1) — only from commits that applied.
+    pub fn take_store_writes(&mut self) -> Vec<StoreWrite> {
+        self.store.take_writes()
+    }
+
+    /// The names the store holds a value for — never the values (LLP 1018
+    /// D5: a token is not the agent's to see).
+    pub fn store_names(&self) -> Vec<String> {
+        self.store.names().into_iter().map(str::to_string).collect()
+    }
+
+    /// The store, for a test that reads what an action kept.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// Whether resource `name` consulted the store when it settled: bake
+    /// gives such a resource no compiled value (LLP 1018 D4).
+    pub fn resource_reads_store(&self, name: &str) -> bool {
+        self.plan
+            .resources
+            .iter()
+            .position(|r| self.plan.str(r.name) == name)
+            .is_some_and(|i| self.store_readers[i])
+    }
+
     /// Deliver a host event to `view`: find its handler, evaluate the curried
     /// arguments in the instance's scope now, run the action, update.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
@@ -874,7 +833,42 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    /// Run an action: its body, its sends, its writes, settlement, the
+    /// update — one commit. What it kept in the store is journaled once the
+    /// commit stands and rolled back with everything else when it does not
+    /// (LLP 1018 D1): nothing reaches the host from a refused action.
     fn run_action(
+        &mut self,
+        action: ActionsId,
+        args: Vec<Value>,
+    ) -> Result<CommitReceipt, RunnerError> {
+        let kept = self.store.checkpoint();
+        let since = kept.writes;
+        let result = self.run_action_inner(action, args);
+        match &result {
+            Ok(_) => self.log_store_writes(since),
+            Err(_) => self.store.restore(kept),
+        }
+        result
+    }
+
+    /// Journal the store's writes from index `since`: the names, never the
+    /// values.
+    fn log_store_writes(&mut self, since: usize) {
+        let writes = self.store.writes();
+        let lines: Vec<String> = writes[since.min(writes.len())..]
+            .iter()
+            .map(|w| match &w.value {
+                Some(_) => format!("store {}", w.name),
+                None => format!("forget {}", w.name),
+            })
+            .collect();
+        for line in lines {
+            self.log(line);
+        }
+    }
+
+    fn run_action_inner(
         &mut self,
         action: ActionsId,
         args: Vec<Value>,
@@ -920,7 +914,7 @@ impl<D: DataSource> Runner<D> {
             let name = self.plan.str(mrow.name).to_string();
             let answer = self
                 .data
-                .answer(source, sargs)
+                .answer(&mut self.store, source, sargs)
                 .map_err(|error| RunnerError::Data {
                     resource: name.clone(),
                     error,
@@ -1088,7 +1082,7 @@ impl<D: DataSource> Runner<D> {
         let source = self.plan.str(row.source).to_string();
         let resource = self.plan.str(row.name).to_string();
         self.data
-            .answer(&source, args)
+            .answer(&mut self.store, &source, args)
             .map_err(|error| RunnerError::Data { resource, error })
     }
 
@@ -1192,7 +1186,13 @@ impl<D: DataSource> Runner<D> {
         self.sync_pending_flags();
         let what = format!("fulfil {ticket} ({})", self.target_name(p.target));
         let was_poisoned = self.poisoned;
+        let kept = self.store.checkpoint();
+        let since = kept.writes;
         let result = self.fulfill_inner(p, outcome);
+        match &result {
+            Ok(_) => self.log_store_writes(since),
+            Err(_) => self.store.restore(kept),
+        }
         self.log_outcome(&what, &result, was_poisoned);
         result.map(Some)
     }
@@ -1212,7 +1212,7 @@ impl<D: DataSource> Runner<D> {
         };
         let value = self
             .data
-            .parse(&p.source, &p.args, outcome)
+            .parse(&mut self.store, &p.source, &p.args, outcome)
             .map_err(|error| RunnerError::Data {
                 resource: name.clone(),
                 error,
@@ -1357,39 +1357,52 @@ impl<D: DataSource> Runner<D> {
                         Value::from_bytes(self.plan.bytes(row.initial))
                             .map_err(RunnerError::Plan)?
                     }
-                    None => match self.query(i, &args)? {
-                        Answer::Now(v) => {
-                            if pending_res[i] {
-                                // Newer arguments answered now: the older
-                                // request's reply is no longer wanted.
-                                answered.push(i);
-                                pending_res[i] = false;
+                    None => {
+                        // A resource that consults the store is the device's,
+                        // not the build's: bake gives it no compiled value
+                        // (LLP 1018 D4).
+                        let reads_before = self.store.reads();
+                        let answer = self.query(i, &args)?;
+                        if self.store.reads() > reads_before {
+                            self.store_readers[i] = true;
+                        }
+                        match answer {
+                            Answer::Now(v) => {
+                                if pending_res[i] {
+                                    // Newer arguments answered now: the older
+                                    // request's reply is no longer wanted.
+                                    answered.push(i);
+                                    pending_res[i] = false;
+                                }
+                                v
                             }
-                            v
+                            Answer::Later(request) => {
+                                // The host will run it. Meanwhile the resource
+                                // keeps the value it had — its last answer, or
+                                // its compiled boot value (LLP 1016 D3).
+                                let kept =
+                                    states[i].as_ref().map(|s| s.value.clone()).or_else(|| {
+                                        (row.initial.len > 0)
+                                            .then(|| {
+                                                Value::from_bytes(self.plan.bytes(row.initial)).ok()
+                                            })
+                                            .flatten()
+                                    });
+                                let Some(kept) = kept else {
+                                    return Err(RunnerError::Data {
+                                        resource: self.plan.str(row.name).to_string(),
+                                        error: DataError::Unavailable(
+                                            "answers later at boot: declare boot arguments the source answers now"
+                                                .into(),
+                                        ),
+                                    });
+                                };
+                                later.push((i, args.clone(), request, forced));
+                                pending_res[i] = true;
+                                kept
+                            }
                         }
-                        Answer::Later(request) => {
-                            // The host will run it. Meanwhile the resource
-                            // keeps the value it had — its last answer, or
-                            // its compiled boot value (LLP 1016 D3).
-                            let kept = states[i].as_ref().map(|s| s.value.clone()).or_else(|| {
-                                (row.initial.len > 0)
-                                    .then(|| Value::from_bytes(self.plan.bytes(row.initial)).ok())
-                                    .flatten()
-                            });
-                            let Some(kept) = kept else {
-                                return Err(RunnerError::Data {
-                                    resource: self.plan.str(row.name).to_string(),
-                                    error: DataError::Unavailable(
-                                        "answers later at boot: declare boot arguments the source answers now"
-                                            .into(),
-                                    ),
-                                });
-                            };
-                            later.push((i, args.clone(), request, forced));
-                            pending_res[i] = true;
-                            kept
-                        }
-                    },
+                    }
                 };
                 self.check_shape(i, &value)?;
                 resources[i] = Some(value.clone());

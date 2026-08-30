@@ -341,3 +341,12 @@ revisit. Measured by building the previous commit in a scratch worktree with
 the same `web` profile and `wasm-opt -Oz`; `scripts/metrics.mjs` prints the
 total. A second review round on r2 was skipped for now (Charlie, 2026-08-29:
 "skip it for now"); the Linux host's author is r2's next reader.
+
+## Amended (LLP 1018, 2026-08-30)
+
+`state` gains `"store":[…]` — the names the runner's store holds a value for,
+never the values (a token is not the agent's to see); the journal carries
+`store <name>` / `forget <name>` lines once a commit stands. Agent mode on
+every host boots with an empty store and persists nothing (`?agent=1` on the
+web; `EXACT_AGENT=1` on Apple, unless `EXACT_STORE=real`), so a drive is
+deterministic and a smoke against real credentials leaves nothing behind.

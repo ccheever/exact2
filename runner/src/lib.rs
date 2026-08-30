@@ -30,15 +30,18 @@
 pub mod agent;
 pub mod bridge;
 pub mod instance;
+pub mod request;
 pub mod runner;
 pub mod stdlib;
+pub mod store;
 pub mod vm;
 
 pub use exact_plan::Value;
 pub use instance::SurfaceUpdate;
+pub use request::{Answer, FailureKind, Outcome, Request, RequestOut, Response};
 pub use runner::{
     Advanced, Carried, Command, DataError, DataSource, Event, Runner, RunnerError, Timed,
     JOURNAL_RING,
 };
-pub use runner::{Answer, FailureKind, Outcome, Request, RequestOut, Response};
+pub use store::{Store, StoreError, StoreWrite};
 pub use vm::Trap;

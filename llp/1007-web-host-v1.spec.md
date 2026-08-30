@@ -302,3 +302,14 @@ edited, unbaked plan and re-requests nothing whose arguments did not change. `mo
 the grid, bit for bit, for scalars and pairs. `scripts/boot.mjs` green; `node
 host/web/smoke.mjs` and `node host/web/parity.mjs` green in headless Chrome.
 All under the five checks on 2026-08-28 (158 tests across the workspace).
+
+## 10. The store (LLP 1018, as built 2026-08-30)
+
+Before `exact_boot`, `glue.js` reads every `exact.secret.<name>` key of
+`localStorage` and hands the pairs (NUL-separated) to `exact_store(len)`; the
+runner keeps the granted names as its snapshot, so a resource that reads the
+store answers on the first frame. A `{"op":"store","tier":"secret","name":…,
+"value":…|null}` op, emitted after a commit like `command`, sets or removes the
+key. Agent mode (`?agent=1`) reads and writes nothing: a drive starts from
+nothing and leaves nothing. A dev reload carries the running store
+(`Carried::store`) rather than re-reading the page's.

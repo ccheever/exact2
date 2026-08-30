@@ -39,7 +39,12 @@ impl DataSource for Later {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::Unavailable(source.into()))
     }
-    fn answer(&mut self, _: &str, args: &[Value]) -> Result<Answer, DataError> {
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
         Ok(Answer::Later(
             Request::post_json("https://api.castle.test/graphql", "{\"q\":1}")
                 .header("x-who", args[0].as_str().unwrap_or("")),
@@ -47,6 +52,7 @@ impl DataSource for Later {
     }
     fn parse(
         &mut self,
+        _: &mut exact_runner::Store,
         _: &str,
         args: &[Value],
         outcome: exact_runner::Outcome,

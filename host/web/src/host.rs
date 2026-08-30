@@ -82,7 +82,18 @@ impl<D: DataSource> Host<D> {
     /// Boot from plan bytes: decode (a validation pass), boot the runner, and
     /// produce the first batch, which creates the whole tree.
     pub fn boot(plan_bytes: &[u8], data: D) -> Result<(Host<D>, String), HostError> {
-        Host::boot_with(plan_bytes, data, None)
+        Host::boot_inner(plan_bytes, data, None, Vec::new())
+    }
+
+    /// Boot with the page's snapshot of the app's kept secrets (LLP 1018
+    /// D6): what `localStorage` holds under `exact.secret.<name>`, read by
+    /// the glue before boot; the runner keeps the granted names.
+    pub fn boot_stored(
+        plan_bytes: &[u8],
+        data: D,
+        snapshot: Vec<(String, String)>,
+    ) -> Result<(Host<D>, String), HostError> {
+        Host::boot_inner(plan_bytes, data, None, snapshot)
     }
 
     /// Boot carrying an earlier host's state (the dev loop's reload, LLP
@@ -94,11 +105,20 @@ impl<D: DataSource> Host<D> {
         data: D,
         carried: Option<&Carried>,
     ) -> Result<(Host<D>, String), HostError> {
+        Host::boot_inner(plan_bytes, data, carried, Vec::new())
+    }
+
+    fn boot_inner(
+        plan_bytes: &[u8],
+        data: D,
+        carried: Option<&Carried>,
+        snapshot: Vec<(String, String)>,
+    ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         let kernel = Kernel::with_monospace();
         let runner = match carried {
             Some(c) => Runner::boot_carrying(plan, data, kernel, c),
-            None => Runner::boot(plan, data, kernel),
+            None => Runner::boot_stored(plan, data, kernel, snapshot),
         }
         .map_err(HostError::Runner)?;
         let mut host = Host {
@@ -136,6 +156,9 @@ impl<D: DataSource> Host<D> {
         }
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args);
+        }
+        for w in host.runner.take_store_writes() {
+            batch.store(&w);
         }
         batch.grants(host.runner.data().grants());
         for r in host.runner.take_requests() {
@@ -256,6 +279,10 @@ impl<D: DataSource> Host<D> {
         }
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args);
+        }
+        // What the commit kept or forgot (LLP 1018 D1), for the page to persist.
+        for w in self.runner.take_store_writes() {
+            batch.store(&w);
         }
         for r in self.runner.take_requests() {
             batch.request(&r);

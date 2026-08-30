@@ -202,8 +202,7 @@ Result<Value, DataError>`, synchronous, beside `answer(source, args) →
 Result<Answer, DataError>` (default: `query`, now) and `parse(source, args,
 outcome) → Result<Value, DataError>` for a source that hands the host a
 request (LLP 1016 D1; `Request`, `Response`, `Outcome` are the runner's own
-structs, ibex2's fields). The runner still does no I/O: requests leave
-through `take_requests` and replies enter through `fulfill`. No threads, no host, no timers
+structs, ibex2's fields). The runner still does no I/O: requests leave through `take_requests` and replies enter through `fulfill`. Durable client state (LLP 1018) is a `Store` the host fills before boot (`Runner::boot_stored`; a reload carries it in `Carried::store`) and drains after each commit (`take_store_writes`); `answer` and `parse` receive it — a read is a map lookup, a write is a `StoreWrite` for the host, rolled back with a refused action or reply — so the rule holds literally. Bake gives a resource that read the store no compiled value (`resource_reads_store`): it answers from the device at boot. No threads, no host, no timers
 of its own. Both crates build for `wasm32-unknown-unknown`.
 
 ## 8. Not in v1 (and where each is declared)

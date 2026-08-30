@@ -558,3 +558,17 @@ touch for `tap`; a pan chaining out of a nested scroll view at its edge
 but untested; `scripts/metrics.mjs` has no iOS row; the agent API on a
 phone (the socket is a simulator's; a phone would want the same lines over
 `devicectl`'s tunnel or USB).
+
+## 10. The store (LLP 1018, as built 2026-08-30)
+
+Nothing crosses the ABI: `host/apple/src/store.rs` endows the app's
+`ibex2::host::Bindings` once at boot (`EXACT_AGENT=1` selects a memory store
+unless `EXACT_STORE=real`), reads each granted name through `Secrets::get`
+into the runner's snapshot (`Host::boot_stored`), and hands the same bindings
+to the executor thread; after every commit `Host::persist` writes the
+runner's `StoreWrite`s through `Secrets::set`/`forget` on the main thread —
+the Keychain (ibex LLP 0069): the login keychain on macOS,
+`AfterFirstUnlockThisDeviceOnly` on iOS. `build.mjs` signs the macOS binary
+with the first Apple Development identity in the keychain (`EXACT_IDENTITY`
+names one) so the item's ACL survives a rebuild; ad-hoc otherwise, and the
+keychain asks on every rebuild, before the first frame (LLP 1018 D7).

@@ -81,6 +81,13 @@ pub fn bake<D: DataSource>(plan: Plan, data: D) -> Result<Plan, RunnerError> {
             .plan()
             .str(runner.plan().resources[i].name)
             .to_string();
+        // A resource that consulted the store is the device's to answer at
+        // boot, not the build's: no compiled value (LLP 1018 D4). The bake's
+        // store is empty by construction — a developer's session never
+        // reaches a plan.
+        if runner.resource_reads_store(&name) {
+            continue;
+        }
         if let Some(v) = runner.resource(&name) {
             b.set_resource_initial(ResourcesId(i as u32), v);
         }

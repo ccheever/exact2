@@ -22,6 +22,8 @@
 //! - [`measure`] — the text-measurement callback as a kernel [`TextMeasurer`].
 //! - [`host`] — the runner wrapped for a presenter: receipts → batches, layout,
 //!   motion, events, timers.
+//! - [`store`] — the app's kept secrets (LLP 1018): `ibex2::host::Secrets`
+//!   read into a snapshot before boot, written after each commit.
 //! - [`abi`] — the C exports: the web's buffer discipline over `extern "C"`.
 //!
 //! [`TextMeasurer`]: exact_kernel::TextMeasurer
@@ -34,6 +36,7 @@ pub mod batch;
 pub mod executor;
 pub mod host;
 pub mod measure;
+pub mod store;
 pub mod style;
 
 pub use host::{Host, HostError};

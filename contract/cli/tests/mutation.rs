@@ -91,7 +91,12 @@ impl DataSource for Castle {
             other => Err(DataError::UnknownSource(other.into())),
         }
     }
-    fn answer(&mut self, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
         match source {
             "login" | "logout" if self.later => Ok(Answer::Later(
                 Request::post_json(
@@ -105,6 +110,7 @@ impl DataSource for Castle {
     }
     fn parse(
         &mut self,
+        _: &mut exact_runner::Store,
         source: &str,
         args: &[Value],
         outcome: Outcome,
@@ -312,7 +318,12 @@ fn bake_refuses_a_resource_that_answers_later_at_boot() {
         fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
             Err(DataError::Unavailable(source.into()))
         }
-        fn answer(&mut self, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+        fn answer(
+            &mut self,
+            _: &mut exact_runner::Store,
+            _: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
             Ok(Answer::Later(Request::get(
                 "https://api.castle.test/balance",
             )))
@@ -351,4 +362,18 @@ fn the_language_refuses_what_it_should() {
     );
     // `pending` names a resource or a mutation.
     refuse("pending(session)", "pending(who)", "type-pending-argument");
+}
+
+/// A derive that matches a mutation into its record, and derives after it
+/// that read that record's fields, type in whatever order they are written
+/// (LLP 1018 §4's `current`): the fixpoint waits for `?` to fill.
+#[test]
+fn a_derive_over_a_matched_record_types_in_any_order() {
+    let src = "shape Session\n  ok: bool\n  username: string\n\ncomponent App\n  derive signedIn = current.ok\n  derive who = current.username\n  resource remembered = remember() as shape Session\n  mutation session as shape Session\n  derive current = match session { case some(s) => s, case none => remembered }\n  action go writes session\n    send session = login()\n  view\n    text `${who} ${signedIn}` press=go\n";
+    let plan = contract::compile(src).unwrap();
+    assert_eq!(plan.derives.len(), 3);
+    // And a field that never types is still refused, by name.
+    let bad = src.replace("current.ok", "current.nope");
+    let err = contract::compile(&bad).unwrap_err();
+    assert_eq!(err.id, "type-unknown-field");
 }

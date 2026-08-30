@@ -837,6 +837,10 @@ fn check_component(c: &Component, types: &Types) -> Result<ComponentTypes, TypeE
                         && c.derives
                             .iter()
                             .any(|x| e.message.contains(&format!("`{}`", x.name))) => {}
+                // An expression over a derive this round has not typed yet
+                // (`current.ok` while `current` is still `?`): the next round
+                // has it, and the strict pass below reports what never types.
+                Err(e) if e.message.contains("`?`") => {}
                 Err(e) => return Err(e),
             }
         }

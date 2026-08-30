@@ -198,6 +198,21 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"store","tier":"secret","name":…,"value":…|null}` — a secret
+    /// the app kept or forgot (LLP 1018 D1), for the page to persist after
+    /// the commit (`localStorage` under `exact.secret.<name>`).
+    pub fn store(&mut self, w: &exact_runner::StoreWrite) {
+        let mut s = String::from("{\"op\":\"store\",\"tier\":\"secret\",\"name\":");
+        quote(&w.name, &mut s);
+        s.push_str(",\"value\":");
+        match &w.value {
+            Some(v) => quote(v, &mut s),
+            None => s.push_str("null"),
+        }
+        s.push('}');
+        self.ops.push(s);
+    }
+
     /// `{"op":"grants","lines":[…]}` — the hosts the app may reach (LLP 1016
     /// D6), once at boot; the page refuses a request outside them itself.
     pub fn grants(&mut self, grants: &str) {

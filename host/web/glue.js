@@ -146,6 +146,17 @@ function apply(batch) {
         break;
       }
       case "grants": { grants = op.lines; break; }
+      case "store": {
+        // A secret the app kept or forgot (LLP 1018 D6): `localStorage`,
+        // origin-scoped, is the web's secret store. Never in agent mode — a
+        // drive starts from nothing and leaves nothing.
+        if (agentMode) break;
+        try {
+          if (op.value == null) localStorage.removeItem("exact.secret." + op.name);
+          else localStorage.setItem("exact.secret." + op.name, op.value);
+        } catch (e) { console.warn("exact: store", op.name, String(e)); }
+        break;
+      }
       case "request": {
         // A request the runner handed the page to run (LLP 1016 D2): the
         // browser is the executor and the authority (CORS); the app's grant
@@ -375,6 +386,19 @@ async function main() {
   const { instance } = await WebAssembly.instantiateStreaming(fetch(url), {});
   wasm = instance.exports;
   memory = wasm.memory;
+  // The kept secrets, before boot (LLP 1018 D6): every `exact.secret.*` key,
+  // handed to the runner, which keeps the granted names — so the first frame
+  // is a returning user's. Agent mode starts from nothing.
+  if (!agentMode) {
+    const kept = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith("exact.secret.")) kept.push(key.slice("exact.secret.".length), localStorage.getItem(key) ?? "");
+      }
+    } catch (e) { console.warn("exact: store", String(e)); }
+    if (kept.length) wasm.exact_store(writeIn(kept.join("\0")));
+  }
   boot(null);
   // The first frame is in the DOM: stamp the time from script start, so a
   // headless run can read it. A second stamp lands when it is painted.

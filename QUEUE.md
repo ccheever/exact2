@@ -136,6 +136,10 @@ sits on that list carries the trade it would take.
 - **Motion** (LLP 1003 §9): layout transitions (gated on an incremental-relayout
   number); `@keyframes`; a Core Animation executor (measured question); reduced
   motion is the producer's `transition: none`.
+- **Durable state** (LLP 1018 §5, built 2026-08-30 for Weird Castle's token): the
+  `plain` tier — persisted slots, with Caltrain's "last station"; `me`; the iOS
+  first-launch keychain wipe; the data-protection keychain on macOS (a bundle and a
+  profile); the Linux file store when that host links ibex2.
 - **Plan / runner** (LLP 1005 §8): a deps table and dirty-set sweep; per-instance
   derives or resources inside `each`; asynchronous data settlement.
 - **Contract** (LLP 1006 §8): inlining budget; `contract` blocks as assertions;

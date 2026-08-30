@@ -14,6 +14,7 @@
 
 use crate::host::Host;
 use crate::measure::{CallbackMeasurer, MeasureFn};
+use crate::store::{endow, snapshot_of};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
 use exact_runner::{DataSource, Event};
 use std::cell::RefCell;
@@ -133,11 +134,17 @@ impl<D: DataSource> Bridge<D> {
         };
         self.host = None;
         self.executor = None;
-        match Host::boot(plan, data, measurer, width, height) {
-            Ok((mut host, batch)) => {
-                let grants = host.grants();
+        // The app's bindings, once (LLP 1016 D6; LLP 1018 D6): the secrets it
+        // kept are read into a snapshot before the runner boots, so the first
+        // frame is a returning user's; the executor thread takes the same
+        // bindings for its requests.
+        let bindings = endow(data.grants());
+        let snapshot = snapshot_of(bindings.as_ref());
+        let secrets = bindings.as_ref().map(|b| b.secrets.clone());
+        match Host::boot_stored(plan, data, measurer, width, height, None, snapshot, secrets) {
+            Ok((host, batch)) => {
                 self.executor = Some(crate::executor::Executor::start(
-                    &grants,
+                    bindings,
                     hooks.wake.map(|w| (w, hooks.wake_ctx)),
                 ));
                 self.host = Some(host);
@@ -159,11 +166,23 @@ impl<D: DataSource> Bridge<D> {
             Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
             None => Box::new(MonospaceMeasurer::default()),
         };
-        match Host::boot_with(&plan, data, measurer, width, height, carried.as_ref()) {
-            Ok((mut host, batch)) => {
-                let grants = host.grants();
+        // A reload carries the running store (`Carried::store`); the bindings
+        // are endowed afresh for the new executor.
+        let bindings = endow(data.grants());
+        let secrets = bindings.as_ref().map(|b| b.secrets.clone());
+        match Host::boot_stored(
+            &plan,
+            data,
+            measurer,
+            width,
+            height,
+            carried.as_ref(),
+            Vec::new(),
+            secrets,
+        ) {
+            Ok((host, batch)) => {
                 self.executor = Some(crate::executor::Executor::start(
-                    &grants,
+                    bindings,
                     hooks.wake.map(|w| (w, hooks.wake_ctx)),
                 ));
                 self.host = Some(host);

@@ -22,6 +22,7 @@ use exact_kernel::{
 use exact_motion::{Change, Engine, Property};
 use exact_plan::{EventKind, Plan};
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
+use ibex2::host::Secrets;
 use std::collections::BTreeMap;
 
 /// Why the host refused.
@@ -56,6 +57,9 @@ pub struct Host<D: DataSource> {
     engine: Engine,
     viewport: (f32, f32),
     now_ms: f64,
+    /// Where the app's kept secrets go after a commit (LLP 1018 D6); `None`
+    /// keeps them in the runner only (a test, or no grants).
+    secrets: Option<Secrets>,
 }
 
 impl<D: DataSource> Host<D> {
@@ -69,7 +73,16 @@ impl<D: DataSource> Host<D> {
         width: f32,
         height: f32,
     ) -> Result<(Host<D>, String), HostError> {
-        Host::boot_with(plan_bytes, data, measurer, width, height, None)
+        Host::boot_stored(
+            plan_bytes,
+            data,
+            measurer,
+            width,
+            height,
+            None,
+            Vec::new(),
+            None,
+        )
     }
 
     /// Boot carrying an earlier host's state (the dev reload, LLP 1007 §6):
@@ -83,11 +96,38 @@ impl<D: DataSource> Host<D> {
         height: f32,
         carried: Option<&Carried>,
     ) -> Result<(Host<D>, String), HostError> {
+        Host::boot_stored(
+            plan_bytes,
+            data,
+            measurer,
+            width,
+            height,
+            carried,
+            Vec::new(),
+            None,
+        )
+    }
+
+    /// Boot with the app's kept secrets (LLP 1018 D6): `snapshot` is what
+    /// the platform's store holds under the granted names, read before this
+    /// call (a carried boot takes the carried store instead); `secrets` is
+    /// where the commits' writes go, after each commit, on this thread.
+    #[allow(clippy::too_many_arguments)]
+    pub fn boot_stored(
+        plan_bytes: &[u8],
+        data: D,
+        measurer: Box<dyn TextMeasurer>,
+        width: f32,
+        height: f32,
+        carried: Option<&Carried>,
+        snapshot: Vec<(String, String)>,
+        secrets: Option<Secrets>,
+    ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         let kernel = Kernel::new(measurer);
         let runner = match carried {
             Some(c) => Runner::boot_carrying(plan, data, kernel, c),
-            None => Runner::boot(plan, data, kernel),
+            None => Runner::boot_stored(plan, data, kernel, snapshot),
         }
         .map_err(HostError::Runner)?;
         let mut host = Host {
@@ -98,6 +138,7 @@ impl<D: DataSource> Host<D> {
             engine: Engine::new(),
             viewport: (width, height),
             now_ms: 0.0,
+            secrets,
         };
         let mut batch = Batch::new();
         let order = host.preorder();
@@ -115,6 +156,7 @@ impl<D: DataSource> Host<D> {
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args);
         }
+        host.persist();
         // The engine hears the whole tree once: values, no transitions.
         let mut sync = MotionSync::default();
         for id in &order {
@@ -159,6 +201,25 @@ impl<D: DataSource> Host<D> {
     /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.
     pub fn grants(&mut self) -> String {
         self.runner.data().grants().to_string()
+    }
+
+    /// What the last commit kept or forgot, into the platform's store (LLP
+    /// 1018 D6) — synchronous, on this thread, milliseconds once per login.
+    /// A write that fails is journaled; the app is otherwise unaffected, as
+    /// a web app is when `setItem` throws: the next launch will not remember.
+    fn persist(&mut self) {
+        for w in self.runner.take_store_writes() {
+            let Some(secrets) = &self.secrets else {
+                continue;
+            };
+            let result = match &w.value {
+                Some(v) => secrets.set(&w.name, v),
+                None => secrets.forget(&w.name),
+            };
+            if let Err(e) = result {
+                self.runner.log(format!("store {} failed: {e}", w.name));
+            }
+        }
     }
 
     /// The requests the runner handed out since the last take (LLP 1016 D2):
@@ -321,6 +382,7 @@ impl<D: DataSource> Host<D> {
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args);
         }
+        self.persist();
         // Motion last, each commit at its own time: targets are in place
         // before the engine hears them, and a transition a timer started is
         // born at that timer's due time — so one seek and sixty give the same
