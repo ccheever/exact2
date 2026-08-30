@@ -538,6 +538,7 @@ dependencies = [
  "exact-motion",
  "exact-plan",
  "exact-runner",
+ "ibex2",
  "libc",
  "png",
  "tiny-skia",

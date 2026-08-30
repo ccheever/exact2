@@ -24,6 +24,10 @@ exact-kernel = { path = "../../kernel" }
 exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
+# The executor for a request that leaves the process (LLP 1016 D2): ibex2's
+# standard library for a Rust consumer (ibex LLP 0068) — rustls off Apple
+# (its OQ2) — from the sibling checkout, as the Apple host takes it.
+ibex2 = { path = "../../../ibex/crates/ibex2", default-features = false }
 tiny-skia = "0.12"
 cosmic-text = { version = "0.19", features = ["peniko"] }
 png = "0.18"

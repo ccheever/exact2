@@ -281,7 +281,12 @@ pub fn run<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
         if let Some(v) = &vnc {
             fds.push(v.fd());
         }
+        // A reply from the executor wakes the loop like a key would.
+        fds.push(p.executor_fd());
         poll(&fds, timeout);
+        if let Some(e) = p.pump(wall()) {
+            eprintln!("exact: {e}");
+        }
         let mut events = input.read();
         if let Some(v) = vnc.as_mut() {
             events.extend(v.take_events());

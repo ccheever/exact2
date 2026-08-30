@@ -26,6 +26,8 @@
 //! - [`image`] — sources under the asset root, PNG decoded off-thread.
 //! - [`presenter`] — scroll, focus, hit-testing, the host-side operations.
 //! - [`agent`] — the agent API on stdio (`Agent.swift`'s twin).
+//! - [`executor`] — `ibex2::host` on a worker thread for a request that
+//!   leaves the process (LLP 1016 D2), its wake a socketpair the loop polls.
 //! - [`app`] — the entry: the environment, headless or display.
 //! - [`display`], [`input`], [`vnc`] (Linux) — KMS dumb buffers, evdev, and
 //!   the screen over RFB with a client's pointer and keys as input.
@@ -37,6 +39,7 @@ pub mod agent;
 pub mod app;
 #[cfg(target_os = "linux")]
 pub mod display;
+pub mod executor;
 pub mod gpu;
 pub mod host;
 pub mod image;

@@ -356,3 +356,124 @@ fn a_reload_carries_state_and_starts_the_pictures_over() {
         "the picture loaded again"
     );
 }
+
+/// LLP 1016 D2 on this host: a `send` whose source answers later goes to
+/// the executor thread, the reply comes back through `pump`, and the tree
+/// shows it — against a loopback server, the real transport underneath.
+#[test]
+fn a_request_runs_on_the_executor_and_its_reply_commits() {
+    use exact_runner::{Answer, Outcome, Request};
+    use std::io::{Read as _, Write as _};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().take(2) {
+            let Ok(mut s) = stream else { break };
+            let mut buf = [0u8; 8192];
+            let _ = s.read(&mut buf);
+            let body = b"{\"data\":{\"login\":{\"username\":\"ada\"}}}";
+            let _ = write!(
+                s,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = s.write_all(body);
+        }
+    });
+
+    struct Later {
+        port: u16,
+        grants: &'static str,
+    }
+    impl DataSource for Later {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::Unavailable(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut exact_runner::Store,
+            _: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            Ok(Answer::Later(Request::post_json(
+                &format!("http://127.0.0.1:{}/graphql", self.port),
+                "{\"q\":1}",
+            )))
+        }
+        fn parse(
+            &mut self,
+            _: &mut exact_runner::Store,
+            _: &str,
+            _: &[Value],
+            outcome: Outcome,
+        ) -> Result<Value, DataError> {
+            let ok = matches!(outcome, Outcome::Response(ref r) if r.status == 200);
+            let text = match &outcome {
+                Outcome::Response(r) => String::from_utf8_lossy(&r.body).into_owned(),
+                Outcome::Failed { message, .. } => message.clone(),
+            };
+            let name = if text.contains("ada") {
+                "ada".to_string()
+            } else {
+                format!("?{text}")
+            };
+            Ok(Value::record(vec![Value::Bool(ok), Value::str(&name)]))
+        }
+        fn grants(&self) -> &'static str {
+            self.grants
+        }
+    }
+
+    const SRC: &str = r#"
+shape Session
+  ok: bool
+  username: string
+
+component App
+  mutation session as shape Session
+  derive busy = pending(session)
+  action submit writes session
+    send session = login()
+  view
+    column testId="app"
+      button press=submit label="Log in" testId="login"
+        text "Log in"
+      when busy
+        text "Logging in…" testId="busy"
+      match session
+        case some(s)
+          text `Signed in as ${s.username}` testId="signed-in"
+        case none
+          text "Signed out" testId="signed-out"
+"#;
+    // The grant is an origin, port included (ibex LLP 0067): the loopback
+    // server's, for this run only.
+    let grants: &'static str =
+        Box::leak(format!("net.fetch http://127.0.0.1:{port}\n").into_boxed_str());
+    let plan = contract::compile(SRC).unwrap();
+    let baked = contract::bake(plan, Later { port, grants }).unwrap();
+    let (mut p, error) = Presenter::boot(
+        &baked.encode(),
+        Later { port, grants },
+        (390.0, 844.0),
+        1.0,
+        assets(),
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let login = view(&p, "login");
+    p.tap(login).unwrap();
+    assert!(p.pending(), "the request is in flight");
+    assert!(has(&p, "busy"));
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while p.pending() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+        if let Some(e) = p.pump(p.host().now()) {
+            panic!("pump: {e}");
+        }
+    }
+    assert!(!p.pending(), "the reply came back within ten seconds");
+    assert!(!has(&p, "busy"));
+    assert_eq!(text(&p, "signed-in"), "Signed in as ada");
+}

@@ -228,7 +228,16 @@ let grants = [];
 const inflight = new Set();
 const enc = new TextEncoder();
 function granted(url) {
-  return grants.some((g) => { const [kind, prefix] = g.split(/\s+/, 2); return kind === "net.fetch" && prefix && url.startsWith(prefix); });
+  // A `net.fetch` grant is an origin — scheme, host, port — matched whole,
+  // as ibex2 matches it on the native hosts (LLP 0067): the same refusal
+  // everywhere. A URL that does not parse is outside every grant.
+  let origin;
+  try { origin = new URL(url).origin; } catch { return false; }
+  return grants.some((g) => {
+    const [kind, granted] = g.split(/\s+/, 2);
+    if (kind !== "net.fetch" || !granted) return false;
+    try { return new URL(granted).origin === origin; } catch { return false; }
+  });
 }
 function fulfill(ticket, kind, status, headersText, body) {
   if (!wasm) return;

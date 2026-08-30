@@ -16,7 +16,7 @@ use exact_kernel::motion::{motion_node, targets, MotionSync};
 use exact_kernel::{Kernel, NodeKey, Offer, TextMeasurer, ViewId};
 use exact_motion::{Change, Engine, Property};
 use exact_plan::Plan;
-use exact_runner::{Carried, DataSource, Event, Runner, RunnerError, Timed};
+use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
 
 /// Why the host refused to boot.
@@ -172,6 +172,39 @@ impl<D: DataSource> Host<D> {
             };
         }
         exact_runner::agent::handle(&self.runner, request)
+    }
+
+    /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.
+    pub fn grants(&mut self) -> String {
+        self.runner.data().grants().to_string()
+    }
+
+    /// The requests the runner handed out since the last take (LLP 1016 D2).
+    pub fn take_requests(&mut self) -> Vec<RequestOut> {
+        self.runner.take_requests()
+    }
+
+    /// The executor's replies, oldest first, each a commit at `now_ms` (a
+    /// ticket no longer held commits nothing); a reply the source cannot
+    /// shape is the error, and the ones before it stand.
+    pub fn fulfill_all(&mut self, outcomes: Vec<(u64, Outcome)>, now_ms: f64) -> Option<String> {
+        self.now_ms = now_ms.max(self.now_ms);
+        let mut receipts = Vec::new();
+        let mut error = None;
+        for (ticket, outcome) in outcomes {
+            match self.runner.fulfill(ticket, outcome) {
+                Ok(Some(receipt)) => receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
+                Ok(None) => {}
+                Err(e) => {
+                    error = Some(format!("{e:?}"));
+                    break;
+                }
+            }
+        }
+        self.commit(&receipts, error)
     }
 
     /// Deliver an event at the app's clock (milliseconds). A refusal is the

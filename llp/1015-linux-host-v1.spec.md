@@ -37,6 +37,23 @@ the code disagree, the code and its tests are the authority.
 
 ## 1. The host (`host/linux/src/host.rs`)
 
+**Requests (LLP 1016 D2, built 2026-08-30).** `host/linux/src/executor.rs`
+is the Apple host's executor with a wake the loop can poll: one
+`ibex2::host::Host` on a worker thread — rustls off Apple (ibex LLP 0068
+OQ2, resolved the same day: `transport::rustls_http`, HTTP/1.1 over rustls
+through `ureq`, the webpki roots compiled in; `NSURLSession` when this host
+runs on a Mac) — endowed from the data crate's grants (origins, matched
+whole), and a socketpair whose reading end sits in `display.rs`'s `poll` set
+beside the input devices and the VNC server's, one byte per reply. After
+every commit the presenter hands the runner's new requests to the thread
+(`after_commit`); `Presenter::pump` delivers the queued outcomes to the
+runner (`Host::fulfill_all`, one commit each) — the display loop pumps when
+the fd is readable, the agent pumps at the start of every operation and
+while `clock settle` waits (twenty seconds at most, then `settled: false`),
+since the headless path has no loop. `host/linux/tests/host.rs` drives a
+`send` against a loopback server through the real transport. `ibex2` is a
+path dependency on the sibling checkout, as on the Apple host.
+
 The Apple host's orchestration (LLP 1008 §1) with the batch deleted:
 `Host::boot(plan_bytes, data, measurer, width, height)` decodes the plan,
 boots the runner against `Kernel::new(measurer)`, hears the whole tree in
@@ -390,7 +407,8 @@ acceleration, touchpad gestures, hotplug, non-US keymaps — evdev reads
 raw, and nothing links); Wayland or X11 windows (DRM or headless only);
 a cursor blink, selection, IME; `text_decoration`, `font_family` (always
 sans-serif), RTL untested; shadows, gradients, grid (as on macOS); JPEG
-and other image formats (PNG only), image URLs (ibex2); accessibility of
+and other image formats (PNG only), image URLs (the executor of §1 exists;
+the image loader does not ask it yet); accessibility of
 any kind; HiDPI beyond `EXACT_SCALE`; a font cache for the scan;
 pixel fixtures against Chrome (the instrument exists — `screenshot`, the
 smoke's canvas reference, and the pinned font, §3 — the comparison itself

@@ -51,6 +51,8 @@ pub struct Presenter<D: DataSource> {
     pub fonts_ms: f64,
     /// The painter, for the report.
     pub painter: PainterInfo,
+    /// The executor for a request that leaves the process (LLP 1016 D2).
+    executor: crate::executor::Executor,
 }
 
 /// Two decimals, the agent API's precision.
@@ -164,15 +166,17 @@ impl<D: DataSource> Presenter<D> {
         let text = TextEngine::shared();
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
         let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
-        let (host, error) = Host::boot(
+        let (mut host, error) = Host::boot(
             plan,
             data,
             Box::new(Measurer(text.clone())),
             viewport.0,
             viewport.1,
         )?;
+        let executor = crate::executor::Executor::start(&host.grants());
         let mut p = Presenter {
             host,
+            executor,
             brush: Painter::new(text.clone(), scale, backend),
             text,
             viewport,
@@ -204,6 +208,7 @@ impl<D: DataSource> Presenter<D> {
             Some(&carried),
         )?;
         self.host = host;
+        self.executor = crate::executor::Executor::start(&self.host.grants());
         self.scroll.clear();
         self.page = (0.0, 0.0);
         self.images.reset();
@@ -274,6 +279,11 @@ impl<D: DataSource> Presenter<D> {
     /// stale.
     fn after_commit(&mut self) -> Option<String> {
         self.dirty = true;
+        // What the commit asked the host to run goes to the executor (LLP
+        // 1016 D2); the reply comes back through `pump`.
+        for r in self.host.take_requests() {
+            self.executor.run(r);
+        }
         let live = self.host.preorder();
         let reports = self.images.sync(self.host.kernel(), &live);
         let mut error = None;
@@ -641,6 +651,29 @@ impl<D: DataSource> Presenter<D> {
         if self.focus.take().is_some() {
             self.dirty = true;
         }
+    }
+
+    /// The executor's replies into the runner (LLP 1016 D2), each a
+    /// commit: the display loop calls this when the executor's fd is
+    /// readable, the agent when it waits. `None` when nothing was queued.
+    pub fn pump(&mut self, now_ms: f64) -> Option<String> {
+        let outcomes = self.executor.drain();
+        if outcomes.is_empty() {
+            return None;
+        }
+        let e = self.host.fulfill_all(outcomes, now_ms);
+        let after = self.after_commit();
+        e.or(after)
+    }
+
+    /// The executor's wake: readable when a reply is queued (for `poll`).
+    pub fn executor_fd(&self) -> std::os::unix::io::RawFd {
+        self.executor.fd()
+    }
+
+    /// Whether a request is in flight.
+    pub fn pending(&self) -> bool {
+        self.host.runner().has_pending()
     }
 
     /// Move the clock: timers fire, motion is seeked to where the clock

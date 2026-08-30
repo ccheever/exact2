@@ -107,7 +107,7 @@ quiet clock, and the pair format.
 
 **Requests (LLP 1016 D2, built 2026-08-30).** The browser is the executor.
 A batch carries `{"op":"grants","lines":[…]}` once at boot — the data
-crate's `net.fetch <url prefix>` lines — and `{"op":"request","ticket":N,
+crate's `net.fetch <origin>` lines — and `{"op":"request","ticket":N,
 "target":…,"method":…,"url":…,"headers":[[k,v]…],"body":"<base64>","cache":
 "default"|"reload"}` for every request the runner handed out with the commit
 (`Runner::take_requests`, after the `command` ops). The glue refuses a URL

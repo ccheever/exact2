@@ -50,6 +50,11 @@ pub fn serve<D: DataSource>(p: &mut Presenter<D>, boot_ms: f64, boot_error: Opti
 /// Answer one request.
 pub fn handle<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     p.poll_images();
+    // A reply that landed since the last operation commits before this one
+    // (the other hosts apply it as it lands; here nothing runs between).
+    if let Some(e) = p.pump(p.host().now()) {
+        eprintln!("exact: {e}");
+    }
     let id = || field_num(line, "id").map(|n| n as u32);
     match field_str(line, "op").as_deref() {
         Some("layout") => p.layout_json(),
@@ -96,6 +101,9 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let settle_to_end = field_bool(line, "settle");
     let mut to = field_num(line, "to");
     if settle_to_end {
+        // A request in flight is waited for first (LLP 1016): its reply
+        // commits, and may start motion, before the fixed point is measured.
+        wait_for_replies(p);
         to = Some(from.max(settle(p).unwrap_or(from)));
     }
     let Some(mut to) = to.filter(|t| t.is_finite()) else {
@@ -115,6 +123,14 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         if !settle_to_end {
             return format!("{{\"clock\":{}}}", num(landed));
         }
+        if p.pending() {
+            rounds += 1;
+            if rounds >= 16 {
+                return format!("{{\"clock\":{},\"settled\":false}}", num(landed));
+            }
+            wait_for_replies(p);
+            continue;
+        }
         let next = landed.max(settle(p).unwrap_or(landed));
         if next <= landed {
             return format!("{{\"clock\":{},\"settled\":true}}", num(landed));
@@ -128,6 +144,18 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
 }
 
 /// `"key":[a,b]` in a flat request.
+/// Pump the executor until no request is in flight, or for at most twenty
+/// seconds (a network's worth; `settled: false` past it).
+fn wait_for_replies<D: DataSource>(p: &mut Presenter<D>) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while p.pending() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        if let Some(e) = p.pump(p.host().now()) {
+            eprintln!("exact: {e}");
+        }
+    }
+}
+
 fn field_pair(json: &str, key: &str) -> Option<(f64, f64)> {
     let needle = format!("\"{key}\"");
     let at = json.find(&needle)?;

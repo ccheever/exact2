@@ -206,7 +206,9 @@ the network says how long it took.
 ### D6 — Grants: the app names the hosts it may reach
 
 `ibex2::host` endows bindings from a `GrantSet` (LLP 0067; 0068 §1) and
-refuses the rest. The app's data crate declares its grants as one constant —
+refuses the rest. A `net.fetch` grant is an **origin** — scheme, host, port —
+matched whole, never a prefix (as built: the web glue matches `URL.origin`
+the same way). The app's data crate declares its grants as one constant —
 `pub const GRANTS: &str = "net.fetch https://api.castle.xyz\n";` — that the
 `host!` macros hand to `Host::endow` on Apple and that `glue.js` receives at
 boot (a string list) and checks before `fetch`, so a request outside the grant
@@ -235,7 +237,8 @@ Weird Castle's data crate sends `loginV2` and `logout` to
 `api.castle.xyz`, parses the reply, and declares `net.fetch
 https://api.castle.xyz` — a wrong password from Chrome, the macOS app, and
 the iOS simulator comes back as Castle's own refusal in `session.error`.
-Owed: the Linux executor (ibex OQ2), the token across launches.
+The Linux executor followed the same day (LLP 1015 §1; ibex OQ2 resolved
+with a rustls transport), and the token across launches is LLP 1018.
 
 ## 3. What changes, where
 
