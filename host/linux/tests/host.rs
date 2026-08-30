@@ -16,7 +16,23 @@ fn assets() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"))
 }
 
+/// The pinned font (LLP 1015 §3): the fixture directory and the family
+/// name the driver sets, so every number in these tests is the same on a
+/// Mac and on a builder. Set once, before the first engine is made; the
+/// environment is process-wide and every test wants the same values.
+fn pin_font() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::env::set_var(
+            "EXACT_FONTS",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/fixtures/fonts"),
+        );
+        std::env::set_var("EXACT_FONT", "DejaVu Sans");
+    });
+}
+
 fn boot() -> Presenter<caltrain_data::Caltrain> {
+    pin_font();
     let plan = caltrain::build().unwrap();
     let (mut p, error) = Presenter::boot(
         &plan.encode(),
@@ -39,6 +55,7 @@ impl DataSource for NoData {
 }
 
 fn fixture(name: &str) -> Presenter<NoData> {
+    pin_font();
     let src = std::fs::read_to_string(format!(
         "{}/../../contract/corpus/{name}.contract",
         env!("CARGO_MANIFEST_DIR")
@@ -94,7 +111,10 @@ fn the_tree_lays_out_with_real_text_and_every_node_has_a_box() {
         name.rect.2 > 0.0 && name.rect.3 > 20.0,
         "24 pt text has a line box: {name:?}"
     );
-    assert!(name.rect.3 < 40.0, "one line: {name:?}");
+    // Two lines: DejaVu Bold sets "Mountain View" 201 wide and the button
+    // beside it 128, more than the 322 a 390-wide header leaves — on every
+    // machine, now that the font is pinned (a Mac's Helvetica fit it on one).
+    assert!(name.rect.3 < 70.0, "at most two lines: {name:?}");
     let scroll = p.boxes().iter().filter(|b| b.scroll.is_some()).count();
     assert_eq!(scroll, 1, "one scroll container reports an offset");
     let faces = p.text().borrow().face_count();

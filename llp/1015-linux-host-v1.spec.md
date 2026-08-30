@@ -242,7 +242,22 @@ app through the CPU painter — hinting and GPOS kerning kept). The smoke's
 canvas reference for this host is the CPU oracle's picture over the pinned
 font: exact on every machine, where the GPU painter lands within the band
 (0.87% of the crop beyond 8/255 on Metal) and is held to the oracle by
-`tests/paint.rs` instead.
+`tests/paint.rs` instead. The host's own tests pin the same font (`pin_font`
+in `tests/{host,paint,text}.rs`, set once per process), so their numbers
+are one machine's on every machine.
+
+**A requested weight is snapped to the family's face before shaping**
+(`snap_weight`, r3). cosmic-text's fallback takes the requested weight
+literally and ranks any face whose variable `wght` axis covers it above
+the family's nearest static face: on a Mac, weight 500 and 600 came out in
+San Francisco while 400 and 700 were the pinned DejaVu — the app's
+weight-600 button measured 104 wide here against 128 on a builder with the
+same font bytes, and the station's name fit one line here and wrapped to
+two there (the test that caught it). The engine now asks `fontdb::Query`
+— CSS font matching — for the `sans-serif` face at the requested weight
+and shapes with that face's weight (600 → Bold, 500 → Book), so the family
+stays first, the browser's rule. `tests/text.rs` holds it against the
+fonts' own advances (Book 98.6, Bold 111.1 for "Change station" at 13 pt).
 
 ## 4. The presenter (`host/linux/src/presenter.rs`, `image.rs`)
 
@@ -429,6 +444,8 @@ presentation values frame by frame and settles at 1.5 / 0.5; the clock
 fires timers at their due times; an image lays out from its decoded size
 and never resolves outside the asset root; every agent request answers on
 the wire; a reload carries state and starts the pictures over.
+`host/linux/tests/text.rs` (1): a weight the family lacks resolves within
+the family — 500 is Book and 600 is Bold, at the fonts' own advances.
 `host/linux/tests/paint.rs` (7, each run under both painters where a GPU
 exists, under the CPU alone where none does — said, never failed on),
 pixel by pixel: backgrounds land in their boxes with their radii (`#eeeeee` inside the app's button, the page at its
@@ -436,8 +453,9 @@ corner; `#f7f7f7` inside an inline fixture's card past the 16 pt radius —
 the app's own panels became translucent white over the sky in LLP 1014
 §1a, which a review caught as a stale assertion); **the two painters agree
 within a band** over the whole app at 390×844 — measured on Metal
-2026-08-29 at mean 3.24/255 with 2.98% of pixels differing by more than 32,
-asserted at 5 and 6% (glyphs are where they part: vello draws hinted
+2026-08-29 at mean 3.24/255 with 2.98% of pixels differing by more than 32
+with the Mac's Helvetica, and 1.35/255 with 0.73% once the tests pinned
+DejaVu (2026-08-30), asserted at 5 and 6% (glyphs are where they part: vello draws hinted
 outlines at the layout's positions, tiny-skia blits swash's bitmaps at
 snapped ones — a declared deviation, the band its measure); text and images
 leave ink in their boxes and none between; motion presents as a transform

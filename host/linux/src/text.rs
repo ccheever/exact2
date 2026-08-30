@@ -141,6 +141,9 @@ pub struct TextEngine {
     glyphs: HashMap<(CacheKey, u32), Option<Rc<Glyph>>>,
     normal: HashMap<(u32, u16, bool), f32>,
     font_data: HashMap<(fontdb::ID, u16), Option<PenikoFont>>,
+    /// A requested (weight, italic) → the weight of the face the family
+    /// actually has for it (see `snap_weight`).
+    weights: HashMap<(u16, bool), u16>,
     /// How many times the kernel asked, since launch.
     pub measures: usize,
     /// How many were answered from cache.
@@ -231,6 +234,7 @@ impl TextEngine {
             glyphs: HashMap::new(),
             normal: HashMap::new(),
             font_data: HashMap::new(),
+            weights: HashMap::new(),
             measures: 0,
             hits: 0,
             shaping: Duration::ZERO,
@@ -247,10 +251,45 @@ impl TextEngine {
         self.fonts.db().faces().count()
     }
 
-    fn attrs(run: &Run) -> Attrs<'static> {
+    /// The weight to shape with for a requested one: the weight of the face
+    /// CSS font matching picks from the `sans-serif` family (`fontdb::Query`
+    /// — for 600 with Book and Bold on hand, Bold). cosmic-text's fallback
+    /// takes the requested weight literally and ranks any face whose
+    /// variable `wght` axis covers it above the family's nearest static
+    /// face: on a Mac, weight 500 and 600 came out in San Francisco while
+    /// 400 and 700 were the pinned DejaVu, and the app's weight-600 button
+    /// measured 104 wide here against 128 on a builder with the same font
+    /// bytes. Asking for the family's own weight keeps the family first,
+    /// the browser's rule (family, then weight).
+    fn snap_weight(&mut self, weight: u16, italic: bool) -> u16 {
+        let key = (weight, italic);
+        if let Some(w) = self.weights.get(&key) {
+            return *w;
+        }
+        let query = fontdb::Query {
+            families: &[fontdb::Family::SansSerif],
+            weight: fontdb::Weight(weight),
+            stretch: fontdb::Stretch::Normal,
+            style: if italic {
+                fontdb::Style::Italic
+            } else {
+                fontdb::Style::Normal
+            },
+        };
+        let db = self.fonts.db();
+        let snapped = db
+            .query(&query)
+            .and_then(|id| db.face(id))
+            .map(|face| face.weight.0)
+            .unwrap_or(weight);
+        self.weights.insert(key, snapped);
+        snapped
+    }
+
+    fn attrs(run: &Run, weight: u16) -> Attrs<'static> {
         let mut a = Attrs::new()
             .family(Family::SansSerif)
-            .weight(Weight(run.weight))
+            .weight(Weight(weight))
             .style(if run.italic {
                 Style::Italic
             } else {
@@ -269,11 +308,12 @@ impl TextEngine {
         if let Some(h) = self.normal.get(&key) {
             return *h;
         }
+        let weight = self.snap_weight(run.weight, run.italic);
         let mut probe = Buffer::new(
             &mut self.fonts,
             Metrics::new(run.size.max(1.0), run.size.max(1.0)),
         );
-        probe.set_text("x", &Self::attrs(run), Shaping::Advanced, None);
+        probe.set_text("x", &Self::attrs(run, weight), Shaping::Advanced, None);
         probe.shape_until_scroll(&mut self.fonts, false);
         let mut height = run.size * 1.2;
         if let Some(g) = probe.layout_runs().flat_map(|r| r.glyphs.iter()).next() {
@@ -332,21 +372,28 @@ impl TextEngine {
             TextAlign::Right => Some(Align::Right),
             TextAlign::Justify => Some(Align::Justified),
         };
+        let weights: Vec<u16> = spec
+            .runs
+            .iter()
+            .map(|r| self.snap_weight(r.weight, r.italic))
+            .collect();
         let spans: Vec<(&str, Attrs<'static>)> = spec
             .runs
             .iter()
             .zip(line_heights.iter())
-            .map(|(r, lh)| {
+            .zip(weights.iter())
+            .map(|((r, lh), w)| {
                 (
                     r.text.as_str(),
-                    Self::attrs(r).metrics(Metrics::new(r.size.max(0.5), lh.max(1.0))),
+                    Self::attrs(r, *w).metrics(Metrics::new(r.size.max(0.5), lh.max(1.0))),
                 )
             })
             .collect();
         let default = spec
             .runs
             .first()
-            .map(Self::attrs)
+            .zip(weights.first())
+            .map(|(r, w)| Self::attrs(r, *w))
             .unwrap_or_else(Attrs::new);
         buffer.set_rich_text(spans, &default, Shaping::Advanced, align);
         buffer.shape_until_scroll(&mut self.fonts, false);
