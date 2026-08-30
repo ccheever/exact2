@@ -123,11 +123,15 @@ extension Agent {
         // — an input's field, a node with a focus/blur/key handler — and
         // whatever had it (a field, and the keyboard with it) lets go.
         var f: UIView? = n
+        var took = false
         while let cur = f {
-            if let node = cur as? NodeView, let field = node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; break }
-            if cur.canBecomeFirstResponder { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; break }
+            if let node = cur as? NodeView, let field = node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
+            if cur.canBecomeFirstResponder { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; took = true; break }
             f = cur.superview
         }
+        // Nothing took the focus: the field being edited loses it (a page
+        // blurs its input on a click anywhere else), and the keyboard goes.
+        if !took { win.endEditing(true) }
         (n as? NodeView)?.activate(at: p)
         return ["tapped": Int(v.id), "at": at]
     }

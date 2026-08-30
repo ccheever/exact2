@@ -492,6 +492,17 @@ rmSync(tmp, { recursive: true, force: true });
       await f.tap('dismiss');
       for (let i = 0; i < 40; i++) { l = await f.layout(); if (l.env['keyboard-inset-height'] === 0) break; await sleep(50); }
       check(l.viewport.h === viewport0.h && l.env['safe-area-inset-bottom'] === bottom0 && box(l, 'bar').y === bar0.y, `after the keyboard went everything is back: ${JSON.stringify(l.viewport)}, inset ${l.env['safe-area-inset-bottom']}, the bar at ${box(l, 'bar').y} (was ${bar0.y})`);
+      // A tap on plain text — nothing focusable, nothing pressable — blurs
+      // the field, as a tap on a page's ground does, and the keyboard goes
+      // (the web and iOS; the Linux host's `type` never focused).
+      if (host !== 'linux') {
+        await f.type('note', 'again');
+        for (let i = 0; i < 40; i++) { l = await f.layout(); if (host !== 'ios' || l.env['keyboard-inset-height'] > 0) break; await sleep(50); }
+        await f.tap('title');
+        let st = await f.state();
+        for (let i = 0; i < 40; i++) { l = await f.layout(); if (l.env['keyboard-inset-height'] === 0) break; await sleep(50); }
+        check(st.slots.focused === false && l.env['keyboard-inset-height'] === 0 && l.viewport.h === viewport0.h, `a tap on the title blurred the field and sent the keyboard away: ${JSON.stringify(st.slots)}, keyboard ${l.env['keyboard-inset-height']}, viewport ${JSON.stringify(l.viewport)}`);
+      }
     } finally {
       await f.close();
     }

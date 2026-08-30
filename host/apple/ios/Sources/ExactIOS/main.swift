@@ -256,9 +256,13 @@ final class Controller: UIViewController {
         let cover = presenter.viewportFit == "cover"
         var frame = cover ? view.bounds : view.bounds.inset(by: safe)
         var insets = cover ? safe : .zero
-        if presenter.interactiveWidget == "resizes-content", let top = presenter.keyboardTop, top < frame.maxY {
-            frame.size.height = max(0, top - frame.minY)
-            insets.bottom = 0
+        if presenter.interactiveWidget == "resizes-content" {
+            let top = presenter.keyboardTop ?? .infinity
+            presenter.keyboardInset = min(max(0, frame.maxY - max(top, frame.minY)), frame.height)
+            if top < frame.maxY {
+                frame.size.height = max(0, top - frame.minY)
+                insets.bottom = 0
+            }
         }
         if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
         if let l = fpsLabel { l.frame = CGRect(x: frame.minX, y: frame.minY + safe.top, width: frame.width, height: 26); view.bringSubviewToFront(l) }

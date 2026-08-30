@@ -37,6 +37,13 @@ final class PlainView: UIView {
 final class ScrollView: UIScrollView {
     var scrollsX = true
     var scrollsY = true
+    /// A touch that no node took — nothing focusable, nothing pressable —
+    /// ends the editing, as a tap on a page's blank ground blurs the field
+    /// and sends the keyboard away (LLP 1008 §9).
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        if let t = touches.first, bounds.contains(t.location(in: self)) { window?.endEditing(true) }
+    }
 }
 
 final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
@@ -552,6 +559,9 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         if canBecomeFirstResponder, !isFirstResponder { _ = becomeFirstResponder() }
         guard pressed else { return super.touchesEnded(touches, with: event) }
         pressed = false
+        // A pressed node that did not take the focus: the field being edited
+        // loses it, as a click on a button blurs a page's input.
+        if !isFirstResponder { window?.endEditing(true) }
         if let t = touches.first, bounds.contains(local(t.location(in: nil))) { presenter?.press(id) }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -621,11 +631,14 @@ final class Presenter {
     /// screen's under `viewport-fit=cover`, zero when the viewport is the
     /// safe area itself. Reported to the agent as `env`.
     var insets = UIEdgeInsets.zero
-    /// The keyboard's inset on the viewport: the points of it a software
-    /// keyboard covers. The web's visual viewport — the layout viewport
-    /// does not change; the viewport insets its content by this and
-    /// reveals the field being edited, in the keyboard's own animation.
-    private(set) var keyboardInset: CGFloat = 0
+    /// The keyboard's inset on the viewport: the points of the screen's
+    /// viewport a software keyboard covers. By default the web's visual
+    /// viewport — the layout viewport does not change; the viewport insets
+    /// its content by this and reveals the field being edited, in the
+    /// keyboard's own animation. Under `resizes-content` the controller
+    /// sets it, measured against the viewport it would frame without a
+    /// keyboard.
+    var keyboardInset: CGFloat = 0
 
     init() {
         viewport.addSubview(root)
@@ -650,30 +663,57 @@ final class Presenter {
         let hiding = n.name == UIResponder.keyboardWillHideNotification
         // The keyboard's frame is the screen's; the viewport's, the window's.
         let keyboard = window.convert(end, from: window.screen.coordinateSpace)
-        let frame = parent.convert(viewport.frame, to: window)
         let shown = !hiding && keyboard.minY < window.bounds.maxY
-        keyboardTop = shown ? keyboard.minY : nil
-        let overlap = shown ? min(max(0, frame.maxY - max(keyboard.minY, frame.minY)), frame.height) : 0
+        let top: CGFloat? = shown ? keyboard.minY : nil
         let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
         let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
+        // A focus moving from one field to another comes as a burst of
+        // notifications with no duration, over a few turns — the height
+        // jittering between the two keyboards (335, 308, 335 on the
+        // simulator) — and laying out for each flashed the page. Those wait
+        // 80 ms for the last of them, which usually changes nothing. An
+        // animated change (the show, the hide) is applied at once, in the
+        // keyboard's own transaction, so it stays in step with the keyboard.
+        keyboardDebounce?.cancel()
+        keyboardDebounce = nil
+        if duration > 0 {
+            applyKeyboard(top: top, duration: duration, curve: curve)
+        } else {
+            let work = DispatchWorkItem { [weak self] in
+                self?.keyboardDebounce = nil
+                self?.applyKeyboard(top: top, duration: 0, curve: curve)
+            }
+            keyboardDebounce = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
+        }
+    }
+    /// The last no-duration keyboard change, waiting to be applied.
+    private var keyboardDebounce: DispatchWorkItem?
+
+    /// The keyboard's top edge (nil: hidden) takes effect: the viewport is
+    /// inset by the overlap (`resizes-visual`, the default) or laid out to
+    /// end there (`resizes-content`, the controller's `fit`), the field
+    /// being edited revealed after — inside an animation with the keyboard's
+    /// own duration and curve, so the frames the batch sets are Core
+    /// Animation moves in the keyboard's transaction, never a frame behind.
+    func applyKeyboard(top: CGFloat?, duration: Double, curve: UInt) {
+        guard let window = viewport.window, let parent = viewport.superview else { return }
+        keyboardTop = top
         let change = {
             if self.interactiveWidget == "resizes-content" {
-                // The layout viewport ends at the keyboard: the controller
-                // frames the viewport and the kernel lays out again, the
-                // frames that move set inside this block — Core Animation
-                // moves them with the keyboard's own curve, in its transaction.
-                self.keyboardInset = overlap
                 self.onKeyboardResize?()
-                self.reveal(self.editing ?? self.views.values.first { $0.field?.isFirstResponder == true })
             } else {
+                let frame = parent.convert(self.viewport.frame, to: window)
+                let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
                 self.setKeyboardInset(overlap)
             }
+            self.reveal(self.editing ?? self.views.values.first { $0.field?.isFirstResponder == true })
         }
         // Under the agent (LLP 1012) the change applies at once, as the
         // agent's wheel scrolls at once: its world is settled between calls,
         // and UIKit hit-tests a scroll view at its presentation offset while
         // the keyboard's spring is still settling — a tap there would miss.
-        if agentMode { change(); return }
+        if agentMode || duration <= 0 { change(); return }
         UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState], animations: change)
     }
 
@@ -685,7 +725,6 @@ final class Presenter {
         var indicators = viewport.verticalScrollIndicatorInsets
         indicators.bottom = h
         viewport.verticalScrollIndicatorInsets = indicators
-        reveal(editing ?? views.values.first { $0.field?.isFirstResponder == true })
     }
 
     /// Scroll a node into the part of the viewport the keyboard leaves —

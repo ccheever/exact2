@@ -447,8 +447,25 @@ duration (`contentMode = .redraw` repaints once, at the new size); a solid
 background does not show it, text nodes keep their size and translate. The
 field being edited is revealed after, through the scroll containers above
 it. `layout` then reports the shrunken viewport (as `innerHeight` shrinks
-under this mode in Chrome) and the keyboard's overlap as
-`keyboard-inset-height` still. `contract/corpus/keyboard-bar.contract` and
+under this mode in Chrome) and, as `keyboard-inset-height` still, the
+keyboard's overlap with the viewport the controller would frame without
+one (measured against the shrunken frame it read 0 — the first bug the
+Weird Castle bar found). **A focus moving from one field to another** comes
+as a burst of `keyboardWillChangeFrame`s with no duration, over a few
+turns — the height jittering between the two keyboards (335, 308, 335 on
+the simulator; the email keyboard and the default) — and laying out for
+each flashed the page (the second bug it found). No-duration changes now
+wait 80 ms for the last of them (`keyboardDebounce`), which usually
+changes nothing; an animated change — the show, the hide — is applied at
+once, in the keyboard's own transaction. **Dismissing it** is the web's
+rule: a tap that lands on nothing that takes the focus blurs the field
+and the keyboard goes — a touch nothing consumed reaching the viewport
+(`ScrollView.touchesEnded`), a press on a node that does not take the
+focus (`NodeView.touchesEnded`), the agent's `tap` the same way; the macOS
+presenter does the same for a click (`PageScrollView.mouseDown`, a pressed
+node's `mouseDown`: `makeFirstResponder(nil)`), since a browser blurs on a
+click anywhere else. The smoke's step 13 taps the fixture's title to send
+the keyboard away on iOS, the web, and macOS. `contract/corpus/keyboard-bar.contract` and
 the smoke's step 13: the iPhone 17 Pro simulator's viewport 874 → 539 under
 a 335 keyboard, the bar's bottom 840 → 539, the bottom inset 34 → 0, all
 back on dismiss; Weird Castle's root uses it, with a yellow bar under its

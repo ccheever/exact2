@@ -574,10 +574,16 @@ final class NodeView: NSView, NSTextFieldDelegate {
     /// key vanish (found driving the app by hand over stdin).
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    // Press: down and up inside the bounds.
+    // Press: down and up inside the bounds. A pressed node that does not
+    // take the focus ends the editing, as a click on a button blurs a page's
+    // input; a click nothing consumes reaches the viewport, which does the
+    // same (a click on the page's ground).
     override func mouseDown(with event: NSEvent) {
         if acceptsFirstResponder { window?.makeFirstResponder(self) }
-        if handlers.contains("press") { pressed = true } else { super.mouseDown(with: event) }
+        if handlers.contains("press") {
+            if !acceptsFirstResponder { window?.makeFirstResponder(nil) }
+            pressed = true
+        } else { super.mouseDown(with: event) }
     }
     override func mouseUp(with event: NSEvent) {
         guard pressed else { return super.mouseUp(with: event) }
@@ -589,11 +595,21 @@ final class NodeView: NSView, NSTextFieldDelegate {
     }
 }
 
+/// The viewport: a click that reached it — on no node that takes the focus
+/// or a press — ends the editing, as a click on a page's blank ground blurs
+/// the field (LLP 1008 §9).
+final class PageScrollView: NSScrollView {
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(nil)
+        super.mouseDown(with: event)
+    }
+}
+
 final class Presenter {
     /// The document: the roots live here, content-sized like a page.
     let root = FlippedView(frame: .zero)
     /// The viewport over it: the window's content view, scrolling like a browser's.
-    let viewport = NSScrollView(frame: .zero)
+    let viewport = PageScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
 
     init() {
