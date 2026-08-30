@@ -114,6 +114,21 @@ across kernel/contract/web/linux/apple, the lane's LLP doc edits (1000, 1001, 10
 runtime-flavored dev-menu port that rode with it. Authorship remains unknown;
 whoever recognizes the lane should claim the branch.
 
+## Fallout
+
+Weird Castle's main used `env(keyboard-inset-height)` for the login form's keyboard
+lift, and the value grammar that accepts it (`Dimension::Keyboard`,
+`kernel/src/style.rs`) is parked with the lane — so weird-castle main did not compile
+against exact2 main after the parking. Resolved on the weird-castle side (75cadc1):
+the padding attribute is gone with a pointer comment, and the keyboard covers the
+form's tail under `overlays-content` until the lane returns. Deliberately NOT
+resolved by cherry-picking the grammar: accepting an env length that nothing feeds
+would parse and silently resolve to zero forever — a lying API. If the keyboard half
+is wanted before the owner half, land it as its own verified slice (grammar + the
+`Env.keyboard` feed in the hosts, through a green smoke) — which doubles as the
+isolation experiment below: it would say whether the seek/capture flake lives in the
+keyboard plumbing or the owner thread.
+
 ## Open questions
 
 - Where exactly does the seek race live — the agent clock path, or canvas settle?
