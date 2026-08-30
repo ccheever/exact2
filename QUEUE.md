@@ -63,6 +63,14 @@ sits on that list carries the trade it would take.
 
 ## Cheap, any time
 
+- **The smoke under `EXACT_APP_DIR`** (found driving weird-castle, 2026-08-30): the
+  caltrain-shaped steps assume caltrain's nodes — their `check()`s collect failures
+  and the run stays red even when the app's own `app.test.contract` passes. Either
+  guard the generic steps on the nodes they need (the LLP 1020 deck step now does)
+  so "smoke <host> with an app dir" means "the steps that apply plus the app's
+  tests", or declare the full smoke caltrain-only and point app repos at
+  `agent.mjs --test`. Small either way; the ambiguity is the cost.
+
 - **The sky's capture on the phone** landed at the display's rate 2026-08-30 (LLP 1008
   §9): a shadow layer tree rendered by `CARenderer`, a nested canvas's readback cached,
   the texture handed to the module as it is (`gpu_texture_metal`, `gpu_sync`) — 119 fps
