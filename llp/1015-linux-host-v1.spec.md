@@ -41,8 +41,9 @@ the code disagree, the code and its tests are the authority.
 is the Apple host's executor with a wake the loop can poll: one
 `ibex2::host::Host` on a worker thread — rustls off Apple (ibex LLP 0068
 OQ2, resolved the same day: `transport::rustls_http`, HTTP/1.1 over rustls
-through `ureq`, the webpki roots compiled in; `NSURLSession` when this host
-runs on a Mac) — endowed from the data crate's grants (origins, matched
+through `ureq`, trusting the machine's CA bundle and only where there is
+none the compiled-in roots, which the journal's first lines say —
+`NSURLSession` when this host runs on a Mac) — endowed from the data crate's grants (origins, matched
 whole), and a socketpair whose reading end sits in `display.rs`'s `poll` set
 beside the input devices and the VNC server's, one byte per reply. After
 every commit the presenter hands the runner's new requests to the thread

@@ -174,6 +174,12 @@ impl<D: DataSource> Host<D> {
         exact_runner::agent::handle(&self.runner, request)
     }
 
+    /// A line into the runner's journal (the agent's `logs`): a host fact
+    /// worth reading beside the app's own lines.
+    pub fn log(&mut self, line: impl Into<String>) {
+        self.runner.log(line);
+    }
+
     /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.
     pub fn grants(&mut self) -> String {
         self.runner.data().grants().to_string()

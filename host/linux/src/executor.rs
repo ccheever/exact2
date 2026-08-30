@@ -25,6 +25,23 @@ pub struct Executor {
     jobs: Sender<Job>,
     outcomes: Receiver<(u64, Outcome)>,
     wake: UnixStream,
+    note: Option<String>,
+}
+
+/// The platform transport, and what to say about it: off Apple, rustls with
+/// the machine's trust store (or the compiled-in roots where it has none —
+/// worth a journal line); on a Mac, `NSURLSession`, which says nothing.
+fn transport() -> (ibex2::host::Host, Option<String>) {
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        let t = ibex2::transport::RustlsHttpTransport::new();
+        let note = format!("trust roots: {}", t.roots());
+        (ibex2::host::Host::with_transport(Box::new(t)), Some(note))
+    }
+    #[cfg(target_vendor = "apple")]
+    {
+        (ibex2::host::Host::new(), None)
+    }
 }
 
 impl Executor {
@@ -36,10 +53,10 @@ impl Executor {
         wake.set_nonblocking(true)
             .expect("the wake's reading end non-blocking");
         let grants = grants.to_string();
+        let (host, note) = transport();
         std::thread::Builder::new()
             .name("exact-executor".into())
             .spawn(move || {
-                let host = ibex2::host::Host::new();
                 let bindings = ibex2::grant::GrantSet::parse(&grants)
                     .ok()
                     .map(|g| host.endow(g));
@@ -56,7 +73,14 @@ impl Executor {
             jobs,
             outcomes,
             wake,
+            note,
         }
+    }
+
+    /// What the executor has to say about its transport at start (the
+    /// trust store it found, off Apple), for the journal.
+    pub fn note(&self) -> Option<&str> {
+        self.note.as_deref()
     }
 
     /// The wake's reading end: readable when a reply is queued.
