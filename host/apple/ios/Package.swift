@@ -19,7 +19,7 @@ let package = Package(
             name: "ExactIOS",
             dependencies: ["CExact"],
             path: "Sources/ExactIOS",
-            linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName)]
+            linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName), .linkedLibrary("c++")]
         ),
     ]
 )

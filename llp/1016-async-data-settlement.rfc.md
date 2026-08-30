@@ -225,8 +225,17 @@ required — bake and every in-process source) beside `answer` (default:
 existing source changed; the source is named at each `send`, not on the
 declaration (Fable's `logout`), so the `Send` opcode carries it and the
 `mutations` row is name, slot, `T`; the assignment-forgets rule runs before
-settlement so `pending()` is right in the same commit. The hosts (D2), the
-agent's `settle`, and Weird Castle's real `loginV2` follow.
+settlement so `pending()` is right in the same commit. **The hosts, the
+agent, and the first consumer, the same day:** the web executor is the
+browser's `fetch` in `glue.js` with `grants`/`request` ops and
+`exact_fulfill` (LLP 1007 §4); the Apple executor is `ibex2::host` on a
+thread inside `exact-apple`, with a wake callback and `exact_pump` (LLP 1008
+§4); `clock settle` waits on requests and `state` lists them (LLP 1012 §2);
+Weird Castle's data crate sends `loginV2` and `logout` to
+`api.castle.xyz`, parses the reply, and declares `net.fetch
+https://api.castle.xyz` — a wrong password from Chrome, the macOS app, and
+the iOS simulator comes back as Castle's own refusal in `session.error`.
+Owed: the Linux executor (ibex OQ2), the token across launches.
 
 ## 3. What changes, where
 

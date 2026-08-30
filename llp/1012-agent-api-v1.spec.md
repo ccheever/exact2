@@ -109,6 +109,14 @@ document cites it rather than restating it as a second law.
 
 ## 2. The clock
 
+**Requests in flight (LLP 1016; 2026-08-30).** `clock settle` waits for
+every request the runner has out before it measures the fixed point — the
+reply commits, and may start motion or ask for more — and reports `settled:
+false` if one is still out at the bound (twenty seconds on the native
+hosts). `state` gains `pending: [{name, ticket}]`, the requests in flight by
+the resource's or mutation's name. `clock` with a time does not wait: a
+reply lands when it lands, as a fetch does under a real clock.
+
 Agent mode is opt-in per launch: `?agent=1` on the page (only then does
 `globalThis.exact` carry `agent` and `now`), `EXACT_AGENT=1` for the macOS
 app. In it the driver owns time: the page's `now()` is the last clock

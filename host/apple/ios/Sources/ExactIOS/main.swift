@@ -114,6 +114,12 @@ final class Frames: NSObject {
 }
 let frames = Frames()
 
+/// A request's reply is in (LLP 1016 D2): the executor's thread says so;
+/// the pump runs here on the main thread, where the runner lives.
+func exactWake(_ ctx: UnsafeMutableRawPointer?) {
+    DispatchQueue.main.async { apply(Exact.pump(now: now())) }
+}
+
 func apply(_ batch: Batch) {
     presenter.apply(batch)
     frames.motion = batch.motion
@@ -140,6 +146,7 @@ func watchPlan() {
         let started = CACurrentMediaTime()
         presenter.reset()
         let size = presenter.viewport.bounds.size
+        Exact.wake = exactWake
         let batch = Exact.bootPlan(bytes, width: size.width, height: size.height)
         apply(batch)
         print("reloaded \(planPath.split(separator: "/").last ?? "plan") in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
@@ -165,6 +172,7 @@ func bootNow(_ size: CGSize) {
     stamp("before boot")
     tBoot = CACurrentMediaTime()
     watchPlan()
+    Exact.wake = exactWake
     // EXACT_PLAN=<file> boots that plan instead of the one baked into the
     // library — any compiled contract, no rebuild (smokes, fixtures).
     let b: Batch = {

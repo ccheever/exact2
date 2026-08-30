@@ -33,14 +33,21 @@ enum Exact {
         return bytes.count
     }
 
+    /// A request's reply is queued (LLP 1016 D2), on the executor's thread:
+    /// the presenter sets this to hop to its main thread and `pump`.
+    nonisolated(unsafe) static var wake: ExactWakeFn? = nil
+
     static func boot(width: CGFloat, height: CGFloat) -> Batch {
-        read(exact_boot(measureText, nil, Float(width), Float(height)))
+        read(exact_boot(measureText, nil, wake, nil, Float(width), Float(height)))
     }
+
+    /// Every queued reply into the runner: the batch of their commits.
+    static func pump(now: Double) -> Batch { read(exact_pump(now)) }
     /// The dev loop's restart: boot from plan bytes, state carried.
     static func bootPlan(_ bytes: Data, width: CGFloat, height: CGFloat) -> Batch {
         let ptr = exact_in(bytes.count)!
         bytes.withUnsafeBytes { ptr.update(from: $0.bindMemory(to: UInt8.self).baseAddress!, count: bytes.count) }
-        return read(exact_boot_plan(bytes.count, measureText, nil, Float(width), Float(height)))
+        return read(exact_boot_plan(bytes.count, measureText, nil, wake, nil, Float(width), Float(height)))
     }
     static func press(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(view, 0, 0, now)) }
     /// The pointer over the view (`true`) or gone from it.

@@ -163,8 +163,41 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
             None => s.push_str("null"),
         }
     }
-    s.push_str("}}");
+    s.push_str("},\"pending\":[");
+    for (i, (name, ticket)) in runner.pending().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str("{\"name\":");
+        quote(name, &mut s);
+        let _ = write!(s, ",\"ticket\":{ticket}}}");
+    }
+    s.push_str("]}");
     s
+}
+
+/// Standard base64 (with padding) — a request or reply body in a batch.
+pub fn base64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = ((chunk[0] as u32) << 16)
+            | ((chunk.get(1).copied().unwrap_or(0) as u32) << 8)
+            | chunk.get(2).copied().unwrap_or(0) as u32;
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            T[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            T[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
 }
 
 /// The journal from `since`: `{"next":N,"from":M,"lines":[…]}`. `next` is

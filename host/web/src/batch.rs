@@ -169,6 +169,54 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"request","ticket":N,"target":…,"method":…,"url":…,"headers":[[k,v]…],"body":"<base64>","cache":"default"|"reload"}`
+    /// — a request the runner handed the host to run (LLP 1016 D2); the
+    /// reply comes back through `exact_fulfill`.
+    pub fn request(&mut self, r: &exact_runner::RequestOut) {
+        let mut s = format!("{{\"op\":\"request\",\"ticket\":{},\"target\":", r.ticket);
+        quote(&r.target, &mut s);
+        s.push_str(",\"method\":");
+        quote(&r.request.method, &mut s);
+        s.push_str(",\"url\":");
+        quote(&r.request.url, &mut s);
+        s.push_str(",\"headers\":[");
+        for (i, (k, v)) in r.request.headers.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push('[');
+            quote(k, &mut s);
+            s.push(',');
+            quote(v, &mut s);
+            s.push(']');
+        }
+        s.push_str("],\"body\":\"");
+        s.push_str(&exact_runner::agent::base64(&r.request.body));
+        s.push_str("\",\"cache\":\"");
+        s.push_str(if r.forced { "reload" } else { "default" });
+        s.push_str("\"}");
+        self.ops.push(s);
+    }
+
+    /// `{"op":"grants","lines":[…]}` — the hosts the app may reach (LLP 1016
+    /// D6), once at boot; the page refuses a request outside them itself.
+    pub fn grants(&mut self, grants: &str) {
+        let mut s = String::from("{\"op\":\"grants\",\"lines\":[");
+        for (i, line) in grants
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .enumerate()
+        {
+            if i > 0 {
+                s.push(',');
+            }
+            quote(line, &mut s);
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
     /// `{"op":"command","name":…,"args":[…]}` — a capability an action
     /// called (LLP 1005 §3), for the glue to execute after the commit.
     pub fn command(&mut self, name: &str, args: &[exact_plan::Value]) {

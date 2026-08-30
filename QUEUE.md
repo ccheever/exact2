@@ -35,10 +35,10 @@ sits on that list carries the trade it would take.
 3. **Weird Castle's asks** (Charlie, 2026-08-30: the app lives in `~/projects/weird-castle`
    on exact2 by path; `scripts/app.mjs`). In order: **asynchronous data settlement** —
    LLP 1016 (RFC, **Accepted** 2026-08-30 after a three-model panel: a `mutation` slot +
-   `send`, `refresh` for queries; the runner and the compiler landed the same day, Weird
-   Castle spells its login that way on the stand-in; owed: the web executor, the Apple
-   executor on `ibex2::host`, the agent's `settle`, the real `loginV2`) for the runner's
-   reserved shape (LLP 1005 §7): a data source
+   `send`, `refresh` for queries; built the same day end to end — runner, compiler, the
+   browser and `ibex2::host` executors, the agent's `settle`, Weird Castle's real `loginV2`
+   against api.castle.xyz on three hosts; owed: the Linux executor on ibex OQ2, the token
+   across launches) for the runner's reserved shape (LLP 1005 §7): a data source
    answers now or hands back a request, the host executes it (`ibex2::host` on native,
    the browser's `fetch` on the web), one ABI call brings the answer in, a pending
    resource is `none` meanwhile, bake tolerates it — the first out-of-process resource
@@ -119,8 +119,8 @@ sits on that list carries the trade it would take.
   the pipeline cache after" beside LLP 1009 §5's — Charlie's to write.
 - **The app's name** (`rules/NOT-DOING.md` opens with it; the recommendation is
   Caltrain and Caltrain is what exists).
-- **Contract, started over** — LLP 1017 (RFC, Draft, 2026-08-30; in `llp/current/`;
-  sub-LLPs 1017.001 grok and 1017.002 codex answer the same brief blind): the seven Coterie diaries and exact1's record read
+- **Contract, started over** — LLP 1017 (RFC, **Accepted** 2026-08-30 evening — §8: literal CSS names, commands stay the framework's, all nine proposals in one lane in the order P1+P9 → P2 → P6+P8 → P4 → P5 → P7, no instance reload carry, Coterie rerun deferred; in `llp/current/`;
+  sub-LLPs 1017.001 grok and 1017.002 codex answered the same brief blind; a one-round panel — `llp/reviews/1017-contract-restart.{codex,grok}.md`, §10 — settled every fork but the CSS spelling, which is Charlie's): the seven Coterie diaries and exact1's record read
   for what consistently cost authors time, and nine proposals in order of leverage — kernel
   rows as the compiler's value checker plus a layout lint at bake, `if`/`match` in actions,
   `send`/`refresh` as LLP 1016 decided, children reading the root by name and a

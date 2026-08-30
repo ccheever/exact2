@@ -157,7 +157,7 @@ async function openWeb({ plan, size = [420, 900] }) {
     }
     if (plan) await evaluate("fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => exact.reload(new Uint8Array(b)))");
     const frame = () => Promise.race([evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), sleep(250)]);
-    const ask = async (req) => JSON.parse(await evaluate(`JSON.stringify(exact.agent(${JSON.stringify(req)}))`));
+    const ask = async (req) => JSON.parse(await evaluate(`Promise.resolve(exact.agent(${JSON.stringify(req)})).then((r) => JSON.stringify(r))`));
     return {
       host: 'web', boot: Number(boot), hostLines, gpuMs: () => gpuMs,
       ask,

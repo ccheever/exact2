@@ -118,6 +118,29 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// A request's outcome from the page (LLP 1016 D2): the input buffer
+    /// holds `hlen` bytes of header lines, then `blen` bytes of body.
+    pub fn fulfill(
+        &mut self,
+        ticket: f64,
+        kind: u32,
+        status: u32,
+        hlen: usize,
+        blen: usize,
+        now_ms: f64,
+    ) -> u32 {
+        let n = self.input.len();
+        let hlen = hlen.min(n);
+        let blen = blen.min(n - hlen);
+        let headers = String::from_utf8_lossy(&self.input[..hlen]).into_owned();
+        let body = self.input[hlen..hlen + blen].to_vec();
+        let out = match self.host.as_mut() {
+            Some(h) => h.fulfill_at(ticket as u64, kind, status, &headers, body, now_ms),
+            None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
+        };
+        self.emit(out)
+    }
+
     /// Move the clock.
     pub fn advance(&mut self, now_ms: f64) -> u32 {
         let out = match self.host.as_mut() {
@@ -193,6 +216,15 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_dispatch(view: u32, kind: u32, len: u32, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().dispatch(view, kind, len as usize, now_ms))
+        }
+
+        /// A request's outcome (LLP 1016 D2): `kind` 0 response / 1 network /
+        /// 2 refused / 3 unsupported / 4 aborted; the input buffer holds
+        /// `hlen` bytes of `name: value` header lines then `blen` bytes of
+        /// body (or the message). Returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_fulfill(ticket: f64, kind: u32, status: u32, hlen: u32, blen: u32, now_ms: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().fulfill(ticket, kind, status, hlen as usize, blen as usize, now_ms))
         }
 
         /// Move the clock; returns the batch's length.

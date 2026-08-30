@@ -54,14 +54,23 @@ typedef struct ExactMetrics {
 
 typedef ExactMetrics (*ExactMeasureFn)(void *ctx, const ExactMeasureRequest *request);
 
+/* A request's reply is queued (LLP 1016 D2): called on the executor's
+ * thread, carrying nothing; the host hops to its main thread and calls
+ * exact_pump. May be NULL: replies then wait for the next exact_pump. */
+typedef void (*ExactWakeFn)(void *ctx);
+
 uint8_t *exact_in(size_t len);
 const uint8_t *exact_out(void);
 
 /* Boot the plan baked into the library (or, exact_boot_plan, the input
  * buffer's first len bytes). measure may be NULL: a monospace reference
  * measurer is used. Returns the first batch's length. */
-uint32_t exact_boot(ExactMeasureFn measure, void *ctx, float width, float height);
-uint32_t exact_boot_plan(size_t len, ExactMeasureFn measure, void *ctx, float width, float height);
+uint32_t exact_boot(ExactMeasureFn measure, void *ctx, ExactWakeFn wake, void *wake_ctx, float width, float height);
+uint32_t exact_boot_plan(size_t len, ExactMeasureFn measure, void *ctx, ExactWakeFn wake, void *wake_ctx, float width, float height);
+/* Every queued reply into the runner, on the main thread: the batch of their
+ * commits (empty when none). A request the app sends (LLP 1016) runs on the
+ * library's own executor thread — ibex2::host — never through the host. */
+uint32_t exact_pump(double now_ms);
 
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key (a change's text or a key's name is the payload, the

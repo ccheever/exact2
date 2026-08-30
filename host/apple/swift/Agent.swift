@@ -81,6 +81,11 @@ enum Agent {
     static func clock(_ req: [String: Any]) -> [String: Any] {
         let from = agentClock ?? 0
         let settle = req["settle"] as? Bool == true
+        // A request in flight (LLP 1016) is waited for first: its reply
+        // commits — and may start motion or ask for more — before the fixed
+        // point is measured. The wake lands on the main queue, which the
+        // run loop drains here.
+        if settle { waitForReplies() }
         var target = req["to"] as? Double
         if settle { target = max(from, Agent.settle() ?? from) }
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
@@ -94,11 +99,37 @@ enum Agent {
             apply(Exact.tick(now: landed))
             if let e = batch.error { return ["error": "clock: \(e)", "clock": landed] }
             guard settle else { return ["clock": landed] }
+            if pendingCount() > 0 {
+                rounds += 1
+                if rounds >= 16 { return ["clock": landed, "settled": false] }
+                waitForReplies()
+                continue
+            }
             let next = max(landed, Agent.settle() ?? landed)
             if next <= landed { return ["clock": landed, "settled": true] }
             rounds += 1
             if rounds >= 16 { return ["clock": landed, "settled": false] }
             to = next
+        }
+    }
+
+    /// How many requests the runner has in flight (`state.pending`).
+    static func pendingCount() -> Int {
+        guard let d = Exact.agent("{\"op\":\"state\"}").data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return 0 }
+        return (o["pending"] as? [Any])?.count ?? 0
+    }
+
+    /// Pump the executor's queue until no request is in flight, or for at
+    /// most twenty seconds (a network's worth; `settled: false` past it).
+    /// The wake's own pump is a main-queue block, and this runs inside one
+    /// — so the queue is drained here directly, the run loop turning in
+    /// between for the executor's thread to make progress.
+    static func waitForReplies() {
+        let deadline = Date(timeIntervalSinceNow: 20)
+        while pendingCount() > 0 && Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+            apply(Exact.pump(now: now()))
         }
     }
 }

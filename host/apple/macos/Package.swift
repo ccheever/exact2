@@ -17,7 +17,7 @@ let package = Package(
             name: "ExactMac",
             dependencies: ["CExact"],
             path: "Sources/ExactMac",
-            linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName)]
+            linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName), .linkedLibrary("c++")]
         ),
     ]
 )

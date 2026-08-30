@@ -231,8 +231,12 @@ fn text_is_measured_through_the_registered_callback() {
     let len = bridge.boot(
         &plan,
         caltrain_data::Caltrain,
-        Some(wide_glyphs),
-        std::ptr::null_mut(),
+        exact_apple::abi::Hooks {
+            measure: Some(wide_glyphs),
+            ctx: std::ptr::null_mut(),
+            wake: None,
+            wake_ctx: std::ptr::null_mut(),
+        },
         390.0,
         844.0,
     );

@@ -19,9 +19,38 @@ use exact_runner::{DataSource, Event};
 use std::cell::RefCell;
 use std::ffi::c_void;
 
+/// What the presenter hands the library at boot: the text measurer (LLP
+/// 1008 §3) and the wake for a request's reply (LLP 1016 D2), each with an
+/// opaque context the library passes back untouched.
+#[derive(Clone, Copy)]
+pub struct Hooks {
+    /// Measures a paragraph; `None` for the monospace reference measurer.
+    pub measure: Option<MeasureFn>,
+    /// Passed back to `measure`.
+    pub ctx: *mut c_void,
+    /// Called on the executor's thread when a reply is queued; `None` and
+    /// replies wait for the next `exact_pump`.
+    pub wake: Option<crate::executor::WakeFn>,
+    /// Passed back to `wake`.
+    pub wake_ctx: *mut c_void,
+}
+
+impl Hooks {
+    /// No callbacks: the reference measurer, and replies on `pump` only.
+    pub const fn none() -> Hooks {
+        Hooks {
+            measure: None,
+            ctx: std::ptr::null_mut(),
+            wake: None,
+            wake_ctx: std::ptr::null_mut(),
+        }
+    }
+}
+
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
+    executor: Option<crate::executor::Executor>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -35,6 +64,7 @@ impl<D: DataSource> Bridge<D> {
     pub const fn new() -> Bridge<D> {
         Bridge {
             host: None,
+            executor: None,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -66,29 +96,50 @@ impl<D: DataSource> Bridge<D> {
     }
 
     fn emit(&mut self, s: String) -> u32 {
+        // Whatever the last call asked the host to run goes to the executor
+        // with the batch (LLP 1016 D2); the presenter never sees a request.
+        if let (Some(h), Some(x)) = (self.host.as_mut(), self.executor.as_ref()) {
+            for r in h.take_requests() {
+                x.run(r);
+            }
+        }
         self.output = s.into_bytes();
         self.output.len() as u32
+    }
+
+    /// The executor's queued outcomes into the runner (LLP 1016 D2): the
+    /// presenter calls this on its thread after the wake; the output is the
+    /// batch of every reply's commit.
+    pub fn pump(&mut self, now_ms: f64) -> u32 {
+        let outcomes = self
+            .executor
+            .as_ref()
+            .map(|x| x.drain())
+            .unwrap_or_default();
+        let out = match self.host.as_mut() {
+            Some(h) => h.fulfill_all(outcomes, now_ms),
+            None => not_booted(),
+        };
+        self.emit(out)
     }
 
     /// Boot from `plan` with `data`, measuring text through `measure` (or
     /// the monospace reference measurer when none is given) under a
     /// viewport; the output is the first batch.
-    pub fn boot(
-        &mut self,
-        plan: &[u8],
-        data: D,
-        measure: Option<MeasureFn>,
-        ctx: *mut c_void,
-        width: f32,
-        height: f32,
-    ) -> u32 {
-        let measurer: Box<dyn TextMeasurer> = match measure {
-            Some(f) => Box::new(CallbackMeasurer::new(f, ctx)),
+    pub fn boot(&mut self, plan: &[u8], data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
+        let measurer: Box<dyn TextMeasurer> = match hooks.measure {
+            Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
             None => Box::new(MonospaceMeasurer::default()),
         };
         self.host = None;
+        self.executor = None;
         match Host::boot(plan, data, measurer, width, height) {
-            Ok((host, batch)) => {
+            Ok((mut host, batch)) => {
+                let grants = host.grants();
+                self.executor = Some(crate::executor::Executor::start(
+                    &grants,
+                    hooks.wake.map(|w| (w, hooks.wake_ctx)),
+                ));
                 self.host = Some(host);
                 self.emit(batch)
             }
@@ -101,23 +152,20 @@ impl<D: DataSource> Bridge<D> {
 
     /// Boot from the input buffer's first `len` bytes (a plan the app
     /// fetched — the dev loop's restart).
-    pub fn boot_plan(
-        &mut self,
-        len: usize,
-        data: D,
-        measure: Option<MeasureFn>,
-        ctx: *mut c_void,
-        width: f32,
-        height: f32,
-    ) -> u32 {
+    pub fn boot_plan(&mut self, len: usize, data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
         let carried = self.host.take().map(|h| h.carry());
-        let measurer: Box<dyn TextMeasurer> = match measure {
-            Some(f) => Box::new(CallbackMeasurer::new(f, ctx)),
+        let measurer: Box<dyn TextMeasurer> = match hooks.measure {
+            Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
             None => Box::new(MonospaceMeasurer::default()),
         };
         match Host::boot_with(&plan, data, measurer, width, height, carried.as_ref()) {
-            Ok((host, batch)) => {
+            Ok((mut host, batch)) => {
+                let grants = host.grants();
+                self.executor = Some(crate::executor::Executor::start(
+                    &grants,
+                    hooks.wake.map(|w| (w, hooks.wake_ctx)),
+                ));
                 self.host = Some(host);
                 self.emit(batch)
             }
@@ -245,6 +293,8 @@ macro_rules! host {
         pub extern "C" fn exact_boot(
             measure: ::std::option::Option<$crate::measure::MeasureFn>,
             ctx: *mut ::std::ffi::c_void,
+            wake: ::std::option::Option<$crate::executor::WakeFn>,
+            wake_ctx: *mut ::std::ffi::c_void,
             width: f32,
             height: f32,
         ) -> u32 {
@@ -252,12 +302,18 @@ macro_rules! host {
                 b.borrow_mut().boot(
                     $plan,
                     <$data as ::std::default::Default>::default(),
-                    measure,
-                    ctx,
+                    $crate::abi::Hooks { measure, ctx, wake, wake_ctx },
                     width,
                     height,
                 )
             })
+        }
+
+        /// The executor's queued replies into the runner (LLP 1016 D2), on
+        /// this thread, after a wake; returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_pump(now_ms: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().pump(now_ms))
         }
 
         /// Boot from plan bytes in the input buffer; returns the first batch's length.
@@ -266,6 +322,8 @@ macro_rules! host {
             len: usize,
             measure: ::std::option::Option<$crate::measure::MeasureFn>,
             ctx: *mut ::std::ffi::c_void,
+            wake: ::std::option::Option<$crate::executor::WakeFn>,
+            wake_ctx: *mut ::std::ffi::c_void,
             width: f32,
             height: f32,
         ) -> u32 {
@@ -273,8 +331,7 @@ macro_rules! host {
                 b.borrow_mut().boot_plan(
                     len,
                     <$data as ::std::default::Default>::default(),
-                    measure,
-                    ctx,
+                    $crate::abi::Hooks { measure, ctx, wake, wake_ctx },
                     width,
                     height,
                 )

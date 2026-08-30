@@ -15,7 +15,35 @@ use crate::motion::{Lowered, Springs};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeRef, NodeType, PropId, PropValue, ViewId};
 use exact_motion::Property;
 use exact_plan::{EventKind, Plan};
-use exact_runner::{Carried, DataSource, Event, Runner, RunnerError, Timed};
+use exact_runner::{
+    Carried, DataSource, Event, FailureKind, Outcome, Response, Runner, RunnerError, Timed,
+};
+
+/// A reply as the ABI carries it, as the runner's `Outcome`.
+pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Outcome {
+    match kind {
+        0 => Outcome::Response(Response {
+            status: status as u16,
+            headers: headers
+                .lines()
+                .filter_map(|l| {
+                    l.split_once(':')
+                        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+                })
+                .collect(),
+            body,
+        }),
+        k => Outcome::Failed {
+            kind: match k {
+                2 => FailureKind::Refused,
+                3 => FailureKind::Unsupported,
+                4 => FailureKind::Aborted,
+                _ => FailureKind::Network,
+            },
+            message: String::from_utf8_lossy(&body).into_owned(),
+        },
+    }
+}
 use std::collections::BTreeMap;
 
 /// Why the host refused.
@@ -108,6 +136,10 @@ impl<D: DataSource> Host<D> {
         }
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args);
+        }
+        batch.grants(host.runner.data().grants());
+        for r in host.runner.take_requests() {
+            batch.request(&r);
         }
         let timers = host.runner.has_timers();
         let clock = host.runner.now_ms();
@@ -225,8 +257,37 @@ impl<D: DataSource> Host<D> {
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args);
         }
+        for r in self.runner.take_requests() {
+            batch.request(&r);
+        }
         let timers = self.runner.has_timers();
         batch.finish(timers, self.runner.now_ms(), error)
+    }
+
+    /// The page brought back request `ticket`'s outcome (LLP 1016 D2):
+    /// `kind` 0 is a response with `status`, `headers` as `name: value`
+    /// lines, and `body`; 1–4 are `Network`, `Refused`, `Unsupported`,
+    /// `Aborted` with `body` the executor's message. The batch is the commit
+    /// the reply made — or nothing, for a ticket no longer held.
+    pub fn fulfill_at(
+        &mut self,
+        ticket: u64,
+        kind: u32,
+        status: u32,
+        headers: &str,
+        body: Vec<u8>,
+        now_ms: f64,
+    ) -> String {
+        self.now_ms = now_ms.max(self.now_ms);
+        let outcome = outcome_from(kind, status, headers, body);
+        match self.runner.fulfill(ticket, outcome) {
+            Ok(Some(receipt)) => {
+                let at_ms = self.now_ms;
+                self.batch_for(&[Timed { at_ms, receipt }], None)
+            }
+            Ok(None) => self.batch_for(&[], None),
+            Err(e) => self.batch_for(&[], Some(&format!("{e:?}"))),
+        }
     }
 
     fn emit_springs(&mut self, batch: &mut Batch, receipts: &[CommitReceipt], now_s: f64) {

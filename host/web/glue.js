@@ -140,6 +140,26 @@ function apply(batch) {
         else (globalThis.exact.pendingSurfaces ??= []).push({ id: op.id, name: op.name, values: op.values });
         break;
       }
+      case "grants": { grants = op.lines; break; }
+      case "request": {
+        // A request the runner handed the page to run (LLP 1016 D2): the
+        // browser is the executor and the authority (CORS); the app's grant
+        // is checked here too, so a refusal is the same on every host. The
+        // reply — any status, or no response — goes back through
+        // `exact_fulfill` on this thread; the batch it makes is applied
+        // like any other.
+        const { ticket, method, url, headers, body, cache } = op;
+        if (!granted(url)) { fulfill(ticket, 2, 0, "", enc.encode(`refused by grant: ${url}`)); break; }
+        const init = { method, headers, cache: cache === "reload" ? "reload" : "default" };
+        if (body) init.body = Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
+        const p = fetch(url, init).then(
+          async (r) => fulfill(ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), new Uint8Array(await r.arrayBuffer())),
+          (e) => fulfill(ticket, 1, 0, "", enc.encode(String(e?.message ?? e))),
+        );
+        inflight.add(p);
+        p.finally(() => inflight.delete(p));
+        break;
+      }
       case "command": {
         // A capability an action called (LLP 1005 §3). `setScheme` is the
         // document's colour scheme — what `prefers-color-scheme` would be.
@@ -183,6 +203,25 @@ function applyBatch(batch) {
 
 function send(len) {
   return applyBatch(JSON.parse(readOut(len))).timers;
+}
+
+// LLP 1016: the app's grants (`net.fetch <url prefix>` lines, from the boot
+// batch), the fetches in flight (the agent's `settle` waits on them), and
+// the reply path into the wasm.
+let grants = [];
+const inflight = new Set();
+const enc = new TextEncoder();
+function granted(url) {
+  return grants.some((g) => { const [kind, prefix] = g.split(/\s+/, 2); return kind === "net.fetch" && prefix && url.startsWith(prefix); });
+}
+function fulfill(ticket, kind, status, headersText, body) {
+  if (!wasm) return;
+  const h = enc.encode(headersText);
+  const ptr = wasm.exact_in(h.length + body.length);
+  const mem = new Uint8Array(memory.buffer, ptr, h.length + body.length);
+  mem.set(h);
+  mem.set(body, h.length);
+  send(wasm.exact_fulfill(ticket, kind, status, h.length, body.length, now()));
 }
 
 // The agent API's page half (LLP 1012). `tree`, `state`, `logs`, and
@@ -247,30 +286,36 @@ function agent(request) {
         el.select();
         return { ok: true };
       }
-      case "clock": {
-        // To `to`, or to `settle`: a fixed point — advance to when the last
-        // thing in flight ends, and if the timers crossed on the way started
-        // more, again (bounded; `settled: false` at the bound). The clock
-        // lands where the runner says; a timer's refusal is the error.
-        const settle = !!request.settle;
-        let to = settle ? settleCandidate() : request.to;
-        if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
-        for (let rounds = 0; ; rounds++) {
-          const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to))));
-          globalThis.exact.gpu?.schedule?.();
-          if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock };
-          if (!settle) return { clock: agentClock };
-          const next = settleCandidate();
-          if (next <= agentClock) return { clock: agentClock, settled: true };
-          if (rounds >= 15) return { clock: agentClock, settled: false };
-          to = next;
-        }
-      }
+      case "clock":
+        return clock(request);
       default:
         return ask(request);
     }
   } catch (e) {
     return { error: String(e) };
+  }
+}
+
+// To `to`, or to `settle`: a fixed point — advance to when the last thing
+// in flight ends, and if the timers crossed on the way started more, again
+// (bounded; `settled: false` at the bound). A request in flight (LLP 1016)
+// is waited for first: its reply commits, and may start motion or ask for
+// more, before the fixed point is measured. The clock lands where the
+// runner says; a timer's refusal is the error. A promise: the driver awaits it.
+async function clock(request) {
+  const settle = !!request.settle;
+  for (let rounds = 0; ; rounds++) {
+    if (settle) while (inflight.size) await Promise.race([...inflight]);
+    const to = settle ? settleCandidate() : request.to;
+    if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
+    const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to))));
+    globalThis.exact.gpu?.schedule?.();
+    if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock };
+    if (!settle) return { clock: agentClock };
+    if (inflight.size) { if (rounds >= 15) return { clock: agentClock, settled: false }; continue; }
+    const next = settleCandidate();
+    if (next <= agentClock) return { clock: agentClock, settled: true };
+    if (rounds >= 15) return { clock: agentClock, settled: false };
   }
 }
 
@@ -287,6 +332,8 @@ function boot(bytes) {
   animations.clear();
   globalThis.exact?.gpu?.reset();
   views.clear();
+  grants = [];
+  inflight.clear();
   root.replaceChildren();
   let timers;
   if (bytes) {

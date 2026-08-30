@@ -21,7 +21,7 @@ use exact_kernel::{
 };
 use exact_motion::{Change, Engine, Property};
 use exact_plan::{EventKind, Plan};
-use exact_runner::{Carried, DataSource, Event, Runner, RunnerError, Timed};
+use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
 
 /// Why the host refused.
@@ -154,6 +154,41 @@ impl<D: DataSource> Host<D> {
     /// The motion engine: presentation values as the presenter shows them.
     pub fn engine(&self) -> &Engine {
         &self.engine
+    }
+
+    /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.
+    pub fn grants(&mut self) -> String {
+        self.runner.data().grants().to_string()
+    }
+
+    /// The requests the runner handed out since the last take (LLP 1016 D2):
+    /// the bridge gives them to the executor; nothing reaches the presenter.
+    pub fn take_requests(&mut self) -> Vec<RequestOut> {
+        self.runner.take_requests()
+    }
+
+    /// The outcomes the executor brought back, oldest first, as one batch:
+    /// each reply is a commit at `now_ms` (a ticket no longer held commits
+    /// nothing); a reply the source cannot shape is the batch's error and
+    /// the ones before it stand.
+    pub fn fulfill_all(&mut self, outcomes: Vec<(u64, Outcome)>, now_ms: f64) -> String {
+        self.now_ms = now_ms.max(self.now_ms);
+        let mut receipts = Vec::new();
+        let mut error = None;
+        for (ticket, outcome) in outcomes {
+            match self.runner.fulfill(ticket, outcome) {
+                Ok(Some(receipt)) => receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
+                Ok(None) => {}
+                Err(e) => {
+                    error = Some(format!("{e:?}"));
+                    break;
+                }
+            }
+        }
+        self.commit(&receipts, error)
     }
 
     /// The agent API's read operations (LLP 1012): `tree`, `state`, and

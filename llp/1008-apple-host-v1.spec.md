@@ -112,6 +112,27 @@ answered from cache, ~17 µs per miss.
 
 ## 4. The C ABI (`host/apple/src/abi.rs`, `include/exact.h`)
 
+**Requests (LLP 1016 D2, built 2026-08-30).** A request never reaches the
+presenter. `exact_boot`/`exact_boot_plan` take a wake callback
+(`ExactWakeFn`, with its context) beside the measure callback; the library
+runs an **executor thread** (`host/apple/src/executor.rs`) that owns one
+`ibex2::host::Host` — the platform transport, `NSURLSession` — and the app's
+`Bindings`, endowed from the data crate's grants (ibex LLP 0067/0068;
+`ibex2` with `default-features = false`, taken from the sibling checkout
+`../ibex`, the way Weird Castle takes exact2). After every call that
+produced a batch, the bridge hands the runner's new requests to that thread;
+each outcome is queued and the wake is called *from the executor's thread*,
+carrying nothing; the presenter hops to its main thread and calls
+`exact_pump(now_ms)`, which delivers every queued outcome to the runner
+(`parse`, the resource's value or the mutation's slot, one settlement each)
+and returns one batch of their commits. A forced request (`refresh`) goes
+with `cache-control: no-cache`. `ibex2`'s transport is Objective-C++, so the
+Swift packages link `c++` beside the archive. The agent's `clock settle`
+pumps the queue itself while the run loop turns (its handler runs inside a
+main-queue block, so the wake's own main-queue pump cannot run until it
+returns) and reports `settled: false` after twenty seconds of a request
+still out.
+
 LLP 1001 §9 left the C ABI "waiting for the consumer that would make its spec
 transcription rather than speculation"; this is that consumer, and the ABI
 is the web host's buffer discipline over `extern "C"`: `exact_in(len)`

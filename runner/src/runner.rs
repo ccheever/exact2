@@ -45,6 +45,13 @@ pub trait DataSource {
         let _ = (args, outcome);
         Err(DataError::UnknownSource(source.to_string()))
     }
+
+    /// The hosts the app may reach (LLP 1016 D6; ibex LLP 0067): one grant
+    /// per line, `net.fetch <url prefix>`. A request outside them fails as
+    /// `Refused` on every host, before any executor sees it. Empty: nothing.
+    fn grants(&self) -> &'static str {
+        ""
+    }
 }
 
 /// A data source's answer: a value now, or a request for the host.
@@ -153,6 +160,8 @@ pub struct RequestOut {
     pub target: String,
     /// What to run.
     pub request: Request,
+    /// The app forced it (`refresh`): the executor bypasses its cache.
+    pub forced: bool,
 }
 
 /// Why a data source could not answer.
@@ -971,7 +980,7 @@ impl<D: DataSource> Runner<D> {
             return Err(e);
         }
         for (m, source, args, request) in later {
-            self.enqueue(Target::Mutation(m), source, args, request);
+            self.enqueue(Target::Mutation(m), source, args, request, false);
             if assigned.contains(&m) {
                 self.forget(Target::Mutation(m));
             }
@@ -1097,7 +1106,14 @@ impl<D: DataSource> Runner<D> {
 
     /// Hand `request` to the host under a fresh ticket, replacing any
     /// request in flight for the same target.
-    fn enqueue(&mut self, target: Target, source: String, args: Vec<Value>, request: Request) {
+    fn enqueue(
+        &mut self,
+        target: Target,
+        source: String,
+        args: Vec<Value>,
+        request: Request,
+        forced: bool,
+    ) {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
             self.log(format!("forget request {t} ({})", self.target_name(target)));
@@ -1119,6 +1135,7 @@ impl<D: DataSource> Runner<D> {
             ticket,
             target: name,
             request,
+            forced,
         });
         self.sync_pending_flags();
     }
@@ -1246,7 +1263,7 @@ impl<D: DataSource> Runner<D> {
         // published with the rest only when the pass succeeds.
         let force = std::mem::take(&mut self.refresh_next);
         let mut pending_res = self.pending_res.clone();
-        let mut later: Vec<(usize, Vec<Value>, Request)> = Vec::new();
+        let mut later: Vec<(usize, Vec<Value>, Request, bool)> = Vec::new();
         let mut answered: Vec<usize> = Vec::new();
         // Work on a copy of the committed resource states; publish only when
         // the whole pass succeeds, so a failure leaves every cache as it was.
@@ -1363,7 +1380,7 @@ impl<D: DataSource> Runner<D> {
                                     ),
                                 });
                             };
-                            later.push((i, args.clone(), request));
+                            later.push((i, args.clone(), request, forced));
                             pending_res[i] = true;
                             kept
                         }
@@ -1388,9 +1405,9 @@ impl<D: DataSource> Runner<D> {
         for i in answered {
             self.forget(Target::Resource(i));
         }
-        for (i, args, request) in later {
+        for (i, args, request, forced) in later {
             let source = self.plan.str(self.plan.resources[i].source).to_string();
-            self.enqueue(Target::Resource(i), source, args, request);
+            self.enqueue(Target::Resource(i), source, args, request, forced);
         }
         Ok(())
     }

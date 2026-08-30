@@ -105,6 +105,27 @@ quiet clock, and the pair format.
 
 ## 4. The ABI and the glue (`host/web/src/abi.rs`, `glue.js`)
 
+**Requests (LLP 1016 D2, built 2026-08-30).** The browser is the executor.
+A batch carries `{"op":"grants","lines":[…]}` once at boot — the data
+crate's `net.fetch <url prefix>` lines — and `{"op":"request","ticket":N,
+"target":…,"method":…,"url":…,"headers":[[k,v]…],"body":"<base64>","cache":
+"default"|"reload"}` for every request the runner handed out with the commit
+(`Runner::take_requests`, after the `command` ops). The glue refuses a URL
+outside the grants itself (the same `Refused` as the native hosts), else
+`fetch(url, {method, headers, body, cache})` — the browser's own HTTP-cache
+semantics, `reload` only for a `refresh` — and brings the outcome back on
+the main thread through `exact_fulfill(ticket, kind, status, hlen, blen,
+now_ms)`: `kind` 0 a response of any status, 1 a rejected fetch (a dead
+network, and a CORS refusal too — the browser gives no status), 2 refused by
+grant, 3 unsupported, 4 aborted; the input buffer holds `hlen` bytes of
+`name: value` header lines then `blen` bytes of body (or the message). The
+batch it returns is the reply's commit, applied like any other — or empty
+for a ticket the runner no longer holds. The fetches in flight are a set the
+agent's `clock settle` (§4 of LLP 1012) awaits before measuring its fixed
+point, so `exact.agent` returns a promise for `clock` and the driver awaits
+it. Forbidden request headers (`Cookie`, `Host`, `Origin`, …) are dropped by
+`fetch` silently where ibex2 sends them: a source must not rely on them.
+
 Six exports, no `unsafe`: `exact_in(len)` resizes a host-owned input buffer
 and returns its address; `exact_out()` returns the output buffer's;
 `exact_boot()`, `exact_boot_plan(len)` (boot from plan bytes in the input

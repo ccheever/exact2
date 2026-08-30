@@ -31,6 +31,7 @@
 
 pub mod abi;
 pub mod batch;
+pub mod executor;
 pub mod host;
 pub mod measure;
 pub mod style;
