@@ -6,13 +6,15 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { resolveApp } from '../../scripts/app.mjs';
 
-const crate = process.argv[2] ?? 'caltrain-web';
+const app = resolveApp(process.argv[2]);
+const crate = app.crate('web');
 const kib = (n) => `${(n / 1024).toFixed(0)} KiB`;
 const root = resolve(new URL('../..', import.meta.url).pathname);
-const r = spawnSync('cargo', ['build', '-p', crate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown'], { cwd: root, stdio: 'inherit' });
+const r = spawnSync('cargo', ['build', '-p', crate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown'], { cwd: app.workspace, stdio: 'inherit' });
 if (r.status !== 0) process.exit(r.status ?? 1);
-const built = resolve(root, 'target/wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
+const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 const dist = resolve(root, 'host/web/dist');
 mkdirSync(dist, { recursive: true });
 const out = resolve(dist, 'app.wasm');
@@ -26,7 +28,7 @@ else optNote = 'wasm-opt -Oz';
 
 // The app's assets (images) ride beside the page: `assets/…` sources resolve
 // here. Replaced whole, so a deleted asset does not linger in dist.
-const assets = resolve(root, 'apps', crate.replace(/-web$/, ''), 'assets');
+const assets = resolve(app.dir, 'assets');
 rmSync(resolve(dist, 'assets'), { recursive: true, force: true });
 if (existsSync(assets)) cpSync(assets, resolve(dist, 'assets'), { recursive: true });
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(dist, 'index.html'));
@@ -37,10 +39,10 @@ copyFileSync(resolve(root, 'host/web/glue.js'), resolve(dist, 'glue.js'));
 // the web) and wasm-opt. Only when the app has a GPU crate.
 const gpuCrate = crate.replace(/-web$/, '-gpu');
 let gpuNote = 'no GPU crate';
-if (existsSync(resolve(root, 'apps', crate.replace(/-web$/, ''), 'gpu', 'Cargo.toml'))) {
-  const g = spawnSync('cargo', ['build', '-p', gpuCrate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown', '--config', 'profile.web.strip=false'], { cwd: root, stdio: 'inherit' });
+if (existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'))) {
+  const g = spawnSync('cargo', ['build', '-p', gpuCrate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown', '--config', 'profile.web.strip=false'], { cwd: app.workspace, stdio: 'inherit' });
   if (g.status !== 0) process.exit(g.status ?? 1);
-  const gpuWasm = resolve(root, 'target/wasm32-unknown-unknown/web', gpuCrate.replace(/-/g, '_') + '.wasm');
+  const gpuWasm = resolve(app.target, 'wasm32-unknown-unknown/web', gpuCrate.replace(/-/g, '_') + '.wasm');
   const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', dist, '--out-name', 'gpu', gpuWasm], { stdio: 'inherit' });
   if (wb.error?.code === 'ENOENT') { gpuNote = 'wasm-bindgen not on PATH (cargo install wasm-bindgen-cli): GPU module not built'; }
   else if (wb.status !== 0) process.exit(wb.status ?? 1);

@@ -180,6 +180,12 @@ from − since`, and the transcript form prints a marker line. A non-numeric
 
 ## 4. Where the code is
 
+`--app <name>` (2026-08-30) names the app the native carriers open — its
+assets, its Linux binary, its bundle id — through `scripts/app.mjs`
+(`resolveApp`); with `EXACT_APP_DIR` set it is an app outside this repo
+(weird-castle's `node exact.mjs agent …`). The web carrier needs nothing: `dist/`
+holds whatever was built last.
+
 `runner/src/agent.rs` (`handle` → `tree`/`state`/`logs`; `typed_json`; a
 one-pass top-level JSON field scanner — string tokens and nested objects are
 stepped over, surrogate pairs decode, no serde); `runner/src/runner.rs`

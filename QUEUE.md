@@ -32,11 +32,21 @@ sits on that list carries the trade it would take.
    §5's declared deviation); and an action cannot branch on a key or hover
    payload — actions have assignment and command statements, no `if` and no
    string `match` — so `key=` today can only record the key.
-3. **Text selection.** Free on the web (nothing sets `user-select: none`); none on
+3. **Weird Castle's asks** (Charlie, 2026-08-30: the app lives in `~/projects/weird-castle`
+   on exact2 by path; `scripts/app.mjs`). In order: **asynchronous data settlement** —
+   the RFC (LLP 1016) for the runner's reserved shape (LLP 1005 §7): a data source
+   answers now or hands back a request, the host executes it (`ibex2::host` on native,
+   the browser's `fetch` on the web), one ABI call brings the answer in, a pending
+   resource is `none` meanwhile, bake tolerates it — the first out-of-process resource
+   is `loginV2` at api.castle.xyz; **password masking** (`secureTextEntry` is unhonored
+   on every host and Yoga-named — the web's is `type="password"`, `keyboardType` likewise
+   vs `inputmode`); **Enter to submit** (an action branching on its `key` payload, or the
+   input's own submit); a session across launches (keychain / browser storage) after.
+4. **Text selection.** Free on the web (nothing sets `user-select: none`); none on
    macOS (CoreText paints per node, LLP 1008 §7). The hard part is cross-node
    selection, the browser's document model. Host state, like scroll offset, never plan
    state. `Paragraph` keeps its `CTLine`s, so hit-to-index is available. After 6.
-4. **View transitions** (LLP 1013, Draft RFC). Shared elements, heroes, and magic-move
+5. **View transitions** (LLP 1013, Draft RFC). Shared elements, heroes, and magic-move
    the web's way, not RN's: a `view_transition_name` row, an action keyword as the
    boundary, `startViewTransition` on the web, snapshot + host-owned ghost under
    `exact-motion` on macOS, one parity fixture. Identity is by name at the host, so

@@ -203,6 +203,13 @@ sky is in it without asking for `window` (2026-08-30).
 
 ## 6. Building and measuring (`build.mjs`, `smoke.mjs`, `scripts/metrics.mjs --long`)
 
+The crate argument names the app; `scripts/app.mjs` (`resolveApp`, 2026-08-30)
+turns it into a directory, a cargo workspace, and a target directory — `apps/<name>`
+in this repo, or `EXACT_APP_DIR` for an app outside it (weird-castle) — and cargo
+runs there while `EXACT_LIB_DIR` points the Swift packages at that target. The
+bundle id is `com.exact.<name>`; `ExactMac`/`ExactIOS.app` are the one output slot
+per host. LLP 1007 §7 has the shape.
+
 `node host/apple/build.mjs [--run]` — `cargo build --release -p
 caltrain-apple`, then `swift build -c release` against it. `node
 host/apple/smoke.mjs` — launches the app in smoke mode and asserts the

@@ -202,6 +202,15 @@ is a build step, not the loop. The native apps take the plan push already
 
 ## 7. Building and measuring
 
+**An app outside this repo** (2026-08-30; weird-castle, `~/projects/weird-castle`,
+consuming exact2 by path from `../exact2`): `scripts/app.mjs` `resolveApp` is
+where every script learns what an app is — `apps/<name>` here, or the directory
+`EXACT_APP_DIR` names, with its own cargo workspace (exact2's profiles and the
+Taffy patch copied) and its own `target/`. `build.mjs`, `dev.mjs`, the Apple
+`build.mjs`, and `scripts/agent.mjs --app` resolve through it; `dist/` and the
+Swift products stay this repo's one slot per host, last build wins. The app's
+`exact.mjs` sets `EXACT_APP_DIR` and calls these scripts unchanged.
+
 `node host/web/build.mjs` — `cargo build --lib --profile web --target
 wasm32-unknown-unknown` for the app's crate (the `web` profile is release with
 `opt-level = "z"` and fat LTO: the runner's work is sub-millisecond, so every

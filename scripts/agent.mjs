@@ -40,6 +40,7 @@ import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { extname, resolve } from 'node:path';
 import { appBundle, bundleId, install, simulator } from '../host/apple/build.mjs';
+import { resolveApp } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -228,11 +229,12 @@ function jsonLines(readable, writable, hostLines) {
 }
 
 /** The stdio carrier: an app that answers JSON lines under EXACT_AGENT=1 — the macOS presenter (`Agent.swift`) and the Linux host (`host/linux/src/agent.rs`), one protocol. */
-async function openStdio({ host, plan, size, app = 'caltrain', env: extra = {} }) {
+async function openStdio({ host, plan, size, app, env: extra = {} }) {
+  const a = resolveApp(app);
   const linux = host === 'linux';
-  const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(ROOT, `target/release/${app}-linux`)) : resolve(ROOT, 'host/apple/macos/.build/release/ExactMac');
-  if (!existsSync(bin)) throw new Error(linux ? `run cargo build --release -p ${app}-linux first` : 'run node host/apple/build.mjs first');
-  const env = { EXACT_ASSETS: resolve(ROOT, 'apps', app), ...process.env, EXACT_AGENT: '1' };
+  const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`)) : resolve(ROOT, 'host/apple/macos/.build/release/ExactMac');
+  if (!existsSync(bin)) throw new Error(linux ? `run cargo build --release -p ${a.crate('linux')} first` : 'run node host/apple/build.mjs first');
+  const env = { EXACT_ASSETS: a.dir, ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;
   if (linux && size) env.EXACT_SIZE = `${size[0]}x${size[1]}`;
   if (linux) {
@@ -279,16 +281,17 @@ async function openStdio({ host, plan, size, app = 'caltrain', env: extra = {} }
 // ---------------------------------------------------------------- iOS, over a Unix socket
 
 /** The simulator carrier: the bundle `build.mjs --ios` assembled, installed and launched on a simulator with the agent socket's path in its environment (simctl passes SIMCTL_CHILD_*); then the same JSON lines over that socket (`AgentIOS.swift`). A `simctl launch --console` stays attached for the app's stdout and stderr (its `--stdout=`/`--stderr=` files stay empty on Xcode 26). One app per bundle id per device: a session replaces a running copy; closing hangs up the socket, which ends the app, and kills the pid the app reported if it lingers. */
-async function openIOS({ plan, app = 'caltrain', env: extra = {} }) {
+async function openIOS({ plan, app, env: extra = {} }) {
+  const a = resolveApp(app);
   if (!existsSync(appBundle)) throw new Error('run node host/apple/build.mjs --ios first');
   const dev = simulator();
   install(dev);
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
   const sock = resolve(dir, 'agent.sock');
-  const env = { EXACT_ASSETS: resolve(ROOT, 'apps', app), EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...extra };
+  const env = { EXACT_ASSETS: a.dir, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...extra };
   const childEnv = { ...process.env };
   for (const [k, v] of Object.entries(env)) childEnv[`SIMCTL_CHILD_${k}`] = v;
-  const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, bundleId(`${app}-apple`)], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, bundleId(a.crate('apple'))], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   const hostLines = [];
   for (const stream of [console_.stdout, console_.stderr]) stream.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !/^com\.exact\.\w+: \d+$/.test(l)) hostLines.push('app: ' + l); });
   const consoleExited = new Promise((r) => console_.on('exit', r));
@@ -341,8 +344,8 @@ async function openIOS({ plan, app = 'caltrain', env: extra = {} }) {
 // ---------------------------------------------------------------- the eight operations
 
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `plan` boots a compiled contract instead of the app's baked plan; `env` adds to a native host's environment. */
-export async function open({ host, plan, size, env } = {}) {
-  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env }) : host === 'ios' ? await openIOS({ plan, env }) : await openWeb({ plan, size });
+export async function open({ host, plan, size, env, app } = {}) {
+  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size });
   const s = {
     host: carrier.host,
     /** Milliseconds from launch to the first frame. */
@@ -455,15 +458,16 @@ async function main(argv) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') flags.json = true;
     else if (argv[i] === '--plan') flags.plan = resolve(argv[++i]);
+    else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
     else rest.push(argv[i]);
   }
   const [host, ...ops] = rest;
   if (!host || !ops.length) {
-    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux> [--plan <file>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>');
+    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux> [--app <name>] [--plan <file>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>');
     return 2;
   }
-  const s = await open({ host, plan: flags.plan, size: flags.size });
+  const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app });
   try {
     for (const line of ops) {
       const [op, ...args] = line.trim().split(/\s+/);

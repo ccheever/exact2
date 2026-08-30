@@ -21,17 +21,18 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { resolve, extname } from 'node:path';
+import { resolveApp } from '../../scripts/app.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
-const app = arg('--app', 'caltrain');
+const app = resolveApp(arg('--app', undefined));
 const port = Number(arg('--port', 8765));
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const dist = resolve(root, 'host/web/dist');
-const source = resolve(root, `apps/${app}/app.contract`);
+const source = resolve(app.dir, 'app.contract');
 const plan = resolve(dist, 'app.plan');
 if (!existsSync(resolve(dist, 'app.wasm'))) {
-  const b = spawnSync('node', [resolve(root, 'host/web/build.mjs'), `${app}-web`], { cwd: root, stdio: 'inherit' });
+  const b = spawnSync('node', [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, stdio: 'inherit' });
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
 const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
@@ -45,7 +46,7 @@ const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stri
 let dev = null;
 let announced = false;
 function startCompiler() {
-  dev = spawn('cargo', ['run', '-q', '--release', '-p', `${app}-web`, '--bin', 'dev', '--', source, plan], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
+  dev = spawn('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--bin', 'dev', '--', source, plan], { cwd: app.workspace, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
   let buffered = '';
@@ -79,7 +80,7 @@ startCompiler();
 const stop = () => { killCompiler(); process.exit(0); };
 
 // The Rust watch: the crates the wasm is built from.
-const watched = ['kernel', 'plan', 'motion', 'runner', 'host/web', 'gpu', 'vendor/taffy', `apps/${app}/data`, `apps/${app}/web`, `apps/${app}/gpu`].map((d) => resolve(root, d)).filter(existsSync);
+const watched = [...['kernel', 'plan', 'motion', 'runner', 'host/web', 'gpu', 'vendor/taffy'].map((d) => resolve(root, d)), ...['data', 'web', 'gpu'].map((d) => resolve(app.dir, d))].filter(existsSync);
 const wanted = /\.(rs|toml|json|wgsl|js|html)$/;
 const skipped = /(^|\/)(target|dist|\.build|node_modules)(\/|$)/;
 let changed = new Set();
@@ -103,7 +104,7 @@ function rebuild() {
   const files = [...changed]; changed = new Set();
   const t = Date.now();
   console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the wasm`);
-  const b = spawn('node', [resolve(root, 'host/web/build.mjs'), `${app}-web`], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  const b = spawn('node', [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   b.stdout.on('data', (d) => { out += d; });
   b.stderr.on('data', (d) => { out += d; });
@@ -165,6 +166,6 @@ const server = createServer((req, res) => {
   res.end(body);
 });
 server.on('error', (e) => { console.error(`cannot listen on 127.0.0.1:${port}: ${e.code ?? e.message}`); killCompiler(); process.exit(1); });
-server.listen(port, '127.0.0.1', () => console.log(`http://127.0.0.1:${port}/  (dev loop on apps/${app}/app.contract and the wasm's crates; ctrl-c to stop)`));
+server.listen(port, '127.0.0.1', () => console.log(`http://127.0.0.1:${port}/  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ctrl-c to stop)`));
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

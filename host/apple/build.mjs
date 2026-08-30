@@ -21,6 +21,7 @@ import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { resolveApp } from '../../scripts/app.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => { const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', ...opts }); if (r.status !== 0) process.exit(r.status ?? 1); return r; };
@@ -162,19 +163,19 @@ const infoPlist = (crate, device = false) => `<?xml version="1.0" encoding="UTF-
 function main(args) {
   const device = args.includes('--device');
   const ios = device || args.includes('--ios');
-  const crate = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--sim' && args[i - 1] !== '--phone') ?? 'caltrain-apple';
-  const app = crate.replace(/-apple$/, '');
-  const gpuCrate = `${app}-gpu`;
-  const hasGpu = existsSync(resolve(root, 'apps', app, 'gpu', 'Cargo.toml'));
+  const app = resolveApp(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--sim' && args[i - 1] !== '--phone'));
+  const crate = app.crate('apple');
+  const gpuCrate = app.crate('gpu');
+  const hasGpu = existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'));
   const dylib = `lib${gpuCrate.replace(/-/g, '_')}.dylib`;
   const t0 = Date.now();
   const target = device ? 'aarch64-apple-ios' : iosTarget;
   const targetArgs = ios ? ['--target', target] : [];
-  const libDir = resolve(root, 'target', ios ? target : '', 'release');
-  run('cargo', ['build', '--release', '-p', crate, ...targetArgs]);
+  const libDir = resolve(app.target, ios ? target : '', 'release');
+  run('cargo', ['build', '--release', '-p', crate, ...targetArgs], { cwd: app.workspace });
   // The app's GPU module (LLP 1009 D2): a dylib beside the executable (in
   // the bundle's Frameworks on iOS), loaded on demand by the presenter.
-  if (hasGpu) run('cargo', ['build', '--release', '-p', gpuCrate, ...targetArgs]);
+  if (hasGpu) run('cargo', ['build', '--release', '-p', gpuCrate, ...targetArgs], { cwd: app.workspace });
   const gpuNote = hasGpu ? dylib : 'no GPU crate';
   const t1 = Date.now();
   const env = { ...process.env, EXACT_LIB_DIR: libDir, EXACT_LIB: crate.replace(/-/g, '_') };
@@ -205,7 +206,7 @@ function main(args) {
     console.log(`host/apple: ${bin.replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s); GPU: ${gpuNote}`);
     // --run: the app, with the dev loop's plan watched when host/web/dev.mjs is
     // running (it writes host/web/dist/app.plan on every save).
-    if (args.includes('--run')) spawnSync(bin, [], { stdio: 'inherit', env: { ...env, EXACT_DEV_PLAN: resolve(root, 'host/web/dist/app.plan'), EXACT_ASSETS: resolve(root, 'apps', app) } });
+    if (args.includes('--run')) spawnSync(bin, [], { stdio: 'inherit', env: { ...env, EXACT_DEV_PLAN: resolve(root, 'host/web/dist/app.plan'), EXACT_ASSETS: app.dir } });
     return;
   }
 
@@ -218,7 +219,7 @@ function main(args) {
   mkdirSync(resolve(bundle, 'Frameworks'), { recursive: true });
   copyFileSync(bin, resolve(bundle, product));
   writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(crate, device));
-  if (existsSync(resolve(root, 'apps', app, 'assets'))) cpSync(resolve(root, 'apps', app, 'assets'), resolve(bundle, 'assets'), { recursive: true });
+  if (existsSync(resolve(app.dir, 'assets'))) cpSync(resolve(app.dir, 'assets'), resolve(bundle, 'assets'), { recursive: true });
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', dylib));
   if (device) {
     let ph, prof, sha1;
@@ -256,7 +257,7 @@ function main(args) {
     // environment through as SIMCTL_CHILD_*.
     spawnSync('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' });
     const launched = read('xcrun', ['simctl', 'launch', '--terminate-running-process', dev.udid, bundleId(crate)], {
-      env: { ...process.env, SIMCTL_CHILD_EXACT_DEV_PLAN: resolve(root, 'host/web/dist/app.plan'), SIMCTL_CHILD_EXACT_ASSETS: resolve(root, 'apps', app) },
+      env: { ...process.env, SIMCTL_CHILD_EXACT_DEV_PLAN: resolve(root, 'host/web/dist/app.plan'), SIMCTL_CHILD_EXACT_ASSETS: app.dir },
     });
     if (launched.status !== 0) { console.error(launched.stderr); process.exit(launched.status ?? 1); }
     console.log(`launched ${launched.stdout.trim()} on ${dev.name}`);
