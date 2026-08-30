@@ -1,0 +1,25 @@
+// Caltrain's tests (LLP 1017 P7): `test` blocks whose steps are the agent
+// API's eight operations and `expect` lines over their replies — run on any
+// host with `node scripts/agent.mjs <host> --test apps/caltrain/app.test.contract`,
+// and by the smoke. There is no second evaluator: a test is this script.
+
+test "the home screen names the station"
+  expect tree has "caltrain-main"
+  expect text "station-name" == "Mountain View"
+  expect state screen == "home"
+
+test "changing the station goes through the stations screen"
+  tap "change-station"
+  expect tree has "stations-screen"
+  expect state screen == "stations"
+  type "station-search" "Palo"
+  expect tree has "station-paloalto"
+  expect tree missing "station-mv"
+  tap "station-paloalto"
+  expect state screen == "home"
+  expect text "station-name" == "Palo Alto"
+  expect state query == ""
+
+test "the clock is the driver's"
+  clock +60000
+  expect state screen == "home"

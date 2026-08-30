@@ -179,6 +179,7 @@ impl Parser {
                 TokenKind::Ident(w) if w == "shape" => file.shapes.push(self.shape()?),
                 TokenKind::Ident(w) if w == "style" => file.styles.push(self.style()?),
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
+                TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
                 TokenKind::Ident(w) if w == "component" => file.components.push(self.component()?),
                 TokenKind::Ident(w) if w == "use" => file.uses.push(self.use_decl()?),
                 other => {
@@ -223,6 +224,199 @@ impl Parser {
         }
         self.newline()?;
         Ok(UseDecl { name, path, span })
+    }
+
+    fn str_lit(&mut self, what: &str) -> R<String> {
+        match self.peek_kind().clone() {
+            TokenKind::Str(s) => {
+                self.next();
+                Ok(s)
+            }
+            other => self.err(
+                "syntax-expected-string",
+                format!("expected {what} in quotes, found {}", describe(&other)),
+            ),
+        }
+    }
+
+    /// `test "name"` with a block of steps (LLP 1017 P7): the agent API's
+    /// operations by their names, and `expect` lines over their replies.
+    fn test_decl(&mut self) -> R<TestDecl> {
+        let span = self.expect_word("test")?;
+        let name = self.str_lit("the test's name")?;
+        self.newline()?;
+        let steps = self.block(|p| p.step())?;
+        Ok(TestDecl { name, steps, span })
+    }
+
+    fn step(&mut self) -> R<Step> {
+        let (word, span) = match self.peek_kind().clone() {
+            TokenKind::Ident(w) => (w, self.peek().span),
+            other => {
+                return self.err(
+                    "syntax-expected-step",
+                    format!(
+                        "expected `tap`, `type`, `clock`, `screenshot`, or `expect`, found {}",
+                        describe(&other)
+                    ),
+                )
+            }
+        };
+        self.next();
+        let step = match word.as_str() {
+            "tap" => {
+                let target = self.str_lit("a testId")?;
+                let hover = if self.at_ident("hover") {
+                    self.next();
+                    true
+                } else {
+                    false
+                };
+                Step::Tap {
+                    target,
+                    hover,
+                    span,
+                }
+            }
+            "type" => {
+                let target = self.str_lit("a testId")?;
+                if self.at_ident("key") {
+                    self.next();
+                    let key = self.str_lit("the key's name")?;
+                    Step::Key { target, key, span }
+                } else {
+                    let text = self.str_lit("the text")?;
+                    Step::Type { target, text, span }
+                }
+            }
+            "clock" => {
+                let arg = match self.peek_kind().clone() {
+                    TokenKind::Ident(w) if w == "settle" => {
+                        self.next();
+                        "settle".to_string()
+                    }
+                    TokenKind::Punct("+") => {
+                        self.next();
+                        match self.peek_kind().clone() {
+                            TokenKind::Number(n) => {
+                                self.next();
+                                format!("+{n}")
+                            }
+                            other => {
+                                return self.err(
+                                    "syntax-expected-step",
+                                    format!(
+                                        "expected milliseconds after `+`, found {}",
+                                        describe(&other)
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                    TokenKind::Number(n) => {
+                        self.next();
+                        format!("{n}")
+                    }
+                    other => {
+                        return self.err(
+                            "syntax-expected-step",
+                            format!(
+                                "`clock` takes `settle`, `+ms`, or `ms`, found {}",
+                                describe(&other)
+                            ),
+                        )
+                    }
+                };
+                Step::Clock { arg, span }
+            }
+            "screenshot" => Step::Screenshot {
+                path: self.str_lit("a file name")?,
+                span,
+            },
+            "expect" => {
+                // `state` is a keyword elsewhere; here it names the reply.
+                let what = match self.peek_kind().clone() {
+                    TokenKind::Ident(w) => {
+                        self.next();
+                        w
+                    }
+                    other => {
+                        return self.err(
+                            "syntax-expected-step",
+                            format!(
+                                "`expect` reads `tree`, `text`, or `state`, found {}",
+                                describe(&other)
+                            ),
+                        )
+                    }
+                };
+                match what.as_str() {
+                    "tree" => {
+                        let present = if self.at_ident("has") {
+                            self.next();
+                            true
+                        } else if self.at_ident("missing") {
+                            self.next();
+                            false
+                        } else {
+                            return self.err(
+                                "syntax-expected-step",
+                                "`expect tree` takes `has \"testId\"` or `missing \"testId\"`",
+                            );
+                        };
+                        let target = self.str_lit("a testId")?;
+                        Step::ExpectTree {
+                            target,
+                            present,
+                            span,
+                        }
+                    }
+                    "text" => {
+                        let target = self.str_lit("a testId")?;
+                        self.expect_punct("==")?;
+                        let value = self.str_lit("the text")?;
+                        Step::ExpectText {
+                            target,
+                            value,
+                            span,
+                        }
+                    }
+                    "state" => {
+                        let (name, _) = self.ident()?;
+                        self.expect_punct("==")?;
+                        let value = self.expr()?;
+                        if !matches!(
+                            value,
+                            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_)
+                        ) {
+                            return Err(SyntaxError {
+                                id: "syntax-expected-step",
+                                message: "`expect state name ==` takes a number, a string, a bool, or `none`".into(),
+                                span,
+                            });
+                        }
+                        Step::ExpectState { name, value, span }
+                    }
+                    other => {
+                        return self.err(
+                            "syntax-expected-step",
+                            format!("`expect` reads `tree`, `text`, or `state`, not `{other}`"),
+                        )
+                    }
+                }
+            }
+            other => {
+                return Err(SyntaxError {
+                    id: "syntax-expected-step",
+                    message: format!(
+                    "expected `tap`, `type`, `clock`, `screenshot`, or `expect`, found `{other}`"
+                ),
+                    span,
+                })
+            }
+        };
+        self.newline()?;
+        Ok(step)
     }
 
     /// `fn name(param: type, …): type = expr` (LLP 1017 P5).
@@ -1049,6 +1243,8 @@ fn is_keyword(w: &str) -> bool {
             | "else"
             | "style"
             | "fn"
+            | "test"
+            | "expect"
             | "from"
             | "provide"
             | "children"

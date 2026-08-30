@@ -455,6 +455,77 @@ export function render(op, r) {
   }
 }
 
+/**
+ * Run a `test "…"` file (LLP 1017 P7) against a host: `contract test <file>`
+ * turns the blocks into steps — the eight operations, plus `expect` lines
+ * over their replies — and this drives them through the same session the
+ * operations use. One session per file; a failed expect names the test, the
+ * line, and what was seen. Returns `{ passed, failed, results }`.
+ */
+export async function runTests({ host, file, plan, app, size, env } = {}) {
+  const { spawnSync } = await import('node:child_process');
+  const root = resolve(new URL('..', import.meta.url).pathname);
+  let bin = resolve(root, 'target/debug/contract');
+  if (!existsSync(bin)) {
+    const b = spawnSync('cargo', ['build', '-q', '-p', 'contract'], { cwd: root, encoding: 'utf8' });
+    if (b.status !== 0) throw new Error(`cargo build -p contract: ${b.stderr}`);
+  }
+  const c = spawnSync(bin, ['test', resolve(file)], { encoding: 'utf8' });
+  if (c.status !== 0) throw new Error(c.stderr.trim());
+  const tests = JSON.parse(c.stdout);
+  const results = [];
+  // Every test starts from the first frame: a session of its own.
+  for (const t of tests) {
+    const failures = [];
+    const s = await open({ host, plan, size, env, app });
+    try {
+      for (const st of t.steps) {
+        const at = `${t.name}: line ${st.line}`;
+        try {
+          switch (st.op) {
+            case 'tap': await s.tap(st.target, st.hover ? { hover: true } : undefined); break;
+            case 'type': await s.type(st.target, st.text); break;
+            case 'key': await s.type(st.target, { key: st.key }); break;
+            case 'clock': await s.clock(st.arg); break;
+            case 'screenshot': await s.screenshot(st.path); break;
+            case 'expect-tree': {
+              const tree = await s.tree();
+              const found = tree.nodes.some((n) => n.props.testId === st.target);
+              if (found !== st.present) failures.push(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}`);
+              break;
+            }
+            case 'expect-text': {
+              const tree = await s.tree();
+              const n = tree.nodes.find((n) => n.props.testId === st.target);
+              const got = n?.props.text;
+              if (got !== st.value) failures.push(`${at}: text of "${st.target}" is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
+              break;
+            }
+            case 'expect-state': {
+              const state = await s.state();
+              const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
+              if (!(st.name in bag)) { failures.push(`${at}: no state named "${st.name}"`); break; }
+              const got = bag[st.name];
+              const same = JSON.stringify(got) === JSON.stringify(st.value);
+              if (!same) failures.push(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
+              break;
+            }
+            default: failures.push(`${at}: unknown step ${st.op}`);
+          }
+        } catch (e) {
+          failures.push(`${at}: ${e.message}`);
+          break;
+        }
+      }
+    } finally {
+      await s.close();
+    }
+    results.push({ name: t.name, failures });
+  }
+  const failed = results.filter((r) => r.failures.length).length;
+  return { passed: results.length - failed, failed, results };
+}
+
 async function main(argv) {
   const flags = { json: false };
   const rest = [];
@@ -463,11 +534,21 @@ async function main(argv) {
     else if (argv[i] === '--plan') flags.plan = resolve(argv[++i]);
     else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
+    else if (argv[i] === '--test') flags.test = argv[++i];
     else rest.push(argv[i]);
   }
   const [host, ...ops] = rest;
+  if (host && flags.test) {
+    const r = await runTests({ host, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size });
+    for (const t of r.results) {
+      console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
+      for (const f of t.failures) console.error('  ' + f);
+    }
+    console.log(`${r.passed} passed, ${r.failed} failed`);
+    return r.failed ? 1 : 0;
+  }
   if (!host || !ops.length) {
-    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux> [--app <name>] [--plan <file>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>');
+    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux> [--app <name>] [--plan <file>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app });

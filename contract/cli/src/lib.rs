@@ -12,7 +12,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-use contract_syntax::{File, UseDecl};
+use contract_syntax::{Expr, File, Step, TestDecl, UseDecl};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{Plan, ResourcesId};
@@ -129,6 +129,113 @@ pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
     let mut seen = Vec::new();
     let file = load(path, &mut seen)?;
     compile_file(file)
+}
+
+/// The `test` blocks of a file (LLP 1017 P7) — normally `app.test.contract`
+/// beside the app, holding nothing else. Parsed, never compiled: a test is a
+/// script for the agent driver (`scripts/agent.mjs --test`), and its steps
+/// are the eight operations plus `expect` lines that read their replies.
+pub fn tests(src: &str) -> Result<Vec<TestDecl>, CompileError> {
+    let file = contract_syntax::parse(src)?;
+    Ok(file.tests)
+}
+
+/// The tests as JSON for the driver: `[{"name":…,"steps":[{"op":…}]}]`,
+/// written by hand — no serde anywhere in the runtime (LLP 1012).
+pub fn tests_json(tests: &[TestDecl]) -> String {
+    fn q(s: &str, out: &mut String) {
+        out.push('"');
+        for c in s.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\t' => out.push_str("\\t"),
+                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+    }
+    let mut s = String::from("[");
+    for (ti, t) in tests.iter().enumerate() {
+        if ti > 0 {
+            s.push(',');
+        }
+        s.push_str("{\"name\":");
+        q(&t.name, &mut s);
+        s.push_str(",\"steps\":[");
+        for (si, step) in t.steps.iter().enumerate() {
+            if si > 0 {
+                s.push(',');
+            }
+            let line = match step {
+                Step::Tap { span, .. }
+                | Step::Type { span, .. }
+                | Step::Key { span, .. }
+                | Step::Clock { span, .. }
+                | Step::Screenshot { span, .. }
+                | Step::ExpectTree { span, .. }
+                | Step::ExpectText { span, .. }
+                | Step::ExpectState { span, .. } => span.line,
+            };
+            match step {
+                Step::Tap { target, hover, .. } => {
+                    s.push_str("{\"op\":\"tap\",\"target\":");
+                    q(target, &mut s);
+                    s.push_str(&format!(",\"hover\":{hover}"));
+                }
+                Step::Type { target, text, .. } => {
+                    s.push_str("{\"op\":\"type\",\"target\":");
+                    q(target, &mut s);
+                    s.push_str(",\"text\":");
+                    q(text, &mut s);
+                }
+                Step::Key { target, key, .. } => {
+                    s.push_str("{\"op\":\"key\",\"target\":");
+                    q(target, &mut s);
+                    s.push_str(",\"key\":");
+                    q(key, &mut s);
+                }
+                Step::Clock { arg, .. } => {
+                    s.push_str("{\"op\":\"clock\",\"arg\":");
+                    q(arg, &mut s);
+                }
+                Step::Screenshot { path, .. } => {
+                    s.push_str("{\"op\":\"screenshot\",\"path\":");
+                    q(path, &mut s);
+                }
+                Step::ExpectTree {
+                    target, present, ..
+                } => {
+                    s.push_str("{\"op\":\"expect-tree\",\"target\":");
+                    q(target, &mut s);
+                    s.push_str(&format!(",\"present\":{present}"));
+                }
+                Step::ExpectText { target, value, .. } => {
+                    s.push_str("{\"op\":\"expect-text\",\"target\":");
+                    q(target, &mut s);
+                    s.push_str(",\"value\":");
+                    q(value, &mut s);
+                }
+                Step::ExpectState { name, value, .. } => {
+                    s.push_str("{\"op\":\"expect-state\",\"name\":");
+                    q(name, &mut s);
+                    s.push_str(",\"value\":");
+                    match value {
+                        Expr::Number(n, _) => s.push_str(&format!("{n}")),
+                        Expr::Str(t, _) => q(t, &mut s),
+                        Expr::Bool(b, _) => s.push_str(&format!("{b}")),
+                        _ => s.push_str("null"),
+                    }
+                }
+            }
+            s.push_str(&format!(",\"line\":{line}}}"));
+        }
+        s.push_str("]}");
+    }
+    s.push(']');
+    s
 }
 
 fn compile_file(file: File) -> Result<Plan, CompileError> {

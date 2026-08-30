@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { open, render } from './agent.mjs';
+import { open, render, runTests } from './agent.mjs';
 import { crop, decodePng, diff, encodePng } from './png.mjs';
 
 const argv = process.argv.slice(2);
@@ -508,6 +508,12 @@ rmSync(tmp, { recursive: true, force: true });
     }
   }
   rmSync(tmp, { recursive: true, force: true });
+// 12. The app's own tests (LLP 1017 P7): `apps/caltrain/app.test.contract`,
+// its `test` blocks driven through a fresh session by the same operations.
+{
+  const t = await runTests({ host, file: resolve(ROOT, 'apps/caltrain/app.test.contract') });
+  for (const r of t.results) for (const f of r.failures) check(false, `test "${r.name}": ${f}`);
+  console.log(`${host} tests: ${t.passed} passed, ${t.failed} failed (app.test.contract)`);
 }
 
 console.log(`${host} smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);

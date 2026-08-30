@@ -14,8 +14,98 @@ pub struct File {
     pub styles: Vec<StyleDecl>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
+    /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
+    /// their own beside the app, `app.test.contract`.
+    pub tests: Vec<TestDecl>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
+}
+
+/// `test "name"` with steps: the agent API's own operations (LLP 1012) and
+/// `expect` lines that read their replies — compiled to a script the agent
+/// driver runs against the real hosts; never a second evaluator (LLP 1017 P7).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TestDecl {
+    /// The name.
+    pub name: String,
+    /// The steps, in order.
+    pub steps: Vec<Step>,
+    /// Where.
+    pub span: Span,
+}
+
+/// One step of a `test`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Step {
+    /// `tap "testId"` (`hover` for a pointer over).
+    Tap {
+        /// The node, by `testId`.
+        target: String,
+        /// `hover` instead of a press.
+        hover: bool,
+        /// Where.
+        span: Span,
+    },
+    /// `type "testId" "text"`.
+    Type {
+        /// The field, by `testId`.
+        target: String,
+        /// The text.
+        text: String,
+        /// Where.
+        span: Span,
+    },
+    /// `type "testId" key "Enter"`.
+    Key {
+        /// The field, by `testId`.
+        target: String,
+        /// The key's web name.
+        key: String,
+        /// Where.
+        span: Span,
+    },
+    /// `clock settle`, `clock +ms`, `clock ms`.
+    Clock {
+        /// The argument as the agent takes it.
+        arg: String,
+        /// Where.
+        span: Span,
+    },
+    /// `screenshot "file.png"`.
+    Screenshot {
+        /// The file.
+        path: String,
+        /// Where.
+        span: Span,
+    },
+    /// `expect tree has "testId"` / `expect tree missing "testId"`.
+    ExpectTree {
+        /// The node, by `testId`.
+        target: String,
+        /// Present, or absent.
+        present: bool,
+        /// Where.
+        span: Span,
+    },
+    /// `expect text "testId" == "value"`: the node's `text` prop.
+    ExpectText {
+        /// The node, by `testId`.
+        target: String,
+        /// The text.
+        value: String,
+        /// Where.
+        span: Span,
+    },
+    /// `expect state name == literal`: a slot, derive, or resource from the
+    /// `state` reply, compared to a number, string, bool, or `none`.
+    ExpectState {
+        /// The declaration's name.
+        name: String,
+        /// The literal.
+        value: Expr,
+        /// Where.
+        span: Span,
+    },
 }
 
 /// `fn name(param: type, …): type = expr` — a pure function written in

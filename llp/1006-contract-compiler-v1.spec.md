@@ -64,6 +64,12 @@ keys, spelled as the web spells them; `viewportFit`, `safeArea`,
 §9, LLP 1007 §4). `contract/corpus/insets.contract`,
 `contract/corpus/keyboard-bar.contract`, `tests/insets.rs`.
 **Functions** (LLP 1017 P5, 2026-08-30): `fn name(param: type, …): type =
+**Tests** (LLP 1017 P7, 2026-08-30): `test "name"` blocks — normally in
+`app.test.contract` beside the app — whose steps are the agent API's
+operations (`tap`, `type`, `clock`, `screenshot`) and `expect tree|text|state`
+lines over their replies; parsed by `contract test <file>` into JSON and run by
+`scripts/agent.mjs <host> --test <file>`; never compiled into the plan, never a
+second evaluator. **Functions** (LLP 1017 P5, 2026-08-30): `fn name(param: type, …): type =
 expr` at file scope — one expression over its parameters and the roster only,
 typed like a roster call, expanded inline at each call (no opcode, no table);
 a cycle is `type-fn-recursive`, a roster name `contract-fn-shadows-roster`.

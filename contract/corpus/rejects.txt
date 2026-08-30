@@ -363,3 +363,10 @@ component A
   view
     text `${floor(1)}`
 ---
+== syntax-expected-step
+test "t"
+  jump "a"
+component A
+  view
+    text "a"
+---

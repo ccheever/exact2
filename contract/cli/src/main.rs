@@ -8,9 +8,36 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("build") => build(&args[1..]),
+        Some("test") => tests(&args[1..]),
         _ => {
-            eprintln!("usage: contract build <file.contract> [-o <file.plan>]");
+            eprintln!("usage: contract build <file.contract> [-o <file.plan>] | contract test <file.test.contract>");
             ExitCode::from(2)
+        }
+    }
+}
+
+/// `contract test <file.test.contract>`: the tests as JSON for the agent
+/// driver (`node scripts/agent.mjs <host> --test <file>` runs them).
+fn tests(args: &[String]) -> ExitCode {
+    let Some(input) = args.first() else {
+        eprintln!("usage: contract test <file.test.contract>");
+        return ExitCode::from(2);
+    };
+    let src = match std::fs::read_to_string(input) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("{input}: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    match contract::tests(&src) {
+        Ok(t) => {
+            println!("{}", contract::tests_json(&t));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{input}:{e}");
+            ExitCode::from(1)
         }
     }
 }
