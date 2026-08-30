@@ -195,6 +195,8 @@ pub fn handler_payload(attr: &str) -> Option<&'static str> {
 fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeError> {
     for n in nodes {
         match n {
+            Node::Provide { body, .. } => check_view(body, scope, file)?,
+            Node::Children { .. } => {}
             Node::Element {
                 attrs, children, ..
             } => {
@@ -205,7 +207,13 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
                 }
                 check_view(children, scope, file)?;
             }
-            Node::Use { name, args, span } => {
+            Node::Use {
+                name,
+                args,
+                children,
+                span,
+            } => {
+                check_view(children, scope, file)?;
                 if !file.components.iter().any(|x| &x.name == name) {
                     return err(
                         "analyze-unknown-component",

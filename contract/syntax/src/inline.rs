@@ -4,6 +4,12 @@
 //!
 //! Purely syntactic, so both type inference (which needs to see a handler's
 //! real call site through a prop) and lowering run on the same expansion.
+//!
+//! LLP 1017 P4a/P4b live here too: an `inject` is filled from the nearest
+//! enclosing `provide` on the way down (the compiler's context — no runtime
+//! lookup, a missing provider a refusal), and a `slot` component's
+//! `children` node is replaced by the nodes indented under its use, inlined
+//! in the *use site's* scope.
 
 use crate::ast::{Attr, Component, Expr, File, Node, TemplatePart};
 use crate::parser::SyntaxError;
@@ -24,34 +30,51 @@ fn err<T>(
 /// The root's view with every component use inlined.
 pub fn inline(file: &File) -> Result<Vec<Node>, SyntaxError> {
     let mut counter = 0u32;
-    inline_nodes(
-        &file.components[0].view,
+    let mut ctx = Ctx {
         file,
-        &BTreeMap::new(),
-        &mut counter,
-        0,
-    )
+        counter: &mut counter,
+        depth: 0,
+        provides: Vec::new(),
+        fill: None,
+    };
+    inline_nodes(&file.components[0].view, &BTreeMap::new(), &mut ctx)
+}
+
+/// What inlining carries down the tree besides the substitution.
+struct Ctx<'a> {
+    file: &'a File,
+    counter: &'a mut u32,
+    depth: u32,
+    /// `provide`s in force, outermost first, each already substituted into
+    /// the scope it was written in.
+    provides: Vec<(String, Expr)>,
+    /// The nodes that fill `children` here: `Some` inside a `slot`
+    /// component's view (possibly empty), `None` elsewhere.
+    fill: Option<Vec<Node>>,
 }
 
 fn inline_nodes(
     nodes: &[Node],
-    file: &File,
     subst: &BTreeMap<String, Expr>,
-    counter: &mut u32,
-    depth: u32,
+    ctx: &mut Ctx<'_>,
 ) -> Result<Vec<Node>, SyntaxError> {
     let mut out = Vec::with_capacity(nodes.len());
     for n in nodes {
         match n {
-            Node::Use { name, args, span } => {
-                if depth > 32 {
+            Node::Use {
+                name,
+                args,
+                children,
+                span,
+            } => {
+                if ctx.depth > 32 {
                     return err(
                         "syntax-inline-depth",
                         format!("component `{name}` nests too deeply (a cycle?)"),
                         *span,
                     );
                 }
-                let Some(c) = file.components.iter().find(|c| &c.name == name) else {
+                let Some(c) = ctx.file.components.iter().find(|c| &c.name == name) else {
                     return err(
                         "syntax-unknown-component",
                         format!("unknown component `{name}`"),
@@ -70,16 +93,59 @@ fn inline_nodes(
                     // The argument is an expression in the parent's scope: substitute the parent's own substitutions first.
                     child_subst.insert(p.name.clone(), subst_expr(&a.value, subst));
                 }
-                *counter += 1;
-                let renamed = rename_component(c, *counter);
-                out.extend(inline_nodes(
-                    &renamed.view,
-                    file,
-                    &child_subst,
-                    counter,
-                    depth + 1,
-                )?);
+                for p in &c.injects {
+                    let Some((_, e)) = ctx.provides.iter().rev().find(|(n, _)| n == &p.name) else {
+                        return err(
+                            "syntax-missing-provide",
+                            format!(
+                                "`{name}` injects `{}`, and nothing above this use provides it: wrap the use in `provide {} = …`",
+                                p.name, p.name
+                            ),
+                            *span,
+                        );
+                    };
+                    child_subst.insert(p.name.clone(), e.clone());
+                }
+                if !children.is_empty() && !c.slot {
+                    return err(
+                        "syntax-no-slot",
+                        format!("`{name}` declares no `slot`, so nothing can be indented under it"),
+                        children[0].span(),
+                    );
+                }
+                // The fill is the use site's: inlined here, in this scope.
+                let fill = if c.slot {
+                    Some(inline_nodes(children, subst, ctx)?)
+                } else {
+                    None
+                };
+                *ctx.counter += 1;
+                let renamed = rename_component(c, *ctx.counter);
+                let outer_fill = std::mem::replace(&mut ctx.fill, fill);
+                ctx.depth += 1;
+                let body = inline_nodes(&renamed.view, &child_subst, ctx);
+                ctx.depth -= 1;
+                ctx.fill = outer_fill;
+                out.extend(body?);
             }
+            Node::Provide {
+                name, expr, body, ..
+            } => {
+                ctx.provides.push((name.clone(), subst_expr(expr, subst)));
+                let inner = inline_nodes(body, subst, ctx);
+                ctx.provides.pop();
+                out.extend(inner?);
+            }
+            Node::Children { span } => match &ctx.fill {
+                Some(fill) => out.extend(fill.iter().cloned()),
+                None => {
+                    return err(
+                        "syntax-children-without-slot",
+                        "`children` belongs in a component that declares `slot`",
+                        *span,
+                    )
+                }
+            },
             Node::Element {
                 tag,
                 positional,
@@ -97,7 +163,7 @@ fn inline_nodes(
                         span: a.span,
                     })
                     .collect(),
-                children: inline_nodes(children, file, subst, counter, depth)?,
+                children: inline_nodes(children, subst, ctx)?,
                 span: *span,
             }),
             Node::When {
@@ -107,8 +173,8 @@ fn inline_nodes(
                 span,
             } => out.push(Node::When {
                 cond: subst_expr(cond, subst),
-                then: inline_nodes(then, file, subst, counter, depth)?,
-                otherwise: inline_nodes(otherwise, file, subst, counter, depth)?,
+                then: inline_nodes(then, subst, ctx)?,
+                otherwise: inline_nodes(otherwise, subst, ctx)?,
                 span: *span,
             }),
             Node::Each {
@@ -121,7 +187,7 @@ fn inline_nodes(
                 var: var.clone(),
                 list: subst_expr(list, subst),
                 key: subst_expr(key, subst),
-                body: inline_nodes(body, file, subst, counter, depth)?,
+                body: inline_nodes(body, subst, ctx)?,
                 span: *span,
             }),
             Node::Match {
@@ -131,11 +197,8 @@ fn inline_nodes(
                 span,
             } => out.push(Node::Match {
                 subject: subst_expr(subject, subst),
-                some: (
-                    some.0.clone(),
-                    inline_nodes(&some.1, file, subst, counter, depth)?,
-                ),
-                none: inline_nodes(none, file, subst, counter, depth)?,
+                some: (some.0.clone(), inline_nodes(&some.1, subst, ctx)?),
+                none: inline_nodes(none, subst, ctx)?,
                 span: *span,
             }),
         }
@@ -242,7 +305,12 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 children: rename_nodes(children, map, n),
                 span: *span,
             },
-            Node::Use { name, args, span } => Node::Use {
+            Node::Use {
+                name,
+                args,
+                children,
+                span,
+            } => Node::Use {
                 name: name.clone(),
                 args: args
                     .iter()
@@ -252,8 +320,21 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                         span: a.span,
                     })
                     .collect(),
+                children: rename_nodes(children, map, n),
                 span: *span,
             },
+            Node::Provide {
+                name,
+                expr,
+                body,
+                span,
+            } => Node::Provide {
+                name: name.clone(),
+                expr: rename_expr(expr, map),
+                body: rename_nodes(body, map, n),
+                span: *span,
+            },
+            Node::Children { span } => Node::Children { span: *span },
             Node::When {
                 cond,
                 then,

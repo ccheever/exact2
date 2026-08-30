@@ -95,15 +95,34 @@ component Caltrain
     // root's background is what a phone paints behind the status bar and
     // the home indicator (the web's rule): the sky's dark, or white.
     main testId="caltrain-main" width="100%" height="100%" background-color=canvasColor
-      when skyOn
-        canvas surface=glass(material, selectedId) width="100%" height="100%" testId="sky"
-          scroll width="100%" height="100%"
-            Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, openStations=openStations, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey)
-      else
-        scroll width="100%" height="100%"
+      // One accent for every card and header below, provided once (LLP 1017 P4a).
+      provide accent = "#c0392b"
+        // The sky or the plain page around the same content, written once:
+        // `Sky` declares a slot and the content is what is indented under it.
+        Sky(on=skyOn, material=material, selectedId=selectedId)
           Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, openStations=openStations, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey)
 
+component Sky
+  props
+    on: bool
+    material: string
+    selectedId: string
+  slot
+  view
+    // The sky is optional (the "Sky off" button): the same content inside
+    // the aurora canvas — captured through its surface, the shader every
+    // frame — or in a plain scroll, to see what each costs on a phone.
+    when on
+      canvas surface=glass(material, selectedId) width="100%" height="100%" testId="sky"
+        scroll width="100%" height="100%"
+          children
+    else
+      scroll width="100%" height="100%"
+        children
+
 component Content
+  inject
+    accent: string
   props
     station: Station
     selectedId: string
@@ -142,7 +161,7 @@ component Content
         row justify-content="space-between" align-items="center"
           column gap=2
             image "assets/caltrain.png" width=96 object-fit="contain" aria-label="A Caltrain train" testId="logo"
-            text "Caltrain" font-size=13 font-weight=700 letter-spacing=1.2 color="#c0392b"
+            text "Caltrain" font-size=13 font-weight=700 letter-spacing=1.2 color=accent
             text station.name font-size=24 font-weight=700 testId="station-name" aria-level=1
             text `${formatDistance(station.distance)} · ${formatWalk(station.distance)}` font-size=12 color="#666666"
           column gap=6 align-items="flex-end"
@@ -166,7 +185,7 @@ component Content
               button press=setMaterial("crt") aria-label="CRT" testId="material-crt"
                 text "CRT" font-size=12 font-weight=600
               button press=toggleDeck aria-label="Deck" testId="deck-toggle"
-                text "Deck" font-size=12 font-weight=600 color="#c0392b"
+                text "Deck" font-size=12 font-weight=600 color=accent
 
       when screen == "home"
         column padding=20 gap=4 height=220 box-sizing="border-box" justify-content="flex-end" testId="aurora"
@@ -225,6 +244,8 @@ component Content
             text "Back" font-size=13
 
 component DirectionCard
+  inject
+    accent: string
   props
     title: string
     board: list<Departure>
@@ -232,7 +253,7 @@ component DirectionCard
     testId: string
   view
     column border-radius=16 padding=16 gap=10 background-color="#ffffffd9" testId=testId
-      text title font-size=13 font-weight=700 color="#c0392b"
+      text title font-size=13 font-weight=700 color=accent
       when isEmpty(board)
         text "No more trains today" font-size=14 color="#666666"
       else

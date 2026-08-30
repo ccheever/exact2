@@ -52,6 +52,13 @@ unknown name, or a name declared differently in both is refused by name);
 anything but a `.contract` path is `contract-no-imports`, as before.
 **Styles.** `style Name` with lines of `attr=literal` (style rows only), applied
 by `class=Name` on a node, the node's own attribute winning (LLP 1017 P6).
+**Composition** (LLP 1017 P4a/b, 2026-08-30): a component may declare `inject`
+(typed names, like `props`) that a use site does not pass — the nearest
+enclosing `provide name = expr` fills them at inlining, the innermost winning,
+none on the path `syntax-missing-provide`; and `slot`, so that the nodes
+indented under a use of it replace its `children` node, inlined in the use
+site's scope (`syntax-no-slot`, `syntax-children-without-slot`). Both are the
+inliner's; nothing reaches the plan.
 
 **Mutations (LLP 1016, decided A, 2026-08-30).** `mutation name as shape
 T` declares an `option<T>` slot, `none` at boot, that only a `send` fills:

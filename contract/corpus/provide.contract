@@ -1,0 +1,19 @@
+// Accept fixture: `provide name = expr` and `inject name: type` (LLP 1017
+// P4a) — a value flows down to every component that asks for it, without a
+// prop at each use; the innermost `provide` wins; the compiler fills it.
+component App
+  state ink = "#112233"
+  view
+    column testId="root"
+      provide accent = ink
+        Label(text="outer")
+        provide accent = "#ff0000"
+          Label(text="inner")
+
+component Label
+  props
+    text: string
+  inject
+    accent: string
+  view
+    text text color=accent testId=`label-${text}`

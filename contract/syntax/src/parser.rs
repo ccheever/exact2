@@ -310,6 +310,8 @@ impl Parser {
         let mut c = Component {
             name,
             props: Vec::new(),
+            injects: Vec::new(),
+            slot: false,
             states: Vec::new(),
             derives: Vec::new(),
             resources: Vec::new(),
@@ -334,10 +336,10 @@ impl Parser {
                     self.next();
                 }
                 TokenKind::Ident(w) => match w.as_str() {
-                    "props" => {
+                    "props" | "inject" => {
                         self.next();
                         self.newline()?;
-                        c.props = self.block(|p| {
+                        let list = self.block(|p| {
                             let (name, span) = p.ident()?;
                             p.expect_punct(":")?;
                             let ty = p.type_expr()?;
@@ -348,6 +350,16 @@ impl Parser {
                                 span,
                             })
                         })?;
+                        if w == "props" {
+                            c.props = list;
+                        } else {
+                            c.injects = list;
+                        }
+                    }
+                    "slot" => {
+                        self.next();
+                        self.newline()?;
+                        c.slot = true;
                     }
                     "state" | "derive" => {
                         let t = self.next();
@@ -630,6 +642,25 @@ impl Parser {
             }
         };
         match word.as_str() {
+            "provide" => {
+                self.next();
+                let (name, _) = self.ident()?;
+                self.expect_punct("=")?;
+                let expr = self.expr()?;
+                self.newline()?;
+                let body = self.block(|p| p.node())?;
+                Ok(Node::Provide {
+                    name,
+                    expr,
+                    body,
+                    span,
+                })
+            }
+            "children" => {
+                self.next();
+                self.newline()?;
+                Ok(Node::Children { span })
+            }
             "when" => {
                 self.next();
                 let cond = self.expr()?;
@@ -714,9 +745,11 @@ impl Parser {
                 self.expect_punct("(")?;
                 let args = self.named_args()?;
                 self.newline()?;
+                let children = self.block(|p| p.node())?;
                 Ok(Node::Use {
                     name: word,
                     args,
+                    children,
                     span,
                 })
             }
@@ -981,6 +1014,10 @@ fn is_keyword(w: &str) -> bool {
             | "else"
             | "style"
             | "from"
+            | "provide"
+            | "children"
+            | "inject"
+            | "slot"
             | "each"
             | "in"
             | "key"

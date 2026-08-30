@@ -316,3 +316,32 @@ component A
   view
     text "a"
 ---
+== syntax-missing-provide
+component App
+  view
+    column
+      Label(text="a")
+component Label
+  props
+    text: string
+  inject
+    accent: string
+  view
+    text text color=accent
+---
+== syntax-no-slot
+component App
+  view
+    column
+      Plain()
+        text "under"
+component Plain
+  view
+    text "plain"
+---
+== syntax-children-without-slot
+component App
+  view
+    column
+      children
+---

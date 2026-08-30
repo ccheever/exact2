@@ -1,0 +1,21 @@
+// Accept fixture: a `slot` component (LLP 1017 P4b) — the nodes indented
+// under a use fill its `children`, inlined in the use site's scope, so a
+// layout is written once and every screen is `Shell(...)` with its content.
+component App
+  state title = "Stations"
+  state n = 2
+  view
+    column testId="root"
+      Shell(title=title)
+        text `${n} trains` testId="body"
+      Shell(title="Empty")
+
+component Shell
+  props
+    title: string
+  slot
+  view
+    column testId=`shell-${title}` gap=8
+      text title font-size=20 font-weight=700 testId=`title-${title}`
+      column padding=8 testId=`content-${title}`
+        children

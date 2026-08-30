@@ -315,6 +315,10 @@ impl Types {
         for (i, p) in c.props.iter().enumerate() {
             names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));
         }
+        for (j, p) in c.injects.iter().enumerate() {
+            let i = c.props.len() + j;
+            names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));
+        }
         for (i, s) in c.states.iter().enumerate() {
             names.push((s.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()));
         }
@@ -673,7 +677,13 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
 fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Result<(), TypeError> {
     for n in nodes {
         match n {
-            Node::Use { name, args, span } => {
+            Node::Use {
+                name,
+                args,
+                children,
+                span,
+            } => {
+                check_uses(children, scope, types, file)?;
                 let Some(target) = file.components.iter().position(|c| &c.name == name) else {
                     return err(
                         "type-unknown-component",
@@ -711,6 +721,11 @@ fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Resu
                 }
             }
             Node::Element { children, .. } => check_uses(children, scope, types, file)?,
+            Node::Provide { expr, body, .. } => {
+                infer(expr, scope, &types.shapes)?;
+                check_uses(body, scope, types, file)?;
+            }
+            Node::Children { .. } => {}
             Node::When {
                 then, otherwise, ..
             } => {
@@ -797,6 +812,16 @@ fn check_component(c: &Component, types: &Types) -> Result<ComponentTypes, TypeE
         };
         ct.props.push(ty);
     }
+    for p in &c.injects {
+        let Some(t) = &p.ty else {
+            return err(
+                "type-inject-untyped",
+                format!("inject `{}` needs a type", p.name),
+                p.span,
+            );
+        };
+        ct.props.push(shapes.resolve(t)?);
+    }
     for r in &c.resources {
         ct.resources.push(shapes.resolve(&r.shape)?);
     }
@@ -812,6 +837,10 @@ fn check_component(c: &Component, types: &Types) -> Result<ComponentTypes, TypeE
             .enumerate()
             .map(|(i, p)| (p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()))
             .collect();
+        for (j, p) in c.injects.iter().enumerate() {
+            let i = c.props.len() + j;
+            names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));
+        }
         for (i, s) in c.states.iter().enumerate() {
             scope.frames_reset(&names);
             let t = infer(&s.expr, &scope, shapes)?;
@@ -961,6 +990,8 @@ fn refine_params_from_view(
 ) -> Result<(), TypeError> {
     for n in nodes {
         match n {
+            Node::Provide { body, .. } => refine_params_from_view(body, scope, c, ct, shapes)?,
+            Node::Children { .. } => {}
             Node::Element {
                 attrs, children, ..
             } => {
@@ -1004,7 +1035,8 @@ fn refine_params_from_view(
                 }
                 refine_params_from_view(children, scope, c, ct, shapes)?;
             }
-            Node::Use { args, .. } => {
+            Node::Use { args, children, .. } => {
+                refine_params_from_view(children, scope, c, ct, shapes)?;
                 for a in args {
                     let _ = a;
                 }
@@ -1160,6 +1192,11 @@ fn check_stmts(
 fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Result<(), TypeError> {
     for n in nodes {
         match n {
+            Node::Provide { expr, body, .. } => {
+                infer(expr, scope, shapes)?;
+                check_view(body, scope, shapes)?;
+            }
+            Node::Children { .. } => {}
             Node::Element {
                 positional,
                 attrs,
@@ -1195,7 +1232,8 @@ fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Result<(), Type
                 }
                 check_view(children, scope, shapes)?;
             }
-            Node::Use { args, .. } => {
+            Node::Use { args, children, .. } => {
+                check_view(children, scope, shapes)?;
                 for a in args {
                     infer(&a.value, scope, shapes)?;
                 }

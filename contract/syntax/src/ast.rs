@@ -89,6 +89,12 @@ pub struct Component {
     pub name: String,
     /// `props` (empty for the root).
     pub props: Vec<Param>,
+    /// `inject` declarations: typed names a use site does not pass — the
+    /// nearest enclosing `provide name = expr` fills them (LLP 1017 P4a).
+    pub injects: Vec<Param>,
+    /// Whether the component declares `slot`: the nodes indented under a use
+    /// of it fill its `children` node (LLP 1017 P4b).
+    pub slot: bool,
     /// `state` declarations.
     pub states: Vec<Binding>,
     /// `derive` declarations.
@@ -262,12 +268,34 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `Name(arg=expr, …)`.
+    /// `Name(arg=expr, …)`, with the nodes indented under it filling the
+    /// component's `slot` (LLP 1017 P4b).
     Use {
         /// The component.
         name: String,
         /// Named arguments.
         args: Vec<Attr>,
+        /// The slot's fill; empty when nothing is indented under the use.
+        children: Vec<Node>,
+        /// Where.
+        span: Span,
+    },
+    /// `provide name = expr` with children: every component used below that
+    /// declares `inject name` reads `expr`, the innermost `provide` winning;
+    /// the compiler fills it at inlining — no runtime lookup (LLP 1017 P4a).
+    Provide {
+        /// The provided name.
+        name: String,
+        /// The value, an expression in the providing scope.
+        expr: Expr,
+        /// The subtree it covers.
+        body: Vec<Node>,
+        /// Where.
+        span: Span,
+    },
+    /// `children` — where a `slot` component's use puts the nodes indented
+    /// under it (LLP 1017 P4b).
+    Children {
         /// Where.
         span: Span,
     },
@@ -314,6 +342,8 @@ impl Node {
         match self {
             Node::Element { span, .. }
             | Node::Use { span, .. }
+            | Node::Provide { span, .. }
+            | Node::Children { span }
             | Node::When { span, .. }
             | Node::Each { span, .. }
             | Node::Match { span, .. } => *span,
