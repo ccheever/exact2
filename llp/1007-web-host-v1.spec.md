@@ -180,6 +180,22 @@ compiler's ≤20 ms slice (1004 D5) holds with no incremental compilation at
 this size. The cold path — `node host/web/build.mjs`, a cargo build of the
 app crate — is 6 s and is no longer the loop.
 
+**The Rust side (2026-08-30).** `dev.mjs` also watches the crates the wasm
+is built from — `kernel`, `plan`, `motion`, `runner`, `host/web`, `gpu`,
+the vendored Taffy, and the app's `data`, `web`, and `gpu` crates (Node's
+own recursive `fs.watch`; `.rs`, `.toml`, `.json`, `.wgsl`, `.js`,
+`.html`; `target/` and `dist/` skipped). An edit there, debounced 200 ms,
+runs the same warm build (`host/web/build.mjs`), restarts the resident
+compiler — its plans must match the new format — and pushes `rebuilt`:
+the page **reloads** rather than restarts in place, since a new wasm is a
+new program and no state carries across it. A build that fails shows its
+errors in the page's overlay, as a contract that fails does, and the page
+keeps the last good wasm. No bundler, on purpose: there is nothing to
+bundle (no app JS, `rules/NOT-DOING.md`), and the day a JavaScript bundle
+exists it is one more built artifact this watch reloads — a bundler then
+is a build step, not the loop. The native apps take the plan push already
+(LLP 1008 §5, §9); a Rust edit there is a new binary, `build.mjs --run`.
+
 ## 7. Building and measuring
 
 `node host/web/build.mjs` — `cargo build --lib --profile web --target

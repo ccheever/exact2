@@ -10,31 +10,7 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
-1. **Land scrolling** (LLP 1010). Staged; the five checks are green on the staged
-   tree; the review round's artifacts (`llp/reviews/1010-scrolling-v1.*`) are in
-   flight in another session.
-2. **Image.** The first replaced element: intrinsic size arrives after decode, the
-   kernel relays out, CSS auto aspect ratio when one dimension is given, `object_fit`
-   on paint (the row exists; no host lowers it). Web first with `<img>` as the sizing
-   oracle, then macOS (`image` nodes draw as boxes today, LLP 1008 §7). Decide where
-   bytes come from: URL, bundled asset, or a resource baked into the plan. Builds the
-   async-measure → relayout path that Linux text needs anyway.
-3. **Agent API follow-ups** (LLP 1012 landed 2026-08-29; `scripts/agent.mjs`,
-   `scripts/smoke.mjs`). Not yet: the
-   macOS app takes focus while a script runs (`.accessory` + no `activate` would
-   not); `screenshot` on macOS misses Metal layers unless `window` is asked for.
-   Two things the first screenshots showed (2026-08-29): `tap scheme-dark` journals
-   `command setScheme("dark")` and changes nothing — neither host executes the
-   runner's commands (`take_commands` has no reader); and at 420 wide the departure
-   rows wrap on macOS ("Limited to San Francisco" → two lines) and on Linux (DejaVu
-   Sans; root 3244 tall there, 3246 on macOS) but not on the web — `layout` on all
-   three would quantify the text-measurement gap.
-4. **Dev loop: every host live from one edit.** Not Vite — there is nothing to bundle
-   (no app JS by rule, 180 lines of glue, no npm deps). What is missing: a Rust-source
-   watch that rebuilds the wasm and pushes a reload, and the same plan push into a
-   running macOS app (`build.mjs --run` per iteration today). Charlie to confirm the
-   shape.
-5. **Linux host follow-ups** (LLP 1015 landed 2026-08-29; r2 the same day: vello on
+1. **Linux host follow-ups** (LLP 1015 landed 2026-08-29; r2 the same day: vello on
    the GPU is the main painter, tiny-skia the fallback and pixel oracle; green on
    `expo-build-1000` (CPU), the minisforum (Vulkan/llvmpipe), and headless on macOS
    (Metal)). The DRM path ran on the minisforum 2026-08-29 (LLP 1015 §6: 1920×1080 @ 60 Hz on
@@ -47,14 +23,14 @@ sits on that list carries the trade it would take.
    §3 — and `smoke linux` is green on a Mac and on the builder); a font cache when a machine's scan (25 ms
    for 787 faces on a Mac) matters; lifting the shared ~120 lines of orchestration
    out of `host/apple` and `host/linux`; one wgpu when vello moves to 30.
-6. **Events beyond `click` and `input`** — hover, keyboard, pointer, focus, on both
+2. **Events beyond `click` and `input`** — hover, keyboard, pointer, focus, on both
    hosts (`glue.js` has two listeners). Gate for selection, gestures (`hold`/`observe`
    reach no page event, LLP 1007 §9), and any real app.
-7. **Text selection.** Free on the web (nothing sets `user-select: none`); none on
+3. **Text selection.** Free on the web (nothing sets `user-select: none`); none on
    macOS (CoreText paints per node, LLP 1008 §7). The hard part is cross-node
    selection, the browser's document model. Host state, like scroll offset, never plan
    state. `Paragraph` keeps its `CTLine`s, so hit-to-index is available. After 6.
-8. **View transitions** (LLP 1013, Draft RFC). Shared elements, heroes, and magic-move
+4. **View transitions** (LLP 1013, Draft RFC). Shared elements, heroes, and magic-move
    the web's way, not RN's: a `view_transition_name` row, an action keyword as the
    boundary, `startViewTransition` on the web, snapshot + host-owned ghost under
    `exact-motion` on macOS, one parity fixture. Identity is by name at the host, so

@@ -111,6 +111,12 @@ try {
   check(moved === 300, `a wheel of 300 over the content scrolled it by ${moved}`);
   check(innerMoved !== pageMoved, `one scroll container takes a wheel: inner moved ${innerMoved}, page moved ${pageMoved}`);
 
+  // 5a. A command (LLP 1005 §3): `setScheme` reaches the host as an op and
+  // sets its colour scheme; the journal records it and the host reports no
+  // error (step 7 reads both). Back to light for the pictures below.
+  await s.tap('scheme-dark');
+  await s.tap('scheme-light');
+
   // 6. The pixels when asked, and the GPU module where the host renders it
   // (a canvas is on the page; headless Chrome has WebGPU).
   if (shot) console.log(JSON.stringify(await s.screenshot(shot)));

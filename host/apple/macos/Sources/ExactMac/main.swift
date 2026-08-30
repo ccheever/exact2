@@ -36,7 +36,10 @@ nonisolated(unsafe) var stamps: [(String, Double)] = []
 func stamp(_ label: String) { stamps.append((label, wall())) }
 let app = NSApplication.shared
 stamp("NSApplication.shared")
-app.setActivationPolicy(.regular)
+// Under a script (LLP 1012) the app is an accessory — no Dock tile, no
+// activation, so a running smoke never takes the focus from whoever is
+// typing; its window is made key for a `type` when one comes (`AgentMac`).
+app.setActivationPolicy(agentMode ? .accessory : .regular)
 stamp("setActivationPolicy")
 let appReadyMs = wall()
 
@@ -81,6 +84,14 @@ func apply(_ batch: Batch) {
 presenter.onPress = { id in apply(Exact.press(id, now: now())) }
 presenter.onChange = { id, value in apply(Exact.change(id, value, now: now())) }
 presenter.onIntrinsic = { id, size in apply(Exact.intrinsic(id, width: size?.width ?? 0, height: size?.height ?? 0)) }
+// The capabilities: `setScheme` is the app's appearance — light or dark, as
+// the web's `color-scheme`; anything else is named and refused.
+presenter.onCommand = { name, args in
+    switch name {
+    case "setScheme": app.appearance = NSAppearance(named: (args.first as? String) == "dark" ? .darkAqua : .aqua)
+    default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
+    }
+}
 
 let size = NSSize(width: 420, height: 860)
 let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -167,13 +178,15 @@ let bootMs = wall()
 stamp("first frame applied")
 window.makeKeyAndOrderFront(nil)
 stamp("makeKeyAndOrderFront")
-app.activate(ignoringOtherApps: true)
+// Under a script: in front regardless, so the window is seen (a covered
+// window's canvases render nothing, LLP 1009 D4) — but never activated.
+if agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
 stamp("activate")
 
 /// Agent mode: the driver owns the process from here — one JSON line in,
-/// one out. `ready` goes out once the window is key (a `type` as the first
-/// request needs the field editor, which needs a key window), or after a
-/// second regardless, so a session never hangs where no window can be key.
+/// one out. `ready` goes out once the first frame is applied and the window
+/// ordered front; an accessory app's window is not key until something
+/// asks, and a `type` asks (`AgentMac`).
 nonisolated(unsafe) var readySent = false
 func agentReady() {
     guard agentMode, !readySent else { return }
@@ -182,7 +195,7 @@ func agentReady() {
     Agent.start()
 }
 if agentMode {
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { agentReady() }
+    DispatchQueue.main.async { agentReady() }
 }
 if smoke {
     print("boot \(String(format: "%.1f", bootMs)) ms; \(presenter.views.count) views; root \(Int(presenter.root.subviews.first?.frame.width ?? 0))x\(Int(presenter.root.subviews.first?.frame.height ?? 0)); error \(boot.error ?? "none")")

@@ -125,6 +125,13 @@ function apply(batch) {
         else (globalThis.exact.pendingSurfaces ??= []).push({ id: op.id, name: op.name, values: op.values });
         break;
       }
+      case "command": {
+        // A capability an action called (LLP 1005 §3). `setScheme` is the
+        // document's colour scheme — what `prefers-color-scheme` would be.
+        if (op.name === "setScheme") document.documentElement.style.colorScheme = String(op.args[0] ?? "");
+        else console.warn(`exact: unknown command ${op.name}`);
+        break;
+      }
       case "destroy": { const el = views.get(op.id); if (el) el.remove(); views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
       case "roots": {
         root.replaceChildren(...op.ids.map((i) => views.get(i)).filter(Boolean));

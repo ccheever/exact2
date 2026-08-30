@@ -43,8 +43,10 @@ kinds), `props` (set/clear), `style` (whole dictionary, when changed),
 the node's frame in its parent's space, only when it changed (the mirror
 compares every node after every layout; a parent that moves under a child
 that did not is caught) — **`content`** (a scroll container's content extent,
-when changed), and **`present`** (a motion property's presentation value,
-each frame the engine changes it). The batch ends with `timers` (the runner
+when changed), **`present`** (a motion property's presentation value,
+each frame the engine changes it), and **`command`** (a capability an
+action called, after its commit — LLP 1005 §3; `setScheme` is the app's
+appearance on macOS, the window's interface style on iOS). The batch ends with `timers` (the runner
 has any) and `motion` (the engine is not quiescent): the presenter runs its
 250 ms clock only for the first and its display link only for the second.
 
@@ -90,6 +92,14 @@ descent + leading; a set line height centers the glyphs in the box; the
 first baseline is reported so Taffy's baseline alignment works; `line_clamp`
 truncates the last line with `…`; min-content is the widest unbreakable
 word. Fonts are cached by (size, weight, italic).
+
+Against the browser, measured 2026-08-30 with `layout` on all three hosts
+at 420 wide: the same departure rows wrap on the web and on macOS (the
+first fits, the next three wrap on both); a two-line row is 32 px in Chrome
+and 31 here — `line-height: normal` for the 13 pt system font is 16 there
+and 15.5 in CoreText, half a pixel a line and nothing else. (On the Linux
+host the font is another — DejaVu Sans, pinned — so its wrapping is its
+own.)
 
 This is exact1's conclusion applied without re-deriving it: measuring with
 CoreText for layout while painting with TextKit was a "dual-engine
@@ -167,7 +177,14 @@ from it with state carried (`exact_boot_plan`, `Runner::carry`) in ~7 ms.
 Swift relink, since `swift build` does not see the Rust archive change —
 a stale link that hid two lanes' changes before it was found. `EXACT_SMOKE=1` prints the boot phases and a summary and exits;
 `EXACT_SHOT=<path>` writes a PNG of the window — the run and the picture
-`host/apple/smoke.mjs` and a reviewer read.
+`host/apple/smoke.mjs` and a reviewer read. Under a script (`EXACT_AGENT=1`)
+the app is an **accessory** — no Dock tile, never activated, its window
+ordered front regardless so it is seen and its canvases render — and takes
+the focus from no one; a `type` makes the window key itself, which does not
+activate the app. The agent's `screenshot` (`cacheDisplay` of the viewport)
+paints every canvas's picture, read back from the module, where a Metal
+layer would otherwise be blank — the same path a capture takes — so the
+sky is in it without asking for `window` (2026-08-30).
 
 ## 6. Building and measuring (`build.mjs`, `smoke.mjs`, `scripts/metrics.mjs --long`)
 

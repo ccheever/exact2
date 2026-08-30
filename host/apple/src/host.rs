@@ -112,6 +112,9 @@ impl<D: DataSource> Host<D> {
         for s in host.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
         }
+        for c in host.runner.take_commands() {
+            batch.command(&c.name, &c.args);
+        }
         // The engine hears the whole tree once: values, no transitions.
         let mut sync = MotionSync::default();
         for id in &order {
@@ -278,6 +281,10 @@ impl<D: DataSource> Host<D> {
         };
         for s in self.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
+        }
+        // The capabilities the actions called, after their commits, in order.
+        for c in self.runner.take_commands() {
+            batch.command(&c.name, &c.args);
         }
         // Motion last, each commit at its own time: targets are in place
         // before the engine hears them, and a transition a timer started is

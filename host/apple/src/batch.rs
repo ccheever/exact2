@@ -142,6 +142,22 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"command","name":…,"args":[…]}` — a capability an action
+    /// called (LLP 1005 §3), for the presenter to execute after the commit.
+    pub fn command(&mut self, name: &str, args: &[exact_plan::Value]) {
+        let mut s = String::from("{\"op\":\"command\",\"name\":");
+        quote(name, &mut s);
+        s.push_str(",\"args\":[");
+        for (i, v) in args.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            value_json(v, &mut s);
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
     /// `{"op":"destroy","id":…}`.
     pub fn destroy(&mut self, id: u32) {
         self.ops.push(format!("{{\"op\":\"destroy\",\"id\":{id}}}"));

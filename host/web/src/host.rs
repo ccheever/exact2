@@ -106,6 +106,9 @@ impl<D: DataSource> Host<D> {
         for s in host.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
         }
+        for c in host.runner.take_commands() {
+            batch.command(&c.name, &c.args);
+        }
         let timers = host.runner.has_timers();
         let clock = host.runner.now_ms();
         Ok((host, batch.finish(timers, clock, None)))
@@ -218,6 +221,9 @@ impl<D: DataSource> Host<D> {
         // from commits that applied.
         for s in self.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
+        }
+        for c in self.runner.take_commands() {
+            batch.command(&c.name, &c.args);
         }
         let timers = self.runner.has_timers();
         batch.finish(timers, self.runner.now_ms(), error)

@@ -11,6 +11,8 @@ function show(message) {
 es.onmessage = async (e) => {
   const m = JSON.parse(e.data);
   if (m.error) { show(m.error); console.error("exact dev:", m.error); return; }
+  // A rebuilt wasm is a new program: the page reloads (no state carried).
+  if (m.rebuilt) { location.reload(); return; }
   show(null);
   if (!globalThis.exact) return;
   const t = performance.now();

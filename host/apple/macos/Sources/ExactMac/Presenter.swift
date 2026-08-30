@@ -531,6 +531,8 @@ final class Presenter {
     var onPress: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
     var onIntrinsic: ((UInt32, CGSize?) -> Void)?
+    /// A capability an action called (LLP 1005 §3), after its commit.
+    var onCommand: ((String, [Any]) -> Void)?
 
     func press(_ id: UInt32) { onPress?(id) }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
@@ -567,6 +569,8 @@ final class Presenter {
                 }
             case "surface":
                 if let v = views[id] { canvases.surface(view: v, name: op["name"] as? String ?? "", values: op["values"] as? [Any] ?? []) }
+            case "command":
+                onCommand?(op["name"] as? String ?? "", op["args"] as? [Any] ?? [])
             case "destroy":
                 canvases.destroy(view: id)
                 views[id]?.forget()

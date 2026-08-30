@@ -141,7 +141,12 @@ conform to the parameters' declared types (`ArgumentType`) and every write to
 its slot's (`SlotType`) — so an authored `width = 1/0` is a typed refusal with
 rollback, never a poisoned runner. An action's `writes` bound `StoreSlot`;
 its commands (`capability-call`) are collected and returned by
-`take_commands()` after commit, in order. Keyed rows use one key rule:
+`take_commands()` after commit, in order — and every host reads them after
+each commit and carries them to its presenter as `command` ops (2026-08-30;
+before that they were journaled and nothing executed them): `setScheme(s)`
+is the host's colour scheme — the document's `color-scheme` on the web,
+`NSAppearance` on macOS, the window's interface style on iOS — and a name
+no presenter knows is refused on its stderr. Keyed rows use one key rule:
 strings, finite numbers (`-0` is `0`), bools; NaN is refused (`KeyKind`).
 
 **Atomicity.** A failure during settlement rolls back the action's slot

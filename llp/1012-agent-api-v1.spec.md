@@ -79,9 +79,11 @@ the Linux host implements this list, not that file):
   on the web every `Animation`'s computed end — and if the timers crossed on
   the way started more, again; sixteen rounds, then `settled: false`. §2.
 - **`screenshot`** is the rendered pixels: `Page.captureScreenshot`, or
-  `cacheDisplay` of the viewport (Metal layers absent), or with `window`
-  the window server's picture (`screencapture -l`, Metal included, needs
-  screen-capture permission).
+  `cacheDisplay` of the viewport with every canvas painting its readback
+  picture (as a capture does; a Metal layer alone would be blank — since
+  2026-08-30), or with `window` the window server's picture
+  (`screencapture -l`, needs screen-capture permission and a display that
+  is on).
 
 **Private messages** are not operations: `focus` (web `type`'s first half),
 `settle` (the engine's end time, read by `clock`), `quit` (macOS stdio), and
@@ -300,9 +302,7 @@ still bore them at the destination — `applyBatch` registers before it
 moves the clock.
 
 **Not in v1:** a drag form of `tap`; keys beyond `type`'s value
-replacement; the macOS app taking focus while a script runs; `screenshot`
-on macOS seeing Metal without `window`; the display link idling under agent
-mode; replaying two timers' writes to one animatable row within a seek;
+replacement; the display link idling under agent mode; replaying two timers' writes to one animatable row within a seek;
 attaching to an already running app (a session is a process; the dev loop
 wants the same resident channel).
 

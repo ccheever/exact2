@@ -25,7 +25,8 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   `cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check` ·
   `node scripts/caps.mjs` · `node scripts/boot.mjs`.
 - The dev loop is `node host/web/dev.mjs`: edit `apps/caltrain/app.contract`, the page
-  restarts from the new plan in ~20 ms. `node scripts/metrics.mjs` prints every number
+  restarts from the new plan in ~20 ms; edit Rust under the wasm's crates, it rebuilds
+  and the page reloads. `node scripts/metrics.mjs` prints every number
   (`--long` adds the macOS build and boot). macOS: `node host/apple/build.mjs --run`;
   iOS: `node host/apple/build.mjs --ios --run` (a simulator; `--sim` or `EXACT_SIM` picks one);
   `--device --run` on a connected iPhone (signed with a team profile on this Mac).

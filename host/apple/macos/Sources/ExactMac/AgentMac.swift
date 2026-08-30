@@ -91,6 +91,9 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
         let text = req["text"] as? String ?? ""
+        // The field editor needs a key window; an accessory app's is not
+        // one until asked (and asking does not activate the app).
+        if !win.isKeyWindow { win.makeKey() }
         win.makeFirstResponder(f)
         guard let editor = f.currentEditor() as? NSTextView else { return ["error": "the field has no editor"] }
         editor.selectAll(nil)
@@ -114,7 +117,11 @@ extension Agent {
         }
         let v = presenter.viewport
         guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return ["error": "no bitmap for the viewport"] }
+        // As a capture: every canvas paints its picture, read back from the
+        // module, where `cacheDisplay` would leave a Metal layer blank.
+        Capture.capturing = true
         v.cacheDisplay(in: v.bounds, to: rep)
+        Capture.capturing = false
         guard let png = rep.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         return ["screenshot": path, "w": r2(v.bounds.width), "h": r2(v.bounds.height)]

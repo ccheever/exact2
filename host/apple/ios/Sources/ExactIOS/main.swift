@@ -259,6 +259,15 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         presenter.onIntrinsic = { id, size in apply(Exact.intrinsic(id, width: size?.width ?? 0, height: size?.height ?? 0)) }
         let w = UIWindow(windowScene: ws)
         w.backgroundColor = .white
+        // The capabilities: `setScheme` is the window's interface style —
+        // light or dark, as the web's `color-scheme`; anything else is
+        // named and refused.
+        presenter.onCommand = { [weak w] name, args in
+            switch name {
+            case "setScheme": w?.overrideUserInterfaceStyle = (args.first as? String) == "dark" ? .dark : .light
+            default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
+            }
+        }
         // The root's background into the safe areas (`Presenter.paintCanvas`).
         presenter.onCanvasColor = { [weak w] color in w?.backgroundColor = color; w?.rootViewController?.view.backgroundColor = color }
         w.rootViewController = Controller()
