@@ -288,12 +288,16 @@ rmSync(tmp, { recursive: true, force: true });
     await d.tap(cards[0].testId);
     st = await d.state();
     check(st.slots.focus === cards[0].testId.slice(5), `a tap on ${cards[0].testId} focused ${JSON.stringify(st.slots.focus)}`);
-    await d.clock('+2000');
+    // One frame of the clock moves the springs, and the reply carries the
+    // new placements (LLP 1014.000 §1c: `clock` settles the canvases — the
+    // nested deck is read back into the sky's capture before the reply, not
+    // when a later redraw happens to ask).
+    await d.clock('+100');
     l = await d.layout();
     if (host === 'macos') {
       const later = l.nodes.filter((n) => n.testId?.startsWith('card-'));
       const moved = later.filter((c, i) => cards[i] && Math.abs(c.y - cards[i].y) > 1).length;
-      check(moved > 0, 'two seconds on, no card moved: the springs did not run on the agent clock');
+      check(moved > 0, 'a tenth of a second on, no card moved: the deck was not read back for the clock (placements refresh late)');
     }
     await d.tap('material-crt');
     st = await d.state();
