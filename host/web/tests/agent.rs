@@ -57,7 +57,9 @@ fn state_is_typed_json_with_field_names() {
         assert!(state.contains(slot), "{slot} in {state}");
     }
     assert!(
-        state.contains("\"derives\":{\"selectedId\":\"mv\"}"),
+        state.contains(
+            "\"derives\":{\"selectedId\":\"mv\",\"skyOn\":true,\"canvasColor\":\"#05081a\"}"
+        ),
         "{state}"
     );
     assert!(

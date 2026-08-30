@@ -105,6 +105,17 @@ fn px(frame: &Pixmap, x: f32, y: f32) -> (u8, u8, u8) {
     (c.red(), c.green(), c.blue())
 }
 
+/// The page's colour: the root's background as the kernel holds it (the
+/// app paints the sky's colour under everything since LLP 1014 §1a; a
+/// fixture with no background is white — never assumed here).
+fn page<D: DataSource>(p: &Presenter<D>) -> (u8, u8, u8) {
+    let id = view(p, "caltrain-main");
+    let c = p.host().kernel().node(id).unwrap().style.background_color;
+    let [r, g, b, a] = exact_linux::paint::rgba(c);
+    assert_eq!(a, 255, "the page is opaque");
+    (r, g, b)
+}
+
 /// The darkest luminance in a box.
 fn darkest(frame: &Pixmap, r: (f32, f32, f32, f32)) -> u32 {
     let mut min = 255 * 3;
@@ -122,7 +133,11 @@ fn backgrounds_land_in_their_boxes_with_their_radii() {
     for choice in painters() {
         let mut p = boot(choice);
         let frame = p.frame();
-        assert_eq!(px(&frame, 2.0, 2.0), (255, 255, 255), "the page is white");
+        assert_eq!(
+            px(&frame, 2.0, 2.0),
+            page(&p),
+            "the page is the root's colour"
+        );
         let button = rect(&mut p, "change-station");
         let (cx, cy) = (button.0 + button.2 / 2.0, button.1 + button.3 / 2.0);
         // Inside the button but off its text: the top-left corner's inset.
@@ -131,11 +146,15 @@ fn backgrounds_land_in_their_boxes_with_their_radii() {
             (238, 238, 238),
             "#eeeeee at {cx},{cy} ({choice:?})"
         );
+        // Radius 8: the corner pixel is whatever lies outside the button —
+        // the panel it sits on — never the button's own colour.
+        let corner = px(&frame, button.0 + 0.5, button.1 + 0.5);
         assert_eq!(
-            px(&frame, button.0 + 0.5, button.1 + 0.5),
-            (255, 255, 255),
-            "radius 8: the corner pixel is outside"
+            corner,
+            px(&frame, button.0 - 1.5, button.1 - 1.5),
+            "radius 8: the corner pixel is outside ({choice:?})"
         );
+        assert_ne!(corner, (238, 238, 238), "the corner is not the button");
         let mut p = compiled(CARD, 1.0, choice);
         let frame = p.frame();
         let card = rect(&mut p, "card");
@@ -256,7 +275,11 @@ fn a_screenshot_is_the_viewport_as_a_png() {
         assert!(reply.ends_with(",\"w\":390,\"h\":844}"), "{reply}");
         let png = Pixmap::load_png(&path).unwrap();
         assert_eq!((png.width(), png.height()), (390, 844));
-        assert_eq!(px(&png, 2.0, 2.0), (255, 255, 255));
+        assert_eq!(
+            px(&png, 2.0, 2.0),
+            page(&p),
+            "the page is the root's colour"
+        );
         let _ = std::fs::remove_file(path);
     }
 }

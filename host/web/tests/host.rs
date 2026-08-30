@@ -69,7 +69,7 @@ fn later_batches_carry_only_what_changed() {
     );
     assert!(batch.contains("\"data-testid\":\"stations-screen\""));
     assert!(batch.contains("\"tag\":\"input\""));
-    assert!(batch.contains("\"handlers\":[\"change\"]"));
+    assert!(batch.contains("\"handlers\":[\"change\",\"focus\",\"blur\",\"key\"]"));
     assert!(batch.contains("\"op\":\"children\",\"id\":"));
     assert!(
         !batch.contains("\"data-testid\":\"caltrain-main\""),
