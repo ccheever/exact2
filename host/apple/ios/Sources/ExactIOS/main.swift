@@ -245,13 +245,21 @@ final class Controller: UIViewController {
         }
     }
 
-    /// Frame the viewport to the safe area or the screen, and — once booted —
-    /// tell the kernel about new insets or a new size.
+    /// Frame the viewport to the safe area or the screen — and, under
+    /// `interactive-widget="resizes-content"`, to the keyboard's top, where
+    /// the bottom inset is the keyboard's and not the home indicator's (the
+    /// web's rule) — and, once booted, tell the kernel about new insets or a
+    /// new size. Called inside the keyboard's animation block, so the frames
+    /// the batch sets animate with the keyboard (LLP 1008 §9).
     func fit() {
         let safe = view.safeAreaInsets
         let cover = presenter.viewportFit == "cover"
-        let frame = cover ? view.bounds : view.bounds.inset(by: safe)
-        let insets = cover ? safe : .zero
+        var frame = cover ? view.bounds : view.bounds.inset(by: safe)
+        var insets = cover ? safe : .zero
+        if presenter.interactiveWidget == "resizes-content", let top = presenter.keyboardTop, top < frame.maxY {
+            frame.size.height = max(0, top - frame.minY)
+            insets.bottom = 0
+        }
         if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
         if let l = fpsLabel { l.frame = CGRect(x: frame.minX, y: frame.minY + safe.top, width: frame.width, height: 26); view.bringSubviewToFront(l) }
         let size = frame.size
@@ -319,6 +327,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // The first root's `viewport-fit` changed (a restart, a prop): the
         // controller frames the viewport again.
         presenter.onViewportFit = { [weak w] in w?.rootViewController?.view.setNeedsLayout() }
+        presenter.onKeyboardResize = { controller?.fit() }
         presenter.observeKeyboard()
         let c = Controller()
         controller = c

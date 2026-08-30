@@ -55,3 +55,31 @@ fn viewport_fit_and_env_lengths_reach_the_kernel_and_follow_the_insets() {
     let note = k.node(id_of(k, "note")).unwrap().frame;
     assert_eq!(note.y + note.height, 874.0 - 34.0 - 16.0);
 }
+
+#[test]
+fn resizes_content_reaches_the_kernel_and_a_bottom_bar_follows_the_viewport() {
+    let plan = contract::compile(&corpus("keyboard-bar.contract")).unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = Runner::boot(plan, NoData, Kernel::with_monospace()).unwrap();
+    let id_of = |k: &Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let (root, bar) = (id_of(r.kernel(), "root"), id_of(r.kernel(), "bar"));
+    let k = r.kernel_mut();
+    assert_eq!(
+        k.node(root).unwrap().props.str(PropId::InteractiveWidget),
+        Some("resizes-content")
+    );
+    // The phone, keyboard down: the bar sits on the home indicator's inset.
+    k.set_env(Env::new(62.0, 0.0, 34.0, 0.0)).unwrap();
+    k.compute_layout(root, Offer::definite(402.0, 874.0))
+        .unwrap();
+    let f = k.node(bar).unwrap().frame;
+    assert_eq!(f.y + f.height, 874.0 - 34.0);
+    // Keyboard up (335): the host offers the viewport above it, the bottom
+    // inset gone — the bar's bottom is the keyboard's top.
+    k.set_env(Env::new(62.0, 0.0, 0.0, 0.0)).unwrap();
+    k.compute_layout(root, Offer::definite(402.0, 874.0 - 335.0))
+        .unwrap();
+    let f = k.node(bar).unwrap().frame;
+    assert_eq!(f.y + f.height, 539.0);
+    assert_eq!(k.node(root).unwrap().frame.height, 539.0);
+}

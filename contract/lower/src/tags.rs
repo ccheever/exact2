@@ -175,6 +175,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // (LLP 1008 §9): the layout viewport becomes the whole screen and
         // `env(safe-area-inset-*)` lengths carry the insets.
         "viewport-fit" => AttrTarget::Prop(p("viewportFit")),
+        // The viewport meta's `interactive-widget`, read from the first root
+        // (LLP 1008 §9): `resizes-content` shrinks the layout viewport to a
+        // software keyboard's top, so what is pinned to the bottom rises with
+        // it; the default, `resizes-visual`, insets the viewport instead.
+        "interactive-widget" => AttrTarget::Prop(p("interactiveWidget")),
         "value" => AttrTarget::Prop(p("value")),
         "href" => AttrTarget::Prop(p("href")),
         "disabled" => AttrTarget::Prop(p("disabled")),
@@ -310,6 +315,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "headingLevel" => "aria-level",
         "inputMode" | "keyboardType" => "inputmode",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
+        "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",
         "onChange" | "onChangeText" => "change",

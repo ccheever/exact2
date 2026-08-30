@@ -459,5 +459,45 @@ rmSync(tmp, { recursive: true, force: true });
   rmSync(tmp, { recursive: true, force: true });
 }
 
+// 13. `interactive-widget="resizes-content"` (LLP 1008 §9, the keyboard-bar
+// fixture): the layout viewport ends at the keyboard's top, so a bar pinned
+// to the bottom of the root rises with it and the bottom safe-area inset is
+// the keyboard's — zero — while it is up; the dismiss brings everything back.
+// Where no keyboard exists nothing moves.
+{
+  const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
+  const plan = resolve(tmp, 'keyboard-bar.plan');
+  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/keyboard-bar.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  if (c.status !== 0) failures.push('the keyboard-bar fixture did not compile: ' + c.stderr);
+  else {
+    const f = await open({ host, plan });
+    try {
+      let l = await f.layout();
+      const viewport0 = l.viewport, bottom0 = l.env['safe-area-inset-bottom'];
+      const bar0 = box(l, 'bar');
+      check(bar0 && Math.abs(bar0.y + bar0.h - (l.viewport.h - bottom0)) < 0.01, `the bar sits on the bottom inset: ${JSON.stringify(bar0)} in ${JSON.stringify(l.viewport)}, inset ${bottom0}`);
+      await f.type('note', 'hi');
+      let kb = 0;
+      for (let i = 0; i < 40; i++) { l = await f.layout(); kb = l.env['keyboard-inset-height']; if (host !== 'ios' || kb > 0) break; await sleep(50); }
+      const bar = box(l, 'bar');
+      if (host === 'ios') {
+        check(kb > 100, `the software keyboard rose: keyboard-inset-height ${kb}`);
+        check(Math.abs(l.viewport.h - (viewport0.h - kb)) < 0.01 && box(l, 'root').h === l.viewport.h, `the layout viewport ends at the keyboard: ${JSON.stringify(l.viewport)} (was ${JSON.stringify(viewport0)}, keyboard ${kb}), root ${JSON.stringify(box(l, 'root'))}`);
+        check(l.env['safe-area-inset-bottom'] === 0, `the bottom inset is the keyboard's while it is up: ${l.env['safe-area-inset-bottom']}`);
+        check(bar && Math.abs(bar.y + bar.h - l.viewport.h) < 0.01 && bar.y < bar0.y, `the bar rides on the keyboard: ${JSON.stringify(bar)} in ${l.viewport.h} (was ${JSON.stringify(bar0)})`);
+        console.log(`${host} keyboard bar: the viewport ${viewport0.h} → ${l.viewport.h} under a keyboard of ${kb}; the bar's bottom ${bar0.y + bar0.h} → ${bar.y + bar.h}`);
+      } else {
+        check(kb === 0 && l.viewport.h === viewport0.h && bar.y === bar0.y, `no software keyboard here: ${JSON.stringify(l.viewport)}, the bar at ${bar.y} (was ${bar0.y})`);
+      }
+      await f.tap('dismiss');
+      for (let i = 0; i < 40; i++) { l = await f.layout(); if (l.env['keyboard-inset-height'] === 0) break; await sleep(50); }
+      check(l.viewport.h === viewport0.h && l.env['safe-area-inset-bottom'] === bottom0 && box(l, 'bar').y === bar0.y, `after the keyboard went everything is back: ${JSON.stringify(l.viewport)}, inset ${l.env['safe-area-inset-bottom']}, the bar at ${box(l, 'bar').y} (was ${bar0.y})`);
+    } finally {
+      await f.close();
+    }
+  }
+  rmSync(tmp, { recursive: true, force: true });
+}
+
 console.log(`${host} smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 if (failures.length) { for (const f of failures) console.error('  ' + f); process.exit(1); }

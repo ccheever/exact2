@@ -608,6 +608,15 @@ final class Presenter {
     /// last batch; `onViewportFit` fires when it changes.
     private(set) var viewportFit: String?
     var onViewportFit: (() -> Void)?
+    /// The first root's `interactiveWidget` prop: `resizes-content` ends the
+    /// layout viewport at the keyboard's top (the controller lays out again,
+    /// inside the keyboard's animation, so every frame that moves moves with
+    /// it); anything else is the default, `resizes-visual` — the inset below.
+    private(set) var interactiveWidget: String?
+    /// The keyboard's top edge in the window while one is shown, else nil.
+    private(set) var keyboardTop: CGFloat?
+    /// The controller's: frame the viewport again (`Controller.fit`).
+    var onKeyboardResize: (() -> Void)?
     /// The safe-area insets the kernel was given (LLP 1008 §9): the
     /// screen's under `viewport-fit=cover`, zero when the viewport is the
     /// safe area itself. Reported to the agent as `env`.
@@ -642,17 +651,30 @@ final class Presenter {
         // The keyboard's frame is the screen's; the viewport's, the window's.
         let keyboard = window.convert(end, from: window.screen.coordinateSpace)
         let frame = parent.convert(viewport.frame, to: window)
-        let overlap = hiding ? 0 : min(max(0, frame.maxY - max(keyboard.minY, frame.minY)), frame.height)
+        let shown = !hiding && keyboard.minY < window.bounds.maxY
+        keyboardTop = shown ? keyboard.minY : nil
+        let overlap = shown ? min(max(0, frame.maxY - max(keyboard.minY, frame.minY)), frame.height) : 0
         let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
         let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
-        // Under the agent (LLP 1012) the inset applies at once, as the
+        let change = {
+            if self.interactiveWidget == "resizes-content" {
+                // The layout viewport ends at the keyboard: the controller
+                // frames the viewport and the kernel lays out again, the
+                // frames that move set inside this block — Core Animation
+                // moves them with the keyboard's own curve, in its transaction.
+                self.keyboardInset = overlap
+                self.onKeyboardResize?()
+                self.reveal(self.editing ?? self.views.values.first { $0.field?.isFirstResponder == true })
+            } else {
+                self.setKeyboardInset(overlap)
+            }
+        }
+        // Under the agent (LLP 1012) the change applies at once, as the
         // agent's wheel scrolls at once: its world is settled between calls,
         // and UIKit hit-tests a scroll view at its presentation offset while
         // the keyboard's spring is still settling — a tap there would miss.
-        if agentMode { setKeyboardInset(overlap); return }
-        UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState]) {
-            self.setKeyboardInset(overlap)
-        }
+        if agentMode { change(); return }
+        UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState], animations: change)
     }
 
     func setKeyboardInset(_ h: CGFloat) {
@@ -836,7 +858,9 @@ final class Presenter {
         }
         fitDocument()
         paintCanvas()
-        let fit = (root.subviews.first as? NodeView)?.props["viewportFit"]
+        let first = root.subviews.first as? NodeView
+        interactiveWidget = first?.props["interactiveWidget"]
+        let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         canvases.captureIfNeeded()
     }

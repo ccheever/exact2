@@ -158,12 +158,15 @@ bare `<div>` would not have (`body` margin; `button`/`input` UA styles),
 because the kernel's defaults are already CSS's.
 
 **The page's environment (2026-08-30).** The viewport meta follows the first
-root's `viewportFit` prop (`syncViewportFit`, on every `roots` op and on a
-change of the prop): `cover` appends `viewport-fit=cover`, so the page lays
-out under a phone's status bar and home indicator and the CSS's
-`env(safe-area-inset-*)` carry the insets — Safari re-reads the meta when its
-content changes. The keyboard is the browser's: the layout viewport stays,
-the visual viewport shrinks, the focused field is scrolled into it. The
+root's `viewportFit` and `interactiveWidget` props (`syncViewportFit`, on
+every `roots` op and on a change of either): `cover` appends
+`viewport-fit=cover`, so the page lays out under a phone's status bar and
+home indicator and the CSS's `env(safe-area-inset-*)` carry the insets;
+`resizes-content` appends `interactive-widget=resizes-content`, so Chrome
+shrinks the layout viewport to the keyboard (Safari knows only the default)
+— Safari re-reads the meta when its content changes. The keyboard is the
+browser's: by default the layout viewport stays, the visual viewport
+shrinks, the focused field is scrolled into it. The
 agent's `layout` reports both as `env` (LLP 1012 §1): the insets read off a
 hidden element padded by `env()`, `keyboard-inset-height` as `innerHeight`
 less the visual viewport's height (zero on a desktop).

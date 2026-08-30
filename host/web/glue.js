@@ -52,17 +52,21 @@ function applyProps(el, set, clear) {
       el.setAttribute(name, value);
     }
   }
-  if ((set && "viewportFit" in set) || clear?.includes("viewportFit")) syncViewportFit();
+  if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
 }
 
-// The viewport meta follows the first root's `viewport-fit` (LLP 1008 §9):
-// `cover` lays the page out under a phone's status bar and home indicator,
-// and `env(safe-area-inset-*)` in the CSS carry the insets. Safari re-reads
-// the meta when its content changes.
+// The viewport meta follows the first root's `viewport-fit` and
+// `interactive-widget` (LLP 1008 §9): `cover` lays the page out under a
+// phone's status bar and home indicator, and `env(safe-area-inset-*)` in the
+// CSS carry the insets; `resizes-content` shrinks the layout viewport to the
+// software keyboard (Chrome; Safari knows only the default, the visual
+// viewport). Safari re-reads the meta when its content changes.
 function syncViewportFit() {
-  const cover = root.firstElementChild?.getAttribute("viewportFit") === "cover";
+  const first = root.firstElementChild;
+  const cover = first?.getAttribute("viewportFit") === "cover";
+  const widget = first?.getAttribute("interactiveWidget");
   const meta = document.querySelector('meta[name="viewport"]');
-  const want = "width=device-width, initial-scale=1" + (cover ? ", viewport-fit=cover" : "");
+  const want = "width=device-width, initial-scale=1" + (cover ? ", viewport-fit=cover" : "") + (widget ? `, interactive-widget=${widget}` : "");
   if (meta && meta.content !== want) meta.content = want;
 }
 

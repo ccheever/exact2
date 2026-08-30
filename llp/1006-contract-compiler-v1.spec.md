@@ -56,11 +56,13 @@ by `class=Name` on a node, the node's own attribute winning (LLP 1017 P6).
 length — `padding-top="env(safe-area-inset-top)"`,
 `margin-bottom="calc(env(safe-area-inset-bottom) + 12px)"` — passed as text by
 the runner's bridge and parsed by the kernel (LLP 1001 §2; any other text on a
-dimension row is refused at boot, so at bake). `viewport-fit="cover"` is an
-attribute (the viewport meta's key, spelled as the web spells it; `viewportFit`
-and `safeArea` in the did-you-mean) lowering to the `viewportFit` prop, which a
-host reads from the first root (LLP 1008 §9, LLP 1007 §4).
-`contract/corpus/insets.contract`, `tests/insets.rs`.
+dimension row is refused at boot, so at bake). `viewport-fit="cover"` and
+`interactive-widget="resizes-content"` are attributes (the viewport meta's
+keys, spelled as the web spells them; `viewportFit`, `safeArea`,
+`keyboardAvoidingView` in the did-you-mean) lowering to the `viewportFit` and
+`interactiveWidget` props, which a host reads from the first root (LLP 1008
+§9, LLP 1007 §4). `contract/corpus/insets.contract`,
+`contract/corpus/keyboard-bar.contract`, `tests/insets.rs`.
 **Composition** (LLP 1017 P4a/b, 2026-08-30): a component may declare `inject`
 (typed names, like `props`) that a use site does not pass — the nearest
 enclosing `provide name = expr` fills them at inlining, the innermost winning,

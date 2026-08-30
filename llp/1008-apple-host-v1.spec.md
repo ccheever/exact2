@@ -428,9 +428,31 @@ node with a `focus` handler resigns the field and the keyboard goes.
 on every host (the keyboard on iOS only; a simulator device shows one only
 with *Connect Hardware Keyboard* off in Simulator's I/O › Keyboard menu —
 `DevicePreferences.<udid>.ConnectHardwareKeyboard` in
-`com.apple.iphonesimulator`, which the smoke does not set). Not built: the
-web's `interactive-widget=resizes-content` (the layout viewport shrinking, a
-relayout per keyboard change) and `env(keyboard-inset-*)`.
+`com.apple.iphonesimulator`, which the smoke does not set).
+
+**`interactive-widget="resizes-content"` (2026-08-30, the same day).** The
+web's opt-in for what the default cannot do — a bar pinned to the bottom
+that rides on the keyboard (Chrome Android's mode; Safari has none): the
+layout viewport ends at the keyboard's top. When the first root's
+`interactiveWidget` prop says so, `keyboardChanged` does not inset; it
+records the keyboard's top and, *inside the keyboard's animation block*,
+has `Controller.fit` frame the viewport to end there with the bottom
+safe-area inset zeroed (the keyboard's edge has none — the web's reading)
+and send `exact_insets` and `exact_resize`; the batch's frame ops are set
+inside that block, so every frame that moves is a Core Animation move with
+the keyboard's own duration and curve, in the keyboard's transaction — the
+bar, the form above it, the shrunken column — one layout, nothing per
+frame. A container whose height animates stretches its own bitmap for the
+duration (`contentMode = .redraw` repaints once, at the new size); a solid
+background does not show it, text nodes keep their size and translate. The
+field being edited is revealed after, through the scroll containers above
+it. `layout` then reports the shrunken viewport (as `innerHeight` shrinks
+under this mode in Chrome) and the keyboard's overlap as
+`keyboard-inset-height` still. `contract/corpus/keyboard-bar.contract` and
+the smoke's step 13: the iPhone 17 Pro simulator's viewport 874 → 539 under
+a 335 keyboard, the bar's bottom 840 → 539, the bottom inset 34 → 0, all
+back on dismiss; Weird Castle's root uses it, with a yellow bar under its
+screens. Not built: `env(keyboard-inset-*)`, the `overlays-content` mode.
 
 **The agent (LLP 1012) on iOS.** A simulator app has no stdin, so
 `EXACT_AGENT=1` with `EXACT_AGENT_SOCKET=<path>` listens on a Unix socket
