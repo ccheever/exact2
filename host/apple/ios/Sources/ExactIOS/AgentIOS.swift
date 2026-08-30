@@ -79,7 +79,12 @@ extension Agent {
             if let sv = v.scroll { n["sx"] = r2(sv.contentOffset.x); n["sy"] = r2(sv.contentOffset.y) }
             nodes.append(n)
         }
-        return ["clock": now(), "viewport": ["w": r2(vp.bounds.width), "h": r2(vp.bounds.height)], "nodes": nodes]
+        // The page's environment (LLP 1012 §1): the insets the kernel was
+        // given, and the keyboard's inset on the viewport, by the web's
+        // `env()` names.
+        let i = presenter.insets
+        let env: [String: Any] = ["safe-area-inset-top": r2(i.top), "safe-area-inset-right": r2(i.right), "safe-area-inset-bottom": r2(i.bottom), "safe-area-inset-left": r2(i.left), "keyboard-inset-height": r2(presenter.keyboardInset)]
+        return ["clock": now(), "viewport": ["w": r2(vp.bounds.width), "h": r2(vp.bounds.height)], "env": env, "nodes": nodes]
     }
 
     static func view(_ req: [String: Any]) -> NodeView? {
@@ -113,6 +118,16 @@ extension Agent {
         }
         var n: UIView? = hit
         while let cur = n, !(cur is NodeView) { n = cur.superview }
+        // What a touch up does first (`NodeView.touchesEnded`, up the
+        // responder chain): the nearest node that takes the focus takes it
+        // — an input's field, a node with a focus/blur/key handler — and
+        // whatever had it (a field, and the keyboard with it) lets go.
+        var f: UIView? = n
+        while let cur = f {
+            if let node = cur as? NodeView, let field = node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; break }
+            if cur.canBecomeFirstResponder { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; break }
+            f = cur.superview
+        }
         (n as? NodeView)?.activate(at: p)
         return ["tapped": Int(v.id), "at": at]
     }

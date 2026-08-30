@@ -46,6 +46,9 @@ const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
 const t0 = Date.now();
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
+// The app's viewport (step 2): the safe area on a phone, which step 12's
+// full-bleed fixture grows by the insets.
+let appViewport;
 
 check(transcript() === readFileSync(pinned, 'utf8'), 'the transcript form drifted from scripts/fixtures/transcript.txt (a deliberate change: node scripts/smoke.mjs --record)');
 
@@ -62,6 +65,7 @@ try {
   // (the block rule for a root), and the image is laid out from its natural
   // size once it has loaded — 320×120 at width 96 is 96×36.
   let layout = await s.layout();
+  appViewport = layout.viewport;
   const root = box(layout, 'caltrain-main');
   check(root?.w === layout.viewport.w, `the root is ${root?.w} wide in a ${layout.viewport.w} viewport`);
   let logo = box(layout, 'logo');
@@ -389,6 +393,68 @@ rmSync(tmp, { recursive: true, force: true });
     check(oneShot[0] === 75 && oneShot[1] === 100, `one seek to 1250 then 1500 across the timer: ${oneShot.join(', ')} (expected 75, 100)`);
     check(stepwise[0] === 50 && stepwise[1] === 75 && stepwise[2] === 100, `stepping 1000, 1250, 1500: ${stepwise.join(', ')} (expected 50, 75, 100)`);
     console.log(`${host} motion: linear 75 at 125 ms, spring in flight, settle a fixed point; across the timer one seek = steps (${oneShot.join('/')} vs ${stepwise.slice(1).join('/')})`);
+  }
+  rmSync(tmp, { recursive: true, force: true });
+}
+
+// 12. The page's environment (LLP 1008 §9, the insets fixture): a root that
+// says `viewport-fit="cover"` is laid out to the whole screen, its content
+// kept out of the safe areas by `env(safe-area-inset-*)` lengths — on a
+// phone the viewport is the app's (step 2, the safe area) plus the insets;
+// everywhere else the insets are zero and nothing moves. Focusing the input
+// at the bottom: on iOS the software keyboard rises, the viewport insets
+// itself by the keyboard's height and reveals the field above it, the layout
+// viewport untouched — a browser's visual viewport; a tap on the dismiss
+// button takes the focus, and the keyboard goes. `layout.env` reports both,
+// by the web's `env()` names, on every host.
+{
+  const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
+  const plan = resolve(tmp, 'insets.plan');
+  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/insets.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  if (c.status !== 0) failures.push('the insets fixture did not compile: ' + c.stderr);
+  else {
+    const f = await open({ host, plan });
+    try {
+      let l = await f.layout();
+      const env = l.env ?? {};
+      const names = ['safe-area-inset-top', 'safe-area-inset-right', 'safe-area-inset-bottom', 'safe-area-inset-left', 'keyboard-inset-height'];
+      check(names.every((k) => typeof env[k] === 'number'), `layout.env is ${JSON.stringify(l.env)}`);
+      const [top, right, bottom, left] = names.map((k) => env[k] ?? 0);
+      const viewport0 = l.viewport;
+      const rootBox = box(l, 'root'), content = box(l, 'content');
+      check(rootBox && rootBox.w === l.viewport.w && rootBox.h === l.viewport.h, `a cover root fills the viewport: ${JSON.stringify(rootBox)} in ${JSON.stringify(l.viewport)}`);
+      check(content && content.x === left && content.y === top && Math.abs(content.w - (l.viewport.w - left - right)) < 0.01 && Math.abs(content.h - (l.viewport.h - top - bottom)) < 0.01, `the content keeps out of the insets: ${JSON.stringify(content)} for env ${JSON.stringify(env)} in ${JSON.stringify(l.viewport)}`);
+      check(appViewport && Math.abs(l.viewport.h - (appViewport.h + top + bottom)) < 0.01 && Math.abs(l.viewport.w - (appViewport.w + left + right)) < 0.01, `a cover root's viewport is the app's plus the insets: ${JSON.stringify(l.viewport)} vs ${JSON.stringify(appViewport)} + ${top}/${right}/${bottom}/${left}`);
+      if (host === 'ios') check(top > 0 && bottom > 0, `a phone reports its status bar and home indicator: ${top}, ${bottom}`);
+      else check(top === 0 && right === 0 && bottom === 0 && left === 0, `no safe area here: ${JSON.stringify(env)}`);
+      // The keyboard: typing focuses the field at the bottom.
+      const noteBefore = box(l, 'note');
+      await f.type('note', 'hi');
+      let st = await f.state();
+      // (The Linux host's `type` sets the field without focusing it, as step 4a notes.)
+      check(st.slots.note === 'hi' && (host === 'linux' || st.slots.focused === true), `typing focused the field and set it: ${JSON.stringify(st.slots)}`);
+      let kb = 0;
+      for (let i = 0; i < 40; i++) { l = await f.layout(); kb = l.env['keyboard-inset-height']; if (host !== 'ios' || kb > 0) break; await sleep(50); }
+      const note = box(l, 'note');
+      check(l.viewport.h === viewport0.h && box(l, 'root').h === rootBox.h, `the layout viewport does not change for a keyboard: ${JSON.stringify(l.viewport)}, root ${JSON.stringify(box(l, 'root'))}`);
+      if (host === 'ios') {
+        check(kb > 100, `the software keyboard rose on the simulator: keyboard-inset-height ${kb} (Simulator › I/O › Keyboard › Connect Hardware Keyboard hides it)`);
+        check(note.y + note.h <= l.viewport.h - kb + 0.01 && note.y < noteBefore.y, `the field is revealed above the keyboard: ${JSON.stringify(note)} under a keyboard of ${kb} in ${l.viewport.h}; before ${JSON.stringify(noteBefore)}`);
+        console.log(`${host} insets: safe area ${top}/${right}/${bottom}/${left}, the viewport ${l.viewport.w}×${l.viewport.h}; the keyboard ${kb} revealed the field at y ${note.y} (was ${noteBefore.y})`);
+      } else {
+        check(kb === 0 && note.y === noteBefore.y, `no software keyboard here: keyboard-inset-height ${kb}, the field at ${note.y} (was ${noteBefore.y})`);
+        console.log(`${host} insets: env ${JSON.stringify(env)}; the viewport ${l.viewport.w}×${l.viewport.h}; no keyboard`);
+      }
+      // Dismiss: the button takes the focus (it has a focus handler), the
+      // field blurs, the keyboard goes, and the field is where it was.
+      await f.tap('dismiss');
+      st = await f.state();
+      check(st.slots.focused === false, `the dismiss button took the focus: ${JSON.stringify(st.slots)}`);
+      for (let i = 0; i < 40; i++) { l = await f.layout(); if (l.env['keyboard-inset-height'] === 0) break; await sleep(50); }
+      check(l.env['keyboard-inset-height'] === 0 && box(l, 'note').y === noteBefore.y, `after the keyboard went the field is back: keyboard ${l.env['keyboard-inset-height']}, the field at ${box(l, 'note').y} (was ${noteBefore.y})`);
+    } finally {
+      await f.close();
+    }
   }
   rmSync(tmp, { recursive: true, force: true });
 }

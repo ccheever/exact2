@@ -171,6 +171,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // HTML's attribute is `inputmode`; the kernel's prop keeps the DOM
         // property's spelling, as the schema does for every prop.
         "inputmode" => AttrTarget::Prop(p("inputMode")),
+        // The viewport meta's `viewport-fit=cover`, read from the first root
+        // (LLP 1008 §9): the layout viewport becomes the whole screen and
+        // `env(safe-area-inset-*)` lengths carry the insets.
+        "viewport-fit" => AttrTarget::Prop(p("viewportFit")),
         "value" => AttrTarget::Prop(p("value")),
         "href" => AttrTarget::Prop(p("href")),
         "disabled" => AttrTarget::Prop(p("disabled")),
@@ -305,6 +309,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "hint" | "accessibilityHint" => "aria-description",
         "headingLevel" => "aria-level",
         "inputMode" | "keyboardType" => "inputmode",
+        "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",
         "onChange" | "onChangeText" => "change",

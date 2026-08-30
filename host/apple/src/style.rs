@@ -3,14 +3,16 @@
 //! @ref LLP 1008 §2
 //!
 //! Every set row of a node becomes one entry, read through the kernel's
-//! generated `StyleProps::get`: dimensions as numbers in points, `"auto"`, or
+//! generated `StyleProps::get`: dimensions as numbers in points (an `env()`
+//! length resolved against the kernel's environment — the presenter sees
+//! points, and a change of the insets re-sends the dictionary), `"auto"`, or
 //! `{"pct": n}`; colors as `[r,g,b,a]` bytes; enums as their CSS spelling;
 //! `vec2` as `[x,y]`; numbers as numbers. The four motion targets
 //! (`translate`, `scale`, `rotate`, `opacity`) are left out: a presenter
 //! applies their *presentation* values from `present` ops, never the style.
 //! Rows a presenter cannot use yet are named, not guessed.
 
-use exact_kernel::{Dimension, NodeRef, Overflow, RowValue, StyleId, StyleProps};
+use exact_kernel::{Dimension, Env, NodeRef, Overflow, RowValue, StyleId, StyleProps};
 use std::fmt::Write as _;
 
 /// A row this host does not lower (and why).
@@ -24,17 +26,18 @@ pub struct Skipped {
 
 /// The style dictionary for a node's set rows, as a JSON object, plus what
 /// was skipped.
-pub fn style_json(style: &StyleProps) -> (String, Vec<Skipped>) {
+pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
     let mut out = String::from("{");
     let mut skipped = Vec::new();
     let mut first = true;
     for id in style.mask.iter() {
         let name = id.name();
         let value = match style.get(id) {
-            RowValue::Dimension(d) => match d {
+            RowValue::Dimension(d) => match d.resolve(env) {
                 Dimension::Auto => "\"auto\"".to_string(),
                 Dimension::Points(p) => num(p),
                 Dimension::Percent(p) => format!("{{\"pct\":{}}}", num(p)),
+                Dimension::Env(..) => unreachable!("resolved"),
             },
             RowValue::Color(c) => format!("[{},{},{},{}]", c.r(), c.g(), c.b(), c.a()),
             RowValue::Enum(e) => format!("\"{e}\""),
@@ -95,8 +98,8 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
 /// The style dictionary with the effective overflow written in when it is
 /// not `visible` — a derived value the presenter must see even when no row
 /// is set.
-pub fn style_json_for(node: &NodeRef<'_>) -> (String, Vec<Skipped>) {
-    let (mut json, skipped) = style_json(node.style);
+pub fn style_json_for(node: &NodeRef<'_>, env: &Env) -> (String, Vec<Skipped>) {
+    let (mut json, skipped) = style_json(node.style, env);
     let (x, y) = effective_overflow(node);
     let name = |o: Overflow| match o {
         Overflow::Visible => "visible",

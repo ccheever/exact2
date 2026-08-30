@@ -79,6 +79,11 @@ uint32_t exact_pump(double now_ms);
 uint32_t exact_dispatch(uint32_t view, uint32_t kind, size_t len, double now_ms);
 uint32_t exact_advance(double now_ms);   /* the runner's clock: timers */
 uint32_t exact_resize(float width, float height);
+/* The safe-area insets (points) under viewport-fit=cover — what
+ * env(safe-area-inset-*) resolves to; zero when the layout viewport is the
+ * safe area itself. A change re-sends the style of every node that reads
+ * them and lays out again. */
+uint32_t exact_insets(float top, float right, float bottom, float left);
 uint32_t exact_tick(double now_ms);      /* a motion frame, only while "motion" is true */
 /* An image node loaded: its bitmap's pixel counts, taken one-for-one as
  * points (never divided by the backing scale — the web without srcset); a

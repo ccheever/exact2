@@ -51,8 +51,8 @@ pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use props::{PropList, PropValue};
 pub use style::{
-    Color, Dimension, GridLine, GridPlacement, GridTrack, GridTracks, RowValue, StyleValue,
-    Transitions, Vec2,
+    uses_env, Color, Dimension, Edge, Env, GridLine, GridPlacement, GridTrack, GridTracks,
+    RowValue, StyleValue, Transitions, Vec2,
 };
 pub use text::{
     MonospaceMeasurer, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle,

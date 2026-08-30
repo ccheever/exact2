@@ -8,7 +8,7 @@
 use crate::error::DecodeError;
 use crate::generated::{StyleId, StyleMask, STYLE_MASK_WORDS};
 use crate::style::{
-    Color, Dimension, GridLine, GridPlacement, GridTrack, GridTracks, Transitions, Vec2,
+    Color, Dimension, Edge, GridLine, GridPlacement, GridTrack, GridTracks, Transitions, Vec2,
     MAX_GRID_TRACKS,
 };
 use exact_motion::easing::MAX_LINEAR_STOPS;
@@ -133,7 +133,9 @@ impl<'a> Reader<'a> {
         std::str::from_utf8(bytes).map_err(|_| DecodeError::InvalidUtf8)
     }
 
-    /// Read a dimension: kind byte (0 auto, 1 points, 2 percent) then `f32`.
+    /// Read a dimension: kind byte (0 auto, 1 points, 2 percent, 3–6 an
+    /// `env()` length at the top/right/bottom/left safe-area inset) then
+    /// `f32` (the points added to an inset).
     pub fn dimension(
         &mut self,
         style: StyleId,
@@ -150,6 +152,7 @@ impl<'a> Reader<'a> {
             }
             1 => Dimension::Points(value),
             2 => Dimension::Percent(value),
+            3..=6 => Dimension::Env(Edge::from_index(kind - 3).expect("3..=6 is an edge"), value),
             other => return Err(DecodeError::UnknownDimensionKind(other)),
         };
         if kind != 0 && !value.is_finite() {
@@ -416,6 +419,10 @@ impl Writer {
                 self.u8(1);
                 self.f32(v);
             }
+            Dimension::Env(edge, v) => {
+                self.u8(3 + edge as u8);
+                self.f32(v);
+            }
             Dimension::Percent(v) => {
                 self.u8(2);
                 self.f32(v);
@@ -577,6 +584,29 @@ mod tests {
                 needed: 4,
                 available: 3
             })
+        );
+    }
+
+    #[test]
+    fn env_lengths_round_trip_by_edge() {
+        let mut w = Writer::new();
+        for (i, edge) in Edge::ALL.iter().enumerate() {
+            w.dimension(Dimension::Env(*edge, i as f32 * 1.5));
+        }
+        let bytes = w.into_vec();
+        assert_eq!(bytes[0], 3, "top is kind 3");
+        assert_eq!(bytes[15], 6, "left is kind 6");
+        let mut r = Reader::new(&bytes);
+        for (i, edge) in Edge::ALL.iter().enumerate() {
+            assert_eq!(
+                r.dimension(StyleId::PaddingTop, false),
+                Ok(Dimension::Env(*edge, i as f32 * 1.5))
+            );
+        }
+        let mut r = Reader::new(&[7u8, 0, 0, 0, 0]);
+        assert_eq!(
+            r.dimension(StyleId::Width, true),
+            Err(DecodeError::UnknownDimensionKind(7))
         );
     }
 

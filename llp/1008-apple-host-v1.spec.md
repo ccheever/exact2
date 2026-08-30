@@ -5,7 +5,7 @@
 **Systems:** Apple host (AppKit and UIKit presenters), Kernel (layout, text measurement), Runner (seam), Motion (native executor), C ABI, Boot
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-08-29 (§9: iOS — the UIKit presenter over the same archive, the Swift the two presenters share, the simulator as the run; §7 and the summary follow)
+**Revised:** 2026-08-29 (§9: iOS — the UIKit presenter over the same archive, the Swift the two presenters share, the simulator as the run; §7 and the summary follow); 2026-08-30 (§9: `viewport-fit=cover` with the insets to the kernel, and the keyboard's inset on the viewport; §4: `exact_insets`)
 **Implementer:** Claude (Fable 5), landing 2026-08-29 (this document transcribes the landing; iOS the same day, §9)
 **Related:** LLP 1007 (the web host whose shape this repeats), LLP 1001 §5–6 (layout is a host call; text measurement is an injected trait object) and §9 (the C ABI waited for its consumer — this is it), LLP 1002 D2/§4 (every host but the web runs `exact-motion`; Core Animation delegation is a measured question), LLP 1003 §4 (the seam), LLP 1000 (the map: web first, then Apple, then Linux), `rules/RULES.md` §Time budgets, `rules/NOT-DOING.md` §Motion (no CA executor yet). Research, never authority, whose lessons this applies: exact1's LLP 0113/0116/0169 (SwiftUI's delivery hop measured), 0223 (the AppKit/UIKit cutover), 0418/0430/0432 (CoreText as the one text engine), 0323 (measurement caching — shelved there, adopted here at its cheap end).
 
@@ -139,13 +139,15 @@ is the web host's buffer discipline over `extern "C"`: `exact_in(len)`
 resizes a host-owned input buffer and returns its address; `exact_out()`
 returns the output buffer's; `exact_boot(measure, ctx, width, height)`,
 `exact_boot_plan(len, …)`, `exact_dispatch(view, kind, len, now_ms)`,
-`exact_advance(now_ms)`, `exact_resize(width, height)`, and `exact_tick(now_ms)`
-each return the output's length, a UTF-8 JSON batch. The app never hands the
+`exact_advance(now_ms)`, `exact_resize(width, height)`, `exact_insets(top,
+right, bottom, left)` (the safe-area insets under `viewport-fit=cover`, §9;
+2026-08-30), and `exact_tick(now_ms)` each return the output's length, a
+UTF-8 JSON batch. The app never hands the
 host a pointer the host did not give out; the one call the other way is the
 measure function. All calls on one thread; the bridge is thread-local.
 `exact_apple::host!(DataType, PLAN)` instantiates the exports for one app;
 `apps/caltrain/apple` is that one line plus the same `build.rs` as the web
-crate, producing `libcaltrain_apple.a`. The header is written by hand (nine
+crate, producing `libcaltrain_apple.a`. The header is written by hand (ten
 functions, three structs); a header generated from `schema.json` — enum
 values for rows, node types, props — waits for a consumer that reads
 binary batches instead of names, as §9 of LLP 1001 said it should.
@@ -377,17 +379,58 @@ defaults (with the adapter's resolution) where it does not
 Apple4 family and offers 15 inter-stage variables to the default's 16; an
 iPhone since the A11 offers 31, and every other host meets the defaults.
 
-**The safe areas.** The layout viewport is the safe area (above); what
-a phone paints behind the status bar and the home indicator is **the first
-root's `background`** — Safari's rule for a page without
-`viewport-fit=cover`, which paints the root element's background under
-both — and white where the root sets none; the macOS presenter paints the
-same colour beyond a document shorter than its viewport, as a browser
-paints the root's background over the whole canvas. The app sets its
-`main` to the sky's dark when the sky is on and white when it is off. The
-full-bleed form — the aurora itself under the status bar — is
-`viewport-fit=cover` with `env(safe-area-inset-*)` for the content, a
-feature across the kernel and Contract, in the queue.
+**The safe areas and `viewport-fit` (revised 2026-08-30).** The layout
+viewport is the safe area (above) — a browser's rule for a page without
+`viewport-fit=cover` — and what a phone paints behind the status bar and
+the home indicator is **the first root's `background`**, as Safari paints
+the root element's background under both; white where the root sets none
+(the macOS presenter paints the same colour beyond a document shorter than
+its viewport). The Caltrain app sets its `main` to the sky's dark when the
+sky is on and white when it is off. When the first root's `viewportFit`
+prop is `cover` (Contract's `viewport-fit="cover"`, LLP 1006 §2), the
+viewport is the whole screen and the safe-area insets go to the kernel
+(`exact_insets`, §4; `Host::set_insets`; `Kernel::set_env`, LLP 1001 §2),
+where the app's `env(safe-area-inset-*)` lengths resolve to them — Weird
+Castle's root pads itself by the four and its dark runs under the status
+bar. `Controller.fit` frames the viewport from the prop after each layout
+pass: the plan boots at the safe area's size (the prop arrives in the first
+batch) and a cover root is reframed and re-inset in the same turn, before
+anything is drawn; a rotation changes size and insets and sends both; the
+dev loop's restart hands the new runner the insets again (`rebooted`). The
+style dictionary carries an `env()` length as its resolved points (§2),
+re-sent by the batch that changes the insets. `layout` reports the insets
+given as `env` (LLP 1012 §1) — zero when the viewport is the safe area, as
+`env()` is zero on a page without the meta.
+
+**The keyboard (2026-08-30).** A software keyboard does not change the
+layout viewport — the web's default (`interactive-widget=resizes-visual`,
+Safari's only mode): the visual viewport shrinks and the focused field is
+scrolled into it. `Presenter.keyboardChanged` hears
+`keyboardWillChangeFrame`/`WillHide`, takes the keyboard's overlap with the
+viewport, and inside `UIView.animate` with the keyboard's own duration and
+curve sets the viewport's `contentInset.bottom` (and the indicators') to it
+and reveals the field being edited (`reveal`: through every scroll container
+above it, each moving only as far as it must, within its edges, with 8 pt of
+air). The keyboard and the content are then one Core Animation transaction —
+the content moves in lockstep, never a frame behind — and nothing is laid
+out again. A field focused while the keyboard is already up is revealed on
+`textFieldDidBeginEditing`. Under the agent (LLP 1012) the inset applies without the animation, as the
+agent's wheel scrolls without one: its world is settled between calls, and
+UIKit hit-tests a scroll view at its *presentation* offset while the
+keyboard's spring is still settling — a `tap` computed from the model
+offset missed the button for half a second (found by the smoke's dismiss
+step). The notification arrives inside `becomeFirstResponder`, so the
+agent's `type` sees the inset in its next `layout`; `layout.env["keyboard-inset-height"]` is the overlap (335 on the
+iPhone 17 Pro simulator). The agent's `tap` now also does what a touch up
+does first — the nearest node that takes the focus takes it — so a tap on a
+node with a `focus` handler resigns the field and the keyboard goes.
+`contract/corpus/insets.contract` and the smoke's step 12 hold all of this
+on every host (the keyboard on iOS only; a simulator device shows one only
+with *Connect Hardware Keyboard* off in Simulator's I/O › Keyboard menu —
+`DevicePreferences.<udid>.ConnectHardwareKeyboard` in
+`com.apple.iphonesimulator`, which the smoke does not set). Not built: the
+web's `interactive-widget=resizes-content` (the layout viewport shrinking, a
+relayout per keyboard change) and `env(keyboard-inset-*)`.
 
 **The agent (LLP 1012) on iOS.** A simulator app has no stdin, so
 `EXACT_AGENT=1` with `EXACT_AGENT_SOCKET=<path>` listens on a Unix socket
@@ -552,8 +595,7 @@ the wait for the module's last frame — against 20–25 ms and 42–64 fps
 where this began. The deck's per-child textures still take the byte path
 (a texture each; not on the scroll path).
 
-**Not in v1 (iOS):** the keyboard's inset on the viewport; a synthesized
-touch for `tap`; a pan chaining out of a nested scroll view at its edge
+**Not in v1 (iOS):** a synthesized touch for `tap`; a pan chaining out of a nested scroll view at its edge
 (UIKit's own behavior stands; the agent's wheel chains); rotation is handled
 but untested; `scripts/metrics.mjs` has no iOS row; the agent API on a
 phone (the socket is a simulator's; a phone would want the same lines over

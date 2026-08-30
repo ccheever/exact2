@@ -66,6 +66,7 @@ enum Exact {
     }
     static func advance(now: Double) -> Batch { read(exact_advance(now)) }
     static func resize(width: CGFloat, height: CGFloat) -> Batch { read(exact_resize(Float(width), Float(height))) }
+    static func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { read(exact_insets(Float(top), Float(right), Float(bottom), Float(left))) }
     static func tick(now: Double) -> Batch { read(exact_tick(now)) }
     static func intrinsic(_ view: UInt32, width: CGFloat, height: CGFloat) -> Batch { read(exact_intrinsic(view, Float(width), Float(height))) }
     /// The agent API (LLP 1012): a request in, its reply out — JSON, not a batch.

@@ -227,6 +227,20 @@ fn dimension(d: Dimension) -> String {
         Dimension::Auto => "auto".into(),
         Dimension::Points(p) => format!("{}px", num(p)),
         Dimension::Percent(p) => format!("{}%", num(p)),
+        // The browser resolves the inset itself (under `viewport-fit=cover`,
+        // which the glue sets from the root's prop; zero otherwise).
+        Dimension::Env(edge, plus) => {
+            if plus == 0.0 {
+                format!("env(safe-area-inset-{})", edge.name())
+            } else {
+                format!(
+                    "calc(env(safe-area-inset-{}) {} {}px)",
+                    edge.name(),
+                    if plus < 0.0 { "-" } else { "+" },
+                    num(plus.abs())
+                )
+            }
+        }
     }
 }
 

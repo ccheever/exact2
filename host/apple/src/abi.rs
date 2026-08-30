@@ -237,6 +237,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The safe-area insets changed.
+    pub fn insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_insets(top, right, bottom, left));
+        self.emit(out)
+    }
+
     /// An image's intrinsic size (pixel counts, one-for-one as points); a
     /// finite width or height ≤ 0 clears it; a non-finite value is refused
     /// by the kernel and comes back as an error.
@@ -374,6 +383,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_resize(width: f32, height: f32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height))
+        }
+
+        /// The safe-area insets changed; returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_insets(top: f32, right: f32, bottom: f32, left: f32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().insets(top, right, bottom, left))
         }
 
         /// An image loaded (or failed: a size ≤ 0); returns the batch's length.

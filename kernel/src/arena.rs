@@ -16,6 +16,7 @@ use crate::error::ApplyError;
 use crate::generated::{NodeType, PropId, StyleProps};
 use crate::id::{Frame, NodeFlags, NodeKey, ViewId};
 use crate::props::PropList;
+use crate::style::Env;
 use crate::text::{TextRun, TextStyle};
 
 /// Columnar node storage.
@@ -43,6 +44,9 @@ pub struct NodeArena {
     roots: Vec<u32>,
     by_local: HashMap<ViewId, u32>,
     live_count: usize,
+    /// The page's environment (LLP 1001 §2): what `env()` lengths resolve
+    /// to. The host's, not the tree's — a reset keeps it.
+    env: Env,
 }
 
 impl NodeArena {
@@ -54,6 +58,17 @@ impl NodeArena {
     /// Live nodes.
     pub fn live_count(&self) -> usize {
         self.live_count
+    }
+
+    /// The environment `env()` lengths resolve against.
+    pub fn env(&self) -> &Env {
+        &self.env
+    }
+
+    /// Set the environment. The engine styles that read it are the
+    /// kernel's to re-derive (`Kernel::set_env`).
+    pub fn set_env(&mut self, env: Env) {
+        self.env = env;
     }
 
     /// Slots ever allocated (live plus free).

@@ -97,6 +97,20 @@ ratio); the ratio still holds (`kernel/tests/image.rs`; LLP 1011).
 - **Selector index.** `testId` is a kernel citizen: an exact-value multimap,
   maintained on set/clear/destroy/reset, returned in structural tree order
   (`Kernel::find_by_test_id`).
+- **The environment** (2026-08-30). A dimension row takes a fourth kind beside
+  `auto`, points, and percent: an `env()` length — CSS's
+  `env(safe-area-inset-<edge>)` and `calc(env(safe-area-inset-<edge>) ± <n>px)`,
+  parsed once in `style.rs` (`Dimension::parse_env`; text on a dimension row is
+  that or a rejection; wire kinds 3–6, one per edge, the `f32` the added points;
+  no fallback argument, since the host always defines the four). The kernel
+  holds one `Env` — the four insets in points, the host's, set with the viewport
+  (`Kernel::set_env`; a `reset` keeps it, a rehydration carries it) — and
+  resolves every `env()` length against it where the engine style is derived
+  (`taffy_style`); `set_env` re-derives and dirties exactly the nodes whose style
+  reads an inset (`uses_env`) and says whether any did, so a host lays out only
+  when something can move. Zero until the host says otherwise, as a browser
+  reports the insets for a page without `viewport-fit=cover` (LLP 1008 §9).
+  `tests/env.rs`.
 
 ## 3. One write path (WS-D, WS-F, 0507 §4)
 

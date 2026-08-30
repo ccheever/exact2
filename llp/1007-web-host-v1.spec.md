@@ -67,7 +67,10 @@ lengths in `px`, percentages, `auto`; unitless where CSS is (`flex-grow`,
 `opacity`, `z-index`, `font-weight`, `scale`); `rotate` in `deg`;
 `translate` as two lengths. Rows the host does not lower are returned as
 `Skipped { row, reason }`, never silently dropped: gradients, `font_family`,
-`line_clamp`, `tint_color`, and grid rows in v1.
+`line_clamp`, `tint_color`, and grid rows in v1. An `env()` length (LLP 1001
+§2) lowers to its CSS text — `env(safe-area-inset-top)`,
+`calc(env(safe-area-inset-bottom) + 12px)` — and the browser resolves it
+(2026-08-30).
 
 **`transition`** lowers to CSS `transition` — property, duration, easing
 (`linear`, keywords, `cubic-bezier()`, `steps(n, jump-*)`, `linear()` with
@@ -153,6 +156,17 @@ It stamps `data-boot-ms` on the root when the first batch is in the DOM and
 `data-paint-ms` on the next animation frame. `index.html` resets only what a
 bare `<div>` would not have (`body` margin; `button`/`input` UA styles),
 because the kernel's defaults are already CSS's.
+
+**The page's environment (2026-08-30).** The viewport meta follows the first
+root's `viewportFit` prop (`syncViewportFit`, on every `roots` op and on a
+change of the prop): `cover` appends `viewport-fit=cover`, so the page lays
+out under a phone's status bar and home indicator and the CSS's
+`env(safe-area-inset-*)` carry the insets — Safari re-reads the meta when its
+content changes. The keyboard is the browser's: the layout viewport stays,
+the visual viewport shrinks, the focused field is scrolled into it. The
+agent's `layout` reports both as `env` (LLP 1012 §1): the insets read off a
+hidden element padded by `env()`, `keyboard-inset-height` as `innerHeight`
+less the visual viewport's height (zero on a desktop).
 
 ## 5. The parity harness (`host/web/src/parity.rs`, `parity.html`, `parity.mjs`)
 

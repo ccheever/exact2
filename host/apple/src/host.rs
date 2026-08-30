@@ -16,8 +16,8 @@ use crate::batch::Batch;
 use crate::style;
 use exact_kernel::motion::{motion_node, targets, MotionSync};
 use exact_kernel::{
-    Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue, TextMeasurer,
-    ViewId,
+    Env, Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue,
+    TextMeasurer, ViewId,
 };
 use exact_motion::{Change, Engine, Property};
 use exact_plan::{EventKind, Plan};
@@ -319,6 +319,30 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
+    /// The safe-area insets changed (a boot under `viewport-fit=cover`, a
+    /// rotation): the kernel's environment is set, every node whose style
+    /// holds an `env()` length gets its dictionary re-sent with the new
+    /// points and is laid out again; the batch carries what moved. Empty
+    /// when nothing reads the insets, or they did not change.
+    pub fn set_insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) -> String {
+        let mut batch = Batch::new();
+        let error = match self
+            .runner
+            .kernel_mut()
+            .set_env(Env::new(top, right, bottom, left))
+        {
+            Ok(false) => None,
+            Ok(true) => {
+                for id in self.preorder() {
+                    self.update(id, &mut batch);
+                }
+                self.layout(&mut batch).err()
+            }
+            Err(e) => Some(format!("insets: {e:?}")),
+        };
+        self.finish(batch, error)
+    }
+
     /// A motion frame: seek the engine to `now_ms` and report every
     /// presentation value that changed. Nothing else moves.
     pub fn tick(&mut self, now_ms: f64) -> String {
@@ -482,7 +506,8 @@ impl<D: DataSource> Host<D> {
         let key = node.key;
         let kind = kind_for(&node);
         let props = props_for(&node);
-        let (style, _skipped) = style::style_json_for(&node);
+        let env = self.runner.kernel().env();
+        let (style, _skipped) = style::style_json_for(&node, &env);
         let handlers: Vec<&str> = self
             .runner
             .handlers_of(id)
@@ -514,7 +539,8 @@ impl<D: DataSource> Host<D> {
     fn update(&mut self, id: ViewId, batch: &mut Batch) {
         let node = self.runner.kernel().node(id).expect("live");
         let props = props_for(&node);
-        let (style, _skipped) = style::style_json_for(&node);
+        let env = self.runner.kernel().env();
+        let (style, _skipped) = style::style_json_for(&node, &env);
         let m = self.mirror.entry(id).or_default();
         if props != m.props {
             let set: Vec<(&str, String)> = props
@@ -562,10 +588,11 @@ fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     // Taffy's block containers do not always count end-edge padding in
     // `content_size` (its flex containers do); CSS's `scrollHeight` does.
     // Floor with the direct children's extent plus the end padding.
-    let pad = |d: exact_kernel::Dimension, against: f32| match d {
+    let env = kernel.env();
+    let pad = |d: exact_kernel::Dimension, against: f32| match d.resolve(&env) {
         exact_kernel::Dimension::Points(p) => p,
         exact_kernel::Dimension::Percent(p) => against * p / 100.0,
-        exact_kernel::Dimension::Auto => 0.0,
+        exact_kernel::Dimension::Auto | exact_kernel::Dimension::Env(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);

@@ -179,6 +179,8 @@ pub enum LayoutError {
     NotAnImage(ViewId),
     /// An intrinsic size that is not finite and positive on both axes.
     InvalidIntrinsicSize(ViewId),
+    /// An environment with a non-finite inset.
+    InvalidEnv,
     /// The layout engine reported an error (a kernel bug, never a producer error).
     Engine(String),
 }

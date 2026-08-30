@@ -149,6 +149,7 @@ func watchPlan() {
         Exact.wake = exactWake
         let batch = Exact.bootPlan(bytes, width: size.width, height: size.height)
         apply(batch)
+        controller?.rebooted()
         print("reloaded \(planPath.split(separator: "/").last ?? "plan") in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
     }
     t.resume()
@@ -167,7 +168,9 @@ func agentReady() {
 
 /// Boot the plan under the viewport's first real size — the safe area,
 /// where a browser lays a page out on a phone (no `viewport-fit=cover`):
-/// under the status bar and above the home indicator, nothing.
+/// under the status bar and above the home indicator, nothing. A root that
+/// says `viewport-fit="cover"` is reframed to the screen right after
+/// (`Controller.fit`), the insets going to the kernel.
 func bootNow(_ size: CGSize) {
     stamp("before boot")
     tBoot = CACurrentMediaTime()
@@ -204,11 +207,15 @@ func bootNow(_ size: CGSize) {
     }
 }
 
-/// The one screen: the viewport fills the safe area; the plan boots at the
-/// first layout and follows every later size (a rotation, a split).
+/// The one screen: the viewport fills the safe area — or, when the first
+/// root says `viewport-fit="cover"`, the whole screen, the safe-area insets
+/// handed to the kernel for its `env()` lengths (LLP 1008 §9). The plan
+/// boots at the first layout and follows every later size (a rotation, a
+/// split) and every change of the insets.
 final class Controller: UIViewController {
     var booted = false
     var lastSize = CGSize.zero
+    var lastInsets = UIEdgeInsets.zero
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .white
@@ -228,21 +235,47 @@ final class Controller: UIViewController {
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        let frame = view.bounds.inset(by: view.safeAreaInsets)
+        fit()
+        if !booted, lastSize.width > 0, lastSize.height > 0 {
+            booted = true
+            bootNow(lastSize)
+            // The first batch made the roots: one that covers the screen is
+            // framed to it now, before anything is drawn.
+            fit()
+        }
+    }
+
+    /// Frame the viewport to the safe area or the screen, and — once booted —
+    /// tell the kernel about new insets or a new size.
+    func fit() {
+        let safe = view.safeAreaInsets
+        let cover = presenter.viewportFit == "cover"
+        let frame = cover ? view.bounds : view.bounds.inset(by: safe)
+        let insets = cover ? safe : .zero
         if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
-        if let l = fpsLabel { l.frame = CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: 26); view.bringSubviewToFront(l) }
+        if let l = fpsLabel { l.frame = CGRect(x: frame.minX, y: frame.minY + safe.top, width: frame.width, height: 26); view.bringSubviewToFront(l) }
         let size = frame.size
         guard size.width > 0, size.height > 0 else { return }
-        if !booted {
-            booted = true
-            lastSize = size
-            bootNow(size)
-        } else if size != lastSize {
+        if !booted { lastSize = size; lastInsets = insets; return }
+        if insets != lastInsets {
+            lastInsets = insets
+            presenter.insets = insets
+            apply(Exact.insets(top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left))
+        }
+        if size != lastSize {
             lastSize = size
             apply(Exact.resize(width: size.width, height: size.height))
         }
     }
+
+    /// After a restart from a new plan (the dev loop): the new runner knows
+    /// nothing of the insets — hand them over again, and fit the root.
+    func rebooted() {
+        if lastInsets != .zero { apply(Exact.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left)) }
+        fit()
+    }
 }
+nonisolated(unsafe) weak var controller: Controller?
 
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
@@ -283,7 +316,13 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         // The root's background into the safe areas (`Presenter.paintCanvas`).
         presenter.onCanvasColor = { [weak w] color in w?.backgroundColor = color; w?.rootViewController?.view.backgroundColor = color }
-        w.rootViewController = Controller()
+        // The first root's `viewport-fit` changed (a restart, a prop): the
+        // controller frames the viewport again.
+        presenter.onViewportFit = { [weak w] in w?.rootViewController?.view.setNeedsLayout() }
+        presenter.observeKeyboard()
+        let c = Controller()
+        controller = c
+        w.rootViewController = c
         window = w
         w.makeKeyAndVisible()
         stamp("window")

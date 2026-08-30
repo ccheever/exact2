@@ -319,3 +319,66 @@ fn an_intrinsic_size_is_refused_for_a_non_image_and_for_a_bad_value() {
     assert!(batch.contains("InvalidIntrinsicSize"), "{batch}");
     assert!(!batch.contains("\"op\":\"frame\""), "{batch}");
 }
+
+/// The insets fixture (`contract/corpus/insets.contract`), booted here.
+fn boot_insets() -> (Host<NoData>, String) {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../contract/corpus/insets.contract"),
+    )
+    .unwrap();
+    let plan = contract::bake(contract::compile(&src).unwrap(), NoData).unwrap();
+    Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap()
+}
+
+#[test]
+fn the_insets_re_send_the_styles_that_read_them_and_move_what_they_pad() {
+    let (mut host, first) = boot_insets();
+    let root = view(&host, "root");
+    let content = view(&host, "content");
+    // At boot the insets are zero: the root's padding is 0 in points, and
+    // its `viewportFit` prop is on the wire for the presenter to read.
+    assert!(
+        first.contains("\"viewportFit\":\"cover\""),
+        "{}",
+        &first[..300]
+    );
+    assert!(first.contains("\"padding_top\":0,"), "{}", &first[..400]);
+    assert_eq!(frame_of(&first, content).1, 0.0);
+    // The phone's insets under `viewport-fit=cover`: the root's dictionary
+    // comes again with the points, the content moves down, nothing else is
+    // re-sent (the child's own style does not read the insets).
+    let batch = host.set_insets(62.0, 0.0, 34.0, 0.0);
+    assert_eq!(count(&batch, "style"), 1, "{batch}");
+    assert!(
+        batch.contains(&format!("\"op\":\"style\",\"id\":{root},")),
+        "{batch}"
+    );
+    assert!(
+        batch.contains("\"padding_top\":62,") && batch.contains("\"padding_bottom\":34,"),
+        "{batch}"
+    );
+    assert_eq!(frame_of(&batch, content), (0.0, 62.0, 402.0, 778.0));
+    assert!(batch.contains("\"error\":null"));
+    // The same insets again: nothing to say.
+    let again = host.set_insets(62.0, 0.0, 34.0, 0.0);
+    assert_eq!(
+        count(&again, "style") + count(&again, "frame"),
+        0,
+        "{again}"
+    );
+    // A non-finite inset is refused by the kernel, as an error on the batch.
+    let bad = host.set_insets(f32::NAN, 0.0, 0.0, 0.0);
+    assert!(bad.contains("\"error\":\"insets: "), "{bad}");
+    // An app that reads no inset (Caltrain) gets an empty batch.
+    let (mut caltrain, _) = boot();
+    let none = caltrain.set_insets(62.0, 0.0, 34.0, 0.0);
+    assert_eq!(count(&none, "style") + count(&none, "frame"), 0, "{none}");
+}

@@ -128,9 +128,9 @@ fn layout_json_is_the_agent_api_shape() {
     let mut p = boot();
     let l = p.layout_json();
     assert!(
-        l.starts_with("{\"clock\":0,\"viewport\":{\"w\":390,\"h\":844},\"nodes\":["),
+        l.starts_with("{\"clock\":0,\"viewport\":{\"w\":390,\"h\":844},\"env\":{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0},\"nodes\":["),
         "{}",
-        &l[..80]
+        &l[..200]
     );
     assert_eq!(l.matches("\"sx\":").count(), 1, "one scroll container");
     assert!(

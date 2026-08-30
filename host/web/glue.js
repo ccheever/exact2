@@ -52,6 +52,40 @@ function applyProps(el, set, clear) {
       el.setAttribute(name, value);
     }
   }
+  if ((set && "viewportFit" in set) || clear?.includes("viewportFit")) syncViewportFit();
+}
+
+// The viewport meta follows the first root's `viewport-fit` (LLP 1008 §9):
+// `cover` lays the page out under a phone's status bar and home indicator,
+// and `env(safe-area-inset-*)` in the CSS carry the insets. Safari re-reads
+// the meta when its content changes.
+function syncViewportFit() {
+  const cover = root.firstElementChild?.getAttribute("viewportFit") === "cover";
+  const meta = document.querySelector('meta[name="viewport"]');
+  const want = "width=device-width, initial-scale=1" + (cover ? ", viewport-fit=cover" : "");
+  if (meta && meta.content !== want) meta.content = want;
+}
+
+// The page's environment as the browser resolves it (LLP 1012 §1): the
+// safe-area insets read off a hidden element padded by `env()`, and the
+// software keyboard's height as the visual viewport reports it (zero on a
+// desktop, or when the page is not zoomed).
+let probe;
+function environment() {
+  if (!probe) {
+    probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;inset:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)";
+    document.body.append(probe);
+  }
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const cs = getComputedStyle(probe);
+  return {
+    "safe-area-inset-top": r2(parseFloat(cs.paddingTop) || 0),
+    "safe-area-inset-right": r2(parseFloat(cs.paddingRight) || 0),
+    "safe-area-inset-bottom": r2(parseFloat(cs.paddingBottom) || 0),
+    "safe-area-inset-left": r2(parseFloat(cs.paddingLeft) || 0),
+    "keyboard-inset-height": r2(Math.max(0, innerHeight - (visualViewport?.height ?? innerHeight))),
+  };
 }
 
 function attach(el, id, handlers) {
@@ -186,6 +220,7 @@ function apply(batch) {
       case "destroy": { const el = views.get(op.id); if (el) el.remove(); views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
       case "roots": {
         root.replaceChildren(...op.ids.map((i) => views.get(i)).filter(Boolean));
+        syncViewportFit();
         break;
       }
       case "at": {
@@ -301,7 +336,7 @@ function agent(request) {
           if (el.dataset.scroll === "true") { n.sx = r2(el.scrollLeft); n.sy = r2(el.scrollTop); }
           nodes.push(n);
         }
-        return { clock: now(), viewport: { w: innerWidth, h: innerHeight }, nodes };
+        return { clock: now(), viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes };
       }
       case "focus": {
         const el = views.get(request.id);

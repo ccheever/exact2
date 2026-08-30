@@ -121,6 +121,21 @@ fn style_rows_lower_to_css_by_their_names() {
         .unwrap();
     s.set_dynamic(StyleId::LetterSpacing, &StyleValue::Number(1.2))
         .unwrap();
+    s.set_dynamic(
+        StyleId::PaddingTop,
+        &StyleValue::Text("env(safe-area-inset-top)".into()),
+    )
+    .unwrap();
+    s.set_dynamic(
+        StyleId::PaddingBottom,
+        &StyleValue::Text("calc(env(safe-area-inset-bottom) + 12px)".into()),
+    )
+    .unwrap();
+    s.set_dynamic(
+        StyleId::MarginLeft,
+        &StyleValue::Text("calc(env(safe-area-inset-left) - 2px)".into()),
+    )
+    .unwrap();
     let (css, skipped) = css_text(&s);
     for expected in [
         "width:100%;",
@@ -136,6 +151,9 @@ fn style_rows_lower_to_css_by_their_names() {
         "translate:10px -4.5px;",
         "opacity:0.5;",
         "letter-spacing:1.2px;",
+        "padding-top:env(safe-area-inset-top);",
+        "padding-bottom:calc(env(safe-area-inset-bottom) + 12px);",
+        "margin-left:calc(env(safe-area-inset-left) - 2px);",
     ] {
         assert!(css.contains(expected), "{expected} in {css}");
     }

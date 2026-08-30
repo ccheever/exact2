@@ -19,7 +19,92 @@ use crate::generated::{
 /// Largest grid track list the closed grammar carries.
 pub const MAX_GRID_TRACKS: usize = 32;
 
-/// A length: automatic, absolute points, or a percentage of the parent (0–100).
+/// An edge of the viewport: which safe-area inset an `env()` length names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Edge {
+    /// `safe-area-inset-top`.
+    Top = 0,
+    /// `safe-area-inset-right`.
+    Right = 1,
+    /// `safe-area-inset-bottom`.
+    Bottom = 2,
+    /// `safe-area-inset-left`.
+    Left = 3,
+}
+
+impl Edge {
+    /// Every edge, in wire order.
+    pub const ALL: [Edge; 4] = [Edge::Top, Edge::Right, Edge::Bottom, Edge::Left];
+
+    /// The CSS name: `top`, `right`, `bottom`, `left`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Edge::Top => "top",
+            Edge::Right => "right",
+            Edge::Bottom => "bottom",
+            Edge::Left => "left",
+        }
+    }
+
+    /// The edge by CSS name.
+    pub fn from_name(name: &str) -> Option<Edge> {
+        Edge::ALL.iter().copied().find(|e| e.name() == name)
+    }
+
+    /// The edge by wire index (0–3).
+    pub fn from_index(i: u8) -> Option<Edge> {
+        Edge::ALL.get(i as usize).copied()
+    }
+}
+
+/// The page's environment: what CSS's `env(safe-area-inset-*)` resolve to,
+/// in points, set by the host with the viewport (a phone's status bar and
+/// home indicator under `viewport-fit=cover`; zero everywhere else, as a
+/// browser reports them for a page without it).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Env {
+    /// `safe-area-inset-top`.
+    pub top: f32,
+    /// `safe-area-inset-right`.
+    pub right: f32,
+    /// `safe-area-inset-bottom`.
+    pub bottom: f32,
+    /// `safe-area-inset-left`.
+    pub left: f32,
+}
+
+impl Env {
+    /// The four insets, top right bottom left.
+    pub const fn new(top: f32, right: f32, bottom: f32, left: f32) -> Env {
+        Env {
+            top,
+            right,
+            bottom,
+            left,
+        }
+    }
+
+    /// The inset at an edge.
+    pub fn inset(&self, edge: Edge) -> f32 {
+        match edge {
+            Edge::Top => self.top,
+            Edge::Right => self.right,
+            Edge::Bottom => self.bottom,
+            Edge::Left => self.left,
+        }
+    }
+
+    /// Whether every inset is a finite number.
+    pub fn is_finite(&self) -> bool {
+        Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
+    }
+}
+
+/// A length: automatic, absolute points, a percentage of the parent (0–100),
+/// or a safe-area inset of the viewport plus points — CSS's
+/// `env(safe-area-inset-<edge>)` and `calc(env(safe-area-inset-<edge>) + <n>px)`,
+/// resolved against the kernel's [`Env`] at layout.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Dimension {
     /// Let the engine decide.
@@ -29,6 +114,9 @@ pub enum Dimension {
     Points(f32),
     /// Percent of the containing block, authored as 0–100.
     Percent(f32),
+    /// The viewport's safe-area inset at an edge, plus points (zero for a
+    /// bare `env()`).
+    Env(Edge, f32),
 }
 
 impl Dimension {
@@ -36,33 +124,81 @@ impl Dimension {
     pub fn is_finite(self) -> bool {
         match self {
             Dimension::Auto => true,
-            Dimension::Points(v) | Dimension::Percent(v) => v.is_finite(),
+            Dimension::Points(v) | Dimension::Percent(v) | Dimension::Env(_, v) => v.is_finite(),
         }
     }
 
-    fn to_taffy(self) -> taffy::style::Dimension {
+    /// An `env()` length by CSS's grammar, or `None` when the text is not one:
+    /// `env(safe-area-inset-<edge>)`, or `calc(env(safe-area-inset-<edge>) + <n>px)`
+    /// (`-` as well). No fallback argument: the host always defines the four
+    /// insets, so CSS would never use one.
+    pub fn parse_env(text: &str) -> Option<Dimension> {
+        let t = text.trim();
+        let edge_of = |inner: &str| -> Option<Edge> {
+            let inner = inner.trim();
+            let name = inner
+                .strip_prefix("env(")?
+                .strip_suffix(')')?
+                .trim()
+                .strip_prefix("safe-area-inset-")?;
+            Edge::from_name(name)
+        };
+        if let Some(edge) = edge_of(t) {
+            return Some(Dimension::Env(edge, 0.0));
+        }
+        let body = t.strip_prefix("calc(")?.strip_suffix(')')?.trim();
+        // `env(...) ± <n>px`: the operator is the first `+`/`-` after the
+        // closing paren of the `env(...)` term.
+        let close = body.find(')')?;
+        let (term, rest) = body.split_at(close + 1);
+        let edge = edge_of(term)?;
+        let rest = rest.trim();
+        let (sign, number) = match rest.as_bytes().first() {
+            Some(b'+') => (1.0, &rest[1..]),
+            Some(b'-') => (-1.0, &rest[1..]),
+            _ => return None,
+        };
+        let number = number.trim().strip_suffix("px")?.trim();
+        let plus: f32 = number.parse().ok()?;
+        plus.is_finite()
+            .then_some(Dimension::Env(edge, sign * plus))
+    }
+
+    /// The points an `env()` length resolves to under `env`; any other
+    /// dimension unchanged.
+    pub fn resolve(self, env: &Env) -> Dimension {
         match self {
-            Dimension::Auto => auto(),
-            Dimension::Points(v) => length(v),
-            Dimension::Percent(v) => percent(v / 100.0),
+            Dimension::Env(edge, plus) => Dimension::Points(env.inset(edge) + plus),
+            other => other,
         }
     }
 
-    fn to_lpa(self) -> taffy::style::LengthPercentageAuto {
-        match self {
+    fn to_taffy(self, env: &Env) -> taffy::style::Dimension {
+        match self.resolve(env) {
             Dimension::Auto => auto(),
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
+            Dimension::Env(..) => unreachable!("resolved above"),
+        }
+    }
+
+    fn to_lpa(self, env: &Env) -> taffy::style::LengthPercentageAuto {
+        match self.resolve(env) {
+            Dimension::Auto => auto(),
+            Dimension::Points(v) => length(v),
+            Dimension::Percent(v) => percent(v / 100.0),
+            Dimension::Env(..) => unreachable!("resolved above"),
         }
     }
 
     /// Rows that do not admit `auto` (padding) lower it to zero; the decoder
     /// already refuses `auto` there, so this arm is unreachable from the wire.
-    fn to_lp(self) -> taffy::style::LengthPercentage {
-        match self {
+    fn to_lp(self, env: &Env) -> taffy::style::LengthPercentage {
+        match self.resolve(env) {
             Dimension::Auto => length(0.0_f32),
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
+            Dimension::Env(..) => unreachable!("resolved above"),
         }
     }
 }
@@ -175,9 +311,13 @@ impl StyleValue {
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
             StyleValue::Auto if admits_auto => Ok(Dimension::Auto),
             StyleValue::Auto => Err(StyleValueError::AutoNotAdmitted { style }),
+            // The one text a dimension row takes: CSS's `env()` length.
+            StyleValue::Text(t) if Dimension::parse_env(t).is_some() => {
+                Ok(Dimension::parse_env(t).unwrap_or_default())
+            }
             _ => Err(StyleValueError::WrongKind {
                 style,
-                expected: "number, percent, or auto",
+                expected: "number, percent, auto, or env(safe-area-inset-*)",
             }),
         }
     }
@@ -427,8 +567,10 @@ impl StyleProps {
     /// Lower to engine style. `node_type` supplies the per-tag defaults the
     /// table does not carry: scroll containers scroll on their block axis
     /// unless the producer set `overflow_y`.
+    /// `env` resolves the `env()` lengths (LLP 1001 §2: the kernel's
+    /// environment, set by the host with the viewport).
     #[allow(clippy::field_reassign_with_default)]
-    pub fn to_taffy(&self, node_type: NodeType) -> taffy::style::Style {
+    pub fn to_taffy(&self, node_type: NodeType, env: &Env) -> taffy::style::Style {
         let mut s = taffy::style::Style::default();
         s.display = match self.display {
             Display::Block => taffy::style::Display::Block,
@@ -467,16 +609,16 @@ impl StyleProps {
         s.scrollbar_width = 0.0;
 
         s.size = taffy::geometry::Size {
-            width: self.width.to_taffy(),
-            height: self.height.to_taffy(),
+            width: self.width.to_taffy(env),
+            height: self.height.to_taffy(env),
         };
         s.min_size = taffy::geometry::Size {
-            width: self.min_width.to_taffy(),
-            height: self.min_height.to_taffy(),
+            width: self.min_width.to_taffy(env),
+            height: self.min_height.to_taffy(env),
         };
         s.max_size = taffy::geometry::Size {
-            width: self.max_width.to_taffy(),
-            height: self.max_height.to_taffy(),
+            width: self.max_width.to_taffy(env),
+            height: self.max_height.to_taffy(env),
         };
         s.aspect_ratio = if self.aspect_ratio > 0.0 && self.aspect_ratio.is_finite() {
             Some(self.aspect_ratio)
@@ -485,22 +627,22 @@ impl StyleProps {
         };
 
         s.inset = taffy::geometry::Rect {
-            top: self.top.to_lpa(),
-            right: self.right.to_lpa(),
-            bottom: self.bottom.to_lpa(),
-            left: self.left.to_lpa(),
+            top: self.top.to_lpa(env),
+            right: self.right.to_lpa(env),
+            bottom: self.bottom.to_lpa(env),
+            left: self.left.to_lpa(env),
         };
         s.margin = taffy::geometry::Rect {
-            top: self.margin_top.to_lpa(),
-            right: self.margin_right.to_lpa(),
-            bottom: self.margin_bottom.to_lpa(),
-            left: self.margin_left.to_lpa(),
+            top: self.margin_top.to_lpa(env),
+            right: self.margin_right.to_lpa(env),
+            bottom: self.margin_bottom.to_lpa(env),
+            left: self.margin_left.to_lpa(env),
         };
         s.padding = taffy::geometry::Rect {
-            top: self.padding_top.to_lp(),
-            right: self.padding_right.to_lp(),
-            bottom: self.padding_bottom.to_lp(),
-            left: self.padding_left.to_lp(),
+            top: self.padding_top.to_lp(env),
+            right: self.padding_right.to_lp(env),
+            bottom: self.padding_bottom.to_lp(env),
+            left: self.padding_left.to_lp(env),
         };
         s.border = taffy::geometry::Rect {
             top: length(self.border_width_top),
@@ -511,7 +653,7 @@ impl StyleProps {
 
         s.flex_direction = flex_direction(self.flex_direction);
         s.flex_wrap = flex_wrap(self.flex_wrap);
-        s.flex_basis = self.flex_basis.to_taffy();
+        s.flex_basis = self.flex_basis.to_taffy(env);
         s.flex_grow = self.flex_grow;
         s.flex_shrink = self.flex_shrink;
         s.justify_content = Some(justify_content(self.justify_content));
@@ -549,9 +691,21 @@ impl StyleProps {
     }
 }
 
-/// The engine style for a live slot.
+/// Whether any set dimension row of `style` is an `env()` length — the
+/// rows a change of the kernel's environment re-derives.
+pub fn uses_env(style: &StyleProps) -> bool {
+    style
+        .mask
+        .iter()
+        .any(|id| matches!(style.get(id), RowValue::Dimension(Dimension::Env(..))))
+}
+
+/// The engine style for a live slot, its `env()` lengths resolved against
+/// the arena's environment.
 pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
-    let mut s = arena.style(slot).to_taffy(arena.node_type(slot));
+    let mut s = arena
+        .style(slot)
+        .to_taffy(arena.node_type(slot), arena.env());
     // A root with `width: auto` fills what it is offered, as a `<div>` fills
     // the body: CSS's block rule, which Taffy does not apply to a root.
     // Height stays auto — as tall as its content, the page a viewport scrolls.
@@ -585,14 +739,70 @@ mod tests {
     #[test]
     fn percent_converts_exactly_once() {
         let d = Dimension::Percent(50.0);
-        assert_eq!(d.to_taffy(), percent(0.5_f32));
-        assert_eq!(d.to_lpa(), percent(0.5_f32));
-        assert_eq!(d.to_lp(), percent(0.5_f32));
+        let env = Env::default();
+        assert_eq!(d.to_taffy(&env), percent(0.5_f32));
+        assert_eq!(d.to_lpa(&env), percent(0.5_f32));
+        assert_eq!(d.to_lp(&env), percent(0.5_f32));
+    }
+
+    #[test]
+    fn env_lengths_parse_by_the_css_grammar_and_resolve_against_the_environment() {
+        assert_eq!(
+            Dimension::parse_env("env(safe-area-inset-top)"),
+            Some(Dimension::Env(Edge::Top, 0.0))
+        );
+        assert_eq!(
+            Dimension::parse_env(" env( safe-area-inset-left ) "),
+            Some(Dimension::Env(Edge::Left, 0.0))
+        );
+        assert_eq!(
+            Dimension::parse_env("calc(env(safe-area-inset-bottom) + 12px)"),
+            Some(Dimension::Env(Edge::Bottom, 12.0))
+        );
+        assert_eq!(
+            Dimension::parse_env("calc(env(safe-area-inset-right)-2.5px)"),
+            Some(Dimension::Env(Edge::Right, -2.5))
+        );
+        for bad in [
+            "env(safe-area-inset-middle)",
+            "env(keyboard-inset-height)",
+            "calc(env(safe-area-inset-top) + 12)",
+            "calc(env(safe-area-inset-top) * 2)",
+            "calc(12px + env(safe-area-inset-top))",
+            "env(safe-area-inset-top, 0px)",
+            "12px",
+            "auto",
+        ] {
+            assert_eq!(Dimension::parse_env(bad), None, "{bad}");
+        }
+        let env = Env::new(62.0, 0.0, 34.0, 0.0);
+        assert_eq!(Dimension::Env(Edge::Top, 0.0).to_lp(&env), length(62.0_f32));
+        assert_eq!(
+            Dimension::Env(Edge::Bottom, 12.0).to_lpa(&env),
+            length(46.0_f32)
+        );
+        assert_eq!(
+            Dimension::Env(Edge::Left, 8.0).to_taffy(&env),
+            length(8.0_f32)
+        );
+        // Through the untyped value: text is an `env()` length or nothing.
+        let mut s = StyleProps::default();
+        s.set_dynamic(
+            StyleId::PaddingTop,
+            &StyleValue::Text("env(safe-area-inset-top)".into()),
+        )
+        .unwrap();
+        assert_eq!(s.padding_top, Dimension::Env(Edge::Top, 0.0));
+        assert!(uses_env(&s));
+        assert!(s
+            .set_dynamic(StyleId::PaddingTop, &StyleValue::Text("12px".into()))
+            .is_err());
+        assert!(!uses_env(&StyleProps::default()));
     }
 
     #[test]
     fn defaults_are_the_css_defaults() {
-        let s = StyleProps::default().to_taffy(NodeType::View);
+        let s = StyleProps::default().to_taffy(NodeType::View, &Env::default());
         assert_eq!(s.display, taffy::style::Display::Block);
         assert_eq!(s.box_sizing, taffy::style::BoxSizing::ContentBox);
         assert_eq!(s.flex_direction, taffy::style::FlexDirection::Row);
@@ -604,18 +814,18 @@ mod tests {
 
     #[test]
     fn scroll_containers_scroll_on_the_block_axis_by_default() {
-        let s = StyleProps::default().to_taffy(NodeType::ScrollView);
+        let s = StyleProps::default().to_taffy(NodeType::ScrollView, &Env::default());
         assert_eq!(s.overflow.y, taffy::style::Overflow::Scroll);
         // CSS Overflow §3: a `visible` axis beside a non-visible one computes
         // to `auto` — `scroll` here — so a scroll container clips both axes.
         assert_eq!(s.overflow.x, taffy::style::Overflow::Scroll);
-        let plain = StyleProps::default().to_taffy(NodeType::View);
+        let plain = StyleProps::default().to_taffy(NodeType::View, &Env::default());
         assert_eq!(plain.overflow.x, taffy::style::Overflow::Visible);
         // Symmetric: a hidden x makes an unset y scrollable, not hidden.
         let mut hidden_x = StyleProps::default();
         hidden_x.overflow_x = Overflow::Hidden;
         hidden_x.mask.set(StyleId::OverflowX);
-        let t = hidden_x.to_taffy(NodeType::View);
+        let t = hidden_x.to_taffy(NodeType::View, &Env::default());
         assert_eq!(
             (t.overflow.x, t.overflow.y),
             (
@@ -627,7 +837,10 @@ mod tests {
         explicit.overflow_y = Overflow::Hidden;
         explicit.mask.set(StyleId::OverflowY);
         assert_eq!(
-            explicit.to_taffy(NodeType::ScrollView).overflow.y,
+            explicit
+                .to_taffy(NodeType::ScrollView, &Env::default())
+                .overflow
+                .y,
             taffy::style::Overflow::Hidden
         );
     }
@@ -652,7 +865,7 @@ mod tests {
             start: GridLine::Line(1),
             end: GridLine::Span(2),
         };
-        let s = p.to_taffy(NodeType::View);
+        let s = p.to_taffy(NodeType::View, &Env::default());
         assert_eq!(s.grid_template_columns.len(), 3);
         assert_eq!(s.grid_row.start, line(1));
         assert_eq!(s.grid_row.end, span(2));

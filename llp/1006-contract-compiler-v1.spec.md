@@ -52,6 +52,15 @@ unknown name, or a name declared differently in both is refused by name);
 anything but a `.contract` path is `contract-no-imports`, as before.
 **Styles.** `style Name` with lines of `attr=literal` (style rows only), applied
 by `class=Name` on a node, the node's own attribute winning (LLP 1017 P6).
+**The environment** (2026-08-30): a style attribute's text may be an `env()`
+length — `padding-top="env(safe-area-inset-top)"`,
+`margin-bottom="calc(env(safe-area-inset-bottom) + 12px)"` — passed as text by
+the runner's bridge and parsed by the kernel (LLP 1001 §2; any other text on a
+dimension row is refused at boot, so at bake). `viewport-fit="cover"` is an
+attribute (the viewport meta's key, spelled as the web spells it; `viewportFit`
+and `safeArea` in the did-you-mean) lowering to the `viewportFit` prop, which a
+host reads from the first root (LLP 1008 §9, LLP 1007 §4).
+`contract/corpus/insets.contract`, `tests/insets.rs`.
 **Composition** (LLP 1017 P4a/b, 2026-08-30): a component may declare `inject`
 (typed names, like `props`) that a use site does not pass — the nearest
 enclosing `provide name = expr` fills them at inlining, the innermost winning,

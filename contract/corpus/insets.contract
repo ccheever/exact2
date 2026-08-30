@@ -1,0 +1,26 @@
+// Accept fixture: a full-bleed page (`viewport-fit="cover"`) whose content
+// keeps out of the safe areas with `env(safe-area-inset-*)` lengths, and an
+// input at the bottom that a software keyboard would cover. The host insets
+// its viewport by the keyboard and reveals the field, as a browser's visual
+// viewport does (LLP 1008 §9); `dismiss` takes the focus, and the keyboard
+// with it.
+component Insets
+  state note = ""
+  state focused = false
+  action setNote(value) writes note
+    note = value
+  action focusIn writes focused
+    focused = true
+  action focusOut writes focused
+    focused = false
+  view
+    main testId="root" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" background-color="#12081f" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
+      column testId="content" width="100%" height="100%" justify-content="flex-end" gap=12 padding=16 box-sizing="border-box"
+        text "Insets" testId="title" font-size=20 font-weight=700 color="#ffffff"
+        button press=focusOut focus=focusOut testId="dismiss" padding=10 border-radius=8 background-color="#7c4dff"
+          text "Dismiss the keyboard" font-size=14 color="#ffffff"
+        when focused
+          text "editing" testId="editing" font-size=13 color="#b8a1d9"
+        else
+          text "idle" testId="idle" font-size=13 color="#b8a1d9"
+        input value=note change=setNote focus=focusIn blur=focusOut placeholder="A note" testId="note" padding=12 border-radius=8 border-width=1 border-color="#5b4a7a" background-color="#ffffff"

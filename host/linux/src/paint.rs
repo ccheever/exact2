@@ -378,10 +378,11 @@ impl Painter {
             }
         }
         // The content box: inside the borders and the padding.
-        let pad = |d: Dimension| match d {
+        let env = walk.scene.kernel.env();
+        let pad = |d: Dimension| match d.resolve(&env) {
             Dimension::Points(p) => p,
             Dimension::Percent(p) => w * p / 100.0,
-            Dimension::Auto => 0.0,
+            Dimension::Auto | Dimension::Env(..) => 0.0,
         };
         let content = (
             x + widths[3] + pad(s.padding_left),
@@ -557,10 +558,11 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
 /// block containers do not always count end-edge padding), never less than
 /// the box itself.
 pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
-    let pad = |d: Dimension, against: f32| match d {
+    let env = kernel.env();
+    let pad = |d: Dimension, against: f32| match d.resolve(&env) {
         Dimension::Points(p) => p,
         Dimension::Percent(p) => against * p / 100.0,
-        Dimension::Auto => 0.0,
+        Dimension::Auto | Dimension::Env(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);

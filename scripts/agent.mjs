@@ -426,7 +426,7 @@ export async function open({ host, plan, size, env, app } = {}) {
  *
  *   tree    epoch E · incarnation I · clock C ms · N nodes
  *           {"  " × depth}{Type}#{id} [{testId}] "{text}" value="…" label="…" ({handlers, comma-separated})
- *   layout  viewport W×H · clock C ms
+ *   layout  viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] · clock C ms
  *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy}
  *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
  *           the host's lines indented two spaces; "(nothing new)" when there is nothing
@@ -441,8 +441,11 @@ export function render(op, r) {
         const p = n.props ?? {};
         return `${'  '.repeat(n.depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}`;
       })).join('\n');
-    case 'layout':
-      return [`viewport ${r.viewport.w}×${r.viewport.h} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}`)).join('\n');
+    case 'layout': {
+      const e = r.env;
+      const env = e && Object.values(e).some((v) => v) ? ` · safe-area ${e['safe-area-inset-top']} ${e['safe-area-inset-right']} ${e['safe-area-inset-bottom']} ${e['safe-area-inset-left']} · keyboard ${e['keyboard-inset-height']}` : '';
+      return [`viewport ${r.viewport.w}×${r.viewport.h}${env} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}`)).join('\n');
+    }
     case 'logs':
       return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
     case 'state':

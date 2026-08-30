@@ -35,7 +35,7 @@ host only ever sees a view id.
 | `tree` | `{"op":"tree"}` | `epoch`, `incarnation`, `clock`, `roots`, `nodes[]` in preorder: `id`, `parent`, `depth`, `type` (schema name), `props` by schema name, `handlers` (`press`/`change`/`hover`/`focus`/`blur`/`key`), `children` | runner (`Kernel::rows` + props) |
 | `state` | `{"op":"state"}` | `clock`; `slots`, `derives`, `resources` by declared name as typed JSON: records keyed by field name, `none`/unit `null` | runner (the plan's type table) |
 | `logs` | `{"op":"logs","since":N}` | `next`, `from`, `lines[]` — the journal from `since` (§3); the driver adds `host[]` (page console / app stderr) and `dropped` | runner |
-| `layout` | `{"op":"layout"}` | `clock`, `viewport{w,h}`, `nodes[]`: `id`, `x`, `y`, `w`, `h` (+ `sx`, `sy` on scroll containers); the driver adds `type` and `testId` | host |
+| `layout` | `{"op":"layout"}` | `clock`, `viewport{w,h}`, `env{…}` (2026-08-30: the page's environment by the web's `env()` names — `safe-area-inset-top/right/bottom/left`, the insets the host gave the kernel under `viewport-fit=cover`, and `keyboard-inset-height`, a software keyboard's overlap with the viewport; zeros on macOS and Linux, the browser's own on the web), `nodes[]`: `id`, `x`, `y`, `w`, `h` (+ `sx`, `sy` on scroll containers); the driver adds `type` and `testId` | host |
 | `tap` | `{"op":"tap","id":V}` / `{…,"wheel":[dx,dy]}` / `{…,"hover":true}` | `tapped`, `at` (+ `hover`); the driver adds `target` | host input path |
 | `type` | `{"op":"type","id":V,"text":…}` / `{…,"key":"Enter"}` | `typed` (+ `value` on macOS) / `key`; the driver adds `target` | host text path |
 | `clock` | `{"op":"clock","to":ms}` / `{…,"settle":true}` | `clock` (where it landed), `settled` for `settle` | host, both clocks |
@@ -286,7 +286,7 @@ CLI splits argv, and nothing reads the outline in.
 ```
 tree     epoch E · incarnation I · clock C ms · N nodes
          {"  " × depth}{Type}#{id} [{testId}] "{text}" value="…" label="…" ({handlers, ", "-joined})
-layout   viewport W×H · clock C ms
+layout   viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] · clock C ms
          #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy}
 logs     "(N earlier lines dropped by the journal ring)" when dropped > 0;
          the journal lines as they are; the host's lines indented two spaces;

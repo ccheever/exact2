@@ -87,11 +87,6 @@ sits on that list carries the trade it would take.
   shows at once; the ABI checks its pointers). Left: Chrome's flag as the oracle for
   children *through* a surface; a hermetic test of the glass crossfade; LLP 1013 on
   this machinery. Delete this line then.
-- **`viewport-fit=cover` and `env(safe-area-inset-*)`** — the sky under a phone's status
-  bar and home indicator, the content padded by what the host reports (LLP 1008 §9
-  paints the root's background there today, Safari's rule without the meta). An `env()`
-  dimension in the kernel and Contract, the insets set by the host with the viewport,
-  a relayout when they change (a rotation).
 
 
 - `fitDocument` reading the root's `content` so the page's extent includes overflow
@@ -146,7 +141,7 @@ sits on that list carries the trade it would take.
   `accessibilityLabel`; justified text; per-corner radii; rubber-banding on inner
   scroll nodes; a generated header. **iOS** (LLP 1008 §9): the agent API on a
   phone (`build.mjs --device --run` installs over USB or Wi-Fi, but nothing drives
-  the app there); the keyboard's inset on the viewport; a
+  the app there); a
   synthesized touch for the agent's `tap` (UIKit's hit-test and the responder-chain
   rule today); a pan chaining out of a nested scroll view at its edge (UIKit's own;
   the agent's wheel chains).

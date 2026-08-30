@@ -429,9 +429,11 @@ impl<D: DataSource> Presenter<D> {
         let mut boxes: Vec<PaintedBox> = self.boxes().to_vec();
         boxes.sort_by_key(|b| b.id);
         let mut s = String::new();
+        // The page's environment (LLP 1012 §1): no safe area and no
+        // software keyboard on this host — every value is zero.
         let _ = write!(
             s,
-            "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"nodes\":[",
+            "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"env\":{{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0}},\"nodes\":[",
             num(clock),
             num(r2(vw)),
             num(r2(vh))
