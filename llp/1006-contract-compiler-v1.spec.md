@@ -38,9 +38,10 @@ file is under the 1,500-line cap.
 shape name, `option<T>`, `list<T>`); `component Name` with sections `props`,
 `state`, `derive`, `resource`, `action`, `task`, `contract` (parsed, not
 compiled), `view`. The first component is the root; only the root holds
-`state`/`derive`/`resource`/`action`/`task` (`analyze-child-state`); a child
-component is a view over its `props`, and a prop of type `action` is an
-action reference the use site supplies.
+`resource`/`mutation`/`task` (`type-child-resource`); a child component is a
+view over its `props` that may own `state`, `derive`, and `action` of its own
+(LLP 1017 P4c, 2026-08-30 — see **Instances** below), and a prop of type
+`action` is an action reference the use site supplies.
 
 **Resources.** `resource name = source(args) as shape T`: `source` names the
 app's data source, `args` are expressions over state, `T` is the declared
@@ -73,7 +74,12 @@ second evaluator. **Functions** (LLP 1017 P5, 2026-08-30): `fn name(param: type,
 expr` at file scope — one expression over its parameters and the roster only,
 typed like a roster call, expanded inline at each call (no opcode, no table);
 a cycle is `type-fn-recursive`, a roster name `contract-fn-shadows-roster`.
-**Composition** (LLP 1017 P4a/b, 2026-08-30): a component may declare `inject`
+**Instances** (LLP 1017 P4c, 2026-08-30): a child may own `state`, `derive`,
+and `action` (never a resource, mutation, or task — `type-child-resource`);
+`expand` lifts them into the root per use, renamed apart, a derive as a
+substituted expression, and a use under an `each` makes its states row slots
+(`slots.owner`), one value per keyed row on the runner. The "only the root
+holds state" rule of §2 and §7 is gone. **Composition** (LLP 1017 P4a/b, 2026-08-30): a component may declare `inject`
 (typed names, like `props`) that a use site does not pass — the nearest
 enclosing `provide name = expr` fills them at inlining, the innermost winning,
 none on the path `syntax-missing-provide`; and `slot`, so that the nodes
@@ -229,8 +235,8 @@ own (a 2026-08-28 review correction to an earlier overclaim here).
 - **`exact-plan` was created by this lane**, not by a separate runner lane —
   the format, runner, and compiler landed together, which is what made the
   format real (LLP 1000's lane order, revised again).
-- **Only the root holds state** (§2) — a scope narrower than 1004 D3's
-  construct list implies; child components with state are a later addition.
+- ~~**Only the root holds state**~~ — held from 2026-08-28 to 2026-08-30;
+  LLP 1017 P4c gave children `state`, `derive`, and `action` (§2 Instances).
 - **`analyze-derive-cycle` became `type-derive-cycle`**: the fixpoint that
   finds it is in the type pass.
 

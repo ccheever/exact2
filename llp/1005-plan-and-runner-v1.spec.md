@@ -209,8 +209,12 @@ of its own. Both crates build for `wasm32-unknown-unknown`.
 
 A Deps table and dirty-set sweep (the runner re-evaluates every site; 0485
 §8.3's incremental sweep is a measured optimization for later); per-instance
-derives or resources inside `each` rows (LLP 1006 §2: only the root holds
-state); state-preserving reload (LLP 1004 D5); a request's cancellation on
+derives or resources inside `each` rows (per-instance *state* landed
+2026-08-30, LLP 1017 P4c: `slots.owner` names an `each` region and the row
+holds the value on its `Frame` — `RowSlots` — read through the frames like
+`LoadItem`, written on commit with the same rollback, never carried; a
+child's derive is a substituted expression, and a child's resource is
+refused); state-preserving reload (LLP 1004 D5); a request's cancellation on
 the wire (a forgotten ticket is dropped on arrival, LLP 1016 D5);
 cursors, cells, confidentiality, cost claims, speculation (LLP 1004 §3).
 

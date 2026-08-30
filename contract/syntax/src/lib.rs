@@ -24,7 +24,7 @@ pub mod lexer;
 pub mod parser;
 
 pub use ast::*;
-pub use inline::inline;
+pub use inline::{expand, inline, Expanded};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use parser::{parse, SyntaxError};
 

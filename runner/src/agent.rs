@@ -127,11 +127,17 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     let plan = runner.plan();
     let mut s = String::new();
     let _ = write!(s, "{{\"clock\":{},\"slots\":{{", num(runner.now_ms()));
-    for (i, row) in plan.slots.iter().enumerate() {
+    let mut first = true;
+    for row in plan.slots.iter() {
+        if row.owner.is_some() {
+            // A row slot has a value per row, not one here (LLP 1017 P4c).
+            continue;
+        }
         let name = plan.str(row.name);
-        if i > 0 {
+        if !first {
             s.push(',');
         }
+        first = false;
         quote(name, &mut s);
         s.push(':');
         match runner.slot(name) {

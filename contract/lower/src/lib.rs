@@ -114,6 +114,8 @@ pub(crate) struct Lowerer<'a> {
     /// The file's `fn` declarations, by name, expanded inline at each call
     /// (LLP 1017 P5).
     pub fns: BTreeMap<String, FnDecl>,
+    /// The region each `each` lowered to, by the inliner's tag (LLP 1017 P4c).
+    pub each_regions: BTreeMap<u32, exact_plan::RegionsId>,
     /// How many `fn` bodies are being expanded right now (a guard; the type
     /// pass already refuses a cycle).
     pub fn_depth: u32,
@@ -121,7 +123,15 @@ pub(crate) struct Lowerer<'a> {
 
 /// Lower a checked file to a plan.
 pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, LowerError> {
-    let root = &file.components[0];
+    // The root as the plan sees it: inlined, with every stateful child's
+    // declarations lifted in (LLP 1017 P4c) — the same expansion the type
+    // pass checked, so its slots line up with `types.components[0]`.
+    let ex = contract_syntax::expand(file).map_err(|e| LowerError {
+        id: e.id,
+        message: e.message,
+        span: e.span,
+    })?;
+    let root = &ex.root;
     let root_types = &types.components[0];
     let mut l = Lowerer {
         b: PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, compiler_identity()),
@@ -141,6 +151,7 @@ pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, L
             .map(|f| (f.name.clone(), f.clone()))
             .collect(),
         fn_depth: 0,
+        each_regions: BTreeMap::new(),
     };
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
@@ -297,12 +308,8 @@ pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, L
             .unwrap()];
         l.b.timer(*ms as u32, action);
     }
-    // The view, inlined.
-    let view = contract_syntax::inline(file).map_err(|e| LowerError {
-        id: e.id,
-        message: e.message,
-        span: e.span,
-    })?;
+    // The view, inlined (by `expand`, above).
+    let view = &root.view;
     if view.len() != 1 {
         return err(
             "lower-one-root",
@@ -320,7 +327,22 @@ pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, L
             view[0].span(),
         );
     }
-    l.nodes(&view, None, None, &scope, 0, None)?;
+    l.nodes(view, None, None, &scope, 0, None)?;
+    // Row slots: each lifted state owned by an `each` names its region now
+    // that the regions exist (LLP 1017 P4c).
+    for (i, owner) in ex.owners.iter().enumerate() {
+        if let Some(tag) = owner {
+            let region = *l.each_regions.get(tag).ok_or_else(|| LowerError {
+                id: "lower-row-slot",
+                message: format!(
+                    "row slot `{}` names an `each` that was not lowered",
+                    root.states[i].name
+                ),
+                span: root.states[i].span,
+            })?;
+            l.b.set_slot_owner(l.slots[i], region);
+        }
+    }
     l.b.finish().map_err(|e| LowerError {
         id: "lower-invalid-plan",
         message: format!("{e:?}"),
@@ -610,6 +632,7 @@ impl<'a> Lowerer<'a> {
                 self.nodes(otherwise, None, Some(arms[1]), &inner, locals, parent_tag)
             }
             Node::Each {
+                tag,
                 var,
                 list,
                 key,
@@ -624,9 +647,10 @@ impl<'a> Lowerer<'a> {
                 let mut inner = scope.clone();
                 inner.push_region(Some((var.clone(), Ref::Item(0), item_ty)));
                 let key = self.expr_code(key, &inner, locals)?;
-                let (_r, arms) =
+                let (r, arms) =
                     self.b
                         .region(RegionKind::Each, parent, arm, order, subject, key, 1);
+                self.each_regions.insert(*tag, r);
                 self.nodes(body, None, Some(arms[0]), &inner, locals, parent_tag)
             }
             Node::Match {

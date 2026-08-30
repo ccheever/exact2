@@ -13,10 +13,12 @@
 //! because its key, not its position, is its identity.
 
 use crate::bridge;
-use crate::vm::{self, Env, Frame, Trap};
+use crate::vm::{self, Env, Frame, RowSlots, Trap};
 use exact_kernel::{NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, NodesId, Plan, RegionKind, RegionsId, Value};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 /// Why an instance could not be realized.
 #[allow(missing_docs)]
@@ -83,6 +85,10 @@ struct Row {
     key: Value,
     frame: Frame,
     roots: Vec<Child>,
+    /// The row's own slots (LLP 1017 P4c): the `state` a child component
+    /// declared, one value per row, kept across reorders with the key,
+    /// dropped with the row, initialized when the row is created.
+    slots: RowSlots,
 }
 
 /// Allocates kernel view ids; never reuses one within a runner's life.
@@ -400,6 +406,7 @@ impl RegionInst {
                         Frame {
                             item: None,
                             bound: Some((*v).clone()),
+                            ..Default::default()
                         },
                     ),
                     Value::Option(None) => (
@@ -431,6 +438,7 @@ impl RegionInst {
                     let frame = Frame {
                         item: Some(item.clone()),
                         bound: None,
+                        ..Default::default()
                     };
                     let mut inner = frames.to_vec();
                     inner.push(frame.clone());
@@ -449,7 +457,7 @@ impl RegionInst {
                 let mut old: Vec<Option<Row>> =
                     std::mem::take(rows).into_iter().map(Some).collect();
                 let mut next = Vec::with_capacity(keyed.len());
-                for (key, frame) in keyed {
+                for (key, mut frame) in keyed {
                     let existing = old
                         .iter_mut()
                         .find(|r| {
@@ -457,17 +465,36 @@ impl RegionInst {
                                 .is_some_and(|r| vm::equal(&r.key, &key) == Some(true))
                         })
                         .and_then(Option::take);
-                    let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    frame.region = Some(self.region.0);
                     match existing {
                         Some(mut r) => {
-                            r.frame = frame;
+                            frame.row = Some(r.slots.clone());
+                            r.frame = frame.clone();
+                            let mut inner = frames.to_vec();
+                            inner.push(frame);
                             update_all(u, &mut r.roots, &inner)?;
                             next.push(r);
                         }
                         None => {
+                            // A new row: its slots start from their initializers,
+                            // evaluated here so an initializer may read the item.
+                            let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
+                            frame.row = Some(slots.clone());
+                            let mut inner = frames.to_vec();
+                            inner.push(frame.clone());
+                            for (i, s) in plan.slots.iter().enumerate() {
+                                if s.owner == Some(self.region) {
+                                    let v = u.eval(s.init, &inner)?;
+                                    slots.borrow_mut().insert(i as u32, v);
+                                }
+                            }
                             let roots = realize(u, None, arm, &inner)?;
-                            next.push(Row { key, frame, roots });
+                            next.push(Row {
+                                key,
+                                frame,
+                                roots,
+                                slots,
+                            });
                         }
                     }
                 }

@@ -12,7 +12,15 @@
 use crate::stdlib;
 use exact_plan::bytes::Reader;
 use exact_plan::{Opcode, Operand, Plan, Stdlib, Value};
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
+
+/// A keyed row's own slots — the values of the `state` a child component
+/// declared, one set per row (LLP 1017 P4c) — shared by the row and every
+/// frame that reaches it, so a read during an update and a write applied
+/// after an action's commit see one storage.
+pub type RowSlots = Rc<RefCell<BTreeMap<u32, Value>>>;
 
 /// One instance scope: what an `each` row or a `match` arm binds.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -21,6 +29,21 @@ pub struct Frame {
     pub item: Option<Value>,
     /// The `match` binding, when this scope is a `some(x)` arm.
     pub bound: Option<Value>,
+    /// The `each` region this row belongs to, when this scope is a row.
+    pub region: Option<u32>,
+    /// The row's slots, when this scope is a row.
+    pub row: Option<RowSlots>,
+}
+
+impl Frame {
+    /// The row slots of the innermost frame belonging to `region`.
+    pub fn row_of(frames: &[Frame], region: u32) -> Option<&RowSlots> {
+        frames
+            .iter()
+            .rev()
+            .find(|f| f.region == Some(region))
+            .and_then(|f| f.row.as_ref())
+    }
 }
 
 /// Everything an expression may read.
@@ -102,6 +125,9 @@ pub struct Outcome {
     pub value: Value,
     /// `(slot, value)` writes in execution order.
     pub writes: Vec<(u32, Value)>,
+    /// `(slot, value, row)` writes to row slots, with the row they belong to
+    /// (LLP 1017 P4c).
+    pub row_writes: Vec<(u32, Value, RowSlots)>,
     /// `(name, args)` commands in execution order.
     pub commands: Vec<(String, Vec<Value>)>,
     /// `(mutation, source, args)` sends in execution order (LLP 1016).
@@ -163,12 +189,18 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 let v = pop!(pc);
                 stack.push(Value::some(v));
             }
-            Opcode::LoadSlot => stack.push(
-                env.slots
-                    .get(args[0] as usize)
-                    .cloned()
-                    .ok_or(malformed(pc))?,
-            ),
+            Opcode::LoadSlot => {
+                let slot = args[0] as usize;
+                let row = env.plan.slots.get(slot).ok_or(malformed(pc))?;
+                let v = match row.owner {
+                    // A row slot: the value the innermost row of its region holds.
+                    Some(region) => Frame::row_of(env.frames, region.0)
+                        .and_then(|r| r.borrow().get(&(slot as u32)).cloned())
+                        .ok_or(Trap::BadScope { pc, depth: 0 })?,
+                    None => env.slots.get(slot).cloned().ok_or(malformed(pc))?,
+                };
+                stack.push(v);
+            }
             Opcode::LoadDerive => stack.push(
                 env.derives
                     .get(args[0] as usize)
@@ -322,7 +354,22 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     return Err(Trap::WriteNotDeclared { pc, slot });
                 }
                 let v = pop!(pc);
-                out.writes.push((slot, v));
+                match env
+                    .plan
+                    .slots
+                    .get(slot as usize)
+                    .ok_or(malformed(pc))?
+                    .owner
+                {
+                    Some(region) => {
+                        // A row slot: written to the row in force — an action
+                        // run with no row (`act`, a timer) has none to write.
+                        let row = Frame::row_of(env.frames, region.0)
+                            .ok_or(Trap::BadScope { pc, depth: 0 })?;
+                        out.row_writes.push((slot, v, row.clone()));
+                    }
+                    None => out.writes.push((slot, v)),
+                }
             }
             Opcode::Command => {
                 let name = env.plan.str(exact_plan::StrId(args[0] as u32)).to_string();

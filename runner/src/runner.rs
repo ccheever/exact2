@@ -11,7 +11,7 @@
 use crate::instance::{Ids, InstanceError, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Outcome, Request, RequestOut};
 use crate::store::{Store, StoreWrite};
-use crate::vm::{self, Env, Frame, Trap};
+use crate::vm::{self, Env, Frame, RowSlots, Trap};
 use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
 use exact_plan::{ActionsId, Code, EventKind, Plan, PlanError, Value};
 use std::fmt::Write as _;
@@ -336,6 +336,7 @@ impl<D: DataSource> Runner<D> {
                 .slots
                 .iter()
                 .zip(&self.slots)
+                .filter(|(s, _)| s.owner.is_none())
                 .map(|(s, v)| (self.plan.str(s.name).to_string(), v.clone()))
                 .collect(),
             resources: self
@@ -426,6 +427,12 @@ impl<D: DataSource> Runner<D> {
         for i in 0..runner.plan.slots.len() {
             let ty = runner.plan.slots[i].ty;
             let name = runner.plan.str(runner.plan.slots[i].name);
+            if runner.plan.slots[i].owner.is_some() {
+                // A row slot (LLP 1017 P4c) lives on its rows, initialized as
+                // each row is created; nothing to carry, nothing to hold here.
+                runner.slots.push(Value::Unit);
+                continue;
+            }
             let kept = carried
                 .and_then(|c| c.slots.iter().find(|(n, _)| n == name))
                 .map(|(_, v)| v.clone())
@@ -571,7 +578,7 @@ impl<D: DataSource> Runner<D> {
         self.plan
             .slots
             .iter()
-            .position(|s| self.plan.str(s.name) == name)
+            .position(|s| self.plan.str(s.name) == name && s.owner.is_none())
             .map(|i| &self.slots[i])
     }
 
@@ -724,7 +731,7 @@ impl<D: DataSource> Runner<D> {
             " ({})",
             self.plan.str(self.plan.action(handler.action).name)
         );
-        self.run_action(handler.action, args)
+        self.run_action(handler.action, args, &frames)
     }
 
     /// Run an action by name with `args` — what a test or an agent does.
@@ -738,7 +745,7 @@ impl<D: DataSource> Runner<D> {
             .position(|a| self.plan.str(a.name) == name)
             .map(|i| ActionsId(i as u32))
         {
-            Some(id) => self.run_action(id, args),
+            Some(id) => self.run_action(id, args, &[]),
             None => Err(RunnerError::NoHandler {
                 view: 0,
                 event: "action",
@@ -797,7 +804,7 @@ impl<D: DataSource> Runner<D> {
             self.timers[i].next_ms += interval;
             let action = self.plan.timers[i].action;
             let was_poisoned = self.poisoned;
-            let result = self.run_action(action, Vec::new());
+            let result = self.run_action(action, Vec::new(), &[]);
             match result {
                 Ok(receipt) => receipts.push(Timed { at_ms: at, receipt }),
                 Err(e) => {
@@ -841,10 +848,11 @@ impl<D: DataSource> Runner<D> {
         &mut self,
         action: ActionsId,
         args: Vec<Value>,
+        frames: &[Frame],
     ) -> Result<CommitReceipt, RunnerError> {
         let kept = self.store.checkpoint();
         let since = kept.writes;
-        let result = self.run_action_inner(action, args);
+        let result = self.run_action_inner(action, args, frames);
         match &result {
             Ok(_) => self.log_store_writes(since),
             Err(_) => self.store.restore(kept),
@@ -872,6 +880,7 @@ impl<D: DataSource> Runner<D> {
         &mut self,
         action: ActionsId,
         args: Vec<Value>,
+        frames: &[Frame],
     ) -> Result<CommitReceipt, RunnerError> {
         if self.poisoned {
             return Err(RunnerError::Poisoned);
@@ -900,7 +909,9 @@ impl<D: DataSource> Runner<D> {
             .map(|w| self.plan.write(w).slot.0)
             .collect();
         let outcome = {
-            let env = self.env(&args, &[]);
+            // The frames in force at the view the event hit (LLP 1017 P4c):
+            // a row action reads and writes its row through them.
+            let env = self.env(&args, frames);
             vm::eval(self.plan.code(row.body), &env, &allowed)?
         };
         // Sends (LLP 1016 §4): each asks the source now. An answer lands in
@@ -932,7 +943,12 @@ impl<D: DataSource> Runner<D> {
         // Commit the writes, then everything downstream. If settlement refuses
         // (a data source or shape refusal), the writes and commands roll back
         // and the kernel is exactly as it was.
-        for (slot, value) in &outcome.writes {
+        for (slot, value) in outcome
+            .writes
+            .iter()
+            .map(|(s, v)| (s, v))
+            .chain(outcome.row_writes.iter().map(|(s, v, _)| (s, v)))
+        {
             if !value.conforms(&self.plan, self.plan.slots[*slot as usize].ty) {
                 return Err(RunnerError::SlotType {
                     slot: self
@@ -941,6 +957,12 @@ impl<D: DataSource> Runner<D> {
                         .to_string(),
                 });
             }
+        }
+        // Row writes land in their rows now, remembered for a rollback.
+        let mut row_undo: Vec<(RowSlots, u32, Option<Value>)> = Vec::new();
+        for (slot, value, rows) in outcome.row_writes {
+            let old = rows.borrow_mut().insert(slot, value);
+            row_undo.push((rows, slot, old));
         }
         let saved_slots = self.slots.clone();
         let saved_commands = self.commands.len();
@@ -974,6 +996,12 @@ impl<D: DataSource> Runner<D> {
         self.refresh_next = outcome.refreshes.iter().map(|r| *r as usize).collect();
         if let Err(e) = self.settle(false) {
             self.slots = saved_slots;
+            for (rows, slot, old) in row_undo.into_iter().rev() {
+                match old {
+                    Some(v) => rows.borrow_mut().insert(slot, v),
+                    None => rows.borrow_mut().remove(&slot),
+                };
+            }
             self.commands.truncate(saved_commands);
             self.pending_mut = saved_pending_mut;
             return Err(e);

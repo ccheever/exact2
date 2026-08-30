@@ -64,26 +64,9 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
             root.span,
         );
     }
-    for c in file.components.iter().skip(1) {
-        if !c.states.is_empty()
-            || !c.derives.is_empty()
-            || !c.resources.is_empty()
-            || !c.mutations.is_empty()
-            || !c.actions.is_empty()
-            || !c.tasks.is_empty()
-        {
-            let span = c
-                .states
-                .first()
-                .map(|s| s.span)
-                .or(c.derives.first().map(|d| d.span))
-                .or(c.resources.first().map(|r| r.span))
-                .or(c.actions.first().map(|a| a.span))
-                .or(c.tasks.first().map(|t| t.span))
-                .unwrap_or(c.span);
-            return err("analyze-child-state", format!("component `{}` takes props, so it is a view over them: state, derives, resources, actions, and tasks live in the root in v1", c.name), span);
-        }
-    }
+    // A child may own `state`, `derive`, and `action` (LLP 1017 P4c); that it
+    // owns no `resource`, `mutation`, or `task` is the type pass's refusal
+    // (`type-child-resource`), made before its view is checked.
     for (ci, c) in file.components.iter().enumerate() {
         let ct = &types.components[ci];
         let scope = types.component_scope(c, ct);

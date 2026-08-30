@@ -814,16 +814,37 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
     // The root is checked against its inlined view, so a handler's real call
     // site (behind a child's prop) types the action's parameters; children
     // are checked standalone as views over their props.
-    let inlined = contract_syntax::inline(file).map_err(|e| TypeError {
+    // The expanded root (LLP 1017 P4c): the inlined view plus every stateful
+    // child's own declarations, lifted in — what lowering will lower.
+    let expanded = contract_syntax::expand(file).map_err(|e| TypeError {
         id: e.id,
         message: e.message,
         span: e.span,
     })?;
+    // A child may own `state`, `derive`, and `action` (LLP 1017 P4c: its
+    // instances' own), never a `resource`, `mutation`, or `task` — a row
+    // must not open N requests, and only the root has a clock. Checked
+    // before the root, whose inlined view would otherwise trip on the
+    // child's unknown name first.
+    for c in file.components.iter().skip(1) {
+        if !c.resources.is_empty() || !c.mutations.is_empty() || !c.tasks.is_empty() {
+            let span = c
+                .resources
+                .first()
+                .map(|r| r.span)
+                .or(c.mutations.first().map(|m| m.span))
+                .or(c.tasks.first().map(|t| t.span))
+                .unwrap_or(c.span);
+            return err(
+                "type-child-resource",
+                format!("component `{}` takes props: a resource, mutation, or task lives in the root (a child may own state, derives, and actions)", c.name),
+                span,
+            );
+        }
+    }
     for (i, c) in file.components.iter().enumerate() {
         let ct = if i == 0 {
-            let mut root = c.clone();
-            root.view = inlined.clone();
-            check_component(&root, &types)?
+            check_component(&expanded.root, &types)?
         } else {
             check_component(c, &types)?
         };

@@ -11,7 +11,7 @@
 //! `children` node is replaced by the nodes indented under its use, inlined
 //! in the *use site's* scope.
 
-use crate::ast::{Attr, Component, Expr, File, Node, TemplatePart};
+use crate::ast::{Action, Attr, Binding, Component, Expr, File, Node, Stmt, TemplatePart};
 use crate::parser::SyntaxError;
 use std::collections::BTreeMap;
 
@@ -29,6 +29,25 @@ fn err<T>(
 
 /// The root's view with every component use inlined.
 pub fn inline(file: &File) -> Result<Vec<Node>, SyntaxError> {
+    Ok(expand(file)?.root.view)
+}
+
+/// The root as the plan sees it (LLP 1017 P4c): its view inlined, plus the
+/// `state`s and `action`s of every stateful child use, renamed apart with
+/// the use's number — a root slot for a use outside any `each`, a row slot
+/// (owned by the innermost enclosing `each`, named by its tag) inside one;
+/// a child's `derive` is an expression substituted at each read.
+pub struct Expanded {
+    /// The root, with the children's declarations appended.
+    pub root: Component,
+    /// For each of `root.states`, the tag of the `each` that owns it, or
+    /// `None` for a root slot.
+    pub owners: Vec<Option<u32>>,
+}
+
+/// Expand the file's root: inline every use and lift every child's own
+/// declarations into it.
+pub fn expand(file: &File) -> Result<Expanded, SyntaxError> {
     let mut counter = 0u32;
     let mut ctx = Ctx {
         file,
@@ -36,8 +55,21 @@ pub fn inline(file: &File) -> Result<Vec<Node>, SyntaxError> {
         depth: 0,
         provides: Vec::new(),
         fill: None,
+        each_stack: Vec::new(),
+        next_tag: 1,
+        extra_states: Vec::new(),
+        extra_actions: Vec::new(),
     };
-    inline_nodes(&file.components[0].view, &BTreeMap::new(), &mut ctx)
+    let view = inline_nodes(&file.components[0].view, &BTreeMap::new(), &mut ctx)?;
+    let mut root = file.components[0].clone();
+    root.view = view;
+    let mut owners = vec![None; root.states.len()];
+    for (b, owner) in ctx.extra_states {
+        root.states.push(b);
+        owners.push(owner);
+    }
+    root.actions.extend(ctx.extra_actions);
+    Ok(Expanded { root, owners })
 }
 
 /// What inlining carries down the tree besides the substitution.
@@ -51,6 +83,14 @@ struct Ctx<'a> {
     /// The nodes that fill `children` here: `Some` inside a `slot`
     /// component's view (possibly empty), `None` elsewhere.
     fill: Option<Vec<Node>>,
+    /// The tags of the `each`es enclosing the current site, outermost first.
+    each_stack: Vec<u32>,
+    /// The next `each` tag.
+    next_tag: u32,
+    /// The children's `state`s lifted into the root, with their owners.
+    extra_states: Vec<(Binding, Option<u32>)>,
+    /// The children's `action`s lifted into the root.
+    extra_actions: Vec<Action>,
 }
 
 fn inline_nodes(
@@ -106,6 +146,51 @@ fn inline_nodes(
                     };
                     child_subst.insert(p.name.clone(), e.clone());
                 }
+                // The child's own `state`, `derive`, and `action` (LLP 1017 P4c):
+                // renamed apart with this use's number and lifted into the
+                // root — a derive as an expression substituted at each read.
+                *ctx.counter += 1;
+                let n = *ctx.counter;
+                let owner = ctx.each_stack.last().copied();
+                let mut names: BTreeMap<String, String> = BTreeMap::new();
+                for st in &c.states {
+                    names.insert(st.name.clone(), format!("{}__{n}", st.name));
+                }
+                for a in &c.actions {
+                    names.insert(a.name.clone(), format!("{}__{n}", a.name));
+                }
+                for (old, new) in &names {
+                    child_subst.insert(old.clone(), Expr::Ident(new.clone(), *span));
+                }
+                for d in &c.derives {
+                    let e = subst_expr(&d.expr, &child_subst);
+                    child_subst.insert(d.name.clone(), e);
+                }
+                for st in &c.states {
+                    ctx.extra_states.push((
+                        Binding {
+                            name: names[&st.name].clone(),
+                            expr: subst_expr(&st.expr, &child_subst),
+                            span: st.span,
+                        },
+                        owner,
+                    ));
+                }
+                for a in &c.actions {
+                    ctx.extra_actions.push(Action {
+                        name: names[&a.name].clone(),
+                        params: a.params.clone(),
+                        writes: a
+                            .writes
+                            .iter()
+                            .map(|(w, sp)| {
+                                (names.get(w).cloned().unwrap_or_else(|| w.clone()), *sp)
+                            })
+                            .collect(),
+                        body: subst_stmts(&a.body, &child_subst, &names),
+                        span: a.span,
+                    });
+                }
                 if !children.is_empty() && !c.slot {
                     return err(
                         "syntax-no-slot",
@@ -119,8 +204,7 @@ fn inline_nodes(
                 } else {
                     None
                 };
-                *ctx.counter += 1;
-                let renamed = rename_component(c, *ctx.counter);
+                let renamed = rename_component(c, n);
                 let outer_fill = std::mem::replace(&mut ctx.fill, fill);
                 ctx.depth += 1;
                 let body = inline_nodes(&renamed.view, &child_subst, ctx);
@@ -183,13 +267,22 @@ fn inline_nodes(
                 key,
                 body,
                 span,
-            } => out.push(Node::Each {
-                var: var.clone(),
-                list: subst_expr(list, subst),
-                key: subst_expr(key, subst),
-                body: inline_nodes(body, subst, ctx)?,
-                span: *span,
-            }),
+                ..
+            } => {
+                let tag = ctx.next_tag;
+                ctx.next_tag += 1;
+                ctx.each_stack.push(tag);
+                let body = inline_nodes(body, subst, ctx);
+                ctx.each_stack.pop();
+                out.push(Node::Each {
+                    tag,
+                    var: var.clone(),
+                    list: subst_expr(list, subst),
+                    key: subst_expr(key, subst),
+                    body: body?,
+                    span: *span,
+                })
+            }
             Node::Match {
                 subject,
                 some,
@@ -347,6 +440,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 span: *span,
             },
             Node::Each {
+                tag,
                 var,
                 list,
                 key,
@@ -357,6 +451,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 let fresh = format!("{var}__{n}");
                 inner.insert(var.clone(), fresh.clone());
                 Node::Each {
+                    tag: *tag,
                     var: fresh,
                     list: rename_expr(list, map),
                     key: rename_expr(key, &inner),
@@ -390,4 +485,70 @@ fn rename_expr(e: &Expr, map: &BTreeMap<String, String>) -> Expr {
         .map(|(k, v)| (k.clone(), Expr::Ident(v.clone(), e.span())))
         .collect();
     subst_expr(e, &subst)
+}
+
+/// A child action's body, its names substituted: assignment targets renamed
+/// with `names`, expressions through `subst` (props, injects, renamed states
+/// and actions, derives as expressions).
+fn subst_stmts(
+    stmts: &[Stmt],
+    subst: &BTreeMap<String, Expr>,
+    names: &BTreeMap<String, String>,
+) -> Vec<Stmt> {
+    stmts
+        .iter()
+        .map(|st| match st {
+            Stmt::Assign { target, expr, span } => Stmt::Assign {
+                target: names.get(target).cloned().unwrap_or_else(|| target.clone()),
+                expr: subst_expr(expr, subst),
+                span: *span,
+            },
+            Stmt::Command { name, args, span } => Stmt::Command {
+                name: name.clone(),
+                args: args.iter().map(|a| subst_expr(a, subst)).collect(),
+                span: *span,
+            },
+            Stmt::Send {
+                target,
+                source,
+                args,
+                span,
+            } => Stmt::Send {
+                target: target.clone(),
+                source: source.clone(),
+                args: args.iter().map(|a| subst_expr(a, subst)).collect(),
+                span: *span,
+            },
+            Stmt::Refresh { target, span } => Stmt::Refresh {
+                target: target.clone(),
+                span: *span,
+            },
+            Stmt::If {
+                cond,
+                then,
+                otherwise,
+                span,
+            } => Stmt::If {
+                cond: subst_expr(cond, subst),
+                then: subst_stmts(then, subst, names),
+                otherwise: subst_stmts(otherwise, subst, names),
+                span: *span,
+            },
+            Stmt::Match {
+                subject,
+                some,
+                none,
+                span,
+            } => {
+                let mut inner = subst.clone();
+                inner.remove(&some.0);
+                Stmt::Match {
+                    subject: subst_expr(subject, subst),
+                    some: (some.0.clone(), subst_stmts(&some.1, &inner, names)),
+                    none: subst_stmts(none, subst, names),
+                    span: *span,
+                }
+            }
+        })
+        .collect()
 }

@@ -919,6 +919,7 @@ impl Parser {
                 self.newline()?;
                 let body = self.block(|p| p.node())?;
                 Ok(Node::Each {
+                    tag: 0,
                     var,
                     list,
                     key,

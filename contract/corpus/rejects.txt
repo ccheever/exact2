@@ -130,16 +130,18 @@ component A
     button press=set
       text "a"
 ---
-== analyze-child-state
+== type-child-resource
+# A child may own state, derives, and actions (LLP 1017 P4c) — never a
+# resource, mutation, or task: a row must not open N requests.
+shape S
+  id: string
 component A
   view
-    B(x=1)
-component B
-  props
-    x: number
-  state y = 2
+    Row()
+component Row
+  resource s = s() as shape S
   view
-    text "a"
+    text s.id
 ---
 == type-derive-cycle
 component A

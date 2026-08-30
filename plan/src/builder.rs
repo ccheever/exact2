@@ -191,7 +191,12 @@ impl PlanBuilder {
     /// A state slot.
     pub fn slot(&mut self, name: &str, ty: TypesId, init: Code) -> SlotsId {
         let name = self.str(name);
-        self.plan.slots.push(SlotsRow { name, ty, init });
+        self.plan.slots.push(SlotsRow {
+            name,
+            ty,
+            init,
+            owner: None,
+        });
         SlotsId(self.plan.slots.len() as u32 - 1)
     }
 
@@ -379,6 +384,12 @@ impl PlanBuilder {
     /// Replace a slot's initializer (declared first, filled once every id exists).
     pub fn set_slot_init(&mut self, id: SlotsId, init: Code) {
         self.plan.slots[id.0 as usize].init = init;
+    }
+
+    /// Make a slot a row slot of an `each` region: one value per keyed row,
+    /// read and written through the row's frame (LLP 1017 P4c).
+    pub fn set_slot_owner(&mut self, id: SlotsId, region: RegionsId) {
+        self.plan.slots[id.0 as usize].owner = Some(region);
     }
 
     /// Replace a derive's body.
