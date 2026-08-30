@@ -55,7 +55,12 @@ or mutation `x` — a name, not a value, so it is not a roster entry. The name
 reads as `option<T>` (`match session { case some(s) => … }`) and may be
 assigned (`session = none`), which forgets a reply in flight. **Actions.**
 `action name(params) writes a, b` with a body of `slot = expr`
-assignments, `send`/`refresh` statements, and `name(args)` commands; a parameter's type is written or
+assignments, `send`/`refresh` statements, `name(args)` commands, and — since
+2026-08-30, LLP 1017 P2 — `if cond` … `else` … and `match option` with `case
+some(x)` / `case none` blocks of statements, nested as deep as wanted, with no
+loops (a body still always terminates, LLP 1005 §2; `writes` covers every
+branch; `if` needs a bool, `type-condition`; the `match` binds its name as a
+local, as the inline form does); a parameter's type is written or
 inferred from its handler call sites (the handler attributes are `press`,
 `change`, `hover`, `focus`, `blur`, `key`, `submit`, LLP 1005 §3 — `submit`
 on an `input` is Enter, the web's implicit submission; a `key`'s or

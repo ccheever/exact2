@@ -181,6 +181,29 @@ pub enum Stmt {
         /// Where.
         span: Span,
     },
+    /// `if cond` … `else` … — a branch of statements (LLP 1017 P2).
+    If {
+        /// The condition, a bool.
+        cond: Expr,
+        /// When true.
+        then: Vec<Stmt>,
+        /// When false; may be empty.
+        otherwise: Vec<Stmt>,
+        /// Where.
+        span: Span,
+    },
+    /// `match subject` with `case some(x)` and `case none` blocks of
+    /// statements (LLP 1017 P2).
+    Match {
+        /// The option.
+        subject: Expr,
+        /// The bound name and the `some` block.
+        some: (String, Vec<Stmt>),
+        /// The `none` block.
+        none: Vec<Stmt>,
+        /// Where.
+        span: Span,
+    },
 }
 
 /// `task name mount` with `every(ms, action)`.

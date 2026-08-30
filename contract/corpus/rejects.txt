@@ -253,3 +253,23 @@ component Row
     button press=press testId="r"
       text "r"
 ---
+== analyze-write-not-declared
+# A write inside a branch counts (LLP 1017 P2): `writes` covers the whole body.
+component A
+  state n = 0
+  state s = ""
+  action go(k) writes n
+    if k == "a"
+      s = k
+  view
+    input value=s change=go
+---
+== type-condition
+component A
+  state n = 0
+  action go writes n
+    if n
+      n = 1
+  view
+    text `${n}`
+---

@@ -897,72 +897,7 @@ fn check_component(c: &Component, types: &Types) -> Result<ComponentTypes, TypeE
                 })
                 .collect(),
         );
-        for stmt in &a.body {
-            match stmt {
-                Stmt::Assign { target, expr, span } => {
-                    let Some(si) = c.states.iter().position(|s| &s.name == target) else {
-                        // A mutation's slot may be assigned (`session = none`);
-                        // its type is `option<T>` and is never inferred from here.
-                        if let Some(mi) = c.mutations.iter().position(|m| &m.name == target) {
-                            let t = infer(expr, &scope, shapes)?;
-                            let mt = Ty::Option(Box::new(ct.mutations[mi].clone()));
-                            if mt.unify(&t).is_none() {
-                                return err(
-                                    "type-assign",
-                                    format!("`{target}` is `{mt}`, cannot assign `{t}`"),
-                                    *span,
-                                );
-                            }
-                            continue;
-                        }
-                        return err(
-                            "type-assign-not-state",
-                            format!("`{target}` is not a state or a mutation"),
-                            *span,
-                        );
-                    };
-                    let t = infer(expr, &scope, shapes)?;
-                    match ct.slots[si].unify(&t) {
-                        Some(u) => ct.slots[si] = u,
-                        None => {
-                            return err(
-                                "type-assign",
-                                format!("`{target}` is `{}`, cannot assign `{t}`", ct.slots[si]),
-                                *span,
-                            )
-                        }
-                    }
-                }
-                Stmt::Command { args, .. } => {
-                    for arg in args {
-                        infer(arg, &scope, shapes)?;
-                    }
-                }
-                Stmt::Send {
-                    target, args, span, ..
-                } => {
-                    if !c.mutations.iter().any(|m| &m.name == target) {
-                        return err(
-                            "type-send-not-mutation",
-                            format!("`{target}` is not a mutation: declare `mutation {target} as shape T`"),
-                            *span,
-                        );
-                    }
-                    for arg in args {
-                        infer(arg, &scope, shapes)?;
-                    }
-                }
-                Stmt::Refresh { target, span } => {
-                    if !c.resources.iter().any(|r| &r.name == target) {
-                        return err(
-                            "type-refresh-not-resource",
-                            format!("`{target}` is not a resource"),
-                            *span,
-                        );
-                    }
-                }
-            }
-        }
+        check_stmts(&a.body, &scope, c, &mut ct, shapes)?;
     }
     for (i, s) in c.states.iter().enumerate() {
         if !ct.slots[i].is_complete() {
@@ -1103,6 +1038,119 @@ fn refine_params_from_view(
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
                 refine_params_from_view(none, &none_scope, c, ct, shapes)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// An action body's statements, through every branch (LLP 1017 P2): an
+/// assignment unifies its slot's type; a `send` names a mutation and a
+/// `refresh` a resource; an `if` needs a bool; a `match` needs an option
+/// and binds its `some` name as a local, as the inline `match` does.
+fn check_stmts(
+    stmts: &[Stmt],
+    scope: &Scope,
+    c: &Component,
+    ct: &mut ComponentTypes,
+    shapes: &Shapes,
+) -> Result<(), TypeError> {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Assign { target, expr, span } => {
+                let Some(si) = c.states.iter().position(|s| &s.name == target) else {
+                    // A mutation's slot may be assigned (`session = none`);
+                    // its type is `option<T>` and is never inferred from here.
+                    if let Some(mi) = c.mutations.iter().position(|m| &m.name == target) {
+                        let t = infer(expr, scope, shapes)?;
+                        let mt = Ty::Option(Box::new(ct.mutations[mi].clone()));
+                        if mt.unify(&t).is_none() {
+                            return err(
+                                "type-assign",
+                                format!("`{target}` is `{mt}`, cannot assign `{t}`"),
+                                *span,
+                            );
+                        }
+                        continue;
+                    }
+                    return err(
+                        "type-assign-not-state",
+                        format!("`{target}` is not a state or a mutation"),
+                        *span,
+                    );
+                };
+                let t = infer(expr, scope, shapes)?;
+                match ct.slots[si].unify(&t) {
+                    Some(u) => ct.slots[si] = u,
+                    None => {
+                        return err(
+                            "type-assign",
+                            format!("`{target}` is `{}`, cannot assign `{t}`", ct.slots[si]),
+                            *span,
+                        )
+                    }
+                }
+            }
+            Stmt::Command { args, .. } => {
+                for arg in args {
+                    infer(arg, scope, shapes)?;
+                }
+            }
+            Stmt::Send {
+                target, args, span, ..
+            } => {
+                if !c.mutations.iter().any(|m| &m.name == target) {
+                    return err(
+                        "type-send-not-mutation",
+                        format!(
+                            "`{target}` is not a mutation: declare `mutation {target} as shape T`"
+                        ),
+                        *span,
+                    );
+                }
+                for arg in args {
+                    infer(arg, scope, shapes)?;
+                }
+            }
+            Stmt::Refresh { target, span } => {
+                if !c.resources.iter().any(|r| &r.name == target) {
+                    return err(
+                        "type-refresh-not-resource",
+                        format!("`{target}` is not a resource"),
+                        *span,
+                    );
+                }
+            }
+            Stmt::If {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => {
+                if infer(cond, scope, shapes)? != Ty::Bool {
+                    return err("type-condition", "`if` needs a bool", cond.span());
+                }
+                check_stmts(then, scope, c, ct, shapes)?;
+                check_stmts(otherwise, scope, c, ct, shapes)?;
+            }
+            Stmt::Match {
+                subject,
+                some,
+                none,
+                ..
+            } => {
+                let ts = infer(subject, scope, shapes)?;
+                let Ty::Option(inner) = ts else {
+                    return err(
+                        "type-match-subject",
+                        format!("`match` needs an option, given `{ts}`"),
+                        subject.span(),
+                    );
+                };
+                let mut inner_scope = scope.clone();
+                inner_scope.push(vec![(some.0.clone(), Ref::Local(0), (*inner).clone())]);
+                check_stmts(&some.1, &inner_scope, c, ct, shapes)?;
+                check_stmts(none, scope, c, ct, shapes)?;
             }
         }
     }

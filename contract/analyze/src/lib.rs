@@ -113,12 +113,9 @@ fn check_actions(c: &Component) -> Result<(), AnalyzeError> {
                 );
             }
         }
-        for stmt in &a.body {
-            let (target, span, how) = match stmt {
-                Stmt::Assign { target, span, .. } => (target, span, "writes"),
-                Stmt::Send { target, span, .. } => (target, span, "sends"),
-                _ => continue,
-            };
+        let mut targets = Vec::new();
+        writes_of(&a.body, &mut targets);
+        for (target, span, how) in targets {
             if !declared.contains(target) {
                 return err(
                     "analyze-write-not-declared",
@@ -132,6 +129,28 @@ fn check_actions(c: &Component) -> Result<(), AnalyzeError> {
         }
     }
     Ok(())
+}
+
+/// Every slot an action body writes or sends, through every branch of its
+/// `if`s and `match`es (LLP 1017 P2): `writes` covers the whole body.
+fn writes_of<'a>(stmts: &'a [Stmt], out: &mut Vec<(&'a String, &'a Span, &'static str)>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Assign { target, span, .. } => out.push((target, span, "writes")),
+            Stmt::Send { target, span, .. } => out.push((target, span, "sends")),
+            Stmt::If {
+                then, otherwise, ..
+            } => {
+                writes_of(then, out);
+                writes_of(otherwise, out);
+            }
+            Stmt::Match { some, none, .. } => {
+                writes_of(&some.1, out);
+                writes_of(none, out);
+            }
+            Stmt::Command { .. } | Stmt::Refresh { .. } => {}
+        }
+    }
 }
 
 fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {

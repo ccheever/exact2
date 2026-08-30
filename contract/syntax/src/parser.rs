@@ -407,6 +407,63 @@ impl Parser {
     }
 
     fn stmt(&mut self) -> R<Stmt> {
+        if self.at_ident("if") {
+            let span = self.expect_word("if")?;
+            let cond = self.expr()?;
+            self.newline()?;
+            let then = self.block(|p| p.stmt())?;
+            let mut otherwise = Vec::new();
+            if self.at_ident("else") {
+                self.next();
+                self.newline()?;
+                otherwise = self.block(|p| p.stmt())?;
+            }
+            return Ok(Stmt::If {
+                cond,
+                then,
+                otherwise,
+                span,
+            });
+        }
+        if self.at_ident("match") {
+            let span = self.expect_word("match")?;
+            let subject = self.expr()?;
+            self.newline()?;
+            let mut some = None;
+            let mut none = None;
+            self.block(|p| {
+                p.expect_word("case")?;
+                if p.at_ident("some") {
+                    p.next();
+                    p.expect_punct("(")?;
+                    let (var, _) = p.ident()?;
+                    p.expect_punct(")")?;
+                    p.newline()?;
+                    some = Some((var, p.block(|q| q.stmt())?));
+                } else {
+                    p.expect_word("none")?;
+                    p.newline()?;
+                    none = Some(p.block(|q| q.stmt())?);
+                }
+                Ok(())
+            })?;
+            let some = some.ok_or(SyntaxError {
+                id: "contract-match-arms",
+                message: "`match` needs `case some(x)`".into(),
+                span,
+            })?;
+            let none = none.ok_or(SyntaxError {
+                id: "contract-match-arms",
+                message: "`match` needs `case none`".into(),
+                span,
+            })?;
+            return Ok(Stmt::Match {
+                subject,
+                some,
+                none,
+                span,
+            });
+        }
         if self.at_ident("send") {
             let span = self.expect_word("send")?;
             let (target, _) = self.ident()?;
@@ -445,7 +502,7 @@ impl Parser {
         }
         self.err(
             "syntax-expected-statement",
-            "expected `slot = expr`, `command(args)`, `send mutation = source(args)`, or `refresh resource`",
+            "expected `slot = expr`, `command(args)`, `send mutation = source(args)`, `refresh resource`, `if cond`, or `match option`",
         )
     }
 
@@ -840,6 +897,7 @@ fn is_keyword(w: &str) -> bool {
             | "view"
             | "props"
             | "when"
+            | "if"
             | "else"
             | "each"
             | "in"
