@@ -44,7 +44,16 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     let kind: String
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
-    var handlers: Set<String> = []
+    var handlers: Set<String> = [] {
+        didSet {
+            if handlers.contains("hover"), hoverRecognizer == nil {
+                let g = UIHoverGestureRecognizer(target: self, action: #selector(hovering(_:)))
+                addGestureRecognizer(g)
+                hoverRecognizer = g
+            }
+        }
+    }
+    var hoverRecognizer: UIHoverGestureRecognizer?
     var translate = CGPoint.zero
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
@@ -79,6 +88,55 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     var pressed = false
     /// Images loaded since launch (smoke reporting).
     nonisolated(unsafe) static var imagesLoaded: [(String, CGSize)] = []
+
+    /// A node with focus, blur, or key handlers takes the focus (an input's
+    /// field does by itself): the web's rule that only a focusable element
+    /// hears these. Keys come from a hardware keyboard (`pressesBegan`).
+    override var canBecomeFirstResponder: Bool { field == nil && !handlers.isDisjoint(with: ["focus", "blur", "key"]) }
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok, handlers.contains("focus") { presenter?.focus(id) }
+        return ok
+    }
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        if ok, handlers.contains("blur") { presenter?.blur(id) }
+        return ok
+    }
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        guard handlers.contains("key"), let key = presses.first?.key else { return super.pressesBegan(presses, with: event) }
+        presenter?.key(id, NodeView.keyName(key))
+    }
+    /// The web's key names for UIKit's.
+    static func keyName(_ key: UIKey) -> String {
+        switch key.keyCode {
+        case .keyboardReturnOrEnter, .keypadEnter: return "Enter"
+        case .keyboardEscape: return "Escape"
+        case .keyboardTab: return "Tab"
+        case .keyboardDeleteOrBackspace: return "Backspace"
+        case .keyboardDeleteForward: return "Delete"
+        case .keyboardUpArrow: return "ArrowUp"
+        case .keyboardDownArrow: return "ArrowDown"
+        case .keyboardLeftArrow: return "ArrowLeft"
+        case .keyboardRightArrow: return "ArrowRight"
+        default: return key.charactersIgnoringModifiers
+        }
+    }
+    /// A pointer over the node (an iPad's trackpad or mouse; a phone has
+    /// none): `hover` in and out.
+    @objc func hovering(_ g: UIHoverGestureRecognizer) {
+        switch g.state {
+        case .began: presenter?.hover(self, true)
+        case .ended, .cancelled, .failed: presenter?.hover(self, false)
+        default: break
+        }
+    }
+    /// A text field's Enter as a key (its characters are its `change`);
+    /// the editing goes on, as on the web.
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        if handlers.contains("key") { presenter?.key(id, "Enter") }
+        return false
+    }
 
     /// Where an image source resolves, as a page resolves `src`: an `http(s)`
     /// URL as is; a relative path under the asset root (`EXACT_ASSETS`, else
@@ -472,6 +530,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         if !pressed { super.touchesMoved(touches, with: event) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if canBecomeFirstResponder, !isFirstResponder { _ = becomeFirstResponder() }
         guard pressed else { return super.touchesEnded(touches, with: event) }
         pressed = false
         if let t = touches.first, bounds.contains(local(t.location(in: nil))) { presenter?.press(id) }
@@ -505,8 +564,8 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     @objc func fieldChanged() {
         if handlers.contains("change") { presenter?.change(id, field?.text ?? "") }
     }
-    func textFieldDidBeginEditing(_ textField: UITextField) { presenter?.editing = self }
-    func textFieldDidEndEditing(_ textField: UITextField) { if presenter?.editing === self { presenter?.editing = nil } }
+    func textFieldDidBeginEditing(_ textField: UITextField) { presenter?.editing = self; if handlers.contains("focus") { presenter?.focus(id) } }
+    func textFieldDidEndEditing(_ textField: UITextField) { if presenter?.editing === self { presenter?.editing = nil }; if handlers.contains("blur") { presenter?.blur(id) } }
 }
 
 final class Presenter {
@@ -550,13 +609,56 @@ final class Presenter {
     var onIntrinsic: ((UInt32, CGSize?) -> Void)?
     /// A capability an action called (LLP 1005 §3), after its commit.
     var onCommand: ((String, [Any]) -> Void)?
+    /// The events beyond press and change (LLP 1005 §3).
+    var onHover: ((UInt32, Bool) -> Void)?
+    var onFocus: ((UInt32) -> Void)?
+    var onBlur: ((UInt32) -> Void)?
+    var onKey: ((UInt32, String) -> Void)?
+    /// The node the pointer is over, of those with a hover handler: it hears
+    /// the leave when the pointer moves onto another (the agent's `hover`).
+    weak var hovered: NodeView?
 
     func press(_ id: UInt32) { onPress?(id) }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
+    /// An event a view reports: sent only while the presenter still has the
+    /// view (the platform fires editing-ended as a destroyed field leaves the
+    /// window; the browser fires no blur on removal, so neither does this
+    /// host), and never while a batch is being applied — it waits for the
+    /// batch to finish, then goes if its view survived it.
+    private var applying = false
+    private var waiting: [(UInt32, () -> Void)] = []
+    private func send(_ id: UInt32, _ f: @escaping () -> Void) {
+        guard views[id] != nil else { return }
+        if applying { waiting.append((id, f)) } else { f() }
+    }
+    func hover(_ view: NodeView, _ over: Bool) {
+        guard views[view.id] === view else { return }
+        if over {
+            if let h = hovered, h !== view { send(h.id) { [self] in onHover?(h.id, false) } }
+            hovered = view
+            send(view.id) { [self] in onHover?(view.id, true) }
+        } else {
+            if hovered === view { hovered = nil }
+            send(view.id) { [self] in onHover?(view.id, false) }
+        }
+    }
+    func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
+    func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
+    func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
+        let outermost = !applying
+        applying = true
+        defer {
+            if outermost {
+                applying = false
+                let q = waiting
+                waiting = []
+                for (id, f) in q where views[id] != nil { f() }
+            }
+        }
         for op in batch.ops {
             guard let kind = op["op"] as? String else { continue }
             let id = UInt32(op["id"] as? Int ?? 0)
@@ -588,8 +690,10 @@ final class Presenter {
             case "destroy":
                 canvases.destroy(view: id)
                 views[id]?.forget()
-                views[id]?.removeFromSuperview()
-                views.removeValue(forKey: id)
+                // Out of the map before out of the window: the editing-ended
+                // notification removal fires finds no view to send for.
+                let gone = views.removeValue(forKey: id)
+                gone?.removeFromSuperview()
             case "roots":
                 root.subviews.forEach { $0.removeFromSuperview() }
                 for r in (op["ids"] as? [Int] ?? []).compactMap({ views[UInt32($0)] }) { root.addSubview(r) }

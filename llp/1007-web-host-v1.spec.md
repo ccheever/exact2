@@ -119,7 +119,11 @@ and bakes `app.contract` into `OUT_DIR` (never committed) for
 `glue.js` is host code: it fetches and instantiates the wasm, applies batches
 (elements by view id; `children` reorders in place so keyed rows keep their
 elements and state; `animate` plays or cancels a spring), attaches
-`click`/`input` listeners only where a node has a handler, and — when the plan
+`click`/`input`/`pointerenter`+`pointerleave`/`focus`/`blur`/`keydown`
+listeners only where a node has that handler (`hover` is the pointer pair,
+`key` sends `e.key`'s name; a node with a `focus`/`blur`/`key` handler that is
+not an input or button gets `tabindex="0"`, since only a focusable element
+receives those), and — when the plan
 has timers — calls `exact_advance` on a 250 ms interval. `boot(bytes?)` tears
 the page down (interval, animations, elements) and boots from the baked plan
 or from bytes, and is exposed as `globalThis.exact.reload` for the dev loop.
@@ -238,8 +242,10 @@ before first pixel: none". A count, not a timer. Today: one module
 A text-measurement bridge for the kernel's layout on web (the browser lays
 out; the kernel's Taffy layout is not run here — and is dead-code-eliminated
 from the wasm, §7 — and `Kernel::with_monospace` is only a placeholder
-measurer); gradients, grid, `line_clamp`, `font_family` rows; touch/keyboard
-events beyond `click` and `input`; scroll position and focus restoration
+measurer); gradients, grid, `line_clamp`, `font_family` rows; pointer
+coordinates and moves (a drag), `keyup`, double-click, wheel offsets reaching
+the runner (a hover is enter/leave, a key is `keydown`; LLP 1005 §3); scroll
+position and focus restoration
 across a reload (the tree is rebuilt; §6); gestures on the web (`hold`/`observe` with velocity — LLP 1002
 D4 — reach no page event yet); `prefers-reduced-motion` (the author's
 stylesheet, LLP 1002 §4); a spring interrupted *by an easing* on the same

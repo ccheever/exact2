@@ -23,9 +23,15 @@ sits on that list carries the trade it would take.
    §3 — and `smoke linux` is green on a Mac and on the builder); a font cache when a machine's scan (25 ms
    for 787 faces on a Mac) matters; lifting the shared ~120 lines of orchestration
    out of `host/apple` and `host/linux`; one wgpu when vello moves to 30.
-2. **Events beyond `click` and `input`** — hover, keyboard, pointer, focus, on both
-   hosts (`glue.js` has two listeners). Gate for selection, gestures (`hold`/`observe`
-   reach no page event, LLP 1007 §9), and any real app.
+2. **Events, the rest** (the minimal set landed 2026-08-30: `hover`, `focus`,
+   `blur`, `key` on web, macOS, iOS — LLP 1005 §3). Left out on purpose: pointer
+   coordinates and moves (a drag), `keyup`, double-click, wheel offsets reaching
+   the runner (the windowed-List line below). Owed with them: the Linux carrier's
+   `tap … hover` / `type … key` forms (`smoke.mjs` guards them; the Linux lane);
+   `key` inside a text field on macOS/iOS sees editing commands only (LLP 1008
+   §5's declared deviation); and an action cannot branch on a key or hover
+   payload — actions have assignment and command statements, no `if` and no
+   string `match` — so `key=` today can only record the key.
 3. **Text selection.** Free on the web (nothing sets `user-select: none`); none on
    macOS (CoreText paints per node, LLP 1008 §7). The hard part is cross-node
    selection, the browser's document model. Host state, like scroll offset, never plan

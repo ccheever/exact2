@@ -48,10 +48,12 @@ fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
     assert_eq!(a.kernel_schema_digest, exact_kernel::SCHEMA_DIGEST);
     // nowMs, screen, stationId, query; material, deck, focus (LLP 1014: the
     // sky's material, the card deck and its focus); sky (whether the app is
-    // inside the aurora canvas at all — a phone's frame-rate switch).
-    assert_eq!(a.slots.len(), 8);
+    // inside the aurora canvas at all — a phone's frame-rate switch);
+    // hoverId, hoverOn, searchFocused, lastKey (the events beyond press and
+    // change, LLP 1005 §3).
+    assert_eq!(a.slots.len(), 12);
     assert_eq!(a.resources.len(), 7);
-    assert_eq!(a.actions.len(), 10);
+    assert_eq!(a.actions.len(), 14);
     assert_eq!(a.timers.len(), 1);
     assert!(
         a.resources.iter().all(|r| r.initial.len == 0),
@@ -208,7 +210,7 @@ fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
         Some("San Francisco")
     );
     let carried = r.carry();
-    assert_eq!(carried.slots.len(), 8);
+    assert_eq!(carried.slots.len(), 12);
     assert_eq!(carried.now_ms, 30_000.0);
 
     // The edited plan: unbaked (no compiled data) and with a visible change.
@@ -256,4 +258,47 @@ fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
         !receipts.is_empty(),
         "the ticker runs from the carried clock"
     );
+}
+
+/// The events beyond press and change (LLP 1005 §3): a hover carries
+/// whether the pointer is over, a key its name, focus and blur nothing —
+/// each reaching the slot its action writes, and the view following.
+#[test]
+fn hover_focus_and_keys_reach_their_actions() {
+    let mut r = Runner::boot(
+        caltrain::build().unwrap(),
+        caltrain_data::Caltrain,
+        Kernel::with_monospace(),
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "change-station"), Event::Press)
+        .unwrap();
+    let sf = view_of(&r, "station-sf");
+    r.dispatch(sf, Event::Hover(true)).unwrap();
+    assert_eq!(
+        r.kernel().find_by_test_id("station-hot-sf").len(),
+        1,
+        "the hovered row is highlighted"
+    );
+    r.dispatch(sf, Event::Hover(false)).unwrap();
+    assert!(
+        r.kernel().find_by_test_id("station-hot-sf").is_empty(),
+        "the highlight goes when the pointer leaves"
+    );
+    let search = view_of(&r, "station-search");
+    assert!(r.kernel().find_by_test_id("search-hint").is_empty());
+    r.dispatch(search, Event::Focus).unwrap();
+    r.dispatch(search, Event::Key("Enter".into())).unwrap();
+    assert_eq!(
+        text_of(&r, "search-hint").as_deref(),
+        Some("searching · last key Enter")
+    );
+    r.dispatch(search, Event::Blur).unwrap();
+    assert!(r.kernel().find_by_test_id("search-hint").is_empty());
+    // A hover on a node without a hover handler is a typed refusal.
+    let err = r.dispatch(view_of(&r, "station-name"), Event::Hover(true));
+    assert!(matches!(
+        err,
+        Err(exact_runner::RunnerError::NoHandler { event: "hover", .. })
+    ));
 }

@@ -141,7 +141,22 @@ per-side borders, and radius, and for a text node its `Paragraph`; an
 `content` size. Frames are set from `frame` ops; `present` ops set an
 affine transform about the bounds' center (translate · rotate · scale) and
 `alphaValue`. A press is a mouse-down and -up inside the bounds on a node
-with a `press` handler; an input's `controlTextDidChange` is a `change`.
+with a `press` handler; an input's `controlTextDidChange` is a `change`. The
+events beyond those (LLP 1005 §3; 2026-08-30): a `hover` handler is an
+`NSTrackingArea` — `mouseEntered`/`Exited`, the previously hovered node's
+leave sent before the new one's enter; `focus`/`blur` are first-responder
+changes (a field's begin/end editing; a node with such a handler
+`acceptsFirstResponder` and takes it on mouse-down); a `key` handler gets
+`keyDown`'s name in the web's vocabulary (`Enter`, `Escape`, `Tab`,
+`Backspace`, `Delete`, the arrows, else the characters). **Declared
+deviation:** inside a text field, `key` sees only the editing commands the
+field editor reports (`insertNewline` → `Enter`, `cancelOperation` →
+`Escape`, `insertTab`, the arrows, `deleteBackward`); a typed character is
+the field's `change`, where the web's `keydown` fires per character. A view
+the presenter no longer has sends nothing (AppKit ends editing as a destroyed
+field leaves the window; the browser fires no blur on removal, so neither
+does this host), and an event arriving while a batch is being applied waits
+for the batch to finish — the runner is never re-entered.
 Motion frames come from `NSView.displayLink` while `motion` is true and from
 nothing otherwise; the runner's clock is a 250 ms timer while `timers` is
 true.
@@ -236,7 +251,9 @@ height). Each is a number `metrics.mjs` prints; none is a mystery.
 
 Core Animation delegation for transitions (LLP 1002 §4's measured question;
 `rules/NOT-DOING.md` §Motion — the engine presents every frame through the
-display link today); toggles; keyboard and pointer events beyond click and typing; scroll
+display link today); toggles; pointer coordinates and moves (a drag),
+`keyup`, double-click, wheel offsets reaching the runner, and a `key` inside a
+text field beyond its editing commands (§5); scroll
 position and focus across a reload; accessibility beyond `testId` as the
 identifier and `accessibilityLabel`; justified text; per-corner radii
 (the first set radius rounds all four); text selection; scroll position
@@ -297,7 +314,14 @@ the frame set untransformed first (UIKit's `frame` is undefined under a
 transform). **A press is a touch down and up inside the bounds**; a node
 without a handler forwards the touch up the responder chain, so a touch on a
 button's text reaches the button as a DOM click bubbles; a pan cancels it
-(`canCancelContentTouches`) — scroll always wins. The canvas machinery of
+(`canCancelContentTouches`) — scroll always wins. The events beyond press
+and change (§5's list): `hover` is a `UIHoverGestureRecognizer`, so a pointer
+hovers and a finger never does; `focus`/`blur` are first-responder changes (a
+field's begin/end editing; a node with such a handler `canBecomeFirstResponder`
+and takes it on touch-up); `key` is `pressesBegan`'s `UIKey` by web name, or
+inside a text field `textFieldShouldReturn` → `Enter` only (typed characters
+are `change`, §5's deviation). The agent's `tap … hover` and `type … key`
+deliver directly by the responder-chain rule, as its press does. The canvas machinery of
 LLP 1014 is ported whole (the overlay, placements, `hitTest` through them,
 `accessibilityFrame`), with two UIKit facts folded in: the overlay is a
 `PlainView` whose `hitTest` ignores its own alpha (UIKit refuses hits below

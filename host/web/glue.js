@@ -56,11 +56,26 @@ function applyProps(el, set, clear) {
 
 function attach(el, id, handlers) {
   el.dataset.view = String(id);
+  // A node with focus, blur, or key handlers can take the focus (an input
+  // or a button does by itself): the web's rule that only a focusable
+  // element hears these.
+  if (handlers.some((k) => k === "focus" || k === "blur" || k === "key") && !(el instanceof HTMLInputElement || el instanceof HTMLButtonElement) && !el.hasAttribute("tabindex")) el.tabIndex = 0;
   for (const kind of handlers) {
     if (kind === "press") {
       el.addEventListener("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch(id, 0, 0, now())); });
     } else if (kind === "change") {
       el.addEventListener("input", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); });
+    } else if (kind === "hover") {
+      // pointerenter/pointerleave: the element's own, not a bubbling mouseover.
+      el.addEventListener("pointerenter", () => send(wasm.exact_dispatch(id, 2, 0, now())));
+      el.addEventListener("pointerleave", () => send(wasm.exact_dispatch(id, 3, 0, now())));
+    } else if (kind === "focus") {
+      el.addEventListener("focus", () => send(wasm.exact_dispatch(id, 4, 0, now())));
+    } else if (kind === "blur") {
+      el.addEventListener("blur", () => send(wasm.exact_dispatch(id, 5, 0, now())));
+    } else if (kind === "key") {
+      // keydown, the key's name as the web spells it (`e.key`).
+      el.addEventListener("keydown", (e) => { const n = writeIn(e.key); send(wasm.exact_dispatch(id, 6, n, now())); });
     }
   }
 }

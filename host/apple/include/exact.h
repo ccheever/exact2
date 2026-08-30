@@ -63,7 +63,9 @@ const uint8_t *exact_out(void);
 uint32_t exact_boot(ExactMeasureFn measure, void *ctx, float width, float height);
 uint32_t exact_boot_plan(size_t len, ExactMeasureFn measure, void *ctx, float width, float height);
 
-/* kind: 0 = press, 1 = change (payload = the input buffer's first len bytes). */
+/* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
+ * 5 = blur, 6 = key (a change's text or a key's name is the payload, the
+ * input buffer's first len bytes). */
 uint32_t exact_dispatch(uint32_t view, uint32_t kind, size_t len, double now_ms);
 uint32_t exact_advance(double now_ms);   /* the runner's clock: timers */
 uint32_t exact_resize(float width, float height);

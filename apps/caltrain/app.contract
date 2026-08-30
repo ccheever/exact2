@@ -33,6 +33,12 @@ component Caltrain
   // The sky: its colour behind the status bar and the home indicator, or
   // none for the plain page (the "Sky off" button).
   state sky = some("#05081a")
+  // The pointer over a station row, the search field's focus, the last key it
+  // saw: the events beyond press and change (LLP 1005 §3), each shown.
+  state hoverId = ""
+  state hoverOn = false
+  state searchFocused = false
+  state lastKey = ""
 
   resource location = defaultLocation() as shape Location
   derive selectedId = match stationId { case some(id) => id, case none => "mv" }
@@ -50,10 +56,11 @@ component Caltrain
   action goHome writes screen, query
     screen = "home"
     query = ""
-  action selectStation(id) writes stationId, screen, query
+  action selectStation(id) writes stationId, screen, query, searchFocused
     stationId = some(id)
     screen = "home"
     query = ""
+    searchFocused = false
   action setQuery(value) writes query
     query = value
   action setScheme(scheme: string)
@@ -66,6 +73,15 @@ component Caltrain
     focus = some(id)
   derive skyOn = match sky { case some(c) => true, case none => false }
   derive canvasColor = match sky { case some(c) => c, case none => "#ffffff" }
+  action hoverStation(id, over) writes hoverId, hoverOn
+    hoverId = id
+    hoverOn = over
+  action focusSearch writes searchFocused
+    searchFocused = true
+  action blurSearch writes searchFocused
+    searchFocused = false
+  action searchKey(k) writes lastKey
+    lastKey = k
   action toggleSky writes sky
     sky = match sky { case some(c) => none, case none => some("#05081a") }
 
@@ -82,10 +98,10 @@ component Caltrain
       when skyOn
         canvas surface=glass(material, selectedId) width="100%" height="100%" testId="sky"
           scroll width="100%" height="100%"
-            Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, openStations=openStations, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome)
+            Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, openStations=openStations, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey)
       else
         scroll width="100%" height="100%"
-          Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, openStations=openStations, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome)
+          Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, openStations=openStations, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey)
 
 component Content
   props
@@ -98,6 +114,10 @@ component Content
     nowMs: number
     query: string
     sky: bool
+    hoverId: string
+    hoverOn: bool
+    searchFocused: bool
+    lastKey: string
     northBoard: list<Departure>
     southBoard: list<Departure>
     nearby: list<Station>
@@ -112,6 +132,10 @@ component Content
     selectStation: action
     setQuery: action
     goHome: action
+    hoverStation: action
+    focusSearch: action
+    blurSearch: action
+    searchKey: action
   view
     column gap=16 padding=20 maxWidth=640 alignSelf="center" width="100%" boxSizing="border-box"
       header width="100%" background="#ffffffd9" radius=16 padding=14 boxSizing="border-box"
@@ -181,20 +205,22 @@ component Content
           DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, testId="board-south")
       else
         section role="region" label="Stations" gap=12 testId="stations-screen" background="#ffffffd9" radius=16 padding=14 boxSizing="border-box"
-          input value=query change=setQuery placeholder="Search stations" label="Search stations" testId="station-search" padding=12 radius=10 borderWidth=1 borderColor="#cccccc"
+          input value=query change=setQuery focus=focusSearch blur=blurSearch key=searchKey placeholder="Search stations" label="Search stations" testId="station-search" padding=12 radius=10 borderWidth=1 borderColor="#cccccc"
+          when searchFocused
+            text `searching · last key ${lastKey}` size=11 color="#999999" testId="search-hint"
           when query == ""
             column gap=8
               text "Nearest" size=12 weight=700 letterSpacing=0.8 color="#999999"
               each s in nearby key=s.id
-                StationRow(station=s, press=selectStation)
+                StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
               text "All stations" size=12 weight=700 letterSpacing=0.8 color="#999999"
               each s in allStations key=s.id
-                StationRow(station=s, press=selectStation)
+                StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
           else
             column gap=8
               text "Matches" size=12 weight=700 letterSpacing=0.8 color="#999999"
               each s in matches key=s.id
-                StationRow(station=s, press=selectStation)
+                StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
           button press=goHome label="Back" testId="stations-back"
             text "Back" size=13
 
@@ -220,10 +246,19 @@ component StationRow
   props
     station: Station
     press: action
+    hover: action
+    hot: bool
   view
-    button press=press(station.id) label=station.name testId=`station-${station.id}` width="100%"
-      row justify="space-between" align="center" paddingTop=10 paddingBottom=10 borderBottomWidth=1 borderColor="#e0e0e0" width="100%"
-        column gap=2
-          text station.name size=15 weight=600
-          text `Zone ${station.zone}` size=12 color="#999999"
-        text formatDistance(station.distance) size=12 color="#666666"
+    button press=press(station.id) hover=hover(station.id) label=station.name testId=`station-${station.id}` width="100%"
+      when hot
+        row justify="space-between" align="center" paddingTop=10 paddingBottom=10 borderBottomWidth=1 borderColor="#e0e0e0" width="100%" background="#f2f2f2" testId=`station-hot-${station.id}`
+          column gap=2
+            text station.name size=15 weight=600
+            text `Zone ${station.zone}` size=12 color="#999999"
+          text formatDistance(station.distance) size=12 color="#666666"
+      else
+        row justify="space-between" align="center" paddingTop=10 paddingBottom=10 borderBottomWidth=1 borderColor="#e0e0e0" width="100%"
+          column gap=2
+            text station.name size=15 weight=600
+            text `Zone ${station.zone}` size=12 color="#999999"
+          text formatDistance(station.distance) size=12 color="#666666"

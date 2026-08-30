@@ -84,6 +84,10 @@ func apply(_ batch: Batch) {
 presenter.onPress = { id in apply(Exact.press(id, now: now())) }
 presenter.onChange = { id, value in apply(Exact.change(id, value, now: now())) }
 presenter.onIntrinsic = { id, size in apply(Exact.intrinsic(id, width: size?.width ?? 0, height: size?.height ?? 0)) }
+presenter.onHover = { id, over in apply(Exact.hover(id, over: over, now: now())) }
+presenter.onFocus = { id in apply(Exact.focus(id, now: now())) }
+presenter.onBlur = { id in apply(Exact.blur(id, now: now())) }
+presenter.onKey = { id, name in apply(Exact.key(id, name, now: now())) }
 // The capabilities: `setScheme` is the app's appearance — light or dark, as
 // the web's `color-scheme`; anything else is named and refused.
 presenter.onCommand = { name, args in

@@ -103,6 +103,10 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
                 match e {
                     EventKind::Press => "press",
                     EventKind::Change => "change",
+                    EventKind::Hover => "hover",
+                    EventKind::Focus => "focus",
+                    EventKind::Blur => "blur",
+                    EventKind::Key => "key",
                 },
                 &mut s,
             );

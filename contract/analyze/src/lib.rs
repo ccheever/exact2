@@ -154,6 +154,21 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
     Ok(())
 }
 
+/// The handler attributes (the web's events, LLP 1005 §3): `press`,
+/// `change`, `hover`, `focus`, `blur`, `key`.
+pub const HANDLERS: [&str; 6] = ["press", "change", "hover", "focus", "blur", "key"];
+
+/// What a handler's event carries as its action's last argument: `change`
+/// the new text, `hover` whether the pointer is over, `key` the key's name;
+/// the others nothing.
+pub fn handler_payload(attr: &str) -> Option<&'static str> {
+    match attr {
+        "change" | "key" => Some("string"),
+        "hover" => Some("bool"),
+        _ => None,
+    }
+}
+
 fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeError> {
     for n in nodes {
         match n {
@@ -161,7 +176,7 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
                 attrs, children, ..
             } => {
                 for a in attrs {
-                    if a.name == "press" || a.name == "change" {
+                    if HANDLERS.contains(&a.name.as_str()) {
                         check_handler(&a.name, &a.value, scope, a.span)?;
                     }
                 }
@@ -252,17 +267,18 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
     }
     // A prop of bare `action` type has unknown arity; only a real action is checked.
     if matches!(r, Ref::Action(_)) {
-        let payload = usize::from(attr == "change");
+        let payload = usize::from(handler_payload(attr).is_some());
         if given + payload != params.len() {
             return err(
                 "analyze-handler-arity",
                 format!(
                     "`{name}` takes {} parameter(s); `{attr}=` supplies {given}{}",
                     params.len(),
-                    if payload == 1 {
-                        " plus the new value"
-                    } else {
-                        ""
+                    match handler_payload(attr) {
+                        Some("bool") => " plus whether the pointer is over",
+                        Some(_) if attr == "key" => " plus the key's name",
+                        Some(_) => " plus the new value",
+                        None => "",
                     }
                 ),
                 span,

@@ -89,8 +89,78 @@ final class NodeView: NSView, NSTextFieldDelegate {
     var imageSource: String?
     var loadGeneration = 0
     var pressed = false
+    /// The pointer's tracking, for a `hover` handler (LLP 1005 §3).
+    var tracking: NSTrackingArea?
     /// Images loaded since launch (smoke reporting).
     nonisolated(unsafe) static var imagesLoaded: [(String, CGSize)] = []
+
+    /// A node with focus, blur, or key handlers takes the focus (an input's
+    /// field does by itself): the web's rule that only a focusable element
+    /// hears these.
+    override var acceptsFirstResponder: Bool { field == nil && !handlers.isDisjoint(with: ["focus", "blur", "key"]) }
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok, handlers.contains("focus") { presenter?.focus(id) }
+        return ok
+    }
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        if ok, handlers.contains("blur") { presenter?.blur(id) }
+        return ok
+    }
+    /// A key down at a focused node, by the web's key name.
+    override func keyDown(with event: NSEvent) {
+        guard handlers.contains("key") else { return super.keyDown(with: event) }
+        presenter?.key(id, NodeView.keyName(event))
+    }
+    /// The web's key names for AppKit's: the function keys by their names,
+    /// the rest by the character typed.
+    static func keyName(_ event: NSEvent) -> String {
+        switch event.keyCode {
+        case 36, 76: return "Enter"
+        case 53: return "Escape"
+        case 48: return "Tab"
+        case 51: return "Backspace"
+        case 117: return "Delete"
+        case 126: return "ArrowUp"
+        case 125: return "ArrowDown"
+        case 123: return "ArrowLeft"
+        case 124: return "ArrowRight"
+        default: return event.charactersIgnoringModifiers ?? ""
+        }
+    }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = tracking { removeTrackingArea(t); tracking = nil }
+        if handlers.contains("hover") {
+            let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+            addTrackingArea(t)
+            tracking = t
+        }
+    }
+    override func mouseEntered(with event: NSEvent) { presenter?.hover(self, true) }
+    override func mouseExited(with event: NSEvent) { presenter?.hover(self, false) }
+    /// The editing commands of a text field's editor as key names (the
+    /// characters themselves are its `change`): Enter is taken here, so it
+    /// does not end the editing as AppKit would.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        let name: String
+        switch selector {
+        case #selector(NSResponder.insertNewline(_:)): name = "Enter"
+        case #selector(NSResponder.cancelOperation(_:)): name = "Escape"
+        case #selector(NSResponder.insertTab(_:)): name = "Tab"
+        case #selector(NSResponder.moveUp(_:)): name = "ArrowUp"
+        case #selector(NSResponder.moveDown(_:)): name = "ArrowDown"
+        case #selector(NSResponder.moveLeft(_:)): name = "ArrowLeft"
+        case #selector(NSResponder.moveRight(_:)): name = "ArrowRight"
+        case #selector(NSResponder.deleteBackward(_:)): name = "Backspace"
+        default: return false
+        }
+        if handlers.contains("key") { presenter?.key(id, name) }
+        return name == "Enter"
+    }
+    func controlTextDidBeginEditing(_ obj: Notification) { if handlers.contains("focus") { presenter?.focus(id) } }
+    func controlTextDidEndEditing(_ obj: Notification) { if handlers.contains("blur") { presenter?.blur(id) } }
 
     /// Where an image source resolves, as a page resolves `src`: an `http(s)`
     /// URL as is; a relative path under the asset root (`EXACT_ASSETS`, else
@@ -479,6 +549,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
 
     // Press: down and up inside the bounds.
     override func mouseDown(with event: NSEvent) {
+        if acceptsFirstResponder { window?.makeFirstResponder(self) }
         if handlers.contains("press") { pressed = true } else { super.mouseDown(with: event) }
     }
     override func mouseUp(with event: NSEvent) {
@@ -533,13 +604,56 @@ final class Presenter {
     var onIntrinsic: ((UInt32, CGSize?) -> Void)?
     /// A capability an action called (LLP 1005 §3), after its commit.
     var onCommand: ((String, [Any]) -> Void)?
+    /// The events beyond press and change (LLP 1005 §3).
+    var onHover: ((UInt32, Bool) -> Void)?
+    var onFocus: ((UInt32) -> Void)?
+    var onBlur: ((UInt32) -> Void)?
+    var onKey: ((UInt32, String) -> Void)?
+    /// The node the pointer is over, of those with a hover handler: it hears
+    /// the leave when the pointer moves onto another (the agent's `hover`).
+    weak var hovered: NodeView?
 
     func press(_ id: UInt32) { onPress?(id) }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
+    /// An event a view reports: sent only while the presenter still has the
+    /// view (the platform fires editing-ended as a destroyed field leaves the
+    /// window; the browser fires no blur on removal, so neither does this
+    /// host), and never while a batch is being applied — it waits for the
+    /// batch to finish, then goes if its view survived it.
+    private var applying = false
+    private var waiting: [(UInt32, () -> Void)] = []
+    private func send(_ id: UInt32, _ f: @escaping () -> Void) {
+        guard views[id] != nil else { return }
+        if applying { waiting.append((id, f)) } else { f() }
+    }
+    func hover(_ view: NodeView, _ over: Bool) {
+        guard views[view.id] === view else { return }
+        if over {
+            if let h = hovered, h !== view { send(h.id) { [self] in onHover?(h.id, false) } }
+            hovered = view
+            send(view.id) { [self] in onHover?(view.id, true) }
+        } else {
+            if hovered === view { hovered = nil }
+            send(view.id) { [self] in onHover?(view.id, false) }
+        }
+    }
+    func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
+    func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
+    func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
+        let outermost = !applying
+        applying = true
+        defer {
+            if outermost {
+                applying = false
+                let q = waiting
+                waiting = []
+                for (id, f) in q where views[id] != nil { f() }
+            }
+        }
         for op in batch.ops {
             guard let kind = op["op"] as? String else { continue }
             let id = UInt32(op["id"] as? Int ?? 0)
@@ -574,8 +688,10 @@ final class Presenter {
             case "destroy":
                 canvases.destroy(view: id)
                 views[id]?.forget()
-                views[id]?.removeFromSuperview()
-                views.removeValue(forKey: id)
+                // Out of the map before out of the window: the editing-ended
+                // notification removal fires finds no view to send for.
+                let gone = views.removeValue(forKey: id)
+                gone?.removeFromSuperview()
             case "roots":
                 root.subviews.forEach { $0.removeFromSuperview() }
                 for r in (op["ids"] as? [Int] ?? []).compactMap({ views[UInt32($0)] }) { root.addSubview(r) }

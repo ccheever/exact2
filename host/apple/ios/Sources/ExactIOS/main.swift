@@ -257,6 +257,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         presenter.onPress = { id in apply(Exact.press(id, now: now())) }
         presenter.onChange = { id, value in apply(Exact.change(id, value, now: now())) }
         presenter.onIntrinsic = { id, size in apply(Exact.intrinsic(id, width: size?.width ?? 0, height: size?.height ?? 0)) }
+        presenter.onHover = { id, over in apply(Exact.hover(id, over: over, now: now())) }
+        presenter.onFocus = { id in apply(Exact.focus(id, now: now())) }
+        presenter.onBlur = { id in apply(Exact.blur(id, now: now())) }
+        presenter.onKey = { id, name in apply(Exact.key(id, name, now: now())) }
         let w = UIWindow(windowScene: ws)
         w.backgroundColor = .white
         // The capabilities: `setScheme` is the window's interface style —

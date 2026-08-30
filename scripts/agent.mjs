@@ -6,8 +6,12 @@
 //
 // Usage:  node scripts/agent.mjs <web|macos|ios|linux> [--plan <file>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window]
-//   tap <target> [wheel <dx> <dy>] | type <target> <text…> | clock <ms|+ms|settle>
+//   tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name>
+//   clock <ms|+ms|settle>
 // A target is a testId or a view id; each op is one argument (quote it).
+// `tap … hover` moves the pointer onto the target (a hover, LLP 1005 §3);
+// `type … key Enter` presses a key at it, by the web's key names — forms of
+// tap and type, not operations of their own (rules/NOT-DOING.md).
 // As a library:  import { open } from '../scripts/agent.mjs'
 //   const s = await open({ host: 'web' }); await s.tap('change-station'); const t = await s.tree(); await s.close();
 //
@@ -161,6 +165,16 @@ async function openWeb({ plan, size = [420, 900] }) {
         if (!r || (r.w === 0 && r.h === 0)) throw new Error(`view ${id} has no box on screen`);
         const x = r.x + r.w / 2, y = r.y + r.h / 2;
         if (kind === 'wheel') await call('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: opts.wheel[0], deltaY: opts.wheel[1] });
+        else if (kind === 'hover') await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+        else if (kind === 'key') {
+          const f = await ask({ op: 'focus', id });
+          if (f.error) throw new Error(f.error);
+          const key = opts.key;
+          const code = { Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight' }[key] ?? (key.length === 1 ? `Key${key.toUpperCase()}` : key);
+          const vk = { Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39 }[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
+          await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, ...(key.length === 1 ? { text: key } : {}) });
+          await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk });
+        }
         else if (kind === 'press') {
           await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
           await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
@@ -245,7 +259,7 @@ async function openStdio({ host, plan, size, app = 'caltrain', env: extra = {} }
       host, boot: ready.boot, hostLines, gpuMs: () => null,
       ask,
       async input(id, kind, opts) {
-        const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'press' ? await ask({ op: 'tap', id }) : await ask({ op: 'type', id, text: opts.text });
+        const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key }) : await ask({ op: 'type', id, text: opts.text });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -307,7 +321,7 @@ async function openIOS({ plan, app = 'caltrain', env: extra = {} }) {
       host: 'ios', boot: ready.boot, hostLines, gpuMs: () => null,
       ask: lines.ask,
       async input(id, kind, opts) {
-        const r = kind === 'wheel' ? await lines.ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'press' ? await lines.ask({ op: 'tap', id }) : await lines.ask({ op: 'type', id, text: opts.text });
+        const r = kind === 'wheel' ? await lines.ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'hover' ? await lines.ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await lines.ask({ op: 'tap', id }) : kind === 'key' ? await lines.ask({ op: 'type', id, key: opts.key }) : await lines.ask({ op: 'type', id, text: opts.text });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -367,16 +381,17 @@ export async function open({ host, plan, size, env } = {}) {
       if (!node) throw new Error(`no view matches ${target}`);
       return node;
     },
-    /** A press on the target through the host's input path; with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down). */
+    /** A press on the target through the host's input path; with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over). */
     async tap(target, opts = {}) {
       const node = await s.find(target);
-      const r = await carrier.input(node.id, opts.wheel ? 'wheel' : 'press', opts);
+      const r = await carrier.input(node.id, opts.wheel ? 'wheel' : opts.hover ? 'hover' : 'press', opts);
       return { ...r, tapped: node.id, target };
     },
-    /** Set an input's text through the host's text input path (the value replaced, one change event). */
+    /** Set an input's text through the host's text input path (the value replaced, one change event); with `{ key: 'Enter' }` instead of text, a key pressed at the target, by the web's key names. */
     async type(target, text) {
       const node = await s.find(target);
-      const r = await carrier.input(node.id, 'type', { text: String(text) });
+      const key = typeof text === 'object' && text !== null ? text.key : undefined;
+      const r = key != null ? await carrier.input(node.id, 'key', { key: String(key) }) : await carrier.input(node.id, 'type', { text: String(text) });
       return { ...r, typed: node.id, target };
     },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
@@ -445,7 +460,7 @@ async function main(argv) {
   }
   const [host, ...ops] = rest;
   if (!host || !ops.length) {
-    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux> [--plan <file>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy>] | type <target> <text…> | clock <ms|+ms|settle>');
+    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux> [--plan <file>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, size: flags.size });
@@ -456,8 +471,8 @@ async function main(argv) {
       switch (op) {
         case 'tree': case 'state': case 'logs': case 'layout': r = await s[op](); break;
         case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[1] === 'window'); break;
-        case 'tap': r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])] }) : await s.tap(args[0]); break;
-        case 'type': r = await s.type(args[0], args.slice(1).join(' ')); break;
+        case 'tap': r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])] }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : await s.tap(args[0]); break;
+        case 'type': r = args[1] === 'key' && args[2] ? await s.type(args[0], { key: args[2] }) : await s.type(args[0], args.slice(1).join(' ')); break;
         case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
         default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock)`);
       }

@@ -43,6 +43,15 @@ enum Exact {
         return read(exact_boot_plan(bytes.count, measureText, nil, Float(width), Float(height)))
     }
     static func press(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(view, 0, 0, now)) }
+    /// The pointer over the view (`true`) or gone from it.
+    static func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { read(exact_dispatch(view, over ? 2 : 3, 0, now)) }
+    static func focus(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(view, 4, 0, now)) }
+    static func blur(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(view, 5, 0, now)) }
+    /// A key down at the view, by the web's key name.
+    static func key(_ view: UInt32, _ name: String, now: Double) -> Batch {
+        let n = write(name)
+        return read(exact_dispatch(view, 6, n, now))
+    }
     static func change(_ view: UInt32, _ value: String, now: Double) -> Batch {
         let n = write(value)
         return read(exact_dispatch(view, 1, n, now))

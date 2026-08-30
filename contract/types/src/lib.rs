@@ -943,7 +943,10 @@ fn refine_params_from_view(
                 attrs, children, ..
             } => {
                 for a in attrs {
-                    if a.name == "press" || a.name == "change" {
+                    if matches!(
+                        a.name.as_str(),
+                        "press" | "change" | "hover" | "focus" | "blur" | "key"
+                    ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),
                             Expr::Call(n, args, _) => (n, args),
@@ -958,11 +961,18 @@ fn refine_params_from_view(
                                     }
                                 }
                             }
-                            // A `change` handler receives the new text as its last parameter.
-                            if a.name == "change" {
+                            // The event's payload is the action's last parameter:
+                            // `change` the new text, `key` the key's name (strings),
+                            // `hover` whether the pointer is over (a bool).
+                            let payload = match a.name.as_str() {
+                                "change" | "key" => Some(Ty::String),
+                                "hover" => Some(Ty::Bool),
+                                _ => None,
+                            };
+                            if let Some(ty) = payload {
                                 let last = ct.actions[ai].len().saturating_sub(1);
                                 if args.len() < ct.actions[ai].len() {
-                                    if let Some(u) = ct.actions[ai][last].unify(&Ty::String) {
+                                    if let Some(u) = ct.actions[ai][last].unify(&ty) {
                                         ct.actions[ai][last] = u;
                                     }
                                 }

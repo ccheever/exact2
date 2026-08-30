@@ -126,9 +126,13 @@ fn leak(name: &str) -> &'static str {
 pub fn attr(name: &str) -> Option<AttrTarget> {
     let styles = |names: &[&str]| AttrTarget::Styles(names.iter().map(|n| s(n)).collect());
     Some(match name {
-        // handlers
+        // handlers (the web's events, LLP 1005 §3)
         "press" => AttrTarget::Handler("press"),
         "change" => AttrTarget::Handler("change"),
+        "hover" => AttrTarget::Handler("hover"),
+        "focus" => AttrTarget::Handler("focus"),
+        "blur" => AttrTarget::Handler("blur"),
+        "key" => AttrTarget::Handler("key"),
         // the canvas's surface (LLP 1009 D3)
         "surface" => AttrTarget::Surface,
         // props (HTML attribute names)

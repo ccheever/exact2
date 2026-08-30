@@ -96,6 +96,15 @@ extension Agent {
         let p = vp.convert(CGPoint(x: b.midX + vp.contentOffset.x, y: b.midY + vp.contentOffset.y), to: nil)
         let at = [r2(b.midX), r2(b.midY)]
         let hit = win.hitTest(p, with: nil) ?? v
+        if req["hover"] as? Bool == true {
+            // The pointer onto the target: the node with a hover handler at
+            // the hit point enters, whatever was hovered leaves (UIKit
+            // offers no pointer synthesis; a real one is the hover recognizer).
+            var n: UIView? = hit
+            while let cur = n, !((cur as? NodeView)?.handlers.contains("hover") ?? false) { n = cur.superview }
+            if let node = n as? NodeView { presenter.hover(node, true) } else if let h = presenter.hovered { presenter.hover(h, false) }
+            return ["tapped": Int(v.id), "hover": true, "at": at]
+        }
         if let wheel = req["wheel"] as? [Double], wheel.count == 2 {
             // The web's sign (a positive dy scrolls down), points.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
@@ -135,6 +144,17 @@ extension Agent {
     /// the text inserted — the field sends one change with the new value.
     static func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        if let key = req["key"] as? String {
+            // A key at the target: the field's (Enter, as its delegate would
+            // hear it) or a focused node's, by the web's name — delivered as
+            // the responder-chain rule would (UIKit synthesizes no presses).
+            if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } } else if v.canBecomeFirstResponder { if !v.isFirstResponder { _ = v.becomeFirstResponder() } } else { return ["error": "view \(v.id) takes no key"] }
+            var n: UIView? = v
+            while let cur = n, !((cur as? NodeView)?.handlers.contains("key") ?? false) { n = cur.superview }
+            guard let node = n as? NodeView else { return ["error": "no key handler at view \(v.id)"] }
+            presenter.key(node.id, key)
+            return ["typed": Int(v.id), "key": key, "value": v.field?.text ?? ""]
+        }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
         let text = req["text"] as? String ?? ""
         f.becomeFirstResponder()

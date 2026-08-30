@@ -32,12 +32,12 @@ host only ever sees a view id.
 
 | op | request to the host | reply | who answers |
 |---|---|---|---|
-| `tree` | `{"op":"tree"}` | `epoch`, `incarnation`, `clock`, `roots`, `nodes[]` in preorder: `id`, `parent`, `depth`, `type` (schema name), `props` by schema name, `handlers` (`press`/`change`), `children` | runner (`Kernel::rows` + props) |
+| `tree` | `{"op":"tree"}` | `epoch`, `incarnation`, `clock`, `roots`, `nodes[]` in preorder: `id`, `parent`, `depth`, `type` (schema name), `props` by schema name, `handlers` (`press`/`change`/`hover`/`focus`/`blur`/`key`), `children` | runner (`Kernel::rows` + props) |
 | `state` | `{"op":"state"}` | `clock`; `slots`, `derives`, `resources` by declared name as typed JSON: records keyed by field name, `none`/unit `null` | runner (the plan's type table) |
 | `logs` | `{"op":"logs","since":N}` | `next`, `from`, `lines[]` — the journal from `since` (§3); the driver adds `host[]` (page console / app stderr) and `dropped` | runner |
 | `layout` | `{"op":"layout"}` | `clock`, `viewport{w,h}`, `nodes[]`: `id`, `x`, `y`, `w`, `h` (+ `sx`, `sy` on scroll containers); the driver adds `type` and `testId` | host |
-| `tap` | `{"op":"tap","id":V}` / `{…,"wheel":[dx,dy]}` | `tapped`, `at`; the driver adds `target` | host input path |
-| `type` | `{"op":"type","id":V,"text":…}` | `typed` (+ `value` on macOS); the driver adds `target` | host text path |
+| `tap` | `{"op":"tap","id":V}` / `{…,"wheel":[dx,dy]}` / `{…,"hover":true}` | `tapped`, `at` (+ `hover`); the driver adds `target` | host input path |
+| `type` | `{"op":"type","id":V,"text":…}` / `{…,"key":"Enter"}` | `typed` (+ `value` on macOS) / `key`; the driver adds `target` | host text path |
 | `clock` | `{"op":"clock","to":ms}` / `{…,"settle":true}` | `clock` (where it landed), `settled` for `settle` | host, both clocks |
 | `screenshot` | `{"op":"screenshot","path":…}` (+`"window":true` on macOS) | `screenshot`, `w`, `h` (viewport points / CSS px, not PNG pixels; `scale` for a window capture) | host |
 
@@ -65,11 +65,22 @@ the Linux host implements this list, not that file):
   pixel-unit `CGEvent` (`wheel1 = −dy`, `wheel2 = −dx`, rounded to whole
   pixels, bounded, non-finite refused) to the hit view — `scrollWheel(with:)`
   on `hitTest(center)`, so the responder chain carries it up as a trackpad's
-  would.
+  would. With `hover: true` (2026-08-30), the pointer moves onto the box's
+  center and stays there — CDP `mouseMoved` on the web (the browser fires
+  the enter/leave pair); on macOS and iOS the presenter's own hover path from
+  the hit view up to the first node with a `hover` handler, leaving whatever
+  was hovered (no public pointer synthesis on iOS; on macOS the same for
+  symmetry — a tracking area needs the window's real cursor). CLI:
+  `tap X hover`.
 - **`type`** sets an input's whole text as a paste does: select all, insert.
   Web: `focus` (a page-side helper, §1 private) then CDP `Input.insertText`;
   macOS: first responder, the field editor's `selectAll` + `insertText`. One
   `change` with the whole value; a non-input target is refused on both.
+  With `key: "Enter"` (2026-08-30), one key down (and up) on the target by
+  the web's name: web CDP `Input.dispatchKeyEvent` after focusing the target;
+  macOS a synthesized `NSEvent` key-down/up through the window with the
+  target first responder; iOS direct delivery (§9 of LLP 1008). CLI: `type X
+  key Enter`. Not on the Linux carrier yet (its lane).
 - **`clock`** is monotonic (a backwards `to` is refused). It moves the
   runner's clock and the host's motion clock to one instant and **lands where
   the runner says** (`batch.clock`): a timer's refusal stops the advance at

@@ -60,6 +60,15 @@ extension Agent {
         let clip = presenter.viewport.contentView
         let p = clip.convert(NSPoint(x: b.midX + clip.bounds.origin.x, y: b.midY + clip.bounds.origin.y), to: nil)
         let at = [r2(b.midX), r2(b.midY)]
+        if req["hover"] as? Bool == true {
+            // The pointer moved onto the target: the node with a hover
+            // handler at the hit point enters (and whatever was hovered
+            // leaves), as a tracking area would report for a real move.
+            var n: NSView? = win.contentView?.hitTest(p) ?? v
+            while let cur = n, !((cur as? NodeView)?.handlers.contains("hover") ?? false) { n = cur.superview }
+            if let node = n as? NodeView { presenter.hover(node, true) } else if let h = presenter.hovered { presenter.hover(h, false) }
+            return ["tapped": Int(v.id), "hover": true, "at": at]
+        }
         if let wheel = req["wheel"] as? [Double], wheel.count == 2 {
             // The web's sign (a positive dy scrolls down), pixel units, no
             // phase: a gesture's phases would put the top-level scroll view
@@ -89,6 +98,41 @@ extension Agent {
     /// the text inserted — the delegate hears one change with the new value.
     static func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        if let key = req["key"] as? String {
+            // A key down at the target through the window — the field
+            // editor's commands, or a focused node's keyDown — by the web's
+            // name, as AppKit would deliver the keyboard's.
+            if !win.isKeyWindow { win.makeKey() }
+            // First responder only if it is not held already: re-making an
+            // editing field first responder ends its editing (a blur the
+            // app would see) and begins it again with no focus.
+            if let f = v.field {
+                let editing = f.currentEditor().map { win.firstResponder === $0 } ?? false
+                if !editing { win.makeFirstResponder(f) }
+            } else if v.acceptsFirstResponder {
+                if win.firstResponder !== v { win.makeFirstResponder(v) }
+            } else { return ["error": "view \(v.id) takes no key"] }
+            let (chars, code): (String, UInt16) = {
+                switch key {
+                case "Enter": return ("\r", 36)
+                case "Escape": return ("\u{1b}", 53)
+                case "Tab": return ("\t", 48)
+                case "Backspace": return ("\u{7f}", 51)
+                case "ArrowUp": return ("\u{F700}", 126)
+                case "ArrowDown": return ("\u{F701}", 125)
+                case "ArrowLeft": return ("\u{F702}", 123)
+                case "ArrowRight": return ("\u{F703}", 124)
+                default: return (key, 0)
+                }
+            }()
+            let t = ProcessInfo.processInfo.systemUptime
+            guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code),
+                  let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)
+            else { return ["error": "no key event"] }
+            win.sendEvent(down)
+            win.sendEvent(up)
+            return ["typed": Int(v.id), "key": key, "value": v.field?.stringValue ?? ""]
+        }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
         let text = req["text"] as? String ?? ""
         // The field editor needs a key window; an accessory app's is not

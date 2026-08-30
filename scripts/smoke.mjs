@@ -86,11 +86,31 @@ try {
   await s.tap('change-station');
   tree = await s.tree();
   check(byTestId(tree, 'stations-screen'), 'tapping Change station did not open the stations screen');
+  // 4a. The events beyond press and change (LLP 1005 §3), through the
+  // host's own paths: a hover highlights the row under the pointer and
+  // leaves with it; typing focuses the field; a key reaches it by name.
+  if (host !== 'linux') {
+    await s.tap('station-sf', { hover: true });
+    state = await s.state();
+    tree = await s.tree();
+    check(state.slots.hoverOn === true && state.slots.hoverId === 'sf' && byTestId(tree, 'station-hot-sf'), `a hover over station-sf: hoverOn ${state.slots.hoverOn}, hoverId ${JSON.stringify(state.slots.hoverId)}, highlighted ${!!byTestId(tree, 'station-hot-sf')}`);
+    await s.tap('station-search', { hover: true });
+    state = await s.state();
+    check(state.slots.hoverOn === false, `the pointer left station-sf: hoverOn ${state.slots.hoverOn}`);
+  }
   await s.type('station-search', 'Palo');
   tree = await s.tree();
   check(byTestId(tree, 'station-search')?.props.value === 'Palo', `typing left the field at ${JSON.stringify(byTestId(tree, 'station-search')?.props.value)}`);
   state = await s.state();
   check(state.slots.query === 'Palo', `the query slot did not hear the change (${JSON.stringify(state.slots.query)})`);
+  if (host !== 'linux') {
+    check(state.slots.searchFocused === true, `typing did not focus the field (searchFocused ${state.slots.searchFocused})`);
+    await s.type('station-search', { key: 'Enter' });
+    state = await s.state();
+    tree = await s.tree();
+    check(state.slots.lastKey === 'Enter' && byTestId(tree, 'search-hint')?.props.text === 'searching · last key Enter', `Enter at the field: lastKey ${JSON.stringify(state.slots.lastKey)}, hint ${JSON.stringify(byTestId(tree, 'search-hint')?.props.text)}`);
+    check(byTestId(tree, 'station-search')?.props.value === 'Palo', `Enter changed the field's text to ${JSON.stringify(byTestId(tree, 'station-search')?.props.value)}`);
+  }
   const matches = tree.nodes.filter((n) => n.type === 'Pressable' && n.props.testId?.startsWith('station-'));
   check(matches.length === 1 && matches[0].props.testId === 'station-paloalto', `the search shows ${matches.map((m) => m.props.testId).join(', ') || 'nothing'}, not station-paloalto alone`);
   await s.tap('station-paloalto');

@@ -133,9 +133,16 @@ Style values go through the kernel's own `StyleProps::set_dynamic`
 (`runner/src/bridge.rs`; LLP 1001 gained it in this landing) — a string is an
 enum name, `auto`, `N%`, or a hex color; a number is the row's number.
 
-**Events.** `dispatch(view, Press | Change(text))` finds the site and the
-frames in force at that view, evaluates the handler's curried arguments there
-at dispatch time, appends the event payload, and runs the action.
+**Events.** `dispatch(view, Press | Change(text) | Hover(over) | Focus | Blur
+| Key(name))` finds the site and the frames in force at that view, evaluates
+the handler's curried arguments there at dispatch time, appends the event
+payload — a change's text, a hover's `over` (in or out: one kind, one handler,
+one action), a key's web name (`Enter`, `Escape`, `ArrowDown`, `a` — the
+DOM's `KeyboardEvent.key`), nothing for press, focus, blur — and runs the
+action. The six `EventKind`s are `plan/tables/format.json`'s. Not events
+(2026-08-30, the minimal set first): pointer coordinates and moves (a drag),
+`keyup`, double-click, and a wheel's offsets reaching the runner (a scroll
+container's position is the host's, LLP 1007 §6).
 `act(name, args)` runs an action by name (tests; an agent goes through the host's input path, LLP 1012 §1). Arguments must
 conform to the parameters' declared types (`ArgumentType`) and every write to
 its slot's (`SlotType`) — so an authored `width = 1/0` is a typed refusal with

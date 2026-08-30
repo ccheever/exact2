@@ -393,6 +393,10 @@ impl<D: DataSource> Host<D> {
             .map(|e| match e {
                 EventKind::Press => "press",
                 EventKind::Change => "change",
+                EventKind::Hover => "hover",
+                EventKind::Focus => "focus",
+                EventKind::Blur => "blur",
+                EventKind::Key => "key",
             })
             .collect();
         let pairs: Vec<(&str, String)> =

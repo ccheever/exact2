@@ -48,7 +48,10 @@ shape (LLP 1004 D4). There is no `use … from` (`contract-no-imports`).
 
 **Actions.** `action name(params) writes a, b` with a body of `slot = expr`
 assignments and `name(args)` commands; a parameter's type is written or
-inferred from its handler call sites; an assignment to an undeclared slot is
+inferred from its handler call sites (the handler attributes are `press`,
+`change`, `hover`, `focus`, `blur`, `key`, LLP 1005 §3; a `key`'s or
+`change`'s payload types the last parameter `string`, a `hover`'s `bool`);
+an assignment to an undeclared slot is
 `analyze-write-not-declared`. **Tasks.** `task name mount` with
 `every(ms, action)` with a whole positive number of milliseconds
 (`lower-timer-interval`). **View.** Elements `tag positional attr=expr …` with
@@ -85,7 +88,9 @@ checked standalone. Roster calls are checked against the table's `params`/
 `returns`.
 
 **Analyze** (`contract-analyze`): `writes` declared and honored, handler
-shape and arity (`change` supplies the new value as the last parameter), timer
+shape and arity (`change` and `key` supply a string as the last parameter,
+`hover` a bool, `press`/`focus`/`blur` nothing — `HANDLERS` and
+`handler_payload` in `contract-analyze`), timer
 actions exist and take no parameters, component uses name real components
 with each argument once, children carry no state.
 

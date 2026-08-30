@@ -583,10 +583,13 @@ impl<'a> Lowerer<'a> {
                 for arg in args {
                     codes.push(self.expr_code(arg, scope, locals)?);
                 }
-                let kind = if event == "press" {
-                    EventKind::Press
-                } else {
-                    EventKind::Change
+                let kind = match event {
+                    "press" => EventKind::Press,
+                    "change" => EventKind::Change,
+                    "hover" => EventKind::Hover,
+                    "focus" => EventKind::Focus,
+                    "blur" => EventKind::Blur,
+                    _ => EventKind::Key,
                 };
                 handlers.push((kind, self.actions[ai], codes));
             }

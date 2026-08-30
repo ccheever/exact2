@@ -96,12 +96,19 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Dispatch an event at `now_ms` (the page's clock); `kind` is 0 = press,
-    /// 1 = change (payload = the input buffer's first `len` bytes, UTF-8).
+    /// 1 = change, 2 = hover in, 3 = hover out, 4 = focus, 5 = blur, 6 = key
+    /// (the payload — a change's text, a key's name — is the input buffer's
+    /// first `len` bytes, UTF-8).
     pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let event = match kind {
             0 => Event::Press,
+            2 => Event::Hover(true),
+            3 => Event::Hover(false),
+            4 => Event::Focus,
+            5 => Event::Blur,
+            6 => Event::Key(payload),
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {

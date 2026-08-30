@@ -70,6 +70,16 @@ pub enum Event {
     Press,
     /// A text input changed to `value`.
     Change(String),
+    /// The pointer came over the view (`true`) or left it (`false`) —
+    /// `pointerenter`/`pointerleave`, not a bubbling `mouseover`.
+    Hover(bool),
+    /// The view took the focus.
+    Focus,
+    /// The view lost the focus.
+    Blur,
+    /// A key went down while the view had the focus: the key's name as the
+    /// web spells it (`"Enter"`, `"ArrowDown"`, `"a"`).
+    Key(String),
 }
 
 /// Why the runner refused. The kernel is unchanged.
@@ -520,6 +530,11 @@ impl<D: DataSource> Runner<D> {
             match &event {
                 Event::Press => "press",
                 Event::Change(_) => "change",
+                Event::Hover(true) => "hover in",
+                Event::Hover(false) => "hover out",
+                Event::Focus => "focus",
+                Event::Blur => "blur",
+                Event::Key(_) => "key",
             }
         );
         let was_poisoned = self.poisoned;
@@ -542,6 +557,10 @@ impl<D: DataSource> Runner<D> {
         let (kind, payload, name) = match &event {
             Event::Press => (EventKind::Press, None, "press"),
             Event::Change(text) => (EventKind::Change, Some(Value::str(text)), "change"),
+            Event::Hover(over) => (EventKind::Hover, Some(Value::Bool(*over)), "hover"),
+            Event::Focus => (EventKind::Focus, None, "focus"),
+            Event::Blur => (EventKind::Blur, None, "blur"),
+            Event::Key(key) => (EventKind::Key, Some(Value::str(key)), "key"),
         };
         let row = self.plan.node(node);
         let handler = row
