@@ -2,8 +2,10 @@
 
 DejaVu Sans 2.37, Book and Bold, as Debian ships it (`fonts-dejavu-core
 2.37-8`, Ubuntu 24.04 — the fleet's builders), subset to the Latin blocks the
-app's text can use. `scripts/agent.mjs` launches the Linux host with
-`EXACT_FONTS` at this directory and `EXACT_FONT="DejaVu Sans"`, so text is
+app's text can use. The font files live under `assets/`, the same portable
+location a Contract declaration and every packager accept. `scripts/agent.mjs`
+launches the Linux host with `EXACT_FONTS` at that directory and
+`EXACT_FONT="DejaVu Sans"`, so text is
 shaped and painted from these bytes on every machine and a pixel fixture
 recorded on one matches on another (LLP 1015 §5, §8). The environment wins
 over the pin; the app on a real box uses the fonts it finds.

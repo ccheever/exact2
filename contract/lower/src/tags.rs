@@ -187,6 +187,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // style rows, by their CSS property names
         "font-size" => styles(&["font_size"]),
         "font-weight" => styles(&["font_weight"]),
+        "font-style" => styles(&["font_style"]),
+        "font-family" => styles(&["font_family"]),
         "color" => styles(&["text_color"]),
         "background-color" => styles(&["background_color"]),
         "opacity" => styles(&["opacity"]),
@@ -273,6 +275,8 @@ pub fn renamed(old: &str) -> Option<&'static str> {
     Some(match old {
         "size" | "fontSize" => "font-size",
         "weight" | "fontWeight" => "font-weight",
+        "fontStyle" => "font-style",
+        "fontFamily" => "font-family",
         "background" | "backgroundColor" => "background-color",
         "letterSpacing" => "letter-spacing",
         "lineHeight" => "line-height",

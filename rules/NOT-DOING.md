@@ -7,9 +7,12 @@ This is the most valuable file in the repo. It is longer than the doing-list on 
 v1 is done when **one real application** — not a demo — runs from a single Contract
 source on web, macOS, iOS, and Linux, hitting the time budgets in `RULES.md`.
 
-**Open decision:** name the app. Recommendation is the Caltrain app — it already exists
-in Contract, it has real lists, navigation, search, text, and theming, and "does it
-still work" is answerable in seconds. Everything not required by that app does not exist.
+**Decided (Charlie, 2026-08-30):** the Caltrain app is the one that defines v1 — it
+already exists in Contract, it has real lists, navigation, search, text, and theming, and
+"does it still work" is answerable in seconds — **and Weird Castle's wordmark is in v1
+beside it**, which puts one bundled brand face in scope and nothing else about that app.
+Everything not required by those two does not exist. What the wordmark unblocks: a
+declared font, LLP 1019. Fonts were never on this list, so nothing comes off for them.
 
 ## Surfaces
 

@@ -21,14 +21,30 @@ pub struct PlanBuilder {
 impl PlanBuilder {
     /// Empty, with the identities every plan must carry.
     pub fn new(kernel_schema_digest: u64, compiler_identity: u64) -> PlanBuilder {
-        PlanBuilder {
+        let mut builder = PlanBuilder {
             plan: Plan {
                 kernel_schema_digest,
                 compiler_identity,
                 ..Plan::default()
             },
             interned: HashMap::new(),
+        };
+        // These eight distinct stack ids are part of the plan vocabulary.
+        // A host may resolve several of them to one installed face; their
+        // identities never collapse in the plan (LLP 1019 D3).
+        for kind in [
+            StackMemberKind::SystemUi,
+            StackMemberKind::UiSansSerif,
+            StackMemberKind::SansSerif,
+            StackMemberKind::UiSerif,
+            StackMemberKind::Serif,
+            StackMemberKind::UiMonospace,
+            StackMemberKind::Monospace,
+            StackMemberKind::UiRounded,
+        ] {
+            builder.font_stack(&[(kind, None)]);
         }
+        builder
     }
 
     /// Continue building from an existing plan (the bake rewrites resource data).
@@ -186,6 +202,47 @@ impl PlanBuilder {
         }
         self.plan.types.push(row);
         TypesId(self.plan.types.len() as u32 - 1)
+    }
+
+    /// A declared static font family and its faces (LLP 1019 D1–D2).
+    pub fn font_family(&mut self, name: &str, faces: &[(&str, u16, bool)]) -> FamiliesId {
+        let start = self.plan.faces.len() as u32;
+        for (source, weight, italic) in faces {
+            let source = self.str(source);
+            self.plan.faces.push(FacesRow {
+                source,
+                weight: *weight,
+                italic: *italic,
+            });
+        }
+        let name = self.str(name);
+        self.plan.families.push(FamiliesRow {
+            name,
+            faces: FacesRange {
+                start,
+                len: faces.len() as u32,
+            },
+        });
+        FamiliesId(self.plan.families.len() as u32 - 1)
+    }
+
+    /// An ordered font stack. v1's semantic validator accepts one member;
+    /// the range keeps the format additive for authored cascade later.
+    pub fn font_stack(&mut self, members: &[(StackMemberKind, Option<FamiliesId>)]) -> StacksId {
+        let start = self.plan.stack_members.len() as u32;
+        for (kind, family) in members {
+            self.plan.stack_members.push(StackMembersRow {
+                kind: *kind,
+                family: *family,
+            });
+        }
+        self.plan.stacks.push(StacksRow {
+            members: StackMembersRange {
+                start,
+                len: members.len() as u32,
+            },
+        });
+        StacksId(self.plan.stacks.len() as u32 - 1)
     }
 
     /// A state slot.

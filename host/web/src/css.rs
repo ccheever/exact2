@@ -29,7 +29,7 @@ pub struct Skipped {
 }
 
 /// The `cssText` for a node's set rows, plus what was skipped.
-pub fn css_text(style: &StyleProps) -> (String, Vec<Skipped>) {
+pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipped>) {
     let mut out = String::new();
     let mut skipped = Vec::new();
     let mut shadow: Option<(f32, f32, f32, Color, f32)> = None;
@@ -70,13 +70,27 @@ pub fn css_text(style: &StyleProps) -> (String, Vec<Skipped>) {
                     });
                 }
             }
-            ("font_family", _)
-            | ("font_variant_numeric", _)
-            | ("line_clamp", _)
-            | ("tint_color", _) => skipped.push(Skipped {
-                row: id,
-                reason: "not lowered in v1",
-            }),
+            ("font_family", RowValue::Number(index)) => {
+                if let Some(family) = font_names.get(*index as usize) {
+                    let value = if is_generic_family(family) {
+                        family.clone()
+                    } else {
+                        css_string(family)
+                    };
+                    let _ = write!(out, "font-family:{value};");
+                } else {
+                    skipped.push(Skipped {
+                        row: id,
+                        reason: "font stack id is absent from the plan catalog",
+                    });
+                }
+            }
+            ("font_variant_numeric", _) | ("line_clamp", _) | ("tint_color", _) => {
+                skipped.push(Skipped {
+                    row: id,
+                    reason: "not lowered in v1",
+                })
+            }
             ("grid_template_columns", _)
             | ("grid_template_rows", _)
             | ("grid_column", _)
@@ -114,6 +128,38 @@ pub fn css_text(style: &StyleProps) -> (String, Vec<Skipped>) {
         );
     }
     (out, skipped)
+}
+
+fn is_generic_family(value: &str) -> bool {
+    matches!(
+        value,
+        "system-ui"
+            | "ui-sans-serif"
+            | "sans-serif"
+            | "ui-serif"
+            | "serif"
+            | "ui-monospace"
+            | "monospace"
+            | "ui-rounded"
+    )
+}
+
+fn css_string(value: &str) -> String {
+    let mut out = String::from("\"");
+    for c in value.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\a "),
+            '\r' => out.push_str("\\d "),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\{:x} ", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// One row → one declaration, by the CSS rule for its name and codec.

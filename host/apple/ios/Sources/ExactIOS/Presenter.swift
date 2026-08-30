@@ -438,7 +438,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         fitScroll()
         clipsToBounds = ox == "hidden" || oy == "hidden"
         if let f = field {
-            f.font = Text.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), italic: false)
+            f.font = Text.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic")
             f.textColor = color("text_color", .black)
         }
         setNeedsDisplay()
@@ -546,7 +546,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         switch style["text_align"] as? String { case "center": align = 1; case "right": align = 2; case "justify": align = 3; default: align = 0 }
         let c = (style["text_color"] as? [Double]) ?? [0, 0, 0, 255]
         return Spec(
-            runs: [Run(text: text, size: number("font_size", 16), weight: Int(number("font_weight", 400)), italic: (style["font_style"] as? String) == "italic", lineHeight: number("line_height"), letterSpacing: number("letter_spacing"))],
+            runs: [Run(text: text, size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic", lineHeight: number("line_height"), letterSpacing: number("letter_spacing"))],
             align: align, lineClamp: Int(number("line_clamp")), color: c)
     }
 

@@ -241,7 +241,7 @@ async function openStdio({ host, plan, size, app, env: extra = {} }) {
     // The pinned font: DejaVu Sans from scripts/fixtures/fonts shapes and
     // paints the host's text on every machine, so a pixel fixture recorded
     // here matches on a builder (LLP 1015 §5). The environment still wins.
-    env.EXACT_FONTS ??= resolve(ROOT, 'scripts/fixtures/fonts');
+    env.EXACT_FONTS ??= resolve(ROOT, 'scripts/fixtures/fonts/assets');
     env.EXACT_FONT ??= 'DejaVu Sans';
   }
   Object.assign(env, extra);

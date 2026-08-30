@@ -19,6 +19,7 @@ pub enum BridgeError {
     PropKind { prop: PropId, value: Value },
     Style(StyleValueError),
     StyleKind { style: StyleId, value: Value },
+    FontStack { index: u32, stacks: usize },
 }
 
 /// A prop value by the prop's declared kind.
@@ -44,8 +45,27 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
 }
 
 /// Set style row `id` on `patch` from `value`.
-pub fn set_style(patch: &mut StyleProps, id: u16, value: &Value) -> Result<StyleId, BridgeError> {
+pub fn set_style(
+    patch: &mut StyleProps,
+    id: u16,
+    value: &Value,
+    stacks: usize,
+) -> Result<StyleId, BridgeError> {
     let style = StyleId::from_bit(id as u32).ok_or(BridgeError::UnknownStyle(id))?;
+    if style == StyleId::FontFamily {
+        let index = match value {
+            Value::Number(n) if n.is_finite() && n.fract() == 0.0 && *n >= 0.0 => *n as u32,
+            _ => {
+                return Err(BridgeError::StyleKind {
+                    style,
+                    value: value.clone(),
+                })
+            }
+        };
+        if index as usize >= stacks {
+            return Err(BridgeError::FontStack { index, stacks });
+        }
+    }
     let style_value = match value {
         Value::Number(n) => StyleValue::Number(*n),
         Value::Str(s) => match s.as_ref() {

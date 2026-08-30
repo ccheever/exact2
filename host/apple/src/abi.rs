@@ -7,13 +7,14 @@
 //! host-owned input buffer and returns its address; the app writes a payload
 //! there; every call returns the length of the output buffer, whose address
 //! `exact_out()` reports; the app reads a UTF-8 JSON batch from it. Text
-//! measurement is the one call the other way: a function the app registers
-//! at boot ([`crate::measure`]). All calls are on one thread (the main
-//! thread); the bridge is thread-local. [`host!`] instantiates the exports
-//! for one app: its data source and its baked plan bytes.
+//! measurement and the plan font catalog are the calls the other way:
+//! functions the app registers before boot ([`crate::measure`]). All calls
+//! are on one thread (the main thread); the bridge is thread-local. [`host!`]
+//! instantiates the exports for one app: its data source and its baked plan
+//! bytes.
 
 use crate::host::Host;
-use crate::measure::{CallbackMeasurer, MeasureFn};
+use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
 use crate::store::{endow, snapshot_of};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
 use exact_runner::{DataSource, Event};
@@ -52,6 +53,7 @@ impl Hooks {
 pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
     executor: Option<crate::executor::Executor>,
+    fonts: Option<FontsFn>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -66,6 +68,7 @@ impl<D: DataSource> Bridge<D> {
         Bridge {
             host: None,
             executor: None,
+            fonts: None,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -94,6 +97,11 @@ impl<D: DataSource> Bridge<D> {
     /// The output buffer's first `len` bytes.
     pub fn output_bytes(&self, len: usize) -> &[u8] {
         &self.output[..len.min(self.output.len())]
+    }
+
+    /// Register the synchronous plan-font hook used by subsequent boots.
+    pub fn set_fonts(&mut self, fonts: Option<FontsFn>) {
+        self.fonts = fonts;
     }
 
     fn emit(&mut self, s: String) -> u32 {
@@ -141,7 +149,22 @@ impl<D: DataSource> Bridge<D> {
         let bindings = endow(data.grants());
         let snapshot = snapshot_of(bindings.as_ref());
         let secrets = bindings.as_ref().map(|b| b.secrets.clone());
-        match Host::boot_stored(plan, data, measurer, width, height, None, snapshot, secrets) {
+        let fonts = self.fonts;
+        match Host::boot_stored_after_decode(
+            plan,
+            data,
+            measurer,
+            width,
+            height,
+            None,
+            snapshot,
+            secrets,
+            move |decoded| {
+                if let Some(callback) = fonts {
+                    install_fonts(decoded, callback);
+                }
+            },
+        ) {
             Ok((host, batch)) => {
                 self.executor = Some(crate::executor::Executor::start(
                     bindings,
@@ -170,7 +193,8 @@ impl<D: DataSource> Bridge<D> {
         // are endowed afresh for the new executor.
         let bindings = endow(data.grants());
         let secrets = bindings.as_ref().map(|b| b.secrets.clone());
-        match Host::boot_stored(
+        let fonts = self.fonts;
+        match Host::boot_stored_after_decode(
             &plan,
             data,
             measurer,
@@ -179,6 +203,11 @@ impl<D: DataSource> Bridge<D> {
             carried.as_ref(),
             Vec::new(),
             secrets,
+            move |decoded| {
+                if let Some(callback) = fonts {
+                    install_fonts(decoded, callback);
+                }
+            },
         ) {
             Ok((host, batch)) => {
                 self.executor = Some(crate::executor::Executor::start(
@@ -315,6 +344,14 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_out() -> *const u8 {
             EXACT_BRIDGE.with(|b| b.borrow().output())
+        }
+
+        /// Register the plan-font callback used synchronously by subsequent boots.
+        #[no_mangle]
+        pub extern "C" fn exact_set_fonts(
+            fonts: ::std::option::Option<$crate::measure::FontsFn>,
+        ) {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_fonts(fonts));
         }
 
         /// Boot the baked plan; returns the first batch's length.

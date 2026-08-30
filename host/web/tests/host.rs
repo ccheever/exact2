@@ -136,7 +136,7 @@ fn style_rows_lower_to_css_by_their_names() {
         &StyleValue::Text("calc(env(safe-area-inset-left) - 2px)".into()),
     )
     .unwrap();
-    let (css, skipped) = css_text(&s);
+    let (css, skipped) = css_text(&s, &[]);
     for expected in [
         "width:100%;",
         "max-width:640px;",
@@ -157,6 +157,14 @@ fn style_rows_lower_to_css_by_their_names() {
     ] {
         assert!(css.contains(expected), "{expected} in {css}");
     }
+    assert!(skipped.is_empty(), "{skipped:?}");
+
+    s.set_dynamic(StyleId::FontFamily, &StyleValue::Number(2.0))
+        .unwrap();
+    let families = vec![String::new(), String::new(), "sans-serif".into()];
+    let (css, skipped) = css_text(&s, &families);
+    assert!(css.contains("font-family:sans-serif;"), "{css}");
+    assert!(!css.contains("font-family:\"sans-serif\";"), "{css}");
     assert!(skipped.is_empty(), "{skipped:?}");
 }
 
@@ -224,7 +232,7 @@ fn the_transition_row_lowers_to_css_transition_and_springs_are_named() {
         ..Default::default()
     };
     s.mask.set(exact_kernel::StyleId::Transition);
-    let (css, skipped) = css_text(&s);
+    let (css, skipped) = css_text(&s, &[]);
     assert!(css.starts_with("transition:opacity 0.25s"));
     assert_eq!(skipped.len(), 1);
     assert!(skipped[0].reason.contains("spring"));
@@ -281,4 +289,53 @@ fn an_image_is_an_img_with_its_source_and_object_fit() {
     );
     assert!(create.contains("object-fit:contain;"), "{create}");
     assert!(create.contains("width:96px;"), "{create}");
+}
+
+#[test]
+fn declared_font_identity_reaches_the_readiness_barrier_and_css() {
+    use exact_runner::{DataError, DataSource, Value};
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(s.into()))
+        }
+    }
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/fixtures/fonts/app.contract");
+    let plan = contract::compile_path(&path).unwrap();
+    let (host, batch) = Host::boot(&plan.encode(), NoData).unwrap();
+    let catalog = host.font_catalog();
+    assert_eq!(
+        catalog,
+        "[{\"family\":\"ExactPlanStack8\",\"source\":\"assets/DejaVuSans.ttf\",\"weight\":400,\"style\":\"normal\"},{\"family\":\"ExactPlanStack8\",\"source\":\"assets/DejaVuSans-Bold.ttf\",\"weight\":700,\"style\":\"normal\"}]"
+    );
+    assert!(
+        !batch.contains("\"fonts\""),
+        "font data leaked into the op batch: {batch}"
+    );
+    for test_id in ["font-400", "font-600", "font-700"] {
+        let id = view_with_test_id_any(&host, test_id);
+        let marker = format!("\"op\":\"create\",\"id\":{id},");
+        let create = &batch[batch.find(&marker).unwrap()..];
+        let create = &create[..create.find("\"handlers\":").unwrap()];
+        assert!(
+            create.contains("font-family:\\\"ExactPlanStack8\\\";"),
+            "the opaque plan family reaches cssText: {create}"
+        );
+    }
+    assert!(
+        !batch.contains("Fixture Sans") && !catalog.contains("Fixture Sans"),
+        "the Contract alias must never become a browser font lookup: {batch} {catalog}"
+    );
+
+    let encoded = plan.encode();
+    let mut bridge: exact_web::abi::Bridge<NoData> = exact_web::abi::Bridge::new();
+    let len = bridge.boot(&encoded, NoData);
+    let boot = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(!boot.contains("\"fonts\""), "{boot}");
+    let len = bridge.fonts();
+    assert_eq!(
+        String::from_utf8_lossy(bridge.output_bytes(len as usize)),
+        catalog
+    );
 }

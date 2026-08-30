@@ -4,11 +4,59 @@
 //! measured through the registered callback.
 
 use exact_apple::abi::Bridge;
-use exact_apple::measure::{CMetrics, CRequest, MAX_CONTENT};
+use exact_apple::measure::{CFontCatalog, CMetrics, CRequest, MAX_CONTENT};
 use exact_apple::Host;
 use exact_kernel::MonospaceMeasurer;
 use exact_runner::{DataError, DataSource, Event, Value};
 use std::ffi::c_void;
+use std::sync::Mutex;
+
+#[derive(Debug, PartialEq)]
+struct RecordedFace {
+    family: String,
+    source: String,
+    stack: u16,
+    weight: u16,
+    italic: bool,
+}
+
+static FONT_CATALOG: Mutex<Vec<RecordedFace>> = Mutex::new(Vec::new());
+static FONT_RUNS: Mutex<Vec<(u16, u16, bool)>> = Mutex::new(Vec::new());
+
+extern "C" fn record_fonts(catalog: *const CFontCatalog) {
+    let catalog = unsafe { &*catalog };
+    let rows = unsafe { std::slice::from_raw_parts(catalog.faces, catalog.count) };
+    let mut recorded = FONT_CATALOG.lock().unwrap();
+    recorded.clear();
+    for row in rows {
+        let family = unsafe { std::slice::from_raw_parts(row.family, row.family_len) };
+        let source = unsafe { std::slice::from_raw_parts(row.source, row.source_len) };
+        recorded.push(RecordedFace {
+            family: String::from_utf8(family.to_vec()).unwrap(),
+            source: String::from_utf8(source.to_vec()).unwrap(),
+            stack: row.stack,
+            weight: row.weight,
+            italic: row.italic != 0,
+        });
+    }
+}
+
+extern "C" fn record_font_runs(_ctx: *mut c_void, request: *const CRequest) -> CMetrics {
+    let request = unsafe { &*request };
+    let runs = unsafe { std::slice::from_raw_parts(request.runs, request.count) };
+    FONT_RUNS.lock().unwrap().extend(
+        runs.iter()
+            .map(|run| (run.font_family, run.font_weight, run.italic != 0)),
+    );
+    CMetrics {
+        width: runs
+            .iter()
+            .map(|run| run.len as f32 * run.font_size * 0.5)
+            .sum(),
+        height: runs.first().map_or(0.0, |run| run.font_size * 1.2),
+        baseline: runs.first().map_or(-1.0, |run| run.font_size),
+    }
+}
 
 fn boot() -> (Host<caltrain_data::Caltrain>, String) {
     let plan = caltrain::build().unwrap();
@@ -268,6 +316,84 @@ fn text_is_measured_through_the_registered_callback() {
     assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("\"motion\":false"));
     let len = bridge.resize(500.0, 844.0);
     assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("\"w\":500"));
+}
+
+#[test]
+fn the_plan_font_catalog_and_family_runs_cross_the_host_seam_before_layout() {
+    FONT_CATALOG.lock().unwrap().clear();
+    FONT_RUNS.lock().unwrap().clear();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/fixtures/fonts/app.contract");
+    let plan = contract::compile_path(&path).unwrap().encode();
+    let mut bridge: Bridge<NoData> = Bridge::new();
+    bridge.set_fonts(Some(record_fonts));
+    let len = bridge.boot(
+        &plan,
+        NoData,
+        exact_apple::abi::Hooks {
+            measure: Some(record_font_runs),
+            ctx: std::ptr::null_mut(),
+            wake: None,
+            wake_ctx: std::ptr::null_mut(),
+        },
+        390.0,
+        844.0,
+    );
+    let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(batch.contains("\"error\":null"), "{batch}");
+    assert_eq!(
+        *FONT_CATALOG.lock().unwrap(),
+        vec![
+            RecordedFace {
+                family: "Fixture Sans".into(),
+                source: "assets/DejaVuSans.ttf".into(),
+                stack: 8,
+                weight: 400,
+                italic: false,
+            },
+            RecordedFace {
+                family: "Fixture Sans".into(),
+                source: "assets/DejaVuSans-Bold.ttf".into(),
+                stack: 8,
+                weight: 700,
+                italic: false,
+            },
+        ]
+    );
+    let runs = FONT_RUNS.lock().unwrap();
+    assert!(runs.contains(&(8, 400, false)), "{runs:?}");
+    assert!(runs.contains(&(8, 600, false)), "{runs:?}");
+    assert!(runs.contains(&(8, 700, false)), "{runs:?}");
+}
+
+#[test]
+fn url_descriptors_survive_process_registration_name_collisions() {
+    let source = include_str!("../swift/Text.swift");
+    let install = source
+        .split("static func install")
+        .nth(1)
+        .unwrap()
+        .split("private static func fontURL")
+        .next()
+        .unwrap();
+    let descriptor = install
+        .find("CTFontManagerCreateFontDescriptorsFromURL")
+        .unwrap();
+    let registration = install.find("if !register(url)").unwrap();
+    assert!(
+        descriptor < registration,
+        "URL identity must be acquired before best-effort process registration"
+    );
+
+    let register = source
+        .split("private static func register")
+        .nth(1)
+        .unwrap()
+        .split("private static func matched")
+        .next()
+        .unwrap();
+    assert!(register.contains("CTFontManagerError.alreadyRegistered"));
+    assert!(register.contains("CTFontManagerError.duplicatedName"));
 }
 
 #[test]

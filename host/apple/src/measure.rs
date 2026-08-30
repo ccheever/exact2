@@ -11,6 +11,7 @@
 //! negative ([`MAX_CONTENT`], [`MIN_CONTENT`]).
 
 use exact_kernel::{AxisOffer, TextAlign, TextMeasureRequest, TextMeasurer, TextMetrics};
+use exact_plan::{Plan, StackMemberKind};
 use std::ffi::c_void;
 
 /// Offer value meaning "as wide/tall as the content wants".
@@ -30,6 +31,8 @@ pub struct CRun {
     pub font_size: f32,
     /// CSS 100–900.
     pub font_weight: u16,
+    /// Plan font stack id.
+    pub font_family: u16,
     /// 1 for italic.
     pub italic: u8,
     /// Points; 0 means the font's natural line height.
@@ -71,6 +74,72 @@ pub struct CMetrics {
 /// The callback's type.
 pub type MeasureFn = extern "C" fn(ctx: *mut c_void, request: *const CRequest) -> CMetrics;
 
+/// One declared face in the synchronous boot catalog callback. The UTF-8
+/// strings live for the duration of the callback and are not NUL-terminated.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct CFontFace {
+    /// The Contract alias.
+    pub family: *const u8,
+    /// Alias byte length.
+    pub family_len: usize,
+    /// App-relative source path.
+    pub source: *const u8,
+    /// Source byte length.
+    pub source_len: usize,
+    /// Plan stack id.
+    pub stack: u16,
+    /// CSS weight.
+    pub weight: u16,
+    /// 1 for italic.
+    pub italic: u8,
+}
+
+/// Every declared face in one validated plan.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct CFontCatalog {
+    /// Face rows.
+    pub faces: *const CFontFace,
+    /// Face row count.
+    pub count: usize,
+}
+
+/// Installs a complete plan-scoped catalog before the first text layout.
+pub type FontsFn = extern "C" fn(catalog: *const CFontCatalog);
+
+/// Project the validated plan's tables across the host-only font seam. This
+/// is deliberately separate from `exact_out()`, whose payload remains ops.
+pub fn install_fonts(plan: &Plan, callback: FontsFn) {
+    let mut faces = Vec::new();
+    for (stack_index, stack) in plan.stacks.iter().enumerate() {
+        let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
+        if member.kind != StackMemberKind::Family {
+            continue;
+        }
+        let family = plan.familie(member.family.expect("validated family member"));
+        let name = plan.str(family.name);
+        for face_id in family.faces.iter() {
+            let face = plan.face(face_id);
+            let source = plan.str(face.source);
+            faces.push(CFontFace {
+                family: name.as_ptr(),
+                family_len: name.len(),
+                source: source.as_ptr(),
+                source_len: source.len(),
+                stack: stack_index as u16,
+                weight: face.weight,
+                italic: u8::from(face.italic),
+            });
+        }
+    }
+    let catalog = CFontCatalog {
+        faces: faces.as_ptr(),
+        count: faces.len(),
+    };
+    callback(&catalog);
+}
+
 /// A kernel measurer backed by the app's callback.
 pub struct CallbackMeasurer {
     f: MeasureFn,
@@ -102,6 +171,7 @@ impl TextMeasurer for CallbackMeasurer {
                 len: r.text.len(),
                 font_size: r.style.font_size,
                 font_weight: r.style.font_weight,
+                font_family: r.style.font_family,
                 italic: u8::from(r.style.font_style != exact_kernel::FontStyle::Normal),
                 line_height: r.style.line_height,
                 letter_spacing: r.style.letter_spacing,

@@ -6,7 +6,7 @@ use exact_plan::builder::PlanBuilder;
 use exact_plan::bytes::Reader;
 use exact_plan::{
     BindingKind, BindingsRow, Code, CodeError, EventKind, Opcode, Plan, PlanError, RegionKind,
-    Stdlib, TypeKind, Value, FORMAT_DIGEST,
+    StackMemberKind, Stdlib, TypeKind, Value, FORMAT_DIGEST,
 };
 
 /// A small but complete plan: a counter slot, a derive, a resource, an
@@ -73,6 +73,86 @@ fn a_plan_round_trips_and_its_bytes_are_canonical() {
     assert_eq!(decoded, plan);
     assert_eq!(decoded.encode(), bytes, "re-encoding is byte-identical");
     assert_eq!(sample().encode(), bytes, "building twice is byte-identical");
+}
+
+#[test]
+fn font_tables_round_trip_and_validate_their_identity_graph() {
+    let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
+    let family = b.font_family(
+        "Fixture Sans",
+        &[
+            ("assets/FixtureSans.ttf", 400, false),
+            ("assets/FixtureSans-Bold.ttf", 700, false),
+        ],
+    );
+    let stack = b.font_stack(&[(StackMemberKind::Family, Some(family))]);
+    let plan = b.finish().unwrap();
+    assert_eq!(stack.0, 8, "the eight generic stacks keep their low ids");
+    assert_eq!(plan.families.len(), 1);
+    assert_eq!(plan.faces.len(), 2);
+    assert_eq!(Plan::decode(&plan.encode()).unwrap(), plan);
+
+    let mut duplicate_coordinate = plan.clone();
+    duplicate_coordinate.faces[1].weight = 400;
+    assert_eq!(
+        duplicate_coordinate.validate(),
+        Err(PlanError::DuplicateFace {
+            family: 0,
+            face: 1,
+            weight: 400,
+            italic: false,
+        })
+    );
+
+    let mut dangling = plan.clone();
+    dangling.stack_members[8].family = Some(exact_plan::FamiliesId(99));
+    assert_eq!(
+        dangling.validate(),
+        Err(PlanError::BadReference {
+            table: "stack_members",
+            row: 8,
+            field: "family",
+        })
+    );
+
+    let mut not_a_family = plan;
+    not_a_family.stack_members[8].kind = StackMemberKind::Serif;
+    assert_eq!(
+        not_a_family.validate(),
+        Err(PlanError::StackMember { member: 8 })
+    );
+}
+
+#[test]
+fn font_sources_are_portable_local_relative_paths() {
+    let build = |source: &str| {
+        let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
+        let family = b.font_family("Fixture Sans", &[(source, 400, false)]);
+        b.font_stack(&[(StackMemberKind::Family, Some(family))]);
+        b.finish()
+    };
+    assert!(build("assets/Fixture Sans.ttf").is_ok());
+    for source in [
+        "",
+        "/font.ttf",
+        "//host/font.ttf",
+        "https://example.invalid/font.ttf",
+        "data:font/ttf,bytes",
+        "../font.ttf",
+        "assets/../font.ttf",
+        "./font.ttf",
+        "assets/font.ttf?version=1",
+        "assets/font.ttf#face",
+        "assets\\font.ttf",
+        "assets/%2e%2e/font.ttf",
+        "assets//font.ttf",
+    ] {
+        assert_eq!(
+            build(source),
+            Err(PlanError::FaceSource { face: 0 }),
+            "accepted {source:?}"
+        );
+    }
 }
 
 #[test]

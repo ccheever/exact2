@@ -38,7 +38,8 @@ enum Exact {
     nonisolated(unsafe) static var wake: ExactWakeFn? = nil
 
     static func boot(width: CGFloat, height: CGFloat) -> Batch {
-        read(exact_boot(measureText, nil, wake, nil, Float(width), Float(height)))
+        exact_set_fonts(installFonts)
+        return read(exact_boot(measureText, nil, wake, nil, Float(width), Float(height)))
     }
 
     /// Every queued reply into the runner: the batch of their commits.
@@ -47,6 +48,7 @@ enum Exact {
     static func bootPlan(_ bytes: Data, width: CGFloat, height: CGFloat) -> Batch {
         let ptr = exact_in(bytes.count)!
         bytes.withUnsafeBytes { ptr.update(from: $0.bindMemory(to: UInt8.self).baseAddress!, count: bytes.count) }
+        exact_set_fonts(installFonts)
         return read(exact_boot_plan(bytes.count, measureText, nil, wake, nil, Float(width), Float(height)))
     }
     static func press(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(view, 0, 0, now)) }

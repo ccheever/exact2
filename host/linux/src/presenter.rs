@@ -21,7 +21,7 @@ use crate::paint::{
 use crate::raster::Raster;
 use crate::text::{Measurer, Shared, TextEngine};
 use exact_kernel::{NodeType, Overflow, PropId, ViewId};
-use exact_plan::EventKind;
+use exact_plan::{EventKind, Plan};
 use exact_runner::agent::{num, quote};
 use exact_runner::{DataSource, Event};
 use std::collections::BTreeMap;
@@ -39,6 +39,7 @@ pub struct Presenter<D: DataSource> {
     scroll: BTreeMap<ViewId, (f32, f32)>,
     page: (f32, f32),
     images: Images,
+    asset_root: PathBuf,
     focus: Option<ViewId>,
     pointer: Option<(f32, f32)>,
     boxes: Vec<PaintedBox>,
@@ -163,7 +164,8 @@ impl<D: DataSource> Presenter<D> {
         choice: PainterChoice,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let t = std::time::Instant::now();
-        let text = TextEngine::shared();
+        let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
+        let text = TextEngine::shared_for_plan(&decoded, &assets);
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
         let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
         let (mut host, error) = Host::boot(
@@ -185,7 +187,8 @@ impl<D: DataSource> Presenter<D> {
             viewport,
             scroll: BTreeMap::new(),
             page: (0.0, 0.0),
-            images: Images::new(assets),
+            images: Images::new(assets.clone()),
+            asset_root: assets,
             focus: None,
             pointer: None,
             boxes: Vec::new(),
@@ -201,6 +204,10 @@ impl<D: DataSource> Presenter<D> {
     /// The dev loop's restart: boot the new plan with state carried; every
     /// picture, offset, and focus goes (LLP 1007 §6).
     pub fn reload(&mut self, plan: &[u8], data: D) -> Result<Option<String>, HostError> {
+        let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
+        self.text
+            .borrow_mut()
+            .install_plan(&decoded, &self.asset_root);
         let carried = self.host.carry();
         let (host, error) = Host::boot_with(
             plan,

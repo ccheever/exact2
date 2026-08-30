@@ -25,7 +25,10 @@ fn pin_font() {
     ONCE.call_once(|| {
         std::env::set_var(
             "EXACT_FONTS",
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/fixtures/fonts"),
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../scripts/fixtures/fonts/assets"
+            ),
         );
         std::env::set_var("EXACT_FONT", "DejaVu Sans");
     });

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "_about": "The single declaration authority for the plan: its tables, the expression VM's opcodes, the stdlib roster, and the enum vocabularies. plan/build.rs generates the row structs, the canonical encoder, the validating decoder, the opcode and stdlib enums, and FORMAT_DIGEST from this file. Nothing here is hand-mirrored anywhere else. Kernel node types, props, and style rows are NOT declared here: plan rows carry the kernel's ordinals as numbers, and the crates that give them meaning take the vocabulary from exact-kernel (LLP 1004 D2).",
   "_codecs": "u8 | u16 | u32 | i32 | f64 | bool | str (u32 index into the string pool) | enum:<Name> (u8 ordinal) | idx:<table> (u32 row index, validated) | opt:<table> (u32 row index or NONE = 0xFFFFFFFF) | range:<table> (u32 start + u32 len, validated) | code (u32 offset + u32 len into the code pool, validated as well-formed bytecode) | bytes (u32 offset + u32 len into the data pool)",
-  "_tables": "Document order is significant: nodes and regions with the same parent are ordered by `order`; an arm's content is every node and region whose `arm` names it; a node with no parent inside an arm is one of the arm's roots.",
+  "_tables": "Document order is significant: nodes and regions with the same parent are ordered by `order`; an arm's content is every node and region whose `arm` names it; a node with no parent inside an arm is one of the arm's roots. Fonts are static in v1: a face is exactly one source path, weight, and italic flag. Variable-axis ranges are additive later, never inferred from the file by a host.",
   "tables": [
     {
       "name": "types",
@@ -35,6 +35,58 @@
         {
           "name": "ty",
           "codec": "idx:types"
+        }
+      ]
+    },
+    {
+      "name": "faces",
+      "fields": [
+        {
+          "name": "source",
+          "codec": "str"
+        },
+        {
+          "name": "weight",
+          "codec": "u16"
+        },
+        {
+          "name": "italic",
+          "codec": "bool"
+        }
+      ]
+    },
+    {
+      "name": "families",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "faces",
+          "codec": "range:faces"
+        }
+      ]
+    },
+    {
+      "name": "stacks",
+      "fields": [
+        {
+          "name": "members",
+          "codec": "range:stack_members"
+        }
+      ]
+    },
+    {
+      "name": "stack_members",
+      "fields": [
+        {
+          "name": "kind",
+          "codec": "enum:StackMemberKind"
+        },
+        {
+          "name": "family",
+          "codec": "opt:families"
         }
       ]
     },
@@ -325,6 +377,17 @@
     "BindingKind": [
       "prop",
       "style"
+    ],
+    "StackMemberKind": [
+      "family",
+      "system-ui",
+      "ui-sans-serif",
+      "sans-serif",
+      "ui-serif",
+      "serif",
+      "ui-monospace",
+      "monospace",
+      "ui-rounded"
     ],
     "EventKind": [
       "press",

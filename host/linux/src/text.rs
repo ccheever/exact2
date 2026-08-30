@@ -18,9 +18,12 @@ use cosmic_text::{
     Metrics, PenikoFont, Shaping, Style, SwashCache, SwashContent, Weight, Wrap,
 };
 use exact_kernel::{AxisOffer, TextAlign, TextMeasureRequest, TextMeasurer, TextMetrics};
+use exact_plan::{Plan, StackMemberKind, StacksId};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tiny_skia::{IntSize, Mask, Pixmap, PixmapPaint, Transform};
 
@@ -33,6 +36,8 @@ pub struct Run {
     pub size: f32,
     /// CSS 100–900.
     pub weight: u16,
+    /// Plan font stack id.
+    pub family: u16,
     /// Italic.
     pub italic: bool,
     /// Points; 0 is `normal`.
@@ -63,6 +68,7 @@ impl Spec {
                     text: r.text.to_string(),
                     size: r.style.font_size,
                     weight: r.style.font_weight,
+                    family: r.style.font_family,
                     italic: r.style.font_style != exact_kernel::FontStyle::Normal,
                     line_height: r.style.line_height,
                     letter_spacing: r.style.letter_spacing,
@@ -83,10 +89,11 @@ impl Spec {
         let mut s = String::new();
         for r in &self.runs {
             s.push_str(&format!(
-                "{}|{}|{}|{}|{}|{}\u{1}",
+                "{}|{}|{}|{}|{}|{}|{}\u{1}",
                 r.text,
                 r.size.to_bits(),
                 r.weight,
+                r.family,
                 r.italic,
                 r.line_height.to_bits(),
                 r.letter_spacing.to_bits()
@@ -121,6 +128,25 @@ struct Glyph {
     top: i32,
 }
 
+#[derive(Debug, Clone)]
+enum FamilyChoice {
+    SansSerif,
+    Serif,
+    Monospace,
+    Declared(String),
+}
+
+impl FamilyChoice {
+    fn cosmic(&self) -> Family<'_> {
+        match self {
+            FamilyChoice::SansSerif => Family::SansSerif,
+            FamilyChoice::Serif => Family::Serif,
+            FamilyChoice::Monospace => Family::Monospace,
+            FamilyChoice::Declared(name) => Family::Name(name),
+        }
+    }
+}
+
 /// A run of glyphs from one font at one size, for a backend that draws
 /// outlines itself (the GPU): glyph ids with their positions in points from
 /// the paragraph's top-left.
@@ -139,11 +165,15 @@ pub struct TextEngine {
     swash: SwashCache,
     paragraphs: HashMap<String, Rc<Paragraph>>,
     glyphs: HashMap<(CacheKey, u32), Option<Rc<Glyph>>>,
-    normal: HashMap<(u32, u16, bool), f32>,
+    normal: HashMap<(u16, u32, u16, bool), f32>,
     font_data: HashMap<(fontdb::ID, u16), Option<PenikoFont>>,
     /// A requested (weight, italic) → the weight of the face the family
     /// actually has for it (see `snap_weight`).
-    weights: HashMap<(u16, bool), u16>,
+    weights: HashMap<(u16, u16, bool), u16>,
+    /// Plan stack id → the fontdb family this plan-scoped catalog owns.
+    families: Vec<FamilyChoice>,
+    /// Declared face identity: the ids loaded from the declared bytes.
+    declared_faces: HashMap<(u16, u16, bool), fontdb::ID>,
     /// How many times the kernel asked, since launch.
     pub measures: usize,
     /// How many were answered from cache.
@@ -235,6 +265,17 @@ impl TextEngine {
             normal: HashMap::new(),
             font_data: HashMap::new(),
             weights: HashMap::new(),
+            families: vec![
+                FamilyChoice::SansSerif,
+                FamilyChoice::SansSerif,
+                FamilyChoice::SansSerif,
+                FamilyChoice::Serif,
+                FamilyChoice::Serif,
+                FamilyChoice::Monospace,
+                FamilyChoice::Monospace,
+                FamilyChoice::SansSerif,
+            ],
+            declared_faces: HashMap::new(),
             measures: 0,
             hits: 0,
             shaping: Duration::ZERO,
@@ -244,6 +285,130 @@ impl TextEngine {
     /// Shared, for a measurer and a painter.
     pub fn shared() -> Shared {
         Rc::new(RefCell::new(TextEngine::new()))
+    }
+
+    /// A fresh, plan-scoped catalog. Registration failure leaves that stack
+    /// on the system last resort and names the refused identity on stderr;
+    /// boot still presents (LLP 1019 D5).
+    pub fn shared_for_plan(plan: &Plan, assets: &Path) -> Shared {
+        let mut engine = TextEngine::new();
+        engine.install_plan(plan, assets);
+        Rc::new(RefCell::new(engine))
+    }
+
+    /// Replace the complete catalog and every family-bearing cache. This is
+    /// the plan-identity boundary on a dev reload (LLP 1019 D4).
+    pub fn install_plan(&mut self, plan: &Plan, assets: &Path) {
+        let mut next = TextEngine::new();
+        next.families = Vec::with_capacity(plan.stacks.len());
+        next.families
+            .extend(plan.stacks.iter().enumerate().map(|(i, _)| {
+                let stack = plan.stack(StacksId(i as u32));
+                let member =
+                    plan.stack_member(stack.members.iter().next().expect("validated stack"));
+                match member.kind {
+                    StackMemberKind::UiSerif | StackMemberKind::Serif => FamilyChoice::Serif,
+                    StackMemberKind::UiMonospace | StackMemberKind::Monospace => {
+                        FamilyChoice::Monospace
+                    }
+                    _ => FamilyChoice::SansSerif,
+                }
+            }));
+
+        let root = assets.canonicalize().ok();
+        for (stack_index, stack) in plan.stacks.iter().enumerate() {
+            let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
+            if member.kind != StackMemberKind::Family {
+                continue;
+            }
+            let family_id = member.family.expect("validated family member");
+            let family = plan.familie(family_id);
+            let alias = format!("ExactPlanStack{stack_index}");
+            let mut staged = Vec::new();
+            let mut failed = root.is_none();
+            for face_id in family.faces.iter() {
+                let face = plan.face(face_id);
+                let source = Path::new(plan.str(face.source));
+                let Some(root) = root.as_ref() else { break };
+                let Some(path) = root
+                    .join(source)
+                    .canonicalize()
+                    .ok()
+                    .filter(|path| path.starts_with(root))
+                else {
+                    failed = true;
+                    break;
+                };
+                let Ok(bytes) = std::fs::read(path) else {
+                    failed = true;
+                    break;
+                };
+                let mut parsed = fontdb::Database::new();
+                let ids = parsed.load_font_source(fontdb::Source::Binary(Arc::new(bytes)));
+                if ids.len() != 1 {
+                    failed = true;
+                    break;
+                }
+                let mut info = parsed.face(ids[0]).expect("returned face id").clone();
+                let Some(language) = info.families.first().map(|(_, language)| *language) else {
+                    failed = true;
+                    break;
+                };
+                info.id = fontdb::ID::dummy();
+                info.families = vec![(alias.clone(), language)];
+                info.weight = fontdb::Weight(face.weight);
+                info.style = if face.italic {
+                    fontdb::Style::Italic
+                } else {
+                    fontdb::Style::Normal
+                };
+                info.stretch = fontdb::Stretch::Normal;
+                staged.push((face.weight, face.italic, info));
+            }
+            if failed || staged.len() != family.faces.len as usize {
+                eprintln!(
+                    "[Fonts] font.registration.failed: stack={stack_index} family={}",
+                    family_id.0
+                );
+                continue;
+            }
+            next.families[stack_index] = FamilyChoice::Declared(alias);
+            for (weight, italic, info) in staged {
+                let id = next.fonts.db_mut().push_face_info(info);
+                next.declared_faces
+                    .insert((stack_index as u16, weight, italic), id);
+            }
+        }
+        *self = next;
+    }
+
+    /// The exact loaded face id chosen for a run, for identity assertions.
+    pub fn resolved_face_id(
+        &mut self,
+        family: u16,
+        weight: u16,
+        italic: bool,
+    ) -> Option<fontdb::ID> {
+        let choice = self
+            .families
+            .get(family as usize)
+            .cloned()
+            .unwrap_or(FamilyChoice::SansSerif);
+        self.fonts.db().query(&fontdb::Query {
+            families: &[choice.cosmic()],
+            weight: fontdb::Weight(weight),
+            stretch: fontdb::Stretch::Normal,
+            style: if italic {
+                fontdb::Style::Italic
+            } else {
+                fontdb::Style::Normal
+            },
+        })
+    }
+
+    /// The id loaded for one declared face before matching.
+    pub fn declared_face_id(&self, family: u16, weight: u16, italic: bool) -> Option<fontdb::ID> {
+        self.declared_faces.get(&(family, weight, italic)).copied()
     }
 
     /// How many font faces are loaded.
@@ -261,13 +426,18 @@ impl TextEngine {
     /// measured 104 wide here against 128 on a builder with the same font
     /// bytes. Asking for the family's own weight keeps the family first,
     /// the browser's rule (family, then weight).
-    fn snap_weight(&mut self, weight: u16, italic: bool) -> u16 {
-        let key = (weight, italic);
+    fn snap_weight(&mut self, family: u16, weight: u16, italic: bool) -> u16 {
+        let key = (family, weight, italic);
         if let Some(w) = self.weights.get(&key) {
             return *w;
         }
+        let family_choice = self
+            .families
+            .get(family as usize)
+            .cloned()
+            .unwrap_or(FamilyChoice::SansSerif);
         let query = fontdb::Query {
-            families: &[fontdb::Family::SansSerif],
+            families: &[family_choice.cosmic()],
             weight: fontdb::Weight(weight),
             stretch: fontdb::Stretch::Normal,
             style: if italic {
@@ -286,9 +456,9 @@ impl TextEngine {
         snapped
     }
 
-    fn attrs(run: &Run, weight: u16) -> Attrs<'static> {
+    fn attrs<'a>(run: &Run, weight: u16, family: Family<'a>) -> Attrs<'a> {
         let mut a = Attrs::new()
-            .family(Family::SansSerif)
+            .family(family)
             .weight(Weight(weight))
             .style(if run.italic {
                 Style::Italic
@@ -304,16 +474,26 @@ impl TextEngine {
     /// CSS `line-height: normal` for a run: the font's ascent + descent +
     /// line gap at the run's size, from the font the shaper picks.
     pub fn normal_line_height(&mut self, run: &Run) -> f32 {
-        let key = (run.size.to_bits(), run.weight, run.italic);
+        let key = (run.family, run.size.to_bits(), run.weight, run.italic);
         if let Some(h) = self.normal.get(&key) {
             return *h;
         }
-        let weight = self.snap_weight(run.weight, run.italic);
+        let weight = self.snap_weight(run.family, run.weight, run.italic);
+        let family = self
+            .families
+            .get(run.family as usize)
+            .cloned()
+            .unwrap_or(FamilyChoice::SansSerif);
         let mut probe = Buffer::new(
             &mut self.fonts,
             Metrics::new(run.size.max(1.0), run.size.max(1.0)),
         );
-        probe.set_text("x", &Self::attrs(run, weight), Shaping::Advanced, None);
+        probe.set_text(
+            "x",
+            &Self::attrs(run, weight, family.cosmic()),
+            Shaping::Advanced,
+            None,
+        );
         probe.shape_until_scroll(&mut self.fonts, false);
         let mut height = run.size * 1.2;
         if let Some(g) = probe.layout_runs().flat_map(|r| r.glyphs.iter()).next() {
@@ -375,17 +555,29 @@ impl TextEngine {
         let weights: Vec<u16> = spec
             .runs
             .iter()
-            .map(|r| self.snap_weight(r.weight, r.italic))
+            .map(|r| self.snap_weight(r.family, r.weight, r.italic))
             .collect();
-        let spans: Vec<(&str, Attrs<'static>)> = spec
+        let families: Vec<FamilyChoice> = spec
+            .runs
+            .iter()
+            .map(|r| {
+                self.families
+                    .get(r.family as usize)
+                    .cloned()
+                    .unwrap_or(FamilyChoice::SansSerif)
+            })
+            .collect();
+        let spans: Vec<(&str, Attrs<'_>)> = spec
             .runs
             .iter()
             .zip(line_heights.iter())
             .zip(weights.iter())
-            .map(|((r, lh), w)| {
+            .zip(families.iter())
+            .map(|(((r, lh), w), family)| {
                 (
                     r.text.as_str(),
-                    Self::attrs(r, *w).metrics(Metrics::new(r.size.max(0.5), lh.max(1.0))),
+                    Self::attrs(r, *w, family.cosmic())
+                        .metrics(Metrics::new(r.size.max(0.5), lh.max(1.0))),
                 )
             })
             .collect();
@@ -393,7 +585,8 @@ impl TextEngine {
             .runs
             .first()
             .zip(weights.first())
-            .map(|(r, w)| Self::attrs(r, *w))
+            .zip(families.first())
+            .map(|((r, w), family)| Self::attrs(r, *w, family.cosmic()))
             .unwrap_or_else(Attrs::new);
         buffer.set_rich_text(spans, &default, Shaping::Advanced, align);
         buffer.shape_until_scroll(&mut self.fonts, false);

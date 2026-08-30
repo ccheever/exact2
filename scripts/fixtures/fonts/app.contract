@@ -1,0 +1,10 @@
+font "Fixture Sans"
+  400 = "assets/DejaVuSans.ttf"
+  700 = "assets/DejaVuSans-Bold.ttf"
+
+component FontFixture
+  view
+    column background-color="#ffffff" gap=4 padding=10 align-items="flex-start"
+      text "Change station" font-family="Fixture Sans" font-size=13 font-weight=400 testId="font-400"
+      text "Change station" font-family="Fixture Sans" font-size=13 font-weight=600 testId="font-600"
+      text "Change station" font-family="Fixture Sans" font-size=13 font-weight=700 testId="font-700"

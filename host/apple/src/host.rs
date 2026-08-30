@@ -123,7 +123,36 @@ impl<D: DataSource> Host<D> {
         snapshot: Vec<(String, String)>,
         secrets: Option<Secrets>,
     ) -> Result<(Host<D>, String), HostError> {
+        Host::boot_stored_after_decode(
+            plan_bytes,
+            data,
+            measurer,
+            width,
+            height,
+            carried,
+            snapshot,
+            secrets,
+            |_| {},
+        )
+    }
+
+    /// Boot with one action over the validated plan before the runner takes
+    /// ownership and performs its first layout. The Apple ABI uses this for
+    /// synchronous font registration without decoding the plan twice.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn boot_stored_after_decode(
+        plan_bytes: &[u8],
+        data: D,
+        measurer: Box<dyn TextMeasurer>,
+        width: f32,
+        height: f32,
+        carried: Option<&Carried>,
+        snapshot: Vec<(String, String)>,
+        secrets: Option<Secrets>,
+        prepare: impl FnOnce(&Plan),
+    ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
+        prepare(&plan);
         let kernel = Kernel::new(measurer);
         let runner = match carried {
             Some(c) => Runner::boot_carrying(plan, data, kernel, c),

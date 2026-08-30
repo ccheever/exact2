@@ -273,7 +273,8 @@ impl NodeInst {
                 }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(StyleProps::default);
-                    bridge::set_style(p, binding.id, &value).map_err(InstanceError::Bridge)?;
+                    bridge::set_style(p, binding.id, &value, plan.stacks.len())
+                        .map_err(InstanceError::Bridge)?;
                 }
             }
             self.last[i] = Some(value);

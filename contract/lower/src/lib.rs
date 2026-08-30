@@ -29,10 +29,11 @@ use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
 use exact_plan::asm::Asm;
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{
-    ArmsId, BindingKind, BindingsRow, Code, EventKind, NodesId, Plan, RegionKind, TypeKind,
-    TypesId, Value,
+    ArmsId, BindingKind, BindingsRow, Code, EventKind, NodesId, Plan, RegionKind, StackMemberKind,
+    StacksId, TypeKind, TypesId, Value,
 };
 use std::collections::BTreeMap;
+use std::path::{Component as PathComponent, Path};
 
 /// A typed rejection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,13 +117,35 @@ pub(crate) struct Lowerer<'a> {
     pub fns: BTreeMap<String, FnDecl>,
     /// The region each `each` lowered to, by the inliner's tag (LLP 1017 P4c).
     pub each_regions: BTreeMap<u32, exact_plan::RegionsId>,
+    /// Every generic and declared family name to its stack id.
+    pub font_stacks: BTreeMap<String, StacksId>,
+    /// Declared families, for the literal weight/style synthesis diagnostic.
+    declared_fonts: BTreeMap<String, DeclaredFont>,
     /// How many `fn` bodies are being expanded right now (a guard; the type
     /// pass already refuses a cycle).
     pub fn_depth: u32,
 }
 
+#[derive(Debug, Clone)]
+struct DeclaredFont {
+    stack: StacksId,
+    faces: Vec<(u16, bool)>,
+}
+
+#[derive(Debug, Clone)]
+struct FontUse {
+    font: DeclaredFont,
+    /// `None` when `font-style` computes and the compiler cannot inspect it.
+    italic: Option<bool>,
+}
+
 /// Lower a checked file to a plan.
-pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, LowerError> {
+pub fn lower(
+    file: &File,
+    types: &Types,
+    _analysis: &Analysis,
+    asset_root: Option<&Path>,
+) -> Result<Plan, LowerError> {
     // The root as the plan sees it: inlined, with every stateful child's
     // declarations lifted in (LLP 1017 P4c) — the same expansion the type
     // pass checked, so its slots line up with `types.components[0]`.
@@ -152,7 +175,10 @@ pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, L
             .collect(),
         fn_depth: 0,
         each_regions: BTreeMap::new(),
+        font_stacks: BTreeMap::new(),
+        declared_fonts: BTreeMap::new(),
     };
+    l.declare_fonts(file, asset_root)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -351,6 +377,215 @@ pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, L
 }
 
 impl<'a> Lowerer<'a> {
+    fn declare_fonts(&mut self, file: &File, asset_root: Option<&Path>) -> Result<(), LowerError> {
+        const GENERICS: &[(&str, u32)] = &[
+            ("system-ui", 0),
+            ("ui-sans-serif", 1),
+            ("sans-serif", 2),
+            ("ui-serif", 3),
+            ("serif", 4),
+            ("ui-monospace", 5),
+            ("monospace", 6),
+            ("ui-rounded", 7),
+        ];
+        self.font_stacks.extend(
+            GENERICS
+                .iter()
+                .map(|(name, id)| ((*name).to_string(), StacksId(*id))),
+        );
+        let root = if file.fonts.is_empty() {
+            None
+        } else {
+            let Some(root) = asset_root else {
+                return err(
+                    "lower-font-path",
+                    "a font source is relative to its app directory; compile this source with `compile_path`",
+                    file.fonts[0].span,
+                );
+            };
+            Some(root.canonicalize().map_err(|e| LowerError {
+                id: "lower-font-unreadable",
+                message: format!("font asset root `{}` is unreadable: {e}", root.display()),
+                span: file.fonts[0].span,
+            })?)
+        };
+        for font in &file.fonts {
+            if font.name.contains(',') {
+                return err(
+                    "lower-font-family-list",
+                    format!(
+                        "font family `{}` contains a comma; v1 stacks are single-member",
+                        font.name
+                    ),
+                    font.span,
+                );
+            }
+            if self.font_stacks.contains_key(&font.name) {
+                return err(
+                    "lower-font-duplicate",
+                    format!(
+                        "font family `{}` is already declared or is a generic family",
+                        font.name
+                    ),
+                    font.span,
+                );
+            }
+            let mut seen = BTreeMap::new();
+            let mut faces = Vec::new();
+            for face in &font.faces {
+                if seen.insert((face.weight, face.italic), ()).is_some() {
+                    return err(
+                        "lower-font-face-duplicate",
+                        format!(
+                            "font `{}` declares weight {}{} twice",
+                            font.name,
+                            face.weight,
+                            if face.italic { " italic" } else { "" }
+                        ),
+                        face.span,
+                    );
+                }
+                let source = Path::new(&face.source);
+                let lower = face.source.to_ascii_lowercase();
+                if lower.ends_with(".woff2") {
+                    return err(
+                        "lower-font-format",
+                        format!("`{}` is WOFF2; v1 font sources are TTF or OTF", face.source),
+                        face.span,
+                    );
+                }
+                let extension = source
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .map(str::to_ascii_lowercase);
+                if !matches!(extension.as_deref(), Some("ttf" | "otf")) {
+                    return err(
+                        "lower-font-format",
+                        format!("`{}` is not a TTF or OTF source", face.source),
+                        face.span,
+                    );
+                }
+                if !exact_plan::is_portable_asset_path(&face.source) {
+                    return err(
+                        "lower-font-path",
+                        format!(
+                            "font source `{}` must be a portable local relative path",
+                            face.source
+                        ),
+                        face.span,
+                    );
+                }
+                if source.is_absolute()
+                    || source.components().any(|c| {
+                        matches!(
+                            c,
+                            PathComponent::ParentDir
+                                | PathComponent::RootDir
+                                | PathComponent::Prefix(_)
+                        )
+                    })
+                {
+                    return err(
+                        "lower-font-path",
+                        format!(
+                            "font source `{}` must stay under the app directory",
+                            face.source
+                        ),
+                        face.span,
+                    );
+                }
+                if !matches!(
+                    source.components().next(),
+                    Some(PathComponent::Normal(first)) if first == "assets"
+                ) {
+                    return err(
+                        "lower-font-path",
+                        format!(
+                            "font source `{}` must be under the app's `assets/` directory",
+                            face.source
+                        ),
+                        face.span,
+                    );
+                }
+                let root = root.as_ref().expect("fonts have an asset root");
+                let full = root.join(source);
+                let canonical = full.canonicalize().map_err(|e| LowerError {
+                    id: "lower-font-unreadable",
+                    message: format!("font source `{}` is unreadable: {e}", face.source),
+                    span: face.span,
+                })?;
+                if !canonical.starts_with(root) || std::fs::File::open(&canonical).is_err() {
+                    return err(
+                        "lower-font-unreadable",
+                        format!(
+                            "font source `{}` is unreadable under the app directory",
+                            face.source
+                        ),
+                        face.span,
+                    );
+                }
+                faces.push((face.source.as_str(), face.weight, face.italic));
+            }
+            let family = self.b.font_family(&font.name, &faces);
+            let stack = self
+                .b
+                .font_stack(&[(StackMemberKind::Family, Some(family))]);
+            self.font_stacks.insert(font.name.clone(), stack);
+            self.declared_fonts.insert(
+                font.name.clone(),
+                DeclaredFont {
+                    stack,
+                    faces: faces.iter().map(|(_, w, i)| (*w, *i)).collect(),
+                },
+            );
+        }
+        Ok(())
+    }
+
+    fn font_use(&self, attrs: &[Attr]) -> Result<Option<FontUse>, LowerError> {
+        let Some(family) = attrs.iter().find(|a| a.name == "font-family") else {
+            return Ok(None);
+        };
+        let Expr::Str(name, _) = &family.value else {
+            return err(
+                "lower-font-family-literal",
+                "`font-family` is literal-only in v1",
+                family.span,
+            );
+        };
+        if name.contains(',') {
+            return err(
+                "lower-font-family-list",
+                "v1 font stacks are single-member; a comma list is not supported",
+                family.span,
+            );
+        }
+        let Some(stack) = self.font_stacks.get(name) else {
+            return err(
+                "lower-font-undeclared",
+                format!("font family `{name}` is neither generic nor declared"),
+                family.span,
+            );
+        };
+        let Some(font) = self.declared_fonts.get(name) else {
+            return Ok(None);
+        };
+        debug_assert_eq!(font.stack, *stack);
+        let italic = match attrs.iter().find(|a| a.name == "font-style") {
+            None => Some(false),
+            Some(a) => match &a.value {
+                Expr::Str(s, _) if s == "normal" => Some(false),
+                Expr::Str(s, _) if s == "italic" => Some(true),
+                Expr::Str(..) => Some(false), // the kernel parser names the invalid value
+                _ => None,
+            },
+        };
+        Ok(Some(FontUse {
+            font: font.clone(),
+            italic,
+        }))
+    }
+
     /// The plan type id for a checked type.
     pub(crate) fn ty_id(&mut self, t: &Ty) -> Result<TypesId, LowerError> {
         Ok(match t {
@@ -548,6 +783,7 @@ impl<'a> Lowerer<'a> {
                         positional[1].span(),
                     );
                 }
+                let font = self.font_use(&expanded)?;
                 for a in &expanded {
                     self.attr(
                         tag,
@@ -557,6 +793,7 @@ impl<'a> Lowerer<'a> {
                         &mut bindings,
                         &mut handlers,
                         &mut surface,
+                        font.as_ref(),
                     )?;
                 }
                 // Two bindings for one row — a style's and the node's own, a
@@ -811,6 +1048,7 @@ impl<'a> Lowerer<'a> {
         a: &Attr,
         rows: &[StyleId],
         scope: &Scope,
+        font: Option<&FontUse>,
     ) -> Result<(), LowerError> {
         let literal = match &a.value {
             Expr::Number(n, _) => Some(StyleValue::Number(*n)),
@@ -860,6 +1098,50 @@ impl<'a> Lowerer<'a> {
                             format!(
                                 "`{}` takes a number or a string; this expression is `{t}`",
                                 a.name
+                            ),
+                            a.span,
+                        );
+                    }
+                }
+            }
+        }
+        if let Some(font) = font {
+            if rows.contains(&StyleId::FontStyle) {
+                let requested = match &a.value {
+                    Expr::Str(s, _) if s == "normal" => Some(false),
+                    Expr::Str(s, _) if s == "italic" => Some(true),
+                    _ => None,
+                };
+                if let Some(italic) = requested {
+                    if !font
+                        .font
+                        .faces
+                        .iter()
+                        .any(|(_, face_italic)| *face_italic == italic)
+                    {
+                        return err(
+                            "lower-font-face",
+                            format!(
+                                "this family declares no real {} face; v1 never synthesizes one",
+                                if italic { "italic" } else { "normal" }
+                            ),
+                            a.span,
+                        );
+                    }
+                }
+            }
+            if rows.contains(&StyleId::FontWeight) {
+                if let (Expr::Number(weight, _), Some(italic)) = (&a.value, font.italic) {
+                    if *weight >= 600.0
+                        && !font.font.faces.iter().any(|(face_weight, face_italic)| {
+                            *face_italic == italic && *face_weight >= 600
+                        })
+                    {
+                        return err(
+                            "lower-font-face",
+                            format!(
+                                "this family has no real {} face for font-weight={weight}; v1 never synthesizes one",
+                                if italic { "italic bold" } else { "bold" }
                             ),
                             a.span,
                         );
@@ -917,6 +1199,7 @@ impl<'a> Lowerer<'a> {
         bindings: &mut Vec<BindingsRow>,
         handlers: &mut Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)>,
         surface: &mut Option<exact_plan::SurfacesId>,
+        font: Option<&FontUse>,
     ) -> Result<(), LowerError> {
         let Some(target) = tags::attr(&a.name) else {
             let hint = match tags::renamed(&a.name) {
@@ -935,7 +1218,12 @@ impl<'a> Lowerer<'a> {
         match target {
             tags::AttrTarget::Flex => {
                 // CSS `flex: <n>` is `<n> 1 0%`: grow n, shrink 1, basis 0%.
-                self.check_style_value(a, &[StyleId::from_name("flex_grow").unwrap()], scope)?;
+                self.check_style_value(
+                    a,
+                    &[StyleId::from_name("flex_grow").unwrap()],
+                    scope,
+                    font,
+                )?;
                 let grow = self.expr_code(&a.value, scope, locals)?;
                 let one = self.b.constant(&Value::Number(1.0));
                 let zero_basis = self.b.constant(&Value::str("0%"));
@@ -952,7 +1240,30 @@ impl<'a> Lowerer<'a> {
                 }
             }
             tags::AttrTarget::Styles(rows) => {
-                self.check_style_value(a, &rows, scope)?;
+                if rows.as_slice() == [StyleId::FontFamily] {
+                    let Expr::Str(name, _) = &a.value else {
+                        return err(
+                            "lower-font-family-literal",
+                            "`font-family` is literal-only in v1",
+                            a.span,
+                        );
+                    };
+                    let Some(stack) = self.font_stacks.get(name).copied() else {
+                        return err(
+                            "lower-font-undeclared",
+                            format!("font family `{name}` is neither generic nor declared"),
+                            a.span,
+                        );
+                    };
+                    let code = self.b.constant(&Value::Number(stack.0 as f64));
+                    bindings.push(BindingsRow {
+                        kind: BindingKind::Style,
+                        id: StyleId::FontFamily as u16,
+                        expr: code,
+                    });
+                    return Ok(());
+                }
+                self.check_style_value(a, &rows, scope, font)?;
                 let code = self.expr_code(&a.value, scope, locals)?;
                 for row in rows {
                     bindings.push(BindingsRow {

@@ -18,7 +18,7 @@ es.onmessage = async (e) => {
   const t = performance.now();
   const bytes = new Uint8Array(await (await fetch(`/app.plan?seq=${m.seq}`, { cache: "no-store" })).arrayBuffer());
   const fetchMs = performance.now() - t;
-  const bootMs = globalThis.exact.reload(bytes);
+  const bootMs = await globalThis.exact.reload(bytes);
   // The new plan's first frame is in the DOM: report now (synchronously — a
   // headless page may never get an animation frame), then the paint.
   navigator.sendBeacon(`/__dev/reloaded?seq=${m.seq}&dom=${Date.now()}&fetch=${fetchMs.toFixed(1)}&boot=${bootMs.toFixed(1)}`);

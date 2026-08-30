@@ -9,7 +9,7 @@ pub struct Batch {
     ops: Vec<String>,
 }
 
-fn quote(s: &str, out: &mut String) {
+pub(crate) fn quote(s: &str, out: &mut String) {
     out.push('"');
     for c in s.chars() {
         match c {
@@ -281,7 +281,8 @@ impl Batch {
     pub fn finish(self, timers: bool, clock_ms: f64, error: Option<&str>) -> String {
         let mut s = String::from("{\"ops\":[");
         s.push_str(&self.ops.join(","));
-        let _ = write!(s, "],\"timers\":{timers},\"clock\":{clock_ms},\"error\":");
+        s.push(']');
+        let _ = write!(s, ",\"timers\":{timers},\"clock\":{clock_ms},\"error\":");
         match error {
             Some(e) => quote(e, &mut s),
             None => s.push_str("null"),

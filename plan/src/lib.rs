@@ -110,6 +110,39 @@ pub enum PlanError {
     ZeroInterval {
         timer: u32,
     },
+    /// A static face weight is outside CSS Fonts' 1–1000 domain.
+    FaceWeight {
+        face: u32,
+        weight: u16,
+    },
+    /// A face source is not a portable local relative path.
+    FaceSource {
+        face: u32,
+    },
+    /// A declared family has no face.
+    EmptyFamily {
+        family: u32,
+    },
+    /// A family repeats one static `(weight, italic)` coordinate.
+    DuplicateFace {
+        family: u32,
+        face: u32,
+        weight: u16,
+        italic: bool,
+    },
+    /// v1 accepts one member per stack (the table remains a range).
+    StackMembers {
+        stack: u32,
+        members: u32,
+    },
+    /// A stack member is either a family reference or one generic, not both.
+    StackMember {
+        member: u32,
+    },
+    /// The eight generic stacks at ids 0–7 are missing or out of order.
+    GenericStacks,
+    /// A `u16` kernel row cannot carry this many stack ids.
+    TooManyStacks(usize),
 }
 
 /// Why a code range was refused.
@@ -185,8 +218,93 @@ impl Plan {
                 return Err(PlanError::ZeroInterval { timer: i as u32 });
             }
         }
+        for (i, face) in self.faces.iter().enumerate() {
+            if !is_portable_asset_path(self.str(face.source)) {
+                return Err(PlanError::FaceSource { face: i as u32 });
+            }
+            if !(1..=1000).contains(&face.weight) {
+                return Err(PlanError::FaceWeight {
+                    face: i as u32,
+                    weight: face.weight,
+                });
+            }
+        }
+        for (i, family) in self.families.iter().enumerate() {
+            if family.faces.len == 0 {
+                return Err(PlanError::EmptyFamily { family: i as u32 });
+            }
+            let mut coordinates = std::collections::HashSet::new();
+            for face_id in family.faces.iter() {
+                let face = self.face(face_id);
+                if !coordinates.insert((face.weight, face.italic)) {
+                    return Err(PlanError::DuplicateFace {
+                        family: i as u32,
+                        face: face_id.0,
+                        weight: face.weight,
+                        italic: face.italic,
+                    });
+                }
+            }
+        }
+        if self.stacks.len() > u16::MAX as usize + 1 {
+            return Err(PlanError::TooManyStacks(self.stacks.len()));
+        }
+        for (i, stack) in self.stacks.iter().enumerate() {
+            if stack.members.len != 1 {
+                return Err(PlanError::StackMembers {
+                    stack: i as u32,
+                    members: stack.members.len,
+                });
+            }
+        }
+        for (i, member) in self.stack_members.iter().enumerate() {
+            let valid = match member.kind {
+                StackMemberKind::Family => member.family.is_some(),
+                _ => member.family.is_none(),
+            };
+            if !valid {
+                return Err(PlanError::StackMember { member: i as u32 });
+            }
+        }
+        let builtins = [
+            StackMemberKind::SystemUi,
+            StackMemberKind::UiSansSerif,
+            StackMemberKind::SansSerif,
+            StackMemberKind::UiSerif,
+            StackMemberKind::Serif,
+            StackMemberKind::UiMonospace,
+            StackMemberKind::Monospace,
+            StackMemberKind::UiRounded,
+        ];
+        if self.stacks.len() < builtins.len()
+            || builtins.iter().enumerate().any(|(i, kind)| {
+                let stack = &self.stacks[i];
+                let member = &self.stack_members[stack.members.start as usize];
+                member.kind != *kind || member.family.is_some()
+            })
+        {
+            return Err(PlanError::GenericStacks);
+        }
         Ok(())
     }
+}
+
+/// Whether a plan asset source is a portable local relative path.
+///
+/// Paths use `/`-separated non-empty segments. Schemes, authorities, roots,
+/// queries, fragments, parent/current traversal, URL escapes, backslashes,
+/// and control characters are refused before any host resolves the source.
+pub fn is_portable_asset_path(source: &str) -> bool {
+    if source.is_empty()
+        || source.starts_with('/')
+        || source.contains([':', '?', '#', '%', '\\'])
+        || source.bytes().any(|byte| byte < b' ' || byte == 0x7f)
+    {
+        return false;
+    }
+    source
+        .split('/')
+        .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
 impl std::fmt::Display for PlanError {

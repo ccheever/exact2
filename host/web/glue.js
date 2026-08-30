@@ -19,6 +19,8 @@ const agentMode = new URL(location.href).searchParams.has("agent");
 let agentClock = agentMode ? 0 : null;
 const starts = new WeakMap(); // Animation -> the agent clock when it began
 const now = () => agentClock ?? performance.now() - t0;
+let fontGeneration = 0;
+let installedFonts = [];
 
 function readOut(len) {
   const ptr = wasm.exact_out();
@@ -260,6 +262,48 @@ function send(len) {
   return applyBatch(JSON.parse(readOut(len))).timers;
 }
 
+// LLP 1019 D5: FontFace loading is part of host boot. The DOM remains empty
+// until every local face loaded, or 100 ms elapsed. At the barrier, install
+// every face already ready unless its family has a failed sibling; faces that
+// finish later remain unused for this generation (no post-paint swap).
+async function installFonts(faces) {
+  const generation = ++fontGeneration;
+  for (const face of installedFonts) document.fonts.delete(face);
+  installedFonts = [];
+  if (!faces?.length) return;
+  const rows = faces.map((face) => ({ face, state: "pending", loaded: null }));
+  const pending = rows.map(async (row) => {
+    const { face } = row;
+    try {
+      const url = new URL(face.source, document.baseURI).href;
+      row.loaded = await new FontFace(face.family, `url(${JSON.stringify(url)})`, {
+        weight: String(face.weight),
+        style: face.style,
+      }).load();
+      row.state = "loaded";
+    } catch (e) {
+      row.state = "failed";
+      console.error("exact: font.registration.failed", face.family, face.source, String(e));
+    }
+  });
+  let timer;
+  const ready = Promise.all(pending);
+  const timedOut = await Promise.race([
+    ready.then(() => false),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(true), 100); }),
+  ]);
+  clearTimeout(timer);
+  if (generation !== fontGeneration) return;
+  const failed = new Set(rows.filter((row) => row.state === "failed").map((row) => row.face.family));
+  for (const row of rows) {
+    if (row.state === "loaded" && !failed.has(row.face.family)) {
+      document.fonts.add(row.loaded);
+      installedFonts.push(row.loaded);
+    }
+  }
+  if (timedOut) console.error("exact: font.registration.timeout", faces.length);
+}
+
 // LLP 1016: the app's grants (`net.fetch <url prefix>` lines, from the boot
 // batch), the fetches in flight (the agent's `settle` waits on them), and
 // the reply path into the wasm.
@@ -388,7 +432,7 @@ let ticker = null;
 // Boot the app — from the plan baked into the wasm, or from `bytes` (the
 // dev loop's restart, LLP 1004 D5: a reload is a restart from initial
 // state). Returns the milliseconds from call to first frame in the DOM.
-function boot(bytes) {
+async function boot(bytes) {
   const t = performance.now();
   if (ticker) clearInterval(ticker);
   ticker = null;
@@ -399,14 +443,18 @@ function boot(bytes) {
   grants = [];
   inflight.clear();
   root.replaceChildren();
-  let timers;
+  let len;
   if (bytes) {
     const ptr = wasm.exact_in(bytes.length);
     new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
-    timers = send(wasm.exact_boot_plan(bytes.length));
+    len = wasm.exact_boot_plan(bytes.length);
   } else {
-    timers = send(wasm.exact_boot());
+    len = wasm.exact_boot();
   }
+  const batch = JSON.parse(readOut(len));
+  const faces = JSON.parse(readOut(wasm.exact_fonts()));
+  await installFonts(faces);
+  const timers = applyBatch(batch).timers;
   if (timers && !agentMode) ticker = setInterval(() => send(wasm.exact_advance(now())), 250);
   if (bytes) requestAnimationFrame(loadGpuIfNeeded);
   return performance.now() - t;
@@ -414,7 +462,7 @@ function boot(bytes) {
 
 // `agent` and `now` exist only in agent mode: a normal page has no agent
 // surface and no clock but the browser's.
-globalThis.exact = { reload: (bytes) => (wasm ? boot(bytes) : NaN), ...(agentMode ? { agent, now } : {}), views, root, pendingSurfaces: [] };
+globalThis.exact = { reload: async (bytes) => (wasm ? boot(bytes) : NaN), ...(agentMode ? { agent, now } : {}), views, root, pendingSurfaces: [] };
 
 // The GPU module, on demand: a script element after the first painted
 // frame — never an import, which the boot check counts — and only when a
@@ -447,7 +495,7 @@ async function main() {
     } catch (e) { console.warn("exact: store", String(e)); }
     if (kept.length) wasm.exact_store(writeIn(kept.join("\0")));
   }
-  boot(null);
+  await boot(null);
   // The first frame is in the DOM: stamp the time from script start, so a
   // headless run can read it. A second stamp lands when it is painted.
   root.dataset.bootMs = (performance.now() - t0).toFixed(1);

@@ -8,6 +8,8 @@ pub struct File {
     /// `use Name from "./file.contract"` declarations, in order (LLP 1017 P8);
     /// resolved by the driver, which merges the used file's declarations in.
     pub uses: Vec<UseDecl>,
+    /// `font "Name"` declarations, in order (LLP 1019 D1).
+    pub fonts: Vec<FontDecl>,
     /// `shape` declarations, in order.
     pub shapes: Vec<ShapeDecl>,
     /// `style` declarations, in order (LLP 1017 P6).
@@ -19,6 +21,30 @@ pub struct File {
     pub tests: Vec<TestDecl>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
+}
+
+/// A declared font family. Faces are static in v1: one path, weight, style.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FontDecl {
+    /// The Contract alias; hosts bind this name to these bytes.
+    pub name: String,
+    /// Its static faces.
+    pub faces: Vec<FontFaceDecl>,
+    /// Where.
+    pub span: Span,
+}
+
+/// One static face in a [`FontDecl`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct FontFaceDecl {
+    /// CSS weight 1–1000.
+    pub weight: u16,
+    /// Italic, rather than normal.
+    pub italic: bool,
+    /// App-relative TTF/OTF source.
+    pub source: String,
+    /// Where.
+    pub span: Span,
 }
 
 /// `test "name"` with steps: the agent API's own operations (LLP 1012) and

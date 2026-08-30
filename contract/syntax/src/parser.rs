@@ -176,6 +176,7 @@ impl Parser {
                 TokenKind::Newline => {
                     self.next();
                 }
+                TokenKind::Ident(w) if w == "font" => file.fonts.push(self.font_decl()?),
                 TokenKind::Ident(w) if w == "shape" => file.shapes.push(self.shape()?),
                 TokenKind::Ident(w) if w == "style" => file.styles.push(self.style()?),
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
@@ -186,13 +187,74 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                            "expected `shape`, `style`, `fn`, `use`, or `component`, found {}",
-                            describe(other)
-                        ),
+                        "expected `font`, `shape`, `style`, `fn`, `use`, or `component`, found {}",
+                        describe(other)
+                    ),
                     )
                 }
             }
         }
+    }
+
+    /// `font "Name" = "path.ttf"`, or a block of `weight [italic] = path`.
+    fn font_decl(&mut self) -> R<FontDecl> {
+        let span = self.expect_word("font")?;
+        let name = self.str_lit("a declared family name")?;
+        if self.eat_punct("=") {
+            let source = self.str_lit("a TTF or OTF source path")?;
+            self.newline()?;
+            return Ok(FontDecl {
+                name,
+                faces: vec![FontFaceDecl {
+                    weight: 400,
+                    italic: false,
+                    source,
+                    span,
+                }],
+                span,
+            });
+        }
+        self.newline()?;
+        let faces = self.block(|p| {
+            let token = p.next();
+            let TokenKind::Number(n) = token.kind else {
+                return Err(SyntaxError {
+                    id: "syntax-font-weight",
+                    message: "a font face starts with a whole CSS weight from 1 to 1000".into(),
+                    span: token.span,
+                });
+            };
+            if n.fract() != 0.0 || !(1.0..=1000.0).contains(&n) {
+                return Err(SyntaxError {
+                    id: "syntax-font-weight",
+                    message: format!("font face weight `{n}` is not a whole number from 1 to 1000"),
+                    span: token.span,
+                });
+            }
+            let italic = if p.at_ident("italic") {
+                p.next();
+                true
+            } else {
+                false
+            };
+            p.expect_punct("=")?;
+            let source = p.str_lit("a TTF or OTF source path")?;
+            p.newline()?;
+            Ok(FontFaceDecl {
+                weight: n as u16,
+                italic,
+                source,
+                span: token.span,
+            })
+        })?;
+        if faces.is_empty() {
+            return Err(SyntaxError {
+                id: "syntax-font-faces",
+                message: format!("`font \"{name}\"` needs at least one face"),
+                span,
+            });
+        }
+        Ok(FontDecl { name, faces, span })
     }
 
     /// `use Name from "./file.contract"` (LLP 1017 P8). Only a `.contract`
@@ -488,11 +550,17 @@ impl Parser {
             p.newline()?;
             Ok(attrs)
         })?;
-        Ok(StyleDecl {
-            name,
-            attrs: lines.into_iter().flatten().collect(),
-            span,
-        })
+        let attrs: Vec<Attr> = lines.into_iter().flatten().collect();
+        for (index, attr) in attrs.iter().enumerate() {
+            if attrs[..index].iter().any(|prior| prior.name == attr.name) {
+                return Err(SyntaxError {
+                    id: "syntax-duplicate-attr",
+                    message: format!("attribute `{}` appears twice in `style {name}`", attr.name),
+                    span: attr.span,
+                });
+            }
+        }
+        Ok(StyleDecl { name, attrs, span })
     }
 
     fn shape(&mut self) -> R<ShapeDecl> {
@@ -994,6 +1062,15 @@ impl Parser {
                         let aspan = self.next().span;
                         self.next();
                         let value = self.expr()?;
+                        if attrs.iter().any(|a: &Attr| a.name == name) {
+                            return Err(SyntaxError {
+                                id: "syntax-duplicate-attr",
+                                message: format!(
+                                    "attribute `{name}` appears twice on the same element"
+                                ),
+                                span: aspan,
+                            });
+                        }
                         attrs.push(Attr {
                             name,
                             value,
@@ -1228,6 +1305,7 @@ fn is_keyword(w: &str) -> bool {
     matches!(
         w,
         "component"
+            | "font"
             | "shape"
             | "state"
             | "derive"

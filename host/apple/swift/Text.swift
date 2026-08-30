@@ -25,6 +25,7 @@ struct Run: Hashable {
     var text: String
     var size: CGFloat
     var weight: Int
+    var family: Int
     var italic: Bool
     var lineHeight: CGFloat
     var letterSpacing: CGFloat
@@ -60,13 +61,115 @@ nonisolated(unsafe) var measureCount = 0
 nonisolated(unsafe) var measureHits = 0
 nonisolated(unsafe) var measureSeconds = 0.0
 
+private struct RegisteredFace {
+    let weight: Int
+    let italic: Bool
+    /// Created from the registered URL itself — never from the Contract alias
+    /// or a lookup in the system font library (LLP 1019 D3).
+    let descriptor: CTFontDescriptor
+}
+
 enum Text {
     nonisolated(unsafe) static var fonts: [String: PlatformFont] = [:]
     nonisolated(unsafe) static var paragraphs: [Int: Paragraph] = [:]
+    nonisolated(unsafe) private static var catalog: [Int: [RegisteredFace]] = [:]
 
-    static func font(size: CGFloat, weight: Int, italic: Bool) -> PlatformFont {
-        let key = "\(size)/\(weight)/\(italic)"
+    /// Replace the entire plan-scoped catalog before layout. Clearing both
+    /// caches is the plan identity in their keys (LLP 1019 D4).
+    static func install(_ pointer: UnsafePointer<ExactFontCatalog>?) {
+        fonts.removeAll(keepingCapacity: true)
+        paragraphs.removeAll(keepingCapacity: true)
+        catalog.removeAll(keepingCapacity: true)
+        guard let value = pointer?.pointee else { return }
+        let rows = UnsafeBufferPointer(start: value.faces, count: value.count)
+        var staged: [Int: [RegisteredFace]] = [:]
+        var failed = Set<Int>()
+        for row in rows {
+            let stack = Int(row.stack)
+            guard let sourceBytes = row.source else { failed.insert(stack); continue }
+            let source = String(decoding: UnsafeBufferPointer(start: sourceBytes, count: row.source_len), as: UTF8.self)
+            guard let url = fontURL(source),
+                  let descriptors = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor],
+                  let descriptor = descriptors.first else {
+                failed.insert(stack)
+                continue
+            }
+            // The descriptor above is the catalog's identity. Process
+            // registration only helps UIKit text fields consume it; a
+            // PostScript-name collision must never discard these URL bytes.
+            if !register(url) {
+                fputs("[Fonts] font.registration.best-effort-failed: stack=\(stack)\n", stderr)
+            }
+            staged[stack, default: []].append(RegisteredFace(
+                weight: Int(row.weight), italic: row.italic != 0, descriptor: descriptor))
+        }
+        for stack in failed {
+            staged.removeValue(forKey: stack)
+            fputs("[Fonts] font.registration.failed: stack=\(stack)\n", stderr)
+        }
+        catalog = staged
+    }
+
+    private static func fontURL(_ source: String) -> URL? {
+        guard URL(string: source)?.scheme == nil, !source.hasPrefix("/") else { return nil }
+        #if canImport(UIKit)
+        let fallback = Bundle.main.bundlePath
+        #else
+        let fallback = FileManager.default.currentDirectoryPath
+        #endif
+        let base = ProcessInfo.processInfo.environment["EXACT_ASSETS"] ?? fallback
+        let root = URL(fileURLWithPath: base, isDirectory: true).standardizedFileURL.resolvingSymlinksInPath()
+        let url = root.appendingPathComponent(source).standardizedFileURL.resolvingSymlinksInPath()
+        guard url.path == root.path || url.path.hasPrefix(root.path + "/") else { return nil }
+        return url
+    }
+
+    private static func register(_ url: URL) -> Bool {
+        var error: Unmanaged<CFError>?
+        let registered = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
+        if registered { return true }
+        // A dev reload may repeat the URL; another installed or prior-plan
+        // file may own the same PostScript name. In both cases the URL's own
+        // descriptor still binds this plan to its exact bytes.
+        if let e = error?.takeRetainedValue() as Error? {
+            let ns = e as NSError
+            return ns.domain == kCTFontManagerErrorDomain as String
+                && (ns.code == CTFontManagerError.alreadyRegistered.rawValue
+                    || ns.code == CTFontManagerError.duplicatedName.rawValue)
+        }
+        return false
+    }
+
+    private static func matched(_ faces: [RegisteredFace], weight: Int, italic: Bool) -> RegisteredFace {
+        let styled = faces.filter { $0.italic == italic }
+        let candidates = styled.isEmpty ? faces : styled
+        func rank(_ face: RegisteredFace) -> (Int, Int) {
+            let w = face.weight
+            if weight >= 400 && weight <= 500 {
+                if w >= weight && w <= 500 { return (0, w - weight) }
+                if w < weight { return (1, weight - w) }
+                return (2, w - 500)
+            }
+            if weight < 400 {
+                return w <= weight ? (0, weight - w) : (1, w - weight)
+            }
+            return w >= weight ? (0, w - weight) : (1, weight - w)
+        }
+        return candidates.dropFirst().reduce(candidates[0]) { best, face in
+            let a = rank(best), b = rank(face)
+            return b.0 < a.0 || (b.0 == a.0 && b.1 < a.1) ? face : best
+        }
+    }
+
+    static func font(size: CGFloat, weight: Int, family: Int, italic: Bool) -> PlatformFont {
+        let key = "\(family)/\(size)/\(weight)/\(italic)"
         if let f = fonts[key] { return f }
+        if let faces = catalog[family], !faces.isEmpty {
+            let face = matched(faces, weight: weight, italic: italic)
+            let f = CTFontCreateWithFontDescriptor(face.descriptor, size, nil) as PlatformFont
+            fonts[key] = f
+            return f
+        }
         let w: PlatformFont.Weight
         switch weight {
         case ..<200: w = .ultraLight
@@ -79,7 +182,21 @@ enum Text {
         case 800..<900: w = .heavy
         default: w = .black
         }
-        var f = PlatformFont.systemFont(ofSize: size, weight: w)
+        var f = (family == 5 || family == 6)
+            ? PlatformFont.monospacedSystemFont(ofSize: size, weight: w)
+            : PlatformFont.systemFont(ofSize: size, weight: w)
+        if family == 3 || family == 4 || family == 7 {
+            #if canImport(UIKit)
+            let design: UIFontDescriptor.SystemDesign = family == 7 ? .rounded : .serif
+            if let d = f.fontDescriptor.withDesign(design) { f = UIFont(descriptor: d, size: size) }
+            #else
+            let design: NSFontDescriptor.SystemDesign = family == 7 ? .rounded : .serif
+            if let d = f.fontDescriptor.withDesign(design), let designed = NSFont(descriptor: d, size: size) { f = designed }
+            #endif
+        }
+        // A declared stack returned above with one of its real descriptors.
+        // This trait resolver is only for a platform generic, never a shear
+        // applied to custom bytes (LLP 1019 §5).
         if italic {
             #if canImport(UIKit)
             if let d = f.fontDescriptor.withSymbolicTraits(.traitItalic) { f = UIFont(descriptor: d, size: size) }
@@ -104,7 +221,7 @@ enum Text {
         let s = NSMutableAttributedString()
         let color = Text.color(spec.color)
         for r in spec.runs {
-            var a: [NSAttributedString.Key: Any] = [.font: font(size: r.size, weight: r.weight, italic: r.italic), .foregroundColor: color]
+            var a: [NSAttributedString.Key: Any] = [.font: font(size: r.size, weight: r.weight, family: r.family, italic: r.italic), .foregroundColor: color]
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             s.append(NSAttributedString(string: r.text, attributes: a))
         }
@@ -160,7 +277,7 @@ enum Text {
         }
         if lines.isEmpty {
             // Empty text still has a line box.
-            let f0 = spec.runs.first.map { Text.font(size: $0.size, weight: $0.weight, italic: $0.italic) } ?? PlatformFont.systemFont(ofSize: 16)
+            let f0 = spec.runs.first.map { Text.font(size: $0.size, weight: $0.weight, family: $0.family, italic: $0.italic) } ?? PlatformFont.systemFont(ofSize: 16)
             let natural = f0.ascender - f0.descender + f0.leading
             let box = lineHeight > 0 ? lineHeight : natural
             baselines.append(f0.ascender + (lineHeight > 0 ? (lineHeight - natural) / 2 : 0))
@@ -175,7 +292,7 @@ enum Text {
         for r in spec.runs {
             for word in r.text.split(whereSeparator: { $0.isWhitespace }) {
                 var one = spec
-                one.runs = [Run(text: String(word), size: r.size, weight: r.weight, italic: r.italic, lineHeight: r.lineHeight, letterSpacing: r.letterSpacing)]
+                one.runs = [Run(text: String(word), size: r.size, weight: r.weight, family: r.family, italic: r.italic, lineHeight: r.lineHeight, letterSpacing: r.letterSpacing)]
                 widest = max(widest, paragraph(one, width: .infinity).width)
             }
         }
@@ -198,16 +315,21 @@ enum Text {
     }
 }
 
+/// The C ABI's synchronous host seam, invoked before the kernel asks its
+/// first text measurement. `exact_out()` remains kernel ops only.
+let installFonts: ExactFontsFn = { catalog in Text.install(catalog) }
+
 /// The kernel's text measurer: called for every paragraph it lays out. The
 /// paragraph it wraps to answer is the one the presenter paints.
 let measureText: ExactMeasureFn = { _, request in
     measureCount += 1
     guard let request = request?.pointee else { return ExactMetrics(width: 0, height: 0, baseline: -1) }
     let runs = UnsafeBufferPointer(start: request.runs, count: request.count).map { run in
-        Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), italic: run.italic != 0, lineHeight: CGFloat(run.line_height), letterSpacing: CGFloat(run.letter_spacing))
+        Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: CGFloat(run.line_height), letterSpacing: CGFloat(run.letter_spacing))
     }
-    // Color does not change metrics; measure everything as black so the
-    // cache is shared with the painted paragraph (which re-keys by color).
+    // Color does not change metrics, but it remains in Spec's paragraph key:
+    // measurement uses black while presenters paint with the real color, so
+    // they shape separately. Removing color from that key remains owed.
     let spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255])
     let started = CACurrentMediaTime()
     let width: CGFloat = request.width == EXACT_MIN_CONTENT ? Text.minContentWidth(spec) : request.width < 0 ? .infinity : CGFloat(request.width)

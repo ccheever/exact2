@@ -519,6 +519,7 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
             text: text.to_string(),
             size: s.font_size,
             weight: s.font_weight,
+            family: s.font_family,
             italic: s.font_style != FontStyle::Normal,
             line_height: s.line_height,
             letter_spacing: s.letter_spacing,

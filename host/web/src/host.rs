@@ -14,7 +14,7 @@ use crate::css;
 use crate::motion::{Lowered, Springs};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeRef, NodeType, PropId, PropValue, ViewId};
 use exact_motion::Property;
-use exact_plan::{EventKind, Plan};
+use exact_plan::{EventKind, Plan, StackMemberKind, StacksId};
 use exact_runner::{
     Carried, DataSource, Event, FailureKind, Outcome, Response, Runner, RunnerError, Timed,
 };
@@ -45,6 +45,7 @@ pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Out
     }
 }
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 /// Why the host refused.
 #[allow(missing_docs)]
@@ -76,6 +77,10 @@ pub struct Host<D: DataSource> {
     springs: Springs,
     /// The page's clock at the last call, milliseconds from script start.
     now_ms: f64,
+    /// Stack id → opaque CSS family name, scoped to this plan.
+    font_names: Vec<String>,
+    /// The plan-owned face catalog, queried separately from op batches.
+    font_catalog: String,
 }
 
 impl<D: DataSource> Host<D> {
@@ -115,6 +120,9 @@ impl<D: DataSource> Host<D> {
         snapshot: Vec<(String, String)>,
     ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
+        let font_names = font_names(&plan);
+        let font_faces = font_faces(&plan);
+        let font_catalog = font_catalog(&font_faces);
         let kernel = Kernel::with_monospace();
         let runner = match carried {
             Some(c) => Runner::boot_carrying(plan, data, kernel, c),
@@ -128,6 +136,8 @@ impl<D: DataSource> Host<D> {
             roots: Vec::new(),
             springs: Springs::new(),
             now_ms: 0.0,
+            font_names,
+            font_catalog,
         };
         let mut batch = Batch::new();
         // Everything live is new to the page.
@@ -177,6 +187,12 @@ impl<D: DataSource> Host<D> {
     /// The runner, mutably — for tests that drive it past the host.
     pub fn runner_mut(&mut self) -> &mut Runner<D> {
         &mut self.runner
+    }
+
+    /// The current plan's declared face catalog for the host-owned web
+    /// readiness barrier. This is plan data, never a transient op batch.
+    pub fn font_catalog(&self) -> &str {
+        &self.font_catalog
     }
 
     /// Deliver an event at the page's clock (milliseconds from script
@@ -349,7 +365,7 @@ impl<D: DataSource> Host<D> {
         let key = node.key;
         let tag = tag_for(&node);
         let props = props_for(&node);
-        let (css, _skipped) = css::css_text(node.style);
+        let (css, _skipped) = css::css_text(node.style, &self.font_names);
         let css = host_css(&node, css);
         let handlers: Vec<&str> = self
             .runner
@@ -382,7 +398,7 @@ impl<D: DataSource> Host<D> {
     fn update(&mut self, id: ViewId, batch: &mut Batch) {
         let node = self.runner.kernel().node(id).expect("live");
         let props = props_for(&node);
-        let (css, _skipped) = css::css_text(node.style);
+        let (css, _skipped) = css::css_text(node.style, &self.font_names);
         let css = host_css(&node, css);
         let m = self.mirror.entry(id).or_default();
         if props != m.props {
@@ -414,6 +430,77 @@ impl<D: DataSource> Host<D> {
             m.children = children;
         }
     }
+}
+
+struct FontFace {
+    family: String,
+    source: String,
+    weight: u16,
+    italic: bool,
+}
+
+fn font_names(plan: &Plan) -> Vec<String> {
+    plan.stacks
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let stack = plan.stack(StacksId(i as u32));
+            let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
+            match member.kind {
+                StackMemberKind::Family => format!("ExactPlanStack{i}"),
+                generic => generic.name().to_string(),
+            }
+        })
+        .collect()
+}
+
+fn font_faces(plan: &Plan) -> Vec<FontFace> {
+    let mut out = Vec::new();
+    for (stack_index, stack) in plan.stacks.iter().enumerate() {
+        let member = plan.stack_member(
+            stack
+                .members
+                .iter()
+                .next()
+                .expect("validated non-empty stack"),
+        );
+        if member.kind != StackMemberKind::Family {
+            continue;
+        }
+        let family = plan.familie(member.family.expect("validated family member"));
+        let name = format!("ExactPlanStack{stack_index}");
+        for face_id in family.faces.iter() {
+            let face = plan.face(face_id);
+            out.push(FontFace {
+                family: name.clone(),
+                source: plan.str(face.source).to_string(),
+                weight: face.weight,
+                italic: face.italic,
+            });
+        }
+    }
+    out
+}
+
+fn font_catalog(faces: &[FontFace]) -> String {
+    let mut out = String::from("[");
+    for (i, face) in faces.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str("{\"family\":");
+        crate::batch::quote(&face.family, &mut out);
+        out.push_str(",\"source\":");
+        crate::batch::quote(&face.source, &mut out);
+        let _ = write!(
+            out,
+            ",\"weight\":{},\"style\":\"{}\"}}",
+            face.weight,
+            if face.italic { "italic" } else { "normal" }
+        );
+    }
+    out.push(']');
+    out
 }
 
 /// A canvas's element hosts its surface element under its children

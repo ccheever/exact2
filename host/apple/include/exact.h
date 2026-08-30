@@ -9,8 +9,9 @@
  * with ops create / props / style / children / destroy / roots / frame /
  * content / present (host/apple/src/batch.rs). All calls on one thread.
  *
- * Text measurement is the one call the other way: exact_boot takes a
- * function the host calls with an ExactMeasureRequest for every paragraph
+ * Text measurement and the plan-scoped font catalog are the calls the other
+ * way: exact_set_fonts registers the catalog hook, and exact_boot installs
+ * it synchronously before calling the measure function for each paragraph
  * the kernel lays out. Strings are UTF-8 bytes with lengths, never
  * NUL-terminated. Points throughout.
  */
@@ -32,6 +33,7 @@ typedef struct ExactTextRun {
     size_t len;            /* bytes */
     float font_size;       /* points */
     uint16_t font_weight;  /* CSS 100–900 */
+    uint16_t font_family;  /* plan stack id */
     uint8_t italic;        /* 1 for italic */
     float line_height;     /* points; 0 = the font's natural line height */
     float letter_spacing;  /* points per glyph */
@@ -53,6 +55,27 @@ typedef struct ExactMetrics {
 } ExactMetrics;
 
 typedef ExactMetrics (*ExactMeasureFn)(void *ctx, const ExactMeasureRequest *request);
+
+/* The plan's declared faces, synchronously before first layout. The strings
+ * are UTF-8 and live only for the callback. This is a host seam, not an
+ * exact_out() batch: that buffer continues to carry kernel ops only. */
+typedef struct ExactFontFace {
+    const uint8_t *family;
+    size_t family_len;
+    const uint8_t *source;
+    size_t source_len;
+    uint16_t stack;
+    uint16_t weight;
+    uint8_t italic;
+} ExactFontFace;
+
+typedef struct ExactFontCatalog {
+    const ExactFontFace *faces;
+    size_t count;
+} ExactFontCatalog;
+
+typedef void (*ExactFontsFn)(const ExactFontCatalog *catalog);
+void exact_set_fonts(ExactFontsFn fonts);
 
 /* A request's reply is queued (LLP 1016 D2): called on the executor's
  * thread, carrying nothing; the host hops to its main thread and calls

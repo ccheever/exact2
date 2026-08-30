@@ -2,8 +2,9 @@
 //!
 //! @ref LLP 1007 §3
 //!
-//! Five exports (plus `exact_boot_plan` for the dev loop, `dev.rs`, and
-//! `exact_agent` for the agent API, LLP 1012). The glue never hands the host a pointer it did not get from
+//! The exports include `exact_boot_plan` for the dev loop, `exact_fonts` for
+//! plan-owned font catalog data, and `exact_agent` for LLP 1012's agent API.
+//! The glue never hands the host a pointer it did not get from
 //! the host: `exact_in(len)` resizes a host-owned input buffer and returns its
 //! address; the glue writes the payload there; every call returns the length
 //! of the output buffer, whose address `exact_out()` reports. Both buffers
@@ -115,6 +116,16 @@ impl<D: DataSource> Bridge<D> {
                 escape(&format!("{e:?}"))
             )),
         }
+    }
+
+    /// Query the current plan's declared face catalog separately from the
+    /// operation batch returned by boot and dispatch calls.
+    pub fn fonts(&mut self) -> u32 {
+        let out = self
+            .host
+            .as_ref()
+            .map_or_else(|| "[]".to_string(), |host| host.font_catalog().to_string());
+        self.emit(out)
     }
 
     /// Dispatch an event at `now_ms` (the page's clock); `kind` is 0 = press,
@@ -241,6 +252,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_boot_plan(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().boot_plan(len as usize, <$data as ::std::default::Default>::default()))
+        }
+
+        /// Query the current plan's declared font catalog. The returned JSON
+        /// is separate from operation batches (LLP 1019 D5).
+        #[no_mangle]
+        pub extern "C" fn exact_fonts() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().fonts())
         }
 
         /// Dispatch an event; returns the batch's length.

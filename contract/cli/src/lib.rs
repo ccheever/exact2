@@ -115,7 +115,7 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
             span: (u.span.line, u.span.col),
         });
     }
-    compile_file(file)
+    compile_file(file, None)
 }
 
 /// Compile a file by path, resolving every `use … from "./other.contract"`
@@ -128,7 +128,11 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
 pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
     let mut seen = Vec::new();
     let file = load(path, &mut seen)?;
-    compile_file(file)
+    let asset_root = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    compile_file(file, Some(asset_root))
 }
 
 /// The `test` blocks of a file (LLP 1017 P7) — normally `app.test.contract`
@@ -238,10 +242,10 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
     s
 }
 
-fn compile_file(file: File) -> Result<Plan, CompileError> {
+fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
     let types = contract_types::check(&file)?;
     let analysis = contract_analyze::check(&file, &types)?;
-    Ok(contract_lower::lower(&file, &types, &analysis)?)
+    Ok(contract_lower::lower(&file, &types, &analysis, asset_root)?)
 }
 
 fn use_error(id: &str, message: String, u: &UseDecl) -> CompileError {
@@ -316,6 +320,13 @@ fn merge(into: &mut File, from: File, u: &UseDecl) -> Result<(), CompileError> {
             u,
         )
     };
+    for f in from.fonts {
+        match into.fonts.iter().find(|x| x.name == f.name) {
+            Some(x) if *x == f => {}
+            Some(_) => return Err(dup("font", &f.name)),
+            None => into.fonts.push(f),
+        }
+    }
     for s in from.shapes {
         match into.shapes.iter().find(|x| x.name == s.name) {
             Some(x) if *x == s => {}

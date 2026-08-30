@@ -57,7 +57,11 @@ Declared deviations, each because the engine cannot express the CSS value:
 `position` has no `static` (Taffy positions an absolute child against its parent,
 so `relative` without insets is the closest box; a web host emits `position:
 relative` on every node to match); `text_align` defaults to `left`, not `start`,
-because logical alignment is not yet lowered. A `ScrollView`/`List` scrolls on its
+because logical alignment is not yet lowered. Font matching stops at the nearest
+real declared face and never synthesizes weight or style, rather than CSS's initial
+`font-synthesis: weight style small-caps`; the compiler diagnoses a literal
+weight/style whose declared family lacks the needed face, and the web host emits
+`font-synthesis: none` (LLP 1019 §5). A `ScrollView`/`List` scrolls on its
 block axis unless the producer sets `overflow_y` — the only per-tag default,
 applied in `StyleProps::to_taffy` (a scroll container is `overflow: auto` on the
 web). An `Image` is a replaced element: the host reports its intrinsic size

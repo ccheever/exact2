@@ -4,7 +4,9 @@
 //! weight), measured against the pinned font's own advances so the numbers
 //! are the same on every machine.
 
+use exact_kernel::TextAlign;
 use exact_linux::presenter::PainterChoice;
+use exact_linux::text::{Run, Spec};
 use exact_linux::Presenter;
 use exact_runner::{DataError, DataSource, Value};
 use std::path::PathBuf;
@@ -22,7 +24,10 @@ fn pin_font() {
     ONCE.call_once(|| {
         std::env::set_var(
             "EXACT_FONTS",
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/fixtures/fonts"),
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../scripts/fixtures/fonts/assets"
+            ),
         );
         std::env::set_var("EXACT_FONT", "DejaVu Sans");
     });
@@ -72,4 +77,91 @@ fn a_weight_the_family_lacks_resolves_within_the_family() {
     // (85 and 87.5 wide), whose variable weight axis covers them.
     assert_eq!(w500, w400, "500 is Book");
     assert_eq!(w600, w700, "600 is Bold");
+}
+
+#[test]
+fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
+    pin_font();
+    let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts/fixtures/fonts");
+    let plan = contract::compile_path(&assets.join("app.contract")).unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (390.0, 844.0),
+        1.0,
+        assets,
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+
+    let text = p.text().clone();
+    let mut text = text.borrow_mut();
+    let book = text.declared_face_id(8, 400, false).unwrap();
+    let bold = text.declared_face_id(8, 700, false).unwrap();
+    assert_ne!(book, bold);
+    assert_eq!(text.resolved_face_id(8, 400, false), Some(book));
+    assert_eq!(text.resolved_face_id(8, 500, false), Some(book));
+    assert_eq!(text.resolved_face_id(8, 600, false), Some(bold));
+    assert_eq!(text.resolved_face_id(8, 700, false), Some(bold));
+
+    for (weight, expected) in [(400, book), (500, book), (600, bold), (700, bold)] {
+        let paragraph = text.paragraph(
+            &Spec {
+                runs: vec![Run {
+                    text: "Change station".into(),
+                    size: 13.0,
+                    weight,
+                    family: 8,
+                    italic: false,
+                    line_height: 0.0,
+                    letter_spacing: 0.0,
+                }],
+                align: TextAlign::Left,
+                line_clamp: 0,
+            },
+            None,
+        );
+        let shaped = paragraph
+            .buffer
+            .layout_runs()
+            .flat_map(|run| run.glyphs.iter())
+            .next()
+            .unwrap()
+            .font_id;
+        assert_eq!(
+            shaped, expected,
+            "the {weight} run shaped from its declared bytes"
+        );
+    }
+    drop(text);
+
+    let (w400, w600, w700) = (
+        width(&mut p, "font-400"),
+        width(&mut p, "font-600"),
+        width(&mut p, "font-700"),
+    );
+    assert!((w400 - 98.6).abs() < 1.5, "Book geometry: {w400}");
+    assert!((w700 - 111.1).abs() < 1.5, "Bold geometry: {w700}");
+    assert_eq!(w600, w700);
+
+    let frame = p.frame();
+    for id in ["font-400", "font-600", "font-700"] {
+        let kernel = p.host().kernel();
+        let node = kernel
+            .node_by_key(kernel.find_by_test_id(id)[0])
+            .unwrap()
+            .id;
+        let rect = p.boxes().iter().find(|b| b.id == node).unwrap().rect;
+        let mut ink = 0usize;
+        for y in rect.1 as u32..(rect.1 + rect.3).ceil() as u32 {
+            for x in rect.0 as u32..(rect.0 + rect.2).ceil() as u32 {
+                let pixel = frame.pixel(x, y).unwrap().demultiply();
+                ink += usize::from(pixel.red() < 128);
+            }
+        }
+        assert!(
+            ink > 40,
+            "{id} paints glyph geometry from the shaped buffer: {ink} dark pixels"
+        );
+    }
 }

@@ -139,6 +139,22 @@ fn the_app_slice_parses_to_the_expected_tree() {
 }
 
 #[test]
+fn static_font_declarations_parse_in_shorthand_and_block_forms() {
+    let file = parse(
+        "font \"Body\" = \"assets/Body.ttf\"\nfont \"Display\"\n  400 = \"assets/Display.ttf\"\n  700 = \"assets/Display-Bold.otf\"\n  400 italic = \"assets/Display-Italic.ttf\"\ncomponent App\n  view\n    text \"hello\"\n",
+    )
+    .unwrap();
+    assert_eq!(file.fonts.len(), 2);
+    assert_eq!(file.fonts[0].faces[0].weight, 400);
+    assert!(!file.fonts[0].faces[0].italic);
+    assert_eq!(file.fonts[1].faces.len(), 3);
+    assert!(file.fonts[1].faces[2].italic);
+
+    let error = parse("font \"Bad\"\n  1001 = \"assets/Bad.ttf\"\n").unwrap_err();
+    assert_eq!(error.id, "syntax-font-weight");
+}
+
+#[test]
 fn precedence_and_multiline_calls_hold() {
     let f = parse("component A\n  derive x = 1 + 2 * 3 == 7 and not false\n  derive y = f(\n    1,\n    2)\n  view\n    text \"a\"\n").unwrap();
     let Expr::Binary(BinOp::And, l, r, _) = &f.components[0].derives[0].expr else {
