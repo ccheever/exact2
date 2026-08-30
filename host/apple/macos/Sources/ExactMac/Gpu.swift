@@ -78,7 +78,7 @@ final class Canvases {
     static func modulePath() -> String {
         if let p = ProcessInfo.processInfo.environment["EXACT_GPU_DYLIB"] { return p }
         let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
-        return exe.deletingLastPathComponent().appendingPathComponent("libcaltrain_gpu.dylib").path
+        return exe.deletingLastPathComponent().appendingPathComponent("libexact_gpu.dylib").path
     }
 
     /// A surface op: new inputs for a canvas node.

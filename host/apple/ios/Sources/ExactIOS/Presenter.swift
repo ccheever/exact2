@@ -193,7 +193,6 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             let loaded = (try? Data(contentsOf: url)).flatMap(NodeView.decode)
             DispatchQueue.main.async {
                 guard let self, self.loadGeneration == generation, let presenter = self.presenter, presenter.views[id] === self else { return }
-                self.setNeedsDisplay()
                 if let (cg, size) = loaded {
                     self.image = UIImage(cgImage: cg)
                     NodeView.imagesLoaded.append((source, size))
@@ -203,6 +202,13 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
                     FileHandle.standardError.write(Data("exact: image \(source) did not load\n".utf8))
                     presenter.intrinsic(id, nil)
                 }
+                // Only now, with the picture in hand. A picture arriving is a
+                // repaint under a canvas (LLP 1014 D4 b) that `draw(_:)`
+                // cannot report — the overlay is at alpha 0 — and a box of
+                // fixed size gives the kernel no relayout to capture after.
+                // Ask the canvas for this turn's capture directly.
+                self.setNeedsDisplay()
+                if let c = self.canvasAbove { c.needsCapture = true; canvases.scheduleCapture() }
             }
         }
     }

@@ -75,7 +75,7 @@ final class Canvases {
     /// Where the module lives: EXACT_GPU_DYLIB, or the bundle's Frameworks.
     static func modulePath() -> String {
         if let p = ProcessInfo.processInfo.environment["EXACT_GPU_DYLIB"] { return p }
-        return (Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath) + "/libcaltrain_gpu.dylib"
+        return (Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath) + "/libexact_gpu.dylib"
     }
 
     /// A surface op: new inputs for a canvas node.

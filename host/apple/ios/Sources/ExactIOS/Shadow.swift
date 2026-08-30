@@ -204,9 +204,16 @@ final class Shadow {
         // What is captured is what Core Animation has: a view the batch just
         // invalidated draws now rather than at the display pass, so the
         // capture is not one frame behind it (the logo, as it loaded).
-        if layer.needsDisplay() { layer.displayIfNeeded() }
+        let redrew = layer.needsDisplay()
+        if redrew { layer.displayIfNeeded() }
         let shadow: CALayer
         if let s = mirrors[key], type(of: s) == shadowClass(for: layer) { shadow = s } else { shadow = shadowClass(for: layer).init(); mirrors[key] = shadow }
+        // A layer redrawn in place keeps its backing-store object: the copy
+        // below compares contents by identity and would leave the shadow
+        // holding the same object — which the renderer last snapshotted
+        // before the redraw (the mark under Weird Castle's sky: box captured,
+        // picture not). Through nil, the set is a real one.
+        if redrew { shadow.contents = nil }
         copy(layer, to: shadow)
         if opaque { if shadow.opacity != 1 { shadow.opacity = 1 }; if shadow.isHidden { shadow.isHidden = false } }
         let view = layer.delegate as? UIView

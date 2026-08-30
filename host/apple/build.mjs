@@ -175,6 +175,11 @@ function main(args) {
   const gpuCrate = app.crate('gpu');
   const hasGpu = existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'));
   const dylib = `lib${gpuCrate.replace(/-/g, '_')}.dylib`;
+  // What the presenter dlopens is the same name whatever the app is: one
+  // Swift binary serves every app, and two apps' modules would otherwise
+  // sit side by side in the shared build directory with the presenter
+  // loading whichever one it was compiled to name.
+  const loadName = 'libexact_gpu.dylib';
   const t0 = Date.now();
   const target = device ? 'aarch64-apple-ios' : iosTarget;
   const targetArgs = ios ? ['--target', target] : [];
@@ -206,7 +211,7 @@ function main(args) {
     // the kernel's cached signature for that inode — every later dlopen dies with
     // SIGKILL (Code Signature Invalid). A new file is a new inode.
     if (hasGpu) {
-      const dest = resolve(pkg, '.build/release', dylib);
+      const dest = resolve(pkg, '.build/release', loadName);
       rmSync(dest, { force: true });
       copyFileSync(resolve(libDir, dylib), dest);
     }
@@ -233,7 +238,7 @@ function main(args) {
   copyFileSync(bin, resolve(bundle, product));
   writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(crate, device));
   if (existsSync(resolve(app.dir, 'assets'))) cpSync(resolve(app.dir, 'assets'), resolve(bundle, 'assets'), { recursive: true });
-  if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', dylib));
+  if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   if (device) {
     let ph, prof, sha1;
     try {
@@ -244,7 +249,7 @@ function main(args) {
     copyFileSync(prof.path, resolve(bundle, 'embedded.mobileprovision'));
     const ent = resolve(root, 'host/apple/ios/.build/entitlements.plist');
     writeFileSync(ent, entitlements(prof.team, bundleId(crate)));
-    if (hasGpu) run('codesign', ['--force', '--sign', sha1, '--timestamp=none', resolve(bundle, 'Frameworks', dylib)], { stdio: 'ignore' });
+    if (hasGpu) run('codesign', ['--force', '--sign', sha1, '--timestamp=none', resolve(bundle, 'Frameworks', loadName)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', sha1, '--timestamp=none', '--entitlements', ent, bundle], { stdio: 'ignore' });
     console.log(`host/apple: ${bundle.replace(root + '/', '')} for ${ph.name} (${ph.model}, iOS ${ph.os}) — signed as ${prof.name} (${prof.team}) (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s); GPU: ${gpuNote}`);
     if (!ph.reachable) { console.error(`${ph.name} is not connected: plug it in (or have it on this network), unlock it, and trust this Mac; then run this again`); process.exit(1); }
@@ -258,7 +263,7 @@ function main(args) {
     }
     return;
   }
-  if (hasGpu) run('codesign', ['--force', '--sign', '-', resolve(appBundle, 'Frameworks', dylib)], { stdio: 'ignore' });
+  if (hasGpu) run('codesign', ['--force', '--sign', '-', resolve(appBundle, 'Frameworks', loadName)], { stdio: 'ignore' });
   run('codesign', ['--force', '--sign', '-', appBundle], { stdio: 'ignore' });
   const dev = simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined);
   install(dev);

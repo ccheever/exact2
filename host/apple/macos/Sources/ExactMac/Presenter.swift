@@ -210,7 +210,6 @@ final class NodeView: NSView, NSTextFieldDelegate {
             let loaded = (try? Data(contentsOf: url)).flatMap(NodeView.decode)
             DispatchQueue.main.async {
                 guard let self, self.loadGeneration == generation, let presenter = self.presenter, presenter.views[id] === self else { return }
-                self.needsDisplay = true
                 if let (cg, size) = loaded {
                     self.image = NSImage(cgImage: cg, size: size)
                     NodeView.imagesLoaded.append((source, size))
@@ -220,6 +219,17 @@ final class NodeView: NSView, NSTextFieldDelegate {
                     FileHandle.standardError.write(Data("exact: image \(source) did not load\n".utf8))
                     presenter.intrinsic(id, nil)
                 }
+                // Only now, with the picture in hand. A picture arriving is a
+                // repaint under a canvas (LLP 1014 D4 b) and it is not one
+                // `draw(_:)` can report: the children live in an overlay at
+                // alpha 0, which AppKit does not draw. Nor can
+                // `repaintThrough` carry it — a decode that lands on the boot
+                // capture's own turn is exactly what `paintedThisTurn`
+                // suppresses. Ask the canvas for the next turn's capture
+                // directly, or a first frame whose only change is a picture
+                // keeps the capture taken before it decoded.
+                self.needsDisplay = true
+                if let c = self.canvasAbove { c.needsCapture = true; canvases.scheduleCapture() }
             }
         }
     }
