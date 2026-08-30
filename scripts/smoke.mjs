@@ -508,7 +508,9 @@ rmSync(tmp, { recursive: true, force: true });
     }
   }
   rmSync(tmp, { recursive: true, force: true });
-// 12. The app's own tests (LLP 1017 P7): `apps/caltrain/app.test.contract`,
+}
+
+// 13. The app's own tests (LLP 1017 P7): `apps/caltrain/app.test.contract`,
 // its `test` blocks driven through a fresh session by the same operations.
 {
   const t = await runTests({ host, file: resolve(ROOT, 'apps/caltrain/app.test.contract') });
