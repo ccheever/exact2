@@ -116,7 +116,7 @@ extension Agent {
             scroll(from: hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
             return ["tapped": Int(v.id), "wheel": wheel, "at": at]
         }
-        if v.kind == "webview" { return webviews.tap(v, request: req, at: at) }
+        if v.kind == "iframe" { return webviews.tap(v, request: req, at: at) }
         var n: UIView? = hit
         while let cur = n, !(cur is NodeView) { n = cur.superview }
         // What a touch up does first (`NodeView.touchesEnded`, up the
@@ -164,7 +164,7 @@ extension Agent {
     /// the text inserted — the field sends one change with the new value.
     static func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
-        if v.kind == "webview" { return webviews.type(v, request: req) }
+        if v.kind == "iframe" { return webviews.type(v, request: req) }
         if let key = req["key"] as? String {
             // A key at the target: the field's (Enter, as its delegate would
             // hear it) or a focused node's, by the web's name — delivered as
@@ -197,17 +197,29 @@ extension Agent {
         // 16-bit PNG, which nothing downstream (scripts/png.mjs) reads.
         format.preferredRange = .standard
         let size = vp.bounds.size
-        // The arm's takeSnapshot picture composes UNDER the live view
-        // (NodeView.draw): on a simulator the snapshot can arrive as the
-        // guest's background alone, while `drawHierarchy` renders the
-        // WKWebView's content in-process — the webview stays visible and
-        // non-opaque, so whichever path has the pixels wins (LLP 1020 D4).
+        #if targetEnvironment(simulator)
+        // The simulator needs both paths: takeSnapshot alone omits guest
+        // text, and drawHierarchy alone rasterizes a blank remote layer —
+        // unless a takeSnapshot just flushed it. So the snapshot is taken
+        // (the flush), composed as the underlay, and the live view stays
+        // visible on top with the real pixels (measured 2026-08-30; the
+        // 0-guest-pixel failure returns if either half is dropped).
         Capture.web = webviews.snapshots()
+        #else
+        // A device capture has the macOS shape: hide every live WKWebView
+        // and compose only the arm's takeSnapshot at the owning node.
+        Capture.web = webviews.snapshots()
+        let hidden = presenter.views.values.compactMap(\.web).map { ($0, $0.isHidden) }
+        hidden.forEach { $0.0.isHidden = true }
+        #endif
         Capture.capturing = true
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
             vp.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
         }
         Capture.capturing = false
+        #if !targetEnvironment(simulator)
+        hidden.forEach { $0.0.isHidden = $0.1 }
+        #endif
         Capture.web = [:]
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": r2(size.width), "h": r2(size.height), "scale": r2(scale)]

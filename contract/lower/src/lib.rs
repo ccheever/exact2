@@ -1215,6 +1215,13 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         };
+        if tag != "iframe" && matches!(a.name.as_str(), "src" | "sandbox" | "load" | "message") {
+            return err(
+                "lower-attr-tag",
+                format!("`{}` belongs to `iframe`, not `{tag}`", a.name),
+                a.span,
+            );
+        }
         match target {
             tags::AttrTarget::Flex => {
                 // CSS `flex: <n>` is `<n> 1 0%`: grow n, shrink 1, basis 0%.

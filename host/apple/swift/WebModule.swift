@@ -134,8 +134,8 @@ final class WebViews {
     private(set) var failure: String?
 
     var status: String {
-        if module != nil { return "module loaded; \(entries.count) webviews" }
-        return "not loaded: \(failure ?? (entries.isEmpty ? "no webviews" : "not requested"))"
+        if module != nil { return "module loaded; \(entries.count) iframes" }
+        return "not loaded: \(failure ?? (entries.isEmpty ? "no iframes" : "not requested"))"
     }
 
     static func modulePath() -> String {
@@ -161,7 +161,7 @@ final class WebViews {
         }
     }
 
-    /// The sole dlopen gate: called only from a `webview` NodeView's create
+    /// The sole dlopen gate: called only from an `iframe` NodeView's create
     /// commit, so an iframe-free first screen never touches WebKit (@ref LLP 1020 D3).
     func create(owner: NodeView) -> ExactWebPlatformView? {
         let callback = WebCallbackBox(manager: self, id: owner.id)
@@ -176,7 +176,7 @@ final class WebViews {
         guard let handle = module.create(owner.id, context, exactWebEventCallback, exactWebReplyCallback) else {
             entry.loading = false
             entry.unavailable = true
-            failure = "libexact_web.dylib refused webview \(owner.id)"
+            failure = "libexact_web.dylib refused iframe \(owner.id)"
             FileHandle.standardError.write(Data("exact web: \(failure!)\n".utf8))
             return nil
         }
@@ -218,8 +218,9 @@ final class WebViews {
     }
 
     func destroy(id: UInt32) {
-        guard let entry = entries.removeValue(forKey: id) else { return }
+        guard let entry = entries[id] else { return }
         if let handle = entry.handle { module?.destroy(handle) }
+        entries.removeValue(forKey: id)
     }
 
     func reset() {
@@ -296,7 +297,7 @@ final class WebViews {
     }
 
     func tap(_ owner: NodeView, request values: [String: Any], at: [Double]) -> [String: Any] {
-        guard let entry = entries[owner.id] else { return ["error": "webview \(owner.id) is unavailable"] }
+        guard let entry = entries[owner.id] else { return ["error": "iframe \(owner.id) is unavailable"] }
         let selector = javascriptString(values["selector"] as? String)
         let x = (values["x"] as? Double).map { String($0) } ?? "innerWidth / 2"
         let y = (values["y"] as? Double).map { String($0) } ?? "innerHeight / 2"
@@ -305,7 +306,7 @@ final class WebViews {
           const x = \(x), y = \(y);
           const selector = \(selector);
           const target = (selector ? document.querySelector(selector) : null) || document.elementFromPoint(x, y) || document.body;
-          if (!target) return JSON.stringify({ok:false});
+          if (!target) return JSON.stringify({ok:false, error:'guest tap found no target'});
           // Script input is intentionally untrusted (@ref LLP 1020 D4;
           // exact1 20260806-webview-frame-guest-click-delivery).
           target.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, composed:true, clientX:x, clientY:y, button:0, buttons:1}));
@@ -314,12 +315,16 @@ final class WebViews {
           return JSON.stringify({ok:true});
         })()
         """
-        guard case .success = request(entry, script: script) else { return ["error": "guest tap failed"] }
-        return ["tapped": Int(owner.id), "guest": true, "at": at]
+        switch guestResponse(request(entry, script: script), operation: "tap") {
+        case .failure(let error):
+            return ["error": error.message]
+        case .success:
+            return ["tapped": Int(owner.id), "guest": true, "at": at]
+        }
     }
 
     func type(_ owner: NodeView, request values: [String: Any]) -> [String: Any] {
-        guard let entry = entries[owner.id] else { return ["error": "webview \(owner.id) is unavailable"] }
+        guard let entry = entries[owner.id] else { return ["error": "iframe \(owner.id) is unavailable"] }
         let selector = javascriptString(values["selector"] as? String)
         let key = values["key"] as? String
         let text = values["text"] as? String ?? ""
@@ -327,7 +332,7 @@ final class WebViews {
         if let key {
             action = "target.dispatchEvent(new KeyboardEvent('keydown', {key:\(javascriptString(key)), bubbles:true, composed:true})); target.dispatchEvent(new KeyboardEvent('keyup', {key:\(javascriptString(key)), bubbles:true, composed:true}));"
         } else {
-            action = "target.focus(); if ('value' in target) target.value = \(javascriptString(text)); else target.textContent = \(javascriptString(text)); target.dispatchEvent(new InputEvent('input', {data:\(javascriptString(text)), inputType:'insertText', bubbles:true, composed:true})); target.dispatchEvent(new Event('change', {bubbles:true, composed:true}));"
+            action = "if ('value' in target) target.value = \(javascriptString(text)); else target.textContent = \(javascriptString(text)); target.dispatchEvent(new InputEvent('input', {data:\(javascriptString(text)), inputType:'insertText', bubbles:true, composed:true})); target.dispatchEvent(new Event('change', {bubbles:true, composed:true}));"
         }
         let script = """
         (() => {
@@ -335,17 +340,42 @@ final class WebViews {
           const active = document.activeElement;
           const editable = active && active.matches?.('input,textarea,[contenteditable]') ? active : null;
           const target = (selector ? document.querySelector(selector) : null) || editable || document.querySelector('input,textarea,[contenteditable]');
-          if (!target) return JSON.stringify({ok:false});
+          if (!target) return JSON.stringify({ok:false, error:'guest type found no target'});
           // Script input is intentionally isTrusted:false (@ref LLP 1020 D4).
+          target.focus();
           \(action)
           return JSON.stringify({ok:true, value:'value' in target ? target.value : target.textContent});
         })()
         """
-        guard case .success(let data) = request(entry, script: script) else { return ["error": "guest type failed"] }
+        let object: [String: Any]
+        switch guestResponse(request(entry, script: script), operation: "type") {
+        case .failure(let error):
+            return ["error": error.message]
+        case .success(let response):
+            object = response
+        }
         var result: [String: Any] = ["typed": Int(owner.id), "guest": true]
-        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let value = object["value"] { result["value"] = value }
+        if let value = object["value"] { result["value"] = value }
         if let key { result["key"] = key }
         return result
+    }
+
+    private func guestResponse(
+        _ response: Result<Data, WebRequestError>, operation: String
+    ) -> Result<[String: Any], WebRequestError> {
+        switch response {
+        case .failure(let error):
+            return .failure(error)
+        case .success(let data):
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return .failure(WebRequestError(message: "guest \(operation) returned an unreadable reply"))
+            }
+            guard object["ok"] as? Bool == true else {
+                return .failure(WebRequestError(
+                    message: object["error"] as? String ?? "guest \(operation) found no target"))
+            }
+            return .success(object)
+        }
     }
 
     func snapshots() -> [UInt32: ExactWebImage] {

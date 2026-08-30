@@ -144,9 +144,12 @@ because there are no modules, there is one tag.
 Attributes: `src` (a URL; setting it navigates, guest navigation does not
 rewrite it — iframe semantics) and `sandbox` (the HTML token list,
 spec-true: absent means unsandboxed, present restricts, tokens re-grant).
-Events: `load` (fires for error documents too; the Apple arm synthesizes
-an error document on provisional failure, because WKWebView otherwise
-renders nothing — exact1's lesson, kept) and `message` (D2). Both join
+Events: `load` (fires for error documents too; when the *wrapper's* own
+navigation fails provisionally, the Apple arm re-serves with an error
+document as the inner frame's content, because WKWebView otherwise
+renders nothing — exact1's lesson, restated for frame topology: an inner
+guest failure is the engine's own error page and `load`, as on the web)
+and `message` (D2). Both join
 the existing handler set in the tag table; per the events decision
 (QUEUE §2), an action can record their payload, not branch on it.
 
@@ -176,6 +179,17 @@ on the Apple arm the same escape wrecks only the wrapper, which the
 host detects and re-serves as above. The web arm is the oracle; the
 native arm is the safer one; an app that grants the token owns the web
 consequence.
+
+One materialization the arm owns (as built, 2026-08-30): a
+**bundle-relative `src`** (a schemeless path — the fixture case; a hosted
+https deck never enters this) cannot be fetched from the synthetic wrapper
+origin, so the arm reads the file from the app bundle under a
+symlink-resolved containment check and inlines it as the inner frame's
+`srcdoc`, `sandbox` verbatim, no `src` attribute on the inner element.
+This is not the Contract-facing `srcdoc` §5 cuts — no author writes it —
+and it carries a declared limit: a multi-file local bundle's subresources
+do not resolve; multi-file local decks wait for scheme-handler serving
+(the shipped Castle mechanism, §8 Q1).
 
 Guest→app: the guest calls `window.parent.postMessage(data, …)` exactly
 as it would on castle.xyz; the wrapper (native) or the host page (web)
@@ -228,7 +242,15 @@ as the browser's origin rules allow:
   render through `cacheDisplay`/`CARenderer`, so the capture handshake
   built for images under a canvas (LLP 1014 D4 b, commit bcf5692) is the
   shape: the node hands the turn's capture a texture it produced itself.
-  The web arm's page capture already includes iframes.
+  One split, found live (2026-08-30): the **simulator's** `takeSnapshot`
+  can return the guest's background without its text, while
+  `drawHierarchy` renders WKWebView in-process there — so on a simulator
+  the screenshot's one source is the live `drawHierarchy` render
+  (webview visible, no compose), and on macOS and a device it is
+  hide-and-compose `takeSnapshot`, never both (two sources ghost, and an
+  opaque blank live render would cover a good snapshot). The device row
+  is asserted by the same smoke when one runs there. The web arm's page
+  capture already includes iframes.
 - **`clock`** does not govern the guest. A foreign runtime's
   `requestAnimationFrame` is not on the seekable clock, and pretending
   otherwise rebuilds the settle-flake NOT-DOING §Agent API exists to kill.

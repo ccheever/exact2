@@ -167,6 +167,11 @@ component A
   view
     text "a" resizeMode="cover"
 ---
+== lower-attr-tag
+component A
+  view
+    image src="picture.png"
+---
 == lower-one-root
 component A
   view

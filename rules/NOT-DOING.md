@@ -57,7 +57,12 @@ change can break.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 
-- No `video`, `webview`, `canvas`, `lottie`, `rive`, `fileinput`, `pager`.
+- No `video`, `lottie`, `rive`, `fileinput`, `pager`. (`webview` came off
+  2026-08-30 as LLP 1020's `iframe` — it unblocks Weird Castle's entire content
+  model, the client that exists to surface Castle web decks; the take: LLP 1013
+  view transitions moved behind the deck lane. LLP 1020 §6. What stays no from
+  exact1's webview: `top` topology, navigation policy, the controller ops, `allow`,
+  author-facing `srcdoc` — each with its return trigger in LLP 1020 §5.)
 - No camera anything.
 - No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a

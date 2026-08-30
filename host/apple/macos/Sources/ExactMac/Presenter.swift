@@ -269,7 +269,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
             addSubview(f)
             field = f
         }
-        if kind == "webview", let w = webviews.create(owner: self) {
+        if kind == "iframe", let w = webviews.create(owner: self) {
             w.frame = bounds
             w.autoresizingMask = [.width, .height]
             addSubview(w)
@@ -442,7 +442,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
         setAccessibilityLabel(props["accessibilityLabel"])
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { imageSource = nil; image = nil; presenter?.intrinsic(id, nil) }
-        if kind == "webview" { webviews.update(self) }
+        if kind == "iframe" { webviews.update(self) }
         needsDisplay = true
     }
 

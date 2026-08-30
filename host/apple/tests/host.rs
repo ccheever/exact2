@@ -197,7 +197,7 @@ fn an_iframe_batch_and_its_events_match_the_web_arm() {
     let iframe = view(&host, "deck-frame");
     assert!(
         batch.contains(&format!(
-            "\"op\":\"create\",\"id\":{iframe},\"kind\":\"webview\""
+            "\"op\":\"create\",\"id\":{iframe},\"kind\":\"iframe\""
         )),
         "{batch}"
     );

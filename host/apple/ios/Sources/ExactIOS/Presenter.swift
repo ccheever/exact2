@@ -254,7 +254,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             addSubview(f)
             field = f
         }
-        if kind == "webview", let w = webviews.create(owner: self) {
+        if kind == "iframe", let w = webviews.create(owner: self) {
             w.frame = bounds
             w.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             addSubview(w)
@@ -416,7 +416,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         accessibilityLabel = props["accessibilityLabel"]
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { imageSource = nil; image = nil; presenter?.intrinsic(id, nil) }
-        if kind == "webview" { webviews.update(self) }
+        if kind == "iframe" { webviews.update(self) }
         setNeedsDisplay()
     }
 
@@ -549,8 +549,8 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             Text.draw(Text.paragraph(spec, width: bounds.width), spec: spec, in: bounds, context: ctx)
         }
         if Capture.capturing, let picture = Capture.web[id] {
-            // Remote WebKit layers supply their own picture for this capture
-            // turn, at the node's normal hierarchy position (@ref LLP 1020 D4).
+            // A capture that populated an arm snapshot draws that one WebKit
+            // source at the node's hierarchy position (@ref LLP 1020 D4).
             picture.draw(in: bounds)
         }
     }
@@ -973,8 +973,8 @@ struct Bitmap {
 enum Capture {
     /// A capture is drawing: its draws are not repaints (D4 b).
     nonisolated(unsafe) static var capturing = false
-    /// Guest pictures for this turn; the remote platform views are hidden
-    /// while their owning nodes draw these (@ref LLP 1020 D4/D6).
+    /// Guest pictures when this turn chooses arm snapshots; their remote
+    /// platform views are hidden while the nodes draw these (LLP 1020 D4/D6).
     nonisolated(unsafe) static var web: [UInt32: ExactWebImage] = [:]
     /// EXACT_CAPTURE=cpu: the Core Graphics capture even where Metal is
     /// present — the measure's baseline, and the fixture's oracle.

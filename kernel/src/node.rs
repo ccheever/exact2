@@ -65,5 +65,6 @@ mod tests {
         // size is its rows', never its content's.
         assert!(NodeType::Canvas.can_hold_children());
         assert!(!NodeType::Canvas.is_measured_leaf());
+        assert!(!NodeType::WebView.can_hold_children());
     }
 }

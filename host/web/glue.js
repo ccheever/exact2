@@ -38,14 +38,17 @@ function writeIn(text) {
 }
 
 function applyProps(el, set, clear) {
+  let sandboxChanged = false;
   for (const name of clear || []) {
     if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
+    if (el instanceof HTMLIFrameElement && name === "sandbox" && el.hasAttribute("sandbox")) sandboxChanged = true;
     if (name === "text") el.textContent = "";
     else if (name === "value") el.value = "";
     else if (name === "checked") el.checked = false;
     else el.removeAttribute(name);
   }
   for (const [name, value] of Object.entries(set || {})) {
+    if (el instanceof HTMLIFrameElement && name === "sandbox" && el.getAttribute("sandbox") !== value) sandboxChanged = true;
     if (name === "text") {
       if (el.childElementCount === 0) el.textContent = value;
     } else if (name === "value") {
@@ -58,6 +61,14 @@ function applyProps(el, set, clear) {
       if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
       el.setAttribute(name, value);
     }
+  }
+  if (el instanceof HTMLIFrameElement && sandboxChanged) {
+    // Sandbox tokens take effect on navigation. Re-set the authored source
+    // so an immutable-per-mount sandbox change remounts as it does on Apple.
+    iframeLoading.set(el, true);
+    const source = el.getAttribute("src");
+    el.setAttribute("src", source ?? "about:blank");
+    if (source === null) el.removeAttribute("src");
   }
   if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
 }
@@ -424,6 +435,64 @@ function tree() {
   }
   return reply;
 }
+
+function guestDocument(frame) {
+  try {
+    const document = frame.contentDocument;
+    return document ? { document } : { error: "guest is cross-origin" };
+  } catch {
+    return { error: "guest is cross-origin" };
+  }
+}
+
+function guestTap(frame, request) {
+  const access = guestDocument(frame);
+  if (access.error) return { guest: true, error: access.error };
+  const { document } = access;
+  const guest = document.defaultView;
+  const x = Number.isFinite(request.x) ? request.x : guest.innerWidth / 2;
+  const y = Number.isFinite(request.y) ? request.y : guest.innerHeight / 2;
+  let target;
+  try { target = request.selector ? document.querySelector(request.selector) : null; }
+  catch { return { guest: true, error: "guest tap has an invalid selector" }; }
+  target ||= document.elementFromPoint(x, y) || document.body;
+  if (!target) return { guest: true, error: "guest tap found no target" };
+  // Script input is intentionally untrusted (@ref LLP 1020 D4;
+  // exact1 20260806-webview-frame-guest-click-delivery).
+  target.dispatchEvent(new guest.PointerEvent("pointerdown", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 1 }));
+  target.dispatchEvent(new guest.PointerEvent("pointerup", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 0 }));
+  target.dispatchEvent(new guest.MouseEvent("click", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0 }));
+  return { tapped: request.id, guest: true };
+}
+
+function guestType(frame, request) {
+  const access = guestDocument(frame);
+  if (access.error) return { guest: true, error: access.error };
+  const { document } = access;
+  const guest = document.defaultView;
+  const active = document.activeElement;
+  const editable = active?.matches?.("input,textarea,[contenteditable]") ? active : null;
+  let target;
+  try { target = request.selector ? document.querySelector(request.selector) : null; }
+  catch { return { guest: true, error: "guest type has an invalid selector" }; }
+  target ||= editable || document.querySelector("input,textarea,[contenteditable]");
+  if (!target) return { guest: true, error: "guest type found no target" };
+  // These are the Apple guest script's event shapes, including focus and
+  // isTrusted:false (@ref LLP 1020 D4).
+  target.focus();
+  if (request.key != null) {
+    const key = String(request.key);
+    target.dispatchEvent(new guest.KeyboardEvent("keydown", { key, bubbles: true, composed: true }));
+    target.dispatchEvent(new guest.KeyboardEvent("keyup", { key, bubbles: true, composed: true }));
+    return { typed: request.id, guest: true, key, value: "value" in target ? target.value : target.textContent };
+  }
+  const text = String(request.text ?? "");
+  if ("value" in target) target.value = text; else target.textContent = text;
+  target.dispatchEvent(new guest.InputEvent("input", { data: text, inputType: "insertText", bubbles: true, composed: true }));
+  target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
+  return { typed: request.id, guest: true, value: "value" in target ? target.value : target.textContent };
+}
+
 function register(t) {
   for (const a of document.getAnimations()) if (!starts.has(a)) starts.set(a, t);
 }
@@ -474,6 +543,14 @@ function agent(request) {
         el.focus();
         el.select();
         return { ok: true };
+      }
+      case "tap": {
+        const frame = views.get(request.id);
+        return frame instanceof HTMLIFrameElement ? guestTap(frame, request) : { guest: false };
+      }
+      case "type": {
+        const frame = views.get(request.id);
+        return frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false };
       }
       case "clock":
         return clock(request);

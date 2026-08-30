@@ -50,7 +50,9 @@ sits on that list carries the trade it would take.
    macOS (CoreText paints per node, LLP 1008 §7). The hard part is cross-node
    selection, the browser's document model. Host state, like scroll offset, never plan
    state. `Paragraph` keeps its `CTLine`s, so hit-to-index is available. After 6.
-5. **View transitions** (LLP 1013, Draft RFC). Shared elements, heroes, and magic-move
+5. **View transitions** (LLP 1013, Draft RFC) — behind the webview/deck lane by
+   LLP 1020 §6's decided take (Charlie, 2026-08-30): the trade that moved `webview`
+   off NOT-DOING. Shared elements, heroes, and magic-move
    the web's way, not RN's: a `view_transition_name` row, an action keyword as the
    boundary, `startViewTransition` on the web, snapshot + host-owned ghost under
    `exact-motion` on macOS, one parity fixture. Identity is by name at the host, so

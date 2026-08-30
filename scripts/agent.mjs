@@ -165,6 +165,17 @@ async function openWeb({ plan, size = [420, 900] }) {
         const r = (await ask({ op: 'layout' })).nodes.find((n) => n.id === id);
         if (!r || (r.w === 0 && r.h === 0)) throw new Error(`view ${id} has no box on screen`);
         const x = r.x + r.w / 2, y = r.y + r.h / 2;
+        if (kind === 'press' || kind === 'key' || kind === 'type') {
+          const request = kind === 'press'
+            ? { op: 'tap', id, selector: opts.selector, x: opts.x, y: opts.y }
+            : { op: 'type', id, selector: opts.selector, ...(kind === 'key' ? { key: opts.key } : { text: opts.text }) };
+          const guest = await ask(request);
+          if (guest.guest === true) {
+            if (guest.error) throw new Error(guest.error);
+            await frame();
+            return { ...guest, at: [x, y] };
+          }
+        }
         if (kind === 'wheel') await call('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: opts.wheel[0], deltaY: opts.wheel[1] });
         else if (kind === 'hover') await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
         else if (kind === 'key') {

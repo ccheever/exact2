@@ -57,6 +57,7 @@ pub fn handle<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     }
     let id = || field_num(line, "id").map(|n| n as u32);
     match field_str(line, "op").as_deref() {
+        Some("tree") => unavailable_tree(p),
         Some("layout") => p.layout_json(),
         Some("tap") => {
             let Some(id) = id() else {
@@ -82,6 +83,14 @@ pub fn handle<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         },
         _ => p.host().agent(line),
     }
+}
+
+/// Linux carries an iframe's box but has no web engine (LLP 1020 D5).
+fn unavailable_tree<D: DataSource>(p: &Presenter<D>) -> String {
+    p.host().agent("{\"op\":\"tree\"}").replace(
+        "\"type\":\"WebView\",\"props\":",
+        "\"type\":\"WebView\",\"unavailable\":true,\"props\":",
+    )
 }
 
 /// The engine's settle time, milliseconds, when a transition is in flight.

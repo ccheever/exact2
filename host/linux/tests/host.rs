@@ -363,6 +363,16 @@ fn agent_requests_answer_on_the_wire() {
 }
 
 #[test]
+fn the_agent_tree_declares_iframes_unavailable() {
+    let mut p = fixture("iframe");
+    let tree = handle(&mut p, "{\"op\":\"tree\"}");
+    assert!(
+        tree.contains("\"type\":\"WebView\",\"unavailable\":true"),
+        "{tree}"
+    );
+}
+
+#[test]
 fn a_reload_carries_state_and_starts_the_pictures_over() {
     let mut p = boot();
     let _ = p.tap(view(&p, "change-station"));

@@ -207,7 +207,7 @@ function main(args) {
   run('swift', swiftArgs, { cwd: pkg, env });
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.
   // It is built beside the presenter but never linked into it; WebModule.swift
-  // dlopens this file at the first webview create commit.
+  // dlopens this file at the first iframe create commit.
   const webArgs = ['swiftc', '-module-cache-path', resolve(webBuildDir, 'module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), '-o', webBuilt, '-framework', 'WebKit'];
   if (ios) {
     const sdk = read('xcrun', ['--sdk', device ? 'iphoneos' : 'iphonesimulator', '--show-sdk-path']).stdout.trim();

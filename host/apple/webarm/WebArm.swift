@@ -1,5 +1,5 @@
 // The Apple iframe arm: WebKit stays in this dylib, loaded at the first
-// webview commit (@ref LLP 1020 D2/D3). The presenters see only its C ABI.
+// iframe commit (@ref LLP 1020 D2/D3). The presenters see only its C ABI.
 import Foundation
 import WebKit
 
@@ -30,12 +30,13 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     var sandbox: String?
     var srcInitialized = false
     var sandboxInitialized = false
-    var served = false
     var servePending = false
+    var serving = false
     var generation = 0
     var guestFrame: WKFrameInfo?
     var suppressLoad = false
     var recovering = false
+    var invalidated = false
     var wrapperURL: URL { URL(string: "https://exact.invalid/frame/\(id)/index.html")! }
 
     init(id: UInt32, context: UnsafeMutableRawPointer?, event: @escaping EventFn, reply: @escaping ReplyFn) {
@@ -50,7 +51,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         controller.add(self, name: "exact")
         controller.add(self, contentWorld: world, name: "exactAgent")
         controller.addUserScript(WKUserScript(
-            source: "window.webkit.messageHandlers.exactAgent.postMessage('ready')",
+            source: "if (window.parent === window.top && window !== window.top) window.webkit.messageHandlers.exactAgent.postMessage('ready')",
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false,
             in: world))
@@ -65,6 +66,13 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     deinit {
+        invalidate()
+    }
+
+    func invalidate() {
+        guard !invalidated else { return }
+        invalidated = true
+        webView.stopLoading()
         controller.removeScriptMessageHandler(forName: "exact")
         controller.removeScriptMessageHandler(forName: "exactAgent", contentWorld: world)
         webView.navigationDelegate = nil
@@ -75,15 +83,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         srcInitialized = true
         src = value
         markLoading()
-        if !served || servePending {
-            scheduleServe()
-            return
-        }
-        let script = navigationScript()
-        webView.evaluateJavaScript(script) { [weak self] _, error in
-            guard let self, error != nil else { return }
-            self.scheduleServe()
-        }
+        scheduleServe()
     }
 
     func setSandbox(_ value: String?) {
@@ -101,31 +101,30 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     func scheduleServe() {
-        guard !servePending else { return }
+        guard !invalidated, !servePending else { return }
         servePending = true
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.servePending else { return }
+            guard let self, !self.invalidated, self.servePending else { return }
             self.servePending = false
             self.serve()
         }
     }
 
     func serve(error: String? = nil) {
+        guard !invalidated else { return }
         generation += 1
         guestFrame = nil
-        served = true
+        serving = true
         let request = URLRequest(url: wrapperURL, cachePolicy: .reloadIgnoringLocalCacheData)
         webView.loadSimulatedRequest(request, responseHTML: wrapper(error: error))
     }
 
     func wrapper(error: String?) -> String {
-        let source = src.map { " src=\"\(attribute($0))\"" } ?? ""
-        let restriction = sandbox.map { " sandbox=\"\(attribute($0))\"" } ?? ""
         let local = error.map(errorDocument) ?? src.flatMap(localDocument)
-        let localScript = local.map { document in
-            let encoded = Data(document.utf8).base64EncodedString()
-            return "inner.srcdoc = new TextDecoder().decode(Uint8Array.from(atob('\(encoded)'), c => c.charCodeAt(0)));"
-        } ?? ""
+        let source = local.map { " srcdoc=\"\(attribute($0))\"" }
+            ?? src.map { " src=\"\(attribute($0))\"" }
+            ?? ""
+        let restriction = sandbox.map { " sandbox=\"\(attribute($0))\"" } ?? ""
         return """
         <!doctype html><meta charset="utf-8">
         <style>html,body,iframe{margin:0;width:100%;height:100%;border:0;display:block}body{overflow:hidden}</style>
@@ -143,32 +142,8 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
             webkit.messageHandlers.exact.postMessage(JSON.stringify({kind:'message', generation:\(generation), payload}));
           });
           inner.addEventListener('load', () => webkit.messageHandlers.exact.postMessage(JSON.stringify({kind:'load', generation:\(generation)})));
-          \(localScript)
         })();
         </script>
-        """
-    }
-
-    func navigationScript() -> String {
-        let setSource: String
-        if let src {
-            setSource = "inner.setAttribute('src', \(javascriptString(src)));"
-        } else {
-            setSource = "inner.removeAttribute('src');"
-        }
-        let local = src.flatMap(localDocument).map { document -> String in
-            let encoded = Data(document.utf8).base64EncodedString()
-            return "inner.srcdoc = new TextDecoder().decode(Uint8Array.from(atob('\(encoded)'), c => c.charCodeAt(0)));"
-        } ?? ""
-        return """
-        (() => {
-          const inner = document.getElementById('exact-frame');
-          if (!inner) return false;
-          inner.removeAttribute('srcdoc');
-          \(setSource)
-          \(local)
-          return true;
-        })()
         """
     }
 
@@ -180,8 +155,12 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
             .map { URL(fileURLWithPath: $0) }
             ?? Bundle.main.resourceURL
             ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let root = base.standardizedFileURL.path
-        let file = base.appendingPathComponent(String(relative)).standardizedFileURL
+        // Only single-file fixtures materialize this way: a multi-file
+        // bundle's subresources do not resolve under srcdoc. Hosted https
+        // decks have a scheme and never enter this path.
+        let root = base.resolvingSymlinksInPath().standardizedFileURL.path
+        let file = base.appendingPathComponent(String(relative))
+            .resolvingSymlinksInPath().standardizedFileURL
         guard file.path == root || file.path.hasPrefix(root.hasSuffix("/") ? root : root + "/") else { return nil }
         return try? String(contentsOf: file, encoding: .utf8)
     }
@@ -197,18 +176,10 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 
-    func javascriptString(_ value: String) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: [value]),
-              var text = String(data: data, encoding: .utf8)
-        else { return "\"\"" }
-        text.removeFirst()
-        text.removeLast()
-        return text
-    }
-
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard !invalidated else { return }
         if message.name == "exactAgent" {
-            if !message.frameInfo.isMainFrame { guestFrame = message.frameInfo }
+            if !message.frameInfo.isMainFrame, guestFrame == nil { guestFrame = message.frameInfo }
             return
         }
         guard message.name == "exact", message.frameInfo.isMainFrame,
@@ -227,6 +198,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard !invalidated else { return }
         // Process death is a silent wrapper re-serve (@ref LLP 1020 §5).
         suppressLoad = true
         markLoading()
@@ -238,19 +210,26 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        if navigationAction.targetFrame?.isMainFrame == true,
-           served, navigationAction.request.url != wrapperURL {
-            // An allow-top-navigation escape damages only the wrapper; restore
-            // the iframe topology instead of turning the arm into a browser.
-            decisionHandler(.cancel)
-            markLoading()
-            scheduleServe()
-        } else {
+        guard !invalidated else { decisionHandler(.cancel); return }
+        guard navigationAction.targetFrame?.isMainFrame == true else {
             decisionHandler(.allow)
+            return
         }
+        if serving, navigationAction.request.url == wrapperURL {
+            decisionHandler(.allow)
+            return
+        }
+        // An allow-top-navigation escape or wrapper self-reload damages the
+        // topology. Only the navigation begun by `serve` may reach the main
+        // frame; every other one restores the wrapper from its source string.
+        decisionHandler(.cancel)
+        markLoading()
+        scheduleServe()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        serving = false
+        guard !invalidated else { return }
         guard !recovering else {
             recovering = false
             emit(kind: 2)
@@ -263,12 +242,13 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        serving = false
         recovering = false
     }
 
     func snapshot(token: UInt32) {
         guard webView.bounds.width > 0, webView.bounds.height > 0 else {
-            sendReply(token: token, kind: 2, text: "webview has no snapshot box")
+            sendReply(token: token, kind: 2, text: "iframe has no snapshot box")
             return
         }
         let configuration = WKSnapshotConfiguration()
@@ -312,6 +292,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     func emit(kind: UInt32, text: String = "") {
+        guard !invalidated else { return }
         let data = Data(text.utf8)
         data.withUnsafeBytes { bytes in
             event(context, id, kind, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count))
@@ -323,6 +304,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     func sendReply(token: UInt32, kind: UInt32, data: Data) {
+        guard !invalidated else { return }
         data.withUnsafeBytes { bytes in
             reply(context, id, token, kind, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count))
         }
@@ -368,6 +350,9 @@ public func exactWebAgentEval(_ handle: UnsafeMutableRawPointer?, _ token: UInt3
 @_cdecl("exact_web_destroy")
 public func exactWebDestroy(_ handle: UnsafeMutableRawPointer?) {
     guard let handle else { return }
-    let arm = Unmanaged<WebArm>.fromOpaque(handle).takeRetainedValue()
+    let retained = Unmanaged<WebArm>.fromOpaque(handle)
+    let arm = retained.takeUnretainedValue()
+    arm.invalidate()
     arm.webView.removeFromSuperview()
+    retained.release()
 }

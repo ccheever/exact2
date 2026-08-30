@@ -652,7 +652,7 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::Pressable => "button",
         NodeType::Toggle => "toggle",
         NodeType::Canvas => "canvas",
-        NodeType::WebView => "webview",
+        NodeType::WebView => "iframe",
     }
 }
 
