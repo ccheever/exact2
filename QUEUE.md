@@ -42,10 +42,10 @@ sits on that list carries the trade it would take.
    answers now or hands back a request, the host executes it (`ibex2::host` on native,
    the browser's `fetch` on the web), one ABI call brings the answer in, a pending
    resource is `none` meanwhile, bake tolerates it — the first out-of-process resource
-   is `loginV2` at api.castle.xyz; **password masking** (`secureTextEntry` is unhonored
-   on every host and Yoga-named — the web's is `type="password"`, `keyboardType` likewise
-   vs `inputmode`); **Enter to submit** (an action branching on its `key` payload, or the
-   input's own submit); a session across launches (keychain / browser storage) after.
+   is `loginV2` at api.castle.xyz; **password masking** and **Enter to submit** landed 2026-08-30 — the
+   kernel rows are the web's `type` and `inputMode` (LLP 1017 P9's sweep spells them
+   literally later), honored on web/macOS/iOS; `submit` is the seventh event, the web's
+   implicit submission; a session across launches is LLP 1018 (another session's lane).
 4. **Text selection.** Free on the web (nothing sets `user-select: none`); none on
    macOS (CoreText paints per node, LLP 1008 §7). The hard part is cross-node
    selection, the browser's document model. Host state, like scroll offset, never plan

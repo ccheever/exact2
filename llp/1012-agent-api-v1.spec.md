@@ -80,7 +80,8 @@ the Linux host implements this list, not that file):
   the web's name: web CDP `Input.dispatchKeyEvent` after focusing the target;
   macOS a synthesized `NSEvent` key-down/up through the window with the
   target first responder; iOS direct delivery (§9 of LLP 1008). CLI: `type X
-  key Enter`. Not on the Linux carrier yet (its lane).
+  key Enter` — which, at an input with a `submit` handler, is the web's
+  implicit submission on every host. Not on the Linux carrier yet (its lane).
 - **`clock`** is monotonic (a backwards `to` is refused). It moves the
   runner's clock and the host's motion clock to one instant and **lands where
   the runner says** (`batch.clock`): a timer's refusal stops the advance at

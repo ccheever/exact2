@@ -107,6 +107,7 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
                     EventKind::Focus => "focus",
                     EventKind::Blur => "blur",
                     EventKind::Key => "key",
+                    EventKind::Submit => "submit",
                 },
                 &mut s,
             );

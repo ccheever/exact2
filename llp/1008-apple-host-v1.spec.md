@@ -169,8 +169,11 @@ leave sent before the new one's enter; `focus`/`blur` are first-responder
 changes (a field's begin/end editing; a node with such a handler
 `acceptsFirstResponder` and takes it on mouse-down); a `key` handler gets
 `keyDown`'s name in the web's vocabulary (`Enter`, `Escape`, `Tab`,
-`Backspace`, `Delete`, the arrows, else the characters). **Declared
-deviation:** inside a text field, `key` sees only the editing commands the
+`Backspace`, `Delete`, the arrows, else the characters); a `submit` handler
+hears the field editor's `insertNewline` (Enter — the web's implicit
+submission). An input's `type="password"` is an `NSSecureTextField`, remade
+in place if the type changes (a different class on AppKit); `inputMode` has
+no meaning on a Mac keyboard. **Declared deviation:** inside a text field, `key` sees only the editing commands the
 field editor reports (`insertNewline` → `Enter`, `cancelOperation` →
 `Escape`, `insertTab`, the arrows, `deleteBackward`); a typed character is
 the field's `change`, where the web's `keydown` fires per character. A view
@@ -348,7 +351,11 @@ hovers and a finger never does; `focus`/`blur` are first-responder changes (a
 field's begin/end editing; a node with such a handler `canBecomeFirstResponder`
 and takes it on touch-up); `key` is `pressesBegan`'s `UIKey` by web name, or
 inside a text field `textFieldShouldReturn` → `Enter` only (typed characters
-are `change`, §5's deviation). The agent's `tap … hover` and `type … key`
+are `change`, §5's deviation), which is also a `submit` handler's event and
+sets the return key to *Go*. `type="password"` is `isSecureTextEntry` (with
+the password content type); `inputMode` (`email`, `numeric`, `decimal`,
+`tel`, `url`, `search`) picks the keyboard, and `type` alone does the same
+for `email`/`url`/`tel`. The agent's `tap … hover` and `type … key`
 deliver directly by the responder-chain rule, as its press does. The canvas machinery of
 LLP 1014 is ported whole (the overlay, placements, `hitTest` through them,
 `accessibilityFrame`), with two UIKit facts folded in: the overlay is a

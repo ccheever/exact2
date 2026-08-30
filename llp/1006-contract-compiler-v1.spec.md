@@ -57,7 +57,8 @@ assigned (`session = none`), which forgets a reply in flight. **Actions.**
 `action name(params) writes a, b` with a body of `slot = expr`
 assignments, `send`/`refresh` statements, and `name(args)` commands; a parameter's type is written or
 inferred from its handler call sites (the handler attributes are `press`,
-`change`, `hover`, `focus`, `blur`, `key`, LLP 1005 §3; a `key`'s or
+`change`, `hover`, `focus`, `blur`, `key`, `submit`, LLP 1005 §3 — `submit`
+on an `input` is Enter, the web's implicit submission; a `key`'s or
 `change`'s payload types the last parameter `string`, a `hover`'s `bool`);
 an assignment to an undeclared slot is
 `analyze-write-not-declared`. **Tasks.** `task name mount` with
@@ -97,7 +98,7 @@ checked standalone. Roster calls are checked against the table's `params`/
 
 **Analyze** (`contract-analyze`): `writes` declared and honored, handler
 shape and arity (`change` and `key` supply a string as the last parameter,
-`hover` a bool, `press`/`focus`/`blur` nothing — `HANDLERS` and
+`hover` a bool, `press`/`focus`/`blur`/`submit` nothing — `HANDLERS` and
 `handler_payload` in `contract-analyze`), timer
 actions exist and take no parameters, component uses name real components
 with each argument once, children carry no state.

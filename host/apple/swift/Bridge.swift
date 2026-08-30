@@ -54,6 +54,7 @@ enum Exact {
     static func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { read(exact_dispatch(view, over ? 2 : 3, 0, now)) }
     static func focus(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(view, 4, 0, now)) }
     static func blur(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(view, 5, 0, now)) }
+    static func submit(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(view, 7, 0, now)) }
     /// A key down at the view, by the web's key name.
     static func key(_ view: UInt32, _ name: String, now: Double) -> Batch {
         let n = write(name)

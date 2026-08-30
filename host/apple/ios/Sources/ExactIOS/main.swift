@@ -269,6 +269,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         presenter.onFocus = { id in apply(Exact.focus(id, now: now())) }
         presenter.onBlur = { id in apply(Exact.blur(id, now: now())) }
         presenter.onKey = { id, name in apply(Exact.key(id, name, now: now())) }
+        presenter.onSubmit = { id in apply(Exact.submit(id, now: now())) }
         let w = UIWindow(windowScene: ws)
         w.backgroundColor = .white
         // The capabilities: `setScheme` is the window's interface style —

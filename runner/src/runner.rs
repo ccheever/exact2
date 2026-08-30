@@ -222,6 +222,9 @@ pub enum Event {
     /// A key went down while the view had the focus: the key's name as the
     /// web spells it (`"Enter"`, `"ArrowDown"`, `"a"`).
     Key(String),
+    /// Enter in an input with a `submit` handler — the web's implicit
+    /// submission (HTML forms §4.10.21.2), without a form.
+    Submit,
 }
 
 /// Why the runner refused. The kernel is unchanged.
@@ -712,6 +715,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Focus => "focus",
                 Event::Blur => "blur",
                 Event::Key(_) => "key",
+                Event::Submit => "submit",
             }
         );
         let was_poisoned = self.poisoned;
@@ -738,6 +742,7 @@ impl<D: DataSource> Runner<D> {
             Event::Focus => (EventKind::Focus, None, "focus"),
             Event::Blur => (EventKind::Blur, None, "blur"),
             Event::Key(key) => (EventKind::Key, Some(Value::str(key)), "key"),
+            Event::Submit => (EventKind::Submit, None, "submit"),
         };
         let row = self.plan.node(node);
         let handler = row

@@ -77,6 +77,11 @@ function attach(el, id, handlers) {
       // keydown, the key's name as the web spells it (`e.key`).
       el.addEventListener("keydown", (e) => { const n = writeIn(e.key); send(wasm.exact_dispatch(id, 6, n, now())); });
     }
+    if (kind === "submit") {
+      // The web's implicit submission: Enter in a text input submits — here
+      // to the node's `submit` handler, no form needed (and no reload).
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); send(wasm.exact_dispatch(id, 7, 0, now())); } });
+    }
   }
 }
 

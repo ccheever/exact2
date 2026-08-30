@@ -190,6 +190,7 @@ impl<D: DataSource> Bridge<D> {
             4 => Event::Focus,
             5 => Event::Blur,
             6 => Event::Key(payload),
+            7 => Event::Submit,
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {

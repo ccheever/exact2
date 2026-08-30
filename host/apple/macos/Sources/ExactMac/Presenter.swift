@@ -146,7 +146,11 @@ final class NodeView: NSView, NSTextFieldDelegate {
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         let name: String
         switch selector {
-        case #selector(NSResponder.insertNewline(_:)): name = "Enter"
+        case #selector(NSResponder.insertNewline(_:)):
+            // Enter in an input with a `submit` handler is the web's implicit
+            // submission; a `key` handler hears it as Enter as well.
+            if handlers.contains("submit") { presenter?.submit(id) }
+            name = "Enter"
         case #selector(NSResponder.cancelOperation(_:)): name = "Escape"
         case #selector(NSResponder.insertTab(_:)): name = "Tab"
         case #selector(NSResponder.moveUp(_:)): name = "ArrowUp"
@@ -247,12 +251,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
             overlay = o
         }
         if kind == "input" {
-            let f = NSTextField(frame: .zero)
-            f.isBordered = false
-            f.drawsBackground = false
-            f.focusRingType = .none
-            f.delegate = self
-            f.autoresizingMask = [.width, .height]
+            let f = makeField(secure: false)
             addSubview(f)
             field = f
         }
@@ -384,9 +383,37 @@ final class NodeView: NSView, NSTextFieldDelegate {
         return fallback
     }
 
+    /// The field for an input: `NSSecureTextField` for `type="password"`
+    /// (the web's masking), a plain one otherwise; the same delegate,
+    /// borderless, the node paints its own box.
+    func makeField(secure: Bool) -> NSTextField {
+        let f = secure ? NSSecureTextField(frame: .zero) : NSTextField(frame: .zero)
+        f.isBordered = false
+        f.drawsBackground = false
+        f.focusRingType = .none
+        f.delegate = self
+        f.autoresizingMask = [.width, .height]
+        return f
+    }
+
     func applyProps(set: [String: String], clear: [String]) {
         for k in clear { props.removeValue(forKey: k) }
         for (k, v) in set { props[k] = v }
+        if let f = field {
+            // `type` changed between password and text: a secure field is a
+            // different class on AppKit, so the field is remade in place.
+            let secure = props["type"] == "password"
+            if (f is NSSecureTextField) != secure {
+                let n = makeField(secure: secure)
+                n.frame = f.frame
+                n.stringValue = f.stringValue
+                n.font = f.font
+                n.textColor = f.textColor
+                f.removeFromSuperview()
+                addSubview(n)
+                field = n
+            }
+        }
         if let f = field {
             if let v = props["value"], f.stringValue != v { f.stringValue = v }
             f.placeholderString = props["placeholder"]
@@ -609,6 +636,7 @@ final class Presenter {
     var onFocus: ((UInt32) -> Void)?
     var onBlur: ((UInt32) -> Void)?
     var onKey: ((UInt32, String) -> Void)?
+    var onSubmit: ((UInt32) -> Void)?
     /// The node the pointer is over, of those with a hover handler: it hears
     /// the leave when the pointer moves onto another (the agent's `hover`).
     weak var hovered: NodeView?
@@ -640,6 +668,7 @@ final class Presenter {
     func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
     func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
     func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
+    func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {

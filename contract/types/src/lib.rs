@@ -1017,7 +1017,7 @@ fn refine_params_from_view(
                 for a in attrs {
                     if matches!(
                         a.name.as_str(),
-                        "press" | "change" | "hover" | "focus" | "blur" | "key"
+                        "press" | "change" | "hover" | "focus" | "blur" | "key" | "submit"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),

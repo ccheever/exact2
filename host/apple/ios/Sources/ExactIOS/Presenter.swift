@@ -134,6 +134,9 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     /// A text field's Enter as a key (its characters are its `change`);
     /// the editing goes on, as on the web.
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        // Enter in an input with a `submit` handler is the web's implicit
+        // submission; a `key` handler hears it as Enter as well.
+        if handlers.contains("submit") { presenter?.submit(id) }
         if handlers.contains("key") { presenter?.key(id, "Enter") }
         return false
     }
@@ -369,6 +372,22 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         if let f = field {
             if let v = props["value"], f.text != v { f.text = v }
             f.placeholder = props["placeholder"]
+            // The web's `type` and `inputmode`, as UIKit spells them.
+            let type = props["type"] ?? "text"
+            f.isSecureTextEntry = type == "password"
+            f.textContentType = type == "password" ? .password : type == "email" ? .emailAddress : nil
+            f.autocapitalizationType = (type == "password" || type == "email" || type == "url") ? .none : .sentences
+            f.autocorrectionType = (type == "password" || type == "email" || type == "url") ? .no : .default
+            switch props["inputMode"] ?? type {
+            case "email": f.keyboardType = .emailAddress
+            case "numeric": f.keyboardType = .numberPad
+            case "decimal", "number": f.keyboardType = .decimalPad
+            case "tel": f.keyboardType = .phonePad
+            case "url": f.keyboardType = .URL
+            case "search": f.keyboardType = .webSearch
+            default: f.keyboardType = .default
+            }
+            f.returnKeyType = handlers.contains("submit") ? .go : .default
         }
         accessibilityIdentifier = props["testId"]
         accessibilityLabel = props["accessibilityLabel"]
@@ -614,6 +633,7 @@ final class Presenter {
     var onFocus: ((UInt32) -> Void)?
     var onBlur: ((UInt32) -> Void)?
     var onKey: ((UInt32, String) -> Void)?
+    var onSubmit: ((UInt32) -> Void)?
     /// The node the pointer is over, of those with a hover handler: it hears
     /// the leave when the pointer moves onto another (the agent's `hover`).
     weak var hovered: NodeView?
@@ -645,6 +665,7 @@ final class Presenter {
     func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
     func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
     func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
+    func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {

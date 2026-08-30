@@ -432,6 +432,7 @@ impl<D: DataSource> Host<D> {
                 EventKind::Focus => "focus",
                 EventKind::Blur => "blur",
                 EventKind::Key => "key",
+                EventKind::Submit => "submit",
             })
             .collect();
         let pairs: Vec<(&str, String)> =

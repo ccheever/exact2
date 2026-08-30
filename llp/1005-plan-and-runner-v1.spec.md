@@ -155,12 +155,15 @@ Style values go through the kernel's own `StyleProps::set_dynamic`
 enum name, `auto`, `N%`, or a hex color; a number is the row's number.
 
 **Events.** `dispatch(view, Press | Change(text) | Hover(over) | Focus | Blur
-| Key(name))` finds the site and the frames in force at that view, evaluates
+| Key(name) | Submit)` finds the site and the frames in force at that view, evaluates
 the handler's curried arguments there at dispatch time, appends the event
 payload — a change's text, a hover's `over` (in or out: one kind, one handler,
 one action), a key's web name (`Enter`, `Escape`, `ArrowDown`, `a` — the
-DOM's `KeyboardEvent.key`), nothing for press, focus, blur — and runs the
-action. The six `EventKind`s are `plan/tables/format.json`'s. Not events
+DOM's `KeyboardEvent.key`), nothing for press, focus, blur, submit — and
+runs the action. `Submit` (2026-08-30) is Enter in an input with a `submit`
+handler: the web's implicit submission (HTML forms §4.10.21.2) without a
+form, so an action need not branch on a key. The seven `EventKind`s are
+`plan/tables/format.json`'s. Not events
 (2026-08-30, the minimal set first): pointer coordinates and moves (a drag),
 `keyup`, double-click, and a wheel's offsets reaching the runner (a scroll
 container's position is the host's, LLP 1007 §6).

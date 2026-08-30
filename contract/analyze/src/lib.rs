@@ -160,7 +160,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `hover`, `focus`, `blur`, `key`.
-pub const HANDLERS: [&str; 6] = ["press", "change", "hover", "focus", "blur", "key"];
+pub const HANDLERS: [&str; 7] = ["press", "change", "hover", "focus", "blur", "key", "submit"];
 
 /// What a handler's event carries as its action's last argument: `change`
 /// the new text, `hover` whether the pointer is over, `key` the key's name;

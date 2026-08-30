@@ -149,10 +149,12 @@ extension Agent {
             // hear it) or a focused node's, by the web's name — delivered as
             // the responder-chain rule would (UIKit synthesizes no presses).
             if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } } else if v.canBecomeFirstResponder { if !v.isFirstResponder { _ = v.becomeFirstResponder() } } else { return ["error": "view \(v.id) takes no key"] }
+            // Enter at a field is what its delegate would hear: a submit,
+            // and a key for a `key` handler (the field's own or an ancestor's).
+            if key == "Enter", v.field != nil, v.handlers.contains("submit") { presenter.submit(v.id) }
             var n: UIView? = v
             while let cur = n, !((cur as? NodeView)?.handlers.contains("key") ?? false) { n = cur.superview }
-            guard let node = n as? NodeView else { return ["error": "no key handler at view \(v.id)"] }
-            presenter.key(node.id, key)
+            if let node = n as? NodeView { presenter.key(node.id, key) } else if !(key == "Enter" && v.handlers.contains("submit")) { return ["error": "no key handler at view \(v.id)"] }
             return ["typed": Int(v.id), "key": key, "value": v.field?.text ?? ""]
         }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }

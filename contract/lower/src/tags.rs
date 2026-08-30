@@ -133,6 +133,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "focus" => AttrTarget::Handler("focus"),
         "blur" => AttrTarget::Handler("blur"),
         "key" => AttrTarget::Handler("key"),
+        "submit" => AttrTarget::Handler("submit"),
         // the canvas's surface (LLP 1009 D3)
         "surface" => AttrTarget::Surface,
         // props (HTML attribute names)
@@ -141,6 +142,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "hint" => AttrTarget::Prop(p("accessibilityHint")),
         "role" => AttrTarget::Prop(p("accessibilityRole")),
         "placeholder" => AttrTarget::Prop(p("placeholder")),
+        "type" => AttrTarget::Prop(p("type")),
+        "inputMode" => AttrTarget::Prop(p("inputMode")),
         "value" => AttrTarget::Prop(p("value")),
         "href" => AttrTarget::Prop(p("href")),
         "disabled" => AttrTarget::Prop(p("disabled")),

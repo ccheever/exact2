@@ -645,6 +645,7 @@ impl<'a> Lowerer<'a> {
                     "hover" => EventKind::Hover,
                     "focus" => EventKind::Focus,
                     "blur" => EventKind::Blur,
+                    "submit" => EventKind::Submit,
                     _ => EventKind::Key,
                 };
                 handlers.push((kind, self.actions[ai], codes));

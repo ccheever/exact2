@@ -142,7 +142,8 @@ and bakes `app.contract` into `OUT_DIR` (never committed) for
 elements and state; `animate` plays or cancels a spring), attaches
 `click`/`input`/`pointerenter`+`pointerleave`/`focus`/`blur`/`keydown`
 listeners only where a node has that handler (`hover` is the pointer pair,
-`key` sends `e.key`'s name; a node with a `focus`/`blur`/`key` handler that is
+`key` sends `e.key`'s name, `submit` is `keydown` Enter on an input with
+the default prevented — the web's implicit submission, no form; a node with a `focus`/`blur`/`key` handler that is
 not an input or button gets `tabindex="0"`, since only a focusable element
 receives those), and — when the plan
 has timers — calls `exact_advance` on a 250 ms interval. `boot(bytes?)` tears
