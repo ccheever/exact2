@@ -25,6 +25,7 @@ pub mod tags;
 use contract_analyze::Analysis;
 use contract_syntax::{Attr, Expr, File, Node, Span, Stmt};
 use contract_types::{Ref, Scope, Ty, Types};
+use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
 use exact_plan::asm::Asm;
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{
@@ -47,6 +48,29 @@ pub struct LowerError {
 impl std::fmt::Display for LowerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} [{}] {}", self.span, self.id, self.message)
+    }
+}
+
+/// A literal, as an author wrote it, for a message.
+fn literal_text(e: &Expr) -> String {
+    match e {
+        Expr::Number(n, _) => format!("{n}"),
+        Expr::Str(s, _) => format!("\"{s}\""),
+        Expr::Bool(b, _) => format!("{b}"),
+        _ => "…".into(),
+    }
+}
+
+/// The kernel's refusal of a style value, in an author's words.
+fn describe(e: &StyleValueError) -> String {
+    match e {
+        StyleValueError::WrongKind { expected, .. } => format!("expected {expected}"),
+        StyleValueError::UnknownEnumValue { .. } => "not one of the row's values".into(),
+        StyleValueError::AutoNotAdmitted { .. } => "`auto` is not admitted here".into(),
+        StyleValueError::OutOfRange { .. } => "out of the row's range".into(),
+        StyleValueError::BadColor { .. } => "a color is `#rgb`, `#rrggbb`, or `#rrggbbaa`".into(),
+        StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
+        StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
     }
 }
 
@@ -286,7 +310,14 @@ pub fn lower(file: &File, types: &Types, _analysis: &Analysis) -> Result<Plan, L
             root.span,
         );
     }
-    l.nodes(&view, None, None, &scope, 0)?;
+    if !matches!(view[0], Node::Element { .. }) {
+        return err(
+            "lower-root-region",
+            "the root of a view is a node; a `when`, `each`, or `match` cannot be the root (LLP 1010 §1: a keyed root could not reorder) — put it inside a `column` or a `main`",
+            view[0].span(),
+        );
+    }
+    l.nodes(&view, None, None, &scope, 0, None)?;
     l.b.finish().map_err(|e| LowerError {
         id: "lower-invalid-plan",
         message: format!("{e:?}"),
@@ -347,7 +378,9 @@ impl<'a> Lowerer<'a> {
         Ok(self.b.code(asm))
     }
 
-    /// Lower sibling nodes under (`parent`, `arm`).
+    /// Lower sibling nodes under (`parent`, `arm`); `parent_tag` is the
+    /// nearest enclosing element's tag (a region does not change it).
+    #[allow(clippy::too_many_arguments)]
     fn nodes(
         &mut self,
         nodes: &[Node],
@@ -355,13 +388,15 @@ impl<'a> Lowerer<'a> {
         arm: Option<ArmsId>,
         scope: &Scope,
         locals: u16,
+        parent_tag: Option<&str>,
     ) -> Result<(), LowerError> {
         for (order, n) in nodes.iter().enumerate() {
-            self.node(n, parent, arm, order as u32, scope, locals)?;
+            self.node(n, parent, arm, order as u32, scope, locals, parent_tag)?;
         }
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn node(
         &mut self,
         n: &Node,
@@ -370,6 +405,7 @@ impl<'a> Lowerer<'a> {
         order: u32,
         scope: &Scope,
         locals: u16,
+        parent_tag: Option<&str>,
     ) -> Result<(), LowerError> {
         match n {
             Node::Element {
@@ -382,6 +418,39 @@ impl<'a> Lowerer<'a> {
                 let Some(t) = tags::tag(tag) else {
                     return err("lower-unknown-tag", format!("unknown tag `{tag}`"), *span);
                 };
+                // Two layout refusals the compiler can make without measuring
+                // (LLP 1017 P1c; the measured ones are bake's). Conservative:
+                // only the case nothing on the path can bound is refused.
+                let has = |names: &[&str]| attrs.iter().any(|a| names.contains(&a.name.as_str()));
+                let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));
+                if tag == "scroll" && parent_stacks && !has(&["height", "max-height", "flex"]) {
+                    return err(
+                        "lower-scroll-unbounded",
+                        "`scroll` has no `height`, `max-height`, or `flex`, and its parent stacks it top to bottom, so it will grow with its content and never scroll",
+                        *span,
+                    );
+                }
+                if matches!(tag.as_str(), "button" | "link")
+                    && children.is_empty()
+                    && !has(&[
+                        "width",
+                        "height",
+                        "flex",
+                        "padding",
+                        "padding-top",
+                        "padding-right",
+                        "padding-bottom",
+                        "padding-left",
+                        "min-width",
+                        "min-height",
+                    ])
+                {
+                    return err(
+                        "lower-zero-size",
+                        format!("`{tag}` has no children and no size, so it has zero area and nothing to press: give it children or a size"),
+                        *span,
+                    );
+                }
                 let mut bindings: Vec<BindingsRow> = Vec::new();
                 let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
                 let mut surface: Option<exact_plan::SurfacesId> = None;
@@ -469,7 +538,7 @@ impl<'a> Lowerer<'a> {
                     &handler_refs,
                     surface,
                 );
-                self.nodes(children, Some(id), arm, scope, locals)
+                self.nodes(children, Some(id), arm, scope, locals, Some(tag))
             }
             Node::Use { name, span, .. } => err(
                 "lower-uninlined-use",
@@ -489,8 +558,8 @@ impl<'a> Lowerer<'a> {
                         .region(RegionKind::When, parent, arm, order, subject, unit, 2);
                 let mut inner = scope.clone();
                 inner.push_region(None);
-                self.nodes(then, None, Some(arms[0]), &inner, locals)?;
-                self.nodes(otherwise, None, Some(arms[1]), &inner, locals)
+                self.nodes(then, None, Some(arms[0]), &inner, locals, parent_tag)?;
+                self.nodes(otherwise, None, Some(arms[1]), &inner, locals, parent_tag)
             }
             Node::Each {
                 var,
@@ -510,7 +579,7 @@ impl<'a> Lowerer<'a> {
                 let (_r, arms) =
                     self.b
                         .region(RegionKind::Each, parent, arm, order, subject, key, 1);
-                self.nodes(body, None, Some(arms[0]), &inner, locals)
+                self.nodes(body, None, Some(arms[0]), &inner, locals, parent_tag)
             }
             Node::Match {
                 subject,
@@ -529,12 +598,124 @@ impl<'a> Lowerer<'a> {
                         .region(RegionKind::Match, parent, arm, order, code, unit, 2);
                 let mut some_scope = scope.clone();
                 some_scope.push_region(Some((some.0.clone(), Ref::Bound(0), bound_ty)));
-                self.nodes(&some.1, None, Some(arms[0]), &some_scope, locals)?;
+                self.nodes(
+                    &some.1,
+                    None,
+                    Some(arms[0]),
+                    &some_scope,
+                    locals,
+                    parent_tag,
+                )?;
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                self.nodes(none, None, Some(arms[1]), &none_scope, locals)
+                self.nodes(none, None, Some(arms[1]), &none_scope, locals, parent_tag)
             }
         }
+    }
+
+    /// A literal style value is checked now by the kernel's own parser
+    /// (`StyleProps::set_dynamic`), so `width=true` and `align-items="middle"`
+    /// are refused at compile time, not at the first frame; a computed value
+    /// is checked by type — a number or a string (LLP 1017 P1a).
+    fn check_style_value(
+        &self,
+        a: &Attr,
+        rows: &[StyleId],
+        scope: &Scope,
+    ) -> Result<(), LowerError> {
+        let literal = match &a.value {
+            Expr::Number(n, _) => Some(StyleValue::Number(*n)),
+            Expr::Str(s, _) => Some(if s == "auto" {
+                StyleValue::Auto
+            } else if let Some(pct) = s.strip_suffix('%').and_then(|p| p.parse::<f64>().ok()) {
+                StyleValue::Percent(pct)
+            } else {
+                StyleValue::Text(s.clone())
+            }),
+            Expr::Bool(b, _) => {
+                return err(
+                    "lower-attr-value",
+                    format!(
+                        "`{}={b}` — a style value is a number or a string, not a bool",
+                        a.name
+                    ),
+                    a.span,
+                )
+            }
+            _ => None,
+        };
+        match literal {
+            Some(v) => {
+                let mut probe = StyleProps::default();
+                for row in rows {
+                    if let Err(e) = probe.set_dynamic(*row, &v) {
+                        return err(
+                            "lower-attr-value",
+                            format!(
+                                "`{}={}` is not a value for `{}`: {}",
+                                a.name,
+                                literal_text(&a.value),
+                                row.name(),
+                                describe(&e)
+                            ),
+                            a.span,
+                        );
+                    }
+                }
+            }
+            None => {
+                if let Ok(t) = contract_types::infer(&a.value, scope, &self.types.shapes) {
+                    if !matches!(t, Ty::Number | Ty::String | Ty::Unknown) {
+                        return err(
+                            "lower-attr-type",
+                            format!(
+                                "`{}` takes a number or a string; this expression is `{t}`",
+                                a.name
+                            ),
+                            a.span,
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// A prop attribute's value by the prop's type: text for most, a bool for
+    /// `disabled`, a whole number for `aria-level`.
+    fn check_prop_value(&self, a: &Attr, prop: PropId, scope: &Scope) -> Result<(), LowerError> {
+        let want = tags::prop_ty(prop);
+        let ty = match &a.value {
+            Expr::Number(_, _) => Some(Ty::Number),
+            Expr::Str(_, _) | Expr::Template(_, _) => Some(Ty::String),
+            Expr::Bool(_, _) => Some(Ty::Bool),
+            other => contract_types::infer(other, scope, &self.types.shapes).ok(),
+        };
+        let ok = matches!(
+            (want, &ty),
+            (_, None)
+                | (_, Some(Ty::Unknown))
+                | (tags::PropTy::Str, Some(Ty::String))
+                | (tags::PropTy::Bool, Some(Ty::Bool))
+                | (tags::PropTy::Int, Some(Ty::Number))
+        );
+        if !ok {
+            return err(
+                "lower-attr-type",
+                format!(
+                    "`{}` takes {}; this expression is `{}`",
+                    a.name,
+                    match want {
+                        tags::PropTy::Str => "a string",
+                        tags::PropTy::Bool => "a bool",
+                        tags::PropTy::Int => "a whole number",
+                    },
+                    ty.unwrap_or(Ty::Unknown)
+                ),
+                a.span,
+            );
+        }
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -549,15 +730,23 @@ impl<'a> Lowerer<'a> {
         surface: &mut Option<exact_plan::SurfacesId>,
     ) -> Result<(), LowerError> {
         let Some(target) = tags::attr(&a.name) else {
+            let hint = match tags::renamed(&a.name) {
+                Some(new) => format!(
+                    "; `{}` is spelled `{new}` here, the CSS name (LLP 1017 §8.1)",
+                    a.name
+                ),
+                None => String::new(),
+            };
             return err(
                 "lower-unknown-attr",
-                format!("`{tag}` has no attribute `{}`", a.name),
+                format!("`{tag}` has no attribute `{}`{hint}", a.name),
                 a.span,
             );
         };
         match target {
             tags::AttrTarget::Flex => {
                 // CSS `flex: <n>` is `<n> 1 0%`: grow n, shrink 1, basis 0%.
+                self.check_style_value(a, &[StyleId::from_name("flex_grow").unwrap()], scope)?;
                 let grow = self.expr_code(&a.value, scope, locals)?;
                 let one = self.b.constant(&Value::Number(1.0));
                 let zero_basis = self.b.constant(&Value::str("0%"));
@@ -574,6 +763,7 @@ impl<'a> Lowerer<'a> {
                 }
             }
             tags::AttrTarget::Styles(rows) => {
+                self.check_style_value(a, &rows, scope)?;
                 let code = self.expr_code(&a.value, scope, locals)?;
                 for row in rows {
                     bindings.push(BindingsRow {
@@ -584,6 +774,7 @@ impl<'a> Lowerer<'a> {
                 }
             }
             tags::AttrTarget::Prop(prop) => {
+                self.check_prop_value(a, prop, scope)?;
                 let code = self.expr_code(&a.value, scope, locals)?;
                 bindings.push(BindingsRow {
                     kind: BindingKind::Prop,
@@ -635,6 +826,27 @@ impl<'a> Lowerer<'a> {
                         a.span,
                     );
                 };
+                // The view is inlined, so a handler behind a child's `action`
+                // prop names the real action here: its arity is checked now,
+                // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
+                let params = self.root.actions[ai].params.len();
+                let payload = usize::from(matches!(event, "change" | "key" | "hover"));
+                if args.len() + payload != params {
+                    return err(
+                        "lower-handler-arity",
+                        format!(
+                            "`{name}` takes {params} parameter(s); `{event}=` supplies {}{}",
+                            args.len(),
+                            match event {
+                                "hover" => " plus whether the pointer is over",
+                                "key" => " plus the key's name",
+                                "change" => " plus the new value",
+                                _ => "",
+                            }
+                        ),
+                        a.span,
+                    );
+                }
                 let mut codes = Vec::new();
                 for arg in args {
                     codes.push(self.expr_code(arg, scope, locals)?);

@@ -104,10 +104,10 @@ fn prop(id: &str, expr: Code) -> BindingsRow {
 /// action tick writes nowMs                     task ticker mount: every(1000, tick)
 /// view
 ///   column testId="main"
-///     text `${count} trains` size=24 weight=700 testId="count"
+///     text `${count} trains` font-size=24 font-weight=700 testId="count"
 ///     when query == ""
 ///       each d in board key=d.id
-///         button press=selectStation(d.id) label=`Train ${d.train}` testId=`dep-${d.id}`
+///         button press=selectStation(d.id) aria-label=`Train ${d.train}` testId=`dep-${d.id}`
 ///           text formatCountdownMinutes(d.at, nowMs)
 ///     else
 ///       text "searching" testId="searching"

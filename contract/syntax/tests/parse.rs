@@ -31,7 +31,7 @@ component App
 
   view
     column gap=16 testId="main"
-      text `${count} trains` size=24 weight=700
+      text `${count} trains` font-size=24 font-weight=700
       when query == "" and count > 0
         each d in board key=d.id
           Row(dep=d, press=selectStation)
@@ -48,8 +48,8 @@ component Row
     dep: Departure
     press: string
   view
-    button press=press(dep.id) label=`Train ${dep.train}`
-      text formatCountdownMinutes(dep.at, nowMs) size=(1 + 2) * 3
+    button press=press(dep.id) aria-label=`Train ${dep.train}`
+      text formatCountdownMinutes(dep.at, nowMs) font-size=(1 + 2) * 3
 "#;
 
 #[test]

@@ -13,8 +13,8 @@ component Motion
     every(1000, bump)
   view
     column testId="root" padding=20 gap=40
-      button press=toggle label="Toggle" testId="toggle"
+      button press=toggle aria-label="Toggle" testId="toggle"
         text "Toggle"
-      view width=50 height=50 background="#c0392b" testId="linear" scale=(moved ? 2 : 1) transition="scale 250ms linear"
-      view width=50 height=50 background="#27ae60" testId="spring" scale=(moved ? 2 : 1) transition="scale spring(180, 12, 1)"
-      view width=50 height=50 background="#2980b9" testId="timed" scale=(auto ? 2 : 1) transition="scale 500ms linear"
+      view width=50 height=50 background-color="#c0392b" testId="linear" scale=(moved ? 2 : 1) transition="scale 250ms linear"
+      view width=50 height=50 background-color="#27ae60" testId="spring" scale=(moved ? 2 : 1) transition="scale spring(180, 12, 1)"
+      view width=50 height=50 background-color="#2980b9" testId="timed" scale=(auto ? 2 : 1) transition="scale 500ms linear"

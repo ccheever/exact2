@@ -40,11 +40,11 @@ component App
     column testId="app"
       input value=who change=setWho testId="who"
       input value=password change=setPassword testId="password"
-      button press=submit label="Log in" testId="login"
+      button press=submit aria-label="Log in" testId="login"
         text "Log in"
-      button press=logout label="Log out" testId="logout"
+      button press=logout aria-label="Log out" testId="logout"
         text "Log out"
-      button press=paid label="Paid" testId="paid"
+      button press=paid aria-label="Paid" testId="paid"
         text "Paid"
       when busy
         text "Logging in…" testId="busy"
@@ -332,7 +332,7 @@ fn bake_refuses_a_resource_that_answers_later_at_boot() {
     let plan = contract::compile(&src).unwrap();
     let err = contract::bake(plan, Remote).unwrap_err();
     assert!(
-        matches!(err, RunnerError::Data { ref resource, .. } if resource == "balance"),
+        matches!(err, contract::BakeError::Runner(RunnerError::Data { ref resource, .. }) if resource == "balance"),
         "{err:?}"
     );
 }

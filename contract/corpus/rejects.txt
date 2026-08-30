@@ -200,3 +200,56 @@ component A
     input value=q change=set
       text "inside an input"
 ---
+== lower-attr-value
+component A
+  view
+    column width=true
+      text "a"
+---
+== lower-attr-type
+component A
+  state on = true
+  view
+    column width=on
+      text "a"
+---
+== lower-root-region
+component A
+  state on = true
+  view
+    when on
+      text "a"
+    else
+      text "b"
+---
+== lower-scroll-unbounded
+component A
+  view
+    column
+      scroll
+        text "a"
+---
+== lower-zero-size
+component A
+  state n = 0
+  action go writes n
+    n = 1
+  view
+    column
+      button press=go testId="go"
+---
+== lower-handler-arity
+component A
+  state n = ""
+  action pick(id: string) writes n
+    n = id
+  view
+    column
+      Row(press=pick)
+component Row
+  props
+    press: action
+  view
+    button press=press testId="r"
+      text "r"
+---

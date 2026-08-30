@@ -134,9 +134,18 @@ impl Lexer {
                 }
                 let span = col_of(pos);
                 if c.is_ascii_alphabetic() || c == '_' {
+                    // An identifier may contain hyphens — `font-size`,
+                    // `aria-label` — as CSS's do; so, as in CSS `calc()`,
+                    // subtraction between two names needs spaces (`a - b`),
+                    // while `x-1` still lexes as `x`, `-`, `1` (LLP 1017 §8.1).
                     let start = pos;
                     while pos < bytes.len()
-                        && ((bytes[pos] as char).is_ascii_alphanumeric() || bytes[pos] == b'_')
+                        && ((bytes[pos] as char).is_ascii_alphanumeric()
+                            || bytes[pos] == b'_'
+                            || (bytes[pos] == b'-'
+                                && bytes
+                                    .get(pos + 1)
+                                    .is_some_and(|n| (*n as char).is_ascii_alphabetic())))
                     {
                         pos += 1;
                     }

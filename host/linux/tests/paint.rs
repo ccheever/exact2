@@ -71,8 +71,8 @@ fn fixture(name: &str, scale: f32, choice: PainterChoice) -> Presenter<NoData> {
 /// LLP 1014 §1a, and say nothing about a corner).
 const CARD: &str = "component Card
   view
-    column background=\"#ffffff\" padding=20 width=\"100%\" height=\"100%\"
-      view width=300 height=120 radius=16 background=\"#f7f7f7\" testId=\"card\"
+    column background-color=\"#ffffff\" padding=20 width=\"100%\" height=\"100%\"
+      view width=300 height=120 border-radius=16 background-color=\"#f7f7f7\" testId=\"card\"
 ";
 
 fn compiled(src: &str, scale: f32, choice: PainterChoice) -> Presenter<NoData> {

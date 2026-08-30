@@ -6,6 +6,6 @@ component Pop
     big = not big
   view
     column testId="root"
-      button press=toggle label="Toggle" testId="toggle"
+      button press=toggle aria-label="Toggle" testId="toggle"
         text "Toggle"
       text "Hello" testId="hello" scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition="scale spring(180, 12, 1), opacity 200ms linear"

@@ -373,7 +373,18 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
         Expr::Some(inner, _) => Ty::Option(Box::new(infer(inner, scope, shapes)?)),
         Expr::Ident(name, span) => match scope.lookup(name) {
             Some((_, t)) => t,
-            None => return err("type-unknown-name", format!("unknown name `{name}`"), *span),
+            None => {
+                let hint = if name.contains('-') {
+                    " (a name may contain hyphens, as in CSS, so subtraction between two names needs spaces: `a - b`)"
+                } else {
+                    ""
+                };
+                return err(
+                    "type-unknown-name",
+                    format!("unknown name `{name}`{hint}"),
+                    *span,
+                );
+            }
         },
         Expr::Member(obj, field, span) => {
             let t = infer(obj, scope, shapes)?;

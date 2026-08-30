@@ -21,7 +21,7 @@ component App
   view
     column testId="app"
       input value=who change=setWho testId="who"
-      button press=submit label="Log in" testId="login"
+      button press=submit aria-label="Log in" testId="login"
         text "Log in"
       when busy
         text "Logging in…" testId="busy"

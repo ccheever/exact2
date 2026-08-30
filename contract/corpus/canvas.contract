@@ -11,7 +11,7 @@ component Map
     label = value
   view
     column testId="root"
-      button press=zoomIn label="Zoom" testId="zoom"
+      button press=zoomIn aria-label="Zoom" testId="zoom"
         text "Zoom"
       canvas surface=map(zoom, "caltrain") width="100%" height=240 testId="map"
         column padding=12 testId="map-children"
@@ -19,6 +19,6 @@ component Map
       canvas testId="bare"
       canvas surface=aurora(`${zoom}`) width="100%" height=120 testId="sky"
         column padding=12 gap=8
-          button press=zoomIn label="Zoom in the sky" testId="sky-zoom"
+          button press=zoomIn aria-label="Zoom in the sky" testId="sky-zoom"
             text "Zoom" color="#ffffff"
-          input value=label change=setLabel placeholder="Label" label="Label" testId="sky-label" color="#ffffff"
+          input value=label change=setLabel placeholder="Label" aria-label="Label" testId="sky-label" color="#ffffff"

@@ -6,6 +6,6 @@ component Fade
     shown = not shown
   view
     column testId="root"
-      button press=toggle label="Toggle" testId="toggle"
+      button press=toggle aria-label="Toggle" testId="toggle"
         text "Toggle"
       text "Hello" testId="hello" opacity=(shown ? 1 : 0) transition="opacity 250ms ease-in-out, translate spring(180, 12, 1)"

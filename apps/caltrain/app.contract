@@ -94,7 +94,7 @@ component Caltrain
     // frame — or in a plain scroll, to see what each costs on a phone. The
     // root's background is what a phone paints behind the status bar and
     // the home indicator (the web's rule): the sky's dark, or white.
-    main testId="caltrain-main" width="100%" height="100%" background=canvasColor
+    main testId="caltrain-main" width="100%" height="100%" background-color=canvasColor
       when skyOn
         canvas surface=glass(material, selectedId) width="100%" height="100%" testId="sky"
           scroll width="100%" height="100%"
@@ -137,92 +137,92 @@ component Content
     blurSearch: action
     searchKey: action
   view
-    column gap=16 padding=20 maxWidth=640 alignSelf="center" width="100%" boxSizing="border-box"
-      header width="100%" background="#ffffffd9" radius=16 padding=14 boxSizing="border-box"
-        row justify="space-between" align="center"
+    column gap=16 padding=20 max-width=640 align-self="center" width="100%" box-sizing="border-box"
+      header width="100%" background-color="#ffffffd9" border-radius=16 padding=14 box-sizing="border-box"
+        row justify-content="space-between" align-items="center"
           column gap=2
-            image "assets/caltrain.png" width=96 fit="contain" label="A Caltrain train" testId="logo"
-            text "Caltrain" size=13 weight=700 letterSpacing=1.2 color="#c0392b"
-            text station.name size=24 weight=700 testId="station-name" headingLevel=1
-            text `${formatDistance(station.distance)} · ${formatWalk(station.distance)}` size=12 color="#666666"
-          column gap=6 align="flex-end"
-            button press=openStations label="Change station" testId="change-station" padding=8 radius=8 background="#eeeeee"
-              text "Change station" size=13 weight=600
+            image "assets/caltrain.png" width=96 object-fit="contain" aria-label="A Caltrain train" testId="logo"
+            text "Caltrain" font-size=13 font-weight=700 letter-spacing=1.2 color="#c0392b"
+            text station.name font-size=24 font-weight=700 testId="station-name" aria-level=1
+            text `${formatDistance(station.distance)} · ${formatWalk(station.distance)}` font-size=12 color="#666666"
+          column gap=6 align-items="flex-end"
+            button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=8 background-color="#eeeeee"
+              text "Change station" font-size=13 font-weight=600
             row gap=6
-              button press=setScheme("light") label="Light" testId="scheme-light"
-                text "Light" size=12
-              button press=setScheme("dark") label="Dark" testId="scheme-dark"
-                text "Dark" size=12
-              button press=toggleSky label="Toggle the sky" testId="sky-toggle"
+              button press=setScheme("light") aria-label="Light" testId="scheme-light"
+                text "Light" font-size=12
+              button press=setScheme("dark") aria-label="Dark" testId="scheme-dark"
+                text "Dark" font-size=12
+              button press=toggleSky aria-label="Toggle the sky" testId="sky-toggle"
                 when sky
-                  text "Sky off" size=12
+                  text "Sky off" font-size=12
                 else
-                  text "Sky on" size=12
+                  text "Sky on" font-size=12
             row gap=6
-              button press=setMaterial("glass") label="Glass" testId="material-glass"
-                text "Glass" size=12 weight=600
-              button press=setMaterial("ink") label="Ink" testId="material-ink"
-                text "Ink" size=12 weight=600
-              button press=setMaterial("crt") label="CRT" testId="material-crt"
-                text "CRT" size=12 weight=600
-              button press=toggleDeck label="Deck" testId="deck-toggle"
-                text "Deck" size=12 weight=600 color="#c0392b"
+              button press=setMaterial("glass") aria-label="Glass" testId="material-glass"
+                text "Glass" font-size=12 font-weight=600
+              button press=setMaterial("ink") aria-label="Ink" testId="material-ink"
+                text "Ink" font-size=12 font-weight=600
+              button press=setMaterial("crt") aria-label="CRT" testId="material-crt"
+                text "CRT" font-size=12 font-weight=600
+              button press=toggleDeck aria-label="Deck" testId="deck-toggle"
+                text "Deck" font-size=12 font-weight=600 color="#c0392b"
 
       when screen == "home"
-        column padding=20 gap=4 height=220 boxSizing="border-box" justify="flex-end" testId="aurora"
+        column padding=20 gap=4 height=220 box-sizing="border-box" justify-content="flex-end" testId="aurora"
           when material == "glass"
-            text "Next stop" size=12 weight=700 letterSpacing=1.2 color="#9ad8ff"
-            text station.name size=34 weight=800 color="#ffffff" testId="aurora-title"
-            text `${formatDistance(station.distance)} · ${formatWalk(station.distance)} · the whole app laid out by the kernel, painted by CoreText, refracted by the aurora` size=12 color="#d0e4ff"
+            text "Next stop" font-size=12 font-weight=700 letter-spacing=1.2 color="#9ad8ff"
+            text station.name font-size=34 font-weight=800 color="#ffffff" testId="aurora-title"
+            text `${formatDistance(station.distance)} · ${formatWalk(station.distance)} · the whole app laid out by the kernel, painted by CoreText, refracted by the aurora` font-size=12 color="#d0e4ff"
           else
-            text "Next stop" size=12 weight=700 letterSpacing=1.2 color="#8a5a2b"
-            text station.name size=34 weight=800 color="#2a1f14" testId="aurora-title"
-            text `${formatDistance(station.distance)} · ${formatWalk(station.distance)} · the whole app laid out by the kernel, painted by CoreText, composed by the surface` size=12 color="#5a4a3a"
-        canvas surface=map(allStations, selectedId, northBoard, nowMs) width="100%" height=160 radius=16 testId="line-map"
-          column height="100%" boxSizing="border-box" paddingTop=16 paddingBottom=16 justify="space-between"
+            text "Next stop" font-size=12 font-weight=700 letter-spacing=1.2 color="#8a5a2b"
+            text station.name font-size=34 font-weight=800 color="#2a1f14" testId="aurora-title"
+            text `${formatDistance(station.distance)} · ${formatWalk(station.distance)} · the whole app laid out by the kernel, painted by CoreText, composed by the surface` font-size=12 color="#5a4a3a"
+        canvas surface=map(allStations, selectedId, northBoard, nowMs) width="100%" height=160 border-radius=16 testId="line-map"
+          column height="100%" box-sizing="border-box" padding-top=16 padding-bottom=16 justify-content="space-between"
             each s in allStations key=s.id
-              row align="center" height=14 testId=`map-${s.id}`
+              row align-items="center" height=14 testId=`map-${s.id}`
                 view flex=1
-                view width=14 height=14 align="center" justify="center"
+                view width=14 height=14 align-items="center" justify-content="center"
                   when s.id == selectedId
-                    view width=14 height=14 radius=7 background="#bf382b"
+                    view width=14 height=14 border-radius=7 background-color="#bf382b"
                   else
-                    view width=7 height=7 radius=3.5 background="#666666"
-                view flex=1 paddingLeft=10
-                  text s.name size=11 color="#444444" testId=`map-name-${s.id}`
-        section role="region" label="Departures" gap=14 testId="home-screen"
+                    view width=7 height=7 border-radius=3.5 background-color="#666666"
+                view flex=1 padding-left=10
+                  text s.name font-size=11 color="#444444" testId=`map-name-${s.id}`
+        section role="region" aria-label="Departures" gap=14 testId="home-screen"
           when deck
             canvas surface=stack(northBoard, focus, deck, nowMs) width="100%" height=460 testId="deck"
               each d in northBoard key=d.id
-                button press=focusDeparture(d.id) label=`Train ${d.train}` testId=`card-${d.id}` width="100%"
-                  column radius=16 padding=16 gap=6 background="#ffffff" width="100%" boxSizing="border-box"
-                    row gap=8 align="flex-end"
-                      text formatCountdownMinutes(d.at, nowMs) size=30 weight=800
-                      text "min" size=13 color="#666666"
-                    text `${formatClockTime(d.at)} · Train ${d.train} · ${d.service} to ${d.headsign}` size=13 color="#444444"
+                button press=focusDeparture(d.id) aria-label=`Train ${d.train}` testId=`card-${d.id}` width="100%"
+                  column border-radius=16 padding=16 gap=6 background-color="#ffffff" width="100%" box-sizing="border-box"
+                    row gap=8 align-items="flex-end"
+                      text formatCountdownMinutes(d.at, nowMs) font-size=30 font-weight=800
+                      text "min" font-size=13 color="#666666"
+                    text `${formatClockTime(d.at)} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#444444"
           else
             DirectionCard(title="Northbound", board=northBoard, nowMs=nowMs, testId="board-north")
           DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, testId="board-south")
       else
-        section role="region" label="Stations" gap=12 testId="stations-screen" background="#ffffffd9" radius=16 padding=14 boxSizing="border-box"
-          input value=query change=setQuery focus=focusSearch blur=blurSearch key=searchKey placeholder="Search stations" label="Search stations" testId="station-search" padding=12 radius=10 borderWidth=1 borderColor="#cccccc"
+        section role="region" aria-label="Stations" gap=12 testId="stations-screen" background-color="#ffffffd9" border-radius=16 padding=14 box-sizing="border-box"
+          input value=query change=setQuery focus=focusSearch blur=blurSearch key=searchKey placeholder="Search stations" aria-label="Search stations" testId="station-search" padding=12 border-radius=10 border-width=1 border-color="#cccccc"
           when searchFocused
-            text `searching · last key ${lastKey}` size=11 color="#999999" testId="search-hint"
+            text `searching · last key ${lastKey}` font-size=11 color="#999999" testId="search-hint"
           when query == ""
             column gap=8
-              text "Nearest" size=12 weight=700 letterSpacing=0.8 color="#999999"
+              text "Nearest" font-size=12 font-weight=700 letter-spacing=0.8 color="#999999"
               each s in nearby key=s.id
                 StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
-              text "All stations" size=12 weight=700 letterSpacing=0.8 color="#999999"
+              text "All stations" font-size=12 font-weight=700 letter-spacing=0.8 color="#999999"
               each s in allStations key=s.id
                 StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
           else
             column gap=8
-              text "Matches" size=12 weight=700 letterSpacing=0.8 color="#999999"
+              text "Matches" font-size=12 font-weight=700 letter-spacing=0.8 color="#999999"
               each s in matches key=s.id
                 StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
-          button press=goHome label="Back" testId="stations-back"
-            text "Back" size=13
+          button press=goHome aria-label="Back" testId="stations-back"
+            text "Back" font-size=13
 
 component DirectionCard
   props
@@ -231,16 +231,16 @@ component DirectionCard
     nowMs: number
     testId: string
   view
-    column radius=16 padding=16 gap=10 background="#ffffffd9" testId=testId
-      text title size=13 weight=700 color="#c0392b"
+    column border-radius=16 padding=16 gap=10 background-color="#ffffffd9" testId=testId
+      text title font-size=13 font-weight=700 color="#c0392b"
       when isEmpty(board)
-        text "No more trains today" size=14 color="#666666"
+        text "No more trains today" font-size=14 color="#666666"
       else
         each d in board key=d.id
           when d.at >= nowMs
-            row gap=8 align="flex-end" testId=`dep-${d.id}`
-              text formatCountdownMinutes(d.at, nowMs) size=28 weight=700 testId=`countdown-${d.id}`
-              text `min · ${formatClockTime(d.at)} · Train ${d.train} · ${d.service} to ${d.headsign}` size=13 color="#666666"
+            row gap=8 align-items="flex-end" testId=`dep-${d.id}`
+              text formatCountdownMinutes(d.at, nowMs) font-size=28 font-weight=700 testId=`countdown-${d.id}`
+              text `min · ${formatClockTime(d.at)} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#666666"
 
 component StationRow
   props
@@ -249,16 +249,16 @@ component StationRow
     hover: action
     hot: bool
   view
-    button press=press(station.id) hover=hover(station.id) label=station.name testId=`station-${station.id}` width="100%"
+    button press=press(station.id) hover=hover(station.id) aria-label=station.name testId=`station-${station.id}` width="100%"
       when hot
-        row justify="space-between" align="center" paddingTop=10 paddingBottom=10 borderBottomWidth=1 borderColor="#e0e0e0" width="100%" background="#f2f2f2" testId=`station-hot-${station.id}`
+        row justify-content="space-between" align-items="center" padding-top=10 padding-bottom=10 border-bottom-width=1 border-color="#e0e0e0" width="100%" background-color="#f2f2f2" testId=`station-hot-${station.id}`
           column gap=2
-            text station.name size=15 weight=600
-            text `Zone ${station.zone}` size=12 color="#999999"
-          text formatDistance(station.distance) size=12 color="#666666"
+            text station.name font-size=15 font-weight=600
+            text `Zone ${station.zone}` font-size=12 color="#999999"
+          text formatDistance(station.distance) font-size=12 color="#666666"
       else
-        row justify="space-between" align="center" paddingTop=10 paddingBottom=10 borderBottomWidth=1 borderColor="#e0e0e0" width="100%"
+        row justify-content="space-between" align-items="center" padding-top=10 padding-bottom=10 border-bottom-width=1 border-color="#e0e0e0" width="100%"
           column gap=2
-            text station.name size=15 weight=600
-            text `Zone ${station.zone}` size=12 color="#999999"
-          text formatDistance(station.distance) size=12 color="#666666"
+            text station.name font-size=15 font-weight=600
+            text `Zone ${station.zone}` font-size=12 color="#999999"
+          text formatDistance(station.distance) font-size=12 color="#666666"

@@ -108,10 +108,27 @@ with each argument once, children carry no state.
 to `nodes`/`regions`/`arms`/`bindings`/`handlers` through the tag/attribute
 table (`tags.rs`: `column`/`row`/`main`/`scroll`/`text`/`button`/`link`/
 `input`/`image` onto kernel node types plus fixed rows; attributes onto style
-rows by CSS name — `size`→`font_size`, `gap`→`row_gap`+`column_gap`,
-`padding`→four rows, `radius`→four rows, `flex=n`→CSS `flex: n` = grow n,
-shrink 1, basis 0% … — or props or handlers; anything else is
-`lower-unknown-attr`; a leaf tag with children, or a `text` holding anything
+rows by their **literal CSS names** (LLP 1017 §8.1, 2026-08-30 — `font-size`,
+`background-color`, `border-radius`→four rows, `gap`→`row_gap`+`column_gap`,
+`padding`→four rows, `flex=n`→CSS `flex: n` = grow n, shrink 1, basis 0%;
+hyphens are grammar, and the lexer reads `a-b` as one name as CSS's `calc()`
+does, so subtraction between names is `a - b`) or onto props by their HTML
+and ARIA names (`aria-label`, `aria-description`, `aria-level`, `role`,
+`placeholder`, `value`, `href`, `disabled`, `lang`; `testId` is the one
+Exact-named attribute) or handlers; there are no aliases — an old spelling
+(`size`, `fontSize`, `radius`, `label`) is `lower-unknown-attr` naming the
+CSS name it became; **a literal value is checked against its rows at
+compile time by the kernel's own parser** (`StyleProps::set_dynamic` on a
+probe: `width=true`, `align-items="middle"`, `background-color="red"` are
+`lower-attr-value`; a computed value that is not a number or a string, or a
+prop of the wrong type, is `lower-attr-type`); a handler behind a child's
+`action` prop names the real action after inlining and its arity is
+`lower-handler-arity`; a `when`/`each`/`match` at the root is
+`lower-root-region`; a `scroll` with no `height`, `max-height`, or `flex`
+under a parent that stacks is `lower-scroll-unbounded`, and a childless
+`button`/`link` with no size is `lower-zero-size` (the two conservative
+layout refusals; the measured ones are bake's, §3 Driver); a leaf tag with
+children, or a `text` holding anything
 but `text` runs, is `lower-leaf-children`); every expression through one assembler
 (`expr.rs`: `and`/`or` short-circuit through a local; inline `match` binds a
 local; a non-string template part gets `toString`). Row order is source
@@ -120,7 +137,16 @@ order, so compilation is byte-identical (`the_app_compiles_deterministically…`
 **Driver** (`contract`): `compile(src) → Plan`; `bake(plan, data) → Plan`
 boots the runner once against the app's data source and writes every
 resource's boot value into the data pool, so the first frame on a device
-queries nothing (`the_first_frame_needs_no_data_source`). The CLI: `contract
+queries nothing (`the_first_frame_needs_no_data_source`). Since 2026-08-30
+(LLP 1017 P1d) bake is also **the layout lint**: the first frame is laid out
+at `LINT_VIEWPORT` (390×844, a phone) on the monospace measurer, and a
+`scroll` that is exactly as tall as its children with nothing bounding it
+(`height`, `max-height`, and `flex_grow` all unset) is `bake-scroll-unbounded`,
+a pressable with zero area is `bake-zero-size` (one holding an image or a
+canvas is exempt — their size is the host's), each named by the node's
+`testId`; `bake` returns `BakeError` — the runner's refusal or the lint's —
+and every host's `build.rs` fails on either (`contract/cli/tests/lint.rs`).
+The compiler cannot see layout; bake can, and it already had the kernel. The CLI: `contract
 build <file> [-o <plan>]` prints a one-line summary or a rejection as
 `file:line:col [id] message`, exit 1.
 
@@ -175,11 +201,11 @@ driver landed with the web host the same day (LLP 1007 §6,
 `host/web/src/dev.rs`): a save is observed, compiled, and baked in 8–13 ms
 including a 10 ms poll, so the ≤20 ms slice (1004 D5) holds with no
 incremental compilation at this size; the CLI stays a one-shot.
-**compile-time checking of attribute
-values against their kernel rows** (`width=true` compiles and fails at first
-frame — a typed refusal, but late; the 2026-08-28 review's circle-back);
-**handler arity through a bare `action` prop** (checked at dispatch, not
-compile time — the other circle-back); a total inlining budget beyond the
+~~compile-time checking of attribute
+values against their kernel rows~~ and ~~handler arity through a bare
+`action` prop~~ — both landed 2026-08-30 under LLP 1017 P1 (§3 Lower), with
+the root-region and the two layout refusals, and bake's layout lint (§3
+Driver); a total inlining budget beyond the
 depth guard; `@keyframes`, the `contract` block as
 executable assertions, `cursor`, per-instance state, LSP/formatter, `linear()`
 and transition rows from Contract (the kernel has the row; the tag table does
