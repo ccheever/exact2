@@ -186,7 +186,11 @@ rmSync(tmp, { recursive: true, force: true });
   const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/canvas.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) failures.push('the canvas fixture did not compile: ' + c.stderr);
   else {
-    const f = await open({ host, plan });
+    // On Linux the picture is the oracle painter's (tiny-skia; LLP 1015 §2)
+    // over the pinned font the driver sets (§5): the same bytes on every
+    // machine, so the reference below is exact, not a band — the GPU painter
+    // is held to it by `tests/paint.rs`'s band instead.
+    const f = await open({ host, plan, env: host === 'linux' ? { EXACT_PAINTER: 'cpu' } : undefined });
     try {
       let t = await f.tree();
       check(byTestId(t, 'sky-zoom') && byTestId(t, 'sky-label'), 'the canvas fixture did not boot');
@@ -210,8 +214,10 @@ rmSync(tmp, { recursive: true, force: true });
       // canvas's box and held against this host's recorded reference,
       // scripts/fixtures/canvas-sky.<host>.png (`--record-canvas` rewrites
       // it). The clock is the agent's, so the sky is the same picture every
-      // run; the band is for the GPU's arithmetic. Taken before the tap and
-      // the edit: a caret blinks on the wall clock.
+      // run; the band is for the GPU's arithmetic (on Linux the picture is
+      // the CPU oracle's with the pinned font, and matches to the pixel on
+      // any machine). Taken before the tap and the edit: a caret blinks on
+      // the wall clock.
       if (host === 'web') { let g = f.gpuMs(); for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = f.gpuMs(); } }
       await sleep(150); // one frame of the surface after its first capture
       const shotPath = resolve(tmp, 'canvas.png');

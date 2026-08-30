@@ -209,6 +209,23 @@ shaper. Chrome on Linux with the same DejaVu Sans wraps the same lines:
 the app's root is 3244 pt tall here against 3246 on macOS, and the
 departure rows wrap at 420 wide on both, as `QUEUE.md` §3 noted for macOS.
 
+**The pinned font (r3).** A pixel fixture that must match across machines
+needs the same font bytes on each, so `scripts/fixtures/fonts/` holds
+DejaVu Sans 2.37 Book and Bold as Debian ships them (the builders'
+`fonts-dejavu-core 2.37-8`), subset to the Latin blocks the app can paint
+(168 + 154 KB; `SOURCE.md` there has the hashes and the exact fonttools
+command; the Bitstream Vera license beside them). `scripts/agent.mjs`
+launches this host with `EXACT_FONTS` at that directory and
+`EXACT_FONT="DejaVu Sans"` unless the environment or a caller's `env` says
+otherwise, so a picture taken through the driver is the same picture on a
+Mac and on a builder; the app on a real box still uses what it finds. The
+subset paints identically to the full font (0 pixels differ over the whole
+app through the CPU painter — hinting and GPOS kerning kept). The smoke's
+canvas reference for this host is the CPU oracle's picture over the pinned
+font: exact on every machine, where the GPU painter lands within the band
+(0.87% of the crop beyond 8/255 on Metal) and is held to the oracle by
+`tests/paint.rs` instead.
+
 ## 4. The presenter (`host/linux/src/presenter.rs`, `image.rs`)
 
 What a painter holds beyond the kernel, and the operations that touch it.
@@ -376,9 +393,8 @@ sans-serif), RTL untested; shadows, gradients, grid (as on macOS); JPEG
 and other image formats (PNG only), image URLs (ibex2); accessibility of
 any kind; HiDPI beyond `EXACT_SCALE`; a font cache for the scan;
 pixel fixtures against Chrome (the instrument exists — `screenshot`, the
-smoke's canvas reference — and `EXACT_FONT` pins the family; a fixture
-that must match across machines still needs the same font file on each,
-`EXACT_FONTS`); the page extent past the root's frame (LLP 1010
+smoke's canvas reference, and the pinned font, §3 — the comparison itself
+is not made); the page extent past the root's frame (LLP 1010
 §3's deviation, shared); lifting the orchestration out of `host/apple`
 and `host/linux` into one crate.
 

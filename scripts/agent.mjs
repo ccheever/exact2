@@ -21,6 +21,9 @@
 // on any machine, macOS included, so `linux` works wherever it was built);
 // the driver resolves a target to a view id through `tree` first, so every
 // host sees the same request. Console and stderr lines ride along with `logs`.
+// The Linux host is launched with the pinned font (scripts/fixtures/fonts,
+// LLP 1015 §5) so a pixel taken through this driver is the same pixel on
+// every machine; an `env` option, or the environment, overrides it.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -180,13 +183,21 @@ async function openWeb({ plan, size = [420, 900] }) {
 // ---------------------------------------------------------------- macOS and Linux, over stdio
 
 /** The stdio carrier: an app that answers JSON lines under EXACT_AGENT=1 — the macOS presenter (`Agent.swift`) and the Linux host (`host/linux/src/agent.rs`), one protocol. */
-async function openStdio({ host, plan, size, app = 'caltrain' }) {
+async function openStdio({ host, plan, size, app = 'caltrain', env: extra = {} }) {
   const linux = host === 'linux';
   const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(ROOT, `target/release/${app}-linux`)) : resolve(ROOT, 'host/apple/macos/.build/release/ExactMac');
   if (!existsSync(bin)) throw new Error(linux ? `run cargo build --release -p ${app}-linux first` : 'run node host/apple/build.mjs first');
   const env = { EXACT_ASSETS: resolve(ROOT, 'apps', app), ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;
   if (linux && size) env.EXACT_SIZE = `${size[0]}x${size[1]}`;
+  if (linux) {
+    // The pinned font: DejaVu Sans from scripts/fixtures/fonts shapes and
+    // paints the host's text on every machine, so a pixel fixture recorded
+    // here matches on a builder (LLP 1015 §5). The environment still wins.
+    env.EXACT_FONTS ??= resolve(ROOT, 'scripts/fixtures/fonts');
+    env.EXACT_FONT ??= 'DejaVu Sans';
+  }
+  Object.assign(env, extra);
   const child = spawn(bin, [], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
@@ -236,9 +247,9 @@ async function openStdio({ host, plan, size, app = 'caltrain' }) {
 
 // ---------------------------------------------------------------- the eight operations
 
-/** Open a session on `host` ('web' | 'macos' | 'linux'); `plan` boots a compiled contract instead of the app's baked plan. */
-export async function open({ host, plan, size } = {}) {
-  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size }) : await openWeb({ plan, size });
+/** Open a session on `host` ('web' | 'macos' | 'linux'); `plan` boots a compiled contract instead of the app's baked plan; `env` adds to a stdio host's environment. */
+export async function open({ host, plan, size, env } = {}) {
+  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env }) : await openWeb({ plan, size });
   const s = {
     host: carrier.host,
     /** Milliseconds from launch to the first frame. */
