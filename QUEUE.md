@@ -92,15 +92,8 @@ sits on that list carries the trade it would take.
   paints the root's background there today, Safari's rule without the meta). An `env()`
   dimension in the kernel and Contract, the insets set by the host with the viewport,
   a relayout when they change (a rotation).
-- **The compiler accepts a root-level `when` that the runner refuses** (`RootRegion`,
-  found 2026-08-30 putting the Caltrain root inside one): a view whose root is a region
-  compiles and bakes only to fail at boot, in every host's `build.rs` at once. The
-  compiler should refuse it with the reason (a root is a node, LLP 1010 §1), or the
-  runner should allow a region root.
-- `overflowX`/`overflowY` and `transition` in the Contract tag table (rows exist,
-  attributes do not; LLP 1010 §5, LLP 1006 §8).
-- Compile-time checking of attribute values against kernel rows; handler arity through
-  a bare `action` prop (LLP 1006 §8's two circle-backs).
+
+
 - `fitDocument` reading the root's `content` so the page's extent includes overflow
   past the root, as `scrollHeight` does (LLP 1010 §3's declared deviation).
 - The untested-but-built list in LLP 1010 §5: horizontal scroll on macOS, `overflow:
@@ -119,7 +112,7 @@ sits on that list carries the trade it would take.
   the pipeline cache after" beside LLP 1009 §5's — Charlie's to write.
 - **The app's name** (`rules/NOT-DOING.md` opens with it; the recommendation is
   Caltrain and Caltrain is what exists).
-- **Contract, started over** — LLP 1017 (RFC, **Accepted** 2026-08-30 evening — §8: literal CSS names, commands stay the framework's, all nine proposals in one lane in the order P1+P9 → P2 → P6+P8 → P4 → P5 → P7, no instance reload carry, Coterie rerun deferred; in `llp/current/`;
+- **Contract, started over** — LLP 1017 (RFC, **Accepted** 2026-08-30 evening; **landed on main the same night: P1, P9, P2, P6, P8, P4a/b** — LLP 1017.000 transcribes each; left: P4c per-instance state, P5 `fn`, P7 `test` beside the app; owed with P8: the dev loop watches the app file only, so an edit to a `use`d file needs a save of the app file — §8: literal CSS names, commands stay the framework's, all nine proposals in one lane in the order P1+P9 → P2 → P6+P8 → P4 → P5 → P7, no instance reload carry, Coterie rerun deferred; in `llp/current/`;
   sub-LLPs 1017.001 grok and 1017.002 codex answered the same brief blind; a one-round panel — `llp/reviews/1017-contract-restart.{codex,grok}.md`, §10 — settled every fork but the CSS spelling, which is Charlie's): the seven Coterie diaries and exact1's record read
   for what consistently cost authors time, and nine proposals in order of leverage — kernel
   rows as the compiler's value checker plus a layout lint at bake, `if`/`match` in actions,
