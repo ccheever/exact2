@@ -168,7 +168,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "role" => AttrTarget::Prop(p("accessibilityRole")),
         "placeholder" => AttrTarget::Prop(p("placeholder")),
         "type" => AttrTarget::Prop(p("type")),
-        "inputMode" => AttrTarget::Prop(p("inputMode")),
+        // HTML's attribute is `inputmode`; the kernel's prop keeps the DOM
+        // property's spelling, as the schema does for every prop.
+        "inputmode" => AttrTarget::Prop(p("inputMode")),
         "value" => AttrTarget::Prop(p("value")),
         "href" => AttrTarget::Prop(p("href")),
         "disabled" => AttrTarget::Prop(p("disabled")),
@@ -302,6 +304,8 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "label" | "accessibilityLabel" => "aria-label",
         "hint" | "accessibilityHint" => "aria-description",
         "headingLevel" => "aria-level",
+        "inputMode" | "keyboardType" => "inputmode",
+        "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",
         "onChange" | "onChangeText" => "change",
         "className" | "class" | "style" => return None,
