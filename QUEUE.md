@@ -34,7 +34,8 @@ sits on that list carries the trade it would take.
    string `match` — so `key=` today can only record the key.
 3. **Weird Castle's asks** (Charlie, 2026-08-30: the app lives in `~/projects/weird-castle`
    on exact2 by path; `scripts/app.mjs`). In order: **asynchronous data settlement** —
-   the RFC (LLP 1016) for the runner's reserved shape (LLP 1005 §7): a data source
+   LLP 1016 (RFC, Draft, written 2026-08-30; a two-model panel on §4's mutation question,
+   then Charlie) for the runner's reserved shape (LLP 1005 §7): a data source
    answers now or hands back a request, the host executes it (`ibex2::host` on native,
    the browser's `fetch` on the web), one ABI call brings the answer in, a pending
    resource is `none` meanwhile, bake tolerates it — the first out-of-process resource
@@ -115,6 +116,14 @@ sits on that list carries the trade it would take.
   the pipeline cache after" beside LLP 1009 §5's — Charlie's to write.
 - **The app's name** (`rules/NOT-DOING.md` opens with it; the recommendation is
   Caltrain and Caltrain is what exists).
+- **Contract, started over** — LLP 1017 (RFC, Draft, 2026-08-30; not linked into
+  `llp/current/`, which is at its cap): the seven Coterie diaries and exact1's record read
+  for what consistently cost authors time, and nine proposals in order of leverage — kernel
+  rows as the compiler's value checker plus a layout lint at bake, `if`/`match` in actions,
+  `refresh` as the mutation (decides 1016 §4), children reading the root by name and a
+  `children` slot, `pure name(params): type` implemented in the app's Rust crate, named styles,
+  the `contract` block deleted for the agent script, `use` across files, the RN-word sweep.
+  §8's six questions are Charlie's; if one lands first, P1.
 
 ## Declared gaps, by system (each spec's "Not in v1")
 
