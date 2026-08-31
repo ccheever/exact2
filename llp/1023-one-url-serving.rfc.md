@@ -199,6 +199,44 @@ Fetching envelope-listed, digest-addressed assets from the serving origin
 asset path — resolution, caching, integrity — and lands as its own slice
 after Stage 1, not silently inside it.
 
+**D10 — one plan is the invariant; platform divergence has a landing
+order.** (Added r2, from Charlie's worry that large apps grow per-platform
+component versions.) Divergence lands, in order:
+
+1. **The presenter, first.** Look and behavior that differ per platform
+   never enter the plan — LLP 1021 is the proof: one set of popover rows
+   becomes the browser's top layer, `NSMenu`, and `UIMenu`.
+2. **A capability branch, second.** Structural divergence is a `match` in
+   the Contract; the plan carries every arm and the runtime selects — the
+   web's own model (one document, every breakpoint). The plan is tables,
+   not code or assets: the heavy things live outside it and never multiply
+   with arms, and unmounted arms do not lay out. Branch on *capability*,
+   not platform, where possible — LLP 1020's Linux `{unavailable: true}`
+   is `@supports`, not UA-sniffing.
+3. **Pruned variants of one source, someday, as an optimization.** The URL
+   contract identifies the app, not the bytes: nothing in D1/D2 requires
+   every client to receive identical bytes, so if a many-armed plan ever
+   measures as too heavy, bake can strip dead arms per target and a smart
+   server can hand each client its pruned variant (each with its own
+   digest) while a static host serves the fat one. Same source, same
+   semantics; no contract change.
+4. **Per-platform sources, never.** `.native`/`.mac` forks are the
+   four-disagreeing-layers world (`rules/NOT-DOING.md` §Authoring models),
+   and this document adds the serving-side reason: they would make the
+   plan platform-specific and the URL a lie.
+
+What must hold for this to stay true: the component vocabulary never
+forks. `kernel/tables/schema.json` is the one authority; a platform may
+*lag* a row's implementation with a declared fallback, never carry its own
+version of the row. Divergence in *time* — platforms updating at different
+rates — is the update economy's problem, refused in §8, and the header
+gates (`kernelSchema`, `formatVersion`, `app_id`) are the refusal
+machinery that future document inherits; a plan being validated data means
+old-client-meets-new-plan fails closed at decode. One known chafe point:
+bake lints the first frame at one phone viewport (390×844, LLP 1017 P1d);
+the first real desktop-divergent arm needs a second lint size or a per-arm
+story.
+
 ## 4. App identity in the plan header
 
 **D5 — the plan says whose it is.** (Ruled: Charlie, 2026-08-30.) The
@@ -383,8 +421,8 @@ nothing here changes shape.
 
 Each stage ships alone; none blocks the next's design. Implementer: the
 serving lane (this conversation's session under Charlie's sanction,
-2026-08-30); `1023.000` is transcribed from Stage 1's PR and covers only
-what landed.
+2026-08-30); the build plan is LLP 1023.000, and `1023.001` is transcribed
+from Stage 1's PR covering only what landed.
 
 1. **The phone loop — one URL, the link rung, no server branching.**
    - `build.mjs` emits the static `exact.json` (no `events`) and the
