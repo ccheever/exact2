@@ -1,13 +1,13 @@
 ---
 name: llp-review
 description: Run the LLP 0005 review loop for an LLP document — orchestrate reviews from other model families, write one provenance-tracked artifact per review actually received under llp/reviews/, and never fabricate a review or accept on the author's behalf. Review intensity scales with stakes; the author decides when it's enough.
-source: ccheever/llp@v0.5.1
+source: ccheever/llp@v0.5.2
 ---
 
 # llp-review
 
-<!-- @ref https://github.com/ccheever/llp/blob/v0.5.1/llp/0000-linked-literate-programming.explainer.md#review-honesty — the rules this enforces -->
-<!-- @ref https://github.com/ccheever/llp/blob/v0.5.1/llp/0005-rfc-process.guide.md#review-artifacts — artifact + provenance header format -->
+<!-- @ref https://github.com/ccheever/llp/blob/v0.5.2/llp/0000-linked-literate-programming.explainer.md#review-honesty — the rules this enforces -->
+<!-- @ref https://github.com/ccheever/llp/blob/v0.5.2/llp/0005-rfc-process.guide.md#review-artifacts — artifact + provenance header format -->
 
 Review an LLP the way LLP 0005 prescribes: as much critical review as the stakes warrant, captured honestly. Different model families catch different blind spots, so a single session cannot stand in for a multi-family loop — this skill makes the honest path the only path.
 

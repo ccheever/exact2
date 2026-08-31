@@ -1,14 +1,14 @@
 ---
 name: llp-adopt
 description: Bring LLP to a repository and keep its installed skills current — the single entry point for "set up LLP here" and "update the LLP skills". Scaffold mode (fresh structure), retrofit mode (survey the codebase, draft a provenance-tagged root LLP, propose an adoption plan), install step (copy skills from a tagged release with a receipt), and update mode (verified, diff-approved skill updates).
-source: ccheever/llp@v0.5.1
+source: ccheever/llp@v0.5.2
 ---
 
 # llp-adopt
 
-<!-- @ref https://github.com/ccheever/llp/blob/v0.5.1/llp/0001-adopting-llp.guide.md — the workflow this automates -->
-<!-- @ref https://github.com/ccheever/llp/blob/v0.5.1/llp/0010.000-skill-installation-and-updates.spec.md — install/update design, receipts, trust model -->
-<!-- @ref https://github.com/ccheever/llp/blob/v0.5.1/llp/0000-linked-literate-programming.explainer.md#provenance-for-generated-rationale — tagging rules for generated docs -->
+<!-- @ref https://github.com/ccheever/llp/blob/v0.5.2/llp/0001-adopting-llp.guide.md — the workflow this automates -->
+<!-- @ref https://github.com/ccheever/llp/blob/v0.5.2/llp/0010.000-skill-installation-and-updates.spec.md — install/update design, receipts, trust model -->
+<!-- @ref https://github.com/ccheever/llp/blob/v0.5.2/llp/0000-linked-literate-programming.explainer.md#provenance-for-generated-rationale — tagging rules for generated docs -->
 
 One entry point for "add LLP to this project" and "update the LLP skills". Invoke as `/llp-adopt` (auto-detect scaffold/retrofit), `--mode scaffold` / `--mode retrofit`, or `/llp-adopt update`.
 

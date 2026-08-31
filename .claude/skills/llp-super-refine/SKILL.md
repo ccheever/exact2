@@ -1,14 +1,14 @@
 ---
 name: llp-super-refine
 description: Author-invoked dual-family refine loop for one or more Draft/Review LLPs — each round, two fresh mutually-blind reviews from different model families, orchestrator revision, verdict-lined artifacts — until both families mark the same revision READY, a delta round finds no MATERIAL concern in pre-existing text across families, or a bounded stop rule escalates to the author. Use when the user invokes /llp-super-refine or asks to refine an LLP until independent models agree it is ready.
-source: ccheever/llp@v0.5.1
+source: ccheever/llp@v0.5.2
 ---
 
 # llp-super-refine
 
-<!-- @ref https://github.com/ccheever/llp/blob/v0.5.1/llp/0010.001-super-refine-loop.spec.md — the protocol this pins -->
-<!-- @ref https://github.com/ccheever/llp/blob/v0.5.1/llp/0000-linked-literate-programming.explainer.md#review-honesty — honesty rules and the formal-loop authorization sentence -->
-<!-- @ref https://github.com/ccheever/llp/blob/v0.5.1/llp/0005-rfc-process.guide.md#review-artifacts — artifact and provenance format -->
+<!-- @ref https://github.com/ccheever/llp/blob/v0.5.2/llp/0010.001-super-refine-loop.spec.md — the protocol this pins -->
+<!-- @ref https://github.com/ccheever/llp/blob/v0.5.2/llp/0000-linked-literate-programming.explainer.md#review-honesty — honesty rules and the formal-loop authorization sentence -->
+<!-- @ref https://github.com/ccheever/llp/blob/v0.5.2/llp/0005-rfc-process.guide.md#review-artifacts — artifact and provenance format -->
 
 The applying counterpart to `llp-review`: an orchestrating loop that revises the document between rounds and applies exactly one pre-authorized status transition. Invoke as `/llp-super-refine <targets...> [--rounds N] [--reviser orchestrator|<family|model>|each] [--claude <model@effort>] [--external <runner:model@effort>]`. Defaults: converge within the round budget; the orchestrating session revises. **Model defaults unless otherwise specified (LLP 0010.001 §Current instantiation, dated 2026-08-20):** author/reviser = Claude Fable 5 @ xhigh; reviewer families = codex `gpt-5.6-sol` @ ultra (read-only sandbox; verify the effort header in the run log) and `grok-4.6` @ xhigh (headless; the prompt MUST carry a full terminal ban — no shell commands of any kind, even read-only — or the permission prompt cancels the session).
 
