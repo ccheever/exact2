@@ -1,1 +1,0 @@
-../1009-gpu-canvas.rfc.md
