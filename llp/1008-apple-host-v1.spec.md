@@ -5,7 +5,7 @@
 **Systems:** Apple host (AppKit and UIKit presenters), Kernel (layout, text measurement), Runner (seam), Motion (native executor), C ABI, Boot
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-08-29 (§9: iOS — the UIKit presenter over the same archive, the Swift the two presenters share, the simulator as the run; §7 and the summary follow); 2026-08-30 (§9: `viewport-fit=cover` with the insets to the kernel, and the keyboard's inset on the viewport; §4: `exact_insets`)
+**Revised:** 2026-08-29 (§9: iOS — the UIKit presenter over the same archive, the Swift the two presenters share, the simulator as the run; §7 and the summary follow); 2026-08-30 (§9: `viewport-fit=cover` with the insets to the kernel, and the keyboard's inset on the viewport; §4: `exact_insets`); 2026-08-31 (§9: macOS `viewport-fit=cover` is a full-size-content window, titlebar height as `safe-area-inset-top`; §5: Edit menu so the field editor's command keys work)
 **Implementer:** Claude (Fable 5), landing 2026-08-29 (this document transcribes the landing; iOS the same day, §9)
 **Related:** LLP 1007 (the web host whose shape this repeats), LLP 1001 §5–6 (layout is a host call; text measurement is an injected trait object) and §9 (the C ABI waited for its consumer — this is it), LLP 1002 D2/§4 (every host but the web runs `exact-motion`; Core Animation delegation is a measured question), LLP 1003 §4 (the seam), LLP 1000 (the map: web first, then Apple, then Linux), `rules/RULES.md` §Time budgets, `rules/NOT-DOING.md` §Motion (no CA executor yet). Research, never authority, whose lessons this applies: exact1's LLP 0113/0116/0169 (SwiftUI's delivery hop measured), 0223 (the AppKit/UIKit cutover), 0418/0430/0432 (CoreText as the one text engine), 0323 (measurement caching — shelved there, adopted here at its cheap end).
 
@@ -175,7 +175,11 @@ changes (a field's begin/end editing; a node with such a handler
 hears the field editor's `insertNewline` (Enter — the web's implicit
 submission). An input's `type="password"` is an `NSSecureTextField`, remade
 in place if the type changes (a different class on AppKit); `inputMode` has
-no meaning on a Mac keyboard. **Declared deviation:** inside a text field, `key` sees only the editing commands the
+no meaning on a Mac keyboard. The menu bar always carries a standard Edit
+menu so the field editor hears ⌘A/X/C/V/Z — AppKit does not bind those keys
+itself (`StandardKeyBinding.dict` has no `selectAll`), and a bar of only app
+and Develop items left them unmatched (Weird Castle's login, 2026-08-31).
+**Declared deviation:** inside a text field, `key` sees only the editing commands the
 field editor reports (`insertNewline` → `Enter`, `cancelOperation` →
 `Escape`, `insertTab`, the arrows, `deleteBackward`); a typed character is
 the field's `change`, where the web's `keydown` fires per character. A view
@@ -392,7 +396,10 @@ viewport is the whole screen and the safe-area insets go to the kernel
 (`exact_insets`, §4; `Host::set_insets`; `Kernel::set_env`, LLP 1001 §2),
 where the app's `env(safe-area-inset-*)` lengths resolve to them — Weird
 Castle's root pads itself by the four and its dark runs under the status
-bar. `Controller.fit` frames the viewport from the prop after each layout
+bar. On macOS the same prop makes the window `fullSizeContentView` with a
+transparent titlebar: the viewport is the whole window, the titlebar's
+height is `safe-area-inset-top`, and the traffic lights overlay the
+content the way a phone's status bar does. `Controller.fit` frames the viewport from the prop after each layout
 pass: the plan boots at the safe area's size (the prop arrives in the first
 batch) and a cover root is reframed and re-inset in the same turn, before
 anything is drawn; a rotation changes size and insets and sends both; the

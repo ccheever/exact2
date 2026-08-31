@@ -6,6 +6,34 @@ import WebKit
 #if os(macOS)
 import AppKit
 private typealias PlatformImage = NSImage
+/// WKWebView in a `fullSizeContentView` window otherwise inherits the
+/// titlebar as a safe area and insets the guest by it — a black strip the
+/// height of the titlebar over the deck. The kernel already framed this
+/// box; the page fills it. @ref LLP 1020 D1
+private final class ExactWebView: WKWebView {
+    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        pinInsets()
+    }
+    override func layout() {
+        super.layout()
+        pinInsets()
+    }
+    func pinInsets() {
+        setValue(false, forKey: "automaticallyAdjustsContentInsets")
+        func walk(_ v: NSView) {
+            if let s = v as? NSScrollView {
+                if s.automaticallyAdjustsContentInsets { s.automaticallyAdjustsContentInsets = false }
+                if s.contentInsets.top != 0 || s.contentInsets.left != 0 || s.contentInsets.bottom != 0 || s.contentInsets.right != 0 {
+                    s.contentInsets = NSEdgeInsetsZero
+                }
+            }
+            v.subviews.forEach(walk)
+        }
+        walk(self)
+    }
+}
 #else
 import UIKit
 private typealias PlatformImage = UIImage
@@ -46,7 +74,11 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         self.reply = reply
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = controller
+        #if os(macOS)
+        webView = ExactWebView(frame: .zero, configuration: configuration)
+        #else
         webView = WKWebView(frame: .zero, configuration: configuration)
+        #endif
         super.init()
         controller.add(self, name: "exact")
         controller.add(self, contentWorld: world, name: "exactAgent")
@@ -56,12 +88,22 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
             forMainFrameOnly: false,
             in: world))
         webView.navigationDelegate = self
+        // The guest is a leaf the kernel already framed. WKWebView's default
+        // is to inset itself for the titlebar / safe area, which leaves a
+        // black strip of `underPageBackgroundColor` over the top of the
+        // deck and over siblings (the account mark). Off: the iframe fills
+        // the node's box (@ref LLP 1020 D1).
         #if os(macOS)
         webView.setValue(false, forKey: "drawsBackground")
+        if #available(macOS 12.0, *) { webView.underPageBackgroundColor = .clear }
+        (webView as? ExactWebView)?.pinInsets()
         #else
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.scrollView.contentInset = .zero
+        if #available(iOS 15.0, *) { webView.underPageBackgroundColor = .clear }
         #endif
     }
 
@@ -132,8 +174,23 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         <script>
         (() => {
           const inner = document.getElementById('exact-frame');
+          const castleUser = \(castleUserLiteral());
           addEventListener('message', event => {
             if (event.source !== inner.contentWindow) return;
+            let data = event.data;
+            if (typeof data === 'string') {
+              try { data = JSON.parse(data); } catch { data = null; }
+            }
+            if (data && data.castleSdk === 1) {
+              if (data.lifecycle) return;
+              if (typeof data.requestId === 'string') {
+                const reply = data.command === 'user.getCurrent'
+                  ? { castleSdk: 1, requestId: data.requestId, ok: true, data: { user: castleUser } }
+                  : { castleSdk: 1, requestId: data.requestId, ok: false, error: { code: 'UNAVAILABLE', message: 'This host does not implement ' + String(data.command) } };
+                inner.contentWindow.postMessage(reply, '*');
+              }
+              return;
+            }
             let payload = event.data;
             if (typeof payload !== 'string') {
               try { payload = JSON.stringify(payload); } catch { return; }
@@ -147,8 +204,40 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         """
     }
 
+    func castleUserLiteral() -> String {
+        let username = srcQuery("user")
+        guard !username.isEmpty else { return "null" }
+        let id = srcQuery("id")
+        let userId = id.isEmpty ? username : id
+        let obj: [String: String] = ["userId": userId, "username": username]
+        guard let data = try? JSONSerialization.data(withJSONObject: obj),
+              var json = String(data: data, encoding: .utf8) else { return "null" }
+        json = json.replacingOccurrences(of: "<", with: "\\u003c")
+        return json
+    }
+
+    func srcQuery(_ name: String) -> String {
+        guard let src else { return "" }
+        guard let q = src.split(separator: "?", maxSplits: 1).dropFirst().first else { return "" }
+        let query = q.split(separator: "#", maxSplits: 1)[0]
+        for pair in query.split(separator: "&") {
+            let kv = pair.split(separator: "=", maxSplits: 1)
+            guard kv.first.map(String.init) == name else { continue }
+            let raw = kv.count > 1 ? String(kv[1]) : ""
+            return raw.removingPercentEncoding ?? raw
+        }
+        return ""
+    }
+
     func localDocument(_ source: String) -> String? {
-        guard URL(string: source)?.scheme == nil else { return nil }
+        // Hosted http(s) decks keep their URL. A scheme-less src — including
+        // `URL(string:)` returning nil for a leading-dot relative path — is a
+        // file under EXACT_ASSETS, inlined as srcdoc. Query/hash are identity
+        // for the castleSdk wrapper, not part of the path.
+        if let scheme = URL(string: source)?.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" || scheme == "data" || scheme == "about" || scheme == "blob" {
+            return nil
+        }
         let path = source.split(separator: "?", maxSplits: 1)[0].split(separator: "#", maxSplits: 1)[0]
         let relative = path.drop(while: { $0 == "/" })
         let base = ProcessInfo.processInfo.environment["EXACT_ASSETS"]
@@ -162,7 +251,36 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         let file = base.appendingPathComponent(String(relative))
             .resolvingSymlinksInPath().standardizedFileURL
         guard file.path == root || file.path.hasPrefix(root.hasSuffix("/") ? root : root + "/") else { return nil }
-        return try? String(contentsOf: file, encoding: .utf8)
+        guard var html = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+        // Castle playables letterbox a 5:7 card in the iframe. Weird Castle
+        // asked for the deck to fill the viewport, so the card becomes the
+        // iframe's box (the kernel already owns that box).
+        if html.contains("CastleEmbed") || html.contains("castle-card") {
+            html += """
+            <style id="exact-fullbleed">
+            html,body{width:100%!important;height:100%!important;margin:0!important}
+            #castle-card,#root > *,[data-castle-card]{
+              position:fixed!important;inset:0!important;left:0!important;top:0!important;
+              transform:none!important;width:100%!important;height:100%!important;
+              max-width:none!important;max-height:none!important;border-radius:0!important;
+            }
+            </style>
+            <script>
+            (function(){
+              function fill(){
+                document.documentElement.style.setProperty('--castle-card-w', innerWidth+'px');
+                document.documentElement.style.setProperty('--castle-card-h', innerHeight+'px');
+                var c=document.getElementById('castle-card');
+                if(c){c.style.width=innerWidth+'px';c.style.height=innerHeight+'px';c.style.borderRadius='0';}
+              }
+              addEventListener('resize', fill);
+              fill();
+              new MutationObserver(fill).observe(document.documentElement,{childList:true,subtree:true});
+            })();
+            </script>
+            """
+        }
+        return html
     }
 
     func errorDocument(_ message: String) -> String {

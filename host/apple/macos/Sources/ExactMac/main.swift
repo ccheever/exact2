@@ -138,6 +138,7 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowDidResize(_ notification: Notification) {
         let s = presenter.viewport.contentSize
         apply(Exact.resize(width: s.width, height: s.height))
+        syncInsets()
     }
     /// Seen again, or no longer: the canvases follow (`Canvases.visible`).
     func windowDidChangeOcclusionState(_ notification: Notification) {
@@ -145,6 +146,46 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         frames.run(frames.motion || canvases.wantsFrames)
     }
 }
+/// `viewport-fit=cover` (LLP 1008 §9): the window's content includes the
+/// titlebar, the titlebar is transparent, and its height is the top safe-area
+/// inset — the same mapping a phone uses for the status bar. Anything else
+/// keeps a normal titled window and zero insets.
+func coverChrome() {
+    let cover = presenter.viewportFit == "cover"
+    if cover {
+        if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.backgroundColor = presenter.viewport.backgroundColor
+        if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = .none }
+        presenter.viewport.pinInsets()
+    } else {
+        if window.styleMask.contains(.fullSizeContentView) { window.styleMask.remove(.fullSizeContentView) }
+        window.titlebarAppearsTransparent = false
+        window.titleVisibility = .visible
+        if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = .automatic }
+    }
+    syncInsets()
+}
+
+func titlebarInset() -> NSEdgeInsets {
+    guard presenter.viewportFit == "cover" else { return NSEdgeInsetsZero }
+    if #available(macOS 11.0, *) { return presenter.viewport.safeAreaInsets }
+    let layout = window.contentLayoutRect.height
+    let height = window.contentView?.bounds.height ?? 0
+    return NSEdgeInsets(top: max(0, height - layout), left: 0, bottom: 0, right: 0)
+}
+
+func syncInsets() {
+    let next = titlebarInset()
+    let prev = presenter.insets
+    guard next.top != prev.top || next.left != prev.left || next.bottom != prev.bottom || next.right != prev.right else { return }
+    presenter.insets = next
+    apply(Exact.insets(top: next.top, right: next.right, bottom: next.bottom, left: next.left))
+}
+
+presenter.onViewportFit = { coverChrome() }
+
 let delegate = Delegate()
 app.delegate = delegate
 window.delegate = delegate
@@ -191,7 +232,9 @@ if let planPath = ProcessInfo.processInfo.environment["EXACT_DEV_PLAN"] {
 Exact.wake = exactWake
 let boot: Batch = {
     let size = presenter.viewport.contentSize
-    if let path = ProcessInfo.processInfo.environment["EXACT_PLAN"], let bytes = FileManager.default.contents(atPath: path) {
+    let path = ProcessInfo.processInfo.environment["EXACT_PLAN"]
+        ?? ProcessInfo.processInfo.environment["EXACT_DEV_PLAN"]
+    if let path, let bytes = FileManager.default.contents(atPath: path) {
         return Exact.bootPlan(bytes, width: size.width, height: size.height)
     }
     return Exact.boot(width: size.width, height: size.height)

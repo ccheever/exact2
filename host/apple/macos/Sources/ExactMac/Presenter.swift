@@ -133,6 +133,35 @@ final class NodeView: NSView, NSTextFieldDelegate {
         }
         super.keyDown(with: event)
     }
+    /// ⌘A while this node's field is being edited. The Edit menu is the
+    /// usual path; this catches it when that item is disabled (a secure
+    /// field) or when the event arrives at the window rather than the app.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let f = field, NodeView.isCommandA(event),
+           window?.firstResponder === f || window?.firstResponder === f.currentEditor() {
+            NodeView.selectAll(in: f)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+    /// Command-A with no other chord, ignoring Caps Lock / function noise.
+    static func isCommandA(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
+        return mods == .command && event.charactersIgnoringModifiers?.lowercased() == "a"
+    }
+    /// Select the field's whole value. A secure editor can ignore `selectAll:`.
+    static func selectAll(in f: NSTextField) {
+        if let editor = f.currentEditor() {
+            editor.selectAll(nil)
+            if editor.selectedRange.length == 0 {
+                let n = (editor.string as NSString).length
+                if n > 0 { editor.selectedRange = NSRange(location: 0, length: n) }
+            }
+        } else {
+            f.selectText(nil)
+        }
+    }
     /// The web's key names for AppKit's: the function keys by their names,
     /// the rest by the character typed.
     static func keyName(_ event: NSEvent) -> String {
@@ -290,6 +319,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
         if kind == "iframe", let w = webviews.create(owner: self) {
             w.frame = bounds
             w.autoresizingMask = [.width, .height]
+            w.wantsLayer = true
             addSubview(w)
             web = w
         }
@@ -432,6 +462,8 @@ final class NodeView: NSView, NSTextFieldDelegate {
         f.backgroundColor = .clear
         (f.cell as? NSTextFieldCell)?.drawsBackground = false
         f.focusRingType = .none
+        f.isEditable = true
+        f.isSelectable = true
         f.delegate = self
         f.cell?.isScrollable = true
         f.cell?.wraps = false
@@ -459,9 +491,14 @@ final class NodeView: NSView, NSTextFieldDelegate {
             f.placeholderString = nil
             return
         }
+        // Not `placeholderTextColor`: that tracks the window's appearance, so
+        // a white field in a dark app (the night) paints a light placeholder
+        // and it vanishes. Mute this field's text color — the web's
+        // `input::placeholder` (`#3c3c434c` on black type).
+        let ink = (f.textColor ?? NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)).withAlphaComponent(0.30)
         f.placeholderAttributedString = NSAttributedString(string: text, attributes: [
             .font: font,
-            .foregroundColor: NSColor.placeholderTextColor,
+            .foregroundColor: ink,
         ])
     }
 
@@ -536,6 +573,9 @@ final class NodeView: NSView, NSTextFieldDelegate {
             applyPlaceholder(f)
             f.frame = fieldBox()
         }
+        // CSS z-index: a WKWebView's remote layer otherwise paints over later
+        // siblings (the account mark on the deck).
+        layer?.zPosition = number("z_index")
         needsDisplay = true
     }
 
@@ -694,6 +734,23 @@ final class PageScrollView: NSScrollView {
         window?.makeFirstResponder(nil)
         super.mouseDown(with: event)
     }
+    /// AppKit turns automatic titlebar insets back on when this view
+    /// becomes a window's content view, which leaves a black strip the
+    /// height of the titlebar above the document (the night, the deck).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        pinInsets()
+    }
+    override func tile() {
+        super.tile()
+        pinInsets()
+    }
+    func pinInsets() {
+        if automaticallyAdjustsContentInsets { automaticallyAdjustsContentInsets = false }
+        if contentInsets.top != 0 || contentInsets.left != 0 || contentInsets.bottom != 0 || contentInsets.right != 0 {
+            contentInsets = NSEdgeInsetsZero
+        }
+    }
 }
 
 final class Presenter {
@@ -704,6 +761,16 @@ final class Presenter {
     var views: [UInt32: NodeView] = [:]
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
+    /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
+    /// last batch; `onViewportFit` fires when it changes. macOS maps `cover`
+    /// to a full-size-content window (the titlebar overlays the viewport;
+    /// its height is `safe-area-inset-top`). @ref LLP 1008 §9
+    private(set) var viewportFit: String?
+    var onViewportFit: (() -> Void)?
+    /// The safe-area insets the kernel was given: the titlebar under
+    /// `viewport-fit=cover`, zero when the viewport is the content view
+    /// below it. Reported to the agent as `env`.
+    var insets = NSEdgeInsetsZero
 
     init() {
         viewport.documentView = root
@@ -871,6 +938,9 @@ final class Presenter {
         // paints the root element's background over the whole canvas.
         let color = (root.subviews.first as? NodeView)?.color("background_color", .white) ?? .white
         if viewport.backgroundColor != color { viewport.backgroundColor = color }
+        let first = root.subviews.first as? NodeView
+        let fit = first?.props["viewportFit"]
+        if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         canvases.captureIfNeeded()
         menus.sync()
         syncKeyViewLoop()

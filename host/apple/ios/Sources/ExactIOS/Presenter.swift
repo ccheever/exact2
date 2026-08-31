@@ -408,9 +408,14 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             f.placeholder = nil
             return
         }
+        // Not `placeholderText`: that tracks the window's appearance, so a
+        // white field in a dark app (the night) paints a light placeholder
+        // and it vanishes. Mute this field's text color — the web's
+        // `input::placeholder`.
+        let ink = (f.textColor ?? UIColor(red: 0, green: 0, blue: 0, alpha: 1)).withAlphaComponent(0.30)
         f.attributedPlaceholder = NSAttributedString(string: text, attributes: [
             .font: font,
-            .foregroundColor: UIColor.placeholderText,
+            .foregroundColor: ink,
         ])
     }
 
@@ -479,6 +484,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             applyPlaceholder(f)
             f.frame = fieldBox()
         }
+        layer.zPosition = number("z_index")
         setNeedsDisplay()
     }
 

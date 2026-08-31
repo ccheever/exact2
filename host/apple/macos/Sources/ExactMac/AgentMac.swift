@@ -44,9 +44,10 @@ extension Agent {
             if let sv = v.scroll { n["sx"] = r2(sv.contentView.bounds.origin.x); n["sy"] = r2(sv.contentView.bounds.origin.y) }
             nodes.append(n)
         }
-        // The page's environment (LLP 1012 §1): a Mac window has no safe
-        // area and no software keyboard.
-        let env: [String: Any] = ["safe-area-inset-top": 0, "safe-area-inset-right": 0, "safe-area-inset-bottom": 0, "safe-area-inset-left": 0, "keyboard-inset-height": 0]
+        // The page's environment (LLP 1012 §1): under `viewport-fit=cover`
+        // the titlebar is the top inset; a software keyboard is never here.
+        let i = presenter.insets
+        let env: [String: Any] = ["safe-area-inset-top": r2(i.top), "safe-area-inset-right": r2(i.right), "safe-area-inset-bottom": r2(i.bottom), "safe-area-inset-left": r2(i.left), "keyboard-inset-height": 0]
         return ["clock": now(), "viewport": ["w": r2(clip.bounds.width), "h": r2(clip.bounds.height)], "env": env, "nodes": nodes]
     }
 

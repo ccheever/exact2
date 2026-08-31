@@ -73,6 +73,47 @@ function applyProps(el, set, clear) {
   if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
 }
 
+// castleSdk (LLP 1020 §8 Q1): a deck posts `{castleSdk:1, requestId, command}`
+// to the parent. `user.getCurrent` is answered from the iframe src's `user`
+// / `id` query — the token never enters the guest. Other commands reply
+// unavailable so the SDK does not wait out its 15s timeout.
+function castleUserFromSrc(src) {
+  if (!src) return null;
+  try {
+    const q = new URL(src, "https://exact.invalid/").searchParams;
+    const username = q.get("user");
+    if (!username) return null;
+    return { userId: q.get("id") || username, username };
+  } catch {
+    return null;
+  }
+}
+function replyCastleSdk(el, data) {
+  if (!data || data.castleSdk !== 1) return false;
+  if (data.lifecycle) return true;
+  if (typeof data.requestId !== "string") return true;
+  const win = el.contentWindow;
+  if (!win) return true;
+  if (data.command === "user.getCurrent") {
+    win.postMessage({ castleSdk: 1, requestId: data.requestId, ok: true, data: { user: castleUserFromSrc(el.getAttribute("src") || "") } }, "*");
+  } else {
+    win.postMessage({ castleSdk: 1, requestId: data.requestId, ok: false, error: { code: "UNAVAILABLE", message: "This host does not implement " + String(data.command) } }, "*");
+  }
+  return true;
+}
+window.addEventListener("message", (event) => {
+  let data = event.data;
+  if (typeof data === "string") {
+    try { data = JSON.parse(data); } catch { return; }
+  }
+  if (!data || data.castleSdk !== 1) return;
+  for (const el of views.values()) {
+    if (!(el instanceof HTMLIFrameElement) || event.source !== el.contentWindow) continue;
+    replyCastleSdk(el, data);
+    return;
+  }
+});
+
 // @ref LLP 1020 D2 — one page listener routes a guest by source identity.
 // Strings cross unchanged; every other structured-clone value narrows to
 // JSON, and a value JSON cannot represent is not an event.
@@ -82,6 +123,11 @@ function ensureMessageListener() {
   window.addEventListener("message", (event) => {
     for (const el of messageFrames) {
       if (event.source !== el.contentWindow) continue;
+      let data = event.data;
+      if (typeof data === "string") {
+        try { data = JSON.parse(data); } catch { data = null; }
+      }
+      if (data && data.castleSdk === 1) return;
       let payload = event.data;
       if (typeof payload !== "string") {
         try { payload = JSON.stringify(payload); } catch { return; }
