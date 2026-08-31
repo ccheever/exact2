@@ -154,25 +154,36 @@ stamp("before boot")
 let tBoot = CACurrentMediaTime()
 // The dev loop (LLP 1007 §6, here): EXACT_DEV_PLAN names the plan the
 // resident compiler writes; when it changes, restart from it, state carried.
+// A URL instead of a path is the wire form (LLP 1023 Stage 1): the app URL,
+// resolved and re-fetched by PlanURL, booting through this same closure —
+// which is wired unconditionally so the dev menu's Open Project… works
+// without any environment.
+PlanURL.boot = { bytes, label in
+    let started = CACurrentMediaTime()
+    presenter.reset()
+    let size = presenter.viewport.contentSize
+    Exact.wake = exactWake
+    let batch = Exact.bootPlan(bytes, width: size.width, height: size.height)
+    apply(batch)
+    print("reloaded \(label) in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+}
 var planWatch: DispatchSourceTimer?
 if let planPath = ProcessInfo.processInfo.environment["EXACT_DEV_PLAN"] {
-    var last = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date) ?? .distantPast
-    let t = DispatchSource.makeTimerSource(queue: .main)
-    t.schedule(deadline: .now() + 0.1, repeating: 0.1)
-    t.setEventHandler {
-        guard let m = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date), m > last else { return }
-        last = m
-        guard let bytes = FileManager.default.contents(atPath: planPath) else { return }
-        let started = CACurrentMediaTime()
-        presenter.reset()
-        let size = presenter.viewport.contentSize
-        Exact.wake = exactWake
-        let batch = Exact.bootPlan(bytes, width: size.width, height: size.height)
-        apply(batch)
-        print("reloaded \(planPath.split(separator: "/").last ?? "plan") in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+    if PlanURL.isURL(planPath) {
+        PlanURL.open(planPath)
+    } else {
+        var last = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date) ?? .distantPast
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + 0.1, repeating: 0.1)
+        t.setEventHandler {
+            guard let m = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date), m > last else { return }
+            last = m
+            guard let bytes = FileManager.default.contents(atPath: planPath) else { return }
+            PlanURL.boot?(bytes, String(planPath.split(separator: "/").last ?? "plan"))
+        }
+        t.resume()
+        planWatch = t
     }
-    t.resume()
-    planWatch = t
 }
 
 // EXACT_PLAN=<file> boots that plan instead of the one baked into the

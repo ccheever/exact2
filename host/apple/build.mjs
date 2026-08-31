@@ -162,6 +162,8 @@ const infoPlist = (crate, device = false) => `<?xml version="1.0" encoding="UTF-
   <key>UILaunchScreen</key><dict/>
   <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
   <key>CADisableMinimumFrameDurationOnPhone</key><true/>
+  <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+  <key>NSLocalNetworkUsageDescription</key><string>Exact connects to your dev server on the local network to load the app you are working on.</string>
 </dict></plist>
 `;
 
@@ -243,7 +245,7 @@ function main(args) {
     console.log(`host/apple: ${bin.replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${webLoadName}`);
     // --run: the app, with the dev loop's plan watched when host/web/dev.mjs is
     // running (it writes host/web/dist/app.plan on every save).
-    if (args.includes('--run')) spawnSync(bin, [], { stdio: 'inherit', env: { ...env, EXACT_DEV_PLAN: resolve(root, 'host/web/dist/app.plan'), EXACT_ASSETS: app.dir } });
+    if (args.includes('--run')) spawnSync(bin, [], { stdio: 'inherit', env: { ...env, EXACT_DEV_PLAN: env.EXACT_DEV_PLAN ?? resolve(root, 'host/web/dist/app.plan'), EXACT_ASSETS: app.dir } });
     return;
   }
 
@@ -300,7 +302,7 @@ function main(args) {
     // environment through as SIMCTL_CHILD_*.
     spawnSync('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' });
     const launched = read('xcrun', ['simctl', 'launch', '--terminate-running-process', dev.udid, bundleId(crate)], {
-      env: { ...process.env, SIMCTL_CHILD_EXACT_DEV_PLAN: resolve(root, 'host/web/dist/app.plan'), SIMCTL_CHILD_EXACT_ASSETS: app.dir },
+      env: { ...process.env, SIMCTL_CHILD_EXACT_DEV_PLAN: process.env.EXACT_DEV_PLAN ?? resolve(root, 'host/web/dist/app.plan'), SIMCTL_CHILD_EXACT_ASSETS: app.dir },
     });
     if (launched.status !== 0) { console.error(launched.stderr); process.exit(launched.status ?? 1); }
     console.log(`launched ${launched.stdout.trim()} on ${dev.name}`);

@@ -10,6 +10,7 @@ import AppKit
 final class DevMenuTarget: NSObject {
     @objc func reload(_ sender: Any?) { DevMenu.reload() }
     @objc func info(_ sender: Any?) { DevMenu.showInfo() }
+    @objc func openProject(_ sender: Any?) { DevMenu.openProject() }
 }
 
 enum DevMenu {
@@ -28,13 +29,36 @@ enum DevMenu {
             bar.addItem(devItem)
             let dev = NSMenu(title: "Develop")
             dev.addItem(withTitle: "Reload", action: #selector(DevMenuTarget.reload(_:)), keyEquivalent: "r").target = target
+            dev.addItem(withTitle: "Open Project…", action: #selector(DevMenuTarget.openProject(_:)), keyEquivalent: "o").target = target
             dev.addItem(withTitle: "App Info…", action: #selector(DevMenuTarget.info(_:)), keyEquivalent: "d").target = target
             devItem.submenu = dev
         }
         app.mainMenu = bar
     }
 
+    /// The typed URL — the affordance a physical device actually uses
+    /// (LLP 1023 Stage 1): seeded with the last value, kept in defaults.
+    static func openProject() {
+        let alert = NSAlert()
+        alert.messageText = "Open Project"
+        alert.informativeText = "The app URL the dev server printed."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        field.stringValue = UserDefaults.standard.string(forKey: "exact.dev.url")
+            ?? PlanURL.current?.page.absoluteString ?? "http://"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Connect")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let url = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty else { return }
+        UserDefaults.standard.set(url, forKey: "exact.dev.url")
+        PlanURL.open(url)
+    }
+
     static func reload() {
+        // A live URL session re-fetches (and clears a rebuilt stop).
+        if let s = PlanURL.current { s.reload(); return }
         let started = CACurrentMediaTime()
         presenter.reset()
         let size = presenter.viewport.contentSize
@@ -53,6 +77,9 @@ enum DevMenu {
     static func info() -> String {
         let env = ProcessInfo.processInfo.environment
         var lines = [CommandLine.arguments[0]]
+        if let s = PlanURL.current {
+            lines.append("url: \(s.page)\(s.terminal != nil ? " (rebuild the host)" : " (live)")")
+        }
         if let path = env["EXACT_DEV_PLAN"] {
             let m = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
             lines.append("plan: \(path)\(m.map { " (\(time.string(from: $0)))" } ?? " (missing)")")

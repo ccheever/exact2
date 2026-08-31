@@ -43,6 +43,7 @@ enum DevMenu {
         let text = info()
         let a = UIAlertController(title: "Exact", message: text, preferredStyle: .actionSheet)
         a.addAction(UIAlertAction(title: "Reload", style: .default) { _ in reload() })
+        a.addAction(UIAlertAction(title: "Open Project…", style: .default) { _ in openProject() })
         a.addAction(UIAlertAction(title: "Copy Info", style: .default) { _ in UIPasteboard.general.string = text })
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         // An iPad refuses a bare action sheet: anchor it mid-screen, no arrow.
@@ -55,11 +56,36 @@ enum DevMenu {
         sheet = a
     }
 
+    /// The typed URL — what a physical iPhone actually uses (LLP 1023
+    /// Stage 1: a device launch carries no environment): seeded with the
+    /// last value, kept in defaults.
+    static func openProject() {
+        guard let c = controller else { return }
+        let a = UIAlertController(title: "Open Project", message: "The app URL the dev server printed.", preferredStyle: .alert)
+        a.addTextField { f in
+            f.text = UserDefaults.standard.string(forKey: "exact.dev.url")
+                ?? PlanURL.current?.page.absoluteString ?? "http://"
+            f.keyboardType = .URL
+            f.autocapitalizationType = .none
+            f.autocorrectionType = .no
+        }
+        a.addAction(UIAlertAction(title: "Connect", style: .default) { _ in
+            let url = (a.textFields?.first?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !url.isEmpty else { return }
+            UserDefaults.standard.set(url, forKey: "exact.dev.url")
+            PlanURL.open(url)
+        })
+        a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        c.present(a, animated: true)
+    }
+
     /// Restart: from the dev loop's plan when one is named (EXACT_DEV_PLAN,
     /// else EXACT_PLAN) — the watcher's own path, state carried — else from
     /// the baked plan, fresh.
     static func reload() {
         sheet?.dismiss(animated: false)
+        // A live URL session re-fetches (and clears a rebuilt stop).
+        if let s = PlanURL.current { s.reload(); return }
         let started = CACurrentMediaTime()
         presenter.reset()
         let size = presenter.viewport.bounds.size
@@ -78,6 +104,9 @@ enum DevMenu {
     static func info() -> String {
         let b = Bundle.main
         var lines = ["\(b.bundleIdentifier ?? "?") \(b.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")"]
+        if let s = PlanURL.current {
+            lines.append("url: \(s.page)\(s.terminal != nil ? " (rebuild the host)" : " (live)")")
+        }
         if let path = environment["EXACT_DEV_PLAN"] {
             let m = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
             lines.append("plan: \(path)\(m.map { " (\(time.string(from: $0)))" } ?? " (missing)")")

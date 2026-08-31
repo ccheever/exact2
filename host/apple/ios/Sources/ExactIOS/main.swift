@@ -135,14 +135,9 @@ func apply(_ batch: Batch) {
 /// resident compiler writes; when it changes, restart from it, state carried.
 nonisolated(unsafe) var planWatch: DispatchSourceTimer?
 func watchPlan() {
-    guard let planPath = environment["EXACT_DEV_PLAN"] else { return }
-    var last = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date) ?? .distantPast
-    let t = DispatchSource.makeTimerSource(queue: .main)
-    t.schedule(deadline: .now() + 0.1, repeating: 0.1)
-    t.setEventHandler {
-        guard let m = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date), m > last else { return }
-        last = m
-        guard let bytes = FileManager.default.contents(atPath: planPath) else { return }
+    // Wired unconditionally: the URL form of the dev plan (LLP 1023 Stage 1)
+    // and the dev menu's Open Project… boot through this same closure.
+    PlanURL.boot = { bytes, label in
         let started = CACurrentMediaTime()
         presenter.reset()
         let size = presenter.viewport.bounds.size
@@ -150,7 +145,21 @@ func watchPlan() {
         let batch = Exact.bootPlan(bytes, width: size.width, height: size.height)
         apply(batch)
         controller?.rebooted()
-        print("reloaded \(planPath.split(separator: "/").last ?? "plan") in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+        print("reloaded \(label) in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+    }
+    guard let planPath = environment["EXACT_DEV_PLAN"] else { return }
+    if PlanURL.isURL(planPath) {
+        PlanURL.open(planPath)
+        return
+    }
+    var last = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date) ?? .distantPast
+    let t = DispatchSource.makeTimerSource(queue: .main)
+    t.schedule(deadline: .now() + 0.1, repeating: 0.1)
+    t.setEventHandler {
+        guard let m = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date), m > last else { return }
+        last = m
+        guard let bytes = FileManager.default.contents(atPath: planPath) else { return }
+        PlanURL.boot?(bytes, String(planPath.split(separator: "/").last ?? "plan"))
     }
     t.resume()
     planWatch = t
