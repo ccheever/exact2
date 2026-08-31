@@ -11,6 +11,8 @@
   body { font: 16px system-ui, sans-serif; }
   button, input { all: unset; display: block; box-sizing: content-box; cursor: default; }
   input { cursor: text; -webkit-user-select: text; user-select: text; }
+  /* `all: unset` would inherit the field's color onto the placeholder. */
+  input::placeholder { color: #3c3c434c; opacity: 1; }
   [data-scroll="true"] { overflow: auto; }
   /* LLP 1001 §1: the kernel has no `position: static`; every node is `relative`
      (an absolute node's inline style wins). */

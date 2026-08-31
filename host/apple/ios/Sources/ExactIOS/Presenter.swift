@@ -250,7 +250,6 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             f.backgroundColor = .clear
             f.delegate = self
             f.addTarget(self, action: #selector(fieldChanged), for: .editingChanged)
-            f.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             addSubview(f)
             field = f
         }
@@ -389,12 +388,38 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         return fallback
     }
 
+    /// The input's content box: padding and border sit on the node, the
+    /// field is the text inside — CSS's rule, so a placeholder lines up
+    /// with a native one.
+    func fieldBox() -> CGRect {
+        let uniform = number("border_width")
+        return bounds.insetBy(
+            left: number("border_width_left", uniform) + number("padding_left"),
+            top: number("border_width_top", uniform) + number("padding_top"),
+            right: number("border_width_right", uniform) + number("padding_right"),
+            bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+    }
+
+    func applyPlaceholder(_ f: UITextField) {
+        let text = props["placeholder"] ?? ""
+        let font = f.font ?? UIFont.systemFont(ofSize: 17)
+        if text.isEmpty {
+            f.attributedPlaceholder = nil
+            f.placeholder = nil
+            return
+        }
+        f.attributedPlaceholder = NSAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: UIColor.placeholderText,
+        ])
+    }
+
     func applyProps(set: [String: String], clear: [String]) {
         for k in clear { props.removeValue(forKey: k) }
         for (k, v) in set { props[k] = v }
         if let f = field {
             if let v = props["value"], f.text != v { f.text = v }
-            f.placeholder = props["placeholder"]
+            applyPlaceholder(f)
             // The web's `type` and `inputmode`, as UIKit spells them.
             let type = props["type"] ?? "text"
             f.isSecureTextEntry = type == "password"
@@ -451,6 +476,8 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         if let f = field {
             f.font = Text.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic")
             f.textColor = color("text_color", .black)
+            applyPlaceholder(f)
+            f.frame = fieldBox()
         }
         setNeedsDisplay()
     }
@@ -473,6 +500,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     override func layoutSubviews() {
         if firstLayoutMs == nil { firstLayoutMs = wall() }
         super.layoutSubviews()
+        if field != nil { field?.frame = fieldBox() }
     }
 
     override func draw(_ rect: CGRect) {
@@ -500,15 +528,28 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         }
         let borderColor = color("border_color", .clear)
         let uniform = number("border_width")
-        let sides: [(String, CGRect)] = [
-            ("border_width_top", CGRect(x: 0, y: 0, width: bounds.width, height: number("border_width_top", uniform))),
-            ("border_width_bottom", CGRect(x: 0, y: bounds.height - number("border_width_bottom", uniform), width: bounds.width, height: number("border_width_bottom", uniform))),
-            ("border_width_left", CGRect(x: 0, y: 0, width: number("border_width_left", uniform), height: bounds.height)),
-            ("border_width_right", CGRect(x: bounds.width - number("border_width_right", uniform), y: 0, width: number("border_width_right", uniform), height: bounds.height)),
-        ]
-        for (key, r) in sides where number(key, uniform) > 0 {
-            ctx.setFillColor(color(key.replacingOccurrences(of: "width", with: "color"), borderColor).cgColor)
-            ctx.fill(r)
+        let top = number("border_width_top", uniform), right = number("border_width_right", uniform)
+        let bottom = number("border_width_bottom", uniform), left = number("border_width_left", uniform)
+        // A uniform border on a rounded box follows the curve (the web's
+        // rule). Four edge rects would square the corners and show as nubs.
+        if radius > 0, top > 0, top == right, right == bottom, bottom == left {
+            let inset = top / 2
+            let stroke = UIBezierPath(roundedRect: bounds.insetBy(dx: inset, dy: inset), cornerRadius: max(0, radius - inset))
+            stroke.lineWidth = top
+            stroke.lineJoinStyle = .round
+            borderColor.setStroke()
+            stroke.stroke()
+        } else {
+            let sides: [(String, CGRect)] = [
+                ("border_width_top", CGRect(x: 0, y: 0, width: bounds.width, height: top)),
+                ("border_width_bottom", CGRect(x: 0, y: bounds.height - bottom, width: bounds.width, height: bottom)),
+                ("border_width_left", CGRect(x: 0, y: 0, width: left, height: bounds.height)),
+                ("border_width_right", CGRect(x: bounds.width - right, y: 0, width: right, height: bounds.height)),
+            ]
+            for (key, r) in sides where number(key, uniform) > 0 {
+                ctx.setFillColor(color(key.replacingOccurrences(of: "width", with: "color"), borderColor).cgColor)
+                ctx.fill(r)
+            }
         }
         if kind == "image", let img = image {
             // CSS object-fit over the content box (the frame inside border
@@ -632,6 +673,8 @@ final class Presenter {
     /// The viewport over it: the window's content, scrolling like a browser's.
     let viewport = ScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    /// The native menu arm (LLP 1021 D3).
+    lazy var menus = MenuHost(presenter: self)
     /// The input being edited, if any (UIKit exposes no first responder):
     /// what a canvas painted through its surface captures every frame for
     /// (LLP 1014 D4 d), and what the keyboard reveals.
@@ -899,7 +942,7 @@ final class Presenter {
                 v.transform = .identity
                 v.frame = CGRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
                 v.scroll?.frame = v.bounds
-                v.field?.frame = v.bounds
+                v.field?.frame = v.fieldBox()
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
                 v.web?.frame = v.bounds
@@ -929,6 +972,7 @@ final class Presenter {
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         canvases.captureIfNeeded()
+        menus.sync()
     }
 
     /// The page's canvas colour — behind the document and into the safe

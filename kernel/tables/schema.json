@@ -60,7 +60,11 @@
     { "id": 40, "name": "viewportFit", "kind": "str" },
     { "id": 41, "name": "interactiveWidget", "kind": "str" },
     { "id": 42, "name": "src", "kind": "str" },
-    { "id": 43, "name": "sandbox", "kind": "str" }
+    { "id": 43, "name": "sandbox", "kind": "str" },
+    { "id": 44, "name": "id", "kind": "str" },
+    { "id": 45, "name": "popover", "kind": "str" },
+    { "id": 46, "name": "popovertarget", "kind": "str" },
+    { "id": 47, "name": "popovertargetaction", "kind": "str" }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
   "enums": {

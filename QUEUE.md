@@ -61,6 +61,11 @@ sits on that list carries the trade it would take.
    table (below), and two ghost-only size properties on the engine. Charlie to confirm
    the boundary (§Open questions).
 
+- **Tab on iOS with a hardware keyboard** (Weird Castle login): macOS now
+  wires the key-view loop after each batch (fields and buttons, tree order,
+  Space/Enter on a focused pressable). iOS still has no sequential-focus
+  path for an external keyboard.
+
 ## Cheap, any time
 
 - **The smoke under `EXACT_APP_DIR`** (found driving weird-castle, 2026-08-30): the

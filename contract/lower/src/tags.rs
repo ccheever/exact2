@@ -147,7 +147,7 @@ pub enum PropTy {
 /// The type a prop attribute takes, by the kernel prop's name.
 pub fn prop_ty(prop: PropId) -> PropTy {
     match prop.name() {
-        "disabled" => PropTy::Bool,
+        "disabled" | "accessibilityChecked" => PropTy::Bool,
         "accessibilityHeadingLevel" => PropTy::Int,
         _ => PropTy::Str,
     }
@@ -195,6 +195,17 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "lang" => AttrTarget::Prop(p("lang")),
         "src" => AttrTarget::Prop(p("src")),
         "sandbox" => AttrTarget::Prop(p("sandbox")),
+        // The Popover API, by its own names (LLP 1021 D1): a container with
+        // `popover` is hidden until its invoker — a `button` whose
+        // `popovertarget` names the container's `id` — toggles it; open
+        // state is the host's, never the plan's (D2). `aria-checked` is the
+        // ARIA state a menu row's dot would hand-draw; a native menu renders
+        // it as the platform's checkmark (D3).
+        "id" => AttrTarget::Prop(p("id")),
+        "popover" => AttrTarget::Prop(p("popover")),
+        "popovertarget" => AttrTarget::Prop(p("popovertarget")),
+        "popovertargetaction" => AttrTarget::Prop(p("popovertargetaction")),
+        "aria-checked" => AttrTarget::Prop(p("accessibilityChecked")),
         // style rows, by their CSS property names
         "font-size" => styles(&["font_size"]),
         "font-weight" => styles(&["font_weight"]),

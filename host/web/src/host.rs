@@ -583,6 +583,14 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::Sandbox => "sandbox",
             PropId::SemanticTag => continue,
             PropId::ToggleValue => "checked",
+            // The Popover API by identity (LLP 1021 D5): the browser owns
+            // the top layer, light dismiss, and Escape once these land on
+            // the real elements.
+            PropId::Id => "id",
+            PropId::Popover => "popover",
+            PropId::Popovertarget => "popovertarget",
+            PropId::Popovertargetaction => "popovertargetaction",
+            PropId::AccessibilityChecked => "aria-checked",
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 out.insert(format!("data-{}", other.name().to_lowercase()), text);

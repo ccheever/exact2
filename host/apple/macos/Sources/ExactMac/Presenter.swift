@@ -98,8 +98,15 @@ final class NodeView: NSView, NSTextFieldDelegate {
 
     /// A node with focus, blur, or key handlers takes the focus (an input's
     /// field does by itself): the web's rule that only a focusable element
-    /// hears these.
-    override var acceptsFirstResponder: Bool { field == nil && !handlers.isDisjoint(with: ["focus", "blur", "key"]) }
+    /// hears these. A pressable is in the tab order the way a `<button>` is.
+    override var acceptsFirstResponder: Bool {
+        if field != nil { return false }
+        return handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
+    }
+    /// Sequential focus follows the web: a button is in the loop even when
+    /// macOS "Keyboard navigation" is off (that setting would otherwise
+    /// skip every non-field).
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
         if ok, handlers.contains("focus") { presenter?.focus(id) }
@@ -110,10 +117,21 @@ final class NodeView: NSView, NSTextFieldDelegate {
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
-    /// A key down at a focused node, by the web's key name.
+    override func drawFocusRingMask() {
+        guard field == nil, handlers.contains("press") else { return }
+        let radius = number("border_radius", number("border_radius_top_left"))
+        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+    }
+    /// A key down at a focused node, by the web's key name. Space and Enter
+    /// on a pressable fire `press`, as they do on a `<button>`.
     override func keyDown(with event: NSEvent) {
-        guard handlers.contains("key") else { return super.keyDown(with: event) }
-        presenter?.key(id, NodeView.keyName(event))
+        let name = NodeView.keyName(event)
+        if handlers.contains("key") { presenter?.key(id, name) }
+        if handlers.contains("press"), name == "Enter" || name == " " {
+            presenter?.press(id)
+            return
+        }
+        super.keyDown(with: event)
     }
     /// The web's key names for AppKit's: the function keys by their names,
     /// the rest by the character typed.
@@ -409,11 +427,42 @@ final class NodeView: NSView, NSTextFieldDelegate {
     func makeField(secure: Bool) -> NSTextField {
         let f = secure ? NSSecureTextField(frame: .zero) : NSTextField(frame: .zero)
         f.isBordered = false
+        f.isBezeled = false
         f.drawsBackground = false
+        f.backgroundColor = .clear
+        (f.cell as? NSTextFieldCell)?.drawsBackground = false
         f.focusRingType = .none
         f.delegate = self
-        f.autoresizingMask = [.width, .height]
+        f.cell?.isScrollable = true
+        f.cell?.wraps = false
+        f.cell?.usesSingleLineMode = true
         return f
+    }
+
+    /// The input's content box: padding and border sit on the node, the
+    /// field is the text inside — CSS's rule, so a placeholder lines up
+    /// with a native one.
+    func fieldBox() -> NSRect {
+        let uniform = number("border_width")
+        return bounds.insetBy(
+            left: number("border_width_left", uniform) + number("padding_left"),
+            top: number("border_width_top", uniform) + number("padding_top"),
+            right: number("border_width_right", uniform) + number("padding_right"),
+            bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+    }
+
+    func applyPlaceholder(_ f: NSTextField) {
+        let text = props["placeholder"] ?? ""
+        let font = f.font ?? NSFont.systemFont(ofSize: 17)
+        if text.isEmpty {
+            f.placeholderAttributedString = nil
+            f.placeholderString = nil
+            return
+        }
+        f.placeholderAttributedString = NSAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: NSColor.placeholderTextColor,
+        ])
     }
 
     func applyProps(set: [String: String], clear: [String]) {
@@ -436,7 +485,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
         }
         if let f = field {
             if let v = props["value"], f.stringValue != v { f.stringValue = v }
-            f.placeholderString = props["placeholder"]
+            applyPlaceholder(f)
         }
         setAccessibilityIdentifier(props["testId"])
         setAccessibilityLabel(props["accessibilityLabel"])
@@ -484,6 +533,8 @@ final class NodeView: NSView, NSTextFieldDelegate {
         if let f = field {
             f.font = Text.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic")
             f.textColor = color("text_color", .black)
+            applyPlaceholder(f)
+            f.frame = fieldBox()
         }
         needsDisplay = true
     }
@@ -498,6 +549,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     override func layout() {
         if firstLayoutMs == nil { firstLayoutMs = wall() }
         super.layout()
+        if field != nil { field?.frame = fieldBox() }
     }
 
     override func draw(_ rect: NSRect) {
@@ -528,15 +580,28 @@ final class NodeView: NSView, NSTextFieldDelegate {
         }
         let borderColor = color("border_color", .clear)
         let uniform = number("border_width")
-        let sides: [(String, NSRect)] = [
-            ("border_width_top", NSRect(x: 0, y: 0, width: bounds.width, height: number("border_width_top", uniform))),
-            ("border_width_bottom", NSRect(x: 0, y: bounds.height - number("border_width_bottom", uniform), width: bounds.width, height: number("border_width_bottom", uniform))),
-            ("border_width_left", NSRect(x: 0, y: 0, width: number("border_width_left", uniform), height: bounds.height)),
-            ("border_width_right", NSRect(x: bounds.width - number("border_width_right", uniform), y: 0, width: number("border_width_right", uniform), height: bounds.height)),
-        ]
-        for (key, r) in sides where number(key, uniform) > 0 {
-            color(key.replacingOccurrences(of: "width", with: "color"), borderColor).setFill()
-            r.fill()
+        let top = number("border_width_top", uniform), right = number("border_width_right", uniform)
+        let bottom = number("border_width_bottom", uniform), left = number("border_width_left", uniform)
+        // A uniform border on a rounded box follows the curve (the web's
+        // rule). Four edge rects would square the corners and show as nubs.
+        if radius > 0, top > 0, top == right, right == bottom, bottom == left {
+            let inset = top / 2
+            let stroke = NSBezierPath(roundedRect: bounds.insetBy(dx: inset, dy: inset), xRadius: max(0, radius - inset), yRadius: max(0, radius - inset))
+            stroke.lineWidth = top
+            stroke.lineJoinStyle = .round
+            borderColor.setStroke()
+            stroke.stroke()
+        } else {
+            let sides: [(String, NSRect)] = [
+                ("border_width_top", NSRect(x: 0, y: 0, width: bounds.width, height: top)),
+                ("border_width_bottom", NSRect(x: 0, y: bounds.height - bottom, width: bounds.width, height: bottom)),
+                ("border_width_left", NSRect(x: 0, y: 0, width: left, height: bounds.height)),
+                ("border_width_right", NSRect(x: bounds.width - right, y: 0, width: right, height: bounds.height)),
+            ]
+            for (key, r) in sides where number(key, uniform) > 0 {
+                color(key.replacingOccurrences(of: "width", with: "color"), borderColor).setFill()
+                r.fill()
+            }
         }
         if kind == "image", let img = image {
             // CSS object-fit over the content box (the frame inside border
@@ -637,6 +702,8 @@ final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     let viewport = PageScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    /// The native menu arm (LLP 1021 D3).
+    lazy var menus = MenuHost(presenter: self)
 
     init() {
         viewport.documentView = root
@@ -685,7 +752,11 @@ final class Presenter {
     /// the leave when the pointer moves onto another (the agent's `hover`).
     weak var hovered: NodeView?
 
-    func press(_ id: UInt32) { onPress?(id) }
+    func press(_ id: UInt32) {
+        onPress?(id)
+        // An invoker's press also drops its menu (LLP 1021 D3).
+        menus.pressed(id)
+    }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// An event a view reports: sent only while the presenter still has the
     /// view (the platform fires editing-ended as a destroyed field leaves the
@@ -774,7 +845,7 @@ final class Presenter {
                 guard let v = views[id] else { continue }
                 v.frame = NSRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
                 v.scroll?.frame = v.bounds
-                v.field?.frame = v.bounds
+                v.field?.frame = v.fieldBox()
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
                 v.web?.frame = v.bounds
@@ -801,6 +872,51 @@ final class Presenter {
         let color = (root.subviews.first as? NodeView)?.color("background_color", .white) ?? .white
         if viewport.backgroundColor != color { viewport.backgroundColor = color }
         canvases.captureIfNeeded()
+        menus.sync()
+        syncKeyViewLoop()
+    }
+
+    /// The view that takes Tab for this node: an input's field, else itself.
+    private func keyView(of v: NodeView) -> NSView { v.field ?? v }
+
+    /// Sequential focus after a batch: tree order, then `tabIndex` > 0, as
+    /// HTML. `autorecalculatesKeyViewLoop` stays false so nothing is focused
+    /// at launch (LLP 1014); Tab from the viewport still reaches the first
+    /// tabbable. Hidden popover rows stay out (their container is hidden).
+    func syncKeyViewLoop() {
+        var listed: [NodeView] = []
+        func walk(_ v: NodeView) {
+            if v.props["inert"] == "true" || v.isHidden { return }
+            if Self.tabbable(v) { listed.append(v) }
+            for child in v.container.subviews.compactMap({ $0 as? NodeView }) { walk(child) }
+        }
+        for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) }
+        let tabbable = listed.enumerated().sorted { a, b in
+            let ia = Self.tabIndex(a.element), ib = Self.tabIndex(b.element)
+            let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
+            if pa != pb { return pa < pb }
+            return a.offset < b.offset
+        }.map(\.element)
+        if tabbable.isEmpty {
+            viewport.nextKeyView = nil
+            return
+        }
+        for (i, v) in tabbable.enumerated() {
+            keyView(of: v).nextKeyView = keyView(of: tabbable[(i + 1) % tabbable.count])
+        }
+        viewport.nextKeyView = keyView(of: tabbable[0])
+    }
+
+    private static func tabIndex(_ v: NodeView) -> Int { Int(v.props["tabIndex"] ?? "0") ?? 0 }
+
+    private static func tabbable(_ v: NodeView) -> Bool {
+        if v.props["disabled"] == "true" { return false }
+        let index = tabIndex(v)
+        if index < 0 { return false }
+        if v.field != nil { return true }
+        if v.kind == "button" || v.kind == "toggle" || v.handlers.contains("press") { return true }
+        if v.acceptsFirstResponder { return true }
+        return index > 0
     }
 
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
