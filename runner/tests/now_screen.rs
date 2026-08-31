@@ -892,3 +892,46 @@ fn an_advance_stops_at_a_refusing_timer_with_the_refusal_and_the_clock() {
     let logs = exact_runner::agent::logs(&r, 0);
     assert!(logs.contains("timer 0 (tick) refused: Poisoned"), "{logs}");
 }
+
+/// The identity gate (LLP 1023 D5): a named plan boots only against the
+/// crate naming the same app; unnamed — either side — matches anything,
+/// so fixtures and stand-ins stay bootable.
+#[test]
+fn app_identity_gate() {
+    struct Named(Schedule);
+    impl DataSource for Named {
+        fn app_id(&self) -> &str {
+            "com.exact.mine"
+        }
+        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+            self.0.query(source, args)
+        }
+    }
+    let (mut plan, _) = now_screen();
+    plan.app_id = "com.exact.other".to_string();
+    // Unnamed host: anything boots.
+    assert!(Runner::boot(plan.clone(), Schedule::default(), Kernel::with_monospace()).is_ok());
+    // Named host, foreign plan: refused, both names in the error.
+    match Runner::boot(
+        plan.clone(),
+        Named(Schedule::default()),
+        Kernel::with_monospace(),
+    ) {
+        Err(RunnerError::AppMismatch { plan, host }) => {
+            assert_eq!(plan, "com.exact.other");
+            assert_eq!(host, "com.exact.mine");
+        }
+        Err(other) => panic!("expected AppMismatch, got {other:?}"),
+        Ok(_) => panic!("expected AppMismatch, got a boot"),
+    }
+    // Matching names boot; an unnamed plan boots anywhere.
+    plan.app_id = "com.exact.mine".to_string();
+    assert!(Runner::boot(
+        plan.clone(),
+        Named(Schedule::default()),
+        Kernel::with_monospace()
+    )
+    .is_ok());
+    plan.app_id = String::new();
+    assert!(Runner::boot(plan, Named(Schedule::default()), Kernel::with_monospace()).is_ok());
+}

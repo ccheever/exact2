@@ -49,16 +49,17 @@ const planOut = resolve(dist, 'app.plan');
 const dv = spawnSync('cargo', ['run', '-q', '--release', '-p', crate, '--bin', 'dev', '--', resolve(app.dir, 'app.contract'), planOut, '--once'], { cwd: app.workspace, stdio: 'inherit' });
 if (dv.status !== 0) process.exit(dv.status ?? 1);
 const planBytes = readFileSync(planOut);
-const header = new DataView(planBytes.buffer, planBytes.byteOffset, 32);
+const idLen = planBytes.readUInt32LE(32);
+const appId = idLen ? planBytes.subarray(36, 36 + idLen).toString('utf8') : '';
 writeFileSync(resolve(dist, 'exact.json'), JSON.stringify({
   exact: 1,
-  app: { name: app.name },
+  app: appId ? { id: appId, name: app.name } : { name: app.name },
   plan: {
     url: './app.plan',
     sha256: createHash('sha256').update(planBytes).digest('hex'),
     bytes: planBytes.length,
-    formatVersion: header.getUint32(4, true),
-    kernelSchema: header.getBigUint64(16, true).toString(16).padStart(16, '0'),
+    formatVersion: planBytes.readUInt32LE(4),
+    kernelSchema: planBytes.readBigUInt64LE(16).toString(16).padStart(16, '0'),
   },
 }) + '\n');
 writeFileSync(resolve(dist, 'index.html'), readFileSync(resolve(dist, 'index.html'), 'utf8').replace(

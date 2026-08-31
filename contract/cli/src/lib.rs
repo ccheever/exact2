@@ -361,7 +361,11 @@ fn merge(into: &mut File, from: File, u: &UseDecl) -> Result<(), CompileError> {
 /// Boot the plan once against `data` and write every resource's boot value
 /// into the plan as compiled data. The result still validates and its bytes
 /// are a pure function of (source, data).
-pub fn bake<D: DataSource>(plan: Plan, data: D) -> Result<Plan, BakeError> {
+pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
+    // The identity (LLP 1023 D5): the data crate's one declaration, written
+    // into the header here so a served plan says whose it is; boot's gate
+    // matches it against the booting binary's own crate.
+    plan.app_id = data.app_id().to_string();
     let mut runner = Runner::boot(plan.clone(), data, Kernel::with_monospace())?;
     lint(&mut runner)?;
     let mut b = PlanBuilder::from_plan(plan);

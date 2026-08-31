@@ -178,15 +178,21 @@ const server = createServer((req, res) => {
   // dev tier — seq and the events stream. Built from the plan bytes so it can
   // never go stale against what the resident compiler last wrote; the header
   // offsets are the generated encoder's (plan/build.rs, little-endian).
-  if (url.pathname === '/exact.json') {
+  // Served at /exact.json, and — Stage 2's negotiation — for a GET of the
+  // app URL itself whose Accept names the envelope type: the dev-server
+  // shortcut past the link rung (D1); a browser never sends it.
+  const wantsEnvelope = url.pathname === '/exact.json'
+    || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'));
+  if (wantsEnvelope) {
     try {
       const bytes = readFileSync(plan);
-      const h = new DataView(bytes.buffer, bytes.byteOffset, 32);
-      res.writeHead(200, { 'content-type': 'application/vnd.exact.envelope+json', 'cache-control': 'no-store' });
+      const idLen = bytes.readUInt32LE(32);
+      const appId = idLen ? bytes.subarray(36, 36 + idLen).toString('utf8') : '';
+      res.writeHead(200, { 'content-type': 'application/vnd.exact.envelope+json', vary: 'Accept', 'cache-control': 'no-store' });
       res.end(JSON.stringify({
         exact: 1,
-        app: { name: app.name },
-        plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length, formatVersion: h.getUint32(4, true), kernelSchema: h.getBigUint64(16, true).toString(16).padStart(16, '0') },
+        app: appId ? { id: appId, name: app.name } : { name: app.name },
+        plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length, formatVersion: bytes.readUInt32LE(4), kernelSchema: bytes.readBigUInt64LE(16).toString(16).padStart(16, '0') },
         seq: current.seq,
         events: './__dev',
       }) + '\n');
@@ -200,7 +206,7 @@ const server = createServer((req, res) => {
     if (!path.startsWith(dist + '/') || !existsSync(path) || !statSync(path).isFile()) { res.writeHead(404); res.end(); return; }
     let body = readFileSync(path);
     if (file === '/index.html') body = body.toString().replace('<script type="module" src="./glue.js"></script>', '<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>');
-    res.writeHead(200, { 'content-type': types[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
+    res.writeHead(200, { 'content-type': types[extname(path)] ?? 'application/octet-stream', ...(file === '/index.html' ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
     res.end(body);
   } catch { try { res.writeHead(500); res.end(); } catch { /* mid-write */ } }
 });

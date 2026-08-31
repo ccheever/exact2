@@ -24,6 +24,14 @@ pub trait DataSource {
     /// a `send`'s arguments. Bake and every in-process source use this.
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError>;
 
+    /// The app identity, reverse-DNS (LLP 1023 D5) — the one declaration:
+    /// bake writes it into the plan header, and boot refuses a plan whose
+    /// header names a different app. Empty is unnamed — a fixture or a
+    /// stand-in — and unnamed matches anything.
+    fn app_id(&self) -> &str {
+        ""
+    }
+
     /// Answer now, or hand back a request the host will run (LLP 1016 D1:
     /// the runner never does I/O). The default answers `query` now; a source
     /// that reaches outside the process overrides this and [`parse`]. The
@@ -142,6 +150,12 @@ pub enum RunnerError {
     KernelSchemaMismatch {
         plan: u64,
         kernel: u64,
+    },
+    /// The plan belongs to another app (LLP 1023 D5): its header names one
+    /// identity, this binary's data crate another.
+    AppMismatch {
+        plan: String,
+        host: String,
     },
     Plan(PlanError),
     NotOneRoot(usize),
@@ -375,6 +389,16 @@ impl<D: DataSource> Runner<D> {
             return Err(RunnerError::KernelSchemaMismatch {
                 plan: plan.kernel_schema_digest,
                 kernel: exact_kernel::SCHEMA_DIGEST,
+            });
+        }
+        // The identity gate (LLP 1023 D5): a plan naming one app against a
+        // data crate naming another is a poisoned boot — the seam's names
+        // and shapes cannot be trusted to line up. Unnamed (empty, either
+        // side) matches anything: fixtures and stand-ins stay bootable.
+        if !plan.app_id.is_empty() && !data.app_id().is_empty() && plan.app_id != data.app_id() {
+            return Err(RunnerError::AppMismatch {
+                plan: plan.app_id.clone(),
+                host: data.app_id().to_string(),
             });
         }
         let roots = plan

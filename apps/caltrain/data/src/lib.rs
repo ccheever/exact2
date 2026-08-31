@@ -217,6 +217,10 @@ fn text(args: &[Value], i: usize) -> Result<&str, DataError> {
 }
 
 impl DataSource for Caltrain {
+    fn app_id(&self) -> &str {
+        "com.exact.caltrain"
+    }
+
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         match source {
             "defaultLocation" => Ok(Value::record(vec![

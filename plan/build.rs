@@ -17,6 +17,10 @@ const SCHEMA_PATH: &str = "tables/format.json";
 struct Schema {
     #[serde(rename = "formatVersion")]
     format_version: u32,
+    /// Extra header fields after the four fixed integers, in declaration
+    /// order (LLP 1023 D5 added `app_id`). Only `string` is supported.
+    #[serde(default)]
+    header: Vec<Field>,
     tables: Vec<Table>,
     enums: BTreeMap<String, Vec<String>>,
     opcodes: Vec<Opcode>,
@@ -128,9 +132,16 @@ fn rust_type(c: &Codec) -> String {
 
 fn validate(schema: &Schema) {
     assert_eq!(
-        schema.format_version, 1,
+        schema.format_version, 2,
         "format: unsupported formatVersion"
     );
+    for f in &schema.header {
+        assert_eq!(
+            f.codec, "string",
+            "format: header field `{}`: only `string` is supported",
+            f.name
+        );
+    }
     let tables: BTreeSet<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(tables.len(), schema.tables.len(), "format: duplicate table");
     for t in &schema.tables {
@@ -450,6 +461,14 @@ fn main() {
         "    /// The compiler identity (crate version plus configuration digest)."
     );
     let _ = writeln!(w, "    pub compiler_identity: u64,");
+    for f in &schema.header {
+        let _ = writeln!(
+            w,
+            "    /// Header field `{}` (declared in format.json's `header`).",
+            f.name
+        );
+        let _ = writeln!(w, "    pub {}: String,", f.name);
+    }
     let _ = writeln!(w, "    /// Interned strings.");
     let _ = writeln!(w, "    pub strings: Vec<String>,");
     let _ = writeln!(w, "    /// Bytecode pool.");
@@ -496,6 +515,9 @@ fn main() {
     let _ = writeln!(w, "    pub fn encode(&self) -> Vec<u8> {{");
     let _ = writeln!(w, "        let mut w = Writer::default();");
     let _ = writeln!(w, "        w.bytes(MAGIC); w.u32(FORMAT_VERSION); w.u64(FORMAT_DIGEST); w.u64(self.kernel_schema_digest); w.u64(self.compiler_identity);");
+    for f in &schema.header {
+        let _ = writeln!(w, "        w.string(&self.{});", f.name);
+    }
     let _ = writeln!(
         w,
         "        w.u32(self.strings.len() as u32); for s in &self.strings {{ w.string(s); }}"
@@ -552,6 +574,9 @@ fn main() {
         w,
         "        let kernel_schema_digest = r.u64()?; let compiler_identity = r.u64()?;"
     );
+    for f in &schema.header {
+        let _ = writeln!(w, "        let {} = r.string()?;", f.name);
+    }
     let _ = writeln!(w, "        let n = r.count()?; let mut strings = Vec::with_capacity(n.min(crate::bytes::RESERVE)); for _ in 0..n {{ strings.push(r.string()?); }}");
     let _ = writeln!(
         w,
@@ -598,6 +623,9 @@ fn main() {
         w,
         "        let plan = Plan {{ kernel_schema_digest, compiler_identity, strings, code, data"
     );
+    for f in &schema.header {
+        let _ = write!(w, ", {}", f.name);
+    }
     for t in &schema.tables {
         let _ = write!(w, ", {}", t.name);
     }
