@@ -218,3 +218,13 @@ sits on that list carries the trade it would take.
   shell frame; iOS −27 ms from the prepare overlap), the four cherry-picks worth
   taking without the owner thread, and the conditions for reviving it. A revival
   rebases across 43b0c0c and lands only through a green smoke.
+
+- LLP 1023 Stage 1 leftovers, each small: the physical-iPhone typed-URL run (the
+  phone was asleep on landing day — `node host/apple/build.mjs --device --run`, then
+  4-finger tap → Open Project… → the LAN URL dev.mjs printed; ATS and signing already
+  proven on the built bundle); the Linux display loop's live SSE half (fetch.rs boots
+  once per run today — subscribe-and-swap needs a Linux display to verify on); a
+  native pre-download `kernelSchema` compare (needs the client's own digest exported —
+  the runner's boot gate catches a mismatch only after the download); `metrics.mjs`
+  rows for cold URL→first-frame and hot seq→first-frame over the LAN (diagnostic,
+  never a sixth check).

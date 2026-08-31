@@ -533,3 +533,22 @@ factual catches against the live repo before folding. Dispositions:
   dev-capable/release split in §8. Also not folded: assigning
   `X-Exact-Platform` a telemetry-only role (both r1s flirted with it;
   carrying a spoofable header with no job is how vocabularies grow).
+
+## 12. Delivered — Stage 1, 2026-08-30
+
+Landed the same day as the fold, in three commits (server 4b3ace7, Apple
+0e4cb07, Linux ab8baa2), transcribed as LLP 1023.001 with the build plan
+at 1023.000. As-built deviations from §9, each carried to QUEUE where
+still owed: the Linux loader is one-shot per run over ibex2's transport —
+the host already linked it for the request seam, so the planned std-only
+HTTP client was never written, and the live SSE half waits for a Linux
+display; the native pre-download `kernelSchema` compare waits on the
+client exporting its own digest (the runner's boot gate still refuses
+after download); the physical-iPhone typed-URL run waits on an unlocked
+phone (the ATS plist and signing are proven on the built bundle); the dev
+bin gained `--once` so `build.mjs` writes `dist/app.plan` and `dist/` is a
+complete static deploy. Verification included one unplanned live test: the
+peer session's weird-castle `dist/` swap fed a foreign plan to the
+caltrain binary through a bare python static server, which booted it with
+a data-seam error — the recorded demonstration that Stage 2's `app_id`
+gate is load-bearing, not ceremony.
