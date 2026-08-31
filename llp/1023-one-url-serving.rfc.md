@@ -552,3 +552,15 @@ peer session's weird-castle `dist/` swap fed a foreign plan to the
 caltrain binary through a bare python static server, which booted it with
 a data-seam error — the recorded demonstration that Stage 2's `app_id`
 gate is load-bearing, not ceremony.
+
+**Stage 2 landed the same evening** (96ed314, after Charlie ratified the
+`DataSource::app_id()` leaning): the header identity via `format.json`'s
+new `header` declaration and the `formatVersion` 1→2 bump, bake writing
+the id, `Runner::boot`'s `AppMismatch` gate (unnamed-matches-anything
+keeps fixtures bootable), `app.id` in the envelope, and the `Accept`
+branch with `Vary` on `dev.mjs` — zero client changes, as designed. The
+Stage 1 incident replayed as a refusal naming both apps. Deviation:
+weird-castle's own declaration waits on its in-flight data file; its
+plans bake unnamed and still boot everywhere until it lands (QUEUE). The
+remaining §9 stage is the third: the `BundleEntry` registry, the
+launcher, system DNS-SD.

@@ -228,3 +228,9 @@ sits on that list carries the trade it would take.
   the runner's boot gate catches a mismatch only after the download); `metrics.mjs`
   rows for cold URL→first-frame and hot seq→first-frame over the LAN (diagnostic,
   never a sixth check).
+
+- weird-castle declares its identity: `fn app_id(&self) -> &str { "com.exact.weird-castle" }`
+  on `Castle`'s DataSource impl — one line, waiting only because data/src/lib.rs was
+  mid-edit in another session on landing night (LLP 1023 Stage 2, 96ed314). Until then
+  its plans bake unnamed and boot everywhere; after it, a weird-castle plan served to a
+  caltrain binary is a refusal naming both apps.
