@@ -111,15 +111,33 @@ impl Session {
 /// `dev <source.contract> <out.plan>`: watch forever, one line per event on
 /// stdout — `plan <bytes> <saved_ms> <compile_ms> <bake_ms> <ready_ms>` or
 /// `error <message>` — for `dev.mjs` to relay. Polls every 10 ms; a stat
-/// is microseconds.
+/// is microseconds. `--once` builds the plan a single time and exits —
+/// `build.mjs` uses it so `dist/` carries `app.plan` for a static host
+/// (LLP 1023 D2: the envelope points at a file that must exist).
 pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
     use std::io::Write as _;
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (Some(source), Some(out)) = (args.first(), args.get(1)) else {
-        eprintln!("usage: dev <source.contract> <out.plan>");
+        eprintln!("usage: dev <source.contract> <out.plan> [--once]");
         return std::process::ExitCode::from(2);
     };
     let mut session = Session::new(source, out);
+    if args.iter().any(|a| a == "--once") {
+        return match session.poll::<D>() {
+            Some(Ok(b)) => {
+                println!("plan {} bytes", b.bytes.len());
+                std::process::ExitCode::SUCCESS
+            }
+            Some(Err(e)) => {
+                eprintln!("error {e}");
+                std::process::ExitCode::FAILURE
+            }
+            None => {
+                eprintln!("error {source}: nothing to build");
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     let mut stdout = std::io::stdout();
     loop {
         match session.poll::<D>() {

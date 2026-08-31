@@ -3,7 +3,8 @@
 // when binaryen is on PATH, then `dist/` = index.html + glue.js + app.wasm.
 // Usage: node host/web/build.mjs [crate=caltrain-web]
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { resolveApp } from '../../scripts/app.mjs';
@@ -38,6 +39,33 @@ if (existsSync(deck)) cpSync(deck, resolve(dist, 'deck'), { recursive: true });
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(dist, 'index.html'));
 copyFileSync(resolve(root, 'host/web/glue.js'), resolve(dist, 'glue.js'));
 
+// The plan and its pointer card (LLP 1023 D1/D2): dist/ is a complete static
+// deploy — a native client GETs the page URL, follows index.html's link to
+// exact.json, and fetches app.plan; a browser never notices. The header
+// fields are read from the plan bytes at the generated encoder's fixed
+// offsets (plan/build.rs: 4-byte magic, u32 version, u64 format digest,
+// u64 kernel schema, u64 compiler identity — all little-endian).
+const planOut = resolve(dist, 'app.plan');
+const dv = spawnSync('cargo', ['run', '-q', '--release', '-p', crate, '--bin', 'dev', '--', resolve(app.dir, 'app.contract'), planOut, '--once'], { cwd: app.workspace, stdio: 'inherit' });
+if (dv.status !== 0) process.exit(dv.status ?? 1);
+const planBytes = readFileSync(planOut);
+const header = new DataView(planBytes.buffer, planBytes.byteOffset, 32);
+writeFileSync(resolve(dist, 'exact.json'), JSON.stringify({
+  exact: 1,
+  app: { name: app.name },
+  plan: {
+    url: './app.plan',
+    sha256: createHash('sha256').update(planBytes).digest('hex'),
+    bytes: planBytes.length,
+    formatVersion: header.getUint32(4, true),
+    kernelSchema: header.getBigUint64(16, true).toString(16).padStart(16, '0'),
+  },
+}) + '\n');
+writeFileSync(resolve(dist, 'index.html'), readFileSync(resolve(dist, 'index.html'), 'utf8').replace(
+  '<script type="module" src="./glue.js"></script>',
+  '<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<script type="module" src="./glue.js"></script>',
+));
+
 // The app's GPU module (LLP 1009 D2): a second wasm the page fetches on
 // demand, built with wasm-bindgen's glue (its exports are the module's ABI on
 // the web) and wasm-opt. Only when the app has a GPU crate.
@@ -59,4 +87,4 @@ if (existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'))) {
   }
 }
 const wasm = readFileSync(out);
-console.log(`host/web/dist: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js; GPU: ${gpuNote}`);
+console.log(`host/web/dist: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; GPU: ${gpuNote}`);

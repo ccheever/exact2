@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // The resident dev loop: edit app.contract → the page shows it, no cargo
-// build in the loop. Usage: node host/web/dev.mjs [--app caltrain] [--port 8765]
+// build in the loop. Usage: node host/web/dev.mjs [--app caltrain] [--port 8765] [--loopback]
+//
+// Binds the LAN by default (LLP 1023 D8) so a phone on the network can boot
+// the plan from this URL; --loopback (or EXACT_LOOPBACK=1) restores
+// 127.0.0.1 only. The agent carrier is not here and never binds the LAN.
 //
 // One Rust process (the app's `dev` bin, exact_web::dev) watches the source
 // and writes each baked plan to dist/app.plan; this script serves dist/
@@ -18,8 +22,10 @@
 // and the page keeps the last good wasm. No bundler: there is nothing to
 // bundle (no app JS by rule), and the watch is Node's own.
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, watch } from 'node:fs';
+import { existsSync, readFileSync, statSync, watch } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { resolve, extname } from 'node:path';
 import { resolveApp } from '../../scripts/app.mjs';
 
@@ -27,6 +33,8 @@ const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
 const app = resolveApp(arg('--app', undefined));
 const port = Number(arg('--port', 8765));
+const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
+const host = loopback ? '127.0.0.1' : '0.0.0.0';
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const dist = resolve(root, 'host/web/dist');
 const source = resolve(app.dir, 'app.contract');
@@ -41,6 +49,11 @@ const clients = new Set();
 let seq = 0;
 const pending = new Map(); // seq -> { saved, ready }
 const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stringify(data)}\n\n`); };
+// The current revision (LLP 1023 D3): the SSE hello carries it so a client
+// that fetched the plan and subscribed across an edit compares digests and
+// re-fetches instead of missing the edit forever. dev.js ignores hello.
+const current = { seq: 0, digest: '' };
+const hello = () => JSON.stringify({ hello: true, seq: current.seq, digest: current.digest });
 
 // The resident compiler — started, and started again after a Rust rebuild.
 let dev = null;
@@ -61,12 +74,15 @@ function startCompiler() {
         const [bytes, saved, compile, bake, ready] = rest.map(Number);
         seq += 1;
         pending.set(seq, { saved, ready });
+        current.seq = seq;
+        try { current.digest = createHash('sha256').update(readFileSync(plan)).digest('hex'); } catch { current.digest = ''; }
         // A compiler's first plan is the source as it stands — what the
         // wasm baked and a page boots from — not an edit: nothing to push,
-        // nothing to time.
-        if (first) { first = false; if (!announced) { announced = true; console.log(`plan ready: ${bytes} bytes (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) — edit ${source.replace(root + '/', '')} and watch`); } continue; }
+        // nothing to time. An early native subscriber still learns the
+        // revision: the hello goes out again once it exists.
+        if (first) { first = false; for (const res of clients) res.write(`data: ${hello()}\n\n`); if (!announced) { announced = true; console.log(`plan ready: ${bytes} bytes (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) — edit ${source.replace(root + '/', '')} and watch`); } continue; }
         console.log(`edit → plan ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms, ${bytes} bytes) · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}`);
-        push({ seq, bytes });
+        push({ seq, bytes, digest: current.digest });
       } else if (kind === 'error') {
         console.log(`error: ${rest.join(' ')}`);
         push({ error: rest.join(' ') });
@@ -128,12 +144,14 @@ function rebuild() {
   });
 }
 
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.plan': 'application/octet-stream', '.png': 'image/png' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan', '.png': 'image/png' };
 const server = createServer((req, res) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/__dev') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(':\n\n');
+    res.write(`data: ${hello()}\n\n`);
     clients.add(res);
     console.log(`page connected (${clients.size})`);
     req.on('close', () => clients.delete(res));
@@ -156,16 +174,49 @@ const server = createServer((req, res) => {
     res.writeHead(204); res.end();
     return;
   }
+  // The live envelope (LLP 1023 D2): the static exact.json in dist/ plus the
+  // dev tier — seq and the events stream. Built from the plan bytes so it can
+  // never go stale against what the resident compiler last wrote; the header
+  // offsets are the generated encoder's (plan/build.rs, little-endian).
+  if (url.pathname === '/exact.json') {
+    try {
+      const bytes = readFileSync(plan);
+      const h = new DataView(bytes.buffer, bytes.byteOffset, 32);
+      res.writeHead(200, { 'content-type': 'application/vnd.exact.envelope+json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify({
+        exact: 1,
+        app: { name: app.name },
+        plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length, formatVersion: h.getUint32(4, true), kernelSchema: h.getBigUint64(16, true).toString(16).padStart(16, '0') },
+        seq: current.seq,
+        events: './__dev',
+      }) + '\n');
+    } catch { res.writeHead(404); res.end(); }
+    return;
+  }
   const file = url.pathname === '/' ? '/index.html' : url.pathname;
   if (file === '/dev.js') { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(resolve(root, 'host/web/dev.js'))); return; }
-  const path = resolve(dist, '.' + file);
-  if (!path.startsWith(dist) || !existsSync(path)) { res.writeHead(404); res.end(); return; }
-  let body = readFileSync(path);
-  if (file === '/index.html') body = body.toString().replace('<script type="module" src="./glue.js"></script>', '<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>');
-  res.writeHead(200, { 'content-type': types[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
-  res.end(body);
+  try {
+    const path = resolve(dist, '.' + file);
+    if (!path.startsWith(dist + '/') || !existsSync(path) || !statSync(path).isFile()) { res.writeHead(404); res.end(); return; }
+    let body = readFileSync(path);
+    if (file === '/index.html') body = body.toString().replace('<script type="module" src="./glue.js"></script>', '<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>');
+    res.writeHead(200, { 'content-type': types[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
+    res.end(body);
+  } catch { try { res.writeHead(500); res.end(); } catch { /* mid-write */ } }
 });
-server.on('error', (e) => { console.error(`cannot listen on 127.0.0.1:${port}: ${e.code ?? e.message}`); killCompiler(); process.exit(1); });
-server.listen(port, '127.0.0.1', () => console.log(`http://127.0.0.1:${port}/  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ctrl-c to stop)`));
+server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}`); killCompiler(); process.exit(1); });
+server.listen(port, host, () => {
+  const urls = [`http://127.0.0.1:${port}/`];
+  if (!loopback) {
+    // Every usable IPv4, private-range first, none silently picked (D8):
+    // a utun/VPN address printed alone is a silent failure on the phone.
+    const priv = (a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
+    const addrs = Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal && a.family === 'IPv4').map((a) => a.address).sort((a, b) => priv(b) - priv(a));
+    urls.push(...addrs.map((a) => `http://${a}:${port}/`));
+    if (addrs.length === 0) console.log('no LAN interface found; serving loopback only in effect');
+  }
+  console.log(urls.join('\n'));
+  console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${loopback ? 'loopback only' : 'LAN bind — --loopback to keep it local; macOS may ask to allow node'}; ctrl-c to stop)`);
+});
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

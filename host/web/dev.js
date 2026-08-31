@@ -10,6 +10,9 @@ function show(message) {
 }
 es.onmessage = async (e) => {
   const m = JSON.parse(e.data);
+  // The hello names the current revision for native subscribers (LLP 1023
+  // D3); the page booted from the wasm's baked plan of the same source.
+  if (m.hello) return;
   if (m.error) { show(m.error); console.error("exact dev:", m.error); return; }
   // A rebuilt wasm is a new program: the page reloads (no state carried).
   if (m.rebuilt) { location.reload(); return; }
