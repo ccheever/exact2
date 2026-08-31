@@ -234,3 +234,8 @@ sits on that list carries the trade it would take.
   mid-edit in another session on landing night (LLP 1023 Stage 2, 96ed314). Until then
   its plans bake unnamed and boot everywhere; after it, a weird-castle plan served to a
   caltrain binary is a refusal naming both apps.
+
+- LLP 1024 (native modules) is r2 after the 2026-08-31 three-model panel — unanimous,
+  design settled (one app artifact, roster-at-bake, versioned table ABI). What it
+  waits on is Charlie: ratify §6's Q1 leaning, and name a consumer + implementer;
+  D8 does not start without both.
