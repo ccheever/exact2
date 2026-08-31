@@ -40,6 +40,7 @@ pub mod app;
 #[cfg(target_os = "linux")]
 pub mod display;
 pub mod executor;
+pub mod fetch;
 pub mod gpu;
 pub mod host;
 pub mod image;

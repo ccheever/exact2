@@ -28,6 +28,7 @@ exact-runner = { path = "../../runner" }
 # standard library for a Rust consumer (ibex LLP 0068) — rustls off Apple
 # (its OQ2) — from the sibling checkout, as the Apple host takes it.
 ibex2 = { path = "../../../ibex/crates/ibex2", default-features = false }
+sha2 = "0.10"
 tiny-skia = "0.12"
 cosmic-text = { version = "0.19", features = ["peniko"] }
 png = "0.18"

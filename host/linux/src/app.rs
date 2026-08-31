@@ -10,6 +10,10 @@
 //! - `EXACT_PLAN=<file>` — boot that plan instead of the baked one.
 //! - `EXACT_DEV_PLAN=<file>` — restart from it whenever it changes, state
 //!   carried (the dev loop, LLP 1007 §6; display mode).
+//! - Either, as an `http(s)://` URL — the app URL: the envelope resolved
+//!   and the plan fetched, verified, and booted once per run (LLP 1023
+//!   Stage 1; `fetch.rs`). A headless run is per-invocation, so an edit is
+//!   the next run; the display loop's live half is owed (QUEUE).
 //! - `EXACT_ASSETS=<dir>` — the asset root (the current directory otherwise).
 //! - `EXACT_SIZE=WxH` — the headless viewport, points (420×860 otherwise).
 //! - `EXACT_SCALE=n` — device pixels per point (1 otherwise).
@@ -54,13 +58,31 @@ impl Config {
     /// Read the environment; `baked` is the plan compiled into the binary.
     pub fn from_env(baked: &[u8]) -> Config {
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-        let plan = env("EXACT_PLAN")
-            .and_then(|p| match std::fs::read(&p) {
-                Ok(b) => Some(b),
+        let from_url = [env("EXACT_PLAN"), env("EXACT_DEV_PLAN")]
+            .into_iter()
+            .flatten()
+            .find(|v| crate::fetch::is_url(v))
+            .and_then(|u| match crate::fetch::fetch_app(&u) {
+                Ok(b) => {
+                    eprintln!("exact: plan ← {u} ({} bytes)", b.len());
+                    Some(b)
+                }
                 Err(e) => {
-                    eprintln!("exact: EXACT_PLAN {p}: {e}; booting the baked plan");
+                    eprintln!("exact url: {e}; booting the baked plan");
                     None
                 }
+            });
+        let plan = from_url
+            .or_else(|| {
+                env("EXACT_PLAN")
+                    .filter(|p| !crate::fetch::is_url(p))
+                    .and_then(|p| match std::fs::read(&p) {
+                        Ok(b) => Some(b),
+                        Err(e) => {
+                            eprintln!("exact: EXACT_PLAN {p}: {e}; booting the baked plan");
+                            None
+                        }
+                    })
             })
             .unwrap_or_else(|| baked.to_vec());
         let size = env("EXACT_SIZE")
@@ -82,7 +104,9 @@ impl Config {
             agent: env("EXACT_AGENT").as_deref() == Some("1"),
             smoke: env("EXACT_SMOKE").as_deref() == Some("1"),
             shot: env("EXACT_SHOT"),
-            dev_plan: env("EXACT_DEV_PLAN").map(PathBuf::from),
+            dev_plan: env("EXACT_DEV_PLAN")
+                .filter(|p| !crate::fetch::is_url(p))
+                .map(PathBuf::from),
             card: env("EXACT_DRM").unwrap_or_else(|| "/dev/dri/card0".to_string()),
             vnc: env("EXACT_VNC"),
         }
