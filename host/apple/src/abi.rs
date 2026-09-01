@@ -140,12 +140,11 @@ impl<D: DataSource> Bridge<D> {
             Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
             None => Box::new(MonospaceMeasurer::default()),
         };
-        self.host = None;
-        self.executor = None;
         // The app's bindings, once (LLP 1016 D6; LLP 1018 D6): the secrets it
         // kept are read into a snapshot before the runner boots, so the first
         // frame is a returning user's; the executor thread takes the same
-        // bindings for its requests.
+        // bindings for its requests. Build beside any running host: the dev
+        // menu may use this fresh-state path to reload the baked plan.
         let bindings = endow(data.grants());
         let snapshot = snapshot_of(bindings.as_ref());
         let secrets = bindings.as_ref().map(|b| b.secrets.clone());
@@ -184,7 +183,9 @@ impl<D: DataSource> Bridge<D> {
     /// fetched — the dev loop's restart).
     pub fn boot_plan(&mut self, len: usize, data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
-        let carried = self.host.take().map(|h| h.carry());
+        // Build the candidate beside the live host. A decode, app-identity,
+        // or runner refusal must not turn a reload into an empty window.
+        let carried = self.host.as_ref().map(Host::carry);
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
             None => Box::new(MonospaceMeasurer::default()),
@@ -210,6 +211,9 @@ impl<D: DataSource> Bridge<D> {
             },
         ) {
             Ok((host, batch)) => {
+                // Replacing the executor drops its sender. A job already on
+                // the old worker may finish, but its outcome receiver is gone
+                // and it can never be delivered to this new runner's tickets.
                 self.executor = Some(crate::executor::Executor::start(
                     bindings,
                     hooks.wake.map(|w| (w, hooks.wake_ctx)),

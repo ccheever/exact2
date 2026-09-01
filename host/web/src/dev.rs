@@ -36,6 +36,7 @@ pub struct Session {
     out: PathBuf,
     last: Option<String>,
     stamp: Option<(SystemTime, u64)>,
+    failed: bool,
 }
 
 fn unix_ms(t: SystemTime) -> f64 {
@@ -51,6 +52,7 @@ impl Session {
             out: out.into(),
             last: None,
             stamp: None,
+            failed: false,
         }
     }
 
@@ -65,25 +67,36 @@ impl Session {
     pub fn poll<D: DataSource + Default>(&mut self) -> Option<Result<Built, String>> {
         let meta = std::fs::metadata(&self.source).ok()?;
         let stamp = (meta.modified().ok()?, meta.len());
-        if self.stamp == Some(stamp) {
+        // A failed compile may have observed a file while an editor was
+        // replacing its bytes. Until a good plan lands, re-read even when
+        // the coarse metadata stamp is unchanged; identical bad bytes are
+        // still suppressed below.
+        if !self.failed && self.stamp == Some(stamp) {
             return None;
         }
         self.stamp = Some(stamp);
         let src = match std::fs::read_to_string(&self.source) {
             Ok(s) => s,
-            Err(e) => return Some(Err(format!("{}: {e}", self.source.display()))),
+            Err(e) => {
+                self.failed = true;
+                return Some(Err(format!("{}: {e}", self.source.display())));
+            }
         };
         if self.last.as_deref() == Some(src.as_str()) {
             return None;
         }
         self.last = Some(src.clone());
-        Some(self.build::<D>(&src, unix_ms(stamp.0)))
+        let built = self.build::<D>(&src, unix_ms(stamp.0));
+        self.failed = built.is_err();
+        Some(built)
     }
 
     fn build<D: DataSource + Default>(&self, src: &str, saved_ms: f64) -> Result<Built, String> {
         let t = Instant::now();
-        let _ = src;
-        let plan = contract::compile_path(&self.source)
+        // Compile exactly the snapshot `poll` compared with `last`. Reading
+        // the path again here can observe the middle of the next save and
+        // then suppress its final bytes as already seen.
+        let plan = contract::compile_path_source(&self.source, src)
             .map_err(|e| format!("{}:{e}", self.source.display()))?;
         let compile_ms = t.elapsed().as_secs_f64() * 1000.0;
         let t = Instant::now();

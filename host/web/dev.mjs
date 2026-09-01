@@ -24,10 +24,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, statSync, watch } from 'node:fs';
+import { existsSync, readFileSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
-import { resolve, extname } from 'node:path';
+import { resolve } from 'node:path';
 import { resolveApp } from '../../scripts/app.mjs';
+import { readStaticFile, webContentType } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -44,16 +45,21 @@ if (!existsSync(resolve(dist, 'app.wasm'))) {
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
 const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
+const builtDigest = () => {
+  try { return JSON.parse(readFileSync(resolve(dist, 'exact.json'), 'utf8')).plan.sha256 ?? ''; }
+  catch { return ''; }
+};
+let bakedDigest = builtDigest();
 
 const clients = new Set();
 let seq = 0;
 const pending = new Map(); // seq -> { saved, ready }
 const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stringify(data)}\n\n`); };
 // The current revision (LLP 1023 D3): the SSE hello carries it so a client
-// that fetched the plan and subscribed across an edit compares digests and
-// re-fetches instead of missing the edit forever. dev.js ignores hello.
+// that fetched the page and subscribed across an edit re-fetches instead of
+// missing the edit forever.
 const current = { seq: 0, digest: '' };
-const hello = () => JSON.stringify({ hello: true, seq: current.seq, digest: current.digest });
+const hello = () => JSON.stringify({ hello: true, seq: current.seq, digest: current.digest, baked: bakedDigest });
 
 // The resident compiler — started, and started again after a Rust rebuild.
 let dev = null;
@@ -98,7 +104,7 @@ const stop = () => { killCompiler(); process.exit(0); };
 // The Rust watch: the crates the wasm is built from.
 const watched = [...['kernel', 'plan', 'motion', 'runner', 'host/web', 'gpu', 'vendor/taffy'].map((d) => resolve(root, d)), ...['data', 'web', 'gpu'].map((d) => resolve(app.dir, d))].filter(existsSync);
 const wanted = /\.(rs|toml|json|wgsl|js|html)$/;
-const skipped = /(^|\/)(target|dist|\.build|node_modules)(\/|$)/;
+const skipped = /(^|\/)(target|dist(?:\.previous)?|\.build|node_modules)(\/|$)/;
 let changed = new Set();
 let timer = null;
 let building = false;
@@ -129,6 +135,7 @@ function rebuild() {
     const ms = Date.now() - t;
     if (code === 0) {
       builds += 1;
+      bakedDigest = builtDigest();
       // The compiler's plans must match the wasm's format: it is built again
       // too (cargo, warm), and its first plan reaches the reloaded page.
       killCompiler();
@@ -144,10 +151,10 @@ function rebuild() {
   });
 }
 
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan', '.png': 'image/png' };
 const server = createServer((req, res) => {
-  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
   const url = new URL(req.url, 'http://x');
+  const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted';
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && devBeacon)) { res.writeHead(405); res.end(); return; }
   if (url.pathname === '/__dev') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(':\n\n');
@@ -185,7 +192,9 @@ const server = createServer((req, res) => {
     || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'));
   if (wantsEnvelope) {
     try {
-      const bytes = readFileSync(plan);
+      const found = readStaticFile(dist, '/app.plan');
+      if (!found) throw new Error('no current plan');
+      const bytes = found.body;
       const idLen = bytes.readUInt32LE(32);
       const appId = idLen ? bytes.subarray(36, 36 + idLen).toString('utf8') : '';
       res.writeHead(200, { 'content-type': 'application/vnd.exact.envelope+json', vary: 'Accept', 'cache-control': 'no-store' });
@@ -202,13 +211,13 @@ const server = createServer((req, res) => {
   const file = url.pathname === '/' ? '/index.html' : url.pathname;
   if (file === '/dev.js') { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(resolve(root, 'host/web/dev.js'))); return; }
   try {
-    const path = resolve(dist, '.' + file);
-    if (!path.startsWith(dist + '/') || !existsSync(path) || !statSync(path).isFile()) { res.writeHead(404); res.end(); return; }
-    let body = readFileSync(path);
+    const found = readStaticFile(dist, file);
+    if (!found) { res.writeHead(404); res.end(); return; }
+    let body = found.body;
     if (file === '/index.html') body = body.toString().replace('<script type="module" src="./glue.js"></script>', '<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>');
-    res.writeHead(200, { 'content-type': types[extname(path)] ?? 'application/octet-stream', ...(file === '/index.html' ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
-    res.end(body);
-  } catch { try { res.writeHead(500); res.end(); } catch { /* mid-write */ } }
+    res.writeHead(200, { 'content-type': webContentType(found.route), ...(file === '/index.html' ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : body);
+  } catch { try { res.writeHead(404); res.end(); } catch { /* mid-write */ } }
 });
 server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}`); killCompiler(); process.exit(1); });
 server.listen(port, host, () => {

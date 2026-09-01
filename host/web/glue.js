@@ -8,6 +8,7 @@ const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
 const animations = new Map(); // "view/property" -> Animation (a spring in flight)
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
+const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
 const messageFrames = new Set(); // iframes whose node handles `message`
 let messageListening = false;
 let wasm = null;
@@ -24,6 +25,28 @@ const starts = new WeakMap(); // Animation -> the agent clock when it began
 const now = () => agentClock ?? performance.now() - t0;
 let fontGeneration = 0;
 let installedFonts = [];
+
+function commitGuestOrigin(el) {
+  const sandbox = new Set((el.getAttribute("sandbox") ?? "").split(/\s+/).filter(Boolean));
+  const opaque = el.hasAttribute("sandbox") && !sandbox.has("allow-same-origin");
+  let origin = null;
+  if (!opaque) {
+    const src = el.getAttribute("src");
+    try { origin = !src || src === "about:blank" ? location.origin : new URL(src, document.baseURI).origin; }
+    catch { origin = null; }
+    if (origin === "null") origin = null;
+  }
+  iframeOrigins.set(el, { origin, opaque });
+}
+
+function guestMessageAuthorized(el, eventOrigin) {
+  const committed = iframeOrigins.get(el);
+  if (!committed) return false;
+  // Opaque sandboxed guests retain source identity but have no targetable
+  // origin. Their explicit capability is guest→app string messages and
+  // unauthenticated UNAVAILABLE replies; identity never crosses this branch.
+  return committed.opaque ? eventOrigin === "null" : eventOrigin === committed.origin;
+}
 
 function readOut(len) {
   const ptr = wasm.exact_out();
@@ -70,6 +93,7 @@ function applyProps(el, set, clear) {
     el.setAttribute("src", source ?? "about:blank");
     if (source === null) el.removeAttribute("src");
   }
+  if (el instanceof HTMLIFrameElement) commitGuestOrigin(el);
   if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
 }
 
@@ -88,16 +112,24 @@ function castleUserFromSrc(src) {
     return null;
   }
 }
-function replyCastleSdk(el, data) {
+function replyCastleSdk(el, data, eventOrigin) {
   if (!data || data.castleSdk !== 1) return false;
   if (data.lifecycle) return true;
   if (typeof data.requestId !== "string") return true;
   const win = el.contentWindow;
   if (!win) return true;
+  const committed = iframeOrigins.get(el);
+  if (!guestMessageAuthorized(el, eventOrigin)) return true;
   if (data.command === "user.getCurrent") {
-    win.postMessage({ castleSdk: 1, requestId: data.requestId, ok: true, data: { user: castleUserFromSrc(el.getAttribute("src") || "") } }, "*");
+    if (committed.opaque) {
+      // `*` is only for the deliberately opaque, unprivileged branch; never
+      // broadcast identity to a WindowProxy that can survive navigation.
+      win.postMessage({ castleSdk: 1, requestId: data.requestId, ok: false, error: { code: "UNAVAILABLE", message: "Identity is unavailable to an opaque guest" } }, "*");
+    } else {
+      win.postMessage({ castleSdk: 1, requestId: data.requestId, ok: true, data: { user: castleUserFromSrc(el.getAttribute("src") || "") } }, committed.origin);
+    }
   } else {
-    win.postMessage({ castleSdk: 1, requestId: data.requestId, ok: false, error: { code: "UNAVAILABLE", message: "This host does not implement " + String(data.command) } }, "*");
+    win.postMessage({ castleSdk: 1, requestId: data.requestId, ok: false, error: { code: "UNAVAILABLE", message: "This host does not implement " + String(data.command) } }, committed.opaque ? "*" : committed.origin);
   }
   return true;
 }
@@ -109,7 +141,7 @@ window.addEventListener("message", (event) => {
   if (!data || data.castleSdk !== 1) return;
   for (const el of views.values()) {
     if (!(el instanceof HTMLIFrameElement) || event.source !== el.contentWindow) continue;
-    replyCastleSdk(el, data);
+    replyCastleSdk(el, data, event.origin);
     return;
   }
 });
@@ -123,6 +155,7 @@ function ensureMessageListener() {
   window.addEventListener("message", (event) => {
     for (const el of messageFrames) {
       if (event.source !== el.contentWindow) continue;
+      if (!guestMessageAuthorized(el, event.origin)) return;
       let data = event.data;
       if (typeof data === "string") {
         try { data = JSON.parse(data); } catch { data = null; }
@@ -223,10 +256,17 @@ function attach(el, id, handlers) {
   }
 }
 
+function viewFor(op, id) {
+  const el = views.get(id);
+  if (!el) console.error(`exact: ${op} names missing view ${id}`);
+  return el;
+}
+
 function apply(batch) {
   if (batch.error) console.error("exact:", batch.error);
-  for (const op of batch.ops) {
-    switch (op.op) {
+  for (const op of batch.ops ?? []) {
+    try {
+      switch (op.op) {
       case "create": {
         // A canvas node is a <div> hosting its surface <canvas> under its
         // children (LLP 1014 D2): the kernel's children are laid out in the
@@ -246,11 +286,24 @@ function apply(batch) {
         views.set(op.id, el);
         break;
       }
-      case "props": applyProps(views.get(op.id), op.set, op.clear); break;
-      case "style": views.get(op.id).style.cssText = op.css; break;
+      case "props": {
+        const el = viewFor("props", op.id);
+        if (el) applyProps(el, op.set, op.clear);
+        break;
+      }
+      case "style": {
+        const el = viewFor("style", op.id);
+        if (el) el.style.cssText = op.css;
+        break;
+      }
       case "children": {
-        const el = views.get(op.id);
-        const want = op.ids.map((i) => views.get(i)).filter(Boolean);
+        const el = viewFor("children", op.id);
+        if (!el) break;
+        const want = [];
+        for (const id of op.ids) {
+          const child = viewFor("children", id);
+          if (child) want.push(child);
+        }
         // Reorder in place: keyed rows keep their elements (and their state).
         // A canvas's surface element is skipped: not a child, never removed.
         const skip = (n) => { while (n && n.dataset.surface !== undefined) n = n.nextElementSibling; return n; };
@@ -269,8 +322,10 @@ function apply(batch) {
         animations.get(key)?.cancel();
         animations.delete(key);
         if (!op.values.length) break;
+        const el = viewFor("animate", op.id);
+        if (!el) break;
         const css = (v) => op.property === "translate" ? `${v[0]}px ${v[1]}px` : op.property === "rotate" ? `${v}deg` : String(v);
-        const anim = views.get(op.id).animate(op.values.map((v) => ({ [op.property]: css(v) })), { delay: op.delay, duration: op.duration, easing: "linear" });
+        const anim = el.animate(op.values.map((v) => ({ [op.property]: css(v) })), { delay: op.delay, duration: op.duration, easing: "linear" });
         animations.set(key, anim);
         anim.finished.then(() => { if (animations.get(key) === anim) animations.delete(key); }, () => {});
         break;
@@ -280,7 +335,12 @@ function apply(batch) {
         // loaded, queued until then. The module itself is fetched only
         // after the first painted frame, and only when a canvas exists.
         if (globalThis.exact.gpu) globalThis.exact.gpu.surface(op.id, op.name, op.values);
-        else (globalThis.exact.pendingSurfaces ??= []).push({ id: op.id, name: op.name, values: op.values });
+        else {
+          const pending = (globalThis.exact.pendingSurfaces ??= []);
+          const queued = pending.find((entry) => entry.id === op.id && entry.generation === incarnation);
+          if (queued) { queued.name = op.name; queued.values = op.values; }
+          else pending.push({ id: op.id, name: op.name, values: op.values, generation: incarnation });
+        }
         break;
       }
       case "grants": { grants = op.lines; break; }
@@ -303,15 +363,27 @@ function apply(batch) {
         // `exact_fulfill` on this thread; the batch it makes is applied
         // like any other.
         const { ticket, method, url, headers, body, cache } = op;
-        if (!granted(url)) { fulfill(ticket, 2, 0, "", enc.encode(`refused by grant: ${url}`)); break; }
-        const init = { method, headers, cache: cache === "reload" ? "reload" : "default" };
-        if (body) init.body = Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
-        const p = fetch(url, init).then(
-          async (r) => fulfill(ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), new Uint8Array(await r.arrayBuffer())),
-          (e) => fulfill(ticket, 1, 0, "", enc.encode(String(e?.message ?? e))),
-        );
+        const requestIncarnation = incarnation;
+        if (!granted(url)) {
+          deferFulfill(requestIncarnation, ticket, 2, 0, "", enc.encode(`refused by grant: ${url}`));
+          break;
+        }
+        let decodedBody;
+        try {
+          if (body) decodedBody = Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
+        } catch (e) {
+          deferFulfill(requestIncarnation, ticket, 4, 0, "", enc.encode(`invalid request body: ${String(e)}`));
+          throw e;
+        }
+        const controller = new AbortController();
+        controllers.add(controller);
+        const init = { method, headers, cache: cache === "reload" ? "reload" : "default", signal: controller.signal };
+        if (decodedBody) init.body = decodedBody;
+        const p = fetch(url, init)
+          .then(async (r) => safelyFulfill(requestIncarnation, ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), new Uint8Array(await r.arrayBuffer())))
+          .catch((e) => safelyFulfill(requestIncarnation, ticket, controller.signal.aborted ? 4 : 1, 0, "", enc.encode(String(e?.message ?? e))));
         inflight.add(p);
-        p.finally(() => inflight.delete(p));
+        p.finally(() => { inflight.delete(p); controllers.delete(controller); });
         break;
       }
       case "command": {
@@ -323,7 +395,12 @@ function apply(batch) {
       }
       case "destroy": { const el = views.get(op.id); if (el) { messageFrames.delete(el); el.remove(); } views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
       case "roots": {
-        root.replaceChildren(...op.ids.map((i) => views.get(i)).filter(Boolean));
+        const roots = [];
+        for (const id of op.ids) {
+          const el = viewFor("roots", id);
+          if (el) roots.push(el);
+        }
+        root.replaceChildren(...roots);
         syncViewportFit();
         break;
       }
@@ -335,6 +412,11 @@ function apply(batch) {
         if (agentMode) { register(agentClock); agentClock = Math.max(agentClock, op.ms); seek(agentClock); }
         break;
       }
+      }
+    } catch (e) {
+      // A malformed op is isolated: the runner already committed the whole
+      // batch, so leaving the DOM at a prefix would be the worst outcome.
+      console.error(`exact: ${String(op?.op ?? "unknown")} op failed`, e);
     }
   }
   return batch.timers;
@@ -407,6 +489,8 @@ async function installFonts(faces) {
 // the reply path into the wasm.
 let grants = [];
 const inflight = new Set();
+const controllers = new Set();
+let incarnation = 0;
 const enc = new TextEncoder();
 function granted(url) {
   // A `net.fetch` grant is an origin — scheme, host, port — matched whole,
@@ -420,14 +504,26 @@ function granted(url) {
     try { return new URL(granted).origin === origin; } catch { return false; }
   });
 }
-function fulfill(ticket, kind, status, headersText, body) {
-  if (!wasm) return;
+function fulfill(requestIncarnation, ticket, kind, status, headersText, body) {
+  // `boot` starts tickets again at one. A completion from the program that
+  // owned an old ticket must never be delivered into the new incarnation.
+  if (!wasm || requestIncarnation !== incarnation) return;
   const h = enc.encode(headersText);
   const ptr = wasm.exact_in(h.length + body.length);
   const mem = new Uint8Array(memory.buffer, ptr, h.length + body.length);
   mem.set(h);
   mem.set(body, h.length);
   send(wasm.exact_fulfill(ticket, kind, status, h.length, body.length, now()));
+}
+function safelyFulfill(...args) {
+  try { fulfill(...args); }
+  catch (e) { console.error("exact: request fulfillment failed", e); }
+}
+function deferFulfill(...args) {
+  // Refusals and malformed request bodies are known while their enclosing
+  // batch is still applying. Deliver them on the next microtask so their
+  // commits cannot re-enter `apply` halfway through that batch.
+  queueMicrotask(() => safelyFulfill(...args));
 }
 
 // The agent API's page half (LLP 1012). `tree`, `state`, `logs`, and
@@ -563,6 +659,21 @@ function settleCandidate() {
   }
   return to;
 }
+const SETTLE_DEADLINE_MS = 20_000;
+async function waitForInflight(deadline) {
+  while (inflight.size) {
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) return false;
+    let timer;
+    const completed = await Promise.race([
+      Promise.race([...inflight]).then(() => true),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(false), remaining); }),
+    ]);
+    clearTimeout(timer);
+    if (!completed) return false;
+  }
+  return true;
+}
 function agent(request) {
   try {
     if (!wasm) return { error: "not booted" };
@@ -577,6 +688,10 @@ function agent(request) {
           if (!el.isConnected) continue;
           const r = el.getBoundingClientRect();
           const n = { id, x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) };
+          if (el instanceof HTMLIFrameElement) {
+            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            n.hit = hit === el;
+          }
           if (el.dataset.scroll === "true") { n.sx = r2(el.scrollLeft); n.sy = r2(el.scrollTop); }
           nodes.push(n);
         }
@@ -618,8 +733,9 @@ function agent(request) {
 // runner says; a timer's refusal is the error. A promise: the driver awaits it.
 async function clock(request) {
   const settle = !!request.settle;
+  const deadline = settle ? performance.now() + SETTLE_DEADLINE_MS : 0;
   for (let rounds = 0; ; rounds++) {
-    if (settle) while (inflight.size) await Promise.race([...inflight]);
+    if (settle && !(await waitForInflight(deadline))) return { clock: agentClock, settled: false };
     const to = settle ? settleCandidate() : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
     const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to))));
@@ -640,16 +756,9 @@ let ticker = null;
 // state). Returns the milliseconds from call to first frame in the DOM.
 async function boot(bytes) {
   const t = performance.now();
-  if (ticker) clearInterval(ticker);
-  ticker = null;
-  for (const a of animations.values()) a.cancel();
-  animations.clear();
-  globalThis.exact?.gpu?.reset();
-  views.clear();
-  messageFrames.clear();
-  grants = [];
-  inflight.clear();
-  root.replaceChildren();
+  // Boot the candidate before disturbing the running page. The ABI retains
+  // its old Host on refusal; rejecting here likewise retains the DOM, fonts,
+  // generation, animations, GPU surfaces, and requests owned by that Host.
   let len;
   if (bytes) {
     const ptr = wasm.exact_in(bytes.length);
@@ -659,7 +768,29 @@ async function boot(bytes) {
     len = wasm.exact_boot();
   }
   const batch = JSON.parse(readOut(len));
+  if (batch.error) throw new Error(batch.error);
   const faces = JSON.parse(readOut(wasm.exact_fonts()));
+
+  // The candidate is now the live Rust Host. Tear down the old page without
+  // yielding, so none of its event handlers can dispatch into the new Host.
+  incarnation += 1;
+  globalThis.exact.generation = incarnation;
+  // A queued surface belongs to the plan that named it. The GPU device may
+  // finish loading across a reload; no old surface request may join the new
+  // plan even when view ids are reused.
+  globalThis.exact.pendingSurfaces = [];
+  if (ticker) clearInterval(ticker);
+  ticker = null;
+  for (const a of animations.values()) a.cancel();
+  animations.clear();
+  globalThis.exact?.gpu?.reset();
+  views.clear();
+  messageFrames.clear();
+  grants = [];
+  for (const controller of controllers) controller.abort();
+  controllers.clear();
+  inflight.clear();
+  root.replaceChildren();
   await installFonts(faces);
   const timers = applyBatch(batch).timers;
   if (timers && !agentMode) ticker = setInterval(() => send(wasm.exact_advance(now())), 250);
@@ -669,7 +800,14 @@ async function boot(bytes) {
 
 // `agent` and `now` exist only in agent mode: a normal page has no agent
 // surface and no clock but the browser's.
-globalThis.exact = { reload: async (bytes) => (wasm ? boot(bytes) : NaN), ...(agentMode ? { agent, now } : {}), views, root, pendingSurfaces: [] };
+let ready;
+globalThis.exact = {
+  // A dev-plan event can arrive while the wasm is still fetching. Queue it
+  // behind the initial boot instead of acknowledging a reload that did not
+  // happen.
+  reload: async (bytes) => { await ready; return boot(bytes); },
+  ...(agentMode ? { agent, now } : {}), views, root, generation: 0, pendingSurfaces: [],
+};
 
 // The GPU module, on demand: a script element after the first painted
 // frame — never an import, which the boot check counts — and only when a
@@ -712,4 +850,5 @@ async function main() {
   });
 }
 
-main().catch((e) => { console.error(e); root.dataset.error = String(e); });
+ready = main();
+ready.catch((e) => { console.error(e); root.dataset.error = String(e); });

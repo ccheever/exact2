@@ -98,6 +98,30 @@ component B
   view
     text label
 ---
+== type-duplicate-name
+component A
+  view
+    provide x = "provided"
+      B(x="prop")
+component B
+  props
+    x: string
+  inject
+    x: string
+  view
+    text x
+---
+== type-provide
+component A
+  view
+    provide accent = 1
+      Label()
+component Label
+  inject
+    accent: string
+  view
+    text accent
+---
 == analyze-write-not-declared
 component A
   state n = 1
@@ -215,10 +239,8 @@ component A
 ---
 == lower-attr-type
 component A
-  state on = true
   view
-    column width=on
-      text "a"
+    text 1
 ---
 == lower-root-region
 component A
@@ -373,6 +395,191 @@ component A
 == syntax-expected-step
 test "t"
   jump "a"
+component A
+  view
+    text "a"
+---
+== syntax-empty-block
+component A
+  view
+    when true
+    text "always"
+---
+== type-unknown
+component A
+  props
+    callback: actionfoo
+  view
+    text "a"
+---
+== type-unknown
+component A
+  props
+    callback: actionable
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  props
+    a: string
+  props
+    b: string
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  inject
+    a: string
+  inject
+    b: string
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  view
+    text "first"
+  view
+    text "second"
+---
+== syntax-duplicate-declaration
+component A
+  slot
+  slot
+  view
+    children
+---
+== syntax-duplicate-declaration
+component A
+  contract
+    has text "first"
+  contract
+    has text "second"
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  view
+    text "first"
+component A
+  view
+    text "second"
+---
+== syntax-duplicate-declaration
+shape Pair
+  left: string
+  left: number
+component A
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+fn same(value: number, value: number): number = value
+component A
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  action same(value: number, value: number)
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  task ticker mount
+    every(1000, tick)
+    every(2000, tick)
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  state choice = some("a")
+  action choose writes choice
+    match choice
+      case some(value)
+        choice = some(value)
+      case some(other)
+        choice = some(other)
+      case none
+        choice = none
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  state choice = some("a")
+  view
+    column
+      match choice
+        case some(value)
+          text value
+        case none
+          text "none"
+        case none
+          text "still none"
+---
+== type-handler-payload
+component A
+  state value = 0
+  action changed(next: number) writes value
+    value = next
+  view
+    input change=changed
+---
+== type-handler-payload
+component A
+  state value = 0
+  action keyed(next: number) writes value
+    value = next
+  view
+    input key=keyed
+---
+== type-handler-payload
+component A
+  state value = 0
+  action messaged(next: number) writes value
+    value = next
+  view
+    iframe "/guest" message=messaged
+---
+== type-handler-payload
+component A
+  state value = ""
+  action hovered(next: string) writes value
+    value = next
+  view
+    column hover=hovered
+      text "a"
+---
+== lower-attr-value
+component A
+  view
+    column aria-level=1.5
+      text "heading"
+---
+== lower-attr-value
+component A
+  view
+    column aria-level=9223372036854775808
+      text "heading"
+---
+== type-shape-recursive
+shape Link
+  next: option<Link>
+component A
+  view
+    text "a"
+---
+== type-shape-recursive
+shape Left
+  right: list<Right>
+shape Right
+  left: option<Left>
 component A
   view
     text "a"

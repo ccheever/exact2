@@ -14,8 +14,8 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::arena::NodeArena;
-use crate::error::ApplyError;
-use crate::generated::{NodeType, PropId, StyleId, StyleMask};
+use crate::error::{ApplyError, StyleDomainError};
+use crate::generated::{NodeType, PropId, StyleMask};
 use crate::id::{NodeFlags, NodeKey, ViewId};
 use crate::layout::LayoutTree;
 use crate::selector::SelectorIndex;
@@ -215,13 +215,28 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
             }
             Op::SetStyle { id, patch } => {
                 staged.require(op_index, *id)?;
-                if let Err(style) = patch.check_finite() {
-                    return Err(ApplyError::NonFiniteStyle { op_index, style });
-                }
-                if patch.mask.has(StyleId::Transition) {
-                    if let Err(error) = patch.transition.validate() {
-                        return Err(ApplyError::InvalidTransition { op_index, error });
-                    }
+                if let Err(error) = patch.validate_domain() {
+                    return Err(match error {
+                        StyleDomainError::NonFinite(style) => {
+                            ApplyError::NonFiniteStyle { op_index, style }
+                        }
+                        StyleDomainError::AutoNotAdmitted(style) => {
+                            ApplyError::AutoNotAdmitted { op_index, style }
+                        }
+                        StyleDomainError::TooManyTracks { style, count } => {
+                            ApplyError::TooManyTracks {
+                                op_index,
+                                style,
+                                count,
+                            }
+                        }
+                        StyleDomainError::InvalidGridSpan(style) => {
+                            ApplyError::InvalidGridSpan { op_index, style }
+                        }
+                        StyleDomainError::InvalidTransition(error) => {
+                            ApplyError::InvalidTransition { op_index, error }
+                        }
+                    });
                 }
             }
             Op::ClearProp { id, .. } | Op::ClearStyle { id, .. } => {
@@ -389,6 +404,9 @@ pub fn apply(
             }
             Op::SetProp { id, prop, value } => {
                 let slot = live_slot(arena, op_index, *id)?;
+                if arena.props(slot).get(*prop) == Some(value) {
+                    continue;
+                }
                 let old = arena.props_mut(slot).set(*prop, value.clone());
                 if *prop == PropId::TestId {
                     selectors.update(slot, old.as_ref().and_then(|v| v.as_str()), value.as_str());
@@ -416,14 +434,22 @@ pub fn apply(
             }
             Op::SetStyle { id, patch } => {
                 let slot = live_slot(arena, op_index, *id)?;
+                let changed = arena.style(slot).changed_mask(patch);
+                if changed.is_empty() {
+                    continue;
+                }
                 arena.style_mut(slot).apply_patch(patch);
-                style_changed(arena, layout, slot, patch.mask, &mut receipt);
+                style_changed(arena, layout, slot, changed, &mut receipt);
                 touched.insert(slot);
             }
             Op::ClearStyle { id, mask } => {
                 let slot = live_slot(arena, op_index, *id)?;
+                let changed = arena.style(slot).cleared_mask(*mask);
+                if changed.is_empty() {
+                    continue;
+                }
                 arena.style_mut(slot).clear(*mask);
-                style_changed(arena, layout, slot, *mask, &mut receipt);
+                style_changed(arena, layout, slot, changed, &mut receipt);
                 touched.insert(slot);
             }
             Op::SetChildren { id, children } => {
@@ -436,6 +462,9 @@ pub fn apply(
                         op_index,
                         what: "validated child is not live",
                     })?;
+                if arena.children(slot) == new.as_slice() {
+                    continue;
+                }
                 let old: Vec<u32> = arena.children(slot).to_vec();
                 for o in &old {
                     if !new.contains(o) {

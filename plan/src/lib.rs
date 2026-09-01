@@ -110,6 +110,16 @@ pub enum PlanError {
     ZeroInterval {
         timer: u32,
     },
+    /// A mutation's result slot is row-owned, but mutation results are global.
+    MutationSlotOwned {
+        mutation: u32,
+        slot: u32,
+    },
+    /// A mutation's result slot is not `option<T>` for the mutation's `T`.
+    MutationSlotType {
+        mutation: u32,
+        slot: u32,
+    },
     /// A static face weight is outside CSS Fonts' 1–1000 domain.
     FaceWeight {
         face: u32,
@@ -218,6 +228,9 @@ impl Plan {
                 return Err(PlanError::ZeroInterval { timer: i as u32 });
             }
         }
+        for i in 0..self.mutations.len() {
+            self.validate_mutation_slot(MutationsId(i as u32))?;
+        }
         for (i, face) in self.faces.iter().enumerate() {
             if !is_portable_asset_path(self.str(face.source)) {
                 return Err(PlanError::FaceSource { face: i as u32 });
@@ -284,6 +297,26 @@ impl Plan {
             })
         {
             return Err(PlanError::GenericStacks);
+        }
+        Ok(())
+    }
+
+    /// Validate the slot relation a mutation assignment relies on at runtime.
+    pub fn validate_mutation_slot(&self, mutation: MutationsId) -> Result<(), PlanError> {
+        let row = self.mutation(mutation);
+        let slot = self.slot(row.slot);
+        if slot.owner.is_some() {
+            return Err(PlanError::MutationSlotOwned {
+                mutation: mutation.0,
+                slot: row.slot.0,
+            });
+        }
+        let slot_ty = self.type_(slot.ty);
+        if slot_ty.kind != TypeKind::Option || slot_ty.elem != Some(row.ty) {
+            return Err(PlanError::MutationSlotType {
+                mutation: mutation.0,
+                slot: row.slot.0,
+            });
         }
         Ok(())
     }

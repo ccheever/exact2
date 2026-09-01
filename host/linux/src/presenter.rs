@@ -205,19 +205,21 @@ impl<D: DataSource> Presenter<D> {
     /// picture, offset, and focus goes (LLP 1007 §6).
     pub fn reload(&mut self, plan: &[u8], data: D) -> Result<Option<String>, HostError> {
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
-        self.text
-            .borrow_mut()
-            .install_plan(&decoded, &self.asset_root);
+        // Fonts are candidate state too. Keep the running plan's catalog and
+        // caches untouched until its runner has booted successfully.
+        let candidate_text = TextEngine::shared_for_plan(&decoded, &self.asset_root);
         let carried = self.host.carry();
         let (host, error) = Host::boot_with(
             plan,
             data,
-            Box::new(Measurer(self.text.clone())),
+            Box::new(Measurer(candidate_text.clone())),
             self.viewport.0,
             self.viewport.1,
             Some(&carried),
         )?;
         self.host = host;
+        self.text = candidate_text.clone();
+        self.brush.text = candidate_text;
         self.executor = crate::executor::Executor::start(&self.host.grants());
         self.scroll.clear();
         self.page = (0.0, 0.0);
@@ -482,10 +484,14 @@ impl<D: DataSource> Presenter<D> {
         let kernel = self.host.kernel();
         let mut at = Some(id);
         while let Some(n) = at {
+            let node = kernel.node(n)?;
+            if node.props.bool(PropId::Disabled) == Some(true) {
+                return None;
+            }
             if self.host.runner().handlers_of(n).contains(&kind) {
                 return Some(n);
             }
-            at = kernel.node(n).and_then(|node| node.parent);
+            at = node.parent;
         }
         None
     }
@@ -496,8 +502,11 @@ impl<D: DataSource> Presenter<D> {
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
         let hit = self.hit(x, y)?;
         let kernel = self.host.kernel();
-        let focus =
-            (kernel.node(hit).map(|n| n.node_type) == Some(NodeType::TextInput)).then_some(hit);
+        let focus = kernel
+            .node(hit)
+            .filter(|node| node.node_type == NodeType::TextInput)
+            .filter(|node| node.props.bool(PropId::Disabled) != Some(true))
+            .map(|_| hit);
         if self.focus != focus {
             self.focus = focus;
             self.dirty = true;
@@ -614,6 +623,9 @@ impl<D: DataSource> Presenter<D> {
         if node.node_type != NodeType::TextInput {
             return Err(format!("view {id} is not an input"));
         }
+        if node.props.bool(PropId::Disabled) == Some(true) {
+            return Err(format!("view {id} is disabled"));
+        }
         self.focus = Some(id);
         let now = self.host.now();
         let error = self
@@ -642,6 +654,9 @@ impl<D: DataSource> Presenter<D> {
         let Some(node) = self.host.kernel().node(id) else {
             return;
         };
+        if node.props.bool(PropId::Disabled) == Some(true) {
+            return;
+        }
         let mut value = node.props.str(PropId::Value).unwrap_or("").to_string();
         match (ch, backspace) {
             (Some(c), _) => value.push(c),

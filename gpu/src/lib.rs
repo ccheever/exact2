@@ -8,7 +8,7 @@
 //! `dylib` natively, a wasm with wasm-bindgen glue on the web — that the
 //! presenter loads the first time a canvas is on screen, after the first
 //! pixel. Inputs cross as JSON-encoded plan values; wgpu objects never
-//! cross. Failures are per canvas, reported by [`Module::error`], never a
+//! cross. Failures are per canvas, reported by [`Module::take_error`], never a
 //! refusal of anything else.
 //!
 //! - [`Surface`], [`Frame`] — what an app implements.
@@ -212,9 +212,9 @@ impl Module {
         self.gpu.as_ref()
     }
 
-    /// The last failure's text, for the presenter to report.
-    pub fn error(&self) -> &str {
-        &self.error
+    /// Consume the last failure's text, for the presenter to report once.
+    pub fn take_error(&mut self) -> String {
+        std::mem::take(&mut self.error)
     }
 
     fn fail<T>(&mut self, e: impl Into<String>) -> Option<T> {
@@ -223,7 +223,7 @@ impl Module {
     }
 
     /// Create a canvas's surface by name on a platform target; `None` (and
-    /// [`Module::error`]) when the name is unknown or the target refused.
+    /// [`Module::take_error`]) when the name is unknown or the target refused.
     pub fn create(
         &mut self,
         name: &str,

@@ -35,7 +35,12 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
             PropValue::Str(crate::stdlib::format_number(*n))
         }
         (exact_kernel::PropKind::Bool, Value::Bool(b)) => PropValue::Bool(*b),
-        (exact_kernel::PropKind::Int, Value::Number(n)) if n.fract() == 0.0 => {
+        (exact_kernel::PropKind::Int, Value::Number(n))
+            if n.is_finite()
+                && n.fract() == 0.0
+                && *n >= i64::MIN as f64
+                && *n < -(i64::MIN as f64) =>
+        {
             PropValue::Int(*n as i64)
         }
         (exact_kernel::PropKind::Float, Value::Number(n)) => PropValue::Float(*n),

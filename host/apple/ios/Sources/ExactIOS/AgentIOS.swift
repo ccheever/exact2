@@ -164,6 +164,7 @@ extension Agent {
     /// the text inserted — the field sends one change with the new value.
     static func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if v.kind == "iframe" { return webviews.type(v, request: req) }
         if let key = req["key"] as? String {
             // A key at the target: the field's (Enter, as its delegate would

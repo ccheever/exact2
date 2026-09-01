@@ -168,6 +168,45 @@ fn precedence_and_multiline_calls_hold() {
 }
 
 #[test]
+fn a_template_expression_balances_match_braces_and_string_braces() {
+    let file = parse(
+        "component A\n  state choice = some(\"yes\")\n  derive label = `value ${match choice { case some(value) => value, case none => \"}\" }}`\n  view\n    text label\n",
+    )
+    .unwrap();
+    let Expr::Template(parts, _) = &file.components[0].derives[0].expr else {
+        panic!()
+    };
+    assert!(matches!(&parts[1], TemplatePart::Expr(Expr::Match { .. })));
+}
+
+#[test]
+fn if_when_and_their_explicit_else_need_non_empty_blocks() {
+    let cases = [
+        (
+            "component A\n  state n = 0\n  action go writes n\n    if true\n    n = 1\n  view\n    text \"a\"\n",
+            4,
+        ),
+        (
+            "component A\n  state n = 0\n  action go writes n\n    if true\n      n = 1\n    else\n    n = 2\n  view\n    text \"a\"\n",
+            4,
+        ),
+        (
+            "component A\n  view\n    when true\n    text \"always\"\n",
+            3,
+        ),
+        (
+            "component A\n  view\n    when true\n      text \"then\"\n    else\n    text \"always\"\n",
+            3,
+        ),
+    ];
+    for (src, line) in cases {
+        let error = parse(src).unwrap_err();
+        assert_eq!(error.id, "syntax-empty-block", "{src:?}: {error}");
+        assert_eq!(error.span.line, line, "{src:?}: {error}");
+    }
+}
+
+#[test]
 fn rejections_carry_stable_ids_and_spans() {
     let cases = [
         ("use theme from \"x\"\n", "contract-no-imports", 1),

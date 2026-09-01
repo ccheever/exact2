@@ -8,12 +8,14 @@
 //! the host lays out and paints. Every write is validated by the kernel before
 //! anything changes; a trap or refusal leaves the kernel exactly as it was.
 
+mod settlement;
+
 use crate::instance::{Ids, InstanceError, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Outcome, Request, RequestOut};
 use crate::store::{Store, StoreWrite};
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
 use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
-use exact_plan::{ActionsId, Code, EventKind, Plan, PlanError, Value};
+use exact_plan::{ActionsId, Code, EventKind, MutationsId, Plan, PlanError, Value};
 use std::fmt::Write as _;
 
 /// The app's data source: the one seam through which computation enters
@@ -104,9 +106,9 @@ pub struct Timed {
 }
 
 /// What one `advance_timed` did: the commits in order, each at its due
-/// time; the clock afterwards — the requested time, or the due time of the
-/// timer that refused; and that refusal, if any. Commits before a refusal
-/// are kept: they are in the kernel, and a host must show them.
+/// time; the clock afterwards — the requested time, or the last time reached
+/// before a refusal; and that refusal, if any. Commits before a refusal are
+/// kept: they are in the kernel, and a host must show them.
 #[derive(Debug)]
 pub struct Advanced {
     /// The commits, in order.
@@ -186,6 +188,16 @@ pub enum RunnerError {
     Poisoned,
     /// `advance` was given a non-finite time.
     NonFiniteClock,
+    /// A clock value exceeds the exact integer-millisecond domain.
+    ClockOutOfRange,
+    /// Adding a timer interval did not advance its next due time.
+    ClockDidNotAdvance {
+        timer: usize,
+    },
+    /// One seek reached the bounded number of timer commits it may perform.
+    TimerFireLimit {
+        limit: usize,
+    },
     /// A region sits at the plan root; v1 requires one root node.
     RootRegion,
     /// A slot initializer or write does not conform to the slot's declared type.
@@ -211,7 +223,10 @@ impl From<Trap> for RunnerError {
 
 impl From<InstanceError> for RunnerError {
     fn from(e: InstanceError) -> Self {
-        RunnerError::Instance(e)
+        match e {
+            InstanceError::SlotType { slot } => RunnerError::SlotType { slot },
+            other => RunnerError::Instance(other),
+        }
     }
 }
 
@@ -225,6 +240,8 @@ impl From<KernelError> for RunnerError {
 struct ResourceState {
     args: Vec<Value>,
     value: Value,
+    /// Store revision this answer observed; checked only for known readers.
+    store_revision: u64,
 }
 
 /// A resource or a mutation, as the target of a request in flight.
@@ -249,7 +266,8 @@ struct Timer {
 }
 
 /// What survives a reload: state by name, settled resources by name with
-/// the arguments they answered, and the clock. A new plan takes each slot
+/// the arguments they answered and their store dependency, and the clock. A new
+/// plan takes each slot
 /// whose name it still declares and whose carried value conforms to the
 /// slot's (possibly new) type; everything else starts from its initializer.
 /// Resources are reused only where their arguments still match, so a
@@ -260,6 +278,8 @@ pub struct Carried {
     pub slots: Vec<(String, Value)>,
     /// Resource name → (arguments, value).
     pub resources: Vec<(String, Vec<Value>, Value)>,
+    /// Names of carried resources whose answer depends on the store.
+    pub store_readers: Vec<String>,
     /// The clock, milliseconds.
     pub now_ms: f64,
     /// The store's kept values (LLP 1018): what the host has persisted.
@@ -308,6 +328,12 @@ pub struct Runner<D: DataSource> {
 /// How many journal lines the runner retains (about an hour of a one-second
 /// timer); older ones are dropped, and `logs` reports where its window starts.
 pub const JOURNAL_RING: usize = 4096;
+
+/// Largest accepted clock value: JavaScript's exact integer domain in ms.
+pub const MAX_CLOCK_MS: f64 = 9_007_199_254_740_991.0;
+
+/// Maximum timer commits one call to [`Runner::advance_timed`] may perform.
+pub const TIMER_FIRE_LIMIT: usize = 4096;
 
 impl<D: DataSource> Runner<D> {
     /// Boot: refuse a plan built against another kernel schema, evaluate
@@ -372,6 +398,14 @@ impl<D: DataSource> Runner<D> {
                     })
                 })
                 .collect(),
+            store_readers: self
+                .plan
+                .resources
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| self.store_readers[*i])
+                .map(|(_, resource)| self.plan.str(resource.name).to_string())
+                .collect(),
             now_ms: self.now_ms,
             store: self.store.snapshot(),
         }
@@ -384,6 +418,14 @@ impl<D: DataSource> Runner<D> {
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
     ) -> Result<Runner<D>, RunnerError> {
+        if let Some(carried) = carried {
+            if !carried.now_ms.is_finite() {
+                return Err(RunnerError::NonFiniteClock);
+            }
+            if !(0.0..=MAX_CLOCK_MS).contains(&carried.now_ms) {
+                return Err(RunnerError::ClockOutOfRange);
+            }
+        }
         plan.validate().map_err(RunnerError::Plan)?;
         if plan.kernel_schema_digest != exact_kernel::SCHEMA_DIGEST {
             return Err(RunnerError::KernelSchemaMismatch {
@@ -422,7 +464,16 @@ impl<D: DataSource> Runner<D> {
             return Err(RunnerError::RootRegion);
         }
         let store = Store::new(data.grants(), snapshot);
-        let store_readers = vec![false; plan.resources.len()];
+        let store_readers = plan
+            .resources
+            .iter()
+            .map(|resource| {
+                carried.is_some_and(|carried| {
+                    let name = plan.str(resource.name);
+                    carried.store_readers.iter().any(|reader| reader == name)
+                })
+            })
+            .collect();
         let mut runner = Runner {
             plan,
             data,
@@ -488,6 +539,7 @@ impl<D: DataSource> Runner<D> {
                     .map(|(_, args, value)| ResourceState {
                         args: args.clone(),
                         value: value.clone(),
+                        store_revision: runner.store.revision(),
                     })
             })
             .collect();
@@ -819,6 +871,13 @@ impl<D: DataSource> Runner<D> {
                 error: None,
             };
         }
+        if now_ms > MAX_CLOCK_MS {
+            return Advanced {
+                receipts,
+                now_ms: self.now_ms,
+                error: Some(RunnerError::ClockOutOfRange),
+            };
+        }
         loop {
             // The earliest due timer, deterministic by index on ties.
             let due = self
@@ -831,9 +890,26 @@ impl<D: DataSource> Runner<D> {
                 })
                 .map(|(i, t)| (i, t.next_ms));
             let Some((i, at)) = due else { break };
-            self.now_ms = at;
+            if receipts.len() == TIMER_FIRE_LIMIT {
+                return Advanced {
+                    receipts,
+                    now_ms: self.now_ms,
+                    error: Some(RunnerError::TimerFireLimit {
+                        limit: TIMER_FIRE_LIMIT,
+                    }),
+                };
+            }
             let interval = self.plan.timers[i].interval_ms as f64;
-            self.timers[i].next_ms += interval;
+            let next_ms = at + interval;
+            if !next_ms.is_finite() || next_ms <= at {
+                return Advanced {
+                    receipts,
+                    now_ms: self.now_ms,
+                    error: Some(RunnerError::ClockDidNotAdvance { timer: i }),
+                };
+            }
+            self.now_ms = at;
+            self.timers[i].next_ms = next_ms;
             let action = self.plan.timers[i].action;
             let was_poisoned = self.poisoned;
             let result = self.run_action(action, Vec::new(), &[]);
@@ -967,7 +1043,8 @@ impl<D: DataSource> Runner<D> {
                     if !v.conforms(&self.plan, mrow.ty) {
                         return Err(RunnerError::Shape { resource: name });
                     }
-                    answered.push((mrow.slot.0, Value::some(v)));
+                    let slot = self.mutation_slot(m)?;
+                    answered.push((slot as u32, Value::some(v)));
                 }
                 Answer::Later(request) => later.push((m, source.clone(), sargs.clone(), request)),
             }
@@ -1009,16 +1086,14 @@ impl<D: DataSource> Runner<D> {
         for (name, args) in outcome.commands {
             self.commands.push(Command { name, args });
         }
-        // An assignment to a mutation's slot forgets its request in flight
-        // (LLP 1016 §4): the reply, when it comes, is dropped — a request
-        // this same action sent still goes, its reply already unwanted. The
-        // forgetting is not rolled back with the action: nothing was undone
-        // on the wire either way.
+        // An assignment to a mutation's slot tentatively makes it not
+        // pending. The pending map is changed only after settlement stands:
+        // a refused assignment did not change what reply the view wants.
         let assigned: Vec<usize> = (0..self.plan.mutations.len())
             .filter(|m| written.contains(&self.plan.mutations[*m].slot.0))
             .collect();
         for m in &assigned {
-            self.forget(Target::Mutation(*m));
+            self.pending_mut[*m] = false;
         }
         for (m, _, _, _) in &later {
             if !assigned.contains(m) {
@@ -1037,6 +1112,9 @@ impl<D: DataSource> Runner<D> {
             self.commands.truncate(saved_commands);
             self.pending_mut = saved_pending_mut;
             return Err(e);
+        }
+        for m in &assigned {
+            self.forget(Target::Mutation(*m));
         }
         for (m, source, args, request) in later {
             self.enqueue(Target::Mutation(m), source, args, request, false);
@@ -1089,8 +1167,7 @@ impl<D: DataSource> Runner<D> {
         let (ops, surfaces) = match result {
             Ok(x) => x,
             Err(e) => {
-                self.poisoned = true;
-                self.commands.clear();
+                self.poison();
                 return Err(e.into());
             }
         };
@@ -1100,11 +1177,18 @@ impl<D: DataSource> Runner<D> {
                 Ok(receipt)
             }
             Err(e) => {
-                self.poisoned = true;
-                self.commands.clear();
+                self.poison();
                 Err(e)
             }
         }
+    }
+
+    fn poison(&mut self) {
+        self.poisoned = true;
+        self.commands.clear();
+        self.requests.clear();
+        self.pending.clear();
+        self.sync_pending_flags();
     }
 
     /// Whether an update failed after the tree began to change (see
@@ -1129,6 +1213,8 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             pending_resources: &self.pending_res,
             pending_mutations: &self.pending_mut,
+            store_dependent_derives: &[],
+            store_dependent_resources: &[],
         }
     }
 
@@ -1144,6 +1230,16 @@ impl<D: DataSource> Runner<D> {
         self.data
             .answer(&mut self.store, &source, args)
             .map_err(|error| RunnerError::Data { resource, error })
+    }
+
+    /// Recheck the plan relation at the write boundary instead of trusting
+    /// that a decoded plan is the only possible caller.
+    fn mutation_slot(&self, mutation: usize) -> Result<usize, RunnerError> {
+        let mutation = MutationsId(mutation as u32);
+        self.plan
+            .validate_mutation_slot(mutation)
+            .map_err(RunnerError::Plan)?;
+        Ok(self.plan.mutation(mutation).slot.0 as usize)
     }
 
     fn target_name(&self, t: Target) -> String {
@@ -1242,6 +1338,7 @@ impl<D: DataSource> Runner<D> {
             self.log(format!("reply {ticket} dropped: no such request in flight"));
             return Ok(None);
         };
+        let saved_pending = self.pending.clone();
         let p = self.pending.remove(pos);
         self.sync_pending_flags();
         let what = format!("fulfil {ticket} ({})", self.target_name(p.target));
@@ -1249,6 +1346,10 @@ impl<D: DataSource> Runner<D> {
         let kept = self.store.checkpoint();
         let since = kept.writes;
         let result = self.fulfill_inner(p, outcome);
+        if result.is_err() && !self.poisoned {
+            self.pending = saved_pending;
+            self.sync_pending_flags();
+        }
         match &result {
             Ok(_) => self.log_store_writes(since),
             Err(_) => self.store.restore(kept),
@@ -1287,10 +1388,11 @@ impl<D: DataSource> Runner<D> {
                 self.resources[i] = Some(ResourceState {
                     args: p.args,
                     value,
+                    store_revision: self.store.revision(),
                 });
             }
             Target::Mutation(m) => {
-                let slot = self.plan.mutations[m].slot.0 as usize;
+                let slot = self.mutation_slot(m)?;
                 self.slots[slot] = Value::some(value);
             }
         }
@@ -1300,193 +1402,5 @@ impl<D: DataSource> Runner<D> {
             return Err(e);
         }
         self.update()
-    }
-
-    fn check_shape(&self, i: usize, value: &Value) -> Result<(), RunnerError> {
-        let row = &self.plan.resources[i];
-        if value.conforms(&self.plan, row.ty) {
-            Ok(())
-        } else {
-            Err(RunnerError::Shape {
-                resource: self.plan.str(row.name).to_string(),
-            })
-        }
-    }
-
-    /// Settle every derive and resource against current state, in plan
-    /// order, to a fixpoint: an expression that reads something not yet
-    /// settled this pass is retried after it settles. Deterministic, and a
-    /// cycle is a typed refusal. On boot a resource takes its compiled value
-    /// if it has one; afterwards it is re-requested only when its arguments
-    /// changed, so every derive that reads it sees the new value in the same
-    /// pass.
-    fn settle(&mut self, boot: bool) -> Result<(), RunnerError> {
-        let mut derives: Vec<Option<Value>> = vec![None; self.plan.derives.len()];
-        let mut resources: Vec<Option<Value>> = vec![None; self.plan.resources.len()];
-        // LLP 1016: what an action asked to re-request, the requests this
-        // pass hands the host, and the pending flags as they will be —
-        // published with the rest only when the pass succeeds.
-        let force = std::mem::take(&mut self.refresh_next);
-        let mut pending_res = self.pending_res.clone();
-        let mut later: Vec<(usize, Vec<Value>, Request, bool)> = Vec::new();
-        let mut answered: Vec<usize> = Vec::new();
-        // Work on a copy of the committed resource states; publish only when
-        // the whole pass succeeds, so a failure leaves every cache as it was.
-        let mut states: Vec<Option<ResourceState>> = self.resources.clone();
-        let mut settled_res = vec![false; states.len()];
-        loop {
-            let mut progress = false;
-            let mut all = true;
-            for i in 0..self.plan.derives.len() {
-                if derives[i].is_some() {
-                    continue;
-                }
-                let code = self.plan.derives[i].body;
-                let result = {
-                    let env = Env {
-                        plan: &self.plan,
-                        slots: &self.slots,
-                        derives: &derives,
-                        resources: &resources,
-                        params: &[],
-                        frames: &[],
-                        now_ms: self.now_ms,
-                        pending_resources: &pending_res,
-                        pending_mutations: &self.pending_mut,
-                    };
-                    vm::eval(self.plan.code(code), &env, &[])
-                };
-                match result {
-                    Ok(o) => {
-                        if !o.value.conforms(&self.plan, self.plan.derives[i].ty) {
-                            return Err(RunnerError::DeriveType {
-                                derive: self.plan.str(self.plan.derives[i].name).to_string(),
-                            });
-                        }
-                        derives[i] = Some(o.value);
-                        progress = true;
-                    }
-                    Err(Trap::Pending { .. }) => all = false,
-                    Err(t) => return Err(t.into()),
-                }
-            }
-            for i in 0..self.plan.resources.len() {
-                if settled_res[i] {
-                    continue;
-                }
-                let row = self.plan.resources[i].clone();
-                let mut args = Vec::with_capacity(row.args.len as usize);
-                let mut pending = false;
-                for a in row.args.iter() {
-                    let code = self.plan.arg(a).expr;
-                    let result = {
-                        let env = Env {
-                            plan: &self.plan,
-                            slots: &self.slots,
-                            derives: &derives,
-                            resources: &resources,
-                            params: &[],
-                            frames: &[],
-                            now_ms: self.now_ms,
-                            pending_resources: &pending_res,
-                            pending_mutations: &self.pending_mut,
-                        };
-                        vm::eval(self.plan.code(code), &env, &[])
-                    };
-                    match result {
-                        Ok(o) => args.push(o.value),
-                        Err(Trap::Pending { .. }) => {
-                            pending = true;
-                            break;
-                        }
-                        Err(t) => return Err(t.into()),
-                    }
-                }
-                if pending {
-                    all = false;
-                    continue;
-                }
-                let forced = force.contains(&i);
-                let reuse = states[i]
-                    .as_ref()
-                    .filter(|s| s.args == args && !forced)
-                    .map(|s| s.value.clone());
-                let value = match reuse {
-                    Some(v) => v,
-                    None if boot && row.initial.len > 0 => {
-                        Value::from_bytes(self.plan.bytes(row.initial))
-                            .map_err(RunnerError::Plan)?
-                    }
-                    None => {
-                        // A resource that consults the store is the device's,
-                        // not the build's: bake gives it no compiled value
-                        // (LLP 1018 D4).
-                        let reads_before = self.store.reads();
-                        let answer = self.query(i, &args)?;
-                        if self.store.reads() > reads_before {
-                            self.store_readers[i] = true;
-                        }
-                        match answer {
-                            Answer::Now(v) => {
-                                if pending_res[i] {
-                                    // Newer arguments answered now: the older
-                                    // request's reply is no longer wanted.
-                                    answered.push(i);
-                                    pending_res[i] = false;
-                                }
-                                v
-                            }
-                            Answer::Later(request) => {
-                                // The host will run it. Meanwhile the resource
-                                // keeps the value it had — its last answer, or
-                                // its compiled boot value (LLP 1016 D3).
-                                let kept =
-                                    states[i].as_ref().map(|s| s.value.clone()).or_else(|| {
-                                        (row.initial.len > 0)
-                                            .then(|| {
-                                                Value::from_bytes(self.plan.bytes(row.initial)).ok()
-                                            })
-                                            .flatten()
-                                    });
-                                let Some(kept) = kept else {
-                                    return Err(RunnerError::Data {
-                                        resource: self.plan.str(row.name).to_string(),
-                                        error: DataError::Unavailable(
-                                            "answers later at boot: declare boot arguments the source answers now"
-                                                .into(),
-                                        ),
-                                    });
-                                };
-                                later.push((i, args.clone(), request, forced));
-                                pending_res[i] = true;
-                                kept
-                            }
-                        }
-                    }
-                };
-                self.check_shape(i, &value)?;
-                resources[i] = Some(value.clone());
-                states[i] = Some(ResourceState { args, value });
-                settled_res[i] = true;
-                progress = true;
-            }
-            if all && settled_res.iter().all(|s| *s) {
-                break;
-            }
-            if !progress {
-                return Err(RunnerError::Cycle);
-            }
-        }
-        self.derives = derives;
-        self.resource_values = resources;
-        self.resources = states;
-        for i in answered {
-            self.forget(Target::Resource(i));
-        }
-        for (i, args, request, forced) in later {
-            let source = self.plan.str(self.plan.resources[i].source).to_string();
-            self.enqueue(Target::Resource(i), source, args, request, forced);
-        }
-        Ok(())
     }
 }

@@ -31,6 +31,7 @@ use std::collections::BTreeMap;
 pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
+    Layout(String),
 }
 
 impl std::fmt::Display for HostError {
@@ -136,9 +137,9 @@ impl<D: DataSource> Host<D> {
         )
     }
 
-    /// Boot with one action over the validated plan before the runner takes
-    /// ownership and performs its first layout. The Apple ABI uses this for
-    /// synchronous font registration without decoding the plan twice.
+    /// Boot with one action over the accepted plan before its first layout.
+    /// The Apple ABI uses this for synchronous font registration without
+    /// decoding the plan twice.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_stored_after_decode(
         plan_bytes: &[u8],
@@ -152,13 +153,16 @@ impl<D: DataSource> Host<D> {
         prepare: impl FnOnce(&Plan),
     ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
-        prepare(&plan);
         let kernel = Kernel::new(measurer);
         let runner = match carried {
             Some(c) => Runner::boot_carrying(plan, data, kernel, c),
             None => Runner::boot_stored(plan, data, kernel, snapshot),
         }
         .map_err(HostError::Runner)?;
+        // Font installation is process-global on Apple. Do not expose a
+        // decoded plan to it until the runner has accepted the candidate;
+        // it still runs synchronously before the first text measurement.
+        prepare(runner.plan());
         let mut host = Host {
             runner,
             mirror: BTreeMap::new(),
@@ -185,7 +189,6 @@ impl<D: DataSource> Host<D> {
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args);
         }
-        host.persist();
         // The engine hears the whole tree once: values, no transitions.
         let mut sync = MotionSync::default();
         for id in &order {
@@ -204,12 +207,16 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
-        let error = host.layout(&mut batch).err();
+        host.layout(&mut batch).map_err(HostError::Layout)?;
+        // A failed first layout is a refused boot, not a partially committed
+        // host. In particular, no candidate secret writes escape before this
+        // point on a dev reload.
+        host.persist();
         host.present(&mut batch, true);
         let timers = host.runner.has_timers();
         let motion = !host.engine.quiescent();
         let clock = host.runner.now_ms();
-        Ok((host, batch.finish(timers, motion, clock, error.as_deref())))
+        Ok((host, batch.finish(timers, motion, clock, None)))
     }
 
     /// The runner.

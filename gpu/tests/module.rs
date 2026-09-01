@@ -15,12 +15,27 @@ fn a_byte_count_that_overflows_is_refused_by_name() {
     // `u32::MAX × u32::MAX × 4` does not fit a usize: refused as a count,
     // never computed wrapped.
     assert!(!m.child(1, 0, [0.0; 4], u32::MAX, u32::MAX, &[]));
-    assert!(m.error().starts_with("child 0:"), "{}", m.error());
+    assert!(m.take_error().starts_with("child 0:"));
     assert!(!m.texture(1, u32::MAX, u32::MAX, &[]));
-    assert!(m.error().starts_with("children:"), "{}", m.error());
+    assert!(m.take_error().starts_with("children:"));
     // A zero size is refused before the device is asked for.
     assert!(!m.texture(1, 0, 4, &[]));
-    assert!(m.error().starts_with("children:"), "{}", m.error());
+    assert!(m.take_error().starts_with("children:"));
+}
+
+#[test]
+fn module_errors_are_consumed_in_sequence() {
+    let mut m = Module::new(&EMPTY);
+    assert!(!m.bind(10, &[]));
+    assert_eq!(m.take_error(), "no such canvas");
+    assert_eq!(m.take_error(), "", "error A was consumed");
+    m.destroy(10); // a successful no-op does not revive the consumed error
+    assert!(!m.texture(10, 0, 1, &[]));
+    assert!(
+        m.take_error().starts_with("children:"),
+        "error B is current"
+    );
+    assert_eq!(m.take_error(), "", "error B was consumed");
 }
 
 #[test]

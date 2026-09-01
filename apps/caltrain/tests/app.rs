@@ -50,9 +50,9 @@ fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
     // sky's material, the card deck and its focus); sky (whether the app is
     // inside the aurora canvas at all — a phone's frame-rate switch);
     // hoverId, hoverOn, searchFocused, lastKey (the events beyond press and
-    // change, LLP 1005 §3); deckLoaded and deckMessage (the iframe fixture,
-    // @ref LLP 1020 M1).
-    assert_eq!(a.slots.len(), 14);
+    // change, LLP 1005 §3); deckLoaded, deckLoads, and deckMessage (the
+    // iframe fixture, @ref LLP 1020 M1).
+    assert_eq!(a.slots.len(), 15);
     assert_eq!(a.resources.len(), 7);
     assert_eq!(a.actions.len(), 17);
     assert_eq!(a.timers.len(), 1);
@@ -135,6 +135,31 @@ fn the_home_screen_shows_both_boards_with_live_countdowns() {
 }
 
 #[test]
+fn the_home_screen_explains_when_service_has_ended() {
+    let now = caltrain_data::DAY_START_MS + 24.0 * 60.0 * 60_000.0;
+    let plan = contract::compile(&caltrain::SOURCE.replace(
+        "state nowMs = 1787915400000",
+        &format!("state nowMs = {now}"),
+    ))
+    .unwrap();
+    let r = caltrain::boot(plan, Kernel::with_monospace()).unwrap();
+    let messages = r.kernel().find_by_test_id("board-north");
+    assert_eq!(messages.len(), 1, "the north board stays present");
+    assert!(r.kernel().roots().iter().any(|_| {
+        let mut found = false;
+        for root in r.kernel().roots() {
+            let mut stack = vec![root];
+            while let Some(id) = stack.pop() {
+                let node = r.kernel().node(id).unwrap();
+                found |= node.props.str(PropId::Text) == Some("No more trains today");
+                stack.extend(node.children());
+            }
+        }
+        found
+    }));
+}
+
+#[test]
 fn changing_station_re_requests_the_boards_and_search_filters_by_key() {
     let mut r = caltrain::boot(caltrain::build().unwrap(), Kernel::with_monospace()).unwrap();
     r.dispatch(view_of(&r, "change-station"), Event::Press)
@@ -211,7 +236,7 @@ fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
         Some("San Francisco")
     );
     let carried = r.carry();
-    assert_eq!(carried.slots.len(), 14);
+    assert_eq!(carried.slots.len(), 15);
     assert_eq!(carried.now_ms, 30_000.0);
 
     // The edited plan: unbaked (no compiled data) and with a visible change.

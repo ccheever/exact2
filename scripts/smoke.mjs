@@ -1,11 +1,8 @@
 #!/usr/bin/env node
-// The smoke: the Caltrain app driven through the agent API (LLP 1012) — the
-// same script on the web (headless Chrome), on macOS, on iOS (a simulator),
-// and on the Linux host (headless, wherever it was built). Asserts the
-// landmarks, the layout (root width, the image's box from its ratio), the
-// clock, one whole interaction through the host's real input path, scrolling
-// in the app and in the nested fixture (LLP 1010), the GPU module, and a
-// clean journal; prints the numbers. Not a blocking check (it needs Chrome or
+// The smoke drives the resolved app through the agent API (LLP 1012) on the
+// web, macOS, iOS, or Linux. Every app gets the generic host fixtures and its
+// own app.test.contract; Caltrain's landmarks, interactions, GPU reference,
+// and deck run when its fixture root is present. Not a blocking check (it needs Chrome or
 // a window server): `node scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`
 // after `node host/web/build.mjs` / `node host/apple/build.mjs [--ios]` /
 // `cargo build --release -p caltrain-linux`.
@@ -13,11 +10,13 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { open, render, runTests } from './agent.mjs';
+import { browserDiagnosticNoise, open, render, runTests } from './agent.mjs';
+import { resolveApp } from './app.mjs';
 import { crop, decodePng, diff, encodePng } from './png.mjs';
 
 const argv = process.argv.slice(2);
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const app = resolveApp();
 
 // 0. The transcript form (LLP 1012 §7): the one text rendering of the
 // replies, pinned by a fixture — `scripts/fixtures/transcript.json` rendered
@@ -51,26 +50,41 @@ const box = (l, id) => l.nodes.find((n) => n.testId === id);
 let appViewport;
 
 check(transcript() === readFileSync(pinned, 'utf8'), 'the transcript form drifted from scripts/fixtures/transcript.txt (a deliberate change: node scripts/smoke.mjs --record)');
+check(browserDiagnosticNoise('CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670'), 'the known headless display-service diagnostic is no longer classified as browser noise');
+check(!browserDiagnosticNoise('console.error: exact: failed'), 'page/runtime errors must not be classified as browser noise');
 
 const s = await open({ host });
+let caltrainFixture = false;
+let deckFixture = false;
 try {
-  // 1. Landmarks and text, from the kernel.
+  // 1. Every resolved app must produce a tree and a rendered root. A
+  // `caltrain-main` root admits Caltrain's fixture; once admitted, every
+  // landmark its later steps need is required rather than silently skipped.
   let tree = await s.tree();
-  for (const id of ['caltrain-main', 'station-name', 'board-north', 'board-south', 'change-station']) check(byTestId(tree, id), `missing testId ${id}`);
-  check(byTestId(tree, 'station-name')?.props.text === 'Mountain View', 'station name not presented');
+  check(tree.roots?.length > 0 && tree.nodes.length > 0, `${app.name} produced no live roots`);
+  caltrainFixture = !!byTestId(tree, 'caltrain-main');
+  deckFixture = !!byTestId(tree, 'deck-toggle');
+  const appHasCanvas = tree.nodes.some((n) => n.type === 'Canvas');
   const countdowns = tree.nodes.filter((n) => n.props.testId?.startsWith('countdown-'));
-  check(countdowns.length > 0, 'no countdowns');
 
-  // 2. Layout, as the host renders it: the root fills the viewport's width
-  // (the block rule for a root), and the image is laid out from its natural
-  // size once it has loaded — 320×120 at width 96 is 96×36.
+  // 2. Layout is generic: the app's first root reaches the host. Its viewport
+  // also grounds the safe-area fixture below. Caltrain then adds its exact
+  // block-width and image-ratio assertions.
   let layout = await s.layout();
   appViewport = layout.viewport;
-  const root = box(layout, 'caltrain-main');
-  check(root?.w === layout.viewport.w, `the root is ${root?.w} wide in a ${layout.viewport.w} viewport`);
-  let logo = box(layout, 'logo');
-  for (let i = 0; i < 40 && !(logo && Math.round(logo.h) === 36); i++) { await sleep(50); logo = box(await s.layout(), 'logo'); }
-  check(logo && Math.round(logo.w) === 96 && Math.round(logo.h) === 36, `the logo is ${logo?.w}×${logo?.h}, not 96×36 from its 320×120 ratio`);
+  check(layout.nodes.some((n) => tree.roots.includes(n.id)), `${app.name}'s root has no rendered layout box`);
+  if (caltrainFixture) {
+    for (const id of ['station-name', 'board-north', 'board-south', 'change-station', 'logo', 'scheme-dark', 'scheme-light', 'aurora', 'aurora-title', 'deck-toggle', 'material-crt']) {
+      check(byTestId(tree, id), `Caltrain fixture missing testId ${id}`);
+    }
+    check(byTestId(tree, 'station-name')?.props.text === 'Mountain View', 'station name not presented');
+    check(countdowns.length > 0, 'no countdowns');
+    const root = box(layout, 'caltrain-main');
+    check(root?.w === layout.viewport.w, `the root is ${root?.w} wide in a ${layout.viewport.w} viewport`);
+    let logo = box(layout, 'logo');
+    for (let i = 0; i < 40 && !(logo && Math.round(logo.h) === 36); i++) { await sleep(50); logo = box(await s.layout(), 'logo'); }
+    check(logo && Math.round(logo.w) === 96 && Math.round(logo.h) === 36, `the logo is ${logo?.w}×${logo?.h}, not 96×36 from its 320×120 ratio`);
+  }
 
   // 2a. The iframe parity oracle and Apple arm (@ref LLP 1020 M1/M2): load
   // and message enter the runner, the guest joins tree/input, and the
@@ -89,7 +103,7 @@ try {
       if (frameNode?.loading === false && deckState.slots.deckLoaded === true && deckState.slots.deckMessage === 'deck-ready') break;
       await sleep(50);
     }
-    check(frameNode?.type === 'WebView' && frameNode.url === '/deck/index.html', `the iframe tree node is ${JSON.stringify(frameNode)}`);
+    check(frameNode?.type === 'WebView' && frameNode.url === '/deck/index.html?user=caltrain&id=user-caltrain', `the iframe tree node is ${JSON.stringify(frameNode)}`);
     check(frameNode?.loading === false, `the iframe is still loading: ${JSON.stringify(frameNode)}`);
     check(deckState?.slots.deckLoaded === true, `load did not record its flag: ${JSON.stringify(deckState?.slots)}`);
     check(deckState?.slots.deckMessage === 'deck-ready', `message recorded ${JSON.stringify(deckState?.slots.deckMessage)}, not "deck-ready"`);
@@ -105,6 +119,7 @@ try {
       const image = decodePng(readFileSync(deckShot));
       const deckLayout = await s.layout();
       const frameBox = box(deckLayout, 'deck-frame');
+      if (host === 'web') check(frameBox?.w === 300 && frameBox?.h === 150 && frameBox?.hit === true, `the bare iframe's computed box/hit is ${JSON.stringify(frameBox)}, not a hit-testable 300×150`);
       const scale = image.width / deckLayout.viewport.w;
       const region = crop(image, Math.round(frameBox.x * scale), Math.round(frameBox.y * scale), Math.round(frameBox.w * scale), Math.round(frameBox.h * scale));
       let cyan = 0;
@@ -122,23 +137,40 @@ try {
       await sleep(25);
     }
     check(deckState.slots.deckMessage === 'deck-tapped', `guest tap recorded ${JSON.stringify(deckState.slots.deckMessage)}, not "deck-tapped"`);
+    if (host === 'web') {
+      // A WindowProxy survives cross-origin navigation. The committed src
+      // origin remains the authority: the navigated document must not receive
+      // the authenticated castleSdk identity reply (@ref LLP 1020 D2r/Q2).
+      await s.tap('deck-frame', { selector: '#deck-navigate' });
+      for (let i = 0; i < 40; i++) {
+        deckState = await s.state();
+        if (deckState.slots.deckLoads >= 2 && deckState.slots.deckMessage === 'attacker-navigating') break;
+        await sleep(25);
+      }
+      check(deckState.slots.deckLoads >= 2, `the navigation probe did not load its cross-origin document: ${JSON.stringify(deckState.slots)}`);
+      await sleep(100);
+      deckState = await s.state();
+      check(deckState.slots.deckMessage === 'attacker-navigating', `authenticated identity crossed navigation: ${JSON.stringify(deckState.slots.deckMessage)}`);
+    }
     await s.tap('deck-back');
     tree = await s.tree();
     check(byTestId(tree, 'home-screen'), 'leaving the iframe did not return home');
   }
 
-  // 3. The clock: a minute later every countdown still shown is one less —
-  // sixty timer fires from one seek, and nothing waited.
-  const before = new Map(countdowns.map((n) => [n.props.testId, Number(n.props.text)]));
-  await s.clock('+60000');
-  tree = await s.tree();
-  const after = tree.nodes.filter((n) => n.props.testId?.startsWith('countdown-') && before.has(n.props.testId));
-  const wrong = after.filter((n) => Number(n.props.text) !== before.get(n.props.testId) - 1).map((n) => `${n.props.testId} ${before.get(n.props.testId)}→${n.props.text}`);
-  check(after.length > 0 && wrong.length === 0, `after +60 s every countdown is one less; not: ${wrong.join(', ') || 'none left'}`);
-  let state = await s.state();
-  check(state.clock === 60000 && state.slots.nowMs === 1787915400000 + 60000, `state after +60 s: clock ${state.clock}, nowMs ${state.slots.nowMs}`);
-  const journal = await s.logs();
-  check(journal.lines.some((l) => /advance → 60 timers fired/.test(l)), 'the journal does not show sixty timers firing from one seek');
+  let journal;
+  if (caltrainFixture) {
+    // 3. The clock: a minute later every countdown still shown is one less —
+    // sixty timer fires from one seek, and nothing waited.
+    const before = new Map(countdowns.map((n) => [n.props.testId, Number(n.props.text)]));
+    await s.clock('+60000');
+    tree = await s.tree();
+    const after = tree.nodes.filter((n) => n.props.testId?.startsWith('countdown-') && before.has(n.props.testId));
+    const wrong = after.filter((n) => Number(n.props.text) !== before.get(n.props.testId) - 1).map((n) => `${n.props.testId} ${before.get(n.props.testId)}→${n.props.text}`);
+    check(after.length > 0 && wrong.length === 0, `after +60 s every countdown is one less; not: ${wrong.join(', ') || 'none left'}`);
+    let state = await s.state();
+    check(state.clock === 60000 && state.slots.nowMs === 1787915400000 + 60000, `state after +60 s: clock ${state.clock}, nowMs ${state.slots.nowMs}`);
+    journal = await s.logs();
+    check(journal.lines.some((l) => /advance → 60 timers fired/.test(l)), 'the journal does not show sixty timers firing from one seek');
 
   // 4. One interaction through the host's real input path: change station,
   // search, pick, home.
@@ -193,31 +225,35 @@ try {
   // 5a. A command (LLP 1005 §3): `setScheme` reaches the host as an op and
   // sets its colour scheme; the journal records it and the host reports no
   // error (step 7 reads both). Back to light for the pictures below.
-  await s.tap('scheme-dark');
-  await s.tap('scheme-light');
+    await s.tap('scheme-dark');
+    await s.tap('scheme-light');
+  }
 
   // 6. The pixels when asked, and the GPU module where the host renders it
   // (a canvas is on the page; headless Chrome has WebGPU).
   if (shot) console.log(JSON.stringify(await s.screenshot(shot)));
-  if (host === 'web') {
+  if (host === 'web' && appHasCanvas) {
     let g = s.gpuMs();
     for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = s.gpuMs(); }
     check(g != null, 'a canvas is on the page but the GPU module did not load (no beacon; WebGPU unavailable in this Chrome?)');
     if (g != null) console.log(`gpu: module loaded ${g} ms after injection (after the first paint)`);
   }
 
-  // 6a. A canvas's children (LLP 1014 D1): laid out by the kernel in the
-  // canvas's box and presented over its surface on every host — the aurora's
-  // title is the station's name, and its box lies inside the aurora's.
-  tree = await s.tree();
-  check(byTestId(tree, 'aurora-title')?.props.text === byTestId(tree, 'station-name')?.props.text, `the aurora's title is ${JSON.stringify(byTestId(tree, 'aurora-title')?.props.text)}, not the station's name`);
-  layout = await s.layout();
-  const aurora = box(layout, 'aurora'), title = box(layout, 'aurora-title');
-  const inside = aurora && title && title.x >= aurora.x - 0.5 && title.y >= aurora.y - 0.5 && title.x + title.w <= aurora.x + aurora.w + 0.5 && title.y + title.h <= aurora.y + aurora.h + 0.5;
-  check(inside, `the aurora's title ${JSON.stringify(title)} is not inside the aurora ${JSON.stringify(aurora)}`);
+  if (caltrainFixture) {
+    // 6a. A canvas's children (LLP 1014 D1): laid out by the kernel in the
+    // canvas's box and presented over its surface on every host — the aurora's
+    // title is the station's name, and its box lies inside the aurora's.
+    tree = await s.tree();
+    check(byTestId(tree, 'aurora-title')?.props.text === byTestId(tree, 'station-name')?.props.text, `the aurora's title is ${JSON.stringify(byTestId(tree, 'aurora-title')?.props.text)}, not the station's name`);
+    layout = await s.layout();
+    const aurora = box(layout, 'aurora'), title = box(layout, 'aurora-title');
+    const inside = aurora && title && title.x >= aurora.x - 0.5 && title.y >= aurora.y - 0.5 && title.x + title.w <= aurora.x + aurora.w + 0.5 && title.y + title.h <= aurora.y + aurora.h + 0.5;
+    check(inside, `the aurora's title ${JSON.stringify(title)} is not inside the aurora ${JSON.stringify(aurora)}`);
+  }
 
   // 7. The journal: a boot, the presses, the change, the timers — no refusal,
   // no host error.
+  journal ??= await s.logs();
   const logs = await s.logs();
   const lines = [...journal.lines, ...logs.lines];
   check(lines[0]?.includes('boot: '), 'no boot line in the journal');
@@ -262,13 +298,13 @@ else {
 }
 rmSync(tmp, { recursive: true, force: true });
 
-// 9. Children through the surface (LLP 1014, the canvas fixture): a button
+// 9. Children through the surface (LLP 1014, Caltrain's GPU fixture): a button
 // and an input inside a canvas whose surface samples its children. Both are
 // laid out in the canvas's box; a tap on the button reaches it — on macOS
 // through the alpha-0 overlay (D5) — and typing reaches the field; on macOS
 // the presenter captures the canvas for the batch and while the field is
 // edited (D4 a, d), which agent mode reports in the logs.
-{
+if (caltrainFixture) {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
   const plan = resolve(tmp, 'canvas.plan');
   const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/canvas.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
@@ -351,7 +387,7 @@ rmSync(tmp, { recursive: true, force: true });
 // canvas, and the canvas's middle is nothing but kernel frames — a tap there
 // reaches no card. Two seconds of the agent's clock move the springs. A
 // material button switches the sky.
-{
+if (deckFixture) {
   const d = await open({ host });
   try {
     await d.tap('deck-toggle');
@@ -455,8 +491,9 @@ rmSync(tmp, { recursive: true, force: true });
 // 12. The page's environment (LLP 1008 §9, the insets fixture): a root that
 // says `viewport-fit="cover"` is laid out to the whole screen, its content
 // kept out of the safe areas by `env(safe-area-inset-*)` lengths — on a
-// phone the viewport is the app's (step 2, the safe area) plus the insets;
-// everywhere else the insets are zero and nothing moves. Focusing the input
+// phone the viewport is the app's (step 2, the safe area) plus the insets.
+// A macOS full-size-content window is already the cover viewport and reports
+// its titlebar as the top safe area; web and Linux report zero. Focusing the input
 // at the bottom: on iOS the software keyboard rises, the viewport insets
 // itself by the keyboard's height and reveals the field above it, the layout
 // viewport untouched — a browser's visual viewport; a tap on the dismiss
@@ -479,9 +516,15 @@ rmSync(tmp, { recursive: true, force: true });
       const rootBox = box(l, 'root'), content = box(l, 'content');
       check(rootBox && rootBox.w === l.viewport.w && rootBox.h === l.viewport.h, `a cover root fills the viewport: ${JSON.stringify(rootBox)} in ${JSON.stringify(l.viewport)}`);
       check(content && content.x === left && content.y === top && Math.abs(content.w - (l.viewport.w - left - right)) < 0.01 && Math.abs(content.h - (l.viewport.h - top - bottom)) < 0.01, `the content keeps out of the insets: ${JSON.stringify(content)} for env ${JSON.stringify(env)} in ${JSON.stringify(l.viewport)}`);
-      check(appViewport && Math.abs(l.viewport.h - (appViewport.h + top + bottom)) < 0.01 && Math.abs(l.viewport.w - (appViewport.w + left + right)) < 0.01, `a cover root's viewport is the app's plus the insets: ${JSON.stringify(l.viewport)} vs ${JSON.stringify(appViewport)} + ${top}/${right}/${bottom}/${left}`);
-      if (host === 'ios') check(top > 0 && bottom > 0, `a phone reports its status bar and home indicator: ${top}, ${bottom}`);
-      else check(top === 0 && right === 0 && bottom === 0 && left === 0, `no safe area here: ${JSON.stringify(env)}`);
+      if (host === 'ios') {
+        check(appViewport && Math.abs(l.viewport.h - (appViewport.h + top + bottom)) < 0.01 && Math.abs(l.viewport.w - (appViewport.w + left + right)) < 0.01, `a phone cover viewport is the safe-area app viewport plus its insets: ${JSON.stringify(l.viewport)} vs ${JSON.stringify(appViewport)} + ${top}/${right}/${bottom}/${left}`);
+        check(top > 0 && bottom > 0, `a phone reports its status bar and home indicator: ${top}, ${bottom}`);
+      } else if (host === 'macos') {
+        check(appViewport && l.viewport.w === appViewport.w && l.viewport.h === appViewport.h, `a macOS cover viewport is already the full-size-content app viewport: ${JSON.stringify(l.viewport)} vs ${JSON.stringify(appViewport)}`);
+        check(top > 0 && right === 0 && bottom === 0 && left === 0, `macOS reports only its titlebar safe area: ${JSON.stringify(env)}`);
+      } else {
+        check(top === 0 && right === 0 && bottom === 0 && left === 0, `no safe area here: ${JSON.stringify(env)}`);
+      }
       // The keyboard: typing focuses the field at the bottom.
       const noteBefore = box(l, 'note');
       await f.type('note', 'hi');
@@ -565,12 +608,13 @@ rmSync(tmp, { recursive: true, force: true });
   rmSync(tmp, { recursive: true, force: true });
 }
 
-// 13. The app's own tests (LLP 1017 P7): `apps/caltrain/app.test.contract`,
+// 13. The resolved app's own tests (LLP 1017 P7), when it declares them:
 // its `test` blocks driven through a fresh session by the same operations.
-{
-  const t = await runTests({ host, file: resolve(ROOT, 'apps/caltrain/app.test.contract') });
+const appTests = resolve(app.dir, 'app.test.contract');
+if (existsSync(appTests)) {
+  const t = await runTests({ host, file: appTests });
   for (const r of t.results) for (const f of r.failures) check(false, `test "${r.name}": ${f}`);
-  console.log(`${host} tests: ${t.passed} passed, ${t.failed} failed (app.test.contract)`);
+  console.log(`${host} tests: ${t.passed} passed, ${t.failed} failed (${app.name}/app.test.contract)`);
 }
 
 console.log(`${host} smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);

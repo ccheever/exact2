@@ -28,7 +28,11 @@ enum Exact {
 
     static func write(_ text: String) -> Int {
         let bytes = Array(text.utf8)
-        let ptr = exact_in(bytes.count)!
+        guard !bytes.isEmpty else {
+            _ = exact_in(0) // clear the bridge's input without dereferencing an empty buffer
+            return 0
+        }
+        guard let ptr = exact_in(bytes.count) else { return 0 }
         bytes.withUnsafeBufferPointer { ptr.update(from: $0.baseAddress!, count: bytes.count) }
         return bytes.count
     }
@@ -38,18 +42,33 @@ enum Exact {
     nonisolated(unsafe) static var wake: ExactWakeFn? = nil
 
     static func boot(width: CGFloat, height: CGFloat) -> Batch {
+        let text = Text.checkpoint()
         exact_set_fonts(installFonts)
-        return read(exact_boot(measureText, nil, wake, nil, Float(width), Float(height)))
+        let batch = read(exact_boot(measureText, nil, wake, nil, Float(width), Float(height)))
+        if batch.error != nil { Text.restore(text) }
+        return batch
     }
 
     /// Every queued reply into the runner: the batch of their commits.
     static func pump(now: Double) -> Batch { read(exact_pump(now)) }
     /// The dev loop's restart: boot from plan bytes, state carried.
     static func bootPlan(_ bytes: Data, width: CGFloat, height: CGFloat) -> Batch {
-        let ptr = exact_in(bytes.count)!
-        bytes.withUnsafeBytes { ptr.update(from: $0.bindMemory(to: UInt8.self).baseAddress!, count: bytes.count) }
+        if bytes.isEmpty {
+            _ = exact_in(0)
+        } else if let ptr = exact_in(bytes.count) {
+            bytes.copyBytes(to: ptr, count: bytes.count)
+        } else {
+            return Batch(ops: [], timers: false, motion: false, clock: nil, error: "input allocation failed")
+        }
+        // The Rust candidate boots synchronously on this thread. Its font
+        // callback must temporarily install the candidate catalog so its
+        // first layout measures the right faces, but a refusal leaves the
+        // running presenter and runner using this exact prior cache state.
+        let text = Text.checkpoint()
         exact_set_fonts(installFonts)
-        return read(exact_boot_plan(bytes.count, measureText, nil, wake, nil, Float(width), Float(height)))
+        let batch = read(exact_boot_plan(bytes.count, measureText, nil, wake, nil, Float(width), Float(height)))
+        if batch.error != nil { Text.restore(text) }
+        return batch
     }
     static func press(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(view, 0, 0, now)) }
     /// The pointer over the view (`true`) or gone from it.

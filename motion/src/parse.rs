@@ -4,9 +4,11 @@
 //! `transition` shorthand; `spring(stiffness, damping, mass)` is the one
 //! declared extension)
 //!
-//! `transition: <property> <duration> [<easing>] [<delay>], …` — each part
-//! in CSS's own grammar, with `spring(k, d, m)` admitted where an easing
-//! goes. What CSS's parser would reject, this rejects, by name.
+//! `transition: <property> || <duration> || <easing> || <delay>, …` — each
+//! part in CSS's own grammar, with `spring(k, d, m)` admitted where an easing
+//! goes. The first time is the duration and the second is the delay, wherever
+//! the other components occur. What CSS's parser would reject, this rejects,
+//! by name.
 
 use crate::easing::{Easing, LinearStop, StepPosition};
 use crate::property::Property;
@@ -48,24 +50,12 @@ impl Transitions {
             if parts.is_empty() || parts.len() > 4 {
                 return Err(ParseError::BadShape(decl.trim().to_string()));
             }
-            let mut i = 0;
-            let property = match parts[0] {
-                "all" => {
-                    i += 1;
-                    TransitionProperty::All
-                }
-                p if Property::from_name(p).is_some() => {
-                    i += 1;
-                    TransitionProperty::Property(Property::from_name(p).unwrap())
-                }
-                p if time(p).is_ok() => TransitionProperty::All,
-                p => return Err(ParseError::UnknownProperty(p.to_string())),
-            };
+            let mut property = None;
             let mut duration = 0.0;
             let mut delay = 0.0;
-            let mut timing = TimingFunction::Easing(Easing::Ease);
+            let mut timing = None;
             let mut times = 0;
-            for part in &parts[i..] {
+            for part in &parts {
                 if let Ok(t) = time(part) {
                     match times {
                         0 => duration = t,
@@ -73,15 +63,30 @@ impl Transitions {
                         _ => return Err(ParseError::BadShape(decl.trim().to_string())),
                     }
                     times += 1;
+                } else if *part == "all" || Property::from_name(part).is_some() {
+                    if property.is_some() {
+                        return Err(ParseError::BadShape(decl.trim().to_string()));
+                    }
+                    property = Some(match *part {
+                        "all" => TransitionProperty::All,
+                        name => TransitionProperty::Property(Property::from_name(name).unwrap()),
+                    });
                 } else {
-                    timing = easing(part)?;
+                    match easing(part) {
+                        Ok(value) if timing.is_none() => timing = Some(value),
+                        Ok(_) => return Err(ParseError::BadShape(decl.trim().to_string())),
+                        Err(_) if property.is_none() => {
+                            return Err(ParseError::UnknownProperty((*part).to_string()))
+                        }
+                        Err(error) => return Err(error),
+                    }
                 }
             }
             let t = Transition {
-                property,
+                property: property.unwrap_or(TransitionProperty::All),
                 duration,
                 delay,
-                timing,
+                timing: timing.unwrap_or(TimingFunction::Easing(Easing::Ease)),
             };
             t.validate().map_err(ParseError::Invalid)?;
             out.push(t);
@@ -149,32 +154,7 @@ fn easing(s: &str) -> Result<TimingFunction, ParseError> {
                     };
                     Easing::Steps { count, position }
                 }
-                "linear" => {
-                    let mut stops = Vec::new();
-                    for (i, a) in args.iter().enumerate() {
-                        let fields: Vec<&str> = a.split_whitespace().collect();
-                        let output: f64 = fields
-                            .first()
-                            .and_then(|f| f.parse().ok())
-                            .ok_or_else(|| ParseError::BadEasing(s.to_string()))?;
-                        let input = match fields.get(1) {
-                            Some(p) => p
-                                .strip_suffix('%')
-                                .and_then(|v| v.parse::<f64>().ok())
-                                .map(|v| v / 100.0)
-                                .ok_or_else(|| ParseError::BadEasing(s.to_string()))?,
-                            None => {
-                                if args.len() == 1 {
-                                    0.0
-                                } else {
-                                    i as f64 / (args.len() as f64 - 1.0)
-                                }
-                            }
-                        };
-                        stops.push(LinearStop { input, output });
-                    }
-                    Easing::PiecewiseLinear(stops)
-                }
+                "linear" => Easing::PiecewiseLinear(linear_stops(&args, s)?),
                 "spring" => {
                     let n = numbers(&args, s)?;
                     let config = match n.len() {
@@ -192,6 +172,79 @@ fn easing(s: &str) -> Result<TimingFunction, ParseError> {
             }
         }
     }))
+}
+
+fn linear_stops(args: &[String], whole: &str) -> Result<Vec<LinearStop>, ParseError> {
+    let bad = || ParseError::BadEasing(whole.to_string());
+    let mut stops: Vec<(Option<f64>, f64)> = Vec::new();
+    for arg in args {
+        let fields: Vec<&str> = arg.split_whitespace().collect();
+        if fields.is_empty() || fields.len() > 3 {
+            return Err(bad());
+        }
+        let output = fields[0].parse::<f64>().map_err(|_| bad())?;
+        if fields.len() == 1 {
+            stops.push((None, output));
+            continue;
+        }
+        for field in &fields[1..] {
+            let input = field
+                .strip_suffix('%')
+                .and_then(|value| value.parse::<f64>().ok())
+                .map(|value| value / 100.0)
+                .ok_or_else(&bad)?;
+            stops.push((Some(input), output));
+        }
+    }
+    if stops.is_empty() {
+        return Err(bad());
+    }
+
+    // CSS Easing 2's fixup: default the endpoints, clamp authored positions
+    // to the greatest preceding position, then evenly distribute each run of
+    // omitted positions between its authored neighbours.
+    if stops[0].0.is_none() {
+        stops[0].0 = Some(0.0);
+    }
+    let last = stops.len() - 1;
+    if stops[last].0.is_none() {
+        stops[last].0 = Some(1.0);
+    }
+    let mut greatest = f64::NEG_INFINITY;
+    for (input, _) in &mut stops {
+        if let Some(value) = input {
+            if *value < greatest {
+                *value = greatest;
+            }
+            greatest = *value;
+        }
+    }
+    let mut start = 0;
+    while start + 1 < stops.len() {
+        if stops[start + 1].0.is_some() {
+            start += 1;
+            continue;
+        }
+        let end = (start + 2..stops.len())
+            .find(|i| stops[*i].0.is_some())
+            .expect("the last linear stop has a position");
+        let from = stops[start]
+            .0
+            .expect("the first linear stop has a position");
+        let to = stops[end].0.unwrap();
+        let width = (end - start) as f64;
+        for (offset, stop) in stops[start + 1..end].iter_mut().enumerate() {
+            stop.0 = Some(from + (to - from) * (offset + 1) as f64 / width);
+        }
+        start = end;
+    }
+    Ok(stops
+        .into_iter()
+        .map(|(input, output)| LinearStop {
+            input: input.unwrap(),
+            output,
+        })
+        .collect())
 }
 
 fn call(s: &str) -> Option<(&str, Vec<String>)> {
@@ -264,6 +317,19 @@ mod tests {
         let t = Transitions::parse("0.3s").unwrap();
         assert_eq!(t.0[0].property, TransitionProperty::All);
         assert_eq!(t.0[0].timing, TimingFunction::Easing(Easing::Ease));
+        let t = Transitions::parse("ease 1s").unwrap();
+        assert_eq!(t.0[0].property, TransitionProperty::All);
+        assert_eq!(t.0[0].duration, 1.0);
+        assert_eq!(t.0[0].timing, TimingFunction::Easing(Easing::Ease));
+        let t = Transitions::parse("linear 200ms").unwrap();
+        assert_eq!(t.0[0].property, TransitionProperty::All);
+        assert_eq!(t.0[0].duration, 0.2);
+        let t = Transitions::parse("1s opacity").unwrap();
+        assert_eq!(
+            t.0[0].property,
+            TransitionProperty::Property(Property::Opacity)
+        );
+        assert_eq!(t.0[0].duration, 1.0);
         assert_eq!(Transitions::parse("none").unwrap(), Transitions::NONE);
         assert_eq!(
             Transitions::parse("width 1s"),
@@ -278,6 +344,14 @@ mod tests {
             Transitions::parse("opacity 1s bounce"),
             Err(ParseError::BadEasing("bounce".into()))
         );
+        assert!(matches!(
+            Transitions::parse("opacity 1s ease linear"),
+            Err(ParseError::BadShape(_))
+        ));
+        assert!(matches!(
+            Transitions::parse("opacity scale 1s"),
+            Err(ParseError::BadShape(_))
+        ));
         assert!(matches!(
             Transitions::parse("opacity 1s spring(1,2,3)"),
             Err(ParseError::Invalid(TransitionError::SpringDeclaresDuration))
@@ -300,5 +374,28 @@ mod tests {
         };
         assert_eq!(stops.len(), 3);
         assert_eq!((stops[1].input, stops[1].output), (0.5, 0.9));
+
+        let lin = Transitions::parse("opacity 1s linear(0, 0.2, 0.6 60%, 0.8, 1)").unwrap();
+        let TimingFunction::Easing(Easing::PiecewiseLinear(stops)) = &lin.0[0].timing else {
+            panic!()
+        };
+        assert_eq!(
+            stops
+                .iter()
+                .map(|stop| (stop.input, stop.output))
+                .collect::<Vec<_>>(),
+            [(0.0, 0.0), (0.3, 0.2), (0.6, 0.6), (0.8, 0.8), (1.0, 1.0)]
+        );
+        let lin = Transitions::parse("opacity 1s linear(0 0% 20%, 1 80% 100%)").unwrap();
+        let TimingFunction::Easing(Easing::PiecewiseLinear(stops)) = &lin.0[0].timing else {
+            panic!()
+        };
+        assert_eq!(
+            stops
+                .iter()
+                .map(|stop| (stop.input, stop.output))
+                .collect::<Vec<_>>(),
+            [(0.0, 0.0), (0.2, 0.0), (0.8, 1.0), (1.0, 1.0)]
+        );
     }
 }

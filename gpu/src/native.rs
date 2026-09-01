@@ -254,7 +254,7 @@ pub fn error() -> String {
     if !own.is_empty() {
         return own;
     }
-    with(|m| m.error().to_string()).unwrap_or_default()
+    with(|m| m.take_error()).unwrap_or_default()
 }
 
 /// The exports for one app's registry, C ABI (see LLP 1009 D2).

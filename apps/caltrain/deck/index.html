@@ -8,12 +8,31 @@
   h1, p { margin: 0; }
   h1 { color: #8fdcff; font-size: 24px; }
   p { color: #aeb8d8; font-size: 12px; }
+  button { font: inherit; }
 </style>
 <main id="deck-fixture" data-testid="deck-guest">
   <h1 id="deck-title">Castle deck</h1>
   <p id="deck-status">ready to play</p>
+  <button id="deck-navigate" type="button">navigation probe</button>
 </main>
 <script>
-  addEventListener('load', () => parent.postMessage('deck-ready', '*'));
-  addEventListener('pointerdown', () => parent.postMessage('deck-tapped', '*'));
+  const query = new URLSearchParams(location.search);
+  if (query.has('attacker')) {
+    addEventListener('message', (event) => {
+      if (event.source === parent && event.data?.castleSdk === 1 && event.data.requestId === 'navigation-probe' && event.data.ok) {
+        parent.postMessage('identity-leaked-after-navigation', '*');
+      }
+    });
+    parent.postMessage({ castleSdk: 1, requestId: 'navigation-probe', command: 'user.getCurrent' }, '*');
+  } else {
+    addEventListener('load', () => parent.postMessage('deck-ready', '*'));
+    addEventListener('pointerdown', () => parent.postMessage('deck-tapped', '*'));
+    document.getElementById('deck-navigate').addEventListener('click', () => {
+      parent.postMessage('attacker-navigating', '*');
+      const target = new URL(location.href);
+      target.hostname = 'localhost';
+      target.searchParams.set('attacker', '1');
+      location.href = target.href;
+    });
+  }
 </script>

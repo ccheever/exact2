@@ -111,13 +111,21 @@ impl Surface for MapSurface {
         self.selected = self.stations.iter().position(|id| *id == selected);
         let board = list(&inputs[2], "board")?;
         let now = number(&inputs[3], "nowMs")?;
-        self.train = board.first().and_then(|d| {
-            let fields = list(d, "departure").ok()?;
-            let at = number(fields.get(4)?, "at").ok()?;
-            let remaining_min = ((at - now) / 60_000.0).max(0.0);
-            // A train is "coming" over the last twenty minutes.
-            Some((1.0 - (remaining_min / 20.0).min(1.0)) as f32)
-        });
+        self.train = board
+            .iter()
+            .find(|departure| {
+                list(departure, "departure")
+                    .ok()
+                    .and_then(|fields| number(fields.get(4)?, "at").ok())
+                    .is_some_and(|at| at >= now)
+            })
+            .and_then(|d| {
+                let fields = list(d, "departure").ok()?;
+                let at = number(fields.get(4)?, "at").ok()?;
+                let remaining_min = ((at - now) / 60_000.0).max(0.0);
+                // A train is "coming" over the last twenty minutes.
+                Some((1.0 - (remaining_min / 20.0).min(1.0)) as f32)
+            });
         Ok(())
     }
 
@@ -227,3 +235,46 @@ pub static REGISTRY: Registry = Registry(&[
 ]);
 
 exact_gpu::module!(REGISTRY);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn departure(id: &str, at: f64) -> Value {
+        Value::list(vec![
+            Value::str(id),
+            Value::Number(1.0),
+            Value::str("Local"),
+            Value::str("San Francisco"),
+            Value::Number(at),
+        ])
+    }
+
+    #[test]
+    fn map_selects_the_first_not_yet_departed_train() {
+        let mut map = MapSurface::new();
+        let station = |id: &str| {
+            Value::list(vec![
+                Value::str(id),
+                Value::str(id),
+                Value::Number(1.0),
+                Value::Number(0.0),
+            ])
+        };
+        map.bind(&[
+            Value::list(vec![station("a"), station("b")]),
+            Value::str("a"),
+            Value::list(vec![
+                departure("past", 1_000.0),
+                departure("next", 1_800_000.0),
+            ]),
+            Value::Number(600_000.0),
+        ])
+        .unwrap();
+        assert_eq!(
+            map.train,
+            Some(0.0),
+            "the future train is twenty minutes away"
+        );
+    }
+}

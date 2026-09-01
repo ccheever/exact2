@@ -538,7 +538,7 @@ fn tag_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::View | NodeType::List | NodeType::NativeView | NodeType::Svg => "div",
         NodeType::ScrollView => "div",
         NodeType::Text => {
-            if node.parent.is_some() && node.props.str(PropId::Text).is_some() {
+            if node.is_inline_run() {
                 "span"
             } else {
                 "div"
@@ -574,6 +574,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::AccessibilityHint => "aria-description",
             PropId::AccessibilityHeadingLevel => "aria-level",
             PropId::Placeholder => "placeholder",
+            PropId::Type => "type",
+            PropId::InputMode => "inputmode",
             PropId::Value => "value",
             PropId::Href => "data-href",
             PropId::Disabled => "disabled",
@@ -603,7 +605,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         out.insert("data-scroll".into(), "true".into());
     }
     if node.node_type == NodeType::Toggle {
-        out.insert("type".into(), "checkbox".into());
+        out.entry("type".into())
+            .or_insert_with(|| "checkbox".into());
     }
     out
 }

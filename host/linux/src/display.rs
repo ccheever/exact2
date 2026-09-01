@@ -17,7 +17,6 @@
 
 use crate::app::Config;
 use crate::input::{Input, InputEvent, Key};
-use crate::presenter::Presenter;
 use crate::vnc::Vnc;
 use drm::buffer::{Buffer as _, DrmFourcc};
 use drm::control::{
@@ -208,13 +207,7 @@ pub fn run<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
     let (pw, ph) = display.size();
     let viewport = (pw as f32 / config.scale, ph as f32 / config.scale);
     let wall = || started.elapsed().as_secs_f64() * 1000.0;
-    let (mut p, error) = match Presenter::boot(
-        &config.plan,
-        D::default(),
-        viewport,
-        config.scale,
-        config.assets.clone(),
-    ) {
+    let (mut p, error) = match crate::app::boot_presenter::<D>(config, viewport) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("exact: boot: {e}");

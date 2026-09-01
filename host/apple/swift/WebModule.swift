@@ -196,7 +196,7 @@ final class WebViews {
 
     func update(_ owner: NodeView) {
         guard let entry = entries[owner.id] else { return }
-        let src = owner.props["src"]
+        let src = Self.browserSource(owner.props["src"])
         let sandbox = owner.props["sandbox"]
         let changedSrc = !entry.initialized || entry.src != src
         let changedSandbox = !entry.initialized || entry.sandbox != sandbox
@@ -207,6 +207,12 @@ final class WebViews {
         if changedSrc || changedSandbox { entry.loading = true }
         if changedSandbox { send(sandbox, to: handle, using: module.setSandbox) }
         if changedSrc { send(src, to: handle, using: module.setSrc) }
+    }
+
+    private static func browserSource(_ source: String?) -> String? {
+        guard let source, source.hasPrefix("//") else { return source }
+        let scheme = PlanURL.current?.page.scheme?.lowercased()
+        return (scheme == "http" || scheme == "https" ? scheme! : "https") + ":" + source
     }
 
     private func send(_ value: String?, to handle: UnsafeMutableRawPointer, using setter: WebModule.SetFn) {

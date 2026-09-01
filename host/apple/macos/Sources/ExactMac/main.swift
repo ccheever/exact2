@@ -201,12 +201,17 @@ let tBoot = CACurrentMediaTime()
 // without any environment.
 PlanURL.boot = { bytes, label in
     let started = CACurrentMediaTime()
-    presenter.reset()
     let size = presenter.viewport.contentSize
     Exact.wake = exactWake
     let batch = Exact.bootPlan(bytes, width: size.width, height: size.height)
-    apply(batch)
+    if let error = batch.error {
+        FileHandle.standardError.write(Data("exact: \(error)\n".utf8))
+    } else {
+        presenter.reset()
+        apply(batch)
+    }
     print("reloaded \(label) in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+    return batch.error == nil
 }
 var planWatch: DispatchSourceTimer?
 if let planPath = ProcessInfo.processInfo.environment["EXACT_DEV_PLAN"] {
@@ -220,7 +225,7 @@ if let planPath = ProcessInfo.processInfo.environment["EXACT_DEV_PLAN"] {
             guard let m = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date), m > last else { return }
             last = m
             guard let bytes = FileManager.default.contents(atPath: planPath) else { return }
-            PlanURL.boot?(bytes, String(planPath.split(separator: "/").last ?? "plan"))
+            _ = PlanURL.boot?(bytes, String(planPath.split(separator: "/").last ?? "plan"))
         }
         t.resume()
         planWatch = t

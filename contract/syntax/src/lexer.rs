@@ -184,12 +184,11 @@ impl Lexer {
                     continue;
                 }
                 if c == '`' {
-                    let end = trimmed[pos + 1..].find('`').ok_or(LexError {
+                    let end = template_literal_end(trimmed, pos).ok_or(LexError {
                         id: "syntax-unterminated-template",
                         message: "template string never closes".into(),
                         span,
-                    })? + pos
-                        + 1;
+                    })?;
                     out.push(Token {
                         kind: TokenKind::Template(trimmed[pos + 1..end].to_string()),
                         span,
@@ -280,4 +279,75 @@ impl Lexer {
             span,
         })
     }
+}
+
+/// The byte offset of the backtick closing a template literal. Nested
+/// `${…}` expressions may themselves contain strings, braces, or templates.
+pub(crate) fn template_literal_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut pos = start + 1;
+    while pos < bytes.len() {
+        match bytes[pos] {
+            b'\\' => pos = skip_escaped(text, pos),
+            b'`' => return Some(pos),
+            b'$' if bytes.get(pos + 1) == Some(&b'{') => {
+                let end = template_expr_end(&text[pos + 2..])?;
+                pos += end + 3;
+            }
+            _ => pos += char_len(text, pos),
+        }
+    }
+    None
+}
+
+/// The byte offset of the `}` matching an expression immediately after
+/// `${`. Braces in strings and nested template literals do not close it.
+pub(crate) fn template_expr_end(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut pos = 0;
+    let mut depth = 0usize;
+    while pos < bytes.len() {
+        match bytes[pos] {
+            b'\\' => pos = skip_escaped(text, pos),
+            b'"' => pos = quoted_end(text, pos, b'"')?,
+            b'`' => pos = template_literal_end(text, pos)? + 1,
+            b'{' => {
+                depth += 1;
+                pos += 1;
+            }
+            b'}' if depth == 0 => return Some(pos),
+            b'}' => {
+                depth -= 1;
+                pos += 1;
+            }
+            _ => pos += char_len(text, pos),
+        }
+    }
+    None
+}
+
+fn quoted_end(text: &str, start: usize, quote: u8) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut pos = start + 1;
+    while pos < bytes.len() {
+        match bytes[pos] {
+            b'\\' => pos = skip_escaped(text, pos),
+            byte if byte == quote => return Some(pos + 1),
+            _ => pos += char_len(text, pos),
+        }
+    }
+    None
+}
+
+fn skip_escaped(text: &str, slash: usize) -> usize {
+    let next = slash + 1;
+    if next >= text.len() {
+        next
+    } else {
+        next + char_len(text, next)
+    }
+}
+
+fn char_len(text: &str, pos: usize) -> usize {
+    text[pos..].chars().next().map(char::len_utf8).unwrap_or(1)
 }

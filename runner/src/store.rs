@@ -23,6 +23,8 @@ pub struct Store {
     granted: Vec<String>,
     values: std::collections::BTreeMap<String, String>,
     writes: Vec<StoreWrite>,
+    /// Monotonic within a transaction; restored with a refused transaction.
+    revision: u64,
     /// How many reads so far: bake tells a resource that consulted the
     /// store by it (LLP 1018 D4).
     reads: std::cell::Cell<usize>,
@@ -56,6 +58,7 @@ impl From<StoreError> for DataError {
 
 pub(crate) struct StoreCheckpoint {
     values: std::collections::BTreeMap<String, String>,
+    revision: u64,
     /// How many writes stood at the checkpoint: the ones after it are new.
     pub(crate) writes: usize,
 }
@@ -82,6 +85,7 @@ impl Store {
             granted,
             values,
             writes: Vec::new(),
+            revision: 0,
             reads: std::cell::Cell::new(0),
         }
     }
@@ -109,6 +113,7 @@ impl Store {
             return Err(StoreError::Refused(name.to_string()));
         }
         self.values.insert(name.to_string(), value.to_string());
+        self.revision += 1;
         self.writes.push(StoreWrite {
             name: name.to_string(),
             value: Some(value.to_string()),
@@ -123,6 +128,7 @@ impl Store {
             return Err(StoreError::Refused(name.to_string()));
         }
         self.values.remove(name);
+        self.revision += 1;
         self.writes.push(StoreWrite {
             name: name.to_string(),
             value: None,
@@ -153,15 +159,21 @@ impl Store {
         self.reads.get()
     }
 
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
+    }
+
     pub(crate) fn checkpoint(&self) -> StoreCheckpoint {
         StoreCheckpoint {
             values: self.values.clone(),
+            revision: self.revision,
             writes: self.writes.len(),
         }
     }
 
     pub(crate) fn restore(&mut self, c: StoreCheckpoint) {
         self.values = c.values;
+        self.revision = c.revision;
         self.writes.truncate(c.writes);
     }
 }

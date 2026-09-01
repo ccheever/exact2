@@ -38,6 +38,56 @@ fn reject_fixtures_are_refused_by_exactly_their_id() {
     assert!(checked >= 26, "{checked} reject fixtures");
 }
 
+#[test]
+fn a_file_without_a_component_is_a_typed_refusal() {
+    for src in ["", "shape S\n  a: number\n"] {
+        let error = contract::compile(src).unwrap_err();
+        assert_eq!(error.id, "analyze-no-component");
+        assert_eq!(error.span, (1, 1));
+    }
+}
+
+#[test]
+fn a_template_with_an_inline_match_runs_through_the_compiler() {
+    let src = "component App\n  state choice = some(\"yes\")\n  view\n    text `${match choice { case some(value) => value, case none => \"}\" }}` testId=\"matched\"\n";
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(plan, Schedule, Kernel::with_monospace()).unwrap();
+    assert_eq!(text_of(&r, "matched").as_deref(), Some("yes"));
+}
+
+#[test]
+fn button_primary_text_is_a_real_accessible_text_child() {
+    let src = "component App\n  state pressed = false\n  action press writes pressed\n    pressed = true\n  view\n    button \"Post\" press=press testId=\"post\"\n";
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(plan, Schedule, Kernel::with_monospace()).unwrap();
+    let key = r.kernel().find_by_test_id("post")[0];
+    let button = r.kernel().node_by_key(key).unwrap();
+    assert_eq!(button.node_type, NodeType::Pressable);
+    assert_eq!(button.props.str(PropId::AccessibilityRole), Some("button"));
+    let children = button.children();
+    assert_eq!(children.len(), 1);
+    let label = r.kernel().node(children[0]).unwrap();
+    assert_eq!(label.node_type, NodeType::Text);
+    assert_eq!(label.props.str(PropId::Text), Some("Post"));
+}
+
+#[test]
+fn every_handler_kind_types_and_untyped_payloads_are_inferred() {
+    let src = "component App\n  state textValue = \"\"\n  state boolValue = false\n  action noPayload\n  action stringPayload(value) writes textValue\n    textValue = value\n  action boolPayload(value) writes boolValue\n    boolValue = value\n  view\n    column\n      button \"press\" press=noPayload\n      input change=stringPayload key=stringPayload hover=boolPayload focus=noPayload blur=noPayload submit=noPayload\n      iframe \"/guest\" load=noPayload message=stringPayload\n";
+    contract::compile(src).unwrap();
+}
+
+#[test]
+fn dynamic_invalid_integer_props_are_still_refused_at_boot() {
+    for value in ["1.5", "9223372036854775808"] {
+        let src = format!(
+            "component App\n  state level = {value}\n  view\n    column aria-level=level\n      text \"heading\"\n"
+        );
+        let plan = contract::compile(&src).unwrap();
+        assert!(Runner::boot(plan, Schedule, Kernel::with_monospace()).is_err());
+    }
+}
+
 /// The same miniature data source the runner's hand-built test uses.
 #[derive(Default)]
 struct Schedule;

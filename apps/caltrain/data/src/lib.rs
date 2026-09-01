@@ -6,7 +6,7 @@
 //! stations with positions, clock-face departures in both directions — and
 //! the queries the app's `resource` declarations name: `stations(location)`,
 //! `nearest(location, count)`, `station(id, location)`, `board(stationId,
-//! direction)`, `search(query, location)`, `trip(id)`. Values cross the seam
+//! direction, nowMs)`, and `search(query, location)`. Values cross the seam
 //! as [`Value`]s shaped exactly as the app's `shape` declarations say; the
 //! runner refuses anything else.
 //!
@@ -203,7 +203,14 @@ pub struct Caltrain;
 fn loc(args: &[Value], i: usize) -> Result<(f64, f64), DataError> {
     match args.get(i) {
         Some(Value::Record(f)) if f.len() == 2 => match (&f[0], &f[1]) {
-            (Value::Number(lat), Value::Number(lon)) => Ok((*lat, *lon)),
+            (Value::Number(lat), Value::Number(lon))
+                if lat.is_finite()
+                    && lon.is_finite()
+                    && (-90.0..=90.0).contains(lat)
+                    && (-180.0..=180.0).contains(lon) =>
+            {
+                Ok((*lat, *lon))
+            }
             _ => Err(DataError::BadArguments("location".into())),
         },
         _ => Err(DataError::BadArguments("location".into())),
@@ -216,6 +223,24 @@ fn text(args: &[Value], i: usize) -> Result<&str, DataError> {
         .ok_or_else(|| DataError::BadArguments(format!("argument {i}")))
 }
 
+fn arity(args: &[Value], expected: usize) -> Result<(), DataError> {
+    if args.len() == expected {
+        Ok(())
+    } else {
+        Err(DataError::BadArguments(format!(
+            "expected {expected} arguments, got {}",
+            args.len()
+        )))
+    }
+}
+
+fn finite_number(args: &[Value], i: usize) -> Result<f64, DataError> {
+    match args.get(i) {
+        Some(Value::Number(value)) if value.is_finite() => Ok(*value),
+        _ => Err(DataError::BadArguments(format!("argument {i}"))),
+    }
+}
+
 impl DataSource for Caltrain {
     fn app_id(&self) -> &str {
         "com.exact.caltrain"
@@ -223,11 +248,15 @@ impl DataSource for Caltrain {
 
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         match source {
-            "defaultLocation" => Ok(Value::record(vec![
-                Value::Number(DEFAULT_LOCATION.0),
-                Value::Number(DEFAULT_LOCATION.1),
-            ])),
+            "defaultLocation" => {
+                arity(args, 0)?;
+                Ok(Value::record(vec![
+                    Value::Number(DEFAULT_LOCATION.0),
+                    Value::Number(DEFAULT_LOCATION.1),
+                ]))
+            }
             "stations" => {
+                arity(args, 1)?;
                 let location = loc(args, 0)?;
                 Ok(Value::list(
                     STATIONS
@@ -237,8 +266,13 @@ impl DataSource for Caltrain {
                 ))
             }
             "nearest" => {
+                arity(args, 2)?;
                 let location = loc(args, 0)?;
-                let count = args.get(1).and_then(Value::as_number).unwrap_or(3.0) as usize;
+                let count = finite_number(args, 1)?;
+                if count.fract() != 0.0 || !(0.0..=STATIONS.len() as f64).contains(&count) {
+                    return Err(DataError::BadArguments("count".into()));
+                }
+                let count = count as usize;
                 let mut all: Vec<&Station> = STATIONS.iter().collect();
                 all.sort_by(|a, b| {
                     distance_m(location, (a.lat, a.lon))
@@ -253,6 +287,7 @@ impl DataSource for Caltrain {
                 ))
             }
             "station" => {
+                arity(args, 2)?;
                 let id = text(args, 0)?;
                 let location = loc(args, 1)?;
                 let s =
@@ -260,16 +295,27 @@ impl DataSource for Caltrain {
                 Ok(station_value(s, location))
             }
             "board" => {
+                arity(args, 3)?;
                 let id = text(args, 0)?;
                 let direction = text(args, 1)?;
+                let now_ms = finite_number(args, 2)?;
                 if direction != "north" && direction != "south" {
                     return Err(DataError::BadArguments("direction".into()));
                 }
                 let s =
                     station(id).ok_or_else(|| DataError::Unavailable(format!("station {id}")))?;
-                Ok(Value::list(departures(s, direction)))
+                Ok(Value::list(
+                    departures(s, direction)
+                        .into_iter()
+                        .filter(|departure| {
+                            matches!(departure, Value::Record(fields)
+                                if matches!(fields.get(4), Some(Value::Number(at)) if *at >= now_ms))
+                        })
+                        .collect(),
+                ))
             }
             "search" => {
+                arity(args, 2)?;
                 let q = text(args, 0)?.to_lowercase();
                 let location = loc(args, 1)?;
                 Ok(Value::list(
@@ -282,5 +328,94 @@ impl DataSource for Caltrain {
             }
             other => Err(DataError::UnknownSource(other.into())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn location(lat: f64, lon: f64) -> Value {
+        Value::record(vec![Value::Number(lat), Value::Number(lon)])
+    }
+
+    fn bad(result: Result<Value, DataError>) {
+        assert!(matches!(result, Err(DataError::BadArguments(_))));
+    }
+
+    #[test]
+    fn queries_reject_bad_arity_and_domains() {
+        let mut data = Caltrain;
+        bad(data.query("defaultLocation", &[Value::Unit]));
+        bad(data.query("stations", &[]));
+        bad(data.query("stations", &[location(91.0, 0.0)]));
+        bad(data.query("stations", &[location(f64::NAN, 0.0)]));
+        bad(data.query("stations", &[location(0.0, 181.0)]));
+        bad(data.query("nearest", &[location(0.0, 0.0)]));
+        for count in [
+            Value::str("3"),
+            Value::Number(-1.0),
+            Value::Number(1.5),
+            Value::Number(f64::INFINITY),
+            Value::Number(10.0),
+        ] {
+            bad(data.query("nearest", &[location(0.0, 0.0), count]));
+        }
+        bad(data.query(
+            "station",
+            &[Value::str("mv"), location(0.0, 0.0), Value::Unit],
+        ));
+        bad(data.query("board", &[Value::str("mv"), Value::str("north")]));
+        bad(data.query(
+            "board",
+            &[
+                Value::str("mv"),
+                Value::str("east"),
+                Value::Number(DAY_START_MS),
+            ],
+        ));
+        bad(data.query(
+            "board",
+            &[
+                Value::str("mv"),
+                Value::str("north"),
+                Value::Number(f64::NAN),
+            ],
+        ));
+        bad(data.query("search", &[Value::str("san"), Value::Unit]));
+    }
+
+    #[test]
+    fn board_contains_only_not_yet_departed_trains() {
+        let mut data = Caltrain;
+        let now = DAY_START_MS + 12.0 * 60.0 * 60_000.0;
+        let Value::List(board) = data
+            .query(
+                "board",
+                &[Value::str("mv"), Value::str("north"), Value::Number(now)],
+            )
+            .unwrap()
+        else {
+            panic!("board must be a list");
+        };
+        assert!(!board.is_empty());
+        assert!(board
+            .iter()
+            .all(|departure| matches!(departure, Value::Record(fields)
+            if matches!(fields.get(4), Some(Value::Number(at)) if *at >= now))));
+        let Value::List(after_service) = data
+            .query(
+                "board",
+                &[
+                    Value::str("mv"),
+                    Value::str("north"),
+                    Value::Number(DAY_START_MS + 24.0 * 60.0 * 60_000.0),
+                ],
+            )
+            .unwrap()
+        else {
+            panic!("board must be a list");
+        };
+        assert!(after_service.is_empty());
     }
 }

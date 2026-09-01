@@ -4,6 +4,7 @@
 use exact_runner::{DataError, DataSource, Value};
 use exact_web::dev::Session;
 use exact_web::Host;
+use std::io::{Seek, Write};
 
 #[derive(Default)]
 struct NoData;
@@ -74,9 +75,57 @@ fn a_broken_save_is_a_named_refusal_and_the_last_plan_stays() {
 }
 
 #[test]
+fn a_failed_save_is_re_read_until_its_bytes_stabilize() {
+    let dir = scratch("failed-stamp");
+    let src = dir.join("app.contract");
+    let out = dir.join("app.plan");
+    let bad = GOOD.replace("text \"one\"", "text =one=");
+    assert_eq!(bad.len(), GOOD.len());
+    std::fs::write(&src, bad).unwrap();
+    let stamp = std::fs::metadata(&src).unwrap().modified().unwrap();
+    let mut s = Session::new(&src, &out);
+    assert!(s.poll::<NoData>().unwrap().is_err());
+
+    // Reproduce a save whose final bytes changed without changing the
+    // watcher's (mtime, length) signature.
+    let mut file = std::fs::OpenOptions::new().write(true).open(&src).unwrap();
+    file.rewind().unwrap();
+    file.write_all(GOOD.as_bytes()).unwrap();
+    file.set_times(std::fs::FileTimes::new().set_modified(stamp))
+        .unwrap();
+    drop(file);
+    assert_eq!(std::fs::metadata(&src).unwrap().modified().unwrap(), stamp);
+
+    assert!(
+        s.poll::<NoData>()
+            .expect("the same stamp is re-read")
+            .is_ok(),
+        "the stable source replaces the transient compile error"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_source_snapshot_keeps_its_path_for_declared_fonts() {
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/fixtures/fonts/app.contract");
+    let dir = scratch("font-path");
+    let out = dir.join("app.plan");
+    let mut session = Session::new(&source, &out);
+    let built = session
+        .poll::<NoData>()
+        .expect("first look builds")
+        .expect("the snapshot resolves assets beside its source path");
+    assert!(exact_plan::Plan::decode(&built.bytes).is_ok());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn the_bridge_boots_from_bytes_in_its_input_buffer() {
     let plan = contract::compile(GOOD).unwrap().encode();
     let mut bridge: exact_web::abi::Bridge<NoData> = exact_web::abi::Bridge::new();
+    let len = bridge.baked_plan(&plan);
+    assert_eq!(bridge.output_bytes(len as usize), plan);
     let ptr = bridge.input(plan.len());
     assert!(!ptr.is_null());
     // Natively the test writes through the safe path the glue's write is
@@ -175,4 +224,73 @@ fn the_bridge_carries_state_across_boots_from_bytes() {
         batch.contains("\"text\":\"3\""),
         "the second boot carried the count: {batch}"
     );
+}
+
+#[test]
+fn static_serving_falls_back_to_an_interrupted_previous_build() {
+    let dir = scratch("serve-previous");
+    let dist = dir.join("dist");
+    let previous = dir.join("dist.previous");
+    std::fs::create_dir_all(&previous).unwrap();
+    std::fs::write(previous.join("index.html"), "previous").unwrap();
+    std::fs::write(previous.join("gpu.js"), "stale gpu").unwrap();
+    let module = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("serve.mjs");
+    let js = r#"
+import { pathToFileURL } from 'node:url';
+import { mkdirSync, writeFileSync } from 'node:fs';
+const [modulePath, dist] = process.argv.slice(2);
+const { readStaticFile } = await import(pathToFileURL(modulePath));
+const text = (found) => found?.body.toString();
+if (text(readStaticFile(dist, '/')) !== 'previous') throw new Error('missing previous fallback');
+if (text(readStaticFile(dist, '/gpu.js')) !== 'stale gpu') throw new Error('previous tree is incomplete');
+mkdirSync(dist);
+writeFileSync(dist + '/index.html', 'current');
+if (text(readStaticFile(dist, '/')) !== 'current') throw new Error('current build did not win');
+if (readStaticFile(dist, '/gpu.js') !== null) throw new Error('current build borrowed stale GPU');
+"#;
+    let output = std::process::Command::new("node")
+        .args(["--input-type=module", "--eval", js])
+        .arg("serve-fallback-test")
+        .arg(module)
+        .arg(&dist)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "node: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_refused_bridge_reload_keeps_the_running_host() {
+    let plan = contract::compile(COUNTER).unwrap().encode();
+    let mut bridge: exact_web::abi::Bridge<NoData> = exact_web::abi::Bridge::new();
+    let n = bridge.input_write(&plan);
+    let len = bridge.boot_plan(n, NoData);
+    let inc: u32 = {
+        let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+        let at = batch.find("\"data-testid\":\"inc\"").unwrap();
+        let marker = "\"op\":\"create\",\"id\":";
+        let id_at = batch[..at].rfind(marker).unwrap() + marker.len();
+        batch[id_at..].split(',').next().unwrap().parse().unwrap()
+    };
+
+    // Establish state in the live Host, then offer bytes that cannot decode.
+    bridge.dispatch(inc, 0, 0, 0.0);
+    let bad = b"not an Exact plan";
+    let n = bridge.input_write(bad);
+    let len = bridge.boot_plan(n, NoData);
+    let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(refusal.contains("\"error\":\"boot:"), "{refusal}");
+
+    // The same view id still dispatches into the old Host and advances the
+    // state it held. Before candidate boot was transactional this said
+    // `not booted` because `boot_plan` had taken and dropped the old Host.
+    let len = bridge.dispatch(inc, 0, 0, 0.0);
+    let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(!after.contains("not booted"), "{after}");
+    assert!(after.contains("\"text\":\"3\""), "{after}");
 }

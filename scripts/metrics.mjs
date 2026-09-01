@@ -17,7 +17,8 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
-import { resolve, extname } from 'node:path';
+import { resolve } from 'node:path';
+import { staticFile, webContentType } from '../host/web/serve.mjs';
 
 const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -72,12 +73,11 @@ step('boot', () => {
 {
   const t = Date.now();
   const dist = resolve(ROOT, 'host/web/dist');
-  const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.png': 'image/png' };
   const server = createServer((req, res) => {
-    const path = resolve(dist, '.' + (req.url === '/' ? '/index.html' : req.url.split('?')[0]));
-    if (!path.startsWith(dist) || !existsSync(path)) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'content-type': types[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
-    res.end(readFileSync(path));
+    const found = staticFile(dist, req.url.split('?')[0]);
+    if (!found) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
+    res.end(readFileSync(found.path));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const port = server.address().port;

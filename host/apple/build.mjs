@@ -26,6 +26,18 @@ import { resolveApp } from '../../scripts/app.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => { const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', ...opts }); if (r.status !== 0) process.exit(r.status ?? 1); return r; };
 const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts });
+const runAppleCargo = (args, opts) => {
+  const r = spawnSync('cargo', args, { cwd: root, encoding: 'utf8', ...opts });
+  process.stdout.write(r.stdout ?? '');
+  process.stderr.write(r.stderr ?? '');
+  if (r.status !== 0) process.exit(r.status ?? 1);
+  const output = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
+  if (/object file .* was built for newer|using sysroot for ['"]?MacOSX.*targeting ['"]?iPhone|incompatible.*sysroot/i.test(output)) {
+    console.error('host/apple: refused mixed Apple deployment targets in Rust/native objects');
+    process.exit(1);
+  }
+  return r;
+};
 
 // ---------------------------------------------------------------- iOS: the bundle and the simulator
 
@@ -189,13 +201,28 @@ function main(args) {
   const target = device ? 'aarch64-apple-ios' : iosTarget;
   const targetArgs = ios ? ['--target', target] : [];
   const libDir = resolve(app.target, ios ? target : '', 'release');
-  run('cargo', ['build', '--release', '-p', crate, ...targetArgs], { cwd: app.workspace });
+  const sdkName = ios ? (device ? 'iphoneos' : 'iphonesimulator') : 'macosx';
+  const sdk = read('xcrun', ['--sdk', sdkName, '--show-sdk-path']).stdout.trim();
+  const cargoEnv = {
+    ...process.env,
+    SDKROOT: sdk,
+    ...(ios ? { IPHONEOS_DEPLOYMENT_TARGET: '17.0' } : { MACOSX_DEPLOYMENT_TARGET: '14.0' }),
+  };
+  runAppleCargo(['build', '--release', '-p', crate, ...targetArgs], { cwd: app.workspace, env: cargoEnv });
   // The app's GPU module (LLP 1009 D2): a dylib beside the executable (in
   // the bundle's Frameworks on iOS), loaded on demand by the presenter.
-  if (hasGpu) run('cargo', ['build', '--release', '-p', gpuCrate, ...targetArgs], { cwd: app.workspace });
+  if (hasGpu) runAppleCargo(['build', '--release', '-p', gpuCrate, ...targetArgs], { cwd: app.workspace, env: cargoEnv });
   const gpuNote = hasGpu ? dylib : 'no GPU crate';
   const t1 = Date.now();
-  const env = { ...process.env, EXACT_LIB_DIR: libDir, EXACT_LIB: crate.replace(/-/g, '_') };
+  // SwiftPM compiles Package.swift itself for macOS before applying the iOS
+  // product triple; an iPhone SDKROOT in its environment breaks that host
+  // manifest compile. The target SDK stays in the explicit Swift arguments.
+  const env = {
+    ...process.env,
+    ...(ios ? { IPHONEOS_DEPLOYMENT_TARGET: '17.0' } : { MACOSX_DEPLOYMENT_TARGET: '14.0' }),
+    EXACT_LIB_DIR: libDir,
+    EXACT_LIB: crate.replace(/-/g, '_'),
+  };
   const pkg = resolve(root, 'host/apple', ios ? 'ios' : 'macos');
   const product = ios ? 'ExactIOS' : 'ExactMac';
   // swift build does not see the Rust archive change; drop the executable so
@@ -203,8 +230,12 @@ function main(args) {
   rmSync(resolve(pkg, '.build/release', product), { force: true });
   const swiftArgs = ['build', '-c', 'release'];
   if (ios) {
-    const sdk = read('xcrun', ['--sdk', device ? 'iphoneos' : 'iphonesimulator', '--show-sdk-path']).stdout.trim();
-    swiftArgs.push('--triple', device ? 'arm64-apple-ios17.0' : iosTriple, '--sdk', sdk);
+    swiftArgs.push(
+      '--triple', device ? 'arm64-apple-ios17.0' : iosTriple,
+      '--sdk', sdk,
+      '-Xcc', '-isysroot', '-Xcc', sdk,
+      '-Xlinker', '-syslibroot', '-Xlinker', sdk,
+    );
   }
   run('swift', swiftArgs, { cwd: pkg, env });
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.
@@ -212,7 +243,6 @@ function main(args) {
   // dlopens this file at the first iframe create commit.
   const webArgs = ['swiftc', '-module-cache-path', resolve(webBuildDir, 'module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), '-o', webBuilt, '-framework', 'WebKit'];
   if (ios) {
-    const sdk = read('xcrun', ['--sdk', device ? 'iphoneos' : 'iphonesimulator', '--show-sdk-path']).stdout.trim();
     webArgs.push('-target', device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk);
   } else {
     webArgs.push('-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`);
@@ -226,11 +256,9 @@ function main(args) {
     // have the old one mapped, and rewriting a mapped, ad-hoc-signed file poisons
     // the kernel's cached signature for that inode — every later dlopen dies with
     // SIGKILL (Code Signature Invalid). A new file is a new inode.
-    if (hasGpu) {
-      const dest = resolve(pkg, '.build/release', loadName);
-      rmSync(dest, { force: true });
-      copyFileSync(resolve(libDir, dylib), dest);
-    }
+    const gpuDest = resolve(pkg, '.build/release', loadName);
+    rmSync(gpuDest, { force: true });
+    if (hasGpu) copyFileSync(resolve(libDir, dylib), gpuDest);
     const webDest = resolve(pkg, '.build/release', webLoadName);
     rmSync(webDest, { force: true });
     copyFileSync(webBuilt, webDest);

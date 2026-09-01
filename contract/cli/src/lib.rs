@@ -126,13 +126,37 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
 /// exist in the used file; a name declared differently in both is refused;
 /// a cycle is refused.
 pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
-    let mut seen = Vec::new();
-    let file = load(path, &mut seen)?;
-    let asset_root = path
+    let src = std::fs::read_to_string(path).map_err(|e| CompileError {
+        pass: "use",
+        id: "contract-use-unreadable".into(),
+        message: format!("{}: {e}", path.display()),
+        span: (0, 0),
+    })?;
+    compile_path_source(path, &src)
+}
+
+/// Compile source bytes with their file path for relative `use` and font
+/// resolution. Unlike [`compile_path`], this never re-reads the root file;
+/// callers that watch a file can compile the exact snapshot they observed.
+pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError> {
+    let source_root = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    compile_file(file, Some(asset_root))
+    let app_root = source_root.canonicalize().map_err(|e| CompileError {
+        pass: "use",
+        id: "contract-use-unreadable".into(),
+        message: format!("{}: {e}", source_root.display()),
+        span: (0, 0),
+    })?;
+    let root_key = path.canonicalize().unwrap_or_else(|_| {
+        path.file_name()
+            .map(|name| app_root.join(name))
+            .unwrap_or_else(|| app_root.clone())
+    });
+    let mut seen = vec![root_key];
+    let file = load_source(path, src, &app_root, &mut seen)?;
+    compile_file(file, Some(&app_root))
 }
 
 /// The `test` blocks of a file (LLP 1017 P7) — normally `app.test.contract`
@@ -257,19 +281,50 @@ fn use_error(id: &str, message: String, u: &UseDecl) -> CompileError {
     }
 }
 
-fn load(path: &Path, seen: &mut Vec<PathBuf>) -> Result<File, CompileError> {
-    let src = std::fs::read_to_string(path).map_err(|e| CompileError {
-        pass: "use",
-        id: "contract-use-unreadable".into(),
-        message: format!("{}: {e}", path.display()),
-        span: (0, 0),
-    })?;
-    let mut file = contract_syntax::parse(&src)?;
+fn load_source(
+    path: &Path,
+    src: &str,
+    app_root: &Path,
+    seen: &mut Vec<PathBuf>,
+) -> Result<File, CompileError> {
+    let mut file = contract_syntax::parse(src)?;
     let uses = std::mem::take(&mut file.uses);
     let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
     for u in &uses {
+        validate_use_path(u)?;
         let target = dir.join(&u.path);
-        let key = target.canonicalize().unwrap_or_else(|_| target.clone());
+        let key = target.canonicalize().map_err(|e| {
+            use_error(
+                "contract-use-unreadable",
+                format!(
+                    "`use {} from \"{}\"`: {}: {e}",
+                    u.name,
+                    u.path,
+                    target.display()
+                ),
+                u,
+            )
+        })?;
+        if !key.starts_with(app_root) {
+            return Err(use_error(
+                "contract-use-path",
+                format!(
+                    "`use {} from \"{}\"` leaves the app directory",
+                    u.name, u.path
+                ),
+                u,
+            ));
+        }
+        if key.extension().and_then(|extension| extension.to_str()) != Some("contract") {
+            return Err(use_error(
+                "contract-use-path",
+                format!(
+                    "`use {} from \"{}\"` resolves to a file that is not `.contract`",
+                    u.name, u.path
+                ),
+                u,
+            ));
+        }
         if seen.contains(&key) {
             return Err(use_error(
                 "contract-use-cycle",
@@ -280,18 +335,20 @@ fn load(path: &Path, seen: &mut Vec<PathBuf>) -> Result<File, CompileError> {
                 u,
             ));
         }
-        seen.push(key);
-        let used = load(&target, seen).map_err(|e| {
-            if e.id == "contract-use-unreadable" {
-                use_error(
-                    "contract-use-unreadable",
-                    format!("`use {} from \"{}\"`: {}", u.name, u.path, e.message),
-                    u,
-                )
-            } else {
-                e
-            }
+        let used_src = std::fs::read_to_string(&key).map_err(|e| {
+            use_error(
+                "contract-use-unreadable",
+                format!(
+                    "`use {} from \"{}\"`: {}: {e}",
+                    u.name,
+                    u.path,
+                    key.display()
+                ),
+                u,
+            )
         })?;
+        seen.push(key.clone());
+        let used = load_source(&key, &used_src, app_root, seen)?;
         seen.pop();
         let known = used.components.iter().any(|c| c.name == u.name)
             || used.shapes.iter().any(|s| s.name == u.name)
@@ -310,6 +367,35 @@ fn load(path: &Path, seen: &mut Vec<PathBuf>) -> Result<File, CompileError> {
         merge(&mut file, used, u)?;
     }
     Ok(file)
+}
+
+fn validate_use_path(u: &UseDecl) -> Result<(), CompileError> {
+    let Some(relative) = u.path.strip_prefix("./") else {
+        return Err(use_error(
+            "contract-use-path",
+            format!(
+                "`use {} from \"{}\"` needs a portable path beginning `./`",
+                u.name, u.path
+            ),
+            u,
+        ));
+    };
+    if relative.is_empty()
+        || u.path.contains('\\')
+        || relative
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err(use_error(
+            "contract-use-path",
+            format!(
+                "`use {} from \"{}\"` must stay below its file with no `..` segments",
+                u.name, u.path
+            ),
+            u,
+        ));
+    }
+    Ok(())
 }
 
 fn merge(into: &mut File, from: File, u: &UseDecl) -> Result<(), CompileError> {

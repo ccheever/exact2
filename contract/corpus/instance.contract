@@ -35,9 +35,10 @@ component Counter
 component StationRow
   props
     station: Station
+  state label = station.name
   state hot = false
   action setHot(over) writes hot
     hot = over
   view
     row hover=setHot testId=`station-${station.id}`
-      text hot ? `${station.name} !` : station.name testId=`name-${station.id}`
+      text hot ? `${label} !` : label testId=`name-${station.id}`

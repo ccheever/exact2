@@ -87,7 +87,6 @@ enum DevMenu {
         // A live URL session re-fetches (and clears a rebuilt stop).
         if let s = PlanURL.current { s.reload(); return }
         let started = CACurrentMediaTime()
-        presenter.reset()
         let size = presenter.viewport.bounds.size
         Exact.wake = exactWake
         let batch: Batch
@@ -96,8 +95,13 @@ enum DevMenu {
         } else {
             batch = Exact.boot(width: size.width, height: size.height)
         }
-        apply(batch)
-        controller?.rebooted()
+        if let error = batch.error {
+            FileHandle.standardError.write(Data("exact: \(error)\n".utf8))
+        } else {
+            presenter.reset()
+            apply(batch)
+            controller?.rebooted()
+        }
         print("reloaded in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
     }
 

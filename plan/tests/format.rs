@@ -263,6 +263,64 @@ fn loading_is_a_validation_pass() {
 }
 
 #[test]
+fn mutations_require_a_global_option_slot_of_their_result_type() {
+    let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
+    let number = b.primitive(TypeKind::Number);
+    let string = b.primitive(TypeKind::String);
+    let optional_number = b.option(number);
+    let none = b.constant(&Value::NONE);
+    let slot = b.slot("result", optional_number, none);
+    let unit = b.constant(&Value::Unit);
+    let (owner, _) = b.region(RegionKind::Each, None, None, 0, unit, unit, 1);
+    b.mutation("save", slot, number);
+    let valid = b.finish().unwrap();
+
+    let assert_refused = |plan: Plan, error: PlanError| {
+        assert_eq!(plan.validate(), Err(error.clone()));
+        assert_eq!(
+            PlanBuilder::from_plan(plan.clone()).finish(),
+            Err(error.clone()),
+            "the builder gate must enforce the semantic relation"
+        );
+        assert_eq!(
+            Plan::decode(&plan.encode()),
+            Err(error),
+            "the decoder gate must enforce the semantic relation"
+        );
+    };
+
+    let mut wrong_inner = valid.clone();
+    wrong_inner.mutations[0].ty = string;
+    assert_refused(
+        wrong_inner,
+        PlanError::MutationSlotType {
+            mutation: 0,
+            slot: 0,
+        },
+    );
+
+    let mut non_option = valid.clone();
+    non_option.slots[0].ty = number;
+    assert_refused(
+        non_option,
+        PlanError::MutationSlotType {
+            mutation: 0,
+            slot: 0,
+        },
+    );
+
+    let mut row_owned = valid;
+    row_owned.slots[0].owner = Some(owner);
+    assert_refused(
+        row_owned,
+        PlanError::MutationSlotOwned {
+            mutation: 0,
+            slot: 0,
+        },
+    );
+}
+
+#[test]
 fn values_round_trip_and_conform_to_shapes() {
     let plan = sample();
     let station = exact_plan::TypesId(2);

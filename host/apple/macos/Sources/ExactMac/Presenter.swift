@@ -91,6 +91,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     var imageSource: String?
     var loadGeneration = 0
     var pressed = false
+    var disabled: Bool { props["disabled"] == "true" }
     /// The pointer's tracking, for a `hover` handler (LLP 1005 §3).
     var tracking: NSTrackingArea?
     /// Images loaded since launch (smoke reporting).
@@ -100,6 +101,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. A pressable is in the tab order the way a `<button>` is.
     override var acceptsFirstResponder: Bool {
+        if disabled { return false }
         if field != nil { return false }
         return handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
     }
@@ -108,6 +110,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     /// skip every non-field).
     override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
     override func becomeFirstResponder() -> Bool {
+        guard !disabled else { return false }
         let ok = super.becomeFirstResponder()
         if ok, handlers.contains("focus") { presenter?.focus(id) }
         return ok
@@ -125,6 +128,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     /// A key down at a focused node, by the web's key name. Space and Enter
     /// on a pressable fire `press`, as they do on a `<button>`.
     override func keyDown(with event: NSEvent) {
+        guard !disabled else { return }
         let name = NodeView.keyName(event)
         if handlers.contains("key") { presenter?.key(id, name) }
         if handlers.contains("press"), name == "Enter" || name == " " {
@@ -224,9 +228,12 @@ final class NodeView: NSView, NSTextFieldDelegate {
             return scheme == "http" || scheme == "https" ? u : nil
         }
         let base = ProcessInfo.processInfo.environment["EXACT_ASSETS"] ?? FileManager.default.currentDirectoryPath
-        let root = URL(fileURLWithPath: base).standardizedFileURL.path
-        let url = URL(fileURLWithPath: base).appendingPathComponent(source).standardizedFileURL
-        return url.path == root || url.path.hasPrefix(root.hasSuffix("/") ? root : root + "/") ? url : nil
+        let root = URL(fileURLWithPath: base, isDirectory: true)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        let url = root.appendingPathComponent(source)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        return url.path == root.path || url.path.hasPrefix(rootPath) ? url : nil
     }
 
     /// Decode an image completely, off the main thread: the bitmap and its
@@ -523,7 +530,9 @@ final class NodeView: NSView, NSTextFieldDelegate {
         if let f = field {
             if let v = props["value"], f.stringValue != v { f.stringValue = v }
             applyPlaceholder(f)
+            f.isEnabled = !disabled
         }
+        setAccessibilityEnabled(!disabled)
         setAccessibilityIdentifier(props["testId"])
         setAccessibilityLabel(props["accessibilityLabel"])
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
@@ -710,6 +719,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     // input; a click nothing consumes reaches the viewport, which does the
     // same (a click on the page's ground).
     override func mouseDown(with event: NSEvent) {
+        guard !disabled else { pressed = false; return }
         if acceptsFirstResponder { window?.makeFirstResponder(self) }
         if handlers.contains("press") {
             if !acceptsFirstResponder { window?.makeFirstResponder(nil) }
@@ -717,12 +727,13 @@ final class NodeView: NSView, NSTextFieldDelegate {
         } else { super.mouseDown(with: event) }
     }
     override func mouseUp(with event: NSEvent) {
+        guard !disabled else { pressed = false; return }
         guard pressed else { return super.mouseUp(with: event) }
         pressed = false
         if bounds.contains(local(event.locationInWindow)) { presenter?.press(id) }
     }
     func controlTextDidChange(_ obj: Notification) {
-        if handlers.contains("change") { presenter?.change(id, field?.stringValue ?? "") }
+        if !disabled, handlers.contains("change") { presenter?.change(id, field?.stringValue ?? "") }
     }
 }
 

@@ -22,6 +22,7 @@ struct RecordedFace {
 
 static FONT_CATALOG: Mutex<Vec<RecordedFace>> = Mutex::new(Vec::new());
 static FONT_RUNS: Mutex<Vec<(u16, u16, bool)>> = Mutex::new(Vec::new());
+static RELOAD_FONT_SOURCES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 extern "C" fn record_fonts(catalog: *const CFontCatalog) {
     let catalog = unsafe { &*catalog };
@@ -39,6 +40,17 @@ extern "C" fn record_fonts(catalog: *const CFontCatalog) {
             italic: row.italic != 0,
         });
     }
+}
+
+extern "C" fn record_reload_fonts(catalog: *const CFontCatalog) {
+    let catalog = unsafe { &*catalog };
+    let rows = unsafe { std::slice::from_raw_parts(catalog.faces, catalog.count) };
+    let mut recorded = RELOAD_FONT_SOURCES.lock().unwrap();
+    recorded.clear();
+    recorded.extend(rows.iter().map(|row| {
+        let source = unsafe { std::slice::from_raw_parts(row.source, row.source_len) };
+        String::from_utf8(source.to_vec()).unwrap()
+    }));
 }
 
 extern "C" fn record_font_runs(_ctx: *mut c_void, request: *const CRequest) -> CMetrics {
@@ -191,17 +203,28 @@ fn later_batches_carry_only_what_changed_and_frames_follow() {
 
 #[test]
 fn an_iframe_batch_and_its_events_match_the_web_arm() {
-    let (mut host, _) = boot();
-    let open = view(&host, "open-deck");
-    let batch = host.dispatch_at(open, Event::Press, 0.0);
-    let iframe = view(&host, "deck-frame");
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contract/corpus/iframe.contract"
+    ))
+    .unwrap();
+    let plan = contract::compile(&src).unwrap();
+    let (mut host, batch) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let iframe = view(&host, "deck");
     assert!(
         batch.contains(&format!(
             "\"op\":\"create\",\"id\":{iframe},\"kind\":\"iframe\""
         )),
         "{batch}"
     );
-    assert!(batch.contains("\"sandbox\":\"allow-scripts allow-same-origin\""));
+    assert!(batch.contains("\"sandbox\":\"allow-scripts\""));
     assert!(batch.contains("\"src\":\"/deck/index.html\""));
     assert!(
         batch.contains("\"handlers\":[\"load\",\"message\"]"),
@@ -209,15 +232,26 @@ fn an_iframe_batch_and_its_events_match_the_web_arm() {
     );
     host.dispatch_at(iframe, Event::Load, 0.0);
     host.dispatch_at(iframe, Event::Message("deck-ready".into()), 0.0);
-    assert_eq!(host.runner().slot("deckLoaded"), Some(&Value::Bool(true)));
+    assert_eq!(host.runner().slot("loaded"), Some(&Value::Bool(true)));
     assert_eq!(
-        host.runner().slot("deckMessage"),
+        host.runner().slot("received"),
         Some(&Value::str("deck-ready"))
     );
 }
 
 struct NoData;
 impl DataSource for NoData {
+    fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(s.into()))
+    }
+}
+
+struct NamedData;
+impl DataSource for NamedData {
+    fn app_id(&self) -> &str {
+        "com.example.apple-transaction"
+    }
+
     fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(s.into()))
     }
@@ -343,6 +377,228 @@ fn text_is_measured_through_the_registered_callback() {
     assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("\"motion\":false"));
     let len = bridge.resize(500.0, 844.0);
     assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("\"w\":500"));
+}
+
+#[test]
+fn a_refused_plan_reload_keeps_the_running_host() {
+    let plan = caltrain::build().unwrap().encode();
+    let mut bridge: Bridge<caltrain_data::Caltrain> = Bridge::new();
+    let len = bridge.boot(
+        &plan,
+        caltrain_data::Caltrain,
+        exact_apple::abi::Hooks::none(),
+        390.0,
+        844.0,
+    );
+    assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("\"error\":null"));
+
+    let bad = b"not an Exact plan";
+    bridge.input_write(bad);
+    let len = bridge.boot_plan(
+        bad.len(),
+        caltrain_data::Caltrain,
+        exact_apple::abi::Hooks::none(),
+        390.0,
+        844.0,
+    );
+    let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(refusal.contains("\"error\":\"boot:"), "{refusal}");
+
+    // The next operation still reaches the old host. Before the reload was
+    // transactional this was the bridge's `not booted` batch.
+    let len = bridge.resize(500.0, 844.0);
+    let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(!after.contains("not booted"), "{after}");
+    assert!(after.contains("\"w\":500"), "{after}");
+}
+
+#[test]
+fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
+    RELOAD_FONT_SOURCES.lock().unwrap().clear();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/fixtures/fonts/app.contract");
+    let plan = contract::compile_path(&path).unwrap().encode();
+    let mut bridge: Bridge<NamedData> = Bridge::new();
+    bridge.set_fonts(Some(record_reload_fonts));
+    let len = bridge.boot(
+        &plan,
+        NamedData,
+        exact_apple::abi::Hooks {
+            measure: Some(wide_glyphs),
+            ctx: std::ptr::null_mut(),
+            wake: None,
+            wake_ctx: std::ptr::null_mut(),
+        },
+        390.0,
+        844.0,
+    );
+    let first = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(first.contains("\"error\":null"), "{first}");
+    let old_sources = RELOAD_FONT_SOURCES.lock().unwrap().clone();
+    assert_eq!(old_sources.len(), 2);
+
+    let mut candidate =
+        contract::compile("component Candidate\n  view\n    text \"candidate\"\n").unwrap();
+    candidate.app_id = "com.example.somewhere-else".into();
+    let bytes = candidate.encode();
+    bridge.input_write(&bytes);
+    let len = bridge.boot_plan(
+        bytes.len(),
+        NamedData,
+        exact_apple::abi::Hooks {
+            measure: Some(wide_glyphs),
+            ctx: std::ptr::null_mut(),
+            wake: None,
+            wake_ctx: std::ptr::null_mut(),
+        },
+        390.0,
+        844.0,
+    );
+    let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(refusal.contains("AppMismatch"), "{refusal}");
+    assert_eq!(*RELOAD_FONT_SOURCES.lock().unwrap(), old_sources);
+}
+
+#[test]
+fn a_first_layout_refusal_keeps_the_running_host() {
+    let plan = contract::compile("component Running\n  view\n    text \"running\"\n")
+        .unwrap()
+        .encode();
+    let mut bridge: Bridge<NoData> = Bridge::new();
+    let len = bridge.boot(
+        &plan,
+        NoData,
+        exact_apple::abi::Hooks {
+            measure: Some(wide_glyphs),
+            ctx: std::ptr::null_mut(),
+            wake: None,
+            wake_ctx: std::ptr::null_mut(),
+        },
+        390.0,
+        844.0,
+    );
+    let first = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(first.contains("\"error\":null"), "{first}");
+
+    let candidate = contract::compile("component Candidate\n  view\n    text \"candidate\"\n")
+        .unwrap()
+        .encode();
+    bridge.input_write(&candidate);
+    let len = bridge.boot_plan(
+        candidate.len(),
+        NoData,
+        exact_apple::abi::Hooks {
+            measure: Some(wide_glyphs),
+            ctx: std::ptr::null_mut(),
+            wake: None,
+            wake_ctx: std::ptr::null_mut(),
+        },
+        f32::NAN,
+        844.0,
+    );
+    let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(refusal.contains("boot: Layout"), "{refusal}");
+    assert!(refusal.contains("InvalidOffer"), "{refusal}");
+
+    let len = bridge.resize(500.0, 844.0);
+    let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(after.contains("\"error\":null"), "{after}");
+    assert!(after.contains("\"w\":500"), "{after}");
+}
+
+#[test]
+fn a_failed_initial_layout_publishes_no_host() {
+    let plan = contract::compile("component Candidate\n  view\n    text \"candidate\"\n")
+        .unwrap()
+        .encode();
+    let mut bridge: Bridge<NoData> = Bridge::new();
+    let len = bridge.boot(
+        &plan,
+        NoData,
+        exact_apple::abi::Hooks {
+            measure: Some(wide_glyphs),
+            ctx: std::ptr::null_mut(),
+            wake: None,
+            wake_ctx: std::ptr::null_mut(),
+        },
+        f32::NAN,
+        844.0,
+    );
+    let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(refusal.contains("boot: Layout"), "{refusal}");
+    let len = bridge.resize(500.0, 844.0);
+    let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(after.contains("not booted"), "{after}");
+}
+
+#[test]
+fn a_refused_fresh_boot_keeps_the_running_host() {
+    let running = contract::compile("component Running\n  view\n    text \"running\"\n")
+        .unwrap()
+        .encode();
+    let candidate = contract::compile("component Candidate\n  view\n    text \"candidate\"\n")
+        .unwrap()
+        .encode();
+    let hooks = exact_apple::abi::Hooks {
+        measure: Some(wide_glyphs),
+        ctx: std::ptr::null_mut(),
+        wake: None,
+        wake_ctx: std::ptr::null_mut(),
+    };
+    let mut bridge: Bridge<NoData> = Bridge::new();
+    let len = bridge.boot(&running, NoData, hooks, 390.0, 844.0);
+    let first = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(first.contains("\"error\":null"), "{first}");
+
+    let len = bridge.boot(&candidate, NoData, hooks, f32::NAN, 844.0);
+    let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(refusal.contains("boot: Layout"), "{refusal}");
+    assert!(refusal.contains("InvalidOffer"), "{refusal}");
+
+    let len = bridge.resize(500.0, 844.0);
+    let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(after.contains("\"error\":null"), "{after}");
+    assert!(after.contains("\"w\":500"), "{after}");
+}
+
+#[test]
+fn swift_boots_checkpoint_all_plan_scoped_text_state() {
+    let bridge = include_str!("../swift/Bridge.swift");
+    let fresh = bridge
+        .split("static func boot(width")
+        .nth(1)
+        .unwrap()
+        .split("static func pump")
+        .next()
+        .unwrap();
+    let checkpoint = fresh.find("Text.checkpoint()").unwrap();
+    let boot = fresh.find("exact_boot(").unwrap();
+    let restore = fresh.find("Text.restore(text)").unwrap();
+    assert!(checkpoint < boot && boot < restore, "{fresh}");
+
+    let reload = bridge
+        .split("static func bootPlan")
+        .nth(1)
+        .unwrap()
+        .split("static func press")
+        .next()
+        .unwrap();
+    let checkpoint = reload.find("Text.checkpoint()").unwrap();
+    let boot = reload.find("exact_boot_plan").unwrap();
+    let restore = reload.find("Text.restore(text)").unwrap();
+    assert!(checkpoint < boot && boot < restore, "{reload}");
+
+    let text = include_str!("../swift/Text.swift");
+    let checkpoint = text
+        .split("final class Checkpoint")
+        .nth(1)
+        .unwrap()
+        .split("static func checkpoint")
+        .next()
+        .unwrap();
+    assert!(checkpoint.contains("Text.fonts = fonts"));
+    assert!(checkpoint.contains("Text.paragraphs = paragraphs"));
+    assert!(checkpoint.contains("Text.catalog = catalog"));
 }
 
 #[test]

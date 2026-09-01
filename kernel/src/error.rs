@@ -11,6 +11,20 @@ use std::fmt;
 use crate::generated::{NodeType, OpCode, PropId, PropKind, StyleId};
 use crate::id::ViewId;
 
+/// A masked style contains a value outside the schema's declared domain.
+///
+/// Structured mutation, EXWF decoding, and EXNODE export all use this one
+/// vocabulary so their accepted style state cannot diverge.
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StyleDomainError {
+    NonFinite(StyleId),
+    AutoNotAdmitted(StyleId),
+    TooManyTracks { style: StyleId, count: usize },
+    InvalidGridSpan(StyleId),
+    InvalidTransition(exact_motion::TransitionError),
+}
+
 /// A frame or payload could not be decoded. Nothing was applied.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,7 +37,7 @@ pub enum DecodeError {
     UnsupportedRevision(u16),
     /// The producer was generated from a different schema than this kernel.
     SchemaDigestMismatch { expected: u64, actual: u64 },
-    /// The header length is smaller than the fixed header or not 8-aligned.
+    /// The header length is invalid for this format revision.
     BadHeaderLength(u16),
     /// The declared frame length disagrees with the bytes supplied.
     FrameLengthMismatch { declared: u32, actual: usize },
@@ -31,6 +45,8 @@ pub enum DecodeError {
     FrameNotAligned(u32),
     /// Reserved header or op flags were nonzero.
     ReservedFlags,
+    /// A padding byte was nonzero; `offset` is its position in the envelope.
+    NonZeroPadding { offset: usize },
     /// The opcode is not in the closed list.
     UnknownOpcode(u16),
     /// The node type is not in the closed list.
@@ -54,9 +70,11 @@ pub enum DecodeError {
     /// A grid track kind byte is outside the closed grammar.
     UnknownTrackKind(u8),
     /// More grid tracks than the closed grammar allows.
-    TooManyTracks(u8),
+    TooManyTracks(usize),
     /// A grid placement kind byte is outside the closed grammar.
     UnknownPlacementKind(u8),
+    /// A grid span was zero; CSS spans are positive integers.
+    InvalidGridSpan,
     /// A `transition` row carried more declarations than the wire admits.
     TooManyTransitions(u8),
     /// A `transition` row named a property discriminant the table lacks.
@@ -89,6 +107,32 @@ pub enum DecodeError {
     ChecksumMismatch { section: u32 },
     /// A required section is missing from the directory.
     MissingSection { section: u32 },
+    /// An EXNODE envelope did not declare exactly its three sections.
+    UnexpectedSectionCount(u32),
+    /// An EXNODE directory entry was not the canonical section for its index.
+    UnexpectedSection {
+        index: u32,
+        expected: u32,
+        actual: u32,
+    },
+    /// An EXNODE section did not immediately follow the directory/previous section.
+    InvalidSectionLayout { section: u32 },
+    /// A decoded EXNODE section had bytes beyond its canonical zero padding.
+    TrailingSection { section: u32, remaining: usize },
+    /// An EXNODE row set flags outside the declared three bits.
+    UnknownRowFlags { row: u32, flags: u8 },
+    /// An EXNODE row repeated a wire id.
+    DuplicateNode { row: u32, id: ViewId },
+    /// An EXNODE row carried a non-finite frame coordinate.
+    NonFiniteFrame { row: u32 },
+    /// An EXNODE row's parent/depth/root relation disagreed with preorder.
+    InvalidTopology { row: u32 },
+    /// A wire boolean used a byte other than canonical zero or one.
+    NonCanonicalBool(u8),
+    /// An EXNODE row repeated one prop id.
+    DuplicateProp { row: u32, prop: PropId },
+    /// An EXNODE float prop was infinite or NaN.
+    NonFiniteProp { row: u32, prop: PropId },
 }
 
 /// A batch was rejected. The tree, its derived state, and every receipt are
@@ -153,6 +197,16 @@ pub enum ApplyError {
     },
     /// A style row carried an infinite or NaN number.
     NonFiniteStyle { op_index: usize, style: StyleId },
+    /// `auto` was supplied for a dimension row whose grammar does not admit it.
+    AutoNotAdmitted { op_index: usize, style: StyleId },
+    /// A grid template exceeded the closed grammar's track bound.
+    TooManyTracks {
+        op_index: usize,
+        style: StyleId,
+        count: usize,
+    },
+    /// A grid placement carried a zero span; CSS spans are positive integers.
+    InvalidGridSpan { op_index: usize, style: StyleId },
     /// A `SetStyle` patch carried a `transition` row the evaluator refuses.
     InvalidTransition {
         op_index: usize,
@@ -171,6 +225,8 @@ pub enum ApplyError {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LayoutError {
+    /// A definite available-space offer is infinite or NaN.
+    InvalidOffer,
     /// The id is not live.
     UnknownView(ViewId),
     /// The id is live but not a root; layout runs per root.
@@ -181,6 +237,8 @@ pub enum LayoutError {
     InvalidIntrinsicSize(ViewId),
     /// An environment with a non-finite inset.
     InvalidEnv,
+    /// A host text callback returned a non-finite or negative metric.
+    InvalidTextMetrics(ViewId),
     /// The layout engine reported an error (a kernel bug, never a producer error).
     Engine(String),
 }
@@ -200,6 +258,18 @@ pub enum KernelError {
 impl From<DecodeError> for KernelError {
     fn from(e: DecodeError) -> Self {
         KernelError::Decode(e)
+    }
+}
+
+impl From<StyleDomainError> for DecodeError {
+    fn from(error: StyleDomainError) -> Self {
+        match error {
+            StyleDomainError::NonFinite(style) => DecodeError::NonFinite(style),
+            StyleDomainError::AutoNotAdmitted(style) => DecodeError::AutoNotAdmitted { style },
+            StyleDomainError::TooManyTracks { count, .. } => DecodeError::TooManyTracks(count),
+            StyleDomainError::InvalidGridSpan(_) => DecodeError::InvalidGridSpan,
+            StyleDomainError::InvalidTransition(error) => DecodeError::InvalidTransition(error),
+        }
     }
 }
 

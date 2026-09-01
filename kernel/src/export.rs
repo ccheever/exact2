@@ -40,7 +40,8 @@ use crate::error::DecodeError;
 use crate::generated::{NodeType, PropId, PropKind, StyleProps};
 use crate::id::{Frame, NodeFlags, NodeKey, ViewId};
 use crate::props::{PropList, PropValue};
-use crate::wire::codec::{Reader, Writer};
+use crate::wire::codec::{align8, Reader, Writer};
+use std::collections::HashSet;
 
 /// Magic bytes.
 pub const MAGIC: [u8; 4] = *b"EXNO";
@@ -149,7 +150,7 @@ fn write_props(w: &mut Writer, props: &PropList) {
 }
 
 /// Encode the envelope for `root` (a slot) or every root.
-pub fn encode(arena: &NodeArena, root: Option<u32>, epoch: u64) -> Vec<u8> {
+pub fn encode(arena: &NodeArena, root: Option<u32>, epoch: u64) -> Result<Vec<u8>, DecodeError> {
     let rows = rows(arena, root);
     let root_id = root.map(|r| arena.local_id(r)).unwrap_or(0);
 
@@ -168,6 +169,7 @@ pub fn encode(arena: &NodeArena, root: Option<u32>, epoch: u64) -> Vec<u8> {
         nodes.f32(row.frame.width);
         nodes.f32(row.frame.height);
         let style = arena.style(*slot);
+        style.validate_domain().map_err(DecodeError::from)?;
         style.encode_masked(style.mask, &mut styles);
         write_props(&mut props, arena.props(*slot));
     }
@@ -206,7 +208,7 @@ pub fn encode(arena: &NodeArena, root: Option<u32>, epoch: u64) -> Vec<u8> {
     for (_, section) in &sections {
         w.bytes(section.as_slice());
     }
-    w.into_vec()
+    Ok(w.into_vec())
 }
 
 /// A decoded envelope.
@@ -246,6 +248,34 @@ fn section<'a>(
     Ok(payload)
 }
 
+fn section_offset(dir: &[(u32, u32, u32, u32)], kind: u32) -> usize {
+    dir.iter()
+        .find(|(candidate, ..)| *candidate == kind)
+        .map_or(0, |(_, offset, ..)| *offset as usize)
+}
+
+fn finish_section(
+    reader: &mut Reader<'_>,
+    section: u32,
+    absolute_offset: usize,
+) -> Result<(), DecodeError> {
+    let padding = align8(reader.position()) - reader.position();
+    if reader.remaining() != padding {
+        return Err(DecodeError::TrailingSection {
+            section,
+            remaining: reader.remaining(),
+        });
+    }
+    let padding_start = reader.position();
+    let bytes = reader.bytes(padding)?;
+    if let Some(i) = bytes.iter().position(|byte| *byte != 0) {
+        return Err(DecodeError::NonZeroPadding {
+            offset: absolute_offset + padding_start + i,
+        });
+    }
+    Ok(())
+}
+
 /// Decode an envelope, validating every length and checksum first.
 pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
     let mut r = Reader::new(bytes);
@@ -257,7 +287,7 @@ pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
         return Err(DecodeError::UnsupportedRevision(version));
     }
     let header_len = r.u16()?;
-    if (header_len as usize) < HEADER_LEN {
+    if header_len as usize != HEADER_LEN {
         return Err(DecodeError::BadHeaderLength(header_len));
     }
     let total_len = r.u32()?;
@@ -271,8 +301,10 @@ pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
     let epoch = r.u64()?;
     let node_count = r.u32()?;
     let section_count = r.u32()?;
-    let _reserved = r.u64()?;
-    r.bytes(header_len as usize - HEADER_LEN)?;
+    let reserved = r.u64()?;
+    if reserved != 0 {
+        return Err(DecodeError::ReservedFlags);
+    }
 
     // Bound every count by the bytes present before allocating from it. All
     // arithmetic is in u64 so a 32-bit target cannot overflow on the way.
@@ -281,9 +313,39 @@ pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
             declared: section_count,
         });
     }
+    if section_count != 3 {
+        return Err(DecodeError::UnexpectedSectionCount(section_count));
+    }
     let mut dir = Vec::with_capacity(section_count as usize);
     for _ in 0..section_count {
         dir.push((r.u32()?, r.u32()?, r.u32()?, r.u32()?));
+    }
+    let mut next_offset = (HEADER_LEN + section_count as usize * DIR_ENTRY_LEN) as u64;
+    for (index, (entry, expected_kind)) in dir
+        .iter()
+        .zip([SECTION_NODES, SECTION_STYLES, SECTION_PROPS])
+        .enumerate()
+    {
+        let (kind, offset, len, _) = *entry;
+        if kind != expected_kind {
+            return Err(DecodeError::UnexpectedSection {
+                index: index as u32,
+                expected: expected_kind,
+                actual: kind,
+            });
+        }
+        if offset as u64 != next_offset || offset % 8 != 0 || len % 8 != 0 {
+            return Err(DecodeError::InvalidSectionLayout { section: kind });
+        }
+        next_offset += len as u64;
+        if next_offset > bytes.len() as u64 {
+            return Err(DecodeError::SectionOverrun { declared: len });
+        }
+    }
+    if next_offset != bytes.len() as u64 {
+        return Err(DecodeError::InvalidSectionLayout {
+            section: SECTION_PROPS,
+        });
     }
 
     let nodes = section(bytes, &dir, SECTION_NODES)?;
@@ -295,7 +357,9 @@ pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
     let node_count = node_count as usize;
     let mut rows = Vec::with_capacity(node_count);
     let mut nr = Reader::new(nodes);
-    for _ in 0..node_count {
+    let mut ids = HashSet::with_capacity(node_count);
+    let mut ancestors = Vec::new();
+    for row_index in 0..node_count {
         let id = nr.u32()?;
         let parent = nr.u32()?;
         let generation = nr.u32()?;
@@ -303,6 +367,12 @@ pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
         let node_type =
             NodeType::from_wire(raw_type).ok_or(DecodeError::UnknownNodeType(raw_type))?;
         let flags = nr.u8()?;
+        if flags & !(ROW_ROOT | ROW_INLINE_RUN | ROW_GEOMETRY_CHANGED) != 0 {
+            return Err(DecodeError::UnknownRowFlags {
+                row: row_index as u32,
+                flags,
+            });
+        }
         let depth = nr.u16()?;
         let frame = Frame {
             x: nr.f32()?,
@@ -310,9 +380,38 @@ pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
             width: nr.f32()?,
             height: nr.f32()?,
         };
+        if ![frame.x, frame.y, frame.width, frame.height]
+            .iter()
+            .all(|value| value.is_finite())
+        {
+            return Err(DecodeError::NonFiniteFrame {
+                row: row_index as u32,
+            });
+        }
+        if !ids.insert(id) {
+            return Err(DecodeError::DuplicateNode {
+                row: row_index as u32,
+                id,
+            });
+        }
+        let parent = (parent != u32::MAX).then_some(parent);
+        let depth_index = depth as usize;
+        if depth_index > ancestors.len() {
+            return Err(DecodeError::InvalidTopology {
+                row: row_index as u32,
+            });
+        }
+        ancestors.truncate(depth_index);
+        let expected_parent = ancestors.last().copied();
+        if parent != expected_parent || (flags & ROW_ROOT != 0) != (depth == 0) {
+            return Err(DecodeError::InvalidTopology {
+                row: row_index as u32,
+            });
+        }
+        ancestors.push(id);
         rows.push(NodeRow {
             id,
-            parent: (parent != u32::MAX).then_some(parent),
+            parent,
             key: NodeKey {
                 index: u32::MAX,
                 generation,
@@ -323,16 +422,24 @@ pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
             frame,
         });
     }
+    finish_section(&mut nr, SECTION_NODES, section_offset(&dir, SECTION_NODES))?;
 
-    let mut sr = Reader::new(section(bytes, &dir, SECTION_STYLES)?);
+    let styles_section = section(bytes, &dir, SECTION_STYLES)?;
+    let mut sr = Reader::new(styles_section);
     let mut styles = Vec::new();
     for _ in 0..node_count {
         styles.push(StyleProps::decode_patch(&mut sr)?);
     }
+    finish_section(
+        &mut sr,
+        SECTION_STYLES,
+        section_offset(&dir, SECTION_STYLES),
+    )?;
 
-    let mut pr = Reader::new(section(bytes, &dir, SECTION_PROPS)?);
+    let props_section = section(bytes, &dir, SECTION_PROPS)?;
+    let mut pr = Reader::new(props_section);
     let mut props = Vec::new();
-    for _ in 0..node_count {
+    for row_index in 0..node_count {
         let count = pr.u16()?;
         let mut list = PropList::new();
         for _ in 0..count {
@@ -348,16 +455,36 @@ pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
                     actual: kind,
                 });
             }
+            if list.get(id).is_some() {
+                return Err(DecodeError::DuplicateProp {
+                    row: row_index as u32,
+                    prop: id,
+                });
+            }
             let value = match kind {
                 PropKind::Str => PropValue::Str(pr.string()?.to_string()),
-                PropKind::Bool => PropValue::Bool(pr.u8()? != 0),
+                PropKind::Bool => match pr.u8()? {
+                    0 => PropValue::Bool(false),
+                    1 => PropValue::Bool(true),
+                    other => return Err(DecodeError::NonCanonicalBool(other)),
+                },
                 PropKind::Int => PropValue::Int(pr.i64()?),
-                PropKind::Float => PropValue::Float(pr.f64()?),
+                PropKind::Float => {
+                    let value = pr.f64()?;
+                    if !value.is_finite() {
+                        return Err(DecodeError::NonFiniteProp {
+                            row: row_index as u32,
+                            prop: id,
+                        });
+                    }
+                    PropValue::Float(value)
+                }
             };
             list.set(id, value);
         }
         props.push(list);
     }
+    finish_section(&mut pr, SECTION_PROPS, section_offset(&dir, SECTION_PROPS))?;
 
     Ok(Snapshot {
         root_id,

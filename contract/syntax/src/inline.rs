@@ -11,9 +11,11 @@
 //! `children` node is replaced by the nodes indented under its use, inlined
 //! in the *use site's* scope.
 
-use crate::ast::{Action, Attr, Binding, Component, Expr, File, Node, Stmt, TemplatePart};
+use crate::ast::{
+    Action, Attr, Binding, Component, Expr, File, Node, Param, Stmt, TemplatePart, TypeExpr,
+};
 use crate::parser::SyntaxError;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn err<T>(
     id: &'static str,
@@ -159,12 +161,55 @@ fn inline_nodes(
                 for a in &c.actions {
                     names.insert(a.name.clone(), format!("{}__{n}", a.name));
                 }
-                for (old, new) in &names {
-                    child_subst.insert(old.clone(), Expr::Ident(new.clone(), *span));
+                for st in &c.states {
+                    child_subst
+                        .insert(st.name.clone(), Expr::Ident(names[&st.name].clone(), *span));
                 }
-                for d in &c.derives {
-                    let e = subst_expr(&d.expr, &child_subst);
-                    child_subst.insert(d.name.clone(), e);
+                // Closure-convert child props/injects into hidden action
+                // parameters. A handler evaluates these curried arguments
+                // at its exact node site, so intervening `when`/`match`
+                // frames and arbitrarily nested rows cannot change what the
+                // lifted action reads.
+                let captures: Vec<(Param, Expr, String)> = c
+                    .props
+                    .iter()
+                    .chain(&c.injects)
+                    .filter(|prop| {
+                        !matches!(
+                            prop.ty.as_ref(),
+                            Some(TypeExpr::Named(name, _)) if name == "action"
+                        )
+                    })
+                    .enumerate()
+                    .map(|(i, prop)| {
+                        let hidden = format!("@capture:{n}:{i}");
+                        (
+                            Param {
+                                name: hidden.clone(),
+                                ty: prop.ty.clone(),
+                                span: prop.span,
+                            },
+                            child_subst[&prop.name].clone(),
+                            prop.name.clone(),
+                        )
+                    })
+                    .collect();
+                for action in &c.actions {
+                    child_subst.insert(
+                        action.name.clone(),
+                        Expr::Call(
+                            names[&action.name].clone(),
+                            captures.iter().map(|(_, value, _)| value.clone()).collect(),
+                            *span,
+                        ),
+                    );
+                }
+                // Resolve derives in the child's own scope before substituting
+                // parent expressions for props. That distinction is what
+                // keeps a parent `a` passed through a prop from being mistaken
+                // for the child's derive `a`.
+                for (derive, expr) in resolved_derives(c)? {
+                    child_subst.insert(derive.name.clone(), subst_expr(&expr, &child_subst));
                 }
                 for st in &c.states {
                     ctx.extra_states.push((
@@ -177,9 +222,34 @@ fn inline_nodes(
                     ));
                 }
                 for a in &c.actions {
+                    let mut action_subst = BTreeMap::new();
+                    for (param, _, source_name) in &captures {
+                        action_subst.insert(
+                            source_name.clone(),
+                            Expr::Ident(param.name.clone(), param.span),
+                        );
+                    }
+                    for st in &c.states {
+                        action_subst.insert(
+                            st.name.clone(),
+                            Expr::Ident(names[&st.name].clone(), st.span),
+                        );
+                    }
+                    for (derive, expr) in resolved_derives(c)? {
+                        action_subst.insert(derive.name.clone(), subst_expr(&expr, &action_subst));
+                    }
+                    // An action's declared parameters are still the
+                    // innermost binders and shadow same-named captures.
+                    for param in &a.params {
+                        action_subst.remove(&param.name);
+                    }
                     ctx.extra_actions.push(Action {
                         name: names[&a.name].clone(),
-                        params: a.params.clone(),
+                        params: captures
+                            .iter()
+                            .map(|(param, _, _)| param.clone())
+                            .chain(a.params.iter().cloned())
+                            .collect(),
                         writes: a
                             .writes
                             .iter()
@@ -187,7 +257,7 @@ fn inline_nodes(
                                 (names.get(w).cloned().unwrap_or_else(|| w.clone()), *sp)
                             })
                             .collect(),
-                        body: subst_stmts(&a.body, &child_subst, &names),
+                        body: subst_stmts(&a.body, &action_subst, &names),
                         span: a.span,
                     });
                 }
@@ -297,6 +367,129 @@ fn inline_nodes(
         }
     }
     Ok(out)
+}
+
+/// Expand a component's derives through one another in dependency order.
+/// Type inference admits either declaration order, so inlining must too; a
+/// replacement is complete before it enters the substitution map.
+fn resolved_derives(c: &Component) -> Result<Vec<(&Binding, Expr)>, SyntaxError> {
+    let mut indices = BTreeMap::new();
+    for (i, derive) in c.derives.iter().enumerate() {
+        if indices.insert(derive.name.as_str(), i).is_some() {
+            return err(
+                "type-duplicate-name",
+                format!("`{}` declared twice", derive.name),
+                derive.span,
+            );
+        }
+    }
+    let mut resolved = vec![None; c.derives.len()];
+    let mut visiting = BTreeSet::new();
+    for i in 0..c.derives.len() {
+        resolve_derive(i, c, &indices, &mut resolved, &mut visiting)?;
+    }
+    Ok(c.derives
+        .iter()
+        .zip(resolved.into_iter().map(Option::unwrap))
+        .collect())
+}
+
+fn resolve_derive(
+    i: usize,
+    c: &Component,
+    indices: &BTreeMap<&str, usize>,
+    resolved: &mut [Option<Expr>],
+    visiting: &mut BTreeSet<usize>,
+) -> Result<Expr, SyntaxError> {
+    if let Some(expr) = &resolved[i] {
+        return Ok(expr.clone());
+    }
+    if !visiting.insert(i) {
+        return err(
+            "type-derive-cycle",
+            format!(
+                "cannot resolve `{}`: it depends on itself through other derives",
+                c.derives[i].name
+            ),
+            c.derives[i].span,
+        );
+    }
+    let mut dependencies = BTreeSet::new();
+    derive_dependencies(
+        &c.derives[i].expr,
+        indices,
+        &BTreeSet::new(),
+        &mut dependencies,
+    );
+    let mut substitutions = BTreeMap::new();
+    for dependency in dependencies {
+        let expr = resolve_derive(dependency, c, indices, resolved, visiting)?;
+        substitutions.insert(c.derives[dependency].name.clone(), expr);
+    }
+    let expr = subst_expr(&c.derives[i].expr, &substitutions);
+    visiting.remove(&i);
+    resolved[i] = Some(expr.clone());
+    Ok(expr)
+}
+
+fn derive_dependencies(
+    expr: &Expr,
+    indices: &BTreeMap<&str, usize>,
+    bound: &BTreeSet<String>,
+    out: &mut BTreeSet<usize>,
+) {
+    match expr {
+        Expr::Ident(name, _) => {
+            if !bound.contains(name) {
+                if let Some(i) = indices.get(name.as_str()) {
+                    out.insert(*i);
+                }
+            }
+        }
+        Expr::Call(name, args, _) => {
+            if !bound.contains(name) {
+                if let Some(i) = indices.get(name.as_str()) {
+                    out.insert(*i);
+                }
+            }
+            for arg in args {
+                derive_dependencies(arg, indices, bound, out);
+            }
+        }
+        Expr::Member(object, _, _) | Expr::Some(object, _) | Expr::Unary(_, object, _) => {
+            derive_dependencies(object, indices, bound, out);
+        }
+        Expr::Binary(_, left, right, _) => {
+            derive_dependencies(left, indices, bound, out);
+            derive_dependencies(right, indices, bound, out);
+        }
+        Expr::Ternary(cond, then, otherwise, _) => {
+            derive_dependencies(cond, indices, bound, out);
+            derive_dependencies(then, indices, bound, out);
+            derive_dependencies(otherwise, indices, bound, out);
+        }
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            ..
+        } => {
+            derive_dependencies(subject, indices, bound, out);
+            let mut inner = bound.clone();
+            inner.insert(var.clone());
+            derive_dependencies(some, indices, &inner, out);
+            derive_dependencies(none, indices, bound, out);
+        }
+        Expr::Template(parts, _) => {
+            for part in parts {
+                if let TemplatePart::Expr(expr) = part {
+                    derive_dependencies(expr, indices, bound, out);
+                }
+            }
+        }
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+    }
 }
 
 /// Substitute prop names by argument expressions. A curried handler

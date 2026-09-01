@@ -71,6 +71,31 @@ impl NodeArena {
         self.env = env;
     }
 
+    /// Forget every allocation while retaining each slot's generation.
+    ///
+    /// Resetting the kernel must not make a pre-reset [`NodeKey`] valid for a
+    /// later allocation at the same slot. Keeping the generation column means
+    /// [`alloc`](Self::alloc) advances identity exactly as ordinary reuse does.
+    pub(crate) fn reset(&mut self) {
+        for slot in 0..self.generations.len() {
+            self.live[slot] = false;
+            self.parents[slot] = None;
+            self.children[slot].clear();
+            self.styles[slot] = StyleProps::default();
+            self.props[slot].clear();
+            self.flags[slot] = NodeFlags::default();
+            self.frames[slot] = Frame::default();
+            self.contents[slot] = (0.0, 0.0);
+            self.intrinsic[slot] = None;
+            self.taffy[slot] = None;
+            self.is_root[slot] = false;
+        }
+        self.free = (0..self.generations.len() as u32).rev().collect();
+        self.roots.clear();
+        self.by_local.clear();
+        self.live_count = 0;
+    }
+
     /// Slots ever allocated (live plus free).
     pub fn slot_count(&self) -> usize {
         self.generations.len()

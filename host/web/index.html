@@ -18,6 +18,9 @@
      (an absolute node's inline style wins). */
   #exact-root * { position: relative; }
   img { display: block; }
+  /* The kernel owns the iframe's declared 300×150 content box. Browser UA
+     borders and inline baseline space must not enlarge or shift it. */
+  iframe { display: block; box-sizing: content-box; margin: 0; border: 0; }
 </style>
 <div id="exact-root"></div>
 <script type="module" src="./glue.js"></script>

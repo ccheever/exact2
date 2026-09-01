@@ -181,10 +181,16 @@ impl<'a> Reader<'a> {
 
     /// Read a grid track list: count byte, then (kind byte, `f32`) per track.
     pub fn tracks(&mut self) -> Result<GridTracks, DecodeError> {
-        let count = self.u8()?;
-        if count as usize > MAX_GRID_TRACKS {
-            return Err(DecodeError::TooManyTracks(count));
+        let tracks = self.tracks_for_style()?;
+        if tracks.0.len() > MAX_GRID_TRACKS {
+            return Err(DecodeError::TooManyTracks(tracks.0.len()));
         }
+        Ok(tracks)
+    }
+
+    /// Read the bounded wire representation before applying row-domain rules.
+    pub(crate) fn tracks_for_style(&mut self) -> Result<GridTracks, DecodeError> {
+        let count = self.u8()?;
         let mut out = Vec::with_capacity(count as usize);
         for _ in 0..count {
             let kind = self.u8()?;
@@ -204,17 +210,27 @@ impl<'a> Reader<'a> {
 
     fn grid_line(&mut self) -> Result<GridLine, DecodeError> {
         let kind = self.u8()?;
-        let value = self.i16()?;
+        let value = self.u16()?;
         Ok(match kind {
             0 => GridLine::Auto,
-            1 => GridLine::Line(value),
-            2 => GridLine::Span(value.unsigned_abs()),
+            1 => GridLine::Line(value as i16),
+            2 => GridLine::Span(value),
             other => return Err(DecodeError::UnknownPlacementKind(other)),
         })
     }
 
-    /// Read a grid placement: start line then end line, each (kind byte, `i16`).
+    /// Read a grid placement: start line then end line, each a kind byte and
+    /// a two-byte value (`i16` for a line, `u16` for a span).
     pub fn placement(&mut self) -> Result<GridPlacement, DecodeError> {
+        let placement = self.placement_for_style()?;
+        if !placement.is_valid() {
+            return Err(DecodeError::InvalidGridSpan);
+        }
+        Ok(placement)
+    }
+
+    /// Read the bounded wire representation before applying row-domain rules.
+    pub(crate) fn placement_for_style(&mut self) -> Result<GridPlacement, DecodeError> {
         Ok(GridPlacement {
             start: self.grid_line()?,
             end: self.grid_line()?,
@@ -527,7 +543,7 @@ impl Writer {
             }
             GridLine::Span(n) => {
                 self.u8(2);
-                self.i16(n as i16);
+                self.u16(n);
             }
         }
     }
@@ -638,7 +654,7 @@ mod tests {
         ]);
         let placement = GridPlacement {
             start: GridLine::Line(2),
-            end: GridLine::Span(3),
+            end: GridLine::Span(40_000),
         };
         let mut w = Writer::new();
         w.tracks(&tracks);

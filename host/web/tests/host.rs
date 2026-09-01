@@ -38,10 +38,6 @@ fn the_first_batch_creates_the_tree_with_css_from_the_rows() {
         "semantic tags become elements"
     );
     assert!(
-        batch.contains("\"tag\":\"span\""),
-        "inline text runs are spans"
-    );
-    assert!(
         batch.contains("font-size:24px;font-weight:700;"),
         "CSS from the rows"
     );
@@ -292,6 +288,56 @@ fn an_image_is_an_img_with_its_source_and_object_fit() {
 }
 
 #[test]
+fn an_input_uses_html_type_and_inputmode_attributes() {
+    use exact_runner::{DataError, DataSource, Value};
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+    }
+    let plan = contract::compile(
+        "component App\n  view\n    input type=\"password\" inputmode=\"email\" testId=\"secret\"\n",
+    )
+    .unwrap();
+    let (_, batch) = Host::boot(&plan.encode(), NoData).unwrap();
+    let at = batch.find("\"tag\":\"input\"").unwrap();
+    let create = &batch[at..];
+    assert!(create.contains("\"type\":\"password\""), "{create}");
+    assert!(create.contains("\"inputmode\":\"email\""), "{create}");
+    assert!(!create.contains("\"data-type\"") && !create.contains("\"data-inputmode\""));
+}
+
+#[test]
+fn only_text_under_text_is_an_inline_span() {
+    use exact_runner::{DataError, DataSource, Value};
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+    }
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      text \"block leaf\" testId=\"leaf\"\n      text testId=\"paragraph\"\n        text \"inline run\" testId=\"run\"\n",
+    )
+    .unwrap();
+    let (_, batch) = Host::boot(&plan.encode(), NoData).unwrap();
+    let create_for = |test_id: &str| {
+        let prop = batch
+            .find(&format!("\"data-testid\":\"{test_id}\""))
+            .unwrap();
+        let start = batch[..prop].rfind("{\"op\":\"create\"").unwrap();
+        &batch[start..prop]
+    };
+    assert!(create_for("leaf").contains("\"tag\":\"div\""), "{batch}");
+    assert!(
+        create_for("paragraph").contains("\"tag\":\"div\""),
+        "{batch}"
+    );
+    assert!(create_for("run").contains("\"tag\":\"span\""), "{batch}");
+}
+
+#[test]
 fn declared_font_identity_reaches_the_readiness_barrier_and_css() {
     use exact_runner::{DataError, DataSource, Value};
     struct NoData;
@@ -342,19 +388,28 @@ fn declared_font_identity_reaches_the_readiness_barrier_and_css() {
 
 #[test]
 fn an_iframe_is_the_element_with_html_props_and_handlers() {
-    let (mut host, _) = boot();
-    let open = view_with_test_id(&host, "open-deck");
-    let batch = host.dispatch(open, Event::Press);
-    let deck = view_with_test_id(&host, "deck-frame");
+    use exact_runner::{DataError, DataSource, Value};
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(s.into()))
+        }
+    }
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contract/corpus/iframe.contract"
+    ))
+    .unwrap();
+    let plan = contract::compile(&src).unwrap();
+    let (host, batch) = Host::boot(&plan.encode(), NoData).unwrap();
+    let key = host.runner().kernel().find_by_test_id("deck")[0];
+    let deck = host.runner().kernel().node_by_key(key).unwrap().id;
     let at = batch
         .find(&format!("\"id\":{deck},\"tag\":\"iframe\""))
         .unwrap();
-    let create = &batch[at..at + 500];
+    let create = &batch[at..];
     assert!(create.contains("\"src\":\"/deck/index.html\""), "{create}");
-    assert!(
-        create.contains("\"sandbox\":\"allow-scripts allow-same-origin\""),
-        "{create}"
-    );
+    assert!(create.contains("\"sandbox\":\"allow-scripts\""), "{create}");
     assert!(
         create.contains("\"handlers\":[\"load\",\"message\"]"),
         "{create}"

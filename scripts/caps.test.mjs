@@ -9,12 +9,14 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { staticFile } from '../host/web/serve.mjs';
 
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
+const BOOT = join(dirname(fileURLToPath(import.meta.url)), 'boot.mjs');
 
 const GOOD_RULES = `# Rules
 
@@ -104,6 +106,7 @@ const cases = [
 ];
 
 let failed = 0;
+let total = cases.length;
 for (const [name, files, expect] of cases) {
   const dir = repo(files);
   const { out, code } = run(dir);
@@ -118,5 +121,60 @@ for (const [name, files, expect] of cases) {
     console.log(`ok    ${name}`);
   }
 }
-console.log(`\n${cases.length - failed}/${cases.length} passed`);
+
+function result(name, ok, detail = '') {
+  total += 1;
+  if (ok) console.log(`ok    ${name}`);
+  else { failed += 1; console.log(`FAIL  ${name}`); if (detail) console.log(detail); }
+}
+
+// The boot check's parser must see every valid spelling that can execute.
+const BOOT_RULES = GOOD_RULES.replace('| Cold start to interactive | 100ms |', '| Cold start to interactive | 100ms |\n| App JS executed before first pixel | none |');
+function boot(html, files = {}) {
+  const dir = repo({ 'rules/RULES.md': BOOT_RULES, 'host/web/index.html': html, 'host/web/glue.js': '', ...files });
+  mkdirSync(join(dir, 'scripts'), { recursive: true });
+  const fixtureBoot = join(dir, 'scripts/boot.mjs');
+  copyFileSync(BOOT, fixtureBoot);
+  const r = spawnSync('node', [fixtureBoot], { cwd: dir, encoding: 'utf8' });
+  rmSync(dir, { recursive: true, force: true });
+  return { code: r.status, out: r.stdout + r.stderr };
+}
+for (const [name, html, files, expectCode, expect] of [
+  ['boot sees a single-quoted src', "<script type='module' src='./glue.js'></script>", {}, 0, 'modules reachable before first pixel: 1'],
+  ['boot sees an unquoted src', '<script type=module src=./glue.js></script>', {}, 0, 'modules reachable before first pixel: 1'],
+  ['boot follows re-exports', '<script type=module src=./glue.js></script>', { 'host/web/glue.js': "export * from '../../apps/app.js';\n", 'apps/app.js': '' }, 1, 'app JS before first pixel'],
+  ['boot ignores comments', '<!-- <script src=../../apps/bypass.js></script> --><script src=./glue.js></script>', { 'host/web/glue.js': "// export * from '../../apps/bypass.js';\n/* import '../../apps/also.js'; */\n" }, 0, 'modules reachable before first pixel: 1'],
+  ['boot fails closed on malformed tags', '<script type=module src="./glue.js></script>', {}, 1, 'malformed HTML'],
+]) {
+  const r = boot(html, files);
+  result(name, r.code === expectCode && r.out.includes(expect), r.out);
+}
+
+// The exact resolver used by serve/dev/agent/metrics: only current public
+// build outputs, no dot paths or symlink traversal.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-static-'));
+  const dist = join(dir, 'dist');
+  const outside = join(dir, 'outside');
+  mkdirSync(join(dist, 'assets'), { recursive: true });
+  mkdirSync(join(dist, '.chrome-profile', 'Default'), { recursive: true });
+  mkdirSync(outside);
+  writeFileSync(join(dist, 'index.html'), 'ok');
+  writeFileSync(join(dist, 'assets', 'logo.png'), 'ok');
+  writeFileSync(join(dist, 'stale.txt'), 'private');
+  writeFileSync(join(dist, '.chrome-profile', 'Default', 'Cookies'), 'private');
+  writeFileSync(join(outside, 'secret'), 'private');
+  symlinkSync(join(outside, 'secret'), join(dist, 'assets', 'linked-file'));
+  symlinkSync(outside, join(dist, 'assets', 'linked-dir'));
+  const ok = staticFile(dist, '/index.html')?.route === '/index.html'
+    && staticFile(dist, '/assets/logo.png')?.route === '/assets/logo.png'
+    && staticFile(dist, '/stale.txt') === null
+    && staticFile(dist, '/.chrome-profile/Default/Cookies') === null
+    && staticFile(dist, '/assets/linked-file') === null
+    && staticFile(dist, '/assets/linked-dir/secret') === null;
+  rmSync(dir, { recursive: true, force: true });
+  result('web serving rejects stale, dot, and symlink paths', ok);
+}
+
+console.log(`\n${total - failed}/${total} passed`);
 process.exit(failed ? 1 : 0);

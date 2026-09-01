@@ -34,6 +34,9 @@ use std::time::{Duration, Instant};
 pub struct Config {
     /// The plan to boot.
     pub plan: Vec<u8>,
+    /// The binary's plan, only when `plan` came from a URL. A hash-valid
+    /// network payload can still fail the format/schema/app gates at boot.
+    pub(crate) fallback_plan: Option<Vec<u8>>,
     /// The asset root.
     pub assets: PathBuf,
     /// Device pixels per point.
@@ -72,6 +75,7 @@ impl Config {
                     None
                 }
             });
+        let fallback_plan = from_url.as_ref().map(|_| baked.to_vec());
         let plan = from_url
             .or_else(|| {
                 env("EXACT_PLAN")
@@ -93,6 +97,7 @@ impl Config {
             .unwrap_or((420.0, 860.0));
         Config {
             plan,
+            fallback_plan,
             assets: env("EXACT_ASSETS")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
@@ -122,6 +127,42 @@ impl Config {
     }
 }
 
+/// Boot the selected plan, falling back only when it was fetched from the
+/// app URL. Transport, length, and hash refusals already take this path in
+/// `Config::from_env`; decode and runner refusals belong to the same gate.
+pub(crate) fn boot_presenter<D: DataSource + Default>(
+    config: &Config,
+    viewport: (f32, f32),
+) -> Result<(Presenter<D>, Option<String>), String> {
+    match Presenter::boot(
+        &config.plan,
+        D::default(),
+        viewport,
+        config.scale,
+        config.assets.clone(),
+    ) {
+        Ok(value) => Ok(value),
+        Err(fetched_error) => {
+            let Some(baked) = config.fallback_plan.as_deref() else {
+                return Err(fetched_error.to_string());
+            };
+            eprintln!(
+                "exact url: fetched plan refused at boot: {fetched_error}; booting the baked plan"
+            );
+            Presenter::boot(
+                baked,
+                D::default(),
+                viewport,
+                config.scale,
+                config.assets.clone(),
+            )
+            .map_err(|baked_error| {
+                format!("fetched plan refused: {fetched_error}; baked plan refused: {baked_error}")
+            })
+        }
+    }
+}
+
 /// Run the app: the process's exit code.
 pub fn run<D: DataSource + Default>(baked: &[u8]) -> i32 {
     let started = Instant::now();
@@ -141,13 +182,7 @@ pub fn run<D: DataSource + Default>(baked: &[u8]) -> i32 {
 
 fn headless<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
     let t_boot = Instant::now();
-    let (mut p, error) = match Presenter::boot(
-        &config.plan,
-        D::default(),
-        config.size,
-        config.scale,
-        config.assets.clone(),
-    ) {
+    let (mut p, error) = match boot_presenter::<D>(config, config.size) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("exact: boot: {e}");
@@ -257,4 +292,47 @@ fn headless<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
         println!("smoke ok");
     }
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use exact_runner::{DataError, Value};
+
+    #[derive(Default)]
+    struct Named;
+
+    impl DataSource for Named {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+
+        fn app_id(&self) -> &str {
+            "com.exact.fixture"
+        }
+    }
+
+    #[test]
+    fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
+        let source = "component App\n  view\n    text \"ok\"\n";
+        let mut foreign = contract::compile(source).unwrap();
+        foreign.app_id = "com.exact.foreign".into();
+        let baked = contract::compile(source).unwrap().encode();
+        let config = Config {
+            plan: foreign.encode(),
+            fallback_plan: Some(baked),
+            assets: std::env::current_dir().unwrap(),
+            scale: 1.0,
+            size: (390.0, 844.0),
+            agent: false,
+            smoke: false,
+            shot: None,
+            dev_plan: None,
+            card: String::new(),
+            vnc: None,
+        };
+        let (presenter, error) = boot_presenter::<Named>(&config, config.size).unwrap();
+        assert!(error.is_none(), "{error:?}");
+        assert_eq!(presenter.node_count(), 1);
+    }
 }

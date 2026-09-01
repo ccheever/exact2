@@ -5,7 +5,7 @@
 //! show, not a list to guess through.
 
 use crate::ast::*;
-use crate::lexer::{LexError, Lexer, Token, TokenKind};
+use crate::lexer::{template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
 /// A parse failure.
@@ -48,6 +48,14 @@ struct Parser {
 }
 
 type R<T> = Result<T, SyntaxError>;
+
+fn duplicate<T>(what: &str, name: &str, span: Span, first: Span) -> R<T> {
+    Err(SyntaxError {
+        id: "syntax-duplicate-declaration",
+        message: format!("{what} `{name}` is declared twice; first declared at {first}"),
+        span,
+    })
+}
 
 impl Parser {
     fn peek(&self) -> &Token {
@@ -166,6 +174,23 @@ impl Parser {
         }
     }
 
+    fn required_block<T>(
+        &mut self,
+        span: Span,
+        construct: &str,
+        item: impl FnMut(&mut Self) -> R<T>,
+    ) -> R<Vec<T>> {
+        let body = self.block(item)?;
+        if body.is_empty() {
+            return Err(SyntaxError {
+                id: "syntax-empty-block",
+                message: format!("`{construct}` needs a non-empty indented body"),
+                span,
+            });
+        }
+        Ok(body)
+    }
+
     // ---- declarations -----------------------------------------------------
 
     fn file(&mut self) -> R<File> {
@@ -181,7 +206,17 @@ impl Parser {
                 TokenKind::Ident(w) if w == "style" => file.styles.push(self.style()?),
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
-                TokenKind::Ident(w) if w == "component" => file.components.push(self.component()?),
+                TokenKind::Ident(w) if w == "component" => {
+                    let component = self.component()?;
+                    if let Some(first) = file
+                        .components
+                        .iter()
+                        .find(|prior| prior.name == component.name)
+                    {
+                        return duplicate("component", &component.name, component.span, first.span);
+                    }
+                    file.components.push(component);
+                }
                 TokenKind::Ident(w) if w == "use" => file.uses.push(self.use_decl()?),
                 other => {
                     return self.err(
@@ -489,6 +524,9 @@ impl Parser {
         let mut params = Vec::new();
         while !self.at_punct(")") {
             let (pname, pspan) = self.ident()?;
+            if let Some(first) = params.iter().find(|p: &&Param| p.name == pname) {
+                return duplicate("function parameter", &pname, pspan, first.span);
+            }
             self.expect_punct(":")?;
             let ty = self.type_expr()?;
             params.push(Param {
@@ -574,6 +612,14 @@ impl Parser {
             p.newline()?;
             Ok(Field { name, ty, span })
         })?;
+        for (index, field) in fields.iter().enumerate() {
+            if let Some(first) = fields[..index]
+                .iter()
+                .find(|prior| prior.name == field.name)
+            {
+                return duplicate("shape field", &field.name, field.span, first.span);
+            }
+        }
         Ok(ShapeDecl { name, fields, span })
     }
 
@@ -621,6 +667,7 @@ impl Parser {
         if !matches!(self.peek_kind(), TokenKind::Indent) {
             return self.err("syntax-empty-component", "a component needs a body");
         }
+        let mut sections: Vec<(String, Span)> = Vec::new();
         self.next();
         loop {
             match self.peek_kind().clone() {
@@ -632,71 +679,83 @@ impl Parser {
                 TokenKind::Newline => {
                     self.next();
                 }
-                TokenKind::Ident(w) => match w.as_str() {
-                    "props" | "inject" => {
-                        self.next();
-                        self.newline()?;
-                        let list = self.block(|p| {
-                            let (name, span) = p.ident()?;
-                            p.expect_punct(":")?;
-                            let ty = p.type_expr()?;
-                            p.newline()?;
-                            Ok(Param {
+                TokenKind::Ident(w) => {
+                    if matches!(
+                        w.as_str(),
+                        "props" | "inject" | "slot" | "view" | "contract"
+                    ) {
+                        let section_span = self.peek().span;
+                        if let Some((_, first)) = sections.iter().find(|(name, _)| name == &w) {
+                            return duplicate("component section", &w, section_span, *first);
+                        }
+                        sections.push((w.clone(), section_span));
+                    }
+                    match w.as_str() {
+                        "props" | "inject" => {
+                            self.next();
+                            self.newline()?;
+                            let list = self.block(|p| {
+                                let (name, span) = p.ident()?;
+                                p.expect_punct(":")?;
+                                let ty = p.type_expr()?;
+                                p.newline()?;
+                                Ok(Param {
+                                    name,
+                                    ty: Some(ty),
+                                    span,
+                                })
+                            })?;
+                            if w == "props" {
+                                c.props = list;
+                            } else {
+                                c.injects = list;
+                            }
+                        }
+                        "slot" => {
+                            self.next();
+                            self.newline()?;
+                            c.slot = true;
+                        }
+                        "state" | "derive" => {
+                            let t = self.next();
+                            let (name, _) = self.ident()?;
+                            self.expect_punct("=")?;
+                            let expr = self.expr()?;
+                            self.newline()?;
+                            let b = Binding {
                                 name,
-                                ty: Some(ty),
-                                span,
-                            })
-                        })?;
-                        if w == "props" {
-                            c.props = list;
-                        } else {
-                            c.injects = list;
+                                expr,
+                                span: t.span,
+                            };
+                            if w == "state" {
+                                c.states.push(b)
+                            } else {
+                                c.derives.push(b)
+                            }
+                        }
+                        "resource" => c.resources.push(self.resource()?),
+                        "mutation" => c.mutations.push(self.mutation()?),
+                        "action" => c.actions.push(self.action()?),
+                        "task" => c.tasks.push(self.task()?),
+                        "view" => {
+                            self.next();
+                            self.newline()?;
+                            c.view = self.block(|p| p.node())?;
+                        }
+                        "contract" => {
+                            self.next();
+                            self.newline()?;
+                            // Contract blocks are agent assertions; not compiled in v1.
+                            self.block(|p| p.skip_line())?;
+                        }
+                        other => {
+                            return self.err(
+                                "syntax-unknown-section",
+                                format!("unknown section `{other}`"),
+                            )
                         }
                     }
-                    "slot" => {
-                        self.next();
-                        self.newline()?;
-                        c.slot = true;
-                    }
-                    "state" | "derive" => {
-                        let t = self.next();
-                        let (name, _) = self.ident()?;
-                        self.expect_punct("=")?;
-                        let expr = self.expr()?;
-                        self.newline()?;
-                        let b = Binding {
-                            name,
-                            expr,
-                            span: t.span,
-                        };
-                        if w == "state" {
-                            c.states.push(b)
-                        } else {
-                            c.derives.push(b)
-                        }
-                    }
-                    "resource" => c.resources.push(self.resource()?),
-                    "mutation" => c.mutations.push(self.mutation()?),
-                    "action" => c.actions.push(self.action()?),
-                    "task" => c.tasks.push(self.task()?),
-                    "view" => {
-                        self.next();
-                        self.newline()?;
-                        c.view = self.block(|p| p.node())?;
-                    }
-                    "contract" => {
-                        self.next();
-                        self.newline()?;
-                        // Contract blocks are agent assertions; not compiled in v1.
-                        self.block(|p| p.skip_line())?;
-                    }
-                    other => {
-                        return self.err(
-                            "syntax-unknown-section",
-                            format!("unknown section `{other}`"),
-                        )
-                    }
-                },
+                }
                 other => {
                     return self.err(
                         "syntax-expected-section",
@@ -758,6 +817,9 @@ impl Parser {
         if self.eat_punct("(") {
             while !self.at_punct(")") {
                 let (pname, pspan) = self.ident()?;
+                if let Some(first) = params.iter().find(|p: &&Param| p.name == pname) {
+                    return duplicate("action parameter", &pname, pspan, first.span);
+                }
                 let ty = if self.eat_punct(":") {
                     Some(self.type_expr()?)
                 } else {
@@ -800,12 +862,12 @@ impl Parser {
             let span = self.expect_word("if")?;
             let cond = self.expr()?;
             self.newline()?;
-            let then = self.block(|p| p.stmt())?;
+            let then = self.required_block(span, "if", |p| p.stmt())?;
             let mut otherwise = Vec::new();
             if self.at_ident("else") {
                 self.next();
                 self.newline()?;
-                otherwise = self.block(|p| p.stmt())?;
+                otherwise = self.required_block(span, "else", |p| p.stmt())?;
             }
             return Ok(Stmt::If {
                 cond,
@@ -821,8 +883,11 @@ impl Parser {
             let mut some = None;
             let mut none = None;
             self.block(|p| {
-                p.expect_word("case")?;
+                let case_span = p.expect_word("case")?;
                 if p.at_ident("some") {
+                    if some.is_some() {
+                        return duplicate("match arm", "some", case_span, span);
+                    }
                     p.next();
                     p.expect_punct("(")?;
                     let (var, _) = p.ident()?;
@@ -831,6 +896,9 @@ impl Parser {
                     some = Some((var, p.block(|q| q.stmt())?));
                 } else {
                     p.expect_word("none")?;
+                    if none.is_some() {
+                        return duplicate("match arm", "none", case_span, span);
+                    }
                     p.newline()?;
                     none = Some(p.block(|q| q.stmt())?);
                 }
@@ -915,6 +983,9 @@ impl Parser {
             let (action, _) = p.ident()?;
             p.expect_punct(")")?;
             p.newline()?;
+            if every.is_some() {
+                return duplicate("task entry", "every", fspan, span);
+            }
             every = Some((ms, action, fspan));
             Ok(())
         })?;
@@ -962,12 +1033,12 @@ impl Parser {
                 self.next();
                 let cond = self.expr()?;
                 self.newline()?;
-                let then = self.block(|p| p.node())?;
+                let then = self.required_block(span, "when", |p| p.node())?;
                 let mut otherwise = Vec::new();
                 if self.at_ident("else") {
                     self.next();
                     self.newline()?;
-                    otherwise = self.block(|p| p.node())?;
+                    otherwise = self.required_block(span, "else", |p| p.node())?;
                 }
                 Ok(Node::When {
                     cond,
@@ -1002,8 +1073,11 @@ impl Parser {
                 let mut some = None;
                 let mut none = None;
                 self.block(|p| {
-                    p.expect_word("case")?;
+                    let case_span = p.expect_word("case")?;
                     if p.at_ident("some") {
+                        if some.is_some() {
+                            return duplicate("match arm", "some", case_span, span);
+                        }
                         p.next();
                         p.expect_punct("(")?;
                         let (var, _) = p.ident()?;
@@ -1012,6 +1086,9 @@ impl Parser {
                         some = Some((var, p.block(|q| q.node())?));
                     } else {
                         p.expect_word("none")?;
+                        if none.is_some() {
+                            return duplicate("match arm", "none", case_span, span);
+                        }
                         p.newline()?;
                         none = Some(p.block(|q| q.node())?);
                     }
@@ -1081,7 +1158,23 @@ impl Parser {
                     }
                 }
                 self.newline()?;
-                let children = self.block(|p| p.node())?;
+                let mut children = self.block(|p| p.node())?;
+                // LLP 1017.001's primary button argument is its visible text
+                // child, not a prop on the pressable itself. Keeping it as a
+                // real text node gives every host the same visible and
+                // accessible subtree.
+                if word == "button" && positional.len() == 1 {
+                    children.insert(
+                        0,
+                        Node::Element {
+                            tag: "text".into(),
+                            positional: vec![positional.remove(0)],
+                            attrs: Vec::new(),
+                            children: Vec::new(),
+                            span,
+                        },
+                    );
+                }
                 Ok(Node::Element {
                     tag: word,
                     positional,
@@ -1275,7 +1368,7 @@ impl Parser {
         while let Some(i) = rest.find("${") {
             text.push_str(&rest[..i]);
             let after = &rest[i + 2..];
-            let end = after.find('}').ok_or(SyntaxError {
+            let end = template_expr_end(after).ok_or(SyntaxError {
                 id: "syntax-unterminated-template-expr",
                 message: "`${` never closes".into(),
                 span,

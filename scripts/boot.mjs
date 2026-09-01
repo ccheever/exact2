@@ -1,49 +1,187 @@
 #!/usr/bin/env node
 /**
- * boot — the fifth check (rules/RULES.md §The five checks): count the module
- * graph reachable before first pixel and fail when it grows. A count, so it
- * cannot flake the way a timer does.
- *
- * The budget is the rules file's own row: "App JS executed before first
- * pixel | none". The web host's page may load exactly its glue (host code)
- * and one wasm; any other module — and any module under apps/ — is a
- * violation. Reports every problem in one run; fails closed if the page is
- * missing.
+ * boot — the fifth check (rules/RULES.md §The five checks): parse and count
+ * the module graph reachable before first pixel. A count cannot flake like a
+ * timer, and parsing keeps valid HTML/ESM spellings from bypassing the count.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import vm from 'node:vm';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
-const PAGE = resolve(ROOT, 'host/web/index.html');
 const ALLOWED = new Set(['host/web/glue.js']);
+const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
-const problems = [];
-if (!existsSync(PAGE)) {
-  console.log('boot — host/web/index.html is missing; nothing to count, and the check must not pass on nothing.');
-  process.exit(1);
+// The page is deliberately small, so a fail-closed tokenizer is preferable
+// to a dependency. It recognizes HTML comments, quoted and unquoted
+// attributes, and reports malformed script tags instead of ignoring them.
+function scriptTags(html, problems) {
+  const scripts = [];
+  let at = 0;
+  while (at < html.length) {
+    const lt = html.indexOf('<', at);
+    if (lt < 0) break;
+    if (html.startsWith('<!--', lt)) {
+      const end = html.indexOf('-->', lt + 4);
+      if (end < 0) { problems.push('malformed HTML: unterminated comment'); break; }
+      at = end + 3;
+      continue;
+    }
+    const head = html.slice(lt, lt + 8).toLowerCase();
+    if (!head.startsWith('<script') || !/[\s/>]/.test(html[lt + 7] ?? '')) { at = lt + 1; continue; }
+    let quote = null;
+    let end = lt + 7;
+    for (; end < html.length; end++) {
+      const ch = html[end];
+      if (quote) { if (ch === quote) quote = null; continue; }
+      if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === '>') break;
+    }
+    if (end >= html.length || quote) { problems.push('malformed HTML: unterminated <script> tag'); break; }
+    const text = html.slice(lt + 7, end);
+    const attrs = new Map();
+    let i = 0;
+    while (i < text.length) {
+      while (/\s/.test(text[i] ?? '')) i++;
+      if (i >= text.length || text[i] === '/') break;
+      const start = i;
+      while (i < text.length && !/[\s=/>]/.test(text[i])) i++;
+      if (i === start) { problems.push('malformed HTML: unsupported <script> attribute syntax'); break; }
+      const name = text.slice(start, i).toLowerCase();
+      while (/\s/.test(text[i] ?? '')) i++;
+      let value = '';
+      if (text[i] === '=') {
+        i++;
+        while (/\s/.test(text[i] ?? '')) i++;
+        if (i >= text.length) { problems.push(`malformed HTML: ${name}= has no value`); break; }
+        if (text[i] === '"' || text[i] === "'") {
+          const q = text[i++];
+          const valueStart = i;
+          while (i < text.length && text[i] !== q) i++;
+          if (i >= text.length) { problems.push(`malformed HTML: unterminated ${name} value`); break; }
+          value = text.slice(valueStart, i++);
+        } else {
+          const valueStart = i;
+          while (i < text.length && !/[\s>]/.test(text[i])) i++;
+          value = text.slice(valueStart, i);
+        }
+      }
+      if (attrs.has(name)) problems.push(`malformed HTML: duplicate <script> ${name} attribute`);
+      else attrs.set(name, value);
+    }
+    scripts.push(attrs);
+    const lower = html.toLowerCase();
+    const close = lower.indexOf('</script', end + 1);
+    if (close < 0 || !/[\s>]/.test(html[close + 8] ?? '') || html.indexOf('>', close + 8) < 0) {
+      problems.push('malformed HTML: <script> has no closing tag');
+      break;
+    }
+    at = html.indexOf('>', close + 8) + 1;
+  }
+  return scripts;
 }
-const html = readFileSync(PAGE, 'utf8');
-if (!/App JS executed before first pixel\s*\|\s*none/i.test(readFileSync(resolve(ROOT, 'rules/RULES.md'), 'utf8'))) {
-  problems.push('rules/RULES.md no longer declares "App JS executed before first pixel | none"; boot has no budget.');
+
+// Remove comments and literal bodies while retaining code in ${...}; this is
+// only for detecting dynamic import. Static imports and all syntax are parsed
+// by V8's module parser below.
+function codeOnly(source) {
+  const out = [...source].fill(' ');
+  const templates = [];
+  let state = 'code';
+  let quote = null;
+  let braces = 0;
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i], next = source[i + 1];
+    if (state === 'line') { if (ch === '\n') { state = 'code'; out[i] = ch; } continue; }
+    if (state === 'block') { if (ch === '*' && next === '/') { state = 'code'; i++; } continue; }
+    if (state === 'string') { if (ch === '\\') { i++; continue; } if (ch === quote) state = 'code'; continue; }
+    if (state === 'template') {
+      if (ch === '\\') { i++; continue; }
+      if (ch === '`') { state = 'code'; continue; }
+      if (ch === '$' && next === '{') { templates.push(braces); braces++; state = 'code'; i++; }
+      continue;
+    }
+    if (ch === '/' && next === '/') { state = 'line'; i++; continue; }
+    if (ch === '/' && next === '*') { state = 'block'; i++; continue; }
+    if (ch === '"' || ch === "'") { state = 'string'; quote = ch; continue; }
+    if (ch === '`') { state = 'template'; continue; }
+    if (ch === '{') braces++;
+    if (ch === '}') {
+      braces--;
+      if (templates.length && braces === templates[templates.length - 1]) { templates.pop(); state = 'template'; continue; }
+    }
+    out[i] = ch;
+  }
+  return out.join('');
 }
-// Static module graph: <script src> in the page, then static imports transitively.
-const seen = new Set();
-const queue = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => resolve(dirname(PAGE), m[1]));
-const inline = (html.match(/<script(?![^>]*src=)[^>]*>/g) ?? []).length;
-if (inline > 0) problems.push(`${inline} inline <script> block(s) in the page; only the glue module may run.`);
-while (queue.length) {
-  const file = queue.shift();
-  if (seen.has(file)) continue;
-  seen.add(file);
-  const rel = file.slice(ROOT.length + 1);
-  if (!ALLOWED.has(rel)) problems.push(`module before first pixel is not host glue: ${rel}`);
-  if (rel.startsWith('apps/')) problems.push(`app JS before first pixel: ${rel}`);
-  if (!existsSync(file)) { problems.push(`missing module: ${rel}`); continue; }
-  const src = readFileSync(file, 'utf8');
-  for (const m of src.matchAll(/^\s*import\s+(?:[^'"]+from\s+)?['"]([^'"]+)['"]/gm)) queue.push(resolve(dirname(file), m[1]));
-  for (const m of src.matchAll(/import\(\s*['"]([^'"]+)['"]\s*\)/g)) problems.push(`dynamic import before first pixel in ${rel}: ${m[1]}`);
+
+function localModule(root, from, specifier, problems) {
+  if (specifier.startsWith('./') || specifier.startsWith('../')) return resolve(dirname(from), specifier);
+  if (specifier.startsWith('/')) return resolve(root, '.' + specifier);
+  problems.push(`unsupported non-local module specifier in ${from.slice(root.length + 1)}: ${specifier}`);
+  return null;
 }
-const wasm = (html.match(/\.wasm/g) ?? []).length + [...seen].reduce((n, f) => n + (readFileSync(f, 'utf8').match(/\.wasm/g) ?? []).length, 0);
-console.log(`boot — modules reachable before first pixel: ${seen.size} (${[...seen].map((f) => f.slice(ROOT.length + 1)).join(', ') || 'none'}); wasm references: ${wasm}`);
-if (problems.length) { for (const p of problems) console.log('  ' + p); console.log(`${problems.length} violation(s).`); process.exit(1); }
-console.log('Within budget: host glue only, no app JS.');
+
+function run() {
+  const root = ROOT;
+  const page = resolve(root, 'host/web/index.html');
+  const problems = [];
+  if (!existsSync(page)) {
+    console.log('boot — host/web/index.html is missing; nothing to count, and the check must not pass on nothing.');
+    return 1;
+  }
+  const html = readFileSync(page, 'utf8');
+  if (!existsSync(resolve(root, 'rules/RULES.md')) || !/App JS executed before first pixel\s*\|\s*none/i.test(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))) {
+    problems.push('rules/RULES.md no longer declares "App JS executed before first pixel | none"; boot has no budget.');
+  }
+  const scripts = scriptTags(html, problems);
+  const external = scripts.filter((attrs) => attrs.has('src'));
+  const inline = scripts.length - external.length;
+  if (!external.length) problems.push('the page has no external host-glue script to count');
+  if (inline) problems.push(`${inline} inline <script> block(s) in the page; only the glue module may run.`);
+  const queue = [];
+  for (const attrs of external) {
+    const specifier = attrs.get('src');
+    if (!specifier) { problems.push('a <script src> has an empty source'); continue; }
+    const file = localModule(root, page, specifier, problems);
+    if (file) queue.push(file);
+  }
+
+  const seen = new Set();
+  const sources = new Map();
+  while (queue.length) {
+    const file = queue.shift();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const rel = file.slice(root.length + 1);
+    if (!ALLOWED.has(rel)) problems.push(`module before first pixel is not host glue: ${rel}`);
+    if (rel.startsWith('apps/')) problems.push(`app JS before first pixel: ${rel}`);
+    if (!existsSync(file)) { problems.push(`missing module: ${rel}`); continue; }
+    const source = readFileSync(file, 'utf8');
+    sources.set(file, source);
+    let module;
+    try { module = new vm.SourceTextModule(source, { identifier: file }); }
+    catch (error) { problems.push(`invalid module syntax in ${rel}: ${error.message}`); continue; }
+    if (/\bimport\s*\(/.test(codeOnly(source))) problems.push(`dynamic import before first pixel in ${rel}`);
+    for (const request of module.moduleRequests) {
+      const next = localModule(root, file, request.specifier, problems);
+      if (next) queue.push(next);
+    }
+  }
+  const wasm = (html.match(/\.wasm/g) ?? []).length + [...sources.values()].reduce((n, source) => n + (source.match(/\.wasm/g) ?? []).length, 0);
+  console.log(`boot — modules reachable before first pixel: ${seen.size} (${[...seen].map((file) => file.slice(root.length + 1)).join(', ') || 'none'}); wasm references: ${wasm}`);
+  if (problems.length) { for (const problem of problems) console.log('  ' + problem); console.log(`${problems.length} violation(s).`); return 1; }
+  console.log('Within budget: host glue only, no app JS.');
+  return 0;
+}
+
+const entry = process.argv[1]
+  && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
+if (entry) {
+  if (typeof vm.SourceTextModule !== 'function') {
+    const child = spawnSync(process.execPath, ['--experimental-vm-modules', '--no-warnings', ...process.argv.slice(1)], { cwd: process.cwd(), stdio: 'inherit' });
+    process.exit(child.status ?? 1);
+  }
+  process.exitCode = run();
+}

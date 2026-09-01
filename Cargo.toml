@@ -7,8 +7,8 @@ edition = "2021"
 version = "0.1.0"
 license = "MIT"
 
-# Taffy 0.9.2 plus two Exact patches (flex-basis cross-size clamp; a first-baseline
-# channel from measure-function leaves). See vendor/taffy/EXACT-PATCHES.md.
+# Taffy 0.9.2 plus five Exact patches. The inventory and update checklist live
+# in vendor/taffy/EXACT-PATCHES.md.
 [patch.crates-io]
 taffy = { path = "vendor/taffy" }
 

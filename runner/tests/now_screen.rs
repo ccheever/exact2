@@ -13,7 +13,10 @@ use exact_plan::{
     BindingKind, BindingsRow, Code, EventKind, Opcode, Plan, RegionKind, Stdlib, TypeKind, TypesId,
     Value,
 };
-use exact_runner::{DataError, DataSource, Event, Runner, RunnerError, Trap};
+use exact_runner::{
+    Carried, DataError, DataSource, Event, Runner, RunnerError, Trap, MAX_CLOCK_MS,
+    TIMER_FIRE_LIMIT,
+};
 
 /// The app's data crate, in miniature: a schedule and the queries over it.
 #[derive(Default)]
@@ -66,6 +69,93 @@ impl DataSource for Schedule {
             other => Err(DataError::UnknownSource(other.into())),
         }
     }
+}
+
+#[derive(Default)]
+struct CarriedStoreSource {
+    remember_asks: usize,
+}
+
+impl DataSource for CarriedStoreSource {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+
+    fn answer(
+        &mut self,
+        store: &mut exact_runner::Store,
+        source: &str,
+        _: &[Value],
+    ) -> Result<exact_runner::Answer, DataError> {
+        match source {
+            "remember" => {
+                self.remember_asks += 1;
+                Ok(exact_runner::Answer::Now(Value::str(
+                    store.get("token").unwrap_or(""),
+                )))
+            }
+            "write" => {
+                store.set("token", "new")?;
+                Ok(exact_runner::Answer::Now(Value::str("done")))
+            }
+            other => Err(DataError::UnknownSource(other.into())),
+        }
+    }
+
+    fn grants(&self) -> &'static str {
+        "secret.keep token\n"
+    }
+}
+
+fn carried_store_plan() -> Plan {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = b.primitive(TypeKind::String);
+    b.resource("remembered", "remember", &[], string, None);
+    let option_string = b.option(string);
+    let none = b.constant(&Value::NONE);
+    let result = b.slot("result", option_string, none);
+    let mutation = b.mutation("result", result, string);
+    let source = b.str("write");
+    let mut body = Asm::new();
+    body.send(mutation, source, 0);
+    let body = b.code(body);
+    b.action("changeStore", &[], &[result], body);
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    b.finish().unwrap()
+}
+
+#[test]
+fn carried_resources_keep_their_store_dependency_across_reload() {
+    let plan = carried_store_plan();
+    let mut runner = Runner::boot_stored(
+        plan.clone(),
+        CarriedStoreSource::default(),
+        Kernel::with_monospace(),
+        vec![("token".into(), "old".into())],
+    )
+    .unwrap();
+    assert_eq!(runner.data().remember_asks, 1);
+    assert!(runner.resource_reads_store("remembered"));
+    assert_eq!(runner.resource("remembered"), Some(&Value::str("old")));
+
+    let carried = runner.carry();
+    let mut reloaded = Runner::boot_carrying(
+        plan,
+        CarriedStoreSource::default(),
+        Kernel::with_monospace(),
+        &carried,
+    )
+    .unwrap();
+    assert_eq!(
+        reloaded.data().remember_asks,
+        0,
+        "the matching carried answer is reusable before the store changes"
+    );
+    assert!(reloaded.resource_reads_store("remembered"));
+
+    reloaded.act("changeStore", vec![]).unwrap();
+    assert_eq!(reloaded.data().remember_asks, 1);
+    assert_eq!(reloaded.resource("remembered"), Some(&Value::str("new")));
 }
 
 fn style_id(name: &str) -> u16 {
@@ -891,6 +981,47 @@ fn an_advance_stops_at_a_refusing_timer_with_the_refusal_and_the_clock() {
     assert_eq!(r.now_ms(), 2_000.0);
     let logs = exact_runner::agent::logs(&r, 0);
     assert!(logs.contains("timer 0 (tick) refused: Poisoned"), "{logs}");
+}
+
+#[test]
+fn clock_seeks_have_an_exact_domain_and_a_bounded_catch_up() {
+    let mut r = boot();
+    let before = r.kernel().export(None).unwrap();
+    let refused = r.advance_timed(f64::MAX);
+    assert!(refused.receipts.is_empty());
+    assert_eq!(refused.now_ms, 0.0);
+    assert!(matches!(refused.error, Some(RunnerError::ClockOutOfRange)));
+    assert_eq!(r.kernel().export(None).unwrap(), before);
+
+    let (plan, _) = now_screen();
+    let carried = Carried {
+        now_ms: MAX_CLOCK_MS + 1.0,
+        ..Carried::default()
+    };
+    let error = Runner::boot_carrying(
+        plan,
+        Schedule::default(),
+        Kernel::with_monospace(),
+        &carried,
+    )
+    .err()
+    .unwrap();
+    assert!(matches!(error, RunnerError::ClockOutOfRange));
+
+    let target = (TIMER_FIRE_LIMIT as f64 + 1.0) * 1_000.0;
+    let bounded = r.advance_timed(target);
+    assert_eq!(bounded.receipts.len(), TIMER_FIRE_LIMIT);
+    assert_eq!(bounded.now_ms, TIMER_FIRE_LIMIT as f64 * 1_000.0);
+    assert!(matches!(
+        bounded.error,
+        Some(RunnerError::TimerFireLimit {
+            limit: TIMER_FIRE_LIMIT
+        })
+    ));
+    let resumed = r.advance_timed(target);
+    assert_eq!(resumed.receipts.len(), 1);
+    assert_eq!(resumed.now_ms, target);
+    assert!(resumed.error.is_none());
 }
 
 /// The identity gate (LLP 1023 D5): a named plan boots only against the

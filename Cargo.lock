@@ -557,6 +557,8 @@ dependencies = [
  "ibex2",
  "libc",
  "png",
+ "serde",
+ "serde_json",
  "sha2",
  "tiny-skia",
  "vello",

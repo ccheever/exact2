@@ -53,6 +53,11 @@ pub struct NodeRef<'a> {
 }
 
 impl NodeRef<'_> {
+    /// Whether this text node is an inline run owned by a Text parent.
+    pub fn is_inline_run(&self) -> bool {
+        self.arena.is_inline_run(self.slot)
+    }
+
     /// Child wire ids, in order.
     pub fn children(&self) -> Vec<ViewId> {
         self.arena
@@ -166,6 +171,9 @@ impl Kernel {
         root: ViewId,
         offer: Offer,
     ) -> Result<LayoutReceipt, KernelError> {
+        if !offer.is_finite() {
+            return Err(LayoutError::InvalidOffer.into());
+        }
         let slot = self
             .arena
             .slot_of(root)
@@ -173,14 +181,14 @@ impl Kernel {
         if !self.arena.is_root(slot) {
             return Err(LayoutError::NotARoot(root).into());
         }
-        let changed = match layout::compute(
+        let result = match layout::compute(
             &mut self.arena,
             &mut self.layout,
             self.measurer.as_mut(),
             slot,
             offer,
         ) {
-            Ok(changed) => changed,
+            ok @ Ok(_) => ok,
             Err(LayoutError::Engine(_)) => {
                 // The engine tree is derived state: rebuild it from the columns and retry once.
                 self.layout = LayoutTree::rebuild(&mut self.arena);
@@ -190,7 +198,18 @@ impl Kernel {
                     self.measurer.as_mut(),
                     slot,
                     offer,
-                )?
+                )
+            }
+            Err(e) => Err(e),
+        };
+        let changed = match result {
+            Ok(changed) => changed,
+            Err(e @ LayoutError::InvalidTextMetrics(_)) => {
+                // Taffy may have cached the safe zero used to contain the bad
+                // callback result. Rebuild derived state so the next valid
+                // measurement retries instead of publishing that cache.
+                self.layout = LayoutTree::rebuild(&mut self.arena);
+                return Err(e.into());
             }
             Err(e) => return Err(e.into()),
         };
@@ -275,7 +294,7 @@ impl Kernel {
             Some(id) => Some(self.arena.slot_of(id).ok_or(LayoutError::UnknownView(id))?),
             None => None,
         };
-        Ok(export::encode(&self.arena, slot, self.epoch))
+        Ok(export::encode(&self.arena, slot, self.epoch)?)
     }
 
     /// The typed preorder rows for `root`, or for every root when `None`.
@@ -353,9 +372,7 @@ impl Kernel {
 
     /// Destroy every node and bump the incarnation. Keys minted before never resolve again.
     pub fn reset(&mut self) {
-        let env = *self.arena.env();
-        self.arena = NodeArena::new();
-        self.arena.set_env(env);
+        self.arena.reset();
         self.layout = LayoutTree::new();
         self.selectors.clear();
         self.receipts.clear();

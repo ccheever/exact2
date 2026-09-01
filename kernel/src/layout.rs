@@ -154,6 +154,7 @@ impl LayoutTree {
             height: to_available(offer.height),
         };
         let mut runs: Vec<TextRun<'_>> = Vec::new();
+        let mut invalid_metrics = None;
         let result = self.taffy.compute_layout_with_measure_and_baselines(
             root,
             available,
@@ -200,6 +201,10 @@ impl LayoutTree {
                     width,
                     height,
                 });
+                if !metrics.is_valid() {
+                    invalid_metrics.get_or_insert_with(|| arena.local_id(slot));
+                    return MeasureOutput::ZERO;
+                }
                 MeasureOutput {
                     size: Size {
                         width: known.width.unwrap_or(metrics.width),
@@ -212,7 +217,11 @@ impl LayoutTree {
                 }
             },
         );
-        result.map_err(|e| LayoutError::Engine(format!("compute_layout: {e:?}")))
+        result.map_err(|e| LayoutError::Engine(format!("compute_layout: {e:?}")))?;
+        if let Some(view) = invalid_metrics {
+            return Err(LayoutError::InvalidTextMetrics(view));
+        }
+        Ok(())
     }
 
     /// Reconstruct the whole engine tree from the arena's columns, writing the

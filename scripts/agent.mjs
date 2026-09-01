@@ -38,12 +38,20 @@ import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
-import { extname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { appBundle, bundleId, install, simulator } from '../host/apple/build.mjs';
+import { staticFile, webContentType } from '../host/web/serve.mjs';
 import { resolveApp } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Browser-process diagnostics that do not describe the page or Exact. Page
+ * exceptions and console errors arrive over CDP separately and remain logs. */
+export function browserDiagnosticNoise(line) {
+  return /crashpad|updater|gcm|VERBOSE|DevTools listening/i.test(line)
+    || /CVDisplayLinkCreateWithCGDisplay failed|CVReturn:\s*-6670/i.test(line);
+}
 
 // ---------------------------------------------------------------- web
 
@@ -93,17 +101,16 @@ class Cdp {
 async function openWeb({ plan, size = [420, 900] }) {
   const dist = resolve(ROOT, 'host/web/dist');
   if (!existsSync(resolve(dist, 'app.wasm'))) throw new Error('run node host/web/build.mjs first');
-  const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.png': 'image/png' };
   let gpuMs = null;
   const server = createServer((req, res) => {
     if (req.url.startsWith('/__gpu')) { gpuMs = Number(new URL(req.url, 'http://x').searchParams.get('ms')); res.writeHead(204); res.end(); return; }
     if (req.url === '/__plan' && plan) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(readFileSync(plan)); return; }
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
     const route = req.url.split('?')[0];
-    const path = resolve(dist, '.' + (route === '/' ? '/index.html' : route));
-    if (!path.startsWith(dist + '/') || !existsSync(path) || !path.match(/\.[a-z]+$/)) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'content-type': types[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
-    res.end(readFileSync(path));
+    const found = staticFile(dist, route);
+    if (!found) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
+    res.end(readFileSync(found.path));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const port = server.address().port;
@@ -116,7 +123,7 @@ async function openWeb({ plan, size = [420, 900] }) {
     '--no-default-browser-check', 'about:blank',
   ], { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
   const hostLines = [];
-  child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !/crashpad|updater|gcm|VERBOSE|DevTools listening/i.test(l)) hostLines.push('chrome: ' + l); });
+  child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) hostLines.push('chrome: ' + l); });
   const cdp = new Cdp(child.stdio[3], child.stdio[4]);
   const exited = new Promise((r) => child.on('exit', (code, signal) => { cdp.fail(`Chrome exited (${code ?? signal})`); r(); }));
   const close = async () => {
@@ -306,13 +313,20 @@ async function openIOS({ plan, app, env: extra = {} }) {
   const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, bundleId(a.crate('apple'))], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   const hostLines = [];
   for (const stream of [console_.stdout, console_.stderr]) stream.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !/^com\.exact\.\w+: \d+$/.test(l)) hostLines.push('app: ' + l); });
-  const consoleExited = new Promise((r) => console_.on('exit', r));
+  let consoleDone = false;
+  const consoleExited = new Promise((r) => console_.on('exit', (code, signal) => { consoleDone = true; r({ code, signal }); }));
   let pid = null;
   // The app binds the socket once its first frame is applied: connect when it appears.
   let socket = null;
   const t = Date.now();
   while (!socket) {
-    if (Date.now() - t > 20000) { try { console_.kill('SIGKILL'); } catch {} rmSync(dir, { recursive: true, force: true }); throw new Error('the app never opened its agent socket; ' + hostLines.join('\n')); }
+    if (consoleDone) { rmSync(dir, { recursive: true, force: true }); throw new Error('the simulator launch exited before opening its agent socket; ' + hostLines.join('\n')); }
+    if (Date.now() - t > 20000) {
+      try { console_.kill('SIGKILL'); } catch {}
+      await consoleExited;
+      rmSync(dir, { recursive: true, force: true });
+      throw new Error('the app never opened its agent socket; ' + hostLines.join('\n'));
+    }
     socket = await new Promise((ok) => { const s = connect(sock); s.once('connect', () => ok(s)); s.once('error', () => { s.destroy(); ok(null); }); });
     if (!socket) await sleep(50);
   }
@@ -324,7 +338,10 @@ async function openIOS({ plan, app, env: extra = {} }) {
     await Promise.race([exited, sleep(2000)]);
     if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
     await Promise.race([consoleExited, sleep(1000)]);
-    try { console_.kill('SIGKILL'); } catch {}
+    if (!consoleDone) {
+      try { console_.kill('SIGKILL'); } catch {}
+      await consoleExited;
+    }
     rmSync(dir, { recursive: true, force: true });
   };
   try {

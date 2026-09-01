@@ -174,3 +174,28 @@ fn frame_builder_streams_ops() {
     let frame = wire::decode(&bytes).unwrap();
     assert_eq!(frame.ops, ops);
 }
+
+#[test]
+fn every_nonempty_payload_padding_width_requires_zero_bytes() {
+    for remainder in 1..=7usize {
+        // SetProp(string) is 7 + string length bytes, so choose a length
+        // that realizes each possible nonzero payload remainder.
+        let string_len = (remainder + 1) % 8;
+        let op = Op::SetProp {
+            id: 1,
+            prop: PropId::Text,
+            value: "x".repeat(string_len).into(),
+        };
+        let mut bytes = wire::encode(0, 1, &[op]);
+        let header = wire::frame::HEADER_LEN;
+        let payload_len =
+            u32::from_le_bytes(bytes[header + 8..header + 12].try_into().unwrap()) as usize;
+        assert_eq!(payload_len % 8, remainder);
+        let padding = header + wire::frame::OP_HEADER_LEN + payload_len;
+        bytes[padding] = 0x80;
+        assert_eq!(
+            wire::decode(&bytes),
+            Err(DecodeError::NonZeroPadding { offset: padding })
+        );
+    }
+}

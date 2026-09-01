@@ -105,6 +105,18 @@ pub struct TextMetrics {
     pub first_baseline: Option<f32>,
 }
 
+impl TextMetrics {
+    pub(crate) fn is_valid(self) -> bool {
+        self.width.is_finite()
+            && self.width >= 0.0
+            && self.height.is_finite()
+            && self.height >= 0.0
+            && self
+                .first_baseline
+                .is_none_or(|baseline| baseline.is_finite() && baseline >= 0.0)
+    }
+}
+
 /// A host's text engine, injected per kernel.
 pub trait TextMeasurer {
     /// Size a paragraph under an offer.

@@ -23,7 +23,7 @@ pub mod expr;
 pub mod tags;
 
 use contract_analyze::Analysis;
-use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt};
+use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt, UnOp};
 use contract_types::{Ref, Scope, Ty, Types};
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
 use exact_plan::asm::Asm;
@@ -60,6 +60,18 @@ fn literal_text(e: &Expr) -> String {
         Expr::Bool(b, _) => format!("{b}"),
         _ => "…".into(),
     }
+}
+
+fn numeric_literal(e: &Expr) -> Option<f64> {
+    match e {
+        Expr::Number(n, _) => Some(*n),
+        Expr::Unary(UnOp::Neg, inner, _) => numeric_literal(inner).map(|n| -n),
+        _ => None,
+    }
+}
+
+fn whole_i64(n: f64) -> bool {
+    n.is_finite() && n.fract() == 0.0 && n >= i64::MIN as f64 && n < -(i64::MIN as f64)
 }
 
 /// The kernel's refusal of a style value, in an author's words.
@@ -117,6 +129,8 @@ pub(crate) struct Lowerer<'a> {
     pub fns: BTreeMap<String, FnDecl>,
     /// The region each `each` lowered to, by the inliner's tag (LLP 1017 P4c).
     pub each_regions: BTreeMap<u32, exact_plan::RegionsId>,
+    /// The item/binding scope at each expanded `each`, for row-slot initializers.
+    pub each_scopes: BTreeMap<u32, Scope>,
     /// Every generic and declared family name to its stack id.
     pub font_stacks: BTreeMap<String, StacksId>,
     /// Declared families, for the literal weight/style synthesis diagnostic.
@@ -175,6 +189,7 @@ pub fn lower(
             .collect(),
         fn_depth: 0,
         each_regions: BTreeMap::new(),
+        each_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
         declared_fonts: BTreeMap::new(),
     };
@@ -274,8 +289,10 @@ pub fn lower(
     // Bodies.
     let scope = types.component_scope(root, root_types);
     for (i, s) in root.states.iter().enumerate() {
-        let code = l.expr_code(&s.expr, &scope, 0)?;
-        l.b.set_slot_init(l.slots[i], code);
+        if ex.owners[i].is_none() {
+            let code = l.expr_code(&s.expr, &scope, 0)?;
+            l.b.set_slot_init(l.slots[i], code);
+        }
     }
     for (i, d) in root.derives.iter().enumerate() {
         let code = l.expr_code(&d.expr, &scope, 0)?;
@@ -366,6 +383,16 @@ pub fn lower(
                 ),
                 span: root.states[i].span,
             })?;
+            let item_scope = l.each_scopes.get(tag).cloned().ok_or_else(|| LowerError {
+                id: "lower-row-slot",
+                message: format!(
+                    "row slot `{}` names an `each` with no item scope",
+                    root.states[i].name
+                ),
+                span: root.states[i].span,
+            })?;
+            let init = l.expr_code(&root.states[i].expr, &item_scope, 0)?;
+            l.b.set_slot_init(l.slots[i], init);
             l.b.set_slot_owner(l.slots[i], region);
         }
     }
@@ -769,6 +796,7 @@ impl<'a> Lowerer<'a> {
                             first.span(),
                         );
                     };
+                    self.check_prop_value(tag, first, first.span(), prop, scope)?;
                     let code = self.expr_code(first, scope, locals)?;
                     bindings.push(BindingsRow {
                         kind: BindingKind::Prop,
@@ -888,6 +916,7 @@ impl<'a> Lowerer<'a> {
                     self.b
                         .region(RegionKind::Each, parent, arm, order, subject, key, 1);
                 self.each_regions.insert(*tag, r);
+                self.each_scopes.insert(*tag, inner.clone());
                 self.nodes(body, None, Some(arms[0]), &inner, locals, parent_tag)
             }
             Node::Match {
@@ -1154,9 +1183,29 @@ impl<'a> Lowerer<'a> {
 
     /// A prop attribute's value by the prop's type: text for most, a bool for
     /// `disabled`, a whole number for `aria-level`.
-    fn check_prop_value(&self, a: &Attr, prop: PropId, scope: &Scope) -> Result<(), LowerError> {
+    fn check_prop_value(
+        &self,
+        name: &str,
+        value: &Expr,
+        span: Span,
+        prop: PropId,
+        scope: &Scope,
+    ) -> Result<(), LowerError> {
         let want = tags::prop_ty(prop);
-        let ty = match &a.value {
+        if want == tags::PropTy::Int {
+            if let Some(number) = numeric_literal(value) {
+                if !whole_i64(number) {
+                    return err(
+                        "lower-attr-value",
+                        format!(
+                            "`{name}` takes a whole number in the signed 64-bit range; given {number}"
+                        ),
+                        span,
+                    );
+                }
+            }
+        }
+        let ty = match value {
             Expr::Number(_, _) => Some(Ty::Number),
             Expr::Str(_, _) | Expr::Template(_, _) => Some(Ty::String),
             Expr::Bool(_, _) => Some(Ty::Bool),
@@ -1175,7 +1224,7 @@ impl<'a> Lowerer<'a> {
                 "lower-attr-type",
                 format!(
                     "`{}` takes {}; this expression is `{}`",
-                    a.name,
+                    name,
                     match want {
                         tags::PropTy::Str => "a string",
                         tags::PropTy::Bool => "a bool",
@@ -1183,7 +1232,7 @@ impl<'a> Lowerer<'a> {
                     },
                     ty.unwrap_or(Ty::Unknown)
                 ),
-                a.span,
+                span,
             );
         }
         Ok(())
@@ -1281,7 +1330,7 @@ impl<'a> Lowerer<'a> {
                 }
             }
             tags::AttrTarget::Prop(prop) => {
-                self.check_prop_value(a, prop, scope)?;
+                self.check_prop_value(&a.name, &a.value, a.span, prop, scope)?;
                 let code = self.expr_code(&a.value, scope, locals)?;
                 bindings.push(BindingsRow {
                     kind: BindingKind::Prop,

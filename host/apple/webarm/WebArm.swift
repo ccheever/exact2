@@ -163,10 +163,12 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
 
     func wrapper(error: String?) -> String {
         let local = error.map(errorDocument) ?? src.flatMap(localDocument)
+        let remote = local == nil ? src.flatMap(remoteSource) : nil
         let source = local.map { " srcdoc=\"\(attribute($0))\"" }
-            ?? src.map { " src=\"\(attribute($0))\"" }
+            ?? remote.map { " src=\"\(attribute($0))\"" }
             ?? ""
         let restriction = sandbox.map { " sandbox=\"\(attribute($0))\"" } ?? ""
+        let expectedOrigin = javascript(guestOrigin(remote: remote, local: local != nil))
         return """
         <!doctype html><meta charset="utf-8">
         <style>html,body,iframe{margin:0;width:100%;height:100%;border:0;display:block}body{overflow:hidden}</style>
@@ -175,8 +177,13 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         (() => {
           const inner = document.getElementById('exact-frame');
           const castleUser = \(castleUserLiteral());
+          const guestOrigin = \(expectedOrigin);
+          let committed = false;
+          let navigated = false;
+          window.__exactRevokeGuest = () => { navigated = true; };
           addEventListener('message', event => {
             if (event.source !== inner.contentWindow) return;
+            if (navigated || guestOrigin === null || event.origin !== guestOrigin) return;
             let data = event.data;
             if (typeof data === 'string') {
               try { data = JSON.parse(data); } catch { data = null; }
@@ -184,10 +191,12 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
             if (data && data.castleSdk === 1) {
               if (data.lifecycle) return;
               if (typeof data.requestId === 'string') {
-                const reply = data.command === 'user.getCurrent'
-                  ? { castleSdk: 1, requestId: data.requestId, ok: true, data: { user: castleUser } }
-                  : { castleSdk: 1, requestId: data.requestId, ok: false, error: { code: 'UNAVAILABLE', message: 'This host does not implement ' + String(data.command) } };
-                inner.contentWindow.postMessage(reply, '*');
+                const reply = data.command === 'user.getCurrent' && guestOrigin === 'null'
+                  ? { castleSdk: 1, requestId: data.requestId, ok: false, error: { code: 'UNAVAILABLE', message: 'Identity is unavailable to an opaque guest' } }
+                  : data.command === 'user.getCurrent'
+                    ? { castleSdk: 1, requestId: data.requestId, ok: true, data: { user: castleUser } }
+                    : { castleSdk: 1, requestId: data.requestId, ok: false, error: { code: 'UNAVAILABLE', message: 'This host does not implement ' + String(data.command) } };
+                inner.contentWindow.postMessage(reply, guestOrigin === 'null' ? '*' : guestOrigin);
               }
               return;
             }
@@ -198,10 +207,39 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
             if (typeof payload !== 'string') return;
             webkit.messageHandlers.exact.postMessage(JSON.stringify({kind:'message', generation:\(generation), payload}));
           });
-          inner.addEventListener('load', () => webkit.messageHandlers.exact.postMessage(JSON.stringify({kind:'load', generation:\(generation)})));
+          inner.addEventListener('load', () => {
+            if (committed) navigated = true;
+            committed = true;
+            webkit.messageHandlers.exact.postMessage(JSON.stringify({kind:'load', generation:\(generation)}));
+          });
         })();
         </script>
         """
+    }
+
+    func remoteSource(_ source: String) -> String? {
+        guard let url = URL(string: source), let scheme = url.scheme?.lowercased() else { return nil }
+        return ["http", "https", "data", "about", "blob"].contains(scheme) ? source : nil
+    }
+
+    func guestOrigin(remote: String?, local: Bool) -> String? {
+        let tokens = Set((sandbox ?? "").split(whereSeparator: { $0.isWhitespace }).map(String.init))
+        if sandbox != nil, !tokens.contains("allow-same-origin") { return "null" }
+        if local { return "https://exact.invalid" }
+        guard let remote, let url = URL(string: remote),
+              let scheme = url.scheme?.lowercased(),
+              (scheme == "http" || scheme == "https"),
+              let host = url.host?.lowercased() else { return nil }
+        let shownHost = host.contains(":") ? "[\(host)]" : host
+        let defaultPort = scheme == "http" ? 80 : 443
+        let port = url.port.flatMap { $0 == defaultPort ? nil : ":\($0)" } ?? ""
+        return "\(scheme)://\(shownHost)\(port)"
+    }
+
+    func javascript(_ value: String?) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: value as Any, options: .fragmentsAllowed),
+              let text = String(data: data, encoding: .utf8) else { return "null" }
+        return text.replacingOccurrences(of: "<", with: "\\u003c")
     }
 
     func castleUserLiteral() -> String {
@@ -330,6 +368,10 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     ) {
         guard !invalidated else { decisionHandler(.cancel); return }
         guard navigationAction.targetFrame?.isMainFrame == true else {
+            // Once the injected guest agent identified the committed child,
+            // revoke its identity capability at the start of any subsequent
+            // child navigation, before the replacement document can run.
+            if guestFrame != nil { webView.evaluateJavaScript("window.__exactRevokeGuest?.()") }
             decisionHandler(.allow)
             return
         }

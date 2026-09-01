@@ -181,6 +181,40 @@ fn typing_replaces_the_value_and_the_runner_hears_one_change() {
 }
 
 #[test]
+fn disabled_controls_refuse_pointer_and_text_input() {
+    let source = r#"component Disabled
+  state count = 0
+  state value = "kept"
+  action press writes count
+    count = count + 1
+  action change(next: string) writes value
+    value = next
+  view
+    column
+      button press=press disabled=true testId="disabled-button"
+        text "Disabled"
+      input value=value change=change disabled=true testId="disabled-input"
+"#;
+    let plan = contract::compile(source).unwrap();
+    let (mut presenter, error) =
+        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+    assert!(error.is_none());
+    presenter.tap(view(&presenter, "disabled-button")).unwrap();
+    assert_eq!(
+        presenter.host().runner().slot("count"),
+        Some(&Value::Number(0.0))
+    );
+    let input = view(&presenter, "disabled-input");
+    assert!(presenter.type_text(input, "changed").is_err());
+    presenter.key(Some('x'), false, presenter.host().now());
+    assert_eq!(presenter.focus(), None);
+    assert_eq!(
+        presenter.host().runner().slot("value"),
+        Some(&Value::str("kept"))
+    );
+}
+
+#[test]
 fn a_wheel_scrolls_the_apps_scroll_node_and_the_page_stays() {
     // The app's page is the `scroll` inside the sky canvas (LLP 1014 §1a):
     // the wheel goes there, and the page — the viewport over a document

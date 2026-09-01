@@ -65,6 +65,7 @@ exact.gpu = {
     if (!el) return;
     let entry = surfaces.get(view);
     if (entry && entry.el !== el) { this.destroy(view); entry = null; } // a reload reuses ids
+    if (entry && entry.name !== name) { this.destroy(view); entry = null; } // one id cannot retain another plan's surface
     if (!entry) { entry = { el, name, values, id: 0, wants: false }; surfaces.set(view, entry); ensure(entry); return; }
     entry.values = values;
     if (entry.id) { if (!gpu.gpu_bind(entry.id, JSON.stringify(values))) console.error("exact gpu:", gpu.gpu_error()); schedule(); }
@@ -91,6 +92,6 @@ loaded = true;
 exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
 // A smoke run asks (`?smoke=1`) to be told when the module is up.
 if (new URLSearchParams(location.search).get("smoke") === "1") navigator.sendBeacon(`/__gpu?ms=${exact.root.dataset.gpuMs}`);
-for (const s of exact.pendingSurfaces ?? []) exact.gpu.surface(s.id, s.name, s.values);
+for (const s of exact.pendingSurfaces ?? []) if (s.generation === exact.generation) exact.gpu.surface(s.id, s.name, s.values);
 exact.pendingSurfaces = [];
 for (const entry of surfaces.values()) ensure(entry);

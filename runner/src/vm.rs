@@ -66,6 +66,10 @@ pub struct Env<'a> {
     pub pending_resources: &'a [bool],
     /// Whether each mutation has a request in flight.
     pub pending_mutations: &'a [bool],
+    /// Store dependence of settled derives, for bake provenance propagation.
+    pub store_dependent_derives: &'a [bool],
+    /// Store dependence of settled resources, for bake provenance propagation.
+    pub store_dependent_resources: &'a [bool],
 }
 
 /// A typed evaluation failure. The plan was validated, so a trap is a
@@ -134,6 +138,8 @@ pub struct Outcome {
     pub sends: Vec<(u32, String, Vec<Value>)>,
     /// Resources to re-request with their current arguments.
     pub refreshes: Vec<u32>,
+    /// The evaluated path read a value derived from the durable store.
+    pub store_dependent: bool,
 }
 
 /// Evaluate `code` in `env`. `allowed_writes` bounds `StoreSlot`; an action
@@ -201,20 +207,36 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 };
                 stack.push(v);
             }
-            Opcode::LoadDerive => stack.push(
-                env.derives
-                    .get(args[0] as usize)
+            Opcode::LoadDerive => {
+                let derive = args[0] as usize;
+                let value = env
+                    .derives
+                    .get(derive)
                     .ok_or(malformed(pc))?
                     .clone()
-                    .ok_or(Trap::Pending { pc })?,
-            ),
-            Opcode::LoadResource => stack.push(
-                env.resources
-                    .get(args[0] as usize)
+                    .ok_or(Trap::Pending { pc })?;
+                out.store_dependent |= env
+                    .store_dependent_derives
+                    .get(derive)
+                    .copied()
+                    .unwrap_or(false);
+                stack.push(value);
+            }
+            Opcode::LoadResource => {
+                let resource = args[0] as usize;
+                let value = env
+                    .resources
+                    .get(resource)
                     .ok_or(malformed(pc))?
                     .clone()
-                    .ok_or(Trap::Pending { pc })?,
-            ),
+                    .ok_or(Trap::Pending { pc })?;
+                out.store_dependent |= env
+                    .store_dependent_resources
+                    .get(resource)
+                    .copied()
+                    .unwrap_or(false);
+                stack.push(value);
+            }
             Opcode::LoadParam => stack.push(env.params.get(args[0] as usize).cloned().ok_or(
                 Trap::BadParam {
                     pc,

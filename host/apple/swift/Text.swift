@@ -74,6 +74,30 @@ enum Text {
     nonisolated(unsafe) static var paragraphs: [Int: Paragraph] = [:]
     nonisolated(unsafe) private static var catalog: [Int: [RegisteredFace]] = [:]
 
+    /// The live plan's exact text state while a reload candidate boots.
+    /// Dictionary copies retain the already-shaped paragraphs and fonts;
+    /// candidate `removeAll` calls detach through copy-on-write.
+    final class Checkpoint {
+        private let fonts: [String: PlatformFont]
+        private let paragraphs: [Int: Paragraph]
+        private let catalog: [Int: [RegisteredFace]]
+
+        fileprivate init() {
+            fonts = Text.fonts
+            paragraphs = Text.paragraphs
+            catalog = Text.catalog
+        }
+
+        fileprivate func restore() {
+            Text.fonts = fonts
+            Text.paragraphs = paragraphs
+            Text.catalog = catalog
+        }
+    }
+
+    static func checkpoint() -> Checkpoint { Checkpoint() }
+    static func restore(_ checkpoint: Checkpoint) { checkpoint.restore() }
+
     /// Replace the entire plan-scoped catalog before layout. Clearing both
     /// caches is the plan identity in their keys (LLP 1019 D4).
     static func install(_ pointer: UnsafePointer<ExactFontCatalog>?) {

@@ -360,3 +360,44 @@ fn clearing_the_row_makes_later_changes_immediate() {
         Some(Value::scalar(0.0))
     );
 }
+
+#[test]
+fn reset_slot_reuse_cannot_inherit_retained_motion_state() {
+    let (mut kernel, mut engine, old_node) = boot(linear_all(1.0));
+    assert_eq!(
+        engine.value(old_node, Property::Opacity),
+        Some(Value::scalar(1.0))
+    );
+
+    kernel.reset();
+    let receipt = kernel
+        .apply(
+            0,
+            2,
+            &[
+                Op::CreateView {
+                    id: 2,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 2,
+                    patch: opacity(0.25),
+                },
+                Op::AttachRoot { id: 2 },
+            ],
+        )
+        .unwrap();
+    let new_node = motion_node(kernel.node(2).unwrap().key);
+    assert_ne!(new_node, old_node);
+    kernel.motion_sync(&receipt).apply(&mut engine).unwrap();
+
+    assert_eq!(
+        engine.value(old_node, Property::Opacity),
+        Some(Value::scalar(1.0)),
+        "the retained cache entry still names only the old allocation"
+    );
+    assert_eq!(
+        engine.value(new_node, Property::Opacity),
+        Some(Value::scalar(0.25))
+    );
+}

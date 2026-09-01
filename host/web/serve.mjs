@@ -1,35 +1,99 @@
 #!/usr/bin/env node
-// Serve host/web/dist for a browser — and, via the static exact.json the
-// build emitted, for a native client (LLP 1023 D1). LAN by default (D8);
-// --loopback (or EXACT_LOOPBACK=1) binds 127.0.0.1 only.
+// Serve the current web build for a browser — and, through exact.json, for
+// a native client (LLP 1023 D1). LAN by default (D8); --loopback (or
+// EXACT_LOOPBACK=1) binds 127.0.0.1 only.
 // Usage: node host/web/serve.mjs [port=8765] [--loopback]
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { realpathSync, statSync, readFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
-import { resolve, extname } from 'node:path';
+import { extname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const dist = resolve(new URL('./dist', import.meta.url).pathname);
-if (!existsSync(resolve(dist, 'app.wasm'))) { console.error('run node host/web/build.mjs first'); process.exit(2); }
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan', '.png': 'image/png' };
-const argv = process.argv.slice(2);
-const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
-const port = Number(argv.find((a) => !a.startsWith('--')) ?? 8765);
-const host = loopback ? '127.0.0.1' : '0.0.0.0';
-createServer((req, res) => {
-  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
-  try {
-    const file = req.url === '/' ? '/index.html' : req.url.split('?')[0];
-    const path = resolve(dist, '.' + file);
-    if (!path.startsWith(dist + '/') || !existsSync(path) || !statSync(path).isFile()) { res.writeHead(404); res.end(); return; }
-    const type = file === '/exact.json' ? 'application/vnd.exact.envelope+json' : types[extname(path)] ?? 'application/octet-stream';
-    res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
-    res.end(readFileSync(path));
-  } catch { try { res.writeHead(500); res.end(); } catch { /* mid-write */ } }
-}).listen(port, host, () => {
-  const urls = [`http://127.0.0.1:${port}/`];
-  if (!loopback) {
-    const priv = (a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
-    urls.push(...Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal && a.family === 'IPv4').map((a) => a.address).sort((a, b) => priv(b) - priv(a)).map((a) => `http://${a}:${port}/`));
+const PUBLIC_FILES = new Set([
+  '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/gpu-glue.js',
+  '/gpu.js', '/gpu_bg.wasm', '/index.html',
+]);
+const PUBLIC_TREES = ['/assets/', '/deck/'];
+
+/** Resolve one URL path to the current build, or to the stable previous tree
+ * while build.mjs has renamed the current one aside. Generated top-level
+ * files are explicit; app assets live only under the two replaced trees. Dot
+ * paths and every symlink are private, even when their target is inside a
+ * build. Returns null for anything that must not be served. */
+export function staticFile(dist, pathname) {
+  let route;
+  try { route = decodeURIComponent(pathname === '/' ? '/index.html' : pathname); }
+  catch { return null; }
+  if (!route.startsWith('/') || route.includes('\\') || route.includes('\0')) return null;
+  const parts = route.split('/').filter(Boolean);
+  if (parts.some((part) => part.startsWith('.'))) return null;
+  if (!PUBLIC_FILES.has(route) && !PUBLIC_TREES.some((tree) => route.startsWith(tree))) return null;
+  // A complete current build is authoritative even when it lacks an optional
+  // route (notably GPU files). Consult previous only while the current root
+  // itself is absent; otherwise two apps' artifacts could be mixed.
+  let root;
+  try { root = realpathSync(dist); }
+  catch {
+    try { root = realpathSync(`${dist}.previous`); }
+    catch { return null; }
   }
-  console.log(urls.join('\n') + '\n  (serving host/web/dist; ctrl-c to stop)');
-});
+  try {
+    const path = resolve(root, '.' + route);
+    if (!path.startsWith(root + '/')) return null;
+    const real = realpathSync(path);
+    // Reject both a symlink file and a file reached through a symlink dir.
+    if (real !== path || !real.startsWith(root + '/') || !statSync(real).isFile()) return null;
+    return { path: real, route };
+  } catch { return null; }
+}
+
+/** Resolve and read together, retrying when a build rename moved the path
+ * between those operations. The opened response is wholly old or wholly
+ * new; a request never observes the rename window as a synthetic 404. */
+export function readStaticFile(dist, pathname) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const found = staticFile(dist, pathname);
+    if (!found) continue;
+    try { return { ...found, body: readFileSync(found.path) }; }
+    catch { /* retry against dist or dist.previous */ }
+  }
+  return null;
+}
+
+export function webContentType(route) {
+  if (route === '/exact.json') return 'application/vnd.exact.envelope+json';
+  return {
+    '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json',
+    '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2',
+  }[extname(route).toLowerCase()] ?? 'application/octet-stream';
+}
+
+function main() {
+  const dist = resolve(new URL('./dist', import.meta.url).pathname);
+  if (!staticFile(dist, '/app.wasm')) { console.error('run node host/web/build.mjs first'); return 2; }
+  const argv = process.argv.slice(2);
+  const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
+  const port = Number(argv.find((a) => !a.startsWith('--')) ?? 8765);
+  const host = loopback ? '127.0.0.1' : '0.0.0.0';
+  createServer((req, res) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
+    const found = readStaticFile(dist, new URL(req.url, 'http://exact.invalid').pathname);
+    if (!found) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : found.body);
+  }).listen(port, host, () => {
+    const urls = [`http://127.0.0.1:${port}/`];
+    if (!loopback) {
+      const priv = (a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
+      urls.push(...Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal && a.family === 'IPv4').map((a) => a.address).sort((a, b) => priv(b) - priv(a)).map((a) => `http://${a}:${port}/`));
+    }
+    console.log(urls.join('\n') + '\n  (serving host/web/dist; ctrl-c to stop)');
+  });
+  return 0;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = main();
+}

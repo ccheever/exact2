@@ -93,11 +93,11 @@ pub fn destroy(id: u32) {
 
 /// The last failure's text.
 pub fn error() -> String {
-    let own = ERROR.with(|s| s.borrow().clone());
+    let own = ERROR.with(|s| std::mem::take(&mut *s.borrow_mut()));
     if !own.is_empty() {
         return own;
     }
-    with(|m| m.error().to_string()).unwrap_or_default()
+    with(|m| m.take_error()).unwrap_or_default()
 }
 
 /// The exports for one app's registry, wasm-bindgen (see LLP 1009 D2).

@@ -65,6 +65,8 @@ component App
 struct Castle {
     balance_asks: usize,
     later: bool,
+    fail_parse: bool,
+    fail_empty_balance: bool,
 }
 
 fn session(ok: bool, username: &str, error: &str) -> Value {
@@ -80,6 +82,9 @@ impl DataSource for Castle {
         match source {
             "balance" => {
                 self.balance_asks += 1;
+                if self.fail_empty_balance && args[0].as_str() == Some("") {
+                    return Err(DataError::Unavailable("empty balance refused".into()));
+                }
                 let n = if args[0].as_str() == Some("") {
                     0.0
                 } else {
@@ -115,6 +120,9 @@ impl DataSource for Castle {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Value, DataError> {
+        if self.fail_parse && source == "login" {
+            return Err(DataError::Unavailable("parse refused".into()));
+        }
         match (source, outcome) {
             ("login", Outcome::Response(r)) if r.status == 200 => {
                 Ok(session(true, args[0].as_str().unwrap_or(""), ""))
@@ -242,6 +250,61 @@ fn send_asks_the_host_and_fulfill_fills_the_slot() {
     )
     .unwrap();
     assert_eq!(text_of(&r, "error").as_deref(), Some("no route"));
+}
+
+#[test]
+fn a_failed_fulfill_keeps_the_ticket_for_retry() {
+    let mut r = boot();
+    r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
+    let ticket = r.take_requests()[0].ticket;
+    r.data().fail_parse = true;
+
+    assert!(matches!(
+        r.fulfill(ticket, ok(200)),
+        Err(RunnerError::Data {
+            error: DataError::Unavailable(ref message),
+            ..
+        }) if message == "parse refused"
+    ));
+    assert_eq!(r.pending(), vec![("session".to_string(), ticket)]);
+    assert!(r.has_pending());
+
+    r.data().fail_parse = false;
+    assert!(r.fulfill(ticket, ok(200)).unwrap().is_some());
+    assert!(r.pending().is_empty());
+}
+
+#[test]
+fn a_refused_mutation_assignment_keeps_the_previous_ticket() {
+    let mut r = boot();
+    r.dispatch(view_of(&r, "who"), Event::Change("ada".into()))
+        .unwrap();
+    r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
+    let first = r.take_requests()[0].ticket;
+    r.fulfill(first, ok(200)).unwrap();
+
+    // A second login is in flight while the prior successful value remains
+    // in the mutation slot. Logout tentatively assigns `none`, which changes
+    // balance's arguments and makes settlement refuse.
+    r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
+    let wanted = r.take_requests()[0].ticket;
+    r.data().fail_empty_balance = true;
+    assert!(matches!(
+        r.dispatch(view_of(&r, "logout"), Event::Press),
+        Err(RunnerError::Data {
+            error: DataError::Unavailable(ref message),
+            ..
+        }) if message == "empty balance refused"
+    ));
+    assert!(matches!(r.slot("session"), Some(Value::Option(Some(_)))));
+    assert_eq!(r.pending(), vec![("session".to_string(), wanted)]);
+    assert!(
+        r.take_requests().is_empty(),
+        "the refused logout sent nothing"
+    );
+
+    r.data().fail_empty_balance = false;
+    assert!(r.fulfill(wanted, ok(200)).unwrap().is_some());
 }
 
 #[test]
@@ -376,4 +439,302 @@ fn a_derive_over_a_matched_record_types_in_any_order() {
     let bad = src.replace("current.ok", "current.nope");
     let err = contract::compile(&bad).unwrap_err();
     assert_eq!(err.id, "type-unknown-field");
+}
+
+const POISON_SRC: &str = r#"
+shape Item
+  id: string
+
+shape Effect
+  ok: bool
+
+component App
+  state trigger = 0
+  resource items = items(trigger) as shape list<Item>
+  mutation effect as shape Effect
+
+  action go writes trigger, effect
+    send effect = effect()
+    trigger = trigger + 1
+    setScheme("dark")
+
+  view
+    column testId="root"
+      each item in items key=item.id
+        text item.id
+"#;
+
+struct PoisonSource;
+
+impl DataSource for PoisonSource {
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "items" if args[0].as_number() == Some(0.0) => {
+                Ok(Value::list(vec![Value::record(vec![Value::str("one")])]))
+            }
+            "items" => Ok(Value::list(vec![
+                Value::record(vec![Value::str("duplicate")]),
+                Value::record(vec![Value::str("duplicate")]),
+            ])),
+            other => Err(DataError::UnknownSource(other.into())),
+        }
+    }
+
+    fn answer(
+        &mut self,
+        store: &mut exact_runner::Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        match source {
+            "effect" => {
+                store.set("token", "not-committed")?;
+                Ok(Answer::Later(Request::post_json(
+                    "https://api.castle.test/effect",
+                    "{}",
+                )))
+            }
+            _ => self.query(source, args).map(Answer::Now),
+        }
+    }
+
+    fn grants(&self) -> &'static str {
+        "secret.keep token\n"
+    }
+}
+
+#[test]
+fn poison_leaks_no_effects_from_the_failed_commit() {
+    let plan = contract::compile(POISON_SRC).unwrap();
+    let baked = contract::bake(plan, PoisonSource).unwrap();
+    let mut r = Runner::boot(baked, PoisonSource, Kernel::with_monospace()).unwrap();
+
+    assert!(matches!(
+        r.act("go", vec![]),
+        Err(RunnerError::Instance(
+            exact_runner::instance::InstanceError::DuplicateKey { .. }
+        ))
+    ));
+    assert!(r.is_poisoned());
+    assert!(r.take_commands().is_empty());
+    assert!(r.take_requests().is_empty());
+    assert!(r.pending().is_empty());
+    assert!(r.take_store_writes().is_empty());
+    assert!(r.store_names().is_empty());
+}
+
+const STORE_SRC: &str = r#"
+shape Session
+  username: string
+
+shape Flag
+  value: bool
+
+component App
+  state clear = false
+  resource remembered = remember() as shape Session
+  resource echoed = echo(remembered.username) as shape Session
+  resource writer = writer(clear) as shape Flag
+  mutation session as shape Session
+
+  action submit writes session
+    send session = login()
+  action logout writes session
+    send session = logout()
+  action clearStore writes clear
+    clear = true
+
+  view
+    column
+      text remembered.username testId="remembered"
+      text echoed.username testId="echoed"
+"#;
+
+#[derive(Default)]
+struct StoreSource {
+    remember_asks: usize,
+    login_later: bool,
+}
+
+impl DataSource for StoreSource {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+
+    fn answer(
+        &mut self,
+        store: &mut exact_runner::Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        match source {
+            "remember" => {
+                self.remember_asks += 1;
+                Ok(Answer::Now(Value::record(vec![Value::str(
+                    store.get("session").unwrap_or(""),
+                )])))
+            }
+            "echo" => Ok(Answer::Now(Value::record(vec![args[0].clone()]))),
+            "login" if self.login_later => Ok(Answer::Later(Request::post_json(
+                "https://api.castle.test/login",
+                "{}",
+            ))),
+            "logout" if self.login_later => {
+                store.forget("session")?;
+                Ok(Answer::Later(Request::post_json(
+                    "https://api.castle.test/logout",
+                    "{}",
+                )))
+            }
+            "writer" if args[0].as_bool() == Some(false) => {
+                Ok(Answer::Now(Value::record(vec![Value::Bool(false)])))
+            }
+            "writer" => {
+                store.forget("session")?;
+                Ok(Answer::Now(Value::record(vec![Value::Bool(true)])))
+            }
+            other => Err(DataError::UnknownSource(other.into())),
+        }
+    }
+
+    fn parse(
+        &mut self,
+        store: &mut exact_runner::Store,
+        source: &str,
+        _: &[Value],
+        _: Outcome,
+    ) -> Result<Value, DataError> {
+        if source != "login" {
+            return Err(DataError::UnknownSource(source.into()));
+        }
+        store.set("session", "ada")?;
+        Ok(Value::record(vec![Value::str("ada")]))
+    }
+
+    fn grants(&self) -> &'static str {
+        "secret.keep session\n"
+    }
+}
+
+#[test]
+fn a_parse_store_write_reanswers_store_reading_resources() {
+    let plan = contract::compile(STORE_SRC).unwrap();
+    let baked = contract::bake(plan, StoreSource::default()).unwrap();
+    let mut r = Runner::boot_stored(
+        baked,
+        StoreSource {
+            login_later: true,
+            ..StoreSource::default()
+        },
+        Kernel::with_monospace(),
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(r.data().remember_asks, 1);
+    assert_eq!(
+        r.resource("remembered"),
+        Some(&Value::record(vec![Value::str("")]))
+    );
+
+    r.act("submit", vec![]).unwrap();
+    let ticket = r.take_requests()[0].ticket;
+    r.fulfill(ticket, ok(200)).unwrap();
+
+    assert_eq!(r.data().remember_asks, 2);
+    assert_eq!(
+        r.resource("remembered"),
+        Some(&Value::record(vec![Value::str("ada")]))
+    );
+    assert_eq!(
+        r.take_store_writes(),
+        vec![exact_runner::StoreWrite {
+            name: "session".into(),
+            value: Some("ada".into()),
+        }]
+    );
+}
+
+#[test]
+fn a_mutation_answer_store_write_reanswers_store_reading_resources() {
+    let plan = contract::compile(STORE_SRC).unwrap();
+    let baked = contract::bake(plan, StoreSource::default()).unwrap();
+    let mut r = Runner::boot_stored(
+        baked,
+        StoreSource {
+            login_later: true,
+            ..StoreSource::default()
+        },
+        Kernel::with_monospace(),
+        vec![("session".into(), "ada".into())],
+    )
+    .unwrap();
+    assert_eq!(
+        r.resource("remembered"),
+        Some(&Value::record(vec![Value::str("ada")]))
+    );
+
+    r.act("logout", vec![]).unwrap();
+
+    assert_eq!(r.data().remember_asks, 2);
+    assert_eq!(
+        r.resource("remembered"),
+        Some(&Value::record(vec![Value::str("")]))
+    );
+    assert_eq!(r.take_requests().len(), 1);
+    assert_eq!(r.take_store_writes()[0].value, None);
+}
+
+#[test]
+fn a_resource_answer_store_write_reanswers_an_earlier_store_reader() {
+    let plan = contract::compile(STORE_SRC).unwrap();
+    let baked = contract::bake(plan, StoreSource::default()).unwrap();
+    let mut r = Runner::boot_stored(
+        baked,
+        StoreSource {
+            login_later: true,
+            ..StoreSource::default()
+        },
+        Kernel::with_monospace(),
+        vec![("session".into(), "ada".into())],
+    )
+    .unwrap();
+    assert_eq!(
+        r.resource("remembered"),
+        Some(&Value::record(vec![Value::str("ada")]))
+    );
+
+    r.act("clearStore", vec![]).unwrap();
+
+    assert_eq!(r.data().remember_asks, 2);
+    assert_eq!(
+        r.resource("remembered"),
+        Some(&Value::record(vec![Value::str("")]))
+    );
+    assert_eq!(r.take_store_writes()[0].value, None);
+}
+
+#[test]
+fn a_baked_store_dependency_is_transitive_through_resource_arguments() {
+    let plan = contract::compile(STORE_SRC).unwrap();
+    let baked = contract::bake(plan, StoreSource::default()).unwrap();
+    for name in ["remembered", "echoed"] {
+        let row = baked
+            .resources
+            .iter()
+            .find(|row| baked.str(row.name) == name)
+            .unwrap();
+        assert_eq!(row.initial.len, 0, "{name} must be answered on the device");
+    }
+
+    let r = Runner::boot_stored(
+        baked,
+        StoreSource::default(),
+        Kernel::with_monospace(),
+        vec![("session".into(), "ada".into())],
+    )
+    .unwrap();
+    assert_eq!(
+        r.resource("echoed"),
+        Some(&Value::record(vec![Value::str("ada")]))
+    );
 }

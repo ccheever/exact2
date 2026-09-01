@@ -43,7 +43,9 @@ pub mod text;
 pub mod txn;
 pub mod wire;
 
-pub use error::{ApplyError, DecodeError, KernelError, LayoutError, StyleValueError};
+pub use error::{
+    ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
+};
 pub use generated::*;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
 pub use kernel::{Kernel, NodeRef};

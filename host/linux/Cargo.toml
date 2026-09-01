@@ -29,6 +29,8 @@ exact-runner = { path = "../../runner" }
 # (its OQ2) — from the sibling checkout, as the Apple host takes it.
 ibex2 = { path = "../../../ibex/crates/ibex2", default-features = false }
 sha2 = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 tiny-skia = "0.12"
 cosmic-text = { version = "0.19", features = ["peniko"] }
 png = "0.18"

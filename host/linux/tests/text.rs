@@ -13,9 +13,46 @@ use std::path::PathBuf;
 
 struct NoData;
 impl DataSource for NoData {
+    fn app_id(&self) -> &str {
+        "com.example"
+    }
+
     fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(s.into()))
     }
+}
+
+#[test]
+fn a_rejected_reload_keeps_the_running_font_catalog() {
+    pin_font();
+    let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts/fixtures/fonts");
+    let plan = contract::compile_path(&assets.join("app.contract")).unwrap();
+    let (mut presenter, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (390.0, 844.0),
+        1.0,
+        assets,
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let before = presenter
+        .text()
+        .borrow_mut()
+        .declared_face_id(8, 400, false)
+        .unwrap();
+
+    let mut refused = contract::compile(WEIGHTS).unwrap();
+    refused.app_id = "com.foreign".into();
+    assert!(presenter.reload(&refused.encode(), NoData).is_err());
+    assert_eq!(
+        presenter
+            .text()
+            .borrow_mut()
+            .declared_face_id(8, 400, false),
+        Some(before)
+    );
 }
 
 /// The pinned font (LLP 1015 §3), set once before the first engine is made.

@@ -13,9 +13,40 @@
 //! the limitation and the direct URL fixes it. Every line goes to stderr —
 //! in agent mode stdout is the protocol.
 
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 const ENVELOPE_TYPE: &str = "application/vnd.exact.envelope+json";
+const MAX_ENVELOPE_BYTES: usize = 64 * 1024;
+
+#[derive(Deserialize)]
+#[allow(dead_code)]
+struct Envelope {
+    exact: u64,
+    #[allow(dead_code)]
+    app: Option<AppCard>,
+    plan: PlanCard,
+    seq: Option<u64>,
+    events: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[allow(dead_code)]
+struct AppCard {
+    id: Option<String>,
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+#[allow(dead_code)]
+struct PlanCard {
+    url: String,
+    sha256: String,
+    bytes: u64,
+    formatVersion: Option<u32>,
+    kernelSchema: Option<String>,
+}
 
 /// The env locator accepts a path or a URL; this decides which.
 pub fn is_url(v: &str) -> bool {
@@ -36,8 +67,9 @@ pub fn fetch_app(page: &str) -> Result<Vec<u8>, String> {
     if status != 200 {
         return Err(format!("{page}: HTTP {status}"));
     }
-    let envelope = if body.first() == Some(&b'{') {
-        String::from_utf8_lossy(&body).into_owned()
+    let (envelope, envelope_base) = if body.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{')
+    {
+        (decode_envelope(&body)?, page.to_string())
     } else {
         // The link rung: a bounded, parser-free scan of the page's first
         // 16 KB (exact1 LLP 0268's rule) for the alternate-representation
@@ -51,27 +83,23 @@ pub fn fetch_app(page: &str) -> Result<Vec<u8>, String> {
         if status != 200 {
             return Err(format!("{url}: HTTP {status}"));
         }
-        String::from_utf8_lossy(&body).into_owned()
+        (decode_envelope(&body)?, url)
     };
-    let major =
-        int_field(&envelope, "\"exact\":").ok_or("no \"exact\" version — not an envelope")?;
-    if major != 1 {
-        return Err(format!("envelope version {major} is newer than this host"));
+    if envelope.exact != 1 {
+        return Err(format!(
+            "envelope version {} is newer than this host",
+            envelope.exact
+        ));
     }
-    let plan = envelope
-        .find("\"plan\":")
-        .map(|at| &envelope[at..])
-        .ok_or("the envelope names no plan")?;
-    let path = str_field(plan, "\"url\":\"").ok_or("the envelope's plan has no url")?;
-    let sha = str_field(plan, "\"sha256\":\"").ok_or("the envelope's plan has no sha256")?;
-    let count = int_field(plan, "\"bytes\":").ok_or("the envelope's plan has no bytes")?;
-    let url = join(page, &path)?;
+    let count = usize::try_from(envelope.plan.bytes)
+        .map_err(|_| "the envelope's plan byte count is too large".to_string())?;
+    let url = join(&envelope_base, &envelope.plan.url)?;
     same_host(page, &url)?;
     let (status, bytes) = get(&url, "application/vnd.exact.plan")?;
     if status != 200 {
         return Err(format!("{url}: HTTP {status}"));
     }
-    if bytes.len() as i64 != count {
+    if bytes.len() != count {
         return Err(format!(
             "plan is {} bytes, envelope said {count}; refusing it",
             bytes.len()
@@ -79,10 +107,19 @@ pub fn fetch_app(page: &str) -> Result<Vec<u8>, String> {
     }
     let digest = Sha256::digest(&bytes);
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    if hex != sha.to_lowercase() {
+    if hex != envelope.plan.sha256.to_lowercase() {
         return Err(format!("plan sha256 mismatch at {url}; refusing it"));
     }
     Ok(bytes)
+}
+
+fn decode_envelope(body: &[u8]) -> Result<Envelope, String> {
+    if body.len() > MAX_ENVELOPE_BYTES {
+        return Err(format!(
+            "envelope exceeded the {MAX_ENVELOPE_BYTES}-byte limit"
+        ));
+    }
+    serde_json::from_slice(body).map_err(|error| format!("invalid Exact envelope: {error}"))
 }
 
 fn envelope_link(html: &[u8]) -> Option<String> {
@@ -131,34 +168,93 @@ fn join(base: &str, href: &str) -> Result<String, String> {
     ))
 }
 
-/// Same-origin only in v1 (LLP 1023 D2): host and port must match the page's.
+/// Same-origin only in v1 (LLP 1023 D2): scheme, host, and effective port
+/// must match the page's. Explicit default ports equal their implicit form.
 fn same_host(page: &str, url: &str) -> Result<(), String> {
-    let host = |u: &str| {
-        u.split_once("://").map(|(_, rest)| {
-            rest.split(['/', '?', '#'])
-                .next()
-                .unwrap_or(rest)
-                .to_string()
-        })
-    };
-    if host(page) == host(url) {
+    if origin(page).is_some() && origin(page) == origin(url) {
         Ok(())
     } else {
         Err(format!("refused: {url} is not on {page}"))
     }
 }
 
-fn str_field(json: &str, needle: &str) -> Option<String> {
-    let at = json.find(needle)? + needle.len();
-    let end = at + json[at..].find('"')?;
-    Some(json[at..end].to_string())
+fn origin(url: &str) -> Option<(String, String, u16)> {
+    let (scheme, rest) = url.split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    let default = match scheme.as_str() {
+        "http" => 80,
+        "https" => 443,
+        _ => return None,
+    };
+    let authority = rest.split(['/', '?', '#']).next()?;
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+    let (host, port) = if let Some(after) = authority.strip_prefix('[') {
+        let close = after.find(']')?;
+        let host = &after[..close];
+        let suffix = &after[close + 1..];
+        let port = if suffix.is_empty() {
+            default
+        } else {
+            suffix.strip_prefix(':')?.parse().ok()?
+        };
+        (host, port)
+    } else if let Some((host, port)) = authority.rsplit_once(':') {
+        (host, port.parse().ok()?)
+    } else {
+        (authority, default)
+    };
+    if host.is_empty() {
+        return None;
+    }
+    Some((scheme, host.to_ascii_lowercase(), port))
 }
 
-fn int_field(json: &str, needle: &str) -> Option<i64> {
-    let at = json.find(needle)? + needle.len();
-    let digits: String = json[at..]
-        .chars()
-        .take_while(|c| c.is_ascii_digit())
-        .collect();
-    digits.parse().ok()
+#[cfg(test)]
+mod tests {
+    use super::{decode_envelope, same_host};
+
+    #[test]
+    fn origin_includes_scheme_host_and_effective_port() {
+        assert!(same_host("http://EXAMPLE.test/app", "http://example.test:80/plan").is_ok());
+        assert!(same_host("https://example.test/app", "https://example.test:443/plan").is_ok());
+        assert!(same_host("http://example.test:8771/", "http://example.test:9999/plan").is_err());
+        assert!(same_host(
+            "http://example.test:8771/",
+            "https://example.test:8771/plan"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn envelope_json_is_typed_bounded_and_rejects_duplicates() {
+        let pretty = br#"{
+          "plan": { "kernelSchema": "00", "bytes": 12, "url": "./a\u002eplan", "sha256": "abcd", "formatVersion": 2, "compression": "none" },
+          "exact": 1,
+          "app": { "name": "Example", "id": "com.example", "subtitle": "future" },
+          "assets": [{ "name": "mark.png", "url": "./mark.png" }],
+          "seq": 41,
+          "events": "./__dev",
+          "future": { "enabled": true }
+        }"#;
+        let envelope = decode_envelope(pretty).unwrap();
+        assert_eq!(envelope.plan.url, "./a.plan");
+        assert_eq!(envelope.seq, Some(41));
+        assert_eq!(envelope.events.as_deref(), Some("./__dev"));
+        assert!(decode_envelope(
+            br#"{"exact":1,"exact":1,"plan":{"url":"a","sha256":"b","bytes":1}}"#
+        )
+        .is_err());
+        assert!(decode_envelope(
+            br#"{"exact":1,"plan":{"url":"a","url":"b","sha256":"b","bytes":1}}"#
+        )
+        .is_err());
+        assert!(decode_envelope(
+            br#"{"exact":1,"plan":{"url":"a","sha256":"b","bytes":1},"seq":"new"}"#
+        )
+        .is_err());
+        assert!(decode_envelope(b"not json").is_err());
+        assert!(decode_envelope(&vec![b' '; 64 * 1024 + 1]).is_err());
+    }
 }

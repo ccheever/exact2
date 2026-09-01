@@ -40,13 +40,14 @@ component Caltrain
   state searchFocused = false
   state lastKey = ""
   state deckLoaded = false
+  state deckLoads = 0
   state deckMessage = ""
 
   resource location = defaultLocation() as shape Location
   derive selectedId = match stationId { case some(id) => id, case none => "mv" }
   resource station = station(selectedId, location) as shape Station
-  resource northBoard = board(selectedId, "north") as shape list<Departure>
-  resource southBoard = board(selectedId, "south") as shape list<Departure>
+  resource northBoard = board(selectedId, "north", nowMs) as shape list<Departure>
+  resource southBoard = board(selectedId, "south", nowMs) as shape list<Departure>
   resource nearby = nearest(location, 3) as shape list<Station>
   resource allStations = stations(location) as shape list<Station>
   resource matches = search(query, location) as shape list<Station>
@@ -55,9 +56,10 @@ component Caltrain
     nowMs = nowMs + 1000
   action openStations writes screen
     screen = "stations"
-  action openDeck writes screen, deckLoaded, deckMessage
+  action openDeck writes screen, deckLoaded, deckLoads, deckMessage
     screen = "web-deck"
     deckLoaded = false
+    deckLoads = 0
     deckMessage = ""
   action goHome writes screen, query
     screen = "home"
@@ -88,8 +90,9 @@ component Caltrain
     searchFocused = false
   action searchKey(k) writes lastKey
     lastKey = k
-  action recordDeckLoad writes deckLoaded
+  action recordDeckLoad writes deckLoaded, deckLoads
     deckLoaded = true
+    deckLoads = deckLoads + 1
   action recordDeckMessage(payload) writes deckMessage
     deckMessage = payload
   action toggleSky writes sky
@@ -114,7 +117,7 @@ component Caltrain
               text "Back" font-size=13
           // The hosted-deck sandbox pair (LLP 1020 §8 Q1's survey): same-origin
           // scripts, so the agent's guest outline is live on the web arm too.
-          iframe src="/deck/index.html" sandbox="allow-scripts allow-same-origin" testId="deck-frame" load=recordDeckLoad message=recordDeckMessage
+          iframe src="/deck/index.html?user=caltrain&id=user-caltrain" sandbox="allow-scripts allow-same-origin" testId="deck-frame" load=recordDeckLoad message=recordDeckMessage
           text `${deckLoaded}` testId="deck-loaded" color="#ffffff"
           text deckMessage testId="deck-message" color="#ffffff"
       else
@@ -284,10 +287,9 @@ component DirectionCard
         text "No more trains today" font-size=14 color="#666666"
       else
         each d in board key=d.id
-          when d.at >= nowMs
-            row gap=8 align-items="flex-end" testId=`dep-${d.id}`
-              text formatCountdownMinutes(d.at, nowMs) font-size=28 font-weight=700 testId=`countdown-${d.id}`
-              text `min · ${formatClockTime(d.at)} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#666666"
+          row gap=8 align-items="flex-end" testId=`dep-${d.id}`
+            text formatCountdownMinutes(d.at, nowMs) font-size=28 font-weight=700 testId=`countdown-${d.id}`
+            text `min · ${formatClockTime(d.at)} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#666666"
 
 component StationRow
   props

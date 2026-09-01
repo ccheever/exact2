@@ -41,7 +41,7 @@ pub use instance::SurfaceUpdate;
 pub use request::{Answer, FailureKind, Outcome, Request, RequestOut, Response};
 pub use runner::{
     Advanced, Carried, Command, DataError, DataSource, Event, Runner, RunnerError, Timed,
-    JOURNAL_RING,
+    JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use vm::Trap;

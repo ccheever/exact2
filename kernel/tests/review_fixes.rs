@@ -1,9 +1,12 @@
 //! Regressions from the 2026-08-28 review: each test is a defect that existed.
 
 use exact_kernel::{
-    export, wire, ApplyError, DecodeError, Dimension, Kernel, KernelError, MonospaceMeasurer,
-    NodeFlags, NodeType, Offer, Op, PropId, StyleId, StyleProps,
+    export, wire, ApplyError, DecodeError, Dimension, GridLine, GridPlacement, GridTrack,
+    GridTracks, Kernel, KernelError, LayoutError, MonospaceMeasurer, NodeFlags, NodeType, Offer,
+    Op, PropId, StyleId, StyleProps, TextMeasureRequest, TextMeasurer, TextMetrics,
 };
+use std::cell::Cell;
+use std::rc::Rc;
 
 fn size(w: f32, h: f32) -> Box<StyleProps> {
     let mut s = StyleProps::default();
@@ -177,6 +180,272 @@ fn non_finite_style_numbers_are_refused_on_both_ingress_paths() {
     k.compute_layout(1, Offer::definite(100.0, 100.0)).unwrap();
     let f = k.node(1).unwrap().frame;
     assert!(f.x.is_finite() && f.y.is_finite() && f.width.is_finite() && f.height.is_finite());
+}
+
+#[test]
+fn non_finite_layout_offers_are_refused_without_publishing_frames() {
+    let mut k = Kernel::with_monospace();
+    k.apply(
+        0,
+        1,
+        &[
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::AttachRoot { id: 1 },
+        ],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(100.0, 100.0)).unwrap();
+    let before = k.node(1).unwrap().frame;
+
+    for offer in [
+        Offer::definite(f32::NAN, 100.0),
+        Offer::definite(100.0, f32::INFINITY),
+    ] {
+        assert_eq!(
+            k.compute_layout(1, offer),
+            Err(KernelError::Layout(LayoutError::InvalidOffer))
+        );
+        assert_eq!(k.node(1).unwrap().frame, before);
+    }
+    assert!(before.x.is_finite());
+    assert!(before.y.is_finite());
+    assert!(before.width.is_finite());
+    assert!(before.height.is_finite());
+}
+
+#[test]
+fn zero_grid_spans_are_refused_on_both_ingress_paths() {
+    let mut k = Kernel::with_monospace();
+    k.apply(
+        0,
+        1,
+        &[Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        }],
+    )
+    .unwrap();
+    let mut patch = StyleProps::default();
+    patch.grid_column = GridPlacement {
+        start: GridLine::Auto,
+        end: GridLine::Span(0),
+    };
+    patch.mask.set(StyleId::GridColumn);
+    let op = Op::SetStyle {
+        id: 1,
+        patch: Box::new(patch),
+    };
+    assert_eq!(
+        k.apply(0, 2, std::slice::from_ref(&op)),
+        Err(KernelError::Apply(ApplyError::InvalidGridSpan {
+            op_index: 0,
+            style: StyleId::GridColumn,
+        }))
+    );
+    assert_eq!(
+        k.apply_frame(&wire::encode(0, 3, &[op])),
+        Err(KernelError::Decode(DecodeError::InvalidGridSpan))
+    );
+}
+
+#[test]
+fn structured_style_domain_matches_wire_and_export() {
+    let mut k = Kernel::with_monospace();
+    k.apply(
+        0,
+        1,
+        &[
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::AttachRoot { id: 1 },
+        ],
+    )
+    .unwrap();
+    let before = k.export(None).unwrap();
+    let epoch = k.epoch();
+
+    let mut too_many = StyleProps::default();
+    too_many.grid_template_columns = GridTracks(vec![GridTrack::Fr(1.0); 33]);
+    too_many.mask.set(StyleId::GridTemplateColumns);
+    assert_eq!(
+        k.apply(
+            0,
+            2,
+            &[Op::SetStyle {
+                id: 1,
+                patch: Box::new(too_many),
+            }],
+        ),
+        Err(KernelError::Apply(ApplyError::TooManyTracks {
+            op_index: 0,
+            style: StyleId::GridTemplateColumns,
+            count: 33,
+        }))
+    );
+
+    let mut auto_padding = StyleProps::default();
+    auto_padding.padding_top = Dimension::Auto;
+    auto_padding.mask.set(StyleId::PaddingTop);
+    let invalid_auto = Op::SetStyle {
+        id: 1,
+        patch: Box::new(auto_padding),
+    };
+    assert_eq!(
+        k.apply(0, 3, std::slice::from_ref(&invalid_auto)),
+        Err(KernelError::Apply(ApplyError::AutoNotAdmitted {
+            op_index: 0,
+            style: StyleId::PaddingTop,
+        }))
+    );
+    assert_eq!(
+        k.apply_frame(&wire::encode(0, 4, &[invalid_auto])),
+        Err(KernelError::Decode(DecodeError::AutoNotAdmitted {
+            style: StyleId::PaddingTop,
+        }))
+    );
+    assert_eq!(k.epoch(), epoch);
+    assert_eq!(k.export(None).unwrap(), before);
+
+    let mut maximum = StyleProps::default();
+    maximum.grid_template_columns = GridTracks(vec![GridTrack::Fr(1.0); 32]);
+    maximum.mask.set(StyleId::GridTemplateColumns);
+    maximum.padding_top = Dimension::Points(4.0);
+    maximum.mask.set(StyleId::PaddingTop);
+    maximum.width = Dimension::Auto;
+    maximum.mask.set(StyleId::Width);
+    let valid_style = Op::SetStyle {
+        id: 1,
+        patch: Box::new(maximum),
+    };
+    k.apply(0, 5, std::slice::from_ref(&valid_style)).unwrap();
+    let snapshot = export::decode(&k.export(None).unwrap()).unwrap();
+    assert_eq!(snapshot.styles[0].grid_template_columns.0.len(), 32);
+    assert_eq!(snapshot.styles[0].padding_top, Dimension::Points(4.0));
+    assert_eq!(snapshot.styles[0].width, Dimension::Auto);
+
+    let mut from_wire = Kernel::with_monospace();
+    let wire_ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        valid_style,
+        Op::AttachRoot { id: 1 },
+    ];
+    from_wire
+        .apply_frame(&wire::encode(0, 1, &wire_ops))
+        .unwrap();
+    let wire_snapshot = export::decode(&from_wire.export(None).unwrap()).unwrap();
+    assert_eq!(wire_snapshot.styles, snapshot.styles);
+}
+
+#[derive(Clone)]
+struct ControlledMeasurer(Rc<Cell<TextMetrics>>);
+
+impl TextMeasurer for ControlledMeasurer {
+    fn measure(&mut self, _request: &TextMeasureRequest<'_>) -> TextMetrics {
+        self.0.get()
+    }
+}
+
+#[test]
+fn invalid_text_metrics_are_typed_and_never_publish_frames() {
+    let valid = TextMetrics {
+        width: 20.0,
+        height: 10.0,
+        first_baseline: Some(7.0),
+    };
+    let invalid = [
+        TextMetrics {
+            width: f32::NAN,
+            ..valid
+        },
+        TextMetrics {
+            width: f32::INFINITY,
+            ..valid
+        },
+        TextMetrics {
+            width: -1.0,
+            ..valid
+        },
+        TextMetrics {
+            height: f32::NAN,
+            ..valid
+        },
+        TextMetrics {
+            height: f32::INFINITY,
+            ..valid
+        },
+        TextMetrics {
+            height: -1.0,
+            ..valid
+        },
+        TextMetrics {
+            first_baseline: Some(f32::NAN),
+            ..valid
+        },
+        TextMetrics {
+            first_baseline: Some(f32::INFINITY),
+            ..valid
+        },
+        TextMetrics {
+            first_baseline: Some(-1.0),
+            ..valid
+        },
+    ];
+
+    for (index, bad) in invalid.into_iter().enumerate() {
+        let metrics = Rc::new(Cell::new(valid));
+        let mut k = Kernel::new(Box::new(ControlledMeasurer(metrics.clone())));
+        k.apply(
+            0,
+            1,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::Text,
+                },
+                Op::SetProp {
+                    id: 1,
+                    prop: PropId::Text,
+                    value: "valid".into(),
+                },
+                Op::AttachRoot { id: 1 },
+            ],
+        )
+        .unwrap();
+        k.compute_layout(1, Offer::MAX_CONTENT).unwrap();
+        let before = k.node(1).unwrap().frame;
+
+        metrics.set(bad);
+        k.apply(
+            0,
+            2,
+            &[Op::SetProp {
+                id: 1,
+                prop: PropId::Text,
+                value: format!("invalid-{index}").into(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            k.compute_layout(1, Offer::MAX_CONTENT),
+            Err(KernelError::Layout(LayoutError::InvalidTextMetrics(1)))
+        );
+        assert_eq!(k.node(1).unwrap().frame, before);
+
+        metrics.set(TextMetrics {
+            width: 30.0,
+            ..valid
+        });
+        k.compute_layout(1, Offer::MAX_CONTENT).unwrap();
+        assert!(k.node(1).unwrap().frame.width.is_finite());
+    }
 }
 
 #[test]

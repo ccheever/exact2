@@ -30,6 +30,7 @@ pub enum InstanceError {
     SubjectKind { region: RegionsId },
     KeyKind { region: RegionsId },
     DuplicateKey { region: RegionsId },
+    SlotType { slot: String },
 }
 
 impl From<Trap> for InstanceError {
@@ -486,6 +487,11 @@ impl RegionInst {
                             for (i, s) in plan.slots.iter().enumerate() {
                                 if s.owner == Some(self.region) {
                                     let v = u.eval(s.init, &inner)?;
+                                    if !v.conforms(plan, s.ty) {
+                                        return Err(InstanceError::SlotType {
+                                            slot: plan.str(s.name).to_string(),
+                                        });
+                                    }
                                     slots.borrow_mut().insert(i as u32, v);
                                 }
                             }

@@ -66,15 +66,19 @@ sits on that list carries the trade it would take.
   Space/Enter on a focused pressable). iOS still has no sequential-focus
   path for an external keyboard.
 
-## Cheap, any time
+## From the 2026-09-01 review (LLP 1025)
 
-- **The smoke under `EXACT_APP_DIR`** (found driving weird-castle, 2026-08-30): the
-  caltrain-shaped steps assume caltrain's nodes — their `check()`s collect failures
-  and the run stays red even when the app's own `app.test.contract` passes. Either
-  guard the generic steps on the nodes they need (the LLP 1020 deck step now does)
-  so "smoke <host> with an app dir" means "the steps that apply plus the app's
-  tests", or declare the full smoke caltrain-only and point app repos at
-  `agent.mjs --test`. Small either way; the ambiguity is the cost.
+LLP 1025 is the dated review snapshot, not a live defect list. The 2026-09-01
+closure pass moved 69 findings to `issues/closed/`; two blockers remain:
+
+- **Native plan streaming** (`issues/20260901-native-plan-downloads-unbounded.md`):
+  Apple is bounded; Linux still needs a bounded/streaming ibex2 response API
+  before it can reject an oversized body prior to buffering it.
+- **iOS deployment warning** (`issues/20260901-apple-rust-deployment-targets.md`):
+  the built objects carry the right platform/minimum OS, but SwiftPM/Xcode still
+  emits the contradictory MacOSX-sysroot/iPhone-target linker warning.
+
+## Cheap, any time
 
 - **The sky's capture on the phone** landed at the display's rate 2026-08-30 (LLP 1008
   §9): a shadow layer tree rendered by `CARenderer`, a nested canvas's readback cached,
@@ -110,12 +114,6 @@ sits on that list carries the trade it would take.
   as UIMenu/NSMenu with selection dispatching by view id, kernel-painted under
   `EXACT_AGENT`. First consumer: Weird Castle's account switcher (today a hand-rolled
   overlay with no light dismiss). M1 web+kernel · M2 Apple/Linux · M3 the switcher.
-- A store write from `parse` does not re-answer resources that read the store (LLP
-  1018): a reply that keeps a secret leaves a `remember()`-shaped resource stale until
-  an action says `refresh`. Weird Castle's account switcher dodges it (the menu's
-  opening refreshes `accounts`; the mutation slot shadows `remembered`), but the
-  general rule — a parse-time store write marks store-reading resources dirty — belongs
-  in the runner, likely with LLP 1005 §8's deps table.
 - `fitDocument` reading the root's `content` so the page's extent includes overflow
   past the root, as `scrollHeight` does (LLP 1010 §3's declared deviation).
 - The untested-but-built list in LLP 1010 §5: horizontal scroll on macOS, `overflow:

@@ -119,4 +119,12 @@ impl Offer {
         width: AxisOffer::MaxContent,
         height: AxisOffer::MaxContent,
     };
+
+    pub(crate) fn is_finite(self) -> bool {
+        let finite = |axis| match axis {
+            AxisOffer::Definite(value) => value.is_finite(),
+            AxisOffer::MaxContent | AxisOffer::MinContent => true,
+        };
+        finite(self.width) && finite(self.height)
+    }
 }

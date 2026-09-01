@@ -457,6 +457,12 @@ pub enum GridLine {
     Span(u16),
 }
 
+impl GridLine {
+    pub(crate) fn is_valid(self) -> bool {
+        !matches!(self, GridLine::Span(0))
+    }
+}
+
 /// An item's placement on one grid axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct GridPlacement {
@@ -464,6 +470,12 @@ pub struct GridPlacement {
     pub start: GridLine,
     /// End edge.
     pub end: GridLine,
+}
+
+impl GridPlacement {
+    pub(crate) fn is_valid(self) -> bool {
+        self.start.is_valid() && self.end.is_valid()
+    }
 }
 
 fn track(t: GridTrack) -> TrackSizingFunction {

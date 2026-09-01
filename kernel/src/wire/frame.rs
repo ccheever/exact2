@@ -67,7 +67,7 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, DecodeError> {
         return Err(DecodeError::UnsupportedRevision(revision));
     }
     let header_len = r.u16()?;
-    if (header_len as usize) < HEADER_LEN || header_len % 8 != 0 {
+    if header_len as usize != HEADER_LEN {
         return Err(DecodeError::BadHeaderLength(header_len));
     }
     let frame_len = r.u32()?;
@@ -94,10 +94,6 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, DecodeError> {
     if flags != 0 || reserved != 0 {
         return Err(DecodeError::ReservedFlags);
     }
-    // A future revision may grow the header; revision 1 readers skip what they
-    // do not know only because the revision check above already passed.
-    r.bytes(header_len as usize - HEADER_LEN)?;
-
     let mut ops = Vec::new();
     while !r.is_empty() {
         let raw_opcode = r.u16()?;
@@ -120,7 +116,13 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, DecodeError> {
         let payload = r.bytes(payload_len as usize)?;
         let mut pr = Reader::new(payload);
         ops.push(Op::decode_payload(opcode, view_id, &mut pr)?);
-        r.bytes((padded - payload_len as u64) as usize)?;
+        let padding_start = r.position();
+        let padding = r.bytes((padded - payload_len as u64) as usize)?;
+        if let Some(i) = padding.iter().position(|byte| *byte != 0) {
+            return Err(DecodeError::NonZeroPadding {
+                offset: padding_start + i,
+            });
+        }
     }
     Ok(Frame {
         root_id,
@@ -220,6 +222,14 @@ mod tests {
             },
             Op::AttachRoot { id: 1 },
         ]
+    }
+
+    #[test]
+    fn revision_one_refuses_an_inflated_header_length() {
+        let mut bytes = encode(0, 1, &sample_ops());
+        let inflated = bytes.len() as u16;
+        bytes[6..8].copy_from_slice(&inflated.to_le_bytes());
+        assert_eq!(decode(&bytes), Err(DecodeError::BadHeaderLength(inflated)));
     }
 
     #[test]

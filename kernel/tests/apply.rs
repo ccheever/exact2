@@ -712,6 +712,7 @@ fn inline_runs_measure_with_their_parent() {
 fn reset_bumps_incarnation_and_forgets_everything() {
     let mut k = build();
     let key = k.node(1).unwrap().key;
+    let mut retained = std::collections::BTreeMap::from([(key, "old host state")]);
     assert_eq!(k.incarnation(), 1);
     k.reset();
     assert_eq!(k.incarnation(), 2);
@@ -727,6 +728,74 @@ fn reset_bumps_incarnation_and_forgets_everything() {
             1
         )))
     ));
+
+    k.apply(
+        0,
+        2,
+        &[Op::CreateView {
+            id: 99,
+            node_type: NodeType::View,
+        }],
+    )
+    .unwrap();
+    let replacement = k.node(99).unwrap().key;
+    assert_eq!(replacement.index, key.index, "reset reuses the first slot");
+    assert_ne!(replacement.generation, key.generation);
+    assert!(k.node_by_key(key).is_none());
+    assert!(
+        !retained.contains_key(&replacement),
+        "a retained host cache cannot alias"
+    );
+    retained.insert(replacement, "new host state");
+    assert_eq!(retained.len(), 2);
+}
+
+#[test]
+fn identical_writes_do_not_touch_nodes_or_advance_the_epoch() {
+    let mut k = build();
+    k.apply(
+        0,
+        2,
+        &[Op::SetProp {
+            id: 2,
+            prop: PropId::TestId,
+            value: "same".into(),
+        }],
+    )
+    .unwrap();
+    let epoch = k.epoch();
+    let mut unset = exact_kernel::StyleMask::EMPTY;
+    unset.set(StyleId::Width);
+
+    let receipt = k
+        .apply(
+            0,
+            3,
+            &[
+                Op::SetProp {
+                    id: 2,
+                    prop: PropId::TestId,
+                    value: "same".into(),
+                },
+                Op::SetStyle {
+                    id: 3,
+                    patch: height(70.0),
+                },
+                Op::ClearStyle { id: 2, mask: unset },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2, 3],
+                },
+            ],
+        )
+        .unwrap();
+
+    assert_eq!(k.epoch(), epoch);
+    assert_eq!(receipt.epoch, epoch);
+    assert!(receipt.created.is_empty());
+    assert!(receipt.destroyed.is_empty());
+    assert!(receipt.touched.is_empty());
+    assert!(!receipt.layout_invalidated);
 }
 
 #[test]

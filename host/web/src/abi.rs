@@ -2,8 +2,9 @@
 //!
 //! @ref LLP 1007 §3
 //!
-//! The exports include `exact_boot_plan` for the dev loop, `exact_fonts` for
-//! plan-owned font catalog data, and `exact_agent` for LLP 1012's agent API.
+//! The exports include `exact_plan` for the build's exact baked bytes,
+//! `exact_boot_plan` for the dev loop, `exact_fonts` for plan-owned font
+//! catalog data, and `exact_agent` for LLP 1012's agent API.
 //! The glue never hands the host a pointer it did not get from
 //! the host: `exact_in(len)` resizes a host-owned input buffer and returns its
 //! address; the glue writes the payload there; every call returns the length
@@ -84,6 +85,15 @@ impl<D: DataSource> Bridge<D> {
         self.output.len() as u32
     }
 
+    /// Copy the plan baked into an app wasm into the output buffer. The web
+    /// build extracts this after linking, so its app.plan cannot come from a
+    /// different source snapshot than the plan `exact_boot` will use.
+    pub fn baked_plan(&mut self, plan: &[u8]) -> u32 {
+        self.output.clear();
+        self.output.extend_from_slice(plan);
+        self.output.len() as u32
+    }
+
     /// Boot from `plan` with `data` and the snapshot `store` handed in; the
     /// output is the first batch.
     pub fn boot(&mut self, plan: &[u8], data: D) -> u32 {
@@ -101,11 +111,12 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Boot from the input buffer's first `len` bytes — the dev loop's
-    /// restart from a freshly compiled plan. The old host's state is carried
-    /// (`Host::boot_with`), then the old host is dropped.
+    /// restart from a freshly compiled plan. Build the candidate beside the
+    /// live host: only a successful boot replaces it, while a refusal leaves
+    /// the old runner available to its page and in-flight work.
     pub fn boot_plan(&mut self, len: usize, data: D) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
-        let carried = self.host.take().map(|h| h.carry());
+        let carried = self.host.as_ref().map(Host::carry);
         match Host::boot_with(&plan, data, carried.as_ref()) {
             Ok((host, batch)) => {
                 self.host = Some(host);
@@ -213,7 +224,7 @@ fn escape(s: &str) -> String {
 /// A thread-local bridge cell, for the exports.
 pub type Cell<D> = RefCell<Bridge<D>>;
 
-/// Instantiate the five exports for one app.
+/// Instantiate the web exports for one app.
 ///
 /// `$data` is the app's `DataSource` type (constructed with `Default`);
 /// `$plan` a `&'static [u8]` of baked plan bytes (typically `include_bytes!`
@@ -235,6 +246,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_out() -> *const u8 {
             EXACT_BRIDGE.with(|b| b.borrow().output())
+        }
+
+        /// Copy the plan baked into this wasm to the output buffer. The web
+        /// build uses these exact bytes for app.plan and exact.json.
+        #[no_mangle]
+        pub extern "C" fn exact_plan() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().baked_plan($plan))
         }
 
         /// The page's snapshot of the app's kept secrets (LLP 1018 D6), from

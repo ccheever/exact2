@@ -95,14 +95,16 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     var imageSource: String?
     var loadGeneration = 0
     var pressed = false
+    var disabled: Bool { props["disabled"] == "true" }
     /// Images loaded since launch (smoke reporting).
     nonisolated(unsafe) static var imagesLoaded: [(String, CGSize)] = []
 
     /// A node with focus, blur, or key handlers takes the focus (an input's
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. Keys come from a hardware keyboard (`pressesBegan`).
-    override var canBecomeFirstResponder: Bool { field == nil && !handlers.isDisjoint(with: ["focus", "blur", "key"]) }
+    override var canBecomeFirstResponder: Bool { !disabled && field == nil && !handlers.isDisjoint(with: ["focus", "blur", "key"]) }
     override func becomeFirstResponder() -> Bool {
+        guard !disabled else { return false }
         let ok = super.becomeFirstResponder()
         if ok, handlers.contains("focus") { presenter?.focus(id) }
         return ok
@@ -113,7 +115,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         return ok
     }
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        guard handlers.contains("key"), let key = presses.first?.key else { return super.pressesBegan(presses, with: event) }
+        guard !disabled, handlers.contains("key"), let key = presses.first?.key else { return super.pressesBegan(presses, with: event) }
         presenter?.key(id, NodeView.keyName(key))
     }
     /// The web's key names for UIKit's.
@@ -143,6 +145,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     /// A text field's Enter as a key (its characters are its `change`);
     /// the editing goes on, as on the web.
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        guard !disabled else { return false }
         // Enter in an input with a `submit` handler is the web's implicit
         // submission; a `key` handler hears it as Enter as well.
         if handlers.contains("submit") { presenter?.submit(id) }
@@ -160,9 +163,12 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             return scheme == "http" || scheme == "https" ? u : nil
         }
         let base = ProcessInfo.processInfo.environment["EXACT_ASSETS"] ?? Bundle.main.bundlePath
-        let root = URL(fileURLWithPath: base).standardizedFileURL.path
-        let url = URL(fileURLWithPath: base).appendingPathComponent(source).standardizedFileURL
-        return url.path == root || url.path.hasPrefix(root.hasSuffix("/") ? root : root + "/") ? url : nil
+        let root = URL(fileURLWithPath: base, isDirectory: true)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        let url = root.appendingPathComponent(source)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        return url.path == root.path || url.path.hasPrefix(rootPath) ? url : nil
     }
 
     /// Decode an image completely, off the main thread: the bitmap and its
@@ -347,9 +353,19 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     /// without them, and then the canvas itself is the hit. (`point` is in
     /// this view's own coordinates — UIKit's convention, not AppKit's.)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let overlay else { return super.hitTest(point, with: event) }
+        // UIKit's default rejects a view when alpha is near zero. CSS opacity
+        // changes painting, not hit participation, so walk the ordinary
+        // subtree ourselves without consulting alpha.
+        func ordinary() -> UIView? {
+            guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
+            for child in subviews.reversed() {
+                if let hit = child.hitTest(convert(point, to: child), with: event) { return hit }
+            }
+            return self
+        }
+        guard let overlay else { return ordinary() }
         let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil }
-        guard !placed.isEmpty else { return super.hitTest(point, with: event) }
+        guard !placed.isEmpty else { return ordinary() }
         guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
         // Nearest first: what is seen on top is what a tap reaches.
         for child in placed.sorted(by: { ($0.placement?[9] ?? 0) > ($1.placement?[9] ?? 0) }) {
@@ -441,7 +457,9 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             default: f.keyboardType = .default
             }
             f.returnKeyType = handlers.contains("submit") ? .go : .default
+            f.isEnabled = !disabled
         }
+        if disabled { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
         accessibilityIdentifier = props["testId"]
         accessibilityLabel = props["accessibilityLabel"]
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
@@ -619,12 +637,14 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     // bubbles. A pan cancels it (the scroll view's `canCancelContentTouches`):
     // scroll always wins.
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard !disabled else { pressed = false; return }
         if handlers.contains("press") { pressed = true } else { super.touchesBegan(touches, with: event) }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         if !pressed { super.touchesMoved(touches, with: event) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard !disabled else { pressed = false; return }
         if canBecomeFirstResponder, !isFirstResponder { _ = becomeFirstResponder() }
         guard pressed else { return super.touchesEnded(touches, with: event) }
         pressed = false
@@ -646,6 +666,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     func activate(at windowPoint: CGPoint) -> NodeView? {
         var v: UIView? = self
         while let cur = v {
+            if let n = cur as? NodeView, n.disabled { return nil }
             if let n = cur as? NodeView, n.handlers.contains("press") {
                 guard n.bounds.contains(n.local(windowPoint)) else { return nil }
                 n.presenter?.press(n.id)
@@ -660,7 +681,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     }
 
     @objc func fieldChanged() {
-        if handlers.contains("change") { presenter?.change(id, field?.text ?? "") }
+        if !disabled, handlers.contains("change") { presenter?.change(id, field?.text ?? "") }
     }
     func textFieldDidBeginEditing(_ textField: UITextField) {
         presenter?.editing = self
@@ -729,7 +750,7 @@ final class Presenter {
     /// transaction, so the content moves in lockstep with the keyboard,
     /// never a frame behind it.
     @objc func keyboardChanged(_ n: Notification) {
-        guard let info = n.userInfo, let window = viewport.window, let parent = viewport.superview else { return }
+        guard let info = n.userInfo, let window = viewport.window, viewport.superview != nil else { return }
         let end = (info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
         let hiding = n.name == UIResponder.keyboardWillHideNotification
         // The keyboard's frame is the screen's; the viewport's, the window's.

@@ -2,8 +2,9 @@
 //! follows its key, a use's own state is its own, and neither leaks.
 
 use exact_kernel::{Kernel, PropValue};
-use exact_plan::Value;
-use exact_runner::{DataError, DataSource, Event, Runner};
+use exact_plan::builder::PlanBuilder;
+use exact_plan::{SlotsId, TypeKind, Value};
+use exact_runner::{DataError, DataSource, Event, Runner, RunnerError};
 use std::path::Path;
 
 #[derive(Default)]
@@ -68,7 +69,8 @@ fn a_use_owns_its_state_and_a_row_owns_its_own_which_follows_its_key() {
     // A singleton's state is a root slot by its lifted name; carried by name.
     assert_eq!(r.slot("n__1"), Some(&Value::Number(2.0)));
     assert!(r.carry().slots.iter().any(|(n, _)| n == "n__1"));
-    // Rows: hover one, the other is untouched.
+    // Rows: `label` initialized from the row item, then hover one while the
+    // other is untouched.
     let mv = view_of(&r, "station-mv");
     r.dispatch(mv, Event::Hover(true)).unwrap();
     assert_eq!(text_of(&r, "name-mv"), "Mountain View !");
@@ -97,4 +99,64 @@ fn a_child_may_not_own_a_resource() {
     let src = "shape S\n  id: string\ncomponent A\n  view\n    Row()\ncomponent Row\n  resource s = s() as shape S\n  view\n    text s.id\n";
     let e = contract::compile(src).unwrap_err();
     assert_eq!(e.id, "type-child-resource");
+}
+
+#[test]
+fn child_derives_resolve_in_either_order_without_capturing_the_parent() {
+    let src = "component App\n  state a = 100\n  view\n    column\n      Forward()\n      Ordered()\ncomponent Forward\n  state n = 2\n  derive b = a * 2\n  derive a = n + 1\n  view\n    text `${a} ${b}` testId=\"forward\"\ncomponent Ordered\n  state n = 2\n  derive a = n + 1\n  derive b = a * 2\n  view\n    text `${a} ${b}` testId=\"ordered\"\n";
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(plan, Stations, Kernel::with_monospace()).unwrap();
+    assert_eq!(text_of(&r, "forward"), "3 6");
+    assert_eq!(text_of(&r, "ordered"), "3 6");
+
+    let cycle = "component App\n  view\n    Cyclic()\ncomponent Cyclic\n  derive a = b\n  derive b = a\n  view\n    text a\n";
+    assert_eq!(
+        contract::compile(cycle).unwrap_err().id,
+        "type-derive-cycle"
+    );
+}
+
+#[test]
+fn a_row_initializer_must_conform_before_the_row_is_published() {
+    let plan = contract::compile(&corpus("instance.contract")).unwrap();
+    let slot = plan
+        .slots
+        .iter()
+        .position(|slot| {
+            slot.owner.is_some() && plan.types[slot.ty.0 as usize].kind == TypeKind::Bool
+        })
+        .unwrap();
+    let name = plan.str(plan.slots[slot].name).to_string();
+    let mut b = PlanBuilder::from_plan(plan);
+    let wrong = b.constant(&Value::str("not a bool"));
+    b.set_slot_init(SlotsId(slot as u32), wrong);
+    let malformed = b.finish().unwrap();
+
+    let error = Runner::boot(malformed, Stations, Kernel::with_monospace())
+        .err()
+        .unwrap();
+    assert!(matches!(error, RunnerError::SlotType { slot } if slot == name));
+}
+
+#[test]
+fn an_action_parameter_shadows_a_same_named_child_prop() {
+    let src = "component App\n  view\n    Capture(value=\"prop\")\ncomponent Capture\n  props\n    value: string\n  state seen = \"\"\n  action capture(value: string) writes seen\n    seen = value\n  view\n    column\n      input value=seen change=capture testId=\"capture-input\"\n      text seen testId=\"capture-result\"\n";
+    let plan = contract::compile(src).unwrap();
+    let mut r = Runner::boot(plan, Stations, Kernel::with_monospace()).unwrap();
+    let input = view_of(&r, "capture-input");
+    r.dispatch(input, Event::Change("payload".into())).unwrap();
+    assert_eq!(text_of(&r, "capture-result"), "payload");
+}
+
+#[test]
+fn nested_row_actions_use_lexical_items_even_when_a_root_name_collides() {
+    let src = "shape Station\n  id: string\n  name: string\ncomponent App\n  state item = \"root collision\"\n  state visible = true\n  resource stations = stations(\"asc\") as shape list<Station>\n  view\n    column\n      each outer in stations key=outer.id\n        each item in stations key=item.id\n          when visible\n            ScopedRow(outer=outer, item=item)\ncomponent ScopedRow\n  props\n    outer: Station\n    item: Station\n  state selected = item.name\n  state result = \"\"\n  action choose writes result\n    result = `${outer.name}/${item.name}`\n  view\n    column\n      text selected testId=`selected-${outer.id}-${item.id}`\n      button \"choose\" press=choose testId=`choose-${outer.id}-${item.id}`\n      text result testId=`result-${outer.id}-${item.id}`\n";
+    let plan = contract::compile(src).unwrap();
+    let plan = contract::bake(plan, Stations).unwrap();
+    let mut r = Runner::boot(plan, Stations, Kernel::with_monospace()).unwrap();
+    assert_eq!(text_of(&r, "selected-mv-pa"), "Palo Alto");
+    let choose = view_of(&r, "choose-mv-pa");
+    r.dispatch(choose, Event::Press).unwrap();
+    assert_eq!(text_of(&r, "result-mv-pa"), "Mountain View/Palo Alto");
+    assert_eq!(r.slot("item"), Some(&Value::str("root collision")));
 }

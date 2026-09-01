@@ -2,7 +2,7 @@
 
 - **Upstream:** `taffy` 0.9.2 from crates.io
   (`https://github.com/DioxusLabs/taffy`, tag `v0.9.2`).
-- **Why vendored:** two behavioral/API patches (below) that the high-level
+- **Why vendored:** five behavioral/API/performance patches (below) that the high-level
   `TaffyTree` API gives us no way to apply from the outside. Wired in via
   `[patch.crates-io]` in the root `Cargo.toml`, so `kernel/Cargo.toml` still
   declares a normal `taffy = "0.9"` dependency.
@@ -36,11 +36,10 @@ laid out against them (CSS 2.1 §10.4; css-flexbox-1 §9.2.3 sizes the item
 "into the available space" with its used cross size), and browsers agree —
 this patch matches browser behavior for the reduced test cases.
 
-Kernel regression coverage:
-`kernel/src/lib.rs::test_narrow_viewport_max_width_column_sized_from_clamped_text_width`
-(narrow direction) and
-`kernel/src/lib.rs::test_contract_truncation_section_reflows_with_native_text_callback`
-(wide direction).
+Focused kernel regression names cited here previously no longer existed after
+the kernel test split. The patched upstream suite below remains the direct
+coverage; restoring a focused Exact regression is part of the next patch
+refresh, rather than claiming a stale test pointer here.
 
 Validation: the full upstream test suite at `v0.9.2` passes with this patch
 applied — 89 unit tests, **2060 generated conformance fixtures**
@@ -74,10 +73,10 @@ shape intentionally leaves Taffy's existing public APIs intact so the patch
 can be proposed independently and removed when an upstream baseline-capable
 measure contract ships.
 
-Kernel regression coverage:
-`kernel/src/lib.rs::test_flex_row_aligns_text_leaves_by_host_first_baseline`
-and
-`kernel/src/lib.rs::test_flex_row_absent_baselines_preserve_bottom_edge_fallback`.
+The integration path is exercised by `kernel/src/layout.rs` using
+`compute_layout_with_measure_and_baselines`, and `kernel/src/text.rs` covers
+the emitted baseline metric. The focused flex-row test names formerly listed
+here no longer exist; the next patch refresh must restore that coverage.
 
 Authority: LLP 0440 D5.
 
@@ -178,3 +177,12 @@ untouched (`_ =>` is the upstream code verbatim).
 `kernel/tests/layout_equality.rs` unchanged.
 
 **Upstream status:** Exact-local; upstreamable as a correctness fix.
+
+## Updating this vendor copy
+
+Every Taffy refresh must review the fork against the selected upstream tag,
+reconcile the numbered inventory with every `EXACT PATCH` marker, and verify
+that every cited Exact test still exists. Run the upstream suite for the
+patched tag and Exact's five checks before changing the pinned copy. Record
+any intentionally missing focused regression here instead of retaining a
+stale path.
