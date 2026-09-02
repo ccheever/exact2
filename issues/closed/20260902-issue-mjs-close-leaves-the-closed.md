@@ -1,6 +1,7 @@
 # issue.mjs close leaves the closed header out of the index
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by cdcstack 61ab3eb: close stages the file after git mv, since git mv moves the index entry and not the working tree
 **Systems:** Issue tooling, cdcstack
 **Severity:** P2
 **Author:** Claude (Opus 5) for Charlie Cheever
@@ -57,3 +58,26 @@ this produces and the one nothing currently names.
 `~/projects/cdcstack/scripts/issue.mjs` is byte-identical to this one — so the
 fix belongs there first and then travels to every repo that adopted it (exact2,
 ibex, weird-castle).
+
+## Resolution (2026-09-02)
+
+Fixed upstream in cdcstack (`61ab3eb`): one `git add -- <target>` after a
+successful `git mv`, and a message rather than a silent pass if that declines
+too. The no-git fallback is unchanged — it still renames and still says stage it
+yourself. Carried into this repo and ibex by copy; the three files stay
+byte-identical.
+
+`check` reading the index was considered and not taken: making `close` stage
+what it wrote removes the state that check would have had to report, and a new
+validation is apparatus with no remaining consumer.
+
+Verified by running the real flow in a throwaway repo, old tool against new —
+file an issue, commit it, append a body, close it, then read the index rather
+than the worktree:
+
+- before: `RM`, and `git show :issues/closed/…` reads `Status: Open`
+- after: a clean `R `, and the index carries `Status: Closed`, the
+  `**Resolution:**`, and the appended body
+
+And once more here: this issue was closed with the fixed tool, so the commit
+that carries the fix is also its end-to-end test.

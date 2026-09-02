@@ -849,6 +849,19 @@ function commandClose(root, args) {
   if (moved.status !== 0) {
     renameSync(absolute, targetAbsolute);
     console.log(`git mv declined (${(moved.stderr || '').trim() || 'git unavailable'}); moved with a plain rename — stage it yourself.`);
+  } else {
+    // `git mv` moves the INDEX ENTRY, not the working tree. Without this the
+    // index would take the file's last-committed bytes under the new name and
+    // drop both the close above and whatever body the author wrote before
+    // running the command — and nothing downstream would say so: `git status`
+    // renders it `RM`, which reads like a close that worked, and `check`
+    // validates the worktree, not what is about to be committed. Only staging
+    // by path is affected, so `git add -A` hides it and the habit that a shared
+    // worktree forces does not.
+    const staged = spawnSync('git', ['add', '--', target], { cwd: root, encoding: 'utf8' });
+    if (staged.status !== 0) {
+      console.log(`git add ${target} declined (${(staged.stderr || '').trim() || 'git unavailable'}); stage the close yourself.`);
+    }
   }
   console.log(`${path} -> ${target}\n  **Status:** Closed\n  **Resolution:** ${resolution.trim()}`);
   for (const note of carried) console.log(`  kept verbatim in a body note: ${truncate(note)}`);
