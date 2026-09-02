@@ -17,7 +17,14 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 const ENVELOPE_TYPE: &str = "application/vnd.exact.envelope+json";
+/// What each rung may cost, the Apple loader's numbers (`PlanURL.swift`):
+/// a page and an envelope are small documents, a plan is the only large one.
+/// These reach the transport as `Request::max_body` and are enforced while
+/// the bytes arrive — a reachable dev server that answers and never stops
+/// sending is refused at the ceiling rather than after it (ibex2 LLP 0057 §3).
+const MAX_PAGE_BYTES: usize = 64 * 1024;
 const MAX_ENVELOPE_BYTES: usize = 64 * 1024;
+const MAX_PLAN_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -56,14 +63,22 @@ pub fn is_url(v: &str) -> bool {
 /// Resolve `page` and return the verified plan bytes.
 pub fn fetch_app(page: &str) -> Result<Vec<u8>, String> {
     let transport = ibex2::transport::default_transport();
-    let get = |url: &str, accept: &str| -> Result<(u16, Vec<u8>), String> {
+    let get = |url: &str, accept: &str, limit: usize| -> Result<(u16, Vec<u8>), String> {
         let mut req = ibex2::stdlib::fetch::Request::get(url);
         req.headers.set("accept", accept);
         req.headers.set("cache-control", "no-cache");
+        // The ceiling for this rung. Every one of them is named, because a
+        // request that forgets gets the transport's 64 MB default — right for
+        // a plan, four hundred times too generous for an envelope.
+        req.max_body = Some(limit);
         let r = transport.send(&req).map_err(|e| format!("{url}: {e}"))?;
         Ok((r.status, r.body))
     };
-    let (status, body) = get(page, &format!("{ENVELOPE_TYPE}, text/html;q=0.9"))?;
+    let (status, body) = get(
+        page,
+        &format!("{ENVELOPE_TYPE}, text/html;q=0.9"),
+        MAX_PAGE_BYTES,
+    )?;
     if status != 200 {
         return Err(format!("{page}: HTTP {status}"));
     }
@@ -79,7 +94,7 @@ pub fn fetch_app(page: &str) -> Result<Vec<u8>, String> {
             .ok_or_else(|| format!("{page} is not an Exact app: no envelope and no link"))?;
         let url = join(page, &href)?;
         same_host(page, &url)?;
-        let (status, body) = get(&url, ENVELOPE_TYPE)?;
+        let (status, body) = get(&url, ENVELOPE_TYPE, MAX_ENVELOPE_BYTES)?;
         if status != 200 {
             return Err(format!("{url}: HTTP {status}"));
         }
@@ -93,9 +108,16 @@ pub fn fetch_app(page: &str) -> Result<Vec<u8>, String> {
     }
     let count = usize::try_from(envelope.plan.bytes)
         .map_err(|_| "the envelope's plan byte count is too large".to_string())?;
+    if count > MAX_PLAN_BYTES {
+        return Err(format!(
+            "the envelope declares a {count}-byte plan, over the {MAX_PLAN_BYTES}-byte limit"
+        ));
+    }
     let url = join(&envelope_base, &envelope.plan.url)?;
     same_host(page, &url)?;
-    let (status, bytes) = get(&url, "application/vnd.exact.plan")?;
+    // The envelope's own count is the tighter ceiling: a plan that overruns
+    // what its envelope promised is refused as it arrives, not weighed after.
+    let (status, bytes) = get(&url, "application/vnd.exact.plan", count)?;
     if status != 200 {
         return Err(format!("{url}: HTTP {status}"));
     }
@@ -213,7 +235,95 @@ fn origin(url: &str) -> Option<(String, String, u16)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_envelope, same_host};
+    use super::{decode_envelope, fetch_app, same_host, ENVELOPE_TYPE};
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+
+    /// A dev server that answers and then will not stop — the shape the
+    /// ceilings exist for, since a chunked response declares no length and a
+    /// peer that never sends the terminating chunk never ends. Serves until
+    /// the client hangs up, which is the outcome under test.
+    fn serve_endlessly(reply: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            while let Ok((mut stream, _)) = listener.accept() {
+                let path = read_request_path(&mut stream);
+                let head = |kind: &str| {
+                    format!("HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nTransfer-Encoding: chunked\r\n\r\n")
+                };
+                let body = match path.as_str() {
+                    // The page names an envelope; the envelope names a plan of
+                    // sixteen bytes. Both are honest and small.
+                    "/" => Some((head("text/html"), format!(
+                        "<!doctype html><link rel=alternate type=\"{ENVELOPE_TYPE}\" href=\"/envelope.json\">"
+                    ))),
+                    "/envelope.json" => Some((head(ENVELOPE_TYPE), format!(
+                        "{{\"exact\":1,\"plan\":{{\"url\":\"/app.plan\",\"sha256\":\"{}\",\"bytes\":16}}}}",
+                        "0".repeat(64)
+                    ))),
+                    _ => None,
+                };
+                match (reply, body) {
+                    // The rung under test lies about its size: whatever it was
+                    // asked for, it sends megabytes.
+                    (endless, _) if endless == path || endless == "*" => {
+                        let _ = stream.write_all(head("application/octet-stream").as_bytes());
+                        let chunk = "x".repeat(8 * 1024);
+                        while stream
+                            .write_all(format!("{:x}\r\n{chunk}\r\n", chunk.len()).as_bytes())
+                            .and_then(|_| stream.flush())
+                            .is_ok()
+                        {}
+                    }
+                    (_, Some((head, text))) => {
+                        let _ = stream.write_all(head.as_bytes());
+                        let _ = stream.write_all(
+                            format!("{:x}\r\n{text}\r\n0\r\n\r\n", text.len()).as_bytes(),
+                        );
+                        let _ = stream.flush();
+                    }
+                    (_, None) => {
+                        let _ = stream
+                            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                    }
+                }
+            }
+        });
+        format!("http://127.0.0.1:{port}/")
+    }
+
+    fn read_request_path(stream: &mut TcpStream) -> String {
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while stream.read(&mut byte).map(|n| n == 1).unwrap_or(false) {
+            head.push(byte[0]);
+            if head.ends_with(b"\r\n\r\n") {
+                break;
+            }
+        }
+        String::from_utf8_lossy(&head)
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or("/")
+            .to_string()
+    }
+
+    /// The first rung: a page that never ends is refused at the page ceiling
+    /// rather than read into memory and measured afterwards.
+    #[test]
+    fn a_page_that_never_ends_is_refused() {
+        let error = fetch_app(&serve_endlessly("*")).unwrap_err();
+        assert!(error.contains("65536-byte limit"), "unexpected: {error}");
+    }
+
+    /// And the last: a plan is bounded by what its own envelope promised, so
+    /// a server that sends more than it declared is cut off mid-transfer.
+    #[test]
+    fn a_plan_larger_than_its_envelope_is_refused_as_it_arrives() {
+        let error = fetch_app(&serve_endlessly("/app.plan")).unwrap_err();
+        assert!(error.contains("16-byte limit"), "unexpected: {error}");
+    }
 
     #[test]
     fn origin_includes_scheme_host_and_effective_port() {

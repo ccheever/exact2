@@ -26,14 +26,18 @@ import { resolveApp } from '../../scripts/app.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => { const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', ...opts }); if (r.status !== 0) process.exit(r.status ?? 1); return r; };
 const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts });
-const runAppleCargo = (args, opts) => {
-  const r = spawnSync('cargo', args, { cwd: root, encoding: 'utf8', ...opts });
+// Every Apple toolchain invocation goes through here — cargo, swift build, and
+// the webarm swiftc alike: a mixed deployment target or an incompatible sysroot
+// is a warning the toolchain prints and then links anyway, so the build fails on
+// it here instead. @ref LLP 1008
+const runApple = (cmd, args, opts = {}) => {
+  const r = spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts });
   process.stdout.write(r.stdout ?? '');
   process.stderr.write(r.stderr ?? '');
   if (r.status !== 0) process.exit(r.status ?? 1);
   const output = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
-  if (/object file .* was built for newer|using sysroot for ['"]?MacOSX.*targeting ['"]?iPhone|incompatible.*sysroot/i.test(output)) {
-    console.error('host/apple: refused mixed Apple deployment targets in Rust/native objects');
+  if (/object file .* was built for newer|using sysroot for|incompatible.*sysroot/i.test(output)) {
+    console.error(`host/apple: refused mixed Apple deployment targets from ${cmd} ${args[0] ?? ''}`);
     process.exit(1);
   }
   return r;
@@ -208,10 +212,10 @@ function main(args) {
     SDKROOT: sdk,
     ...(ios ? { IPHONEOS_DEPLOYMENT_TARGET: '17.0' } : { MACOSX_DEPLOYMENT_TARGET: '14.0' }),
   };
-  runAppleCargo(['build', '--release', '-p', crate, ...targetArgs], { cwd: app.workspace, env: cargoEnv });
+  runApple('cargo', ['build', '--release', '-p', crate, ...targetArgs], { cwd: app.workspace, env: cargoEnv });
   // The app's GPU module (LLP 1009 D2): a dylib beside the executable (in
   // the bundle's Frameworks on iOS), loaded on demand by the presenter.
-  if (hasGpu) runAppleCargo(['build', '--release', '-p', gpuCrate, ...targetArgs], { cwd: app.workspace, env: cargoEnv });
+  if (hasGpu) runApple('cargo', ['build', '--release', '-p', gpuCrate, ...targetArgs], { cwd: app.workspace, env: cargoEnv });
   const gpuNote = hasGpu ? dylib : 'no GPU crate';
   const t1 = Date.now();
   // SwiftPM compiles Package.swift itself for macOS before applying the iOS
@@ -235,19 +239,30 @@ function main(args) {
       '--sdk', sdk,
       '-Xcc', '-isysroot', '-Xcc', sdk,
       '-Xlinker', '-syslibroot', '-Xlinker', sdk,
+      // SwiftPM leaves SDKROOT naming the *host* SDK — it compiled Package.swift
+      // for macOS — in the environment of every tool it then spawns, and its link
+      // step drives clang with `--sysroot`, which is not the flag clang reads on
+      // Darwin: with no `-isysroot` of its own clang takes SDKROOT instead and
+      // links an iPhone target against a MacOSX sysroot. Naming it explicitly at
+      // the linker driver is what closes it (`-Xcc` reaches only compiles).
+      '-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot',
+      '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk,
     );
   }
-  run('swift', swiftArgs, { cwd: pkg, env });
+  runApple('swift', swiftArgs, { cwd: pkg, env });
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.
   // It is built beside the presenter but never linked into it; WebModule.swift
   // dlopens this file at the first iframe create commit.
-  const webArgs = ['swiftc', '-module-cache-path', resolve(webBuildDir, 'module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), '-o', webBuilt, '-framework', 'WebKit'];
+  // `--sdk` and not a bare `xcrun`: xcrun exports SDKROOT for the tool it runs,
+  // and the default is macosx — the same MacOSX-sysroot-for-an-iPhone-target the
+  // presenter's link step hits above.
+  const webArgs = ['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(webBuildDir, 'module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), '-o', webBuilt, '-framework', 'WebKit'];
   if (ios) {
     webArgs.push('-target', device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk);
   } else {
     webArgs.push('-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`);
   }
-  run('xcrun', webArgs);
+  runApple('xcrun', webArgs);
   const t2 = Date.now();
   const bin = resolve(pkg, '.build/release', product);
 
