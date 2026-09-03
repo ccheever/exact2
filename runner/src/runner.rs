@@ -76,6 +76,14 @@ pub trait DataSource {
     fn grants(&self) -> &'static str {
         ""
     }
+
+    /// The plan this source answers for — once, at boot, after the identity
+    /// gate and before any answer (LLP 1027 D2). An executor that marshals
+    /// by the plan's declared shapes reads the `sources` table here; a Rust
+    /// crate has nothing to learn and ignores it.
+    fn bind(&mut self, plan: &Plan) {
+        let _ = plan;
+    }
 }
 
 /// Why a data source could not answer.
@@ -413,7 +421,7 @@ impl<D: DataSource> Runner<D> {
 
     fn boot_inner(
         plan: Plan,
-        data: D,
+        mut data: D,
         kernel: Kernel,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
@@ -463,6 +471,7 @@ impl<D: DataSource> Runner<D> {
         {
             return Err(RunnerError::RootRegion);
         }
+        data.bind(&plan);
         let store = Store::new(data.grants(), snapshot);
         let store_readers = plan
             .resources

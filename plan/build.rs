@@ -132,7 +132,7 @@ fn rust_type(c: &Codec) -> String {
 
 fn validate(schema: &Schema) {
     assert_eq!(
-        schema.format_version, 2,
+        schema.format_version, 3,
         "format: unsupported formatVersion"
     );
     for f in &schema.header {

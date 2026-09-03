@@ -299,6 +299,25 @@ impl PlanBuilder {
         MutationsId(self.plan.mutations.len() as u32 - 1)
     }
 
+    /// A data-source signature (LLP 1027 D2): the parameter types and the
+    /// result type every `resource` and `send` naming `name` agree on.
+    pub fn source(&mut self, name: &str, params: &[TypesId], ty: TypesId) -> SourcesId {
+        let start = self.plan.source_params.len() as u32;
+        for p in params {
+            self.plan.source_params.push(SourceParamsRow { ty: *p });
+        }
+        let name = self.str(name);
+        self.plan.sources.push(SourcesRow {
+            name,
+            params: SourceParamsRange {
+                start,
+                len: params.len() as u32,
+            },
+            ty,
+        });
+        SourcesId(self.plan.sources.len() as u32 - 1)
+    }
+
     /// A run of argument expressions.
     pub fn args(&mut self, exprs: &[Code]) -> ArgsRange {
         let start = self.plan.args.len() as u32;

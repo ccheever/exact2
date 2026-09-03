@@ -584,3 +584,14 @@ component A
   view
     text "a"
 ---
+== type-source-signature
+# LLP 1027 D2: one source, one signature — `same` takes a string here and a
+# number there, so the plan's `sources` table cannot say what it takes.
+shape S
+  a: string
+component A
+  resource one = same("x") as shape S
+  resource two = same(1) as shape S
+  view
+    text one.a
+---

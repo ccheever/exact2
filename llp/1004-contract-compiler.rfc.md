@@ -91,7 +91,11 @@ changed opcode or ordinal can never keep old bytes meaningful. Nothing is
 migrated.
 
 **D4 — The JavaScript boundary: expressions call the roster; data comes from
-a Rust data source; nothing else crosses.** No `use … from "*.ts"`; no call
+a data source; nothing else crosses.** *(Amended 2026-09-03 by LLP 1027,
+accepted: the source is the app's, in TypeScript by default or in Rust,
+behind this same seam — the alternative (i) below was rejected on a bill
+two-thirds of which has since been built as bake and LLP 1016; the seam,
+the four fates, and the roster are unchanged.)* No `use … from "*.ts"`; no call
 from an expression into JavaScript. In its place, four fates for app logic:
 
 - **A `resource` names a data source and its arguments.** `resource board =

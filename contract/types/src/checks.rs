@@ -401,7 +401,11 @@ pub(super) fn check_stmts(
                 }
             }
             Stmt::Send {
-                target, args, span, ..
+                target,
+                source,
+                args,
+                span,
+                ..
             } => {
                 if !c.mutations.iter().any(|m| &m.name == target) {
                     return err(
@@ -412,9 +416,17 @@ pub(super) fn check_stmts(
                         *span,
                     );
                 }
+                let mut params = Vec::with_capacity(args.len());
                 for arg in args {
-                    infer(arg, scope, shapes)?;
+                    params.push(infer(arg, scope, shapes)?);
                 }
+                let mi = c
+                    .mutations
+                    .iter()
+                    .position(|m| &m.name == target)
+                    .expect("checked above");
+                let result = ct.mutations[mi].clone();
+                crate::record_source(ct, source, params, result, *span)?;
             }
             Stmt::Refresh { target, span } => {
                 if !c.resources.iter().any(|r| &r.name == target) {

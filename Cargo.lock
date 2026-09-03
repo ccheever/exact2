@@ -530,6 +530,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-js"
+version = "0.1.0"
+dependencies = [
+ "caltrain-data",
+ "cc",
+ "contract",
+ "exact-plan",
+ "exact-runner",
+ "serde_json",
+]
+
+[[package]]
 name = "exact-kernel"
 version = "0.1.0"
 dependencies = [

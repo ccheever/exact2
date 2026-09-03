@@ -303,6 +303,61 @@ pub struct ComponentTypes {
     pub mutations: Vec<Ty>,
     /// Action parameter types, per action.
     pub actions: Vec<Vec<Ty>>,
+    /// The data seam's signatures (LLP 1027 D2): for each source name a
+    /// `resource` or a `send` uses, its parameter types and result type,
+    /// unified across every use — a disagreement is `type-source-signature`.
+    pub sources: BTreeMap<String, (Vec<Ty>, Ty)>,
+}
+
+/// Record one use of data source `source` in the component's signature
+/// table, unifying with the uses before it: one source, one signature.
+pub(crate) fn record_source(
+    ct: &mut ComponentTypes,
+    source: &str,
+    params: Vec<Ty>,
+    result: Ty,
+    span: Span,
+) -> Result<(), TypeError> {
+    let Some((have_params, have_result)) = ct.sources.get(source) else {
+        ct.sources.insert(source.to_string(), (params, result));
+        return Ok(());
+    };
+    if have_params.len() != params.len() {
+        return err(
+            "type-source-signature",
+            format!(
+                "`{source}` takes {} arguments here and {} elsewhere: one source, one signature",
+                params.len(),
+                have_params.len()
+            ),
+            span,
+        );
+    }
+    let mut unified = Vec::with_capacity(params.len());
+    for (i, (a, b)) in have_params.iter().zip(&params).enumerate() {
+        match a.unify(b) {
+            Some(u) => unified.push(u),
+            None => {
+                return err(
+                    "type-source-signature",
+                    format!("`{source}` takes `{b}` as argument {i} here and `{a}` elsewhere: one source, one signature"),
+                    span,
+                )
+            }
+        }
+    }
+    let result = match have_result.unify(&result) {
+        Some(u) => u,
+        None => {
+            return err(
+                "type-source-signature",
+                format!("`{source}` answers `{result}` here and `{have_result}` elsewhere: one source, one signature"),
+                span,
+            )
+        }
+    };
+    ct.sources.insert(source.to_string(), (unified, result));
+    Ok(())
 }
 
 /// Everything the checker learned.
@@ -1147,6 +1202,20 @@ fn check_component(
                 .collect(),
         );
         check_stmts(&a.body, &scope, c, &mut ct, shapes)?;
+    }
+    // The seam's signatures (LLP 1027 D2): every resource's arguments against
+    // the final scope, unified with the sends' (recorded as their bodies were
+    // checked). One source, one signature.
+    {
+        let scope = types_scope(c, &ct, types);
+        for (i, r) in c.resources.iter().enumerate() {
+            let mut params = Vec::with_capacity(r.args.len());
+            for arg in &r.args {
+                params.push(infer(arg, &scope, shapes)?);
+            }
+            let result = ct.resources[i].clone();
+            record_source(&mut ct, &r.source, params, result, r.span)?;
+        }
     }
     for (i, s) in c.states.iter().enumerate() {
         if !ct.slots[i].is_complete() {

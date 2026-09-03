@@ -1,0 +1,22 @@
+[package]
+name = "exact-js"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "The TypeScript data-source executor (LLP 1027): an app's `app.ts`, compiled to Hermes bytecode at bake, behind the runner's one data seam, run by the lean Hermes VM."
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../plan" }
+exact-runner = { path = "../runner" }
+serde_json = "1.0"
+
+[build-dependencies]
+cc = "1"
+
+[dev-dependencies]
+caltrain-data = { path = "../apps/caltrain/data" }
+contract = { path = "../contract/cli" }

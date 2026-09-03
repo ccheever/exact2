@@ -27,7 +27,9 @@ change can break.
 
 - **React tier.** The door stays open — meaning we design nothing that forecloses it.
   We do not build it. No React Facet bindings, no RecipeIR generation, no dual-framework
-  parity gate. One authoring model, one set of bugs.
+  parity gate. One authoring model, one set of bugs. Logic below the data seam is
+  TypeScript by default or Rust (LLP 1027; Charlie, 2026-09-03); nothing runs
+  JavaScript above it — not in Contract, not in the tree, not before first pixel.
 - **Rust Native roots.** No Rust-owned UI roots, no deployment-manifest registrations,
   no app-ABI generator.
 - **Platform-suffixed route overrides** (`.native.tsx`, `.mac.tsx`, ...). One route, one
@@ -48,7 +50,9 @@ change can break.
   hydration, route payloads, response caching.
 - Aquifer data tier, durable worker tier, capability capsules, durable capability grants.
 - Snapback / update economy.
-- HBC compilation, hot revision surfaces, staged reload. (A dev reload *carries
+- Hot revision surfaces, staged reload. (HBC compilation came off 2026-09-03 for the
+  *bake only* — LLP 1027 D5: `hermesc` runs at build beside the Contract compiler;
+  nothing compiles at runtime, and the lean VM a host links cannot. A dev reload *carries
   state* — slots by name where their types still fit, settled resources where
   their arguments still match, the clock — and is otherwise a restart: no patch
   format, no generations, no identity matching. LLP 1007 §6; Charlie, 2026-08-28.)

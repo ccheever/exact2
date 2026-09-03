@@ -251,6 +251,15 @@ pub fn lower(
         let id = l.b.resource(&r.name, &r.source, &[], ty, None);
         l.resources.push(id);
     }
+    // The seam's signatures (LLP 1027 D2), in name order.
+    for (name, (params, ty)) in &root_types.sources {
+        let mut ids = Vec::with_capacity(params.len());
+        for p in params {
+            ids.push(l.ty_id(p)?);
+        }
+        let ty = l.ty_id(ty)?;
+        l.b.source(name, &ids, ty);
+    }
     // A mutation is a slot of `option<T>`, `none` at boot, plus its row.
     for (i, m) in root.mutations.iter().enumerate() {
         let t = l.ty_id(&root_types.mutations[i])?;

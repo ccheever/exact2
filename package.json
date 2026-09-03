@@ -1,0 +1,8 @@
+{
+  "name": "exact2",
+  "private": true,
+  "description": "The bake's TypeScript toolchain (LLP 1027 D5, ruled 2026-09-03): Rolldown bundles and strips an app's `app.ts` to one script for hermesc. Nothing here runs at runtime.",
+  "devDependencies": {
+    "rolldown": "1.2.7"
+  }
+}

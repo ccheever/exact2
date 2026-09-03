@@ -199,7 +199,9 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   feature) only at a measured call site, after v1, as another `DataSource` loaded on
   demand after first pixel (the GPU-module shape, LLP 1009 D2) — the plan, kernel, and
   Contract do not change. On the web the browser is the executor, so one module runs
-  under two loaders; design that first. Zero app JS until then.
+  under two loaders; design that first. Zero app JS until then. **Superseded 2026-09-03** (Charlie: TS optional,
+  the default paved path for substantial app logic) — LLP 1027 is that design; the
+  `ibex2::host` half above stands as landed.
 
 - The dev menu (Apple hosts) is on by default — EXACT_DEV_MENU=0 is the only off
   switch, and "Quit Exact"/"Exact" are hardcoded names. Before any build of
@@ -233,3 +235,44 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   design settled (one app artifact, roster-at-bake, versioned table ABI). What it
   waits on is Charlie: ratify §6's Q1 leaning, and name a consumer + implementer;
   D8 does not start without both.
+
+- LLP 1026 (dynamic delivery: the app over the wire from a cloud that builds it) is
+  Draft r2 (2026-09-02), Charlie's exploration, no implementer. r2 is "both worlds": one
+  bake emits the native archive the binary embeds and a signed static update bundle;
+  a client keeps an on-disk store and selects at launch; native by digest identity, so
+  the interpreter runs only in the update window (D10); wgpu moves to the host so the
+  app's surfaces travel as wasm against WebGPU imports (D6); native modules stay in the
+  binary (D7). Level A is plan + assets at zero binary cost; Level B adds the app module
+  and +1.0 MB of wasmi. Measured: 72 KB module, ~1 ms to instantiate, byte-identical
+  answers, 8–10× on microsecond calls. Waits on §8's trades (the update economy comes
+  off NOT-DOING; the take is the file poll + two dev-only loaders, and Stage 3's DNS-SD)
+  and §10's eight questions, the binary size first. 1025's link left `current/` for it.
+
+- LLP 1027 (TypeScript data sources) is **Accepted** (Charlie, 2026-09-03, every
+  recommendation; implementer Claude, stage 1 landed the same day: the `sources` table in
+  the plan (format 3), `DataSource::bind`, the `exact-js` crate over the lean Hermes VM
+  with Caltrain's TypeScript twin as its byte-equality fixture, Rolldown at the repo root).
+  Next: stage 2 (bake: Rolldown → hermesc → bake under the VM, `app.d.ts`, `dev.mjs`),
+  stage 3 (`fetch` and the store as host bindings, the pure tier from ibex2), stage 4
+  (web), stage 5 (Weird Castle in TypeScript), stage 6 (delivery), stage 7 (the engine
+  crate + Linux). One question surfaced building it, for Charlie: a store-reading resource
+  in a TypeScript app (Weird Castle's `remember()`) has no value at boot until the engine
+  loads after first pixel, and a resource has no `none` — so either bake evaluates it
+  against the empty store as the first frame's placeholder (a one-frame signed-out flash
+  for a signed-in user) or a host may load the engine before first pixel when the bake
+  says a resource needs it (0.3 ms, a ruling on the boot rule). Written the day Charlie
+  ruled "TS support optional, but the default paved path for anything with substantial
+  app logic/business logic." Nothing above the data seam changes: `app.ts` exports
+  `appId`/`grants`/`answer`/`parse`, values cross as JSON directed by the plan's own
+  `fields` table, the module has no globals that reach out (a request is a value the
+  host runs), bake compiles it with `hermesc` to bytecode for native and to JS for the
+  web, and a new crate `exact-js` (the lean Hermes VM, ~100 lines of C++) runs it after
+  first pixel; Rust stays behind the same seam for hot sources (D8). Measured: Caltrain
+  ported to TS answers 20/20 cases byte-identical, 0.32 ms create + 0.008 ms load,
+  1.2–41 µs a call (7.5–29× native, mostly JSON), the linked lean engine +1.81 MB
+  stripped (+785 KB gz), TS→bytecode 20 ms. D9 answers "split ibex2 in two": it is three
+  — `ibex2::host` (linked today), the engine build as a `-sys` crate (proposed), ibex2's
+  JS runtime layer (never linked). Waits on §8's trades (D4's sentence, "HBC
+  compilation" for the bake, 1026's wasm data module leaves its staging so a phone
+  carries one interpreter) and §10's eight questions — 1.8 MB on iOS and the
+  one-frame `pending` first. 1019's link (Accepted, landed) left `current/` for it.

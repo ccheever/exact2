@@ -1,8 +1,11 @@
 {
-  "formatVersion": 2,
+  "formatVersion": 3,
   "_header": "Extra header fields after the four fixed integers (magic, version, format digest, kernel schema, compiler identity), in declaration order. `string` is length-prefixed UTF-8. `app_id` is the app identity, reverse-DNS (LLP 1023 D5): bake writes it from DataSource::app_id(); empty is unnamed (a fixture or a stand-in) and unnamed matches anything at boot.",
   "header": [
-    { "name": "app_id", "codec": "string" }
+    {
+      "name": "app_id",
+      "codec": "string"
+    }
   ],
   "_about": "The single declaration authority for the plan: its tables, the expression VM's opcodes, the stdlib roster, and the enum vocabularies. plan/build.rs generates the row structs, the canonical encoder, the validating decoder, the opcode and stdlib enums, and FORMAT_DIGEST from this file. Nothing here is hand-mirrored anywhere else. Kernel node types, props, and style rows are NOT declared here: plan rows carry the kernel's ordinals as numbers, and the crates that give them meaning take the vocabulary from exact-kernel (LLP 1004 D2).",
   "_codecs": "u8 | u16 | u32 | i32 | f64 | bool | str (u32 index into the string pool) | enum:<Name> (u8 ordinal) | idx:<table> (u32 row index, validated) | opt:<table> (u32 row index or NONE = 0xFFFFFFFF) | range:<table> (u32 start + u32 len, validated) | code (u32 offset + u32 len into the code pool, validated as well-formed bytecode) | bytes (u32 offset + u32 len into the data pool)",
@@ -180,6 +183,32 @@
         {
           "name": "expr",
           "codec": "code"
+        }
+      ]
+    },
+    {
+      "name": "sources",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "params",
+          "codec": "range:source_params"
+        },
+        {
+          "name": "ty",
+          "codec": "idx:types"
+        }
+      ]
+    },
+    {
+      "name": "source_params",
+      "fields": [
+        {
+          "name": "ty",
+          "codec": "idx:types"
         }
       ]
     },
@@ -717,5 +746,6 @@
       ],
       "returns": "number"
     }
-  ]
+  ],
+  "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape — the TypeScript module's — reads this table at bind; a Rust crate ignores it. formatVersion 3."
 }
