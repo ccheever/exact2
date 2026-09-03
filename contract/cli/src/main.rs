@@ -1,6 +1,9 @@
 //! `contract build <file.contract> [-o <file.plan>]` — compile, print a
 //! one-line summary, write the bytes. Baking needs the app's data crate and
 //! happens in the app's own build (see `apps/caltrain`), not here.
+//! `contract compat <app-dir> --platform <p> [--target <triple>] [--json]`
+//! — the compatibility id (LLP 1030 D3a) the bake writes beside the plan,
+//! and with `--json` the inputs it digests, for reading why two differ.
 
 use std::process::ExitCode;
 
@@ -9,9 +12,51 @@ fn main() -> ExitCode {
     match args.first().map(String::as_str) {
         Some("build") => build(&args[1..]),
         Some("test") => tests(&args[1..]),
+        Some("compat") => compat(&args[1..]),
         _ => {
-            eprintln!("usage: contract build <file.contract> [-o <file.plan>] | contract test <file.test.contract>");
+            eprintln!("usage: contract build <file.contract> [-o <file.plan>] | contract test <file.test.contract> | contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]");
             ExitCode::from(2)
+        }
+    }
+}
+
+/// `contract compat <app-dir> --platform <p> [--target <triple>] [--json]`:
+/// the compatibility id of the app built for that platform — the id alone,
+/// or with `--json` the id and every input it digests. The grants are the
+/// data crate's to declare and cannot be asked here without linking it;
+/// the bake, which links it, passes them (`build.rs` of each host crate).
+fn compat(args: &[String]) -> ExitCode {
+    let Some(dir) = args.first().filter(|a| !a.starts_with("--")) else {
+        eprintln!("usage: contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]");
+        return ExitCode::from(2);
+    };
+    let flag = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    let Some(platform) = flag("--platform") else {
+        eprintln!("contract compat: --platform <ios|macos|linux|web> is required");
+        return ExitCode::from(2);
+    };
+    let target = flag("--target")
+        .unwrap_or_else(|| format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS));
+    let app_dir = std::path::Path::new(dir);
+    let result = contract::Manifest::read(app_dir)
+        .and_then(|m| contract::compatibility_id(app_dir, &platform, &target, &m, None));
+    match result {
+        Ok(c) => {
+            if args.iter().any(|a| a == "--json") {
+                print!("{}", c.to_json());
+            } else {
+                println!("{}", c.id);
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("contract compat: {e}");
+            ExitCode::from(1)
         }
     }
 }

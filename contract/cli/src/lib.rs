@@ -12,11 +12,18 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod compat;
+
+pub use compat::{compatibility_id, Compat, Manifest};
+/// The data seam, re-exported for an app's build script: the bake asks the
+/// crate its grants for the compatibility id (`Caltrain.grants()`).
+pub use exact_runner::DataSource;
+
 use contract_syntax::{Expr, File, Step, TestDecl, UseDecl};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{Plan, ResourcesId};
-use exact_runner::{DataSource, Runner, RunnerError};
+use exact_runner::{Runner, RunnerError};
 use std::path::{Path, PathBuf};
 
 /// A refusal from `bake`: the runner's, or the layout lint's (LLP 1017 P1d).
