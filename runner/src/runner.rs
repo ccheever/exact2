@@ -8,6 +8,7 @@
 //! the host lays out and paints. Every write is validated by the kernel before
 //! anything changes; a trap or refusal leaves the kernel exactly as it was.
 
+mod kept;
 mod settlement;
 
 use crate::instance::{Ids, InstanceError, SurfaceUpdate, Tree, Update};
@@ -85,6 +86,14 @@ pub trait DataSource {
     /// crate has nothing to learn and ignores it.
     fn bind(&mut self, plan: &Plan) {
         let _ = plan;
+    }
+
+    /// Whether answers are available now. A TypeScript module before its
+    /// host loads it is not (LLP 1027 D4): the runner then boots every
+    /// store-reading resource from its kept answer or its compiled
+    /// empty-store placeholder, and asks again at [`Runner::data_ready`].
+    fn ready(&self) -> bool {
+        true
     }
 }
 
@@ -328,6 +337,12 @@ pub struct Runner<D: DataSource> {
     /// Which resources consulted the store when they settled (bake gives
     /// them no compiled value, LLP 1018 D4).
     store_readers: Vec<bool>,
+    /// Store-reading resources shown from a placeholder — a kept answer or
+    /// the compiled empty-store value — to ask again at `data_ready`.
+    stale: Vec<bool>,
+    /// Whether fresh answers of store-reading resources are kept for the
+    /// next boot: only for a source that may not be ready at boot.
+    keeps_answers: bool,
     poisoned: bool,
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
@@ -479,10 +494,11 @@ impl<D: DataSource> Runner<D> {
             .resources
             .iter()
             .map(|resource| {
-                carried.is_some_and(|carried| {
-                    let name = plan.str(resource.name);
-                    carried.store_readers.iter().any(|reader| reader == name)
-                })
+                resource.reader
+                    || carried.is_some_and(|carried| {
+                        let name = plan.str(resource.name);
+                        carried.store_readers.iter().any(|reader| reader == name)
+                    })
             })
             .collect();
         let mut runner = Runner {
@@ -508,6 +524,8 @@ impl<D: DataSource> Runner<D> {
             refresh_next: Vec::new(),
             store,
             store_readers,
+            stale: Vec::new(),
+            keeps_answers: false,
             poisoned: false,
             journal: std::collections::VecDeque::new(),
             journal_start: 0,
@@ -554,6 +572,39 @@ impl<D: DataSource> Runner<D> {
                     })
             })
             .collect();
+        // Store-reading resources when the data source is not ready (a
+        // TypeScript module before its host loads it, LLP 1027 D4): the
+        // answer kept from the last launch seeds the first frame if its
+        // arguments still match and its value still fits; the compiled
+        // empty-store placeholder is the fallback (settlement); either way
+        // the resource is asked again at `data_ready`.
+        let ready = runner.data.ready();
+        runner.keeps_answers = !ready;
+        runner.stale = vec![false; runner.plan.resources.len()];
+        if !ready {
+            for i in 0..runner.plan.resources.len() {
+                if !runner.plan.resources[i].reader {
+                    continue;
+                }
+                runner.stale[i] = true;
+                if runner.resources[i].is_some() {
+                    continue;
+                }
+                let name = runner.plan.str(runner.plan.resources[i].name);
+                let seed = runner
+                    .store
+                    .kept(&kept::kept_name(name))
+                    .and_then(kept::decode)
+                    .filter(|(_, value)| runner.check_shape(i, value).is_ok());
+                if let Some((args, value)) = seed {
+                    runner.resources[i] = Some(ResourceState {
+                        args,
+                        value,
+                        store_revision: runner.store.revision(),
+                    });
+                }
+            }
+        }
         runner.resource_values = vec![None; runner.plan.resources.len()];
         runner.pending_res = vec![false; runner.plan.resources.len()];
         runner.pending_mut = vec![false; runner.plan.mutations.len()];
@@ -1406,6 +1457,8 @@ impl<D: DataSource> Runner<D> {
         let saved_resources = self.resources.clone();
         match p.target {
             Target::Resource(i) => {
+                self.stale[i] = false;
+                self.keep_answer(i, &p.args, &value);
                 self.resources[i] = Some(ResourceState {
                     args: p.args,
                     value,

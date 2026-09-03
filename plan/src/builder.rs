@@ -287,6 +287,7 @@ impl PlanBuilder {
             args,
             ty,
             initial,
+            reader: false,
         });
         ResourcesId(self.plan.resources.len() as u32 - 1)
     }
@@ -482,6 +483,12 @@ impl PlanBuilder {
     pub fn set_resource_initial(&mut self, id: ResourcesId, v: &Value) {
         let bytes = self.data(v);
         self.plan.resources[id.0 as usize].initial = bytes;
+    }
+
+    /// Mark a resource as one the bake found consulting the store (LLP 1027
+    /// D4): its compiled value is the empty-store placeholder.
+    pub fn set_resource_reader(&mut self, id: ResourcesId, reader: bool) {
+        self.plan.resources[id.0 as usize].reader = reader;
     }
 
     /// Replace an action's body.

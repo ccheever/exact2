@@ -581,6 +581,12 @@ impl DataSource for Module {
         self.grants
     }
 
+    /// Not before the host loads it (LLP 1027 D4): the runner boots
+    /// store-reading resources from their kept answers meanwhile.
+    fn ready(&self) -> bool {
+        self.is_loaded()
+    }
+
     /// The seam's signatures, from the plan's `sources` table (LLP 1027 D2).
     fn bind(&mut self, plan: &Plan) {
         self.sigs.clear();

@@ -460,12 +460,16 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
             .plan()
             .str(runner.plan().resources[i].name)
             .to_string();
-        // A resource that consulted the store is the device's to answer at
-        // boot, not the build's: no compiled value (LLP 1018 D4). The bake's
-        // store is empty by construction — a developer's session never
-        // reaches a plan.
+        // A resource that consulted the store is the device's to answer,
+        // not the build's (LLP 1018 D4): the bake's store is empty by
+        // construction, so what is compiled for it is the empty-store answer
+        // — the fresh install's first frame, never a developer's session —
+        // and the row says so (`reader`, LLP 1027 D4 as ruled 2026-09-03),
+        // so the runner treats that value as a placeholder: a kept answer
+        // from the device beats it, and a data source not ready at boot is
+        // asked again at `data_ready`.
         if runner.resource_reads_store(&name) {
-            continue;
+            b.set_resource_reader(ResourcesId(i as u32), true);
         }
         if let Some(v) = runner.resource(&name) {
             b.set_resource_initial(ResourcesId(i as u32), v);

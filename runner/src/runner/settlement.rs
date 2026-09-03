@@ -162,7 +162,14 @@ impl<D: DataSource> Runner<D> {
                         .map(|s| s.value.clone());
                     let value = match reuse {
                         Some(v) => v,
-                        None if boot && row.initial.len > 0 && !self.store_readers[i] => {
+                        None if boot
+                            && row.initial.len > 0
+                            && (!self.store_readers[i] || self.stale[i]) =>
+                        {
+                            // A store-reading resource whose source is not
+                            // ready at boot takes its compiled empty-store
+                            // placeholder (LLP 1027 D4) and is asked again at
+                            // `data_ready`.
                             Value::from_bytes(self.plan.bytes(row.initial))
                                 .map_err(RunnerError::Plan)?
                         }
@@ -186,6 +193,8 @@ impl<D: DataSource> Runner<D> {
                                         effects[i] = RequestEffect::Answered;
                                         pending_res[i] = false;
                                     }
+                                    self.stale[i] = false;
+                                    self.keep_answer(i, &args, &v);
                                     v
                                 }
                                 Answer::Later(request) => {

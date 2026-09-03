@@ -182,6 +182,18 @@ under it, because a session is one thing to keep and one thing to forget.
 
 ### D4 — Bake sees an empty store; a resource that read it has no compiled value
 
+*Amended 2026-09-03 (LLP 1027 D4, ruled): a resource that read the store
+now **does** get an `initial` — the empty-store answer, which is a pure
+function of the code and never a developer's session, since the bake's
+store is empty by construction — and its row says `reader`. For a Rust
+source nothing changes: the runner ignores that value and answers at boot
+as below. For a source that is not ready at boot (a TypeScript module its
+host loads after first pixel), the runner shows the answer it **kept** from
+the last launch under `exact.kept.<resource>` beside the app's secrets,
+falls back to the compiled placeholder on a fresh install, and asks again at
+`data_ready`. The safety property is the same sentence: the dev server never
+reads the developer's keychain into a plan.*
+
 `contract::bake` boots the plan against the app's data source with an empty
 `Store` that records reads. A resource whose settlement read the store —
 `remember()` — gets **no `initial`** in the plan; every other resource is

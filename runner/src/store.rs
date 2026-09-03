@@ -79,7 +79,7 @@ impl Store {
             .collect();
         let values = snapshot
             .into_iter()
-            .filter(|(n, _)| granted.iter().any(|g| g == n))
+            .filter(|(n, _)| granted.iter().any(|g| g == n) || Store::is_kept(n))
             .collect();
         Store {
             granted,
@@ -99,9 +99,43 @@ impl Store {
         self.granted.iter().any(|g| g == name)
     }
 
+    /// The runner's own names (LLP 1027 D4): a kept answer for a
+    /// store-reading resource lives beside the app's secrets under this
+    /// prefix, persisted by the host like any write, never granted to the
+    /// app — `get` sees nothing there, `set` refuses — and never counted as
+    /// a read or a revision.
+    pub const KEPT: &'static str = "exact.kept.";
+
+    fn is_kept(name: &str) -> bool {
+        name.starts_with(Store::KEPT)
+    }
+
+    /// A kept answer, by the runner (uncounted, ungated).
+    pub(crate) fn kept(&self, name: &str) -> Option<&str> {
+        self.values.get(name).map(String::as_str)
+    }
+
+    /// Keep an answer for the next boot, by the runner: a write for the host
+    /// to persist that bumps no revision, so store-reading resources do not
+    /// re-answer because one of them was answered.
+    pub(crate) fn keep(&mut self, name: &str, value: &str) {
+        debug_assert!(Store::is_kept(name));
+        if self.values.get(name).map(String::as_str) == Some(value) {
+            return;
+        }
+        self.values.insert(name.to_string(), value.to_string());
+        self.writes.push(StoreWrite {
+            name: name.to_string(),
+            value: Some(value.to_string()),
+        });
+    }
+
     /// The kept value under `name` — `None` when nothing is kept, or when
     /// `name` is not granted (the same fact, as `process.env` has it).
     pub fn get(&self, name: &str) -> Option<&str> {
+        if Store::is_kept(name) {
+            return None;
+        }
         self.reads.set(self.reads.get() + 1);
         self.values.get(name).map(String::as_str)
     }

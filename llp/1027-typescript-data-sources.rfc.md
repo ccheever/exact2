@@ -413,8 +413,30 @@ TypeScript source and a Rust one:
   synchronously at boot today; the TypeScript one answers it a frame
   later. That is the price of the rule, stated.
 
+**As ruled and built (2026-09-03, "ok let's do that").** Building stage 5
+showed the frame was not the only cost: a store-reading resource
+(Weird Castle's `remember()`) is *answered at boot*, and a runner whose
+source is not ready cannot answer it at all — boot would fail. The data
+such an answer needs is one store entry and its result is a fifty-byte
+record, so the runner now **keeps the answer**: the last fresh value of
+every store-reading resource is written beside the app's secrets under
+`exact.kept.<resource>` (arguments and value, canonical bytes; never
+granted to the app, never counted as a read, never a revision; capped at
+8 KB), persisted by the host like any store write. At a boot whose source
+is not ready (`DataSource::ready`, false for an unloaded module) the
+first frame shows the kept answer if its arguments still match and its
+value still fits, else the compiled **empty-store placeholder** the bake
+now writes for every reader (`resources.reader`, plan format 4; LLP 1018
+D4 amended), and the host calls `Runner::data_ready()` after loading the
+engine, which asks every placeholder-shown resource again in one commit.
+A returning user sees "signed in" on the first frame; a fresh install sees
+the empty-store frame, which is right for it; a keychain cleared underneath
+shows the kept answer for one frame and is corrected. No JavaScript before
+first pixel, no bend in the rule, and the shape every native app already
+uses for cached login state. `js/tests/castle.rs` drives all three.
+
 The alternative — create the engine before boot, since it is 0.3 ms —
-is refused here, not because the number is large but because the rule
+was considered and not taken, not because the number is large but because the rule
 is a count, not a timer, and the reason it is a count is that the
 old repo's 5.47 MB of boot-path JavaScript began as a small number
 too. If Charlie wants the frame back, it is a ruling on the rule, not

@@ -258,12 +258,12 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   (bake: Rolldown → hermesc → bake under the VM, `app.d.ts`, `dev.mjs`) built against
   its first consumer, stage 5 (Weird Castle in TypeScript), then stage 4 (web), stage 6
   (delivery), stage 7 (the engine crate + Linux); owed from stage 3: the pure tier from
-  ibex2 (URL, TextEncoder, base64), a `Date.now` shadow onto the runner's clock. One question surfaced building it, for Charlie: a store-reading resource
-  in a TypeScript app (Weird Castle's `remember()`) has no value at boot until the engine
-  loads after first pixel, and a resource has no `none` — so either bake evaluates it
-  against the empty store as the first frame's placeholder (a one-frame signed-out flash
-  for a signed-in user) or a host may load the engine before first pixel when the bake
-  says a resource needs it (0.3 ms, a ruling on the boot rule). Written the day Charlie
+  ibex2 (URL, TextEncoder, base64), a `Date.now` shadow onto the runner's clock. The
+  boot question was ruled the same day ("ok let's do that"): **the kept answer** — the
+  runner persists a store-reading resource's last answer beside the secrets, boots
+  from it when the source is not ready, falls back to the bake's empty-store placeholder
+  (plan format 4, `resources.reader`), and `data_ready` asks again once the engine is up;
+  landed with a test through the runner. Written the day Charlie
   ruled "TS support optional, but the default paved path for anything with substantial
   app logic/business logic." Nothing above the data seam changes: `app.ts` exports
   `appId`/`grants`/`answer`/`parse`, values cross as JSON directed by the plan's own

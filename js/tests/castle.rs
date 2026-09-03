@@ -317,3 +317,98 @@ fn the_runner_drives_a_typescript_login_and_a_two_request_profile() {
     assert!(r.take_requests().is_empty(), "logout answers now");
     assert_eq!(text_of(&r, "remembered").as_deref(), Some(""));
 }
+
+// --- the kept answer (LLP 1027 D4, as ruled 2026-09-03) --------------------
+
+#[test]
+fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_the_engine_is_up() {
+    let baked =
+        contract::bake(plan(), Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).expect("bake");
+    // The bake compiled the empty-store answer for `remembered` and marked it.
+    let i = baked
+        .resources
+        .iter()
+        .position(|r| baked.str(r.name) == "remembered")
+        .unwrap();
+    assert!(baked.resources[i].reader, "bake found it reading the store");
+    assert!(
+        baked.resources[i].initial.len > 0,
+        "the empty-store answer is compiled"
+    );
+
+    // A fresh install: the engine is not loaded at boot; the first frame is
+    // the placeholder; nothing happens until the host says the engine is up.
+    let mut r = Runner::boot(
+        baked.clone(),
+        Module::new(HBC.to_vec(), APP, GRANTS),
+        Kernel::with_monospace(),
+    )
+    .unwrap();
+    assert_eq!(text_of(&r, "remembered").as_deref(), Some(""));
+    assert!(
+        r.data_ready().unwrap().is_none(),
+        "not ready: nothing to do"
+    );
+    r.data().load().unwrap();
+    assert!(
+        r.data_ready().unwrap().is_some(),
+        "the placeholder is asked again"
+    );
+    assert_eq!(text_of(&r, "remembered").as_deref(), Some(""));
+    assert!(r.data_ready().unwrap().is_none(), "asked once");
+
+    // Log in: the fresh answer to `remembered` is kept beside the session,
+    // and the app cannot see it.
+    r.dispatch(view_of(&r, "who"), Event::Change("ada".into()))
+        .unwrap();
+    r.dispatch(view_of(&r, "password"), Event::Change("pw".into()))
+        .unwrap();
+    r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
+    let reqs = r.take_requests();
+    r.fulfill(reqs[0].ticket, response(200, LOGIN_OK)).unwrap();
+    assert_eq!(text_of(&r, "remembered").as_deref(), Some("ada"));
+    let writes = r.take_store_writes();
+    assert!(
+        writes.iter().any(|w| w.name == "castle.session"),
+        "{writes:?}"
+    );
+    assert!(
+        writes.iter().any(|w| w.name == "exact.kept.remembered"),
+        "{writes:?}"
+    );
+    assert!(r.store().get("exact.kept.remembered").is_none());
+    assert!(r.store().names().contains(&"exact.kept.remembered"));
+
+    // The next launch, engine not yet loaded: the first frame is yesterday's
+    // answer, and it stands once the engine confirms it.
+    let snapshot = r.store().snapshot();
+    let mut next = Runner::boot_stored(
+        baked.clone(),
+        Module::new(HBC.to_vec(), APP, GRANTS),
+        Kernel::with_monospace(),
+        snapshot.clone(),
+    )
+    .unwrap();
+    assert_eq!(text_of(&next, "remembered").as_deref(), Some("ada"));
+    next.data().load().unwrap();
+    assert!(next.data_ready().unwrap().is_some());
+    assert_eq!(text_of(&next, "remembered").as_deref(), Some("ada"));
+
+    // The keychain was cleared underneath: the kept answer shows for a
+    // frame, then the engine corrects it.
+    let cleared: Vec<(String, String)> = snapshot
+        .into_iter()
+        .filter(|(n, _)| n != "castle.session")
+        .collect();
+    let mut stale = Runner::boot_stored(
+        baked,
+        Module::new(HBC.to_vec(), APP, GRANTS),
+        Kernel::with_monospace(),
+        cleared,
+    )
+    .unwrap();
+    assert_eq!(text_of(&stale, "remembered").as_deref(), Some("ada"));
+    stale.data().load().unwrap();
+    stale.data_ready().unwrap();
+    assert_eq!(text_of(&stale, "remembered").as_deref(), Some(""));
+}

@@ -721,7 +721,14 @@ fn a_baked_store_dependency_is_transitive_through_resource_arguments() {
             .iter()
             .find(|row| baked.str(row.name) == name)
             .unwrap();
-        assert_eq!(row.initial.len, 0, "{name} must be answered on the device");
+        // LLP 1027 D4 (2026-09-03): a reader is compiled — the empty-store
+        // answer, as the placeholder for a source not ready at boot — and
+        // marked, so the device answers it whenever the source is ready.
+        assert!(row.reader, "{name} reads the store");
+        assert!(
+            row.initial.len > 0,
+            "{name} has its empty-store placeholder"
+        );
     }
 
     let r = Runner::boot_stored(

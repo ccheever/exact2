@@ -1,5 +1,5 @@
 {
-  "formatVersion": 3,
+  "formatVersion": 4,
   "_header": "Extra header fields after the four fixed integers (magic, version, format digest, kernel schema, compiler identity), in declaration order. `string` is length-prefixed UTF-8. `app_id` is the app identity, reverse-DNS (LLP 1023 D5): bake writes it from DataSource::app_id(); empty is unnamed (a fixture or a stand-in) and unnamed matches anything at boot.",
   "header": [
     {
@@ -157,6 +157,10 @@
         {
           "name": "initial",
           "codec": "bytes"
+        },
+        {
+          "name": "reader",
+          "codec": "bool"
         }
       ]
     },
@@ -747,5 +751,6 @@
       "returns": "number"
     }
   ],
-  "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape — the TypeScript module's — reads this table at bind; a Rust crate ignores it. formatVersion 3."
+  "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape — the TypeScript module's — reads this table at bind; a Rust crate ignores it. formatVersion 3.",
+  "_resources": "`reader` (formatVersion 4, LLP 1027 D4 as ruled 2026-09-03): the bake found this resource consulting the store. Its `initial` is then the empty-store answer — the fresh install's first frame, never a developer's session (the bake's store is empty by construction, LLP 1018 D4) — and the runner treats it as a placeholder: a kept answer from the device's store beats it, and a data source that is not ready at boot (a TypeScript module before its host loads it) is asked again at `data_ready`."
 }
