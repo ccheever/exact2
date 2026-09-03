@@ -1,0 +1,36 @@
+# The update store: the bundles an installed app has, the one it boots, and the
+# check that stages the next one (LLP 1026 D9–D12; LLP 1030 D3a, D9).
+#
+# @ref LLP 1026 D9 (one bake, two outputs; the store) / D11 (signing,
+# anti-rollback, crash recovery, assets by digest) / D12 (one mechanism, two
+# policies) / LLP 1030 D3a (the compatibility id names the stream) / D9 (an
+# unknown record codec selects entry zero) / LLP 1030.000 §4 stage 4.
+#
+# Depends on hashing, verification, and a JSON reader — nothing of exact2's.
+# The network is a closure the host supplies, so this crate opens no socket and
+# a host runs the check on whatever executor it already has.
+[package]
+name = "exact-update"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The update store: signed bundles on disk, selection at launch, and the check that stages the next one"
+publish = false
+
+[lib]
+name = "exact_update"
+crate-type = ["rlib"]
+
+[dependencies]
+sha2 = "0.10"
+# Verification only: the developer's key is baked into the binary and the head
+# carries the signature (LLP 1026 D11). No key generation, no PEM, no batch.
+ed25519-dalek = { version = "2.1", default-features = false }
+serde_json = "1.0"
+
+# The tests drive the store over an in-memory origin: they build heads with the
+# JSON reader the crate already has and sign them with the crate's own
+# verifier's signing half. Nothing new enters the lock file.
+[dev-dependencies]
+serde_json = "1.0"
+ed25519-dalek = { version = "2.1", default-features = false }

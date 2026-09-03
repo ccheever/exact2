@@ -83,6 +83,20 @@ sits on that list carries the trade it would take.
   continuous everywhere (`release: automatic`, phased by the store); the update economy
   off NOT-DOING in its static form. Every §5 question ruled 2026-09-03 (shader packaging in stage 1; the conditional put required). Owed: an implementer and a date against 1030.000's four stages; stage 4 also waits on 1026 Level A.
 
+- **The update store is built** (`update/`, `exact-update`, 2026-09-03) — LLP 1026 D9–D12
+  and LLP 1030 D3a/D9 as store logic alone, no host wiring: the envelope with its stream
+  and its signature, the canonical bytes a Node publisher has to reproduce, entries
+  whole-or-absent under their envelope digest, selection at launch with entry zero as the
+  fallback, the crash counter, the anti-rollback and wrong-cohort and wrong-app refusals,
+  files reused from another entry by digest, and `staged`/`activate`/`status` for LLP 1030
+  D7's two acts. Twenty tests over a temp directory and an in-memory origin. Owed before
+  it delivers anything: bake writing `stream`, `release`, `signature`, and the embedded
+  bundle's own digest into `exact.json` (1030.000 stage 4's publisher half); a host
+  calling `open` and the two boot marks and running `check` after first pixel on its own
+  executor, on Apple, Linux, and the web; the `delivery` resource and commands with
+  `state.delivery` beside them; and the dev policy folded onto the same store (1026 D12),
+  which is what retires the file poll and the two URL loaders.
+
 - **LLP 1031 owed after the 2026-09-03 landing** (the handle, `ExactKit`, the macOS
   sample host, the manifest stage): the **iOS sample host** (`ExactHostIOS` builds as a
   placeholder; the fixture with a navigation controller pushing over a session is owed,
