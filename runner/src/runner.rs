@@ -53,17 +53,19 @@ pub trait DataSource {
 
     /// The value of a resource or mutation from what the host brought back
     /// for a request `answer` handed out, in the shape the declaration
-    /// names. No I/O, no host — the store is the one thing it may write
-    /// (a token from a reply, LLP 1018 D5). A failure on the wire is an
-    /// `Outcome` too — what the app sees is the source's to decide (D4). A
-    /// source that never answers later need not implement it.
+    /// names — or one more request (LLP 1027 D1a: a TypeScript `answer`
+    /// that awaits a second `fetch` is pending again, on the same target,
+    /// with the same arguments). No I/O, no host — the store is the one
+    /// thing it may write (a token from a reply, LLP 1018 D5). A failure on
+    /// the wire is an `Outcome` too — what the app sees is the source's to
+    /// decide (D4). A source that never answers later need not implement it.
     fn parse(
         &mut self,
         store: &mut Store,
         source: &str,
         args: &[Value],
         outcome: Outcome,
-    ) -> Result<Value, DataError> {
+    ) -> Result<Answer, DataError> {
         let _ = (store, args, outcome);
         Err(DataError::UnknownSource(source.to_string()))
     }
@@ -1380,13 +1382,23 @@ impl<D: DataSource> Runner<D> {
             Target::Resource(i) => self.plan.resources[i].ty,
             Target::Mutation(m) => self.plan.mutations[m].ty,
         };
-        let value = self
+        let value = match self
             .data
             .parse(&mut self.store, &p.source, &p.args, outcome)
             .map_err(|error| RunnerError::Data {
                 resource: name.clone(),
                 error,
-            })?;
+            })? {
+            Answer::Now(value) => value,
+            Answer::Later(request) => {
+                // One more round (LLP 1027 D1a): the target keeps its value,
+                // a new ticket goes out for the same arguments, and this
+                // commit changes nothing but the pending set.
+                self.log(format!("{name}: the reply asks for one more request"));
+                self.enqueue(p.target, p.source, p.args, request, false);
+                return self.update();
+            }
+        };
         if !value.conforms(&self.plan, ty) {
             return Err(RunnerError::Shape { resource: name });
         }

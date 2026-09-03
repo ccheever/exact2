@@ -119,21 +119,19 @@ impl DataSource for Castle {
         source: &str,
         args: &[Value],
         outcome: Outcome,
-    ) -> Result<Value, DataError> {
+    ) -> Result<Answer, DataError> {
         if self.fail_parse && source == "login" {
             return Err(DataError::Unavailable("parse refused".into()));
         }
-        match (source, outcome) {
+        Ok(Answer::Now(match (source, outcome) {
             ("login", Outcome::Response(r)) if r.status == 200 => {
-                Ok(session(true, args[0].as_str().unwrap_or(""), ""))
+                session(true, args[0].as_str().unwrap_or(""), "")
             }
-            ("login", Outcome::Response(r)) => {
-                Ok(session(false, "", &format!("HTTP {}", r.status)))
-            }
-            ("login", Outcome::Failed { message, .. }) => Ok(session(false, "", &message)),
-            ("logout", _) => Ok(session(false, "", "")),
-            (other, _) => Err(DataError::UnknownSource(other.into())),
-        }
+            ("login", Outcome::Response(r)) => session(false, "", &format!("HTTP {}", r.status)),
+            ("login", Outcome::Failed { message, .. }) => session(false, "", &message),
+            ("logout", _) => session(false, "", ""),
+            (other, _) => return Err(DataError::UnknownSource(other.into())),
+        }))
     }
 }
 
@@ -603,12 +601,12 @@ impl DataSource for StoreSource {
         source: &str,
         _: &[Value],
         _: Outcome,
-    ) -> Result<Value, DataError> {
+    ) -> Result<Answer, DataError> {
         if source != "login" {
             return Err(DataError::UnknownSource(source.into()));
         }
         store.set("session", "ada")?;
-        Ok(Value::record(vec![Value::str("ada")]))
+        Ok(Answer::Now(Value::record(vec![Value::str("ada")])))
     }
 
     fn grants(&self) -> &'static str {

@@ -281,6 +281,29 @@ because the host already owns the request machinery:
 D1's "no bindings" becomes "no binding that reaches *past the host*":
 `fetch` reaches the host, which is where it reached before.
 
+**As built (stage 3, 2026-09-03).** The seam from the module's side is
+`exact.answer(source, args, store)` returning the value or a Promise of
+it and throwing for a refusal (an object with `kind` and `message`);
+`fetch`, `Headers`, `Response`, and `store` come from a prelude
+(`js/src/prelude.js`, bytecode, evaluated before the module) that
+reaches Rust through one host function with four ops — record a
+request, store get, set, forget — so a store read is counted and a
+write grant-checked by the runner's own `Store`. The executor calls
+three prelude functions: `__exact_call(source, argsJson)` (a value, a
+refusal, or "pending: drain and settle"), `__exact_settle(id)` (the
+value, the refusal, or the ticket of the fetch the answer awaits), and
+`__exact_fulfill(ticket, outcomeJson)` (resolves that fetch; the
+continuation runs in the microtask drain that follows). **The runner's
+`parse` now returns an `Answer`**, so a reply may hand back one more
+request on the same target with the same arguments — the runner
+enqueues it under a new ticket and commits nothing else — which is how
+one `answer` awaits two fetches in a row; every Rust source wraps its
+value in `Answer::Now`. `query` (the bake's path) has no store — reads
+are empty, writes refused — and a fetching answer is `Unavailable`
+there, exactly as `Later` at boot is refused today. Owed: the pure tier
+as ibex2 bindings (D10; `URL`, `TextEncoder`, base64, `Headers` from
+Rust), a `Date.now` shadow onto the runner's clock, and `AbortSignal`.
+
 ### D2 — Marshaling is shape-directed, both ways, from the plan's own tables
 
 Values cross as JSON, and the *plan* says what the JSON means: a
@@ -875,7 +898,13 @@ grants are read at boot, runner.rs:440 and :466).
    the pending-one-frame rule (D4). Verified: edit `board` in `app.ts`,
    the macOS window shows it in under 100 ms; a wrong-shaped answer
    refused at bake by `tsc` and, with the check bypassed, at the seam.
-3. **The web** (D6): the one import, `app.js` after first paint, the
+3. ~~**`fetch` and the store**~~ — **landed 2026-09-03** with stage 1's
+   commit's successor: D1a as built (above), `parse → Answer`, the store
+   as host-door ops, `js/tests/castle.rs` (login, a failed fetch, a
+   two-fetch chain, refusals before and after a fetch, an answer pending
+   on nothing, and the same through a compiled Contract and the runner).
+   Owed from it: the pure tier from ibex2, the clock shadow.
+4. **The web** (D6): the one import, `app.js` after first paint, the
    not-yet ticket, restart with carry. Verified: `smoke.mjs web` green
    on the twin; `boot.mjs` unchanged at one module; parity of every
    answer with the native hosts through the agent's `state`.

@@ -474,7 +474,7 @@ fn a_request_runs_on_the_executor_and_its_reply_commits() {
             _: &str,
             _: &[Value],
             outcome: Outcome,
-        ) -> Result<Value, DataError> {
+        ) -> Result<exact_runner::Answer, DataError> {
             let ok = matches!(outcome, Outcome::Response(ref r) if r.status == 200);
             let text = match &outcome {
                 Outcome::Response(r) => String::from_utf8_lossy(&r.body).into_owned(),
@@ -485,7 +485,10 @@ fn a_request_runs_on_the_executor_and_its_reply_commits() {
             } else {
                 format!("?{text}")
             };
-            Ok(Value::record(vec![Value::Bool(ok), Value::str(&name)]))
+            Ok(exact_runner::Answer::Now(Value::record(vec![
+                Value::Bool(ok),
+                Value::str(&name),
+            ])))
         }
         fn grants(&self) -> &'static str {
             self.grants

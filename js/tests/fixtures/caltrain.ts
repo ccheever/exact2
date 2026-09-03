@@ -9,10 +9,6 @@ type Station = { id: string; name: string; zone: number; distance: number };
 type Departure = { id: string; train: number; service: string; headsign: string; at: number };
 
 
-type Answer =
-  | { tag: 0; value: unknown }
-  | { tag: 2; kind: "UnknownSource" | "BadArguments" | "Unavailable"; message: string };
-
 class DataError extends Error {
   constructor(public kind: "UnknownSource" | "BadArguments" | "Unavailable", message: string) {
     super(message);
@@ -177,15 +173,11 @@ function query(source: string, args: unknown[]): unknown {
 }
 
 // --- the seam ------------------------------------------------------------------
+// `answer` returns the value and throws a `DataError` (an object with `kind`
+// and `message`) for a refusal; the executor marshals both (LLP 1027 D1a).
 
-function answer(source: string, argsJson: string): string {
-  const args = JSON.parse(argsJson) as unknown[];
-  try {
-    return JSON.stringify({ tag: 0, value: query(source, args) } satisfies Answer);
-  } catch (e) {
-    if (e instanceof DataError) return JSON.stringify({ tag: 2, kind: e.kind, message: e.message } satisfies Answer);
-    throw e;
-  }
+function answer(source: string, args: unknown[]): unknown {
+  return query(source, args);
 }
 
 (globalThis as any).exact = { abi: 1, appId: "com.exact.caltrain", grants: "", answer };

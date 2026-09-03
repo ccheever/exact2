@@ -252,10 +252,13 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   recommendation; implementer Claude, stage 1 landed the same day: the `sources` table in
   the plan (format 3), `DataSource::bind`, the `exact-js` crate over the lean Hermes VM
   with Caltrain's TypeScript twin as its byte-equality fixture, Rolldown at the repo root).
-  Next: stage 2 (bake: Rolldown → hermesc → bake under the VM, `app.d.ts`, `dev.mjs`),
-  stage 3 (`fetch` and the store as host bindings, the pure tier from ibex2), stage 4
-  (web), stage 5 (Weird Castle in TypeScript), stage 6 (delivery), stage 7 (the engine
-  crate + Linux). One question surfaced building it, for Charlie: a store-reading resource
+  Stage 3 landed the same day: `fetch` over the host's ticket path (a prelude in
+  bytecode; one host door with four ops for requests and the store), `parse` returning
+  an `Answer` so one answer awaits two fetches in a row, eleven tests. Next: stage 2
+  (bake: Rolldown → hermesc → bake under the VM, `app.d.ts`, `dev.mjs`) built against
+  its first consumer, stage 5 (Weird Castle in TypeScript), then stage 4 (web), stage 6
+  (delivery), stage 7 (the engine crate + Linux); owed from stage 3: the pure tier from
+  ibex2 (URL, TextEncoder, base64), a `Date.now` shadow onto the runner's clock. One question surfaced building it, for Charlie: a store-reading resource
   in a TypeScript app (Weird Castle's `remember()`) has no value at boot until the engine
   loads after first pixel, and a resource has no `none` — so either bake evaluates it
   against the empty store as the first frame's placeholder (a one-frame signed-out flash

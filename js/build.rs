@@ -21,7 +21,7 @@ fn main() {
         println!("cargo:rerun-if-env-changed={var}");
     }
     println!("cargo:rerun-if-changed=src/shim.cc");
-    println!("cargo:rerun-if-changed=tests/fixtures/caltrain.ts");
+    println!("cargo:rerun-if-changed=src/prelude.js");
 
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let ibex = manifest.join("../../ibex");
@@ -56,8 +56,9 @@ fn main() {
     println!("cargo:rustc-link-lib=framework=Foundation");
     println!("cargo:rustc-cfg=exact_js_engine");
 
-    // The fixture: TypeScript → one script (Rolldown) → bytecode (hermesc),
-    // the bake's own two steps, into OUT_DIR for the tests to include.
+    // The prelude and the fixtures: the prelude straight through hermesc;
+    // each fixture TypeScript → one script (Rolldown) → bytecode (hermesc),
+    // the bake's own two steps, into OUT_DIR for the crate and its tests.
     let arch = match env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
         Ok("aarch64") => "arm64",
         _ => "x64",
@@ -79,20 +80,35 @@ fn main() {
         rolldown.display()
     );
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    let script = out.join("caltrain.js");
-    let bytecode = out.join("caltrain.hbc");
-    let status = Command::new(&rolldown)
-        .arg(manifest.join("tests/fixtures/caltrain.ts"))
-        .args(["--format", "iife", "--file"])
-        .arg(&script)
-        .status()
-        .unwrap_or_else(|e| panic!("exact-js: cannot run {}: {e}", rolldown.display()));
-    assert!(status.success(), "exact-js: rolldown failed on the fixture");
-    let status = Command::new(&hermesc)
-        .args(["-O", "-emit-binary", "-out"])
-        .arg(&bytecode)
-        .arg(&script)
-        .status()
-        .unwrap_or_else(|e| panic!("exact-js: cannot run {}: {e}", hermesc.display()));
-    assert!(status.success(), "exact-js: hermesc failed on the fixture");
+    let compile = |script: &PathBuf, bytecode: &PathBuf| {
+        let status = Command::new(&hermesc)
+            .args(["-O", "-emit-binary", "-out"])
+            .arg(bytecode)
+            .arg(script)
+            .status()
+            .unwrap_or_else(|e| panic!("exact-js: cannot run {}: {e}", hermesc.display()));
+        assert!(
+            status.success(),
+            "exact-js: hermesc failed on {}",
+            script.display()
+        );
+    };
+    compile(&manifest.join("src/prelude.js"), &out.join("prelude.hbc"));
+    for name in ["caltrain", "castle"] {
+        let source = manifest.join(format!("tests/fixtures/{name}.ts"));
+        println!("cargo:rerun-if-changed={}", source.display());
+        let script = out.join(format!("{name}.js"));
+        let status = Command::new(&rolldown)
+            .arg(&source)
+            .args(["--format", "iife", "--file"])
+            .arg(&script)
+            .status()
+            .unwrap_or_else(|e| panic!("exact-js: cannot run {}: {e}", rolldown.display()));
+        assert!(
+            status.success(),
+            "exact-js: rolldown failed on {}",
+            source.display()
+        );
+        compile(&script, &out.join(format!("{name}.hbc")));
+    }
 }

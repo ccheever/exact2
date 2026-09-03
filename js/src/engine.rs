@@ -5,8 +5,19 @@
 mod real {
     use std::ffi::{c_char, c_void, CStr, CString};
 
+    /// The one door from the module into Rust: `(ctx, op, a, b, out)`; 0
+    /// with `out` null is `undefined`, 0 with a string is that string, and
+    /// anything else throws the string in the module.
+    pub type HostFn = unsafe extern "C" fn(
+        *mut c_void,
+        u32,
+        *const c_char,
+        *const c_char,
+        *mut *mut c_char,
+    ) -> i32;
+
     extern "C" {
-        fn exact_js_create(max_heap_bytes: u32) -> *mut c_void;
+        fn exact_js_create(max_heap_bytes: u32, host: HostFn, ctx: *mut c_void) -> *mut c_void;
         fn exact_js_load(h: *mut c_void, data: *const u8, len: usize, out: *mut *mut c_char)
             -> i32;
         fn exact_js_string(h: *mut c_void, name: *const c_char, out: *mut *mut c_char) -> i32;
@@ -18,6 +29,7 @@ mod real {
             c: *const c_char,
             out: *mut *mut c_char,
         ) -> i32;
+        fn exact_js_drain(h: *mut c_void, out: *mut *mut c_char) -> i32;
         fn exact_js_take_log(h: *mut c_void, out: *mut *mut c_char);
         fn exact_js_free(p: *mut c_char);
         fn exact_js_destroy(h: *mut c_void);
@@ -44,9 +56,11 @@ mod real {
     }
 
     impl Engine {
-        pub fn new(max_heap_bytes: u32) -> Result<Engine, String> {
-            // SAFETY: the shim returns null or a pointer we own until destroy.
-            let h = unsafe { exact_js_create(max_heap_bytes) };
+        pub fn new(max_heap_bytes: u32, host: HostFn, ctx: *mut c_void) -> Result<Engine, String> {
+            // SAFETY: the shim returns null or a pointer we own until destroy;
+            // `ctx` must outlive the engine, which `Module` guarantees by
+            // boxing it for its own lifetime.
+            let h = unsafe { exact_js_create(max_heap_bytes, host, ctx) };
             if h.is_null() {
                 return Err("the Hermes runtime could not be created".into());
             }
@@ -105,6 +119,18 @@ mod real {
             }
         }
 
+        pub fn drain(&mut self) -> Result<(), String> {
+            let mut out: *mut c_char = std::ptr::null_mut();
+            // SAFETY: `out` receives an owned string or stays null.
+            let status = unsafe { exact_js_drain(self.0, &mut out) };
+            let text = take(out);
+            if status == 0 {
+                Ok(())
+            } else {
+                Err(text)
+            }
+        }
+
         pub fn take_log(&mut self) -> Vec<String> {
             let mut out: *mut c_char = std::ptr::null_mut();
             // SAFETY: `out` receives an owned string.
@@ -128,13 +154,31 @@ mod real {
 
 #[cfg(not(exact_js_engine))]
 mod real {
+    use std::ffi::{c_char, c_void};
+
+    /// The host door's signature, kept identical so `Module` is one type.
+    pub type HostFn = unsafe extern "C" fn(
+        *mut c_void,
+        u32,
+        *const c_char,
+        *const c_char,
+        *mut *mut c_char,
+    ) -> i32;
+
     /// No engine in this binary: every operation refuses by name.
     pub struct Engine(());
 
     const NONE: &str = "this binary links no engine (built without a lean Hermes; see js/build.rs)";
 
     impl Engine {
-        pub fn new(_max_heap_bytes: u32) -> Result<Engine, String> {
+        pub fn new(
+            _max_heap_bytes: u32,
+            _host: HostFn,
+            _ctx: *mut c_void,
+        ) -> Result<Engine, String> {
+            Err(NONE.into())
+        }
+        pub fn drain(&mut self) -> Result<(), String> {
             Err(NONE.into())
         }
         pub fn load(&mut self, _bytecode: &[u8]) -> Result<(), String> {
@@ -152,7 +196,7 @@ mod real {
     }
 }
 
-pub(crate) use real::Engine;
+pub(crate) use real::{Engine, HostFn};
 
 /// Whether this binary links an engine at all.
 pub const ENGINE_LINKED: bool = cfg!(exact_js_engine);

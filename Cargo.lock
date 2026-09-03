@@ -536,6 +536,7 @@ dependencies = [
  "caltrain-data",
  "cc",
  "contract",
+ "exact-kernel",
  "exact-plan",
  "exact-runner",
  "serde_json",

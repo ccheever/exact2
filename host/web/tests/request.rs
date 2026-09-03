@@ -56,12 +56,12 @@ impl DataSource for Later {
         _: &str,
         args: &[Value],
         outcome: exact_runner::Outcome,
-    ) -> Result<Value, DataError> {
+    ) -> Result<exact_runner::Answer, DataError> {
         let ok = matches!(outcome, exact_runner::Outcome::Response(ref r) if r.status == 200);
-        Ok(Value::record(vec![
+        Ok(exact_runner::Answer::Now(Value::record(vec![
             Value::Bool(ok),
             Value::str(args[0].as_str().unwrap_or("")),
-        ]))
+        ])))
     }
     fn grants(&self) -> &'static str {
         "net.fetch https://api.castle.test\n"
