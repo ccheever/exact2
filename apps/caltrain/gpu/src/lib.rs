@@ -28,16 +28,24 @@ use exact_gpu::wgpu;
 use exact_gpu::{Frame, Registry, Surface, SurfaceError, Value};
 
 /// The shaders under `shaders/`, reflected at build (`build.rs`,
-/// `exact-gpu-reflect`): each one's source, entry points, bindings, and
-/// layouts as Rust. The WGSL is the declaration authority — a binding
-/// number, an offset, or an entry point's name is never restated here by
-/// hand, and a shader edit that moves one is a build error, not a wrong
-/// picture.
+/// `exact-gpu-reflect`): each one's entry points, bindings, and layouts as
+/// Rust, and its interface digest. The WGSL is the declaration authority — a
+/// binding number, an offset, or an entry point's name is never restated
+/// here by hand, and a shader edit that moves one is a build error, not a
+/// wrong picture. The text itself is not here: it travels as an asset and
+/// is registered at run time (LLP 1030 D8, `exact_gpu::shaders`).
 pub mod shaders {
     include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
 }
 
 pub use shaders::map::Vertex;
+
+/// Where this crate's shaders live in the source tree: what a fixture
+/// registers before it renders (`exact_gpu::shaders::load_dir`).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn shader_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders")
+}
 
 /// The line-map surface.
 #[derive(Default)]
@@ -46,7 +54,9 @@ pub struct MapSurface {
     selected: Option<usize>,
     /// Progress of the next train toward the selected station, 0–1.
     train: Option<f32>,
-    pipeline: Option<(wgpu::TextureFormat, wgpu::RenderPipeline)>,
+    /// The pipeline, keyed by the target's format and the shader generation
+    /// (LLP 1030 D8: a registered edit is a new pipeline at the next frame).
+    pipeline: Option<(wgpu::TextureFormat, u32, wgpu::RenderPipeline)>,
 }
 
 impl MapSurface {
@@ -137,10 +147,11 @@ impl Surface for MapSurface {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
-        if self.pipeline.as_ref().map(|(f, _)| *f) != Some(format) {
-            self.pipeline = Some((format, pipeline(device, format)));
+        let key = (format, frame.shader_generation);
+        if self.pipeline.as_ref().map(|(f, g, _)| (*f, *g)) != Some(key) {
+            self.pipeline = Some((format, frame.shader_generation, pipeline(device, format)));
         }
-        let (_, pipeline) = self.pipeline.as_ref().unwrap();
+        let (_, _, pipeline) = self.pipeline.as_ref().unwrap();
         let vertices = self.vertices(frame.width, frame.height);
         let bytes: Vec<u8> = vertices.iter().flat_map(|v| v.bytes()).collect();
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -185,8 +196,8 @@ impl Surface for MapSurface {
 }
 
 fn pipeline(device: &wgpu::Device, format: wgpu::TextureFormat) -> wgpu::RenderPipeline {
-    use shaders::map::{entry, MODULE};
-    let shader = device.create_shader_module(MODULE);
+    use shaders::map::{entry, module};
+    let shader = device.create_shader_module(module());
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("map"),
         layout: None,
@@ -226,13 +237,17 @@ fn stack() -> Box<dyn Surface> {
     Box::new(StackSurface::new())
 }
 
-/// The module's surfaces: name, arity, factory.
-pub static REGISTRY: Registry = Registry(&[
-    ("map", 4, map),
-    ("aurora", 1, aurora),
-    ("glass", 2, glass),
-    ("stack", 4, stack),
-]);
+/// The module's surfaces — name, arity, factory — and the shaders they
+/// bind against, at the interfaces the build reflected.
+pub static REGISTRY: Registry = Registry {
+    surfaces: &[
+        ("map", 4, map),
+        ("aurora", 1, aurora),
+        ("glass", 2, glass),
+        ("stack", 4, stack),
+    ],
+    shaders: shaders::SHADERS,
+};
 
 exact_gpu::module!(REGISTRY);
 

@@ -54,6 +54,11 @@ const copyStatic = (source, target) => cpSync(source, target, {
 if (existsSync(assets)) copyStatic(assets, resolve(stage, 'assets'));
 const deck = resolve(app.dir, 'deck');
 if (existsSync(deck)) copyStatic(deck, resolve(stage, 'deck'));
+// The GPU crate's shaders (LLP 1030 D8): `shaders/<name>.wgsl` beside the
+// page, fetched and registered by the GPU glue before a surface is created
+// — never a string in the wasm.
+const shaders = resolve(app.dir, 'gpu', 'shaders');
+if (existsSync(shaders)) copyStatic(shaders, resolve(stage, 'shaders'));
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
 copyFileSync(resolve(root, 'host/web/glue.js'), resolve(stage, 'glue.js'));
 

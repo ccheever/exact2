@@ -10,7 +10,7 @@ use exact_gpu::json::text;
 use exact_gpu::wgpu;
 use exact_gpu::{Frame, Surface, SurfaceError, Value};
 
-use crate::shaders::glass::{entry, Uniforms, CHILDREN, GROUP_0, MODULE, PREVIOUS, SKY, SMP, U};
+use crate::shaders::glass::{entry, module, Uniforms, CHILDREN, GROUP_0, PREVIOUS, SKY, SMP, U};
 use crate::AuroraSurface;
 
 /// Milliseconds a change of children takes to fade in.
@@ -39,6 +39,8 @@ pub struct GlassSurface {
 
 struct Gpu {
     format: wgpu::TextureFormat,
+    /// The shader generation the pipelines were built at (LLP 1030 D8).
+    generation: u32,
     sky_pipeline: wgpu::RenderPipeline,
     compose_pipeline: wgpu::RenderPipeline,
     uniforms: wgpu::Buffer,
@@ -110,8 +112,10 @@ impl Surface for GlassSurface {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
-        if self.gpu.as_ref().map(|g| g.format) != Some(format) {
-            self.gpu = Some(build(device, queue, format));
+        if self.gpu.as_ref().map(|g| (g.format, g.generation))
+            != Some((format, frame.shader_generation))
+        {
+            self.gpu = Some(build(device, queue, format, frame.shader_generation));
             self.rebind = true;
         }
         let (w, h) = frame.pixels();
@@ -297,8 +301,13 @@ fn pipeline(
     })
 }
 
-fn build(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Gpu {
-    let shader = device.create_shader_module(MODULE);
+fn build(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    format: wgpu::TextureFormat,
+    generation: u32,
+) -> Gpu {
+    let shader = device.create_shader_module(module());
     let layout = device.create_bind_group_layout(&GROUP_0);
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("glass"),
@@ -367,6 +376,7 @@ fn build(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat
     let compose_pipeline = pipeline(device, &shader, &pipeline_layout, entry::FS_COMPOSE, format);
     Gpu {
         format,
+        generation,
         sky_pipeline,
         compose_pipeline,
         uniforms,

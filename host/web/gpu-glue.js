@@ -81,6 +81,16 @@ exact.gpu = {
   },
   /// A restart: every surface goes with its element.
   reset() { for (const view of [...surfaces.keys()]) this.destroy(view); },
+  /// A shader's text (LLP 1030 D8) — the dev loop's edit, or the first
+  /// registration: validated, its interface checked against the module's;
+  /// every surface renders again through the new pipeline. False, with the
+  /// reason on the console, when the module refuses it.
+  shader(name, text) {
+    if (!loaded) return false;
+    const ok = gpu.gpu_shader(name, text);
+    if (!ok) console.error("exact gpu:", gpu.gpu_error()); else schedule();
+    return ok;
+  },
   /// Time moved (the agent's `clock`): render what wants a frame, once.
   schedule() { for (const entry of surfaces.values()) if (entry.id && entry.wants) { entry.wants = false; gpu.gpu_bind(entry.id, JSON.stringify(entry.values)); } schedule(); },
 };
@@ -88,6 +98,16 @@ exact.gpu = {
 const t0 = performance.now();
 await init();
 await gpu.gpu_load();
+// The shaders (LLP 1030 D8): the module names what its surfaces bind
+// against; each travels as `./shaders/<name>.wgsl` beside the page and is
+// registered — validated, its interface checked — before any surface is
+// created. One that is missing or refused is reported, and the module then
+// refuses to create surfaces, by name.
+for (const name of JSON.parse(gpu.gpu_shader_names())) {
+  const r = await fetch(`./shaders/${name}.wgsl`, { cache: "no-store" });
+  if (!r.ok) { console.error("exact gpu:", `shaders/${name}.wgsl: HTTP ${r.status}`); continue; }
+  if (!gpu.gpu_shader(name, await r.text())) console.error("exact gpu:", gpu.gpu_error());
+}
 loaded = true;
 exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
 // A smoke run asks (`?smoke=1`) to be told when the module is up.

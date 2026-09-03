@@ -303,6 +303,9 @@ function main(args) {
   writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(crate, device));
   if (existsSync(resolve(app.dir, 'assets'))) cpSync(resolve(app.dir, 'assets'), resolve(bundle, 'assets'), { recursive: true });
   if (existsSync(resolve(app.dir, 'deck'))) cpSync(resolve(app.dir, 'deck'), resolve(bundle, 'deck'), { recursive: true });
+  // The GPU crate's shaders (LLP 1030 D8): files the presenter registers
+  // with the module before a surface is created, never strings in the dylib.
+  if (existsSync(resolve(app.dir, 'gpu', 'shaders'))) cpSync(resolve(app.dir, 'gpu', 'shaders'), resolve(bundle, 'shaders'), { recursive: true });
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
   if (device) {

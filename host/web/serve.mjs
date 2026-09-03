@@ -13,7 +13,7 @@ const PUBLIC_FILES = new Set([
   '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/gpu-glue.js',
   '/gpu.js', '/gpu_bg.wasm', '/index.html',
 ]);
-const PUBLIC_TREES = ['/assets/', '/deck/'];
+const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/'];
 
 /** Resolve one URL path to the current build, or to the stable previous tree
  * while build.mjs has renamed the current one aside. Generated top-level
@@ -66,7 +66,7 @@ export function webContentType(route) {
     '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json',
     '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-    '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2',
+    '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',
   }[extname(route).toLowerCase()] ?? 'application/octet-stream';
 }
 

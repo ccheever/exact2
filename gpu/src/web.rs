@@ -54,6 +54,37 @@ pub fn create(name: &str, canvas: web_sys::HtmlCanvasElement, width: u32, height
     .unwrap_or(0)
 }
 
+/// Register the text of shader `name` (LLP 1030 D8): validated, its
+/// interface checked against the one this module's Rust binds. `true` on
+/// success; the refusal is [`error`]'s.
+pub fn shader(name: &str, text: &str) -> bool {
+    match with(|m| m.set_shader(name, text.to_string())) {
+        Some(ok) => ok,
+        None => {
+            ERROR.with(|s| *s.borrow_mut() = "gpu_shader: the module is not loaded".into());
+            false
+        }
+    }
+}
+
+/// The shaders this module's surfaces bind against, as a JSON list of names
+/// — what the glue fetches (`./shaders/<name>.wgsl`) and registers before a
+/// surface is created. `[]` before the module is loaded.
+pub fn shader_names() -> String {
+    let names = with(|m| m.shader_names()).unwrap_or_default();
+    let mut s = String::from("[");
+    for (i, n) in names.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push('"');
+        s.push_str(n);
+        s.push('"');
+    }
+    s.push(']');
+    s
+}
+
 /// Bind inputs (a JSON array). `true` on success.
 pub fn bind(id: u32, values: &str) -> bool {
     match json::parse_values(values) {
@@ -73,6 +104,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         scale,
         now_ms,
         children_generation: 0,
+        shader_generation: 0,
     };
     match with(|m| m.render(id, &frame)).flatten() {
         Some(true) => 1,
@@ -119,6 +151,18 @@ macro_rules! module {
             height: u32,
         ) -> u32 {
             $crate::web::create(name, canvas, width, height)
+        }
+
+        /// Register a shader's text (LLP 1030 D8). `true` on success.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_shader(name: &str, text: &str) -> bool {
+            $crate::web::shader(name, text)
+        }
+
+        /// The shaders to register, as a JSON list of names.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_shader_names() -> String {
+            $crate::web::shader_names()
         }
 
         /// Bind inputs (a JSON array). `true` on success.

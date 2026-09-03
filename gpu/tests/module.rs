@@ -7,7 +7,10 @@
 
 use exact_gpu::{Module, Registry};
 
-static EMPTY: Registry = Registry(&[]);
+static EMPTY: Registry = Registry {
+    surfaces: &[],
+    shaders: &[],
+};
 
 #[test]
 fn a_byte_count_that_overflows_is_refused_by_name() {

@@ -111,6 +111,9 @@ final class Canvases {
         case .success(let m):
             module = m
             loadedMs = (CACurrentMediaTime() - t) * 1000
+            // The shaders as files (LLP 1030 D8): the app's directory on a
+            // simulator, the bundle's `shaders/` on a phone.
+            _ = m.registerShaders(root: ProcessInfo.processInfo.environment["EXACT_ASSETS"] ?? Bundle.main.bundlePath)
             for e in entries.values { create(m, e) }
         }
     }

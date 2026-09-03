@@ -1,7 +1,11 @@
 //! The shaders as the build reflected them (`build.rs`, `exact-gpu-reflect`):
-//! the Rust the surfaces compile against says what the WGSL says.
+//! the Rust the surfaces compile against says what the WGSL says — and,
+//! since the text travels as an asset (LLP 1030 D8), the interface digest
+//! tells a color edit from a bindings edit, and the registry refuses the
+//! latter by name.
 
-use caltrain_gpu::shaders::{aurora, map};
+use caltrain_gpu::shaders::{aurora, map, SHADERS};
+use exact_gpu::shaders::interface_digest;
 use exact_gpu::wgpu;
 
 #[test]
@@ -53,7 +57,57 @@ fn the_aurora_bind_group_is_the_shaders_three_bindings() {
         wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)
     ));
     assert_eq!((aurora::entry::VS, aurora::entry::FS), ("vs", "fs"));
-    assert!(aurora::SOURCE.contains("@fragment"));
+    assert_eq!(aurora::NAME, "aurora");
+    assert!(
+        SHADERS.contains(&("aurora", aurora::INTERFACE_DIGEST)),
+        "the registry's table names every shader at its digest: {SHADERS:?}"
+    );
+}
+
+#[test]
+fn a_color_edit_keeps_the_interface_and_a_bindings_edit_is_refused_by_name() {
+    let source = std::fs::read_to_string(caltrain_gpu::shader_dir().join("aurora.wgsl")).unwrap();
+    assert_eq!(
+        interface_digest(&source).unwrap(),
+        aurora::INTERFACE_DIGEST,
+        "the file on disk is the interface the build reflected"
+    );
+    // A color edit — the palette's phase — is an asset change.
+    let color = source.replace("vec3<f32>(0.02, 0.03, 0.08)", "vec3<f32>(0.08, 0.02, 0.03)");
+    assert_ne!(color, source, "the edit found its line");
+    assert_eq!(interface_digest(&color).unwrap(), aurora::INTERFACE_DIGEST);
+    exact_gpu::shaders::set_shader("aurora", color.clone(), Some(aurora::INTERFACE_DIGEST))
+        .unwrap();
+    assert_eq!(
+        exact_gpu::shaders::shader_source("aurora").as_deref(),
+        Some(color.as_str())
+    );
+    // A binding an entry point uses is a binary change: refused, naming the
+    // shader and both digests, and the registry keeps what it had.
+    let bound = source
+        .replace(
+            "@group(0) @binding(2) var children_sampler: sampler;",
+            "@group(0) @binding(2) var children_sampler: sampler;\n@group(0) @binding(9) var<uniform> extra: vec4<f32>;",
+        )
+        .replace("return vec4<f32>(out, 1.0);", "return vec4<f32>(out, 1.0) + extra;");
+    assert_ne!(bound, source, "the edit found its lines");
+    let moved = interface_digest(&bound).unwrap();
+    assert_ne!(moved, aurora::INTERFACE_DIGEST);
+    let e = exact_gpu::shaders::set_shader("aurora", bound, Some(aurora::INTERFACE_DIGEST))
+        .unwrap_err();
+    assert!(e.contains("`aurora`"), "{e}");
+    assert!(
+        e.contains(&format!("{moved:#018x}"))
+            && e.contains(&format!("{:#018x}", aurora::INTERFACE_DIGEST)),
+        "{e}"
+    );
+    assert_eq!(
+        exact_gpu::shaders::shader_source("aurora").as_deref(),
+        Some(color.as_str()),
+        "the refusal left the registry as it was"
+    );
+    // Put the file's own text back for any fixture that follows.
+    exact_gpu::shaders::set_shader("aurora", source, Some(aurora::INTERFACE_DIGEST)).unwrap();
 }
 
 #[test]

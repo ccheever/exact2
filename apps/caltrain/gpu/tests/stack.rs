@@ -37,6 +37,7 @@ fn frame(now_ms: f64) -> Frame {
         scale: 1.0,
         now_ms,
         children_generation: 1,
+        shader_generation: exact_gpu::shaders::shader_generation(),
     }
 }
 
@@ -55,6 +56,8 @@ fn the_fan_places_cards_down_the_canvas_and_settles() {
         eprintln!("no adapter; the stack fixture is skipped");
         return;
     };
+    // The shaders travel as files (LLP 1030 D8): registered as a host would.
+    exact_gpu::shaders::load_dir(&caltrain_gpu::shader_dir(), &caltrain_gpu::REGISTRY).unwrap();
     let mut stack = StackSurface::new();
     stack
         .bind(&[
