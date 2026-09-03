@@ -25,3 +25,7 @@ contract-types = { path = "../types" }
 exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
+# The compatibility id (LLP 1030 D3a): the manifest read, the inputs as
+# JSON, the digest. The runtime crates take neither.
+serde_json = "1.0"
+sha2 = "0.10"

@@ -1,6 +1,8 @@
 //! Compile and bake `app.contract` into `OUT_DIR/app.plan` at build time, so
 //! the library carries its plan and the app links exactly one archive.
 
+use contract::DataSource;
+
 fn main() {
     println!("cargo:rerun-if-changed=../app.contract");
     println!("cargo:rerun-if-changed=build.rs");
@@ -10,6 +12,23 @@ fn main() {
     };
     let baked =
         contract::bake(plan, caltrain_data::Caltrain).unwrap_or_else(|e| panic!("bake: {e:?}"));
-    let out = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("app.plan");
-    std::fs::write(out, baked.encode()).unwrap();
+    let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    std::fs::write(out_dir.join("app.plan"), baked.encode()).unwrap();
+    // The compatibility id (LLP 1030 D3a) for this platform, beside the
+    // plan: what a bundle may depend on and this binary cannot replace.
+    println!("cargo:rerun-if-changed=../app.json");
+    println!("cargo:rerun-if-changed=../data");
+    println!("cargo:rerun-if-changed=../gpu/shaders");
+    println!("cargo:rerun-if-changed=../../../Cargo.lock");
+    let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let target = std::env::var("TARGET").unwrap_or_default();
+    let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("ios") => "ios",
+        _ => "macos",
+    };
+    let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));
+    let grants = caltrain_data::Caltrain.grants();
+    let compat = contract::compatibility_id(&app_dir, platform, &target, &manifest, Some(grants))
+        .unwrap_or_else(|e| panic!("compatibility id: {e}"));
+    std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
 }
