@@ -1,0 +1,39 @@
+// swift-tools-version:5.9
+// One package for the Apple hosts (LLP 1031 D6): `ExactKit` — the session,
+// the view, the app owner, the presenters, text, canvases, web views, the
+// agent, the dev connection — over the C ABI in include/exact.h, with the
+// AppKit and UIKit halves under `#if os(...)`; the two standalone apps
+// (`ExactMac`, `ExactIOS`) and the two sample hosts (`ExactHostMac`,
+// `ExactHostIOS`) as executables over it. Links the app's static library
+// (`node host/apple/build.mjs` builds it and points EXACT_LIB_DIR/EXACT_LIB
+// at it; the default is Caltrain's macOS archive).
+import PackageDescription
+import Foundation
+
+let libDir = ProcessInfo.processInfo.environment["EXACT_LIB_DIR"] ?? (Context.packageDirectory + "/../../target/release")
+let libName = ProcessInfo.processInfo.environment["EXACT_LIB"] ?? "caltrain_apple"
+
+let package = Package(
+    name: "Exact",
+    platforms: [.macOS(.v14), .iOS(.v17)],
+    products: [
+        .library(name: "ExactKit", targets: ["ExactKit"]),
+        .executable(name: "ExactMac", targets: ["ExactMac"]),
+        .executable(name: "ExactIOS", targets: ["ExactIOS"]),
+        .executable(name: "ExactHostMac", targets: ["ExactHostMac"]),
+        .executable(name: "ExactHostIOS", targets: ["ExactHostIOS"]),
+    ],
+    targets: [
+        .systemLibrary(name: "CExact", path: "Sources/CExact"),
+        .target(
+            name: "ExactKit",
+            dependencies: ["CExact"],
+            path: "Sources/ExactKit",
+            linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName), .linkedLibrary("c++")]
+        ),
+        .executableTarget(name: "ExactMac", dependencies: ["ExactKit"], path: "Sources/ExactMac"),
+        .executableTarget(name: "ExactIOS", dependencies: ["ExactKit"], path: "Sources/ExactIOS"),
+        .executableTarget(name: "ExactHostMac", dependencies: ["ExactKit"], path: "Sources/ExactHostMac"),
+        .executableTarget(name: "ExactHostIOS", dependencies: ["ExactKit"], path: "Sources/ExactHostIOS"),
+    ]
+)

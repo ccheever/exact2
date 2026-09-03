@@ -11,7 +11,10 @@ import { fileURLToPath } from 'node:url';
 
 const PUBLIC_FILES = new Set([
   '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/gpu-glue.js',
-  '/gpu.js', '/gpu_bg.wasm', '/index.html',
+  '/gpu.js', '/gpu_bg.wasm', '/index.html', '/manifest.json',
+  // The one dot path a static origin serves: the deep-link association
+  // file bake generates (LLP 1030 D1), read by Apple's CDN over HTTPS.
+  '/.well-known/apple-app-site-association',
 ]);
 const PUBLIC_TREES = ['/assets/', '/deck/'];
 
@@ -26,7 +29,7 @@ export function staticFile(dist, pathname) {
   catch { return null; }
   if (!route.startsWith('/') || route.includes('\\') || route.includes('\0')) return null;
   const parts = route.split('/').filter(Boolean);
-  if (parts.some((part) => part.startsWith('.'))) return null;
+  if (parts.some((part) => part.startsWith('.')) && !PUBLIC_FILES.has(route)) return null;
   if (!PUBLIC_FILES.has(route) && !PUBLIC_TREES.some((tree) => route.startsWith(tree))) return null;
   // A complete current build is authoritative even when it lacks an optional
   // route (notably GPU files). Consult previous only while the current root
@@ -62,6 +65,8 @@ export function readStaticFile(dist, pathname) {
 
 export function webContentType(route) {
   if (route === '/exact.json') return 'application/vnd.exact.envelope+json';
+  if (route === '/manifest.json') return 'application/manifest+json';
+  if (route === '/.well-known/apple-app-site-association') return 'application/json';
   return {
     '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json',
     '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',

@@ -105,12 +105,14 @@ pub struct CFontCatalog {
     pub count: usize,
 }
 
-/// Installs a complete plan-scoped catalog before the first text layout.
-pub type FontsFn = extern "C" fn(catalog: *const CFontCatalog);
+/// Installs a complete plan-scoped catalog before the first text layout,
+/// with the context the runtime was given (LLP 1031 D12: the catalog is
+/// the session's, so the callback needs to know which session).
+pub type FontsFn = extern "C" fn(ctx: *mut c_void, catalog: *const CFontCatalog);
 
 /// Project the validated plan's tables across the host-only font seam. This
 /// is deliberately separate from `exact_out()`, whose payload remains ops.
-pub fn install_fonts(plan: &Plan, callback: FontsFn) {
+pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
     let mut faces = Vec::new();
     for (stack_index, stack) in plan.stacks.iter().enumerate() {
         let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
@@ -137,7 +139,7 @@ pub fn install_fonts(plan: &Plan, callback: FontsFn) {
         faces: faces.as_ptr(),
         count: faces.len(),
     };
-    callback(&catalog);
+    callback(ctx, &catalog);
 }
 
 /// A kernel measurer backed by the app's callback.

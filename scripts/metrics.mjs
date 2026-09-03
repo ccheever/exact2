@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import { resolve } from 'node:path';
 import { staticFile, webContentType } from '../host/web/serve.mjs';
+import { macBinary } from '../host/apple/build.mjs';
 
 const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -171,7 +172,7 @@ if (rebuild) {
 // 6. The macOS app's startup, when it has been built (`node host/apple/build.mjs`;
 // --long builds it): exec → main (dyld), NSApplication, the window, the runner
 // with layout and text measurement, the batch applied, the first paint.
-const macBin = resolve(ROOT, 'host/apple/macos/.build/release/ExactMac');
+const macBin = macBinary;
 const macRun = () => spawnSync(macBin, [], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_SMOKE: '1' }, timeout: 20000 });
 const macParse = (o) => {
   out.macos_boot_ms = Number(/^boot ([\d.]+) ms/m.exec(o)?.[1] ?? NaN);

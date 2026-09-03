@@ -4,6 +4,7 @@ node_modules/
 *.swp
 # Built web artifacts: the wasm and its copies, never committed.
 host/web/dist/
-# The macOS presenter's SwiftPM build products.
-host/apple/macos/.build/
-host/apple/ios/.build/
+# The Apple package's SwiftPM build products.
+host/apple/.build/
+# The harness's subagent worktrees: never committed.
+.claude/worktrees/

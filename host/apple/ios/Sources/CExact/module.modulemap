@@ -1,4 +1,0 @@
-module CExact {
-    header "../../../include/exact.h"
-    export *
-}

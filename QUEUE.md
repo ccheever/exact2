@@ -83,6 +83,19 @@ sits on that list carries the trade it would take.
   continuous everywhere (`release: automatic`, phased by the store); the update economy
   off NOT-DOING in its static form. Every §5 question ruled 2026-09-03 (shader packaging in stage 1; the conditional put required). Owed: an implementer and a date against 1030.000's four stages; stage 4 also waits on 1026 Level A.
 
+- **LLP 1031 owed after the 2026-09-03 landing** (the handle, `ExactKit`, the macOS
+  sample host, the manifest stage): the **iOS sample host** (`ExactHostIOS` builds as a
+  placeholder; the fixture with a navigation controller pushing over a session is owed,
+  driven over the socket with `session` routing); **content-height containment** (D3's
+  guard is written; bounded only today); **the request and store crossings** (D4's
+  contract; triggered by an adopter whose client cannot be wrapped); **packaging**
+  (`build.mjs --embed` and the link delta against `floor.swift` in `metrics.mjs --long`);
+  a request in flight under a destroy (needs a fetching app — Weird Castle — as the
+  fixture); and the host smoke's last step, which takes ~4 s after remounting a
+  destroyed session's view (the `clock settle` that follows) — find out why.
+  Weird Castle's `gpu/` crate needs the `Registry { surfaces, shaders }` shape and
+  `module()` in place of `MODULE` once the shader-packaging lane is merged.
+
 - **Tab on iOS with a hardware keyboard** (Weird Castle login): macOS now
   wires the key-view loop after each batch (fields and buttons, tree order,
   Space/Enter on a focused pressable). iOS still has no sequential-focus

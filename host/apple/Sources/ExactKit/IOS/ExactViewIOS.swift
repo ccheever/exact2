@@ -1,0 +1,103 @@
+// The view that presents a session on UIKit (LLP 1031 D1, D3): an ordinary
+// UIView the containing app places. Its bounds are the session's viewport
+// — the safe area of its own container, or the whole of it when the first
+// root says `viewport-fit="cover"`, the safe-area insets then going to the
+// kernel for its `env()` lengths (LLP 1008 §9) — and, under
+// `interactive-widget="resizes-content"`, the keyboard's top. The plan
+// boots at the first layout that has a size and follows every later size
+// (a rotation, a split) and every change of the insets. Bounded
+// containment: the session's page scrolls inside this view exactly as the
+// standalone host's does.
+#if os(iOS)
+import UIKit
+
+public final class ExactView: UIView {
+    public let session: ExactSession
+    private var lastSize = CGSize.zero
+    private var lastInsets = UIEdgeInsets.zero
+    /// The adapter's hook for the first root's `viewport-fit` and its
+    /// canvas colour (the window's background under the safe areas is the
+    /// window's business).
+    public var onViewportFit: (() -> Void)?
+    public var onCanvasColor: ((UIColor) -> Void)?
+
+    public init(session: ExactSession) {
+        self.session = session
+        super.init(frame: .zero)
+        backgroundColor = .white
+        addSubview(session.presenter.viewport)
+        session.view = self
+        session.presenter.onViewportFit = { [weak self] in self?.setNeedsLayout(); self?.onViewportFit?() }
+        session.presenter.onCanvasColor = { [weak self] color in self?.backgroundColor = color; self?.onCanvasColor?(color) }
+        session.presenter.onKeyboardResize = { [weak self] in self?.fit() }
+        session.presenter.observeKeyboard()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    /// The first root's `viewport-fit` prop (`"cover"` or nothing).
+    public var viewportFit: String? { session.presenter.viewportFit }
+
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        fit()
+    }
+
+    public override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // Mounted and visible participate in frame demand (D3): an unmounted
+        // view wants no frames; a mounted one asks again.
+        session.frames.run(window != nil && (session.frames.motion || session.canvases.wantsFrames))
+    }
+
+    /// Frame the viewport to the safe area or the whole view — and, under
+    /// `interactive-widget="resizes-content"`, to the keyboard's top, where
+    /// the bottom inset is the keyboard's and not the home indicator's (the
+    /// web's rule) — and, once booted, tell the kernel about new insets or a
+    /// new size. Called inside the keyboard's animation block, so the frames
+    /// the batch sets animate with the keyboard (LLP 1008 §9).
+    func fit() {
+        let presenter = session.presenter
+        let safe = safeAreaInsets
+        let cover = presenter.viewportFit == "cover"
+        var frame = cover ? bounds : bounds.inset(by: safe)
+        var insets = cover ? safe : .zero
+        if presenter.interactiveWidget == "resizes-content" {
+            let top = presenter.keyboardTop ?? .infinity
+            presenter.keyboardInset = min(max(0, frame.maxY - max(top, frame.minY)), frame.height)
+            if top < frame.maxY {
+                frame.size.height = max(0, top - frame.minY)
+                insets.bottom = 0
+            }
+        }
+        if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
+        let size = frame.size
+        guard size.width > 0, size.height > 0 else { return }
+        if !session.booted {
+            lastSize = size
+            lastInsets = insets
+            session.boot(size: size)
+            // The first batch made the roots: one that covers the screen is
+            // framed to it now, before anything is drawn.
+            fit()
+            return
+        }
+        if insets != lastInsets {
+            lastInsets = insets
+            presenter.insets = insets
+            session.insets(top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left)
+        }
+        if size != lastSize {
+            lastSize = size
+            session.resize(size)
+        }
+    }
+
+    /// After a restart from a new plan (the dev loop): the new runner knows
+    /// nothing of the insets — hand them over again, and fit the root.
+    func rebooted() {
+        if lastInsets != .zero { session.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left) }
+        fit()
+    }
+}
+#endif

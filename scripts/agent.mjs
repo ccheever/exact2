@@ -39,7 +39,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { appBundle, bundleId, install, simulator } from '../host/apple/build.mjs';
+import { appBundle, bundleId, install, macBinary, macHostBinary, simulator } from '../host/apple/build.mjs';
 import { staticFile, webContentType } from '../host/web/serve.mjs';
 import { resolveApp } from './app.mjs';
 
@@ -246,12 +246,13 @@ function jsonLines(readable, writable, hostLines) {
   };
 }
 
-/** The stdio carrier: an app that answers JSON lines under EXACT_AGENT=1 — the macOS presenter (`Agent.swift`) and the Linux host (`host/linux/src/agent.rs`), one protocol. */
-async function openStdio({ host, plan, size, app, env: extra = {} }) {
+/** The stdio carrier: an app that answers JSON lines under EXACT_AGENT=1 — the macOS presenter (`Agent.swift`), the macOS sample host (`ExactHostMac`, LLP 1031 D10: several sessions of one plan, each request routed by its `session` label), and the Linux host (`host/linux/src/agent.rs`), one protocol. */
+async function openStdio({ host, plan, size, app, env: extra = {}, session }) {
   const a = resolveApp(app);
   const linux = host === 'linux';
-  const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`)) : resolve(ROOT, 'host/apple/macos/.build/release/ExactMac');
-  if (!existsSync(bin)) throw new Error(linux ? `run cargo build --release -p ${a.crate('linux')} first` : 'run node host/apple/build.mjs first');
+  const sample = host === 'host';
+  const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`)) : sample ? macHostBinary : macBinary;
+  if (!existsSync(bin)) throw new Error(linux ? `run cargo build --release -p ${a.crate('linux')} first` : sample ? 'run node host/apple/build.mjs --host first' : 'run node host/apple/build.mjs first');
   const env = { EXACT_ASSETS: a.dir, ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;
   if (linux && size) env.EXACT_SIZE = `${size[0]}x${size[1]}`;
@@ -274,9 +275,12 @@ async function openStdio({ host, plan, size, app, env: extra = {} }) {
     const ready = await Promise.race([readyLine, sleep(20000).then(() => { throw new Error('the app never became ready; ' + hostLines.join('\n')); })]);
     if (!ready.ready) throw new Error('unexpected first line: ' + JSON.stringify(ready));
     if (ready.error) throw new Error('the app booted with an error: ' + ready.error);
-    const ask = lines.ask;
+    // The sample host routes by label: the session the caller named, and
+    // `s.session = "b"` moves every later request to another.
+    const state = { session: session ?? null };
+    const ask = (req) => lines.ask(state.session ? { ...req, session: state.session } : req);
     return {
-      host, boot: ready.boot, hostLines, gpuMs: () => null,
+      host, boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
       ask,
       async input(id, kind, opts) {
         const guest = { selector: opts.selector, x: opts.x, y: opts.y };
@@ -374,10 +378,14 @@ async function openIOS({ plan, app, env: extra = {} }) {
 // ---------------------------------------------------------------- the eight operations
 
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `plan` boots a compiled contract instead of the app's baked plan; `env` adds to a native host's environment. */
-export async function open({ host, plan, size, env, app } = {}) {
-  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size });
+export async function open({ host, plan, size, env, app, session } = {}) {
+  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size });
   const s = {
     host: carrier.host,
+    /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
+    sessions: carrier.sessions ?? null,
+    get session() { return carrier.state?.session ?? null; },
+    set session(label) { if (carrier.state) carrier.state.session = label; },
     /** Milliseconds from launch to the first frame. */
     boot: carrier.boot,
     /** The agent's clock, milliseconds: the last `clock` value (0 at boot). */
@@ -571,6 +579,7 @@ async function main(argv) {
     else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
     else if (argv[i] === '--test') flags.test = argv[++i];
+    else if (argv[i] === '--session') flags.session = argv[++i];
     else rest.push(argv[i]);
   }
   const [host, ...ops] = rest;
@@ -584,10 +593,10 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux> [--app <name>] [--plan <file>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux|host> [--app <name>] [--plan <file>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app });
+  const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session });
   try {
     for (const line of ops) {
       const [op, ...args] = line.trim().split(/\s+/);

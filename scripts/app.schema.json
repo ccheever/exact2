@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "exact2/app.json",
+  "title": "The app manifest (LLP 1030 D2, 1030.000 D7): the W3C Web App Manifest's own keys, plus `app` (identity), `host.<platform>` (host metadata bake generates per platform), and `deploy` (policy, never identity).",
+  "type": "object",
+  "required": ["name", "app"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": { "type": "string", "minLength": 1 },
+    "short_name": { "type": "string" },
+    "id": { "type": "string" },
+    "start_url": { "type": "string" },
+    "display": { "type": "string", "enum": ["fullscreen", "standalone", "minimal-ui", "browser"] },
+    "theme_color": { "type": "string" },
+    "background_color": { "type": "string" },
+    "icons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["src"],
+        "properties": { "src": { "type": "string" }, "sizes": { "type": "string" }, "type": { "type": "string" }, "purpose": { "type": "string" } },
+        "additionalProperties": false
+      }
+    },
+    "app": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$" },
+        "name": { "type": "string", "minLength": 1 },
+        "origin": { "type": "string", "pattern": "^https?://" }
+      },
+      "additionalProperties": false
+    },
+    "host": {
+      "type": "object",
+      "properties": {
+        "ios": {
+          "type": "object",
+          "properties": {
+            "minimumOS": { "type": "string" },
+            "deviceFamily": { "type": "array", "items": { "type": "string", "enum": ["iphone", "ipad"] } },
+            "localNetworking": { "type": ["string", "boolean"] },
+            "backgroundModes": { "type": "array", "items": { "type": "string" } },
+            "associatedDomains": { "type": "boolean" },
+            "urlSchemes": { "type": "array", "items": { "type": "string" } },
+            "permissions": { "type": "object", "additionalProperties": { "type": "string" } },
+            "team": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "macos": {
+          "type": "object",
+          "properties": { "minimumOS": { "type": "string" }, "team": { "type": "string" }, "urlSchemes": { "type": "array", "items": { "type": "string" } } },
+          "additionalProperties": false
+        },
+        "linux": { "type": "object", "additionalProperties": false },
+        "web": { "type": "object", "additionalProperties": false }
+      },
+      "additionalProperties": false
+    },
+    "deploy": {
+      "type": "object",
+      "properties": {
+        "origin": { "$ref": "#/$defs/cadence" },
+        "bundles": { "$ref": "#/$defs/cadence" },
+        "binaries": { "type": "object", "additionalProperties": { "$ref": "#/$defs/cadenceOrOff" } },
+        "release": { "type": "object", "additionalProperties": { "type": "string", "enum": ["automatic", "internal", "manual"] } },
+        "phased": { "type": "object", "additionalProperties": { "type": "boolean" } },
+        "store": { "type": "object", "additionalProperties": { "type": "string", "enum": ["0", "A"] } },
+        "streams": { "type": "array", "items": { "type": "object", "required": ["channel", "compatibilityId"], "properties": { "channel": { "type": "string" }, "compatibilityId": { "type": "string" } }, "additionalProperties": false } },
+        "channels": { "type": "object", "additionalProperties": { "type": "string" } },
+        "activate": { "type": "string", "enum": ["next-launch", "app-decides"] },
+        "check": { "type": "object", "properties": { "background": { "type": "boolean" } }, "additionalProperties": false },
+        "sunset": { "type": "object", "additionalProperties": { "type": "object", "required": ["message"], "properties": { "message": { "type": "string" }, "store": { "type": "string" } }, "additionalProperties": false } },
+        "brownfield": { "type": "boolean" },
+        "signing": { "type": "object", "properties": { "key": { "type": "string" } }, "additionalProperties": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "cadence": { "oneOf": [{ "type": "string", "enum": ["continuous", "manual"] }, { "type": "object", "required": ["schedule"], "properties": { "schedule": { "type": "string" } }, "additionalProperties": false }] },
+    "cadenceOrOff": { "oneOf": [{ "type": "string", "enum": ["continuous", "manual", "off"] }, { "type": "object", "required": ["schedule"], "properties": { "schedule": { "type": "string" } }, "additionalProperties": false }] }
+  }
+}

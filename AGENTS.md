@@ -32,13 +32,19 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   and the page reloads. `node scripts/metrics.mjs` prints every number
   (`--long` adds the macOS build and boot). macOS: `node host/apple/build.mjs --run`;
   iOS: `node host/apple/build.mjs --ios --run` (a simulator; `--sim` or `EXACT_SIM` picks one);
-  `--device --run` on a connected iPhone (signed with a team profile on this Mac).
+  `--device --run` on a connected iPhone (signed with a team profile on this Mac);
+  `--host` also builds the sample host (LLP 1031 D10), the native app that embeds two
+  sessions, which `node scripts/smoke.mjs host` drives and `scripts/agent.mjs host
+  --session a …` addresses. The Swift is one package, `host/apple/Package.swift`:
+  `ExactKit` (session, view, app owner — what an embedder links) and the executables
+  as adapters over it. `apps/<name>/app.json` is the app manifest (LLP 1030 D2): the
+  bundle id, name, host files, and deploy policy come from it, never from a crate name.
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
 - To see a change work, drive the app: `node scripts/agent.mjs <web|macos|ios|linux> tree
   "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot
   out.png"` — the eight operations of LLP 1012, the same on every host, with the clock
   in your hands (`clock settle` instead of waiting). `node scripts/smoke.mjs
-  <web|macos|ios|linux>` is the whole app driven that way. The Linux host
+  <web|macos|ios|linux|host>` is the whole app driven that way. The Linux host
   (`cargo build --release -p caltrain-linux`) runs headless anywhere, macOS included.
 - `QUEUE.md` is what would make sense to do next. Add a line when you find something
   worth doing; delete it when it lands. It decides nothing.

@@ -24,7 +24,7 @@ static FONT_CATALOG: Mutex<Vec<RecordedFace>> = Mutex::new(Vec::new());
 static FONT_RUNS: Mutex<Vec<(u16, u16, bool)>> = Mutex::new(Vec::new());
 static RELOAD_FONT_SOURCES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-extern "C" fn record_fonts(catalog: *const CFontCatalog) {
+extern "C" fn record_fonts(_ctx: *mut c_void, catalog: *const CFontCatalog) {
     let catalog = unsafe { &*catalog };
     let rows = unsafe { std::slice::from_raw_parts(catalog.faces, catalog.count) };
     let mut recorded = FONT_CATALOG.lock().unwrap();
@@ -42,7 +42,7 @@ extern "C" fn record_fonts(catalog: *const CFontCatalog) {
     }
 }
 
-extern "C" fn record_reload_fonts(catalog: *const CFontCatalog) {
+extern "C" fn record_reload_fonts(_ctx: *mut c_void, catalog: *const CFontCatalog) {
     let catalog = unsafe { &*catalog };
     let rows = unsafe { std::slice::from_raw_parts(catalog.faces, catalog.count) };
     let mut recorded = RELOAD_FONT_SOURCES.lock().unwrap();
@@ -419,7 +419,7 @@ fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
         .join("../../scripts/fixtures/fonts/app.contract");
     let plan = contract::compile_path(&path).unwrap().encode();
     let mut bridge: Bridge<NamedData> = Bridge::new();
-    bridge.set_fonts(Some(record_reload_fonts));
+    bridge.set_fonts(Some(record_reload_fonts), std::ptr::null_mut());
     let len = bridge.boot(
         &plan,
         NamedData,
@@ -563,42 +563,36 @@ fn a_refused_fresh_boot_keeps_the_running_host() {
 
 #[test]
 fn swift_boots_checkpoint_all_plan_scoped_text_state() {
-    let bridge = include_str!("../swift/Bridge.swift");
-    let fresh = bridge
-        .split("static func boot(width")
-        .nth(1)
-        .unwrap()
-        .split("static func pump")
-        .next()
-        .unwrap();
-    let checkpoint = fresh.find("Text.checkpoint()").unwrap();
-    let boot = fresh.find("exact_boot(").unwrap();
-    let restore = fresh.find("Text.restore(text)").unwrap();
-    assert!(checkpoint < boot && boot < restore, "{fresh}");
-
-    let reload = bridge
-        .split("static func bootPlan")
-        .nth(1)
-        .unwrap()
-        .split("static func press")
-        .next()
-        .unwrap();
-    let checkpoint = reload.find("Text.checkpoint()").unwrap();
-    let boot = reload.find("exact_boot_plan").unwrap();
-    let restore = reload.find("Text.restore(text)").unwrap();
-    assert!(checkpoint < boot && boot < restore, "{reload}");
-
-    let text = include_str!("../swift/Text.swift");
+    // The session checkpoints its text engine around every boot (LLP 1031
+    // D12: the catalog is the session's) and restores it on a refusal, so
+    // a refused candidate leaves the running app's fonts exactly as they
+    // were.
+    let session = include_str!("../Sources/ExactKit/Session.swift");
+    for (head, boot) in [
+        ("public func boot(size: CGSize)", "runtime.boot("),
+        ("public func boot(plan bytes: Data", "runtime.bootPlan("),
+        ("public func apply(_ bytes: Data", "runtime.bootPlan("),
+    ] {
+        // The last match: `ExactApp` has an `apply(_ bytes:)` of its own
+        // before the session's.
+        let body = session.split(head).last().unwrap();
+        let body = &body[..body.find("\n    }\n").unwrap()];
+        let checkpoint = body.find("text.checkpoint()").unwrap();
+        let booted = body.find(boot).unwrap();
+        let restore = body.find("text.restore(cp)").unwrap();
+        assert!(checkpoint < booted && booted < restore, "{head}: {body}");
+    }
+    let text = include_str!("../Sources/ExactKit/Text.swift");
     let checkpoint = text
         .split("final class Checkpoint")
         .nth(1)
         .unwrap()
-        .split("static func checkpoint")
+        .split("func checkpoint()")
         .next()
         .unwrap();
-    assert!(checkpoint.contains("Text.fonts = fonts"));
-    assert!(checkpoint.contains("Text.paragraphs = paragraphs"));
-    assert!(checkpoint.contains("Text.catalog = catalog"));
+    assert!(checkpoint.contains("engine.fonts = fonts"));
+    assert!(checkpoint.contains("engine.paragraphs = paragraphs"));
+    assert!(checkpoint.contains("engine.catalog = catalog"));
 }
 
 #[test]
@@ -609,7 +603,7 @@ fn the_plan_font_catalog_and_family_runs_cross_the_host_seam_before_layout() {
         .join("../../scripts/fixtures/fonts/app.contract");
     let plan = contract::compile_path(&path).unwrap().encode();
     let mut bridge: Bridge<NoData> = Bridge::new();
-    bridge.set_fonts(Some(record_fonts));
+    bridge.set_fonts(Some(record_fonts), std::ptr::null_mut());
     let len = bridge.boot(
         &plan,
         NoData,
@@ -651,32 +645,35 @@ fn the_plan_font_catalog_and_family_runs_cross_the_host_seam_before_layout() {
 
 #[test]
 fn url_descriptors_survive_process_registration_name_collisions() {
-    let source = include_str!("../swift/Text.swift");
+    let source = include_str!("../Sources/ExactKit/Text.swift");
     let install = source
-        .split("static func install")
+        .split("func install(")
         .nth(1)
         .unwrap()
-        .split("private static func fontURL")
+        .split("private func fontURL")
         .next()
         .unwrap();
     let descriptor = install
         .find("CTFontManagerCreateFontDescriptorsFromURL")
         .unwrap();
-    let registration = install.find("if !register(url)").unwrap();
+    let registration = install.find("if !FontRegistry.register(url)").unwrap();
     assert!(
         descriptor < registration,
         "URL identity must be acquired before best-effort process registration"
     );
 
+    // Registration is process-wide by platform (LLP 1031 D12): once per
+    // URL, a collision tolerated, never unregistered.
     let register = source
-        .split("private static func register")
+        .split("enum FontRegistry")
         .nth(1)
         .unwrap()
-        .split("private static func matched")
+        .split("final class TextEngine")
         .next()
         .unwrap();
     assert!(register.contains("CTFontManagerError.alreadyRegistered"));
     assert!(register.contains("CTFontManagerError.duplicatedName"));
+    assert!(!source.contains("CTFontManagerUnregisterFontsForURL"));
 }
 
 #[test]
@@ -790,4 +787,125 @@ fn the_insets_re_send_the_styles_that_read_them_and_move_what_they_pad() {
     let (mut caltrain, _) = boot();
     let none = caltrain.set_insets(62.0, 0.0, 34.0, 0.0);
     assert_eq!(count(&none, "style") + count(&none, "frame"), 0, "{none}");
+}
+
+// ---------------------------------------------------------------- the handle (LLP 1031 D2)
+
+/// The exports for a fixture app: two runtimes in one thread, each with its
+/// own plan and clock; a destroyed or invented handle refused by name.
+mod handles {
+    use exact_runner::{DataError, DataSource, Value};
+    use std::sync::OnceLock;
+
+    #[derive(Default)]
+    pub struct Fixture;
+    impl DataSource for Fixture {
+        fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(s.into()))
+        }
+    }
+
+    pub fn baked() -> &'static [u8] {
+        static PLAN: OnceLock<Vec<u8>> = OnceLock::new();
+        PLAN.get_or_init(|| {
+            contract::compile("component Baked\n  view\n    text \"baked\"\n")
+                .unwrap()
+                .encode()
+        })
+    }
+
+    exact_apple::host!(Fixture, baked());
+}
+
+fn out(rt: u32, len: u32) -> String {
+    let p = handles::exact_out(rt);
+    assert!(!p.is_null());
+    String::from_utf8(unsafe { std::slice::from_raw_parts(p, len as usize) }.to_vec()).unwrap()
+}
+
+fn put(rt: u32, bytes: &[u8]) -> usize {
+    let p = handles::exact_in(rt, bytes.len());
+    assert!(!p.is_null(), "runtime {rt} has no input buffer");
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len()) };
+    bytes.len()
+}
+
+#[test]
+fn two_runtimes_live_apart_in_one_thread_and_a_dead_handle_is_refused() {
+    let a = handles::exact_create();
+    let b = handles::exact_create();
+    assert!(
+        a != 0 && b != 0 && a != b,
+        "handles are distinct and never 0"
+    );
+    // Each boots its own plan: the baked fixture, and a second plan from bytes.
+    let first = out(a, handles::exact_boot(a, 390.0, 844.0));
+    assert!(first.contains("\"text\":\"baked\""), "{first}");
+    let other = contract::compile("component Other\n  view\n    text \"other\"\n")
+        .unwrap()
+        .encode();
+    let n = put(b, &other);
+    let second = out(b, handles::exact_boot_plan(b, n, 200.0, 100.0));
+    assert!(second.contains("\"text\":\"other\""), "{second}");
+    assert!(!second.contains("baked"));
+    // Their clocks are their own.
+    let ta = out(a, handles::exact_advance(a, 5_000.0));
+    assert!(ta.contains("\"clock\":5000"), "{ta}");
+    let tb = out(b, handles::exact_tick(b, 16.0));
+    assert!(tb.contains("\"clock\":0"), "{tb}");
+    // Their viewports are their own.
+    let ra = out(a, handles::exact_resize(a, 500.0, 844.0));
+    assert!(ra.contains("\"w\":500"), "{ra}");
+    let rb = out(b, handles::exact_resize(b, 200.0, 100.0));
+    assert_eq!(
+        rb.matches("\"op\":\"frame\"").count(),
+        0,
+        "b did not move: {rb}"
+    );
+    // Destroying one leaves the other; the dead handle refuses every call
+    // by name, and its buffers are gone (exact_in answers null).
+    handles::exact_destroy(a);
+    let dead = out(a, handles::exact_resize(a, 300.0, 300.0));
+    assert!(dead.contains("no such runtime"), "{dead}");
+    assert!(handles::exact_in(a, 4).is_null());
+    handles::exact_destroy(a); // idempotent
+    let alive = out(b, handles::exact_resize(b, 210.0, 100.0));
+    assert!(
+        alive.contains("\"error\":null") && alive.contains("\"w\":210"),
+        "{alive}"
+    );
+    // A handle nobody was given is refused the same way, and handles are
+    // never reused: the next create is a new number — from a process-wide
+    // counter, so a handle made on another thread is a stranger here too.
+    let c = handles::exact_create();
+    assert!(c > b, "never reused: {a} {b} {c}");
+    let elsewhere = std::thread::spawn(|| handles::exact_create())
+        .join()
+        .unwrap();
+    assert!(elsewhere > c, "process-wide, never per thread: {elsewhere}");
+    let stranger = out(elsewhere, handles::exact_boot(elsewhere, 1.0, 1.0));
+    assert!(stranger.contains("no such runtime"), "{stranger}");
+    let invented = out(c + 1000, handles::exact_boot(c + 1000, 1.0, 1.0));
+    assert!(invented.contains("no such runtime"), "{invented}");
+    handles::exact_destroy(b);
+    handles::exact_destroy(c);
+}
+
+#[test]
+fn a_setter_on_a_runtime_takes_effect_at_its_boot() {
+    let rt = handles::exact_create();
+    handles::exact_set_measure(rt, Some(wide_glyphs), std::ptr::null_mut());
+    let batch = out(rt, handles::exact_boot(rt, 390.0, 844.0));
+    // "baked" at 16 pt, one em per glyph: 80 wide by the callback, 20 tall.
+    let at = batch.find("\"text\":\"baked\"").unwrap();
+    let head = &batch[..at];
+    let id: u32 = head[head.rfind("\"id\":").unwrap() + 5..]
+        .split(',')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let f = frame_of(&batch, id);
+    assert!((f.3 - 20.0).abs() <= 0.5, "{f:?}");
+    handles::exact_destroy(rt);
 }

@@ -1,0 +1,38 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Caltrain",
+  "short_name": "Caltrain",
+  "id": "com.exact.caltrain",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#1e3a5f",
+  "background_color": "#ffffff",
+  "icons": [{ "src": "assets/caltrain.png", "sizes": "320x120", "type": "image/png" }],
+  "app": {
+    "id": "com.exact.caltrain",
+    "name": "Caltrain",
+    "origin": "https://caltrain.exact.invalid"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": ["iphone", "ipad"],
+      "localNetworking": "Exact connects to your dev server on the local network to load the app you are working on.",
+      "backgroundModes": [],
+      "associatedDomains": false
+    },
+    "macos": { "minimumOS": "14.0" },
+    "linux": {},
+    "web": {}
+  },
+  "deploy": {
+    "origin": "continuous",
+    "bundles": "continuous",
+    "binaries": { "ios": "continuous", "macos": "continuous", "linux": "continuous" },
+    "release": { "ios": "automatic", "macos": "automatic", "linux": "automatic" },
+    "store": { "ios": "A", "macos": "A", "linux": "A" },
+    "channels": { "prod": "https://caltrain.exact.invalid" },
+    "activate": "next-launch",
+    "check": { "background": true }
+  }
+}

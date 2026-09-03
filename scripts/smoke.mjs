@@ -30,8 +30,9 @@ const transcript = () => {
 const pinned = resolve(ROOT, 'scripts/fixtures/transcript.txt');
 if (argv.includes('--record')) { writeFileSync(pinned, transcript()); console.log(`recorded ${pinned.replace(ROOT + '/', '')}`); process.exit(0); }
 
-const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : null;
-if (!host) { console.error('usage: node scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>] | --record'); process.exit(2); }
+const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : null;
+if (!host) { console.error('usage: node scripts/smoke.mjs <web|macos|ios|linux|host> [--shot <png>] | --record'); process.exit(2); }
+
 // The two Apple presenters share one Canvases: children captured through the
 // surface, placements (LLP 1014 D2, D5) — what the canvas steps below assert.
 const apple = host === 'macos' || host === 'ios';
@@ -52,6 +53,98 @@ let appViewport;
 check(transcript() === readFileSync(pinned, 'utf8'), 'the transcript form drifted from scripts/fixtures/transcript.txt (a deliberate change: node scripts/smoke.mjs --record)');
 check(browserDiagnosticNoise('CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670'), 'the known headless display-service diagnostic is no longer classified as browser noise');
 check(!browserDiagnosticNoise('console.error: exact: failed'), 'page/runtime errors must not be classified as browser noise');
+
+// The sample host (LLP 1031 D10): a native macOS app that is not Exact's,
+// hosting two sessions of the one plan. What the fixture holds, driven
+// through the same carrier with each request routed by session label: two
+// sessions with overlapping node ids answer apart; operations interleave;
+// a command from one session pushes a native screen over the other
+// (unmounted, alive) and pops it (remounted) with both intact; a bad
+// candidate plan is refused and the running apps kept; a session destroyed
+// under the other is refused by name after, and the other still answers.
+if (host === 'host') {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-host-'));
+  const control = resolve(dir, 'control');
+  writeFileSync(control, '');
+  const say = (line) => writeFileSync(control, readFileSync(control, 'utf8') + line + '\n');
+  const s = await open({ host: 'host', session: 'a', env: { EXACT_HOST_CONTROL: control } });
+  const hostFailures = [];
+  const trace = process.env.EXACT_SMOKE_TRACE ? (m) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${m}`) : () => {};
+  const hcheck = (ok, what) => { trace(`${ok ? 'ok' : 'FAIL'} ${what}`); if (!ok) hostFailures.push(what); return ok; };
+  const settleHost = async (ms = 300) => { await sleep(ms); };
+  try {
+    hcheck(Array.isArray(s.sessions) && s.sessions.join(',') === 'a,b', `the host announced sessions ${JSON.stringify(s.sessions)}, not a,b`);
+    // 1. Two sessions of one plan, overlapping ids, answering apart.
+    const ta = await s.tree();
+    s.session = 'b';
+    const tb = await s.tree();
+    hcheck(byTestId(ta, 'caltrain-main') && byTestId(tb, 'caltrain-main'), 'both sessions show the plan');
+    hcheck(ta.roots[0] === tb.roots[0], `node ids overlap across sessions (${ta.roots[0]} vs ${tb.roots[0]}): ids are the runner's, not the process's`);
+    const la = await (async () => { s.session = 'a'; return s.layout(); })();
+    const lb = await (async () => { s.session = 'b'; return s.layout(); })();
+    hcheck(la.viewport.w > 200 && lb.viewport.w > 200, `each session lays out at its pane's width (${la.viewport.w}, ${lb.viewport.w})`);
+    // 2. Interleaved operations: a tap on b opens its station picker; a is untouched; a clock on a moves only a.
+    await s.tap('change-station');
+    await s.clock('settle');
+    const tb2 = await s.tree();
+    hcheck(byTestId(tb2, 'station-search') != null, 'b opened its station picker');
+    s.session = 'a';
+    const ta2 = await s.tree();
+    hcheck(byTestId(ta2, 'station-search') == null && byTestId(ta2, 'change-station') != null, 'a is untouched by b\'s tap');
+    await s.clock('+60000');
+    const sa = await s.state();
+    s.session = 'b';
+    const sb = await s.state();
+    hcheck(sa.clock === 60000 && (sb.clock ?? 0) < 60000, `each session has its own clock (a ${sa.clock}, b ${sb.clock})`);
+    // 3. A command from b pushes a native screen over a (unmounted, alive), then pops it.
+    await s.tap('scheme-dark');
+    await s.clock('settle');
+    await settleHost();
+    s.session = 'a';
+    const laGone = await s.layout();
+    const taAlive = await s.tree();
+    hcheck(laGone.nodes.length === 0, `a is unmounted under the native screen (${laGone.nodes.length} boxes on screen)`);
+    hcheck(taAlive.nodes.length === ta2.nodes.length, 'a is alive while unmounted: its tree still answers');
+    s.session = 'b';
+    await s.tap('scheme-light');
+    await s.clock('settle');
+    await settleHost();
+    s.session = 'a';
+    const laBack = await s.layout();
+    hcheck(laBack.nodes.length > 0 && laBack.viewport.w > 200, `a remounted and laid out again (${laBack.nodes.length} boxes, ${laBack.viewport.w} wide)`);
+    hcheck(byTestId(await s.tree(), 'change-station') != null, 'a kept its state across unmount and remount');
+    // 4. A bad candidate plan is refused; both keep their running apps.
+    const bad = resolve(dir, 'bad.plan');
+    writeFileSync(bad, 'not an Exact plan');
+    say(`apply ${bad}`);
+    await settleHost(500);
+    hcheck(byTestId(await s.tree(), 'change-station') != null, 'a kept its app after a refused candidate');
+    s.session = 'b';
+    hcheck(byTestId(await s.tree(), 'station-search') != null, 'b kept its state after a refused candidate');
+    const logs = await s.logs();
+    hcheck(logs.host.some((l) => /apply .*refused/.test(l)), `the host reported the refusal: ${logs.host.filter((l) => /apply/.test(l)).join(' | ')}`);
+    // 5. Destroy a under b: a's handle is refused by name; b still answers.
+    say('destroy a');
+    await settleHost(500);
+    s.session = 'a';
+    let refused = null;
+    try { await s.tree(); } catch (e) { refused = e.message; }
+    hcheck(refused != null && /no such runtime|destroyed/.test(refused), `a's handle is refused by name after destroy: ${refused}`);
+    s.session = 'b';
+    const tbAfter = await s.tree();
+    hcheck(byTestId(tbAfter, 'station-search') != null, 'b still answers, its state intact, after a was destroyed');
+    await s.tap('scheme-light');
+    await s.clock('settle');
+    const logs2 = await s.logs();
+    hcheck(logs2.host.some((l) => /destroyed a/.test(l)) && !logs2.host.some((l) => /exact: /.test(l) && !/unknown command/.test(l)), `no late callback or refusal after destroy: ${logs2.host.filter((l) => /exact:|destroyed/.test(l)).join(' | ')}`);
+  } finally {
+    await s.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+  if (hostFailures.length) { console.log(`host smoke: ${hostFailures.length} failure(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s`); for (const f of hostFailures) console.log('  ' + f); process.exit(1); }
+  console.log(`host smoke: ok in ${((Date.now() - t0) / 1000).toFixed(1)} s — two sessions of one plan, interleaved, one pushed under a native screen and back, a bad plan refused, one destroyed under the other`);
+  process.exit(0);
+}
 
 const s = await open({ host });
 let caltrainFixture = false;

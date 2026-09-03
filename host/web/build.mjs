@@ -88,10 +88,32 @@ writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({
     kernelSchema: planBytes.readBigUInt64LE(16).toString(16).padStart(16, '0'),
   },
 }) + '\n');
-writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8').replace(
-  '<script type="module" src="./glue.js"></script>',
-  '<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<script type="module" src="./glue.js"></script>',
-));
+// The web app manifest (LLP 1030 D2/D10; 1030.000 D7): the W3C keys of
+// `app.json`, copied out as `manifest.json`; the page links it, takes its
+// name as the title, and its first icon as the favicon. An installed PWA's
+// icon and name are the browser's cached copies of these — the origin's
+// carrier, at its real strength.
+const webKeys = ['name', 'short_name', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons'];
+const webManifest = Object.fromEntries(webKeys.filter((k) => app.manifest[k] !== undefined).map((k) => [k, app.manifest[k]]));
+webManifest.name ??= app.displayName;
+webManifest.start_url ??= '/';
+writeFileSync(resolve(stage, 'manifest.json'), JSON.stringify(webManifest, null, 2) + '\n');
+const icon = webManifest.icons?.[0];
+const escapeHtml = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8')
+  .replace('<title>Exact</title>', `<title>${escapeHtml(webManifest.name)}</title>`)
+  .replace(
+    '<script type="module" src="./glue.js"></script>',
+    `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}<script type="module" src="./glue.js"></script>`,
+  ));
+// The deep-link association file (LLP 1030 D1; 1030.000 D2): generated from
+// the manifest when the iOS host claims the domain and names its team; a
+// static origin file Apple's CDN fetches, never a dev-server claim.
+const ios = app.manifest.host?.ios ?? {};
+if (ios.associatedDomains && ios.team) {
+  mkdirSync(resolve(stage, '.well-known'), { recursive: true });
+  writeFileSync(resolve(stage, '.well-known/apple-app-site-association'), JSON.stringify({ applinks: { details: [{ appIDs: [`${ios.team}.${app.id}`], components: [{ '/': '*' }] }] } }) + '\n');
+}
 
 // The app's GPU module (LLP 1009 D2): a second wasm the page fetches on
 // demand, built with wasm-bindgen's glue (its exports are the module's ABI on
