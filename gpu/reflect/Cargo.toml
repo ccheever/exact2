@@ -1,8 +1,9 @@
 # Shader reflection for a GPU crate's build: naga parses and validates every
 # `.wgsl`, and what each shader declares — bindings, struct layouts, vertex
 # inputs, entry points — is generated as Rust the surface compiles against.
-# Depends on naga alone, so a `build.rs` can use it without building wgpu for
-# the build host.
+# Depends on naga (and sha2 for the interface digest) alone, so a `build.rs`
+# can use it without building wgpu for the build host; `exact-gpu` links it
+# at run time too, for the same digest over a candidate shader (LLP 1030 D8).
 #
 # @ref LLP 1009 D5
 [package]
@@ -19,3 +20,4 @@ crate-type = ["rlib"]
 
 [dependencies]
 naga = { version = "30", features = ["wgsl-in"] }
+sha2 = "0.10"

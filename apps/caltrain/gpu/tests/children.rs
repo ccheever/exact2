@@ -68,12 +68,15 @@ fn the_aurora_composes_its_children_over_the_sky() {
             return;
         }
     };
+    // The shaders travel as files (LLP 1030 D8): registered as a host would.
+    exact_gpu::shaders::load_dir(&caltrain_gpu::shader_dir(), &caltrain_gpu::REGISTRY).unwrap();
     let frame = Frame {
         width: W as f32,
         height: H as f32,
         scale: 1.0,
         now_ms: 1234.0,
         children_generation: 0,
+        shader_generation: exact_gpu::shaders::shader_generation(),
     };
     let mut sky = AuroraSurface::new();
     sky.bind(&[Value::str("mv")]).unwrap();

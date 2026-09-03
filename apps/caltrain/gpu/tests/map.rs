@@ -17,6 +17,8 @@ fn station(id: &str) -> Value {
 }
 
 fn device() -> Option<Gpu> {
+    // The shaders travel as files (LLP 1030 D8): registered as a host would.
+    exact_gpu::shaders::load_dir(&caltrain_gpu::shader_dir(), &caltrain_gpu::REGISTRY).unwrap();
     match fixture::device() {
         Ok(gpu) => Some(gpu),
         Err(e) => {
@@ -81,6 +83,7 @@ fn the_map_renders_and_reads_back_on_this_machines_gpu() {
         scale: 1.0,
         now_ms: 0.0,
         children_generation: 0,
+        shader_generation: exact_gpu::shaders::shader_generation(),
     };
     let (px, wants) = fixture::render(&gpu, &mut map, &frame).unwrap();
     assert!(!wants, "a static picture wants no more frames");
@@ -118,6 +121,7 @@ fn the_aurora_renders_a_lit_sky_and_wants_every_frame() {
         scale: 1.0,
         now_ms: 1234.0,
         children_generation: 0,
+        shader_generation: exact_gpu::shaders::shader_generation(),
     };
     let (px, wants) = fixture::render(&gpu, &mut sky, &frame).unwrap();
     assert!(wants, "lit from the clock: wants every frame");

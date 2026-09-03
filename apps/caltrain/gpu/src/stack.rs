@@ -13,7 +13,7 @@ use exact_gpu::json::{list, number, text};
 use exact_gpu::wgpu;
 use exact_gpu::{Frame, Placement, Surface, SurfaceError, Value};
 
-use crate::shaders::stack::{entry, Card as CardUniforms, CARD, GROUP_0, MODULE, PICTURE, SMP};
+use crate::shaders::stack::{entry, module, Card as CardUniforms, CARD, GROUP_0, PICTURE, SMP};
 
 /// Perspective: the eye's distance from the canvas plane, in points.
 const FOCAL: f32 = 900.0;
@@ -106,6 +106,8 @@ pub struct StackSurface {
 
 struct Gpu {
     format: wgpu::TextureFormat,
+    /// The shader generation the pipeline was built at (LLP 1030 D8).
+    generation: u32,
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -390,8 +392,10 @@ impl Surface for StackSurface {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
-        if self.gpu.as_ref().map(|g| g.format) != Some(format) {
-            self.gpu = Some(build(device, format));
+        if self.gpu.as_ref().map(|g| (g.format, g.generation))
+            != Some((format, frame.shader_generation))
+        {
+            self.gpu = Some(build(device, format, frame.shader_generation));
             for card in &mut self.cards {
                 card.bind_group = None;
             }
@@ -502,8 +506,8 @@ impl Surface for StackSurface {
     }
 }
 
-fn build(device: &wgpu::Device, format: wgpu::TextureFormat) -> Gpu {
-    let shader = device.create_shader_module(MODULE);
+fn build(device: &wgpu::Device, format: wgpu::TextureFormat, generation: u32) -> Gpu {
+    let shader = device.create_shader_module(module());
     let layout = device.create_bind_group_layout(&GROUP_0);
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("card"),
@@ -545,6 +549,7 @@ fn build(device: &wgpu::Device, format: wgpu::TextureFormat) -> Gpu {
     });
     Gpu {
         format,
+        generation,
         pipeline,
         layout,
         sampler,

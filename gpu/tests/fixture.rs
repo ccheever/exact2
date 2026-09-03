@@ -88,6 +88,7 @@ fn a_frame_reads_back_unpadded_and_as_a_ppm() {
         scale: 1.0,
         now_ms: 0.0,
         children_generation: 0,
+        shader_generation: exact_gpu::shaders::shader_generation(),
     };
     let (px, wants) = fixture::render(&gpu, &mut fill, &frame).unwrap();
     assert!(!wants);
@@ -111,6 +112,7 @@ fn a_bgra_texture_comes_back_rgba() {
         scale: 1.0,
         now_ms: 0.0,
         children_generation: 0,
+        shader_generation: exact_gpu::shaders::shader_generation(),
     };
     fill.render(
         &frame,

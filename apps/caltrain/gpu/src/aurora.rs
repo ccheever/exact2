@@ -3,7 +3,7 @@
 //! buffer and the canvas's children behind the bind-group layout the shader
 //! declares (`shaders::aurora`, reflected at build).
 
-use crate::shaders::aurora::{entry, Uniforms, CHILDREN, CHILDREN_SAMPLER, GROUP_0, MODULE, U};
+use crate::shaders::aurora::{entry, module, Uniforms, CHILDREN, CHILDREN_SAMPLER, GROUP_0, U};
 use exact_gpu::json::text;
 use exact_gpu::wgpu;
 use exact_gpu::{Frame, Surface, SurfaceError, Value};
@@ -21,6 +21,8 @@ pub struct AuroraSurface {
 
 struct Gpu {
     format: wgpu::TextureFormat,
+    /// The shader generation the pipeline was built at (LLP 1030 D8).
+    generation: u32,
     pipeline: wgpu::RenderPipeline,
     uniforms: wgpu::Buffer,
     layout: wgpu::BindGroupLayout,
@@ -67,8 +69,10 @@ impl Surface for AuroraSurface {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
-        if self.gpu.as_ref().map(|g| g.format) != Some(format) {
-            self.gpu = Some(build(device, queue, format));
+        if self.gpu.as_ref().map(|g| (g.format, g.generation))
+            != Some((format, frame.shader_generation))
+        {
+            self.gpu = Some(build(device, queue, format, frame.shader_generation));
             self.rebind = true;
         }
         let children = self.children.as_ref();
@@ -155,8 +159,13 @@ fn bind_group(
     })
 }
 
-fn build(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Gpu {
-    let shader = device.create_shader_module(MODULE);
+fn build(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    format: wgpu::TextureFormat,
+    generation: u32,
+) -> Gpu {
+    let shader = device.create_shader_module(module());
     let layout = device.create_bind_group_layout(&GROUP_0);
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("children"),
@@ -235,6 +244,7 @@ fn build(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat
     });
     Gpu {
         format,
+        generation,
         pipeline,
         uniforms,
         layout,

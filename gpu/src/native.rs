@@ -100,6 +100,20 @@ pub unsafe fn create(name: &str, layer: *mut c_void, width: u32, height: u32) ->
     created.unwrap_or(0)
 }
 
+/// Register the text of shader `name` (LLP 1030 D8): validated, its
+/// interface checked against the one this module's Rust binds. Returns 0 on
+/// success, 1 on a refusal (see [`error`]). The module must be loaded.
+pub fn shader(name: &str, text: &str) -> u32 {
+    match with(|m| m.set_shader(name, text.to_string())) {
+        Some(true) => 0,
+        Some(false) => 1,
+        None => {
+            refuse("gpu_shader: the module is not loaded (gpu_load first)");
+            1
+        }
+    }
+}
+
 /// Bind inputs (a JSON array of values). Returns 0 on success.
 pub fn bind(id: u32, values: &str) -> u32 {
     let values = match json::parse_values(values) {
@@ -124,6 +138,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         scale,
         now_ms,
         children_generation: 0,
+        shader_generation: 0,
     };
     match with(|m| m.render(id, &frame)).flatten() {
         Some(true) => 1,
@@ -213,6 +228,7 @@ pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: 
         scale,
         now_ms,
         children_generation: 0,
+        shader_generation: 0,
     };
     match with(|m| m.readback(id, &frame)).flatten() {
         Some((px, wants)) if out.len() >= px.data.len() => {
@@ -282,6 +298,24 @@ macro_rules! module {
             let Ok(name) = ::std::str::from_utf8(name) else { $crate::native::refuse("gpu_create: the name is not UTF-8"); return 0 };
             if layer.is_null() { $crate::native::refuse("gpu_create: a null layer"); return 0 }
             unsafe { $crate::native::create(name, layer, width, height) }
+        }
+
+        /// Register the text of a shader (LLP 1030 D8): `name` is `name_len`
+        /// bytes of UTF-8, `text` is `text_len` bytes of WGSL. 0 on success;
+        /// 1 and `gpu_error` says why — the shader does not validate, or its
+        /// interface is not the one this module binds (a rebuild), or the
+        /// module has no shader of that name. Call after `gpu_load`, before
+        /// `gpu_create`; again at any time to swap a compatible edit in.
+        ///
+        /// # Safety
+        /// `name` is `name_len` readable bytes and `text` is `text_len`.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_shader(name: *const u8, name_len: usize, text: *const u8, text_len: usize) -> u32 {
+            let Some(name) = (unsafe { $crate::native::bytes("gpu_shader", name, name_len) }) else { return 1 };
+            let Ok(name) = ::std::str::from_utf8(name) else { $crate::native::refuse("gpu_shader: the name is not UTF-8"); return 1 };
+            let Some(text) = (unsafe { $crate::native::bytes("gpu_shader", text, text_len) }) else { return 1 };
+            let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_shader: the text is not UTF-8"); return 1 };
+            $crate::native::shader(name, text)
         }
 
         /// Bind inputs: `len` bytes of a JSON array. 0 on success.

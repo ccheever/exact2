@@ -513,6 +513,7 @@ dependencies = [
 name = "exact-gpu"
 version = "0.1.0"
 dependencies = [
+ "exact-gpu-reflect",
  "exact-plan",
  "objc2",
  "objc2-metal",
@@ -527,6 +528,7 @@ name = "exact-gpu-reflect"
 version = "0.1.0"
 dependencies = [
  "naga 30.0.1",
+ "sha2",
 ]
 
 [[package]]

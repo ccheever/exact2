@@ -14,6 +14,7 @@
 //! - [`Surface`], [`Frame`] — what an app implements.
 //! - [`Module`] — the device and the instances, one per canvas node.
 //! - [`json`] — the values as the batch carries them.
+//! - [`shaders`] — the WGSL by name, registered at run time (LLP 1030 D8).
 //! - [`module!`] — the exports for one app's registry.
 //! - `fixture` (native) — a surface rendered and read back, for fixtures.
 
@@ -25,6 +26,7 @@ pub use exact_plan::Value;
 pub use wgpu;
 
 pub mod json;
+pub mod shaders;
 
 /// One frame's context.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -41,6 +43,12 @@ pub struct Frame {
     /// 1014): a surface that keeps the previous children crossfades when
     /// this changes. The module sets it; a host passes `0`.
     pub children_generation: u32,
+    /// How many times a shader has been registered (LLP 1030 D8,
+    /// [`shaders::shader_generation`]): a surface keys its cached pipeline
+    /// by this beside the target format, so a registered edit is a new
+    /// pipeline at the next frame. The module sets it; a fixture passes
+    /// what [`shaders::shader_generation`] says.
+    pub shader_generation: u32,
 }
 
 impl Frame {
@@ -133,8 +141,16 @@ pub struct Placement {
 /// Makes a surface.
 pub type Factory = fn() -> Box<dyn Surface>;
 
-/// An app's surfaces: name, arity, factory.
-pub struct Registry(pub &'static [(&'static str, usize, Factory)]);
+/// An app's surfaces and the shaders they compile against.
+pub struct Registry {
+    /// Every surface: name, arity, factory.
+    pub surfaces: &'static [(&'static str, usize, Factory)],
+    /// Every shader the surfaces were reflected against: name and interface
+    /// digest (the generated `SHADERS`, `exact-gpu-reflect`). A surface is
+    /// not created until each has registered text at that interface
+    /// ([`shaders`]).
+    pub shaders: &'static [(&'static str, u64)],
+}
 
 /// The device and every canvas's surface.
 pub struct Module {
@@ -217,6 +233,46 @@ impl Module {
         std::mem::take(&mut self.error)
     }
 
+    /// The interface digest the module's Rust binds for shader `name`
+    /// (LLP 1030 D8) — what a registered text must match; `None` for a
+    /// name no surface here uses.
+    pub fn expected_digest(&self, name: &str) -> Option<u64> {
+        self.registry
+            .shaders
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, d)| *d)
+    }
+
+    /// The shaders this module's surfaces bind against, by name.
+    pub fn shader_names(&self) -> Vec<&'static str> {
+        self.registry.shaders.iter().map(|(n, _)| *n).collect()
+    }
+
+    /// Register the text of shader `name` for this module's surfaces
+    /// (LLP 1030 D8): validated, its interface checked against the one the
+    /// binary binds. Every canvas is marked dirty on success, so the next
+    /// frame renders through the new pipeline. `false`, with the reason in
+    /// [`Module::take_error`], on a refusal.
+    pub fn set_shader(&mut self, name: &str, text: String) -> bool {
+        let Some(expected) = self.expected_digest(name) else {
+            self.error = format!("no shader named `{name}` in this module");
+            return false;
+        };
+        match shaders::set_shader(name, text, Some(expected)) {
+            Ok(()) => {
+                for inst in self.instances.values_mut() {
+                    inst.dirty = true;
+                }
+                true
+            }
+            Err(e) => {
+                self.error = e;
+                false
+            }
+        }
+    }
+
     fn fail<T>(&mut self, e: impl Into<String>) -> Option<T> {
         self.error = e.into();
         None
@@ -234,9 +290,16 @@ impl Module {
         let Some(gpu) = self.gpu.as_ref() else {
             return self.fail("no device");
         };
-        let Some((_, _, factory)) = self.registry.0.iter().find(|(n, _, _)| *n == name) else {
+        let Some((_, _, factory)) = self.registry.surfaces.iter().find(|(n, _, _)| *n == name)
+        else {
             return self.fail(format!("no surface named `{name}` in this module"));
         };
+        // Every shader this module's surfaces bind against has its text, at
+        // the interface the binary was built for (LLP 1030 D8): a pipeline
+        // built over nothing would be wgpu's error, not a refusal by name.
+        if let Some(why) = shaders::missing(self.registry.shaders) {
+            return self.fail(why);
+        }
         let Some(mut config) = target.get_default_config(&gpu.adapter, width.max(1), height.max(1))
         else {
             return self.fail("the adapter cannot present to this target");
@@ -554,6 +617,7 @@ impl Module {
         let view = texture.texture.create_view(&Default::default());
         let frame = Frame {
             children_generation: inst.children_generation,
+            shader_generation: shaders::shader_generation(),
             ..*frame
         };
         let wants = inst
@@ -754,6 +818,7 @@ impl Module {
         }
         let frame = Frame {
             children_generation: inst.children_generation,
+            shader_generation: shaders::shader_generation(),
             ..*frame
         };
         match fixture::render(gpu, inst.surface.as_mut(), &frame) {
