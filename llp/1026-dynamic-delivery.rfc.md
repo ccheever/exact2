@@ -761,7 +761,11 @@ The rule: name what it unblocks, and take something off the doing-list
 in the same PR.
 
 - **`rules/NOT-DOING.md` §Runtime "Snapback / update economy"** →
-  D9–D12, minimal and static. Unblocks: deploying an app change to
+  D9–D12, minimal and static. **Ruled 2026-09-03: moved** (Charlie, on
+  the LLP 1030 panel's finding that the line still stood: "you can pull
+  out snapback for now if necessary"); the line is struck with the
+  reason and the take, and the take lands with 1030.000 stage 4.
+  Unblocks: deploying an app change to
   installed apps without a store release, from a bake and an upload —
   Charlie's "when deploying updates." **The take, in the same PR, is
   apparatus that already exists:** `EXACT_DEV_PLAN`'s file poll and the

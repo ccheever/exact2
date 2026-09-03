@@ -61,6 +61,28 @@ sits on that list carries the trade it would take.
    table (below), and two ghost-only size properties on the engine. Charlie to confirm
    the boundary (§Open questions).
 
+- **Mixed by default, and the wasm executor on wasmtime** — LLP 1029 (Draft RFC,
+  2026-09-03) over LLP 1028 (the measurements: wasmtime runtime +0.49 MB / +Pulley
+  +0.58 / wasmi +1.0 / Cranelift +5.6, never shipped). Charlie's three rulings of
+  2026-09-03 — wasmtime optional, never mandatory even for Rust logic, the default app
+  mixed TS + Rust — are its Summary; §7 stages it (phone numbers first), §8 asks
+  Pulley-or-wasmi and four more. Awaits Charlie; the 1026/1027 amendment notes land at
+  acceptance.
+
+- **Delivery, unified** — LLP 1030 r2 (Draft RFC, 2026-09-03: every layer's artifact,
+  identity, and carrier in dev and production; the per-platform compatibility id and its
+  streams; the classifier per platform and stream with dependency computed from the graph;
+  the two axes — an update store or not, the executors linked; propagation at its real
+  strength; the GPU sub-layers with shaders binary-coupled until packaged; the runtime
+  upgrade — freeze only, the store-carry test; assets hot in dev, icons per platform) and
+  LLP 1030.000 r2 (the bundle slice: `dev.mjs` classifies on every edit and never
+  publishes, `exact deploy` in its own process — snapshot, bake, classify, dry-run table,
+  conditional-put publish per stream; the policy table; the binary lanes, landing, reach,
+  brownfield deferred to a later number). Both folded a two-round grok 4.6 xhigh + codex
+  sol ultra panel (`llp/reviews/1030-delivery-unified.{grok,sol}.md`). Ruled 2026-09-03:
+  continuous everywhere (`release: automatic`, phased by the store); the update economy
+  off NOT-DOING in its static form. Every §5 question ruled 2026-09-03 (shader packaging in stage 1; the conditional put required). Owed: an implementer and a date against 1030.000's four stages; stage 4 also waits on 1026 Level A.
+
 - **Tab on iOS with a hardware keyboard** (Weird Castle login): macOS now
   wires the key-view loop after each batch (fields and buttons, tree order,
   Space/Enter on a focused pressable). iOS still has no sequential-focus

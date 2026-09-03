@@ -49,7 +49,15 @@ change can break.
 - Server generation in every form: SSR, streaming, static export, progressive forms,
   hydration, route payloads, response caching.
 - Aquifer data tier, durable worker tier, capability capsules, durable capability grants.
-- Snapback / update economy.
+- ~~Snapback / update economy.~~ Moved 2026-09-03 (Charlie: "you can pull out snapback
+  for now"), in LLP 1026 D11's minimal form only: an installed app fetches a signed
+  bundle of static files from a baked-in origin, after first pixel, into an on-disk
+  store, for its next launch (LLP 1030 for every layer; 1030.000 for the verb). Unblocks
+  deploying a change to installed apps from a bake and an upload. Take: `EXACT_DEV_PLAN`'s
+  file poll and the two dev-only URL loaders collapse into that one store with two
+  policies (1026 D12) — fewer paths after than before. What stays refused, as
+  the *service* half of the old economy: per-user targeting, cohorts by identity, an
+  update console, server-side anything, push delivery.
 - Hot revision surfaces, staged reload. (HBC compilation came off 2026-09-03 for the
   *bake only* — LLP 1027 D5: `hermesc` runs at build beside the Contract compiler;
   nothing compiles at runtime, and the lean VM a host links cannot. A dev reload *carries

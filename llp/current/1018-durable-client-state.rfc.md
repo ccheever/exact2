@@ -1,1 +1,0 @@
-../1018-durable-client-state.rfc.md
