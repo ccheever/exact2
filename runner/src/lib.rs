@@ -14,6 +14,8 @@
 //! - [`stdlib`] — the roster's implementations, once.
 //! - [`bridge`] — values to kernel props and style rows, through the kernel's
 //!   own `set_dynamic`.
+//! - [`delivery`] — what this binary and its update store know about
+//!   delivery (LLP 1030 D7): one resource the runner answers itself.
 //! - [`instance`] — the instance tree: nodes, `when`/`match` arms, keyed
 //!   `each` rows, and the ops that keep the kernel equal to it.
 //! - [`runner`] — boot, actions, events, resources, timers, the clock.
@@ -29,6 +31,7 @@
 
 pub mod agent;
 pub mod bridge;
+pub mod delivery;
 pub mod instance;
 pub mod request;
 pub mod runner;
@@ -36,6 +39,7 @@ pub mod stdlib;
 pub mod store;
 pub mod vm;
 
+pub use delivery::Delivery;
 pub use exact_plan::Value;
 pub use instance::SurfaceUpdate;
 pub use request::{Answer, FailureKind, Outcome, Request, RequestOut, Response};

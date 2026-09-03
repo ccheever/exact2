@@ -814,7 +814,12 @@ mod handles {
         })
     }
 
-    exact_apple::host!(Fixture, baked());
+    /// The archive's `compat.json` (LLP 1030 D3a) as this fixture's binary
+    /// would carry it: the exports hand it to the runner at every boot.
+    pub const COMPAT: &str =
+        r#"{"id":"fixture00000000","inputs":{"executors":["native"],"store":{"L":"A"}}}"#;
+
+    exact_apple::host!(Fixture, baked(), COMPAT);
 }
 
 fn out(rt: u32, len: u32) -> String {

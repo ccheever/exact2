@@ -78,31 +78,7 @@ impl<D: DataSource> Runner<D> {
             return Ok(None);
         }
         let stale: Vec<usize> = (0..self.stale.len()).filter(|i| self.stale[*i]).collect();
-        if stale.is_empty() {
-            return Ok(None);
-        }
-        let what = format!("data_ready ({} asked again)", stale.len());
-        let was_poisoned = self.poisoned;
-        let kept = self.store.checkpoint();
-        let since = kept.writes;
-        let saved_slots = self.slots.clone();
-        let saved_resources = self.resources.clone();
-        self.refresh_next.extend(stale);
-        let result = if self.poisoned {
-            Err(RunnerError::Poisoned)
-        } else {
-            self.settle(false).and_then(|_| self.update())
-        };
-        match &result {
-            Ok(_) => self.log_store_writes(since),
-            Err(_) => {
-                self.store.restore(kept);
-                self.slots = saved_slots;
-                self.resources = saved_resources;
-            }
-        }
-        self.log_outcome(&what, &result, was_poisoned);
-        result.map(Some)
+        self.recommit(stale, "data_ready")
     }
 }
 

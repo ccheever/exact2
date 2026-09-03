@@ -24,6 +24,10 @@ pub struct Bridge<D: DataSource> {
     /// The page's snapshot of the app's kept secrets (LLP 1018 D6), handed
     /// in through `exact_store` before boot and taken by the next boot.
     snapshot: Vec<(String, String)>,
+    /// The archive's `compat.json` (LLP 1030 D3a), from the `host!`
+    /// invocation: what the runner's `delivery` resource says about this
+    /// binary's cohort, its update store, and its executors.
+    compat: Option<&'static str>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -34,9 +38,18 @@ impl<D: DataSource> Bridge<D> {
         Bridge {
             host: None,
             snapshot: Vec::new(),
+            compat: None,
             input: Vec::new(),
             output: Vec::new(),
         }
+    }
+
+    /// This wasm's `compat.json` (LLP 1030 D3a), for the delivery facts
+    /// every subsequent boot hands the runner before its first frame. The
+    /// `host!` macro passes the app's `COMPAT` const; nothing crosses the
+    /// wasm ABI for it.
+    pub fn set_compat(&mut self, json: &'static str) {
+        self.compat = Some(json);
     }
 
     /// The page's snapshot of the app's kept secrets (LLP 1018 D6): the
@@ -98,7 +111,7 @@ impl<D: DataSource> Bridge<D> {
     /// output is the first batch.
     pub fn boot(&mut self, plan: &[u8], data: D) -> u32 {
         let snapshot = std::mem::take(&mut self.snapshot);
-        match Host::boot_stored(plan, data, snapshot) {
+        match Host::boot_delivered(plan, data, None, snapshot, self.compat) {
             Ok((host, batch)) => {
                 self.host = Some(host);
                 self.emit(batch)
@@ -117,7 +130,7 @@ impl<D: DataSource> Bridge<D> {
     pub fn boot_plan(&mut self, len: usize, data: D) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
         let carried = self.host.as_ref().map(Host::carry);
-        match Host::boot_with(&plan, data, carried.as_ref()) {
+        match Host::boot_delivered(&plan, data, carried.as_ref(), Vec::new(), self.compat) {
             Ok((host, batch)) => {
                 self.host = Some(host);
                 self.emit(batch)
@@ -231,7 +244,7 @@ pub type Cell<D> = RefCell<Bridge<D>>;
 /// of what the app's `build.rs` wrote).
 #[macro_export]
 macro_rules! host {
-    ($data:ty, $plan:expr) => {
+    ($data:ty, $plan:expr, $compat:expr) => {
         thread_local! {
             static EXACT_BRIDGE: $crate::abi::Cell<$data> = ::std::cell::RefCell::new($crate::abi::Bridge::new());
         }
@@ -266,13 +279,21 @@ macro_rules! host {
         /// Boot; returns the first batch's length.
         #[no_mangle]
         pub extern "C" fn exact_boot() -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().boot($plan, <$data as ::std::default::Default>::default()))
+            EXACT_BRIDGE.with(|b| {
+                let mut b = b.borrow_mut();
+                b.set_compat($compat);
+                b.boot($plan, <$data as ::std::default::Default>::default())
+            })
         }
 
         /// Boot from plan bytes in the input buffer (the dev loop's restart).
         #[no_mangle]
         pub extern "C" fn exact_boot_plan(len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().boot_plan(len as usize, <$data as ::std::default::Default>::default()))
+            EXACT_BRIDGE.with(|b| {
+                let mut b = b.borrow_mut();
+                b.set_compat($compat);
+                b.boot_plan(len as usize, <$data as ::std::default::Default>::default())
+            })
         }
 
         /// Query the current plan's declared font catalog. The returned JSON

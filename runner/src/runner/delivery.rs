@@ -1,0 +1,86 @@
+//! The `delivery` resource (LLP 1030 D7): the one thing a Contract app can
+//! read about its own delivery, and the one thing a host tells the runner.
+//!
+//! The runner answers the source [`crate::delivery::SOURCE`] itself, before
+//! the data seam — a data crate is never asked for it, and never could be:
+//! these are the binary's and the update store's facts, not the app's. The
+//! record is filled **by field name** from the shape the app declared, so an
+//! app that wants only the stream declares only `stream`.
+//!
+//! The two commands are ordinary Contract commands (`deliveryCheck`,
+//! `deliveryActivate`) and the runner adds nothing for them: they reach the
+//! host through `take_commands` exactly as `setScheme` does.
+
+use super::{DataError, DataSource, Runner, RunnerError};
+use crate::delivery::{Delivery, SOURCE};
+use exact_kernel::CommitReceipt;
+use exact_plan::{TypeKind, Value};
+
+impl<D: DataSource> Runner<D> {
+    /// What this runner believes about its delivery. Until a host says
+    /// otherwise this is [`Delivery::default`] — the embedded answer.
+    pub fn delivery(&self) -> &Delivery {
+        &self.delivery
+    }
+
+    /// Tell the runner its delivery facts. Every resource reading
+    /// [`crate::delivery::SOURCE`] is answered again in one commit; `None`
+    /// when the facts did not change, or when no resource reads them.
+    pub fn set_delivery(
+        &mut self,
+        delivery: Delivery,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        if delivery == self.delivery {
+            return Ok(None);
+        }
+        self.delivery = delivery;
+        let which: Vec<usize> = (0..self.plan.resources.len())
+            .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
+            .collect();
+        self.recommit(which, "delivery")
+    }
+
+    /// [`Runner::set_delivery`] with the binary's own three facts read out
+    /// of the archive's `compat.json` (LLP 1030 D3a) — the compatibility id,
+    /// whether an update store is linked, and the executors — and everything
+    /// else left as it was.
+    pub fn set_delivery_from_compat(
+        &mut self,
+        compat_json: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let delivery = self.delivery.with_compat(compat_json);
+        self.set_delivery(delivery)
+    }
+
+    /// The delivery record for resource `i`, in the order its declared
+    /// shape names its fields. A field the runner does not know is a
+    /// refusal — bake catches it first, as `bake-delivery-field`.
+    pub(super) fn delivery_answer(&self, i: usize) -> Result<Value, DataError> {
+        let row = &self.plan.resources[i];
+        if row.args.len > 0 {
+            return Err(DataError::BadArguments(format!(
+                "{SOURCE} takes no arguments"
+            )));
+        }
+        let ty = self.plan.type_(row.ty);
+        if ty.kind != TypeKind::Record {
+            return Err(DataError::Unavailable(format!(
+                "{SOURCE} answers a record; this one is declared `{}`",
+                self.plan.str(ty.name)
+            )));
+        }
+        let mut fields = Vec::with_capacity(ty.fields.len as usize);
+        for f in ty.fields.iter() {
+            let name = self.plan.str(self.plan.field(f).name);
+            match self.delivery.field(name) {
+                Some(v) => fields.push(v),
+                None => {
+                    return Err(DataError::Unavailable(format!(
+                        "{SOURCE} has no field `{name}`"
+                    )))
+                }
+            }
+        }
+        Ok(Value::record(fields))
+    }
+}

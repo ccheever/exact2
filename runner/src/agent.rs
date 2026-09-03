@@ -190,8 +190,49 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         }
         quote(name, &mut s);
     }
-    s.push_str("]}");
+    s.push_str("],\"delivery\":");
+    delivery(runner, &mut s);
+    s.push('}');
     s
+}
+
+/// `state.delivery` (LLP 1030 D7): the `delivery` resource's own fields,
+/// mirrored for a smoke test, `metrics.mjs`, and a developer's eyes —
+/// whether the app declares that resource or not — plus what only the agent
+/// needs: the compatibility id, `L` (is there an update store), and `E`
+/// (which executors are linked). An `L = 0` client reads `"embedded"` here,
+/// which is the honest statement that nothing can be delivered to it.
+fn delivery<D: DataSource>(runner: &Runner<D>, s: &mut String) {
+    let d = runner.delivery();
+    s.push_str("{\"stream\":");
+    quote(&d.stream, s);
+    let _ = write!(
+        s,
+        ",\"seq\":{},\"embeddedSeq\":{},\"staged\":{},\"sunset\":",
+        d.seq, d.embedded_seq, d.staged
+    );
+    // A resource has no absence (LLP 1004 D3), and this mirrors the
+    // resource: no sunset is "".
+    quote(d.sunset.as_deref().unwrap_or(""), s);
+    s.push_str(",\"interpreted\":[");
+    for (i, name) in d.interpreted.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        quote(name, s);
+    }
+    s.push_str("],\"compatibilityId\":");
+    quote(&d.compatibility_id, s);
+    s.push_str(",\"L\":");
+    quote(&d.store.to_string(), s);
+    s.push_str(",\"E\":[");
+    for (i, name) in d.executors.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        quote(name, s);
+    }
+    s.push_str("]}");
 }
 
 /// Standard base64 (with padding) — a request or reply body in a batch.

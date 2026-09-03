@@ -105,6 +105,22 @@ impl<D: DataSource> Host<D> {
         Ok((host, error))
     }
 
+    /// Tell the runner what this binary knows about its delivery (LLP 1030
+    /// D7), from the archive's `compat.json`: the compatibility id, whether
+    /// an update store is linked, and the executors. A `delivery` resource
+    /// is answered again in that one commit, which the painter picks up
+    /// like any other — the kernel is the display list here.
+    pub fn set_delivery_from_compat(&mut self, json: &str) -> Option<String> {
+        match self.runner.set_delivery_from_compat(json) {
+            Ok(None) => None,
+            Ok(Some(receipt)) => {
+                let at_ms = self.now_ms;
+                self.commit(&[Timed { at_ms, receipt }], None)
+            }
+            Err(e) => Some(format!("delivery: {e:?}")),
+        }
+    }
+
     /// The runner.
     pub fn runner(&self) -> &Runner<D> {
         &self.runner

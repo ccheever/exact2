@@ -8,6 +8,7 @@
 //! the host lays out and paints. Every write is validated by the kernel before
 //! anything changes; a trap or refusal leaves the kernel exactly as it was.
 
+mod delivery;
 mod kept;
 mod settlement;
 
@@ -344,6 +345,9 @@ pub struct Runner<D: DataSource> {
     /// next boot: only for a source that may not be ready at boot.
     keeps_answers: bool,
     poisoned: bool,
+    /// What this binary and its update store know about delivery (LLP 1030
+    /// D4, D7): the embedded answer until a host says otherwise.
+    delivery: crate::delivery::Delivery,
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
     journal: std::collections::VecDeque<String>,
@@ -526,6 +530,7 @@ impl<D: DataSource> Runner<D> {
             store_readers,
             stale: Vec::new(),
             keeps_answers: false,
+            delivery: crate::delivery::Delivery::default(),
             poisoned: false,
             journal: std::collections::VecDeque::new(),
             journal_start: 0,
@@ -1289,6 +1294,14 @@ impl<D: DataSource> Runner<D> {
         let row = &self.plan.resources[i];
         let source = self.plan.str(row.source).to_string();
         let resource = self.plan.str(row.name).to_string();
+        // Delivery is the runner's own (LLP 1030 D7): the data seam never
+        // sees it, and a data crate could not answer it if it did.
+        if source == crate::delivery::SOURCE {
+            return self
+                .delivery_answer(i)
+                .map(Answer::Now)
+                .map_err(|error| RunnerError::Data { resource, error });
+        }
         self.data
             .answer(&mut self.store, &source, args)
             .map_err(|error| RunnerError::Data { resource, error })

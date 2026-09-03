@@ -713,6 +713,14 @@ impl<D: DataSource> Presenter<D> {
         (landed, e.or(after))
     }
 
+    /// The binary's delivery facts (LLP 1030 D7), from its `compat.json`:
+    /// a `delivery` resource is answered again, and the picture follows.
+    pub fn set_delivery_from_compat(&mut self, json: &str) -> Option<String> {
+        let e = self.host.set_delivery_from_compat(json);
+        let after = self.after_commit();
+        e.or(after)
+    }
+
     /// The runner's clock (timers), from the presenter's loop.
     pub fn advance(&mut self, now_ms: f64) -> Option<String> {
         let e = self.host.advance(now_ms);
