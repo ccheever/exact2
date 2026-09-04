@@ -23,7 +23,8 @@ const agentMode = new URL(location.href).searchParams.has("agent");
 let agentClock = agentMode ? 0 : null;
 const starts = new WeakMap(); // Animation -> the agent clock when it began
 const now = () => agentClock ?? performance.now() - t0;
-let fontGeneration = 0;
+let bootAttempt = 0;
+let devAssets = null;
 let installedFonts = [];
 
 function commitGuestOrigin(el) {
@@ -63,11 +64,31 @@ function writeIn(text) {
 // A deployed page owns one immutable local namespace. Absolute app asset
 // paths (including Caltrain's /deck) need the same binding as relative ones;
 // ordinary network/data URLs retain their authored meaning.
-function localAssetURL(source) {
+function localAssetURL(source, assets = devAssets) {
+  let url;
+  try { url = new URL(source, document.baseURI); } catch { return source; }
+  const name = decodeURIComponent(url.pathname.replace(/^\//, ""));
+  if (assets !== null && url.origin === location.origin && /^(assets|deck|shaders)\//.test(name)) {
+    const card = assets.get(name);
+    if (!card) return `/__dev/absent/${name.split("/").map(encodeURIComponent).join("/")}`;
+    if (card.objectURL) return card.objectURL;
+    const resolved = new URL(card.url); resolved.search = url.search; resolved.hash = url.hash;
+    return resolved.href;
+  }
   if (/^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname)
     && /^\/(assets|deck|shaders)\//.test(source)) return new URL('.' + source, document.baseURI).href;
   return source;
 }
+function assetNamespace(cards) {
+  const assets = new Map();
+  const types = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", gif: "image/gif", webp: "image/webp", woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf" };
+  for (const [name, card] of cards) {
+    const type = types[name.split(".").pop().toLowerCase()];
+    assets.set(name, { ...card, objectURL: type ? URL.createObjectURL(new Blob([card.bytes], { type })) : null });
+  }
+  return assets;
+}
+function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (card.objectURL) URL.revokeObjectURL(card.objectURL); }
 
 function applyProps(el, set, clear) {
   let sandboxChanged = false;
@@ -401,16 +422,13 @@ function send(len) {
 // until every local face loaded, or 100 ms elapsed. At the barrier, install
 // every face already ready unless its family has a failed sibling; faces that
 // finish later remain unused for this generation (no post-paint swap).
-async function installFonts(faces) {
-  const generation = ++fontGeneration;
-  for (const face of installedFonts) document.fonts.delete(face);
-  installedFonts = [];
-  if (!faces?.length) return;
+async function prepareFonts(faces, assets) {
+  if (!faces?.length) return [];
   const rows = faces.map((face) => ({ face, state: "pending", loaded: null }));
   const pending = rows.map(async (row) => {
     const { face } = row;
     try {
-      const url = new URL(localAssetURL(face.source), document.baseURI).href;
+      const url = new URL(localAssetURL(face.source, assets), document.baseURI).href;
       row.loaded = await new FontFace(face.family, `url(${JSON.stringify(url)})`, {
         weight: String(face.weight),
         style: face.style,
@@ -428,15 +446,14 @@ async function installFonts(faces) {
     new Promise((resolve) => { timer = setTimeout(() => resolve(true), 100); }),
   ]);
   clearTimeout(timer);
-  if (generation !== fontGeneration) return;
   const failed = new Set(rows.filter((row) => row.state === "failed").map((row) => row.face.family));
-  for (const row of rows) {
-    if (row.state === "loaded" && !failed.has(row.face.family)) {
-      document.fonts.add(row.loaded);
-      installedFonts.push(row.loaded);
-    }
-  }
   if (timedOut) console.error("exact: font.registration.timeout", faces.length);
+  return rows.filter((row) => row.state === "loaded" && !failed.has(row.face.family)).map((row) => row.loaded);
+}
+function commitFonts(faces) {
+  for (const face of installedFonts) document.fonts.delete(face);
+  for (const face of faces) document.fonts.add(face);
+  installedFonts = faces;
 }
 
 // LLP 1016: the app's grants (`net.fetch <url prefix>` lines, from the boot
@@ -709,23 +726,30 @@ let ticker = null;
 // Boot the app — from the plan baked into the wasm, or from `bytes` (the
 // dev loop's restart, LLP 1004 D5: a reload is a restart from initial
 // state). Returns the milliseconds from call to first frame in the DOM.
-async function boot(bytes) {
-  const t = performance.now();
-  // Boot the candidate before disturbing the running page. The ABI retains
-  // its old Host on refusal; rejecting here likewise retains the DOM, fonts,
-  // generation, animations, GPU surfaces, and requests owned by that Host.
+async function boot(bytes, assets = devAssets, current = () => true) {
+  const t = performance.now(), request = ++bootAttempt;
+  // Decode and load private font faces while the live page keeps running.
+  // Carry state only at the synchronous host acceptance point below.
+  const bakedLength = bytes ? 0 : wasm.exact_plan();
+  const plan = bytes ?? new Uint8Array(memory.buffer, wasm.exact_out(), bakedLength).slice();
+  let ptr = wasm.exact_in(plan.length);
+  new Uint8Array(memory.buffer, ptr, plan.length).set(plan);
+  const faces = JSON.parse(readOut(wasm.exact_plan_fonts(plan.length)));
+  if (faces.error) throw new Error(faces.error);
+  const preparedFonts = await prepareFonts(faces, assets);
+  const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
+  if (!current() || request !== bootAttempt) return null;
   let len;
   if (bytes) {
-    const ptr = wasm.exact_in(bytes.length);
+    ptr = wasm.exact_in(bytes.length);
     new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
     len = wasm.exact_boot_plan(bytes.length);
-  } else {
-    len = wasm.exact_boot();
-  }
+  } else len = wasm.exact_boot();
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
-  const faces = JSON.parse(readOut(wasm.exact_fonts()));
-
+  const oldAssets = devAssets;
+  devAssets = assets;
+  shaderCommit?.();
   // The candidate is now the live Rust Host. Tear down the old page without
   // yielding, so none of its event handlers can dispatch into the new Host.
   incarnation += 1;
@@ -746,8 +770,9 @@ async function boot(bytes) {
   controllers.clear();
   inflight.clear();
   root.replaceChildren();
-  await installFonts(faces);
+  commitFonts(preparedFonts);
   const timers = applyBatch(batch).timers;
+  if (oldAssets !== assets) releaseAssets(oldAssets);
   if (timers && !agentMode) ticker = setInterval(() => send(wasm.exact_advance(now())), 250);
   if (bytes) requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded));
   return performance.now() - t;
@@ -761,6 +786,15 @@ globalThis.exact = {
   // behind the initial boot instead of acknowledging a reload that did not
   // happen.
   reload: async (bytes) => { await ready; return boot(bytes); },
+  reloadGeneration: async (bytes, cards, current) => {
+    await ready;
+    const assets = assetNamespace(cards);
+    try {
+      return await boot(bytes, assets, current) !== null;
+    } finally { if (devAssets !== assets) releaseAssets(assets); }
+  },
+  get devAssets() { return devAssets; },
+  get ready() { return ready; },
   ...(agentMode ? { agent, now } : {}), views, root, generation: 0, pendingSurfaces: [],
 };
 
@@ -782,6 +816,7 @@ async function main() {
   const { instance } = await WebAssembly.instantiateStreaming(fetch(url), {});
   wasm = instance.exports;
   memory = wasm.memory;
+  globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
   // The kept secrets, before boot (LLP 1018 D6): every `exact.secret.*` key,
   // handed to the runner, which keeps the granted names — so the first frame
   // is a returning user's. Agent mode starts from nothing.

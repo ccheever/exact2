@@ -376,6 +376,18 @@ fn declared_font_identity_reaches_the_readiness_barrier_and_css() {
 
     let encoded = plan.encode();
     let mut bridge: exact_web::abi::Bridge<NoData> = exact_web::abi::Bridge::new();
+    let count = bridge.input_write(&encoded);
+    let len = bridge.plan_fonts(count);
+    assert_eq!(
+        String::from_utf8_lossy(bridge.output_bytes(len as usize)),
+        catalog
+    );
+    let len = bridge.fonts();
+    assert_eq!(
+        bridge.output_bytes(len as usize),
+        b"[]",
+        "font inspection must not start a host"
+    );
     let len = bridge.boot(&encoded, NoData);
     let boot = String::from_utf8_lossy(bridge.output_bytes(len as usize));
     assert!(!boot.contains("\"fonts\""), "{boot}");

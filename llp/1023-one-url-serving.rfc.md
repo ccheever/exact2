@@ -136,9 +136,9 @@ envelope names lives on `U`'s origin.
   "app": { "id": "com.exact.weird-castle", "name": "Weird Castle" },
   "plan": { "url": "./app.plan", "sha256": "<lowercase hex>", "bytes": 12580,
             "formatVersion": 2, "kernelSchema": "<u64 hex>" },
-  "assets": [ { "name": "weird-castle-mark.png", "url": "./assets/…", "sha256": "…" } ],
-  "seq": 41,
-  "events": "./__dev"
+  "assets": [ { "name": "assets/weird-castle-mark.png", "url": "./assets/…", "sha256": "…", "bytes": 100 } ],
+  "dev": { "epoch": "<32 lowercase hex>", "seq": 41, "generation": "<sha256>",
+           "program": "<served program sha256>", "events": "/__dev" }
 }
 ```
 
@@ -151,33 +151,46 @@ envelope names lives on `U`'s origin.
   refuse before downloading; `Runner::boot` still enforces it after.
 - Relative URLs resolve against the envelope's **final response URL**,
   after redirects — the way a browser resolves against the document URL.
-- `events` and `seq` are the dev tier: the SSE stream and the revision the
-  envelope describes. **A static `exact.json` omits both** — their absence
-  is the signal that this URL does not live-reload. The build emits the
-  static form into `dist/`; the dev server overlays the live form at the
-  same path. There is no `gpu` field and never a URL to native code: the
-  network delivers plans and inert assets, nothing executable (§8). Web GPU
-  wasm remains part of the web app's own fetch graph, invisible here.
+- `dev` is the optional live tier; static envelopes omit it. `epoch` identifies
+  one server process and `seq` increases within it. `generation` binds the plan
+  and complete asset roster, including removals. `program` hashes the actual served app and GPU
+  wasm bytes; native connections pin it and require a native rebuild
+  if it changes, even when a disconnect hid the transient `rebuilt` event.
+  Web GPU wasm remains in the page's own build graph, never this envelope.
 - MIME types: the envelope is `application/vnd.exact.envelope+json`; the
   plan `application/vnd.exact.plan`; `dev.mjs`'s type map gains `.json`
   (it has none today, dev.mjs:131).
 
 **D3 — reload is the dev loop, one network hop longer, and transactional.**
-A native dev host given `U` (typed or via the env locator, §9) fetches the
-envelope, fetches and hashes the plan, decodes it fully, boots it, and
-subscribes to `events`. The protocol closes the races the panel found:
+A native dev host given `U` resolves the envelope and subscribes to `dev.events`.
+The browser uses the same generation protocol:
 
-- **The SSE stream says where it is the moment you connect**: `/__dev`
-  sends the current `{seq, digest}` as a hello (today it sends only a
-  comment, dev.mjs:136 — a client that fetched then subscribed across an
-  edit missed it permanently). The client compares against what it booted
-  and re-fetches on mismatch; the same rule heals a dropped-and-reconnected
-  stream.
-- **A candidate replaces the running app only when whole**: fetch, hash
-  check, decode, boot — then swap. Every failure leaves the last good app
-  running with the error surfaced. No half-loaded revision, ever.
-- **`{seq}` is a contract edit**: same binary, new plan, restart carrying
-  state — exactly `dev.js` today.
+- **Hello identifies the whole current generation.** SSE includes `epoch`,
+  `seq`, `generation`, `program`, and its immutable `envelope` URL. Before the
+  first compile it says `ready:false`. A new process epoch resets ordering;
+  retired epochs and completions of superseded fetches cannot commit. Failed
+  fetches retain the highest observed revision and retry discovery. Reconnecting
+  with the same content does not apply it twice.
+- **The manifest digest is reproducible.** Hash UTF-8 canonical JSON with object
+  keys sorted by UTF-8 bytes and no whitespace or newline:
+  `{"assets":[{"bytes":N,"name":"assets/x","sha256":"…"}],"plan":{"bytes":N,"sha256":"…"}}`.
+  Assets sort by UTF-8 name. URLs and live ordering fields are excluded. Every
+  card has an exact size and SHA-256; clients verify every payload before use.
+  The envelope limit is 64 KiB, each payload 64 MiB, the complete payload set
+  256 MiB. Fetches are bounded and obsolete requests are canceled.
+- **A candidate replaces the app only when whole.** Clients prepare the plan,
+  full asset resolver, fonts, and shader namespace, then accept and commit
+  together. Native acceptance covers every session owned by the app (1031).
+  Browser font loading leaves the old page running until synchronous host
+  acceptance. Omitted names have no embedded or previous-generation fallback.
+  Failure preserves the old page, resources, and current generation.
+- **Payload URLs never change bytes.** `/__dev/generation/<epoch>/<seq>/…`
+  serves captured bytes; the latest four revisions remain available. Expired
+  revisions return 404, causing discovery of the current envelope. Restarting
+  the compiler for a new wasm suspends old discovery and clears those revisions
+  before the page reload; stopped-compiler output cannot republish them.
+- **Contract edits carry state.** Plan and asset changes use this same full
+  replacement operation, without rebuilding the binary for a bundle-only edit.
 - **`{rebuilt}` is session-terminal on native.** It means the wasm — the
   *program* — changed (dev.mjs:121); on the web the page reloads into the
   new program. A native binary has no new program on the wire, and a new

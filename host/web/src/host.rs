@@ -482,6 +482,11 @@ fn font_names(plan: &Plan) -> Vec<String> {
         .collect()
 }
 
+/// Decode a candidate's font catalog without replacing or starting a host.
+pub(crate) fn plan_font_catalog(bytes: &[u8]) -> Result<String, exact_plan::PlanError> {
+    Ok(font_catalog(&font_faces(&Plan::decode(bytes)?)))
+}
+
 fn font_faces(plan: &Plan) -> Vec<FontFace> {
     let mut out = Vec::new();
     for (stack_index, stack) in plan.stacks.iter().enumerate() {

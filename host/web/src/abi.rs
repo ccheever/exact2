@@ -142,6 +142,15 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// Inspect candidate fonts while the live host continues to run.
+    pub fn plan_fonts(&mut self, len: usize) -> u32 {
+        let bytes = &self.input[..len.min(self.input.len())];
+        match crate::host::plan_font_catalog(bytes) {
+            Ok(catalog) => self.emit(catalog),
+            Err(error) => self.emit(format!("{{\"error\":\"{}\"}}", escape(&error.to_string()))),
+        }
+    }
+
     /// Query the current plan's declared face catalog separately from the
     /// operation batch returned by boot and dispatch calls.
     pub fn fonts(&mut self) -> u32 {
@@ -300,6 +309,12 @@ macro_rules! host {
                 b.set_compat($compat);
                 b.boot_plan(len as usize, <$data as ::std::default::Default>::default())
             })
+        }
+
+        /// Inspect a plan's fonts without changing the live host.
+        #[no_mangle]
+        pub extern "C" fn exact_plan_fonts(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().plan_fonts(len as usize))
         }
 
         /// Query the current plan's declared font catalog. The returned JSON

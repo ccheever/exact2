@@ -67,6 +67,43 @@ pub fn shader(name: &str, text: &str) -> bool {
     }
 }
 
+/// Validate a candidate registration without changing the live registry.
+pub async fn shader_check(name: &str, text: &str) -> bool {
+    let device = with(|m| {
+        m.expected_digest(name)?;
+        m.gpu().map(|gpu| gpu.device.clone())
+    })
+    .flatten();
+    let Some(device) = device else {
+        ERROR.with(|s| *s.borrow_mut() = format!("unknown shader `{name}` or GPU unavailable"));
+        return false;
+    };
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(name),
+        source: wgpu::ShaderSource::Wgsl(text.into()),
+    });
+    let validation = scope.pop();
+    let info = module.get_compilation_info().await;
+    let error = validation.await.map(|error| error.to_string()).or_else(|| {
+        info.messages
+            .into_iter()
+            .find(|message| message.message_type == wgpu::CompilationMessageType::Error)
+            .map(|message| message.message)
+    });
+    if let Some(error) = error {
+        ERROR.with(|s| *s.borrow_mut() = format!("shader `{name}` refused: {error}"));
+        false
+    } else {
+        true
+    }
+}
+
+/// Clear the namespace before installing a fully checked replacement.
+pub fn shaders_clear() {
+    crate::shaders::clear_shaders();
+}
+
 /// The shaders this module's surfaces bind against, as a JSON list of names
 /// — what the glue fetches (`./shaders/<name>.wgsl`) and registers before a
 /// surface is created. `[]` before the module is loaded.
@@ -157,6 +194,18 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_shader(name: &str, text: &str) -> bool {
             $crate::web::shader(name, text)
+        }
+
+        /// Validate one registration without changing the live registry.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub async fn gpu_shader_check(name: &str, text: &str) -> bool {
+            $crate::web::shader_check(name, text).await
+        }
+
+        /// Replace the namespace, including removals.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_shaders_clear() {
+            $crate::web::shaders_clear()
         }
 
         /// The shaders to register, as a JSON list of names.

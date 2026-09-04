@@ -22,13 +22,15 @@
 // and the page keeps the last good wasm. No bundler: there is nothing to
 // bundle (no app JS by rule), and the watch is Node's own.
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
+import { canonicalBytes } from '../../scripts/deploy.mjs';
+import { filesystem } from '../../scripts/filesystem.mjs';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
-import { applyStaticChange, applyStaticTreeChange, builtAppMatches, listAssets, readStaticFile, reflectShaderFiles, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope } from './serve.mjs';
+import { applyStaticChange, applyStaticTreeChange, builtAppMatches, readStaticFile, reflectShaderFiles, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -46,11 +48,6 @@ if (!builtAppMatches(dist, app)) {
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
 const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
-const builtDigest = () => {
-  try { return JSON.parse(readFileSync(resolve(dist, 'exact.json'), 'utf8')).plan.sha256 ?? ''; }
-  catch { return ''; }
-};
-let bakedDigest = builtDigest();
 
 const assetTrees = [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']].map(([from, to]) => [resolve(app.dir, from), to]);
 const skipped = /(^|\/)(target|dist(?:\.previous)?|\.build|node_modules)(\/|$)/;
@@ -77,11 +74,65 @@ const clients = new Set();
 let seq = 0;
 const pending = new Map(); // seq -> { saved, ready }
 const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stringify(data)}\n\n`); };
-// The current revision (LLP 1023 D3): the SSE hello carries it so a client
-// that fetched the page and subscribed across an edit re-fetches instead of
-// missing the edit forever.
-const current = { seq: 0, digest: '' };
-const hello = () => JSON.stringify({ hello: true, seq: current.seq, digest: current.digest, baked: bakedDigest });
+// A revision owns its plan and complete asset namespace. Its process epoch
+// makes a restarted server's seq=1 newer than the previous server's seq=N.
+const epoch = randomBytes(16).toString('hex');
+const generations = new Map();
+let current = null;
+let assetsNeedRebuild = false;
+// This names the actual programs already served, including optional GPU code.
+// A changed program stays terminal even when its compatibility metadata agrees.
+const programIdentity = () => {
+  const files = ['app.wasm', 'gpu_bg.wasm'].map((name) => {
+    const encoded = filesystem({ op: 'get', root: dist, path: name });
+    if (encoded === null && name === 'app.wasm') throw new Error('the app wasm is missing');
+    return { name, sha256: encoded === null ? null : createHash('sha256').update(Buffer.from(encoded, 'base64')).digest('hex') };
+  });
+  return createHash('sha256').update(canonicalBytes({ files })).digest('hex');
+};
+let program = programIdentity();
+const announcement = () => current ? {
+  epoch, program, seq: current.seq, generation: current.generation,
+  digest: current.envelope.plan.sha256, envelope: current.url,
+} : { epoch, ready: false };
+const hello = () => JSON.stringify({ hello: true, ...announcement() });
+function captureGeneration() {
+  const encodedPlan = filesystem({ op: 'get', root: dist, path: 'app.plan' });
+  if (encodedPlan === null) throw new Error('the plan is missing');
+  const planBytes = Buffer.from(encodedPlan, 'base64');
+  const files = new Map([['app.plan', planBytes]]);
+  const assets = [];
+  for (const tree of ['assets', 'deck', 'shaders']) {
+    let captured;
+    try { captured = filesystem({ op: 'tree', root: resolve(dist, tree) }); }
+    catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+    for (const [relative, encoded] of Object.entries(captured)) {
+      const name = `${tree}/${relative}`, body = Buffer.from(encoded, 'base64');
+      files.set(name, body);
+      assets.push({ name, sha256: createHash('sha256').update(body).digest('hex'), bytes: body.length });
+    }
+  }
+  assets.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+  if ([planBytes, ...files.values()].some((body) => body.length > 64 * 1024 * 1024)
+    || [...files.values()].reduce((sum, body) => sum + body.length, 0) > 256 * 1024 * 1024) throw new Error('generation exceeds the payload budget');
+  const envelope = webEnvelope(app, planBytes, assets);
+  const generation = createHash('sha256').update(canonicalBytes({
+    plan: { sha256: envelope.plan.sha256, bytes: planBytes.length }, assets,
+  })).digest('hex');
+  const prefix = `/__dev/generation/${epoch}/${seq}/`;
+  envelope.dev = { epoch, program, seq, generation, events: '/__dev' };
+  envelope.plan.url = prefix + 'app.plan';
+  for (const asset of envelope.assets) asset.url = prefix + asset.name.split('/').map(encodeURIComponent).join('/');
+  const envelopeBytes = Buffer.from(JSON.stringify(envelope) + '\n');
+  if (envelopeBytes.length > 64 * 1024) throw new Error('generation envelope exceeds 64 KiB');
+  files.set('exact.json', envelopeBytes);
+  const revision = { epoch, seq, generation, envelope, files, prefix, url: prefix + 'exact.json' };
+  generations.set(prefix, revision);
+  // An obsolete slow reader retries the mutable discovery rung. Never serve
+  // replacement bytes under a retired generation URL.
+  while (generations.size > 4) generations.delete(generations.keys().next().value);
+  current = revision;
+}
 
 // The resident compiler — started, and started again after a Rust rebuild.
 let dev = null;
@@ -93,24 +144,23 @@ function startCompiler() {
   let buffered = '';
   let first = true;
   dev.stdout.on('data', (chunk) => {
+    if (dev !== me) return;
     buffered += chunk;
     const lines = buffered.split('\n');
     buffered = lines.pop();
     for (const line of lines) {
       const [kind, ...rest] = line.split(' ');
       if (kind === 'plan') {
+        if (assetsNeedRebuild) continue;
         const [bytes, saved, compile, bake, ready] = rest.map(Number);
         seq += 1;
-        pending.set(seq, { saved, ready });
-        current.seq = seq;
-        try { current.digest = createHash('sha256').update(readFileSync(plan)).digest('hex'); } catch { current.digest = ''; }
-        // A compiler's first plan is the source as it stands — what the
-        // wasm baked and a page boots from — not an edit: nothing to push,
-        // nothing to time. An early native subscriber still learns the
-        // revision: the hello goes out again once it exists.
+        if (!first) pending.set(seq, { saved, ready });
+        try { captureGeneration(); } catch (error) { push({ error: `generation refused: ${error.message}` }); continue; }
+        // The first ready plan completes discovery. Every subscriber reconciles
+        // its full generation; only later saves contribute edit timings.
         if (first) { first = false; for (const res of clients) res.write(`data: ${hello()}\n\n`); if (!announced) { announced = true; console.log(`plan ready: ${bytes} bytes (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) — edit ${source.replace(root + '/', '')} and watch`); } continue; }
         console.log(`edit → plan ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms, ${bytes} bytes) · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  contract → restart with carry on every host; production: bundle`);
-        push({ seq, bytes, digest: current.digest });
+        push({ ...announcement(), bytes });
       } else if (kind === 'error') {
         console.log(`error: ${rest.join(' ')}`);
         push({ error: rest.join(' ') });
@@ -161,7 +211,6 @@ function pushAssets() {
           const shader = changedName.startsWith('shaders/') && changedName.endsWith('.wgsl');
           const stem = shader ? changedName.slice('shaders/'.length, -'.wgsl'.length) : null;
           if (file.removed) {
-            if (shader && shaderDigests.has(stem)) needsRebuild = true;
             rows.push({ name: changedName, removed: true });
             carriers.push(`asset ${changedName} removed`);
             continue;
@@ -171,9 +220,9 @@ function pushAssets() {
             const digest = nextDigests.get(stem);
             const before = shaderDigests.get(stem);
             row.interface = digest;
-            if (before === digest) carriers.push(`asset ${changedName} → live on the web, macOS, iOS (the client validates it); production: bundle`);
-            else { needsRebuild = true; carriers.push(`shader ${changedName}: interface ${before ?? '?'} → ${digest} — rebuild the native host; production: binary (the wasm rebuilds now)`); }
-          } else carriers.push(`asset ${changedName} → live on the web, macOS, iOS; production: bundle`);
+            if (before === digest) carriers.push(`asset ${changedName} → live on the web, macOS, iOS (the client validates it)`);
+            else { needsRebuild = true; carriers.push(`shader ${changedName}: interface ${before ?? '?'} → ${digest} — rebuild the native host; the wasm rebuilds now`); }
+          } else carriers.push(`asset ${changedName} → live on the web, macOS, iOS`);
           rows.push(row);
         }
         if (source.targetRoot === 'shaders') {
@@ -201,7 +250,6 @@ function pushAssets() {
           const removedName = suffix ? `${name}/${suffix}` : name;
           if (removedName.startsWith('shaders/') && removedName.endsWith('.wgsl')) {
             shaderDigests.delete(removedName.slice('shaders/'.length, -'.wgsl'.length));
-            needsRebuild = true;
           }
           rows.push({ name: removedName, removed: true });
           carriers.push(`asset ${removedName} removed`);
@@ -220,19 +268,25 @@ function pushAssets() {
       const before = shaderDigests.get(stem);
       shaderDigests.set(stem, digest);
       row.interface = digest;
-      if (before === digest) carriers.push(`asset ${name} → live on the web, macOS, iOS (the client validates it); production: bundle`);
-      else { needsRebuild = true; carriers.push(`shader ${name}: interface ${before ?? '?'} → ${digest} — rebuild the native host; production: binary (the wasm rebuilds now)`); }
+      if (before === digest) carriers.push(`asset ${name} → live on the web, macOS, iOS (the client validates it)`);
+      else { needsRebuild = true; carriers.push(`shader ${name}: interface ${before ?? '?'} → ${digest} — rebuild the native host; the wasm rebuilds now`); }
     } else {
-      carriers.push(`asset ${name} → live on the web, macOS, iOS; production: bundle`);
+      carriers.push(`asset ${name} → live on the web, macOS, iOS`);
     }
     rows.push(row);
   }
   if (!rows.length) return;
+  if (needsRebuild) {
+    assetsNeedRebuild = true;
+    for (const [name] of edits) changed.add(name);
+    clearTimeout(timer); timer = setTimeout(rebuild, 200);
+    return;
+  }
+  if (assetsNeedRebuild) return;
   seq += 1;
-  current.seq = seq;
+  try { captureGeneration(); } catch (error) { push({ error: `generation refused: ${error.message}` }); return; }
   console.log(`edit → assets ${rows.map((r) => r.name).join(', ')} · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  ${carriers.join('\n  ')}`);
-  push({ seq, digest: current.digest, assets: rows });
-  if (needsRebuild) { for (const [name] of edits) changed.add(name); clearTimeout(timer); timer = setTimeout(rebuild, 200); }
+  push({ ...announcement(), changes: rows });
 }
 
 // The Rust watch: the crates the wasm is built from.
@@ -303,10 +357,11 @@ function rebuild() {
     const ms = Date.now() - t;
     if (code === 0) {
       builds += 1;
-      bakedDigest = builtDigest();
       // The compiler's plans must match the wasm's format: it is built again
       // too (cargo, warm), and its first plan reaches the reloaded page.
       killCompiler();
+      current = null; generations.clear(); assetsNeedRebuild = false;
+      program = programIdentity();
       startCompiler();
       console.log(`rust: rebuilt in ${(ms / 1000).toFixed(1)} s · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading\n  ${classifyRebuild().join('\n  ')}`);
       push({ rebuilt: builds });
@@ -323,6 +378,18 @@ const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted';
   if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && devBeacon)) { res.writeHead(405); res.end(); return; }
+  const pinned = /^\/__dev\/generation\/([0-9a-f]{32})\/([0-9]+)\/(.+)$/.exec(url.pathname);
+  if (pinned) {
+    const prefix = `/__dev/generation/${pinned[1]}/${pinned[2]}/`;
+    let name;
+    try { name = decodeURIComponent(pinned[3]); } catch { name = ''; }
+    const revision = generations.get(prefix);
+    const body = revision?.files.get(name);
+    if (!body) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    res.writeHead(200, { 'content-type': name === 'exact.json' ? 'application/vnd.exact.envelope+json' : webContentType('/' + name), 'cache-control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : body);
+    return;
+  }
   if (url.pathname === '/__dev') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(':\n\n');
@@ -334,7 +401,7 @@ const server = createServer((req, res) => {
   }
   if (url.pathname === '/__dev/reloaded') {
     const n = Number(url.searchParams.get('seq'));
-    const p = pending.get(n);
+    const p = url.searchParams.get('epoch') === epoch ? pending.get(n) : null;
     if (p) {
       const total = Number(url.searchParams.get('dom')) - p.saved;
       console.log(`  → page: fetch ${url.searchParams.get('fetch')} ms, restart ${url.searchParams.get('boot')} ms; edit → first frame in the DOM ${total.toFixed(0)} ms (budget ${budget})${total > 100 ? '  OVER BUDGET' : ''}`);
@@ -344,7 +411,7 @@ const server = createServer((req, res) => {
     return;
   }
   if (url.pathname === '/__dev/painted') {
-    const p = pending.get(Number(url.searchParams.get('seq')));
+    const p = url.searchParams.get('epoch') === epoch ? pending.get(Number(url.searchParams.get('seq'))) : null;
     if (p) console.log(`  → painted ${(Number(url.searchParams.get('paint')) - p.saved).toFixed(0)} ms after the save`);
     res.writeHead(204); res.end();
     return;
@@ -360,11 +427,9 @@ const server = createServer((req, res) => {
     || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'));
   if (wantsEnvelope) {
     try {
-      const found = readStaticFile(dist, '/app.plan');
-      if (!found) throw new Error('no current plan');
-      const bytes = found.body;
+      if (!current) throw new Error('no current generation');
       res.writeHead(200, { 'content-type': 'application/vnd.exact.envelope+json', vary: 'Accept', 'cache-control': 'no-store' });
-      res.end(JSON.stringify(webEnvelope(app, bytes, listAssets(dist), { seq: current.seq, events: './__dev' })) + '\n');
+      res.end(req.method === 'HEAD' ? undefined : current.files.get('exact.json'));
     } catch { res.writeHead(404); res.end(); }
     return;
   }

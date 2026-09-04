@@ -310,29 +310,47 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir, { recursive: true, force: true });
 }
 
-// A removal stays in the protocol rather than being filtered out, and every
-// reported kind remains paired with the row that produced it.
+// The protocol reconciles complete namespaces and rejects out-of-order
+// completions. Its LAN hash path must match SHA-256 at block boundaries.
 {
-  const attrs = new Map([['src', '/assets/gone.png']]);
-  const image = { dataset: {}, getAttribute: (name) => attrs.get(name) ?? null,
-    setAttribute: (name, value) => attrs.set(name, value), removeAttribute: (name) => attrs.delete(name), decode: async () => {} };
-  const context = { EventSource: undefined, location: { reload() {} }, fetch: async () => { throw new Error('unexpected fetch'); },
-    document: { querySelectorAll: (selector) => selector === 'img' ? [image] : [] }, console };
+  const context = { TextEncoder, TextDecoder, AbortController, setTimeout, clearTimeout };
   runInNewContext(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../host/web/dev.js'), 'utf8'), context);
-  const removed = await context.applyDevAssetChanges([{ name: 'assets/gone.png', removed: true }]);
-  const cleared = !attrs.has('src') && image.dataset.exactDevAsset === 'assets/gone.png';
-  const restored = await context.applyDevAssetChanges([{ name: 'assets/gone.png', sha256: '1'.repeat(64) }]);
-  const called = [];
-  const assets = [{ name: 'assets/gone.png', removed: true }, { name: 'deck/live.html', sha256: '1'.repeat(64) }];
-  const kinds = await context.applyDevAssetChanges(assets,
-    async (asset) => { called.push(`change ${asset.name}`); return 'deck'; },
-    async (asset) => { called.push(`remove ${asset.name}`); return 'image removed'; });
-  result('web dev applies and labels asset removals in row order',
-    removed[0] === 'image removed (1)' && cleared && restored[0] === 'image (1)'
-    && attrs.get('src') === `/assets/gone.png?v=${'1'.repeat(12)}` && !image.dataset.exactDevAsset
-    && called.join(',') === 'remove assets/gone.png,change deck/live.html'
-    && assets.map((asset, i) => `${asset.name} → ${kinds[i]}`).join(',')
-      === 'assets/gone.png → image removed,deck/live.html → deck');
+  const { digest, generationClient } = context.exactDevProtocol;
+  let hashes = true;
+  for (const size of [0, 1, 55, 56, 63, 64, 65, 127, 128, 10000]) {
+    const bytes = Uint8Array.from({ length: size }, (_, i) => i * 31 % 256);
+    hashes &&= await digest(bytes) === createHash('sha256').update(bytes).digest('hex');
+  }
+  const waiting = new Map(), applied = [], failures = [];
+  let live = new Map();
+  const client = generationClient({
+    fetchGeneration: (message, signal) => new Promise((resolve, reject) => waiting.set(`${message.epoch}/${message.seq}`, { resolve, reject, signal, message })),
+    apply: async (candidate, current) => { if (!current()) return false; live = candidate.assets; applied.push(candidate.generation); return true; },
+    failed: (error) => failures.push(error.message),
+  });
+  const message = (epoch, seq, value) => ({ epoch: epoch.repeat(32), seq, generation: value.repeat(64) });
+  const finish = (m, assets = []) => waiting.get(`${m.epoch}/${m.seq}`).resolve({ ...m, assets: new Map(assets) });
+  const a1 = message('a', 1, '1'), a9 = message('a', 9, '9'), a10 = message('a', 10, 'a'), b1 = message('b', 1, 'b');
+  let p = client.receive(a1); finish(a1, [['assets/image.png', 'old'], ['shaders/live.wgsl', 'old']]); await p;
+  const slow = client.receive(a9), fast = client.receive(a10);
+  finish(a10, [['assets/image.png', 'new']]); await fast; finish(a9, [['assets/image.png', 'stale']]); await slow;
+  const replaced = live.size === 1 && live.get('assets/image.png') === 'new' && waiting.get(`${a9.epoch}/9`).signal.aborted;
+  p = client.receive(b1); finish(b1, []); await p;
+  const before = applied.length;
+  await client.receive({ ...b1, seq: 2 }); await client.receive(a10);
+  const c1 = message('c', 1, 'c'); p = client.receive(c1);
+  waiting.get(`${c1.epoch}/1`).reject(new Error('candidate refused')); await p;
+  const preserved = live.size === 0;
+  p = client.receive(c1); finish(c1, [['assets/image.png', 'restored']]); await p;
+  const c4 = message('c', 4, 'd'); p = client.receive(c4);
+  waiting.get(`${c4.epoch}/4`).reject(new Error('network failed')); await p;
+  const delayed = await client.receive(message('c', 3, 'e'));
+  const keptBarrier = delayed === false && !waiting.has(`${c4.epoch}/3`);
+  const refused = [];
+  const refusing = generationClient({ fetchGeneration: async (m) => m, apply: async () => false, failed: (e) => refused.push(e.message) });
+  await refusing.receive(c1);
+  result('complete dev generations heal reconnects, restart epochs, removals and reversed fetches',
+    hashes && replaced && preserved && before === 3 && applied.length === 4 && failures.length === 2 && keptBarrier && refused.length === 1 && live.get('assets/image.png') === 'restored');
 }
 
 {
