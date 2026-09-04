@@ -10,14 +10,14 @@
 //! thread of its own and could not address a runtime from there.
 //!
 //! **What runs where.** `open`, `select`, the boot marks, `activate`, and
-//! `sync` are main-thread calls that hold the lock for microseconds. The
+//! `sync` are main-thread calls that hold the lock only for local work. The
 //! check ([`check`]) is a thread: it fetches over ibex2's transport — the
 //! same `NSURLSession` the executor's requests use (LLP 1016 D2) —
 //! verifies, writes the entry whole, and reports through the callback the
 //! host gave, carrying one line; the host hops to its main thread and calls
 //! `exact_update_sync` for each runtime. So the runner never does I/O, the
 //! presenter never sees a request, and Swift holds no networking for
-//! updates at all. While a check holds the store, the main thread answers
+//! updates at all. While a check downloads without the store lock, the main thread answers
 //! from the last known status ([`Snapshot`]) rather than waiting on a
 //! download.
 //!
@@ -47,7 +47,7 @@ const MAX_FILE_BYTES: usize = 64 * 1024 * 1024;
 /// The one store, once opened.
 static CLIENT: Mutex<Option<Client>> = Mutex::new(None);
 
-/// The cheap facts, readable while a check holds the store.
+/// The cheap facts, readable while a check downloads.
 struct Snapshot {
     /// The status as of the last store operation.
     status: Option<Status>,
@@ -185,13 +185,13 @@ pub fn boot_succeeded() {
 /// there when it ends. Returns 0 when started, 1 when a check is already
 /// running, 2 when no store is open (the line then never comes).
 pub fn check(done: Option<DoneFn>, ctx: *mut c_void) -> u32 {
+    if lock(&CLIENT).is_none() {
+        return 2;
+    }
     {
         let mut snap = lock(&SNAPSHOT);
         if snap.checking {
             return 1;
-        }
-        if lock(&CLIENT).is_none() {
-            return 2;
         }
         snap.checking = true;
     }
@@ -218,19 +218,30 @@ pub fn check(done: Option<DoneFn>, ctx: *mut c_void) -> u32 {
 /// line. Every URL the store asks for is bounded — the head at its
 /// envelope ceiling, a file at the plan's — while the bytes arrive.
 fn run_check() -> String {
-    let transport = ibex2::transport::default_transport();
-    let mut guard = lock(&CLIENT);
-    let Some(client) = guard.as_mut() else {
-        return "refused: no store is open".to_string();
+    run_check_with(ibex2::transport::default_transport().as_ref())
+}
+
+fn run_check_with(transport: &dyn ibex2::stdlib::fetch::Transport) -> String {
+    let request = {
+        let guard = lock(&CLIENT);
+        guard
+            .as_ref()
+            .ok_or_else(|| "no store is open".to_string())
+            .and_then(Client::begin_check)
     };
-    let head = client.head_url().map(str::to_string);
-    let mut fetch = |url: &str| fetch_one(transport.as_ref(), head.as_deref(), url);
-    let outcome = client.check(&mut fetch);
+    let downloaded = request.map(|request| {
+        let head = request.head_url().to_string();
+        request.fetch(&mut |url| fetch_one(transport, Some(&head), url))
+    });
+    let mut guard = lock(&CLIENT);
+    let outcome = match (guard.as_mut(), downloaded) {
+        (Some(client), Ok(downloaded)) => client.finish_check(downloaded),
+        (_, Err(why)) => exact_update::Outcome::Refused(why),
+        (None, _) => exact_update::Outcome::Refused("no store is open".into()),
+    };
     let line = outcome.to_string();
-    let status = client.status();
-    drop(guard);
     let mut snap = lock(&SNAPSHOT);
-    snap.status = Some(status);
+    snap.status = guard.as_ref().map(Client::status);
     snap.line = Some(format!("exact update: {line}"));
     line
 }
@@ -258,12 +269,55 @@ fn fetch_one(
     Ok(r.body)
 }
 
+/// Activate (`exact_update_activate`): the staged plan's bytes into the
+/// output buffer — the host applies them to every session with carry and
+/// takes the entry's assets from `select` — or 0 when nothing is staged, no
+/// store is open. A check's network work never holds this lock.
+pub fn activate() -> u32 {
+    let mut guard = lock(&CLIENT);
+    let Some(client) = guard.as_mut() else {
+        return 0;
+    };
+    let Some((plan, _assets)) = client.activate() else {
+        return 0;
+    };
+    refresh(client);
+    emit(plan)
+}
+
+/// What the store has to say, into a runner's delivery facts (LLP 1030
+/// D7): the stream, the running and embedded `seq`, whether an entry is
+/// staged, the sunset. The binary's own three (`with_compat`) are left as
+/// they were; with no store open nothing changes.
+pub fn status_into(delivery: &mut Delivery) {
+    let snap = lock(&SNAPSHOT);
+    if let Some(s) = &snap.status {
+        delivery.stream = s.stream.clone();
+        delivery.seq = s.running_seq;
+        delivery.embedded_seq = s.embedded_seq;
+        delivery.staged = s.staged;
+        delivery.sunset = s.sunset.as_ref().map(|c| c.message.clone());
+    }
+}
+
+/// The last check's journal line, if any.
+pub fn last_line() -> Option<String> {
+    lock(&SNAPSHOT).line.clone()
+}
+
+/// A boot's note for the journal, taken once.
+pub fn take_note() -> Option<String> {
+    lock(&SNAPSHOT).note.take()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ibex2::boundary::HostError;
     use ibex2::stdlib::fetch::{Headers, Request, Response, Transport};
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TEST_STORE: Mutex<()> = Mutex::new(());
 
     const COMPAT: &str = r#"{"id":"abc","inputs":{"app":"com.exact.host-cache","keys":null,"store":{"L":"A"}},"delivery":{"activate":"next-launch","channel":"prod","origin":"https://updates.example"}}"#;
 
@@ -301,6 +355,109 @@ mod tests {
         assert_eq!(transport.requests.load(Ordering::SeqCst), 1);
     }
 
+    struct StalledTransport {
+        block_head: bool,
+        entered: std::sync::mpsc::Sender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+        head: Vec<u8>,
+        plan: Vec<u8>,
+    }
+
+    impl Transport for StalledTransport {
+        fn send(&self, request: &Request) -> Result<Response, HostError> {
+            let head = request.url.ends_with("exact.json");
+            if head == self.block_head {
+                self.entered.send(()).unwrap();
+                lock(&self.release).recv().unwrap();
+            }
+            Ok(Response {
+                status: 200,
+                status_text: "OK".into(),
+                headers: Headers::new(),
+                body: if head {
+                    self.head.clone()
+                } else {
+                    self.plan.clone()
+                },
+                url: request.url.clone(),
+                redirected: false,
+            })
+        }
+    }
+
+    fn head(seq: u64, plan: &[u8]) -> Vec<u8> {
+        format!(r#"{{"exact":1,"app":{{"id":"com.exact.host-cache"}},"plan":{{"url":"./app.plan","sha256":"{}","bytes":{}}},"assets":[],"stream":{{"channel":"prod","compatibilityId":"abc","seq":{seq}}}}}"#, exact_update::sha256_hex(plan), plan.len()).into_bytes()
+    }
+
+    #[test]
+    fn a_stalled_check_allows_selection_session_boot_and_activation() {
+        let _test = lock(&TEST_STORE);
+        for block_head in [true, false] {
+            let base = std::env::temp_dir().join(format!(
+                "exact-apple-stalled-{}-{block_head}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&base);
+            let plan = caltrain::build().unwrap().encode();
+            let mut client = Client::open(&base, &base, COMPAT, b"embedded plan").unwrap();
+            assert!(matches!(
+                client.check(&mut |url| Ok(if url.ends_with("exact.json") {
+                    head(1, &plan)
+                } else {
+                    plan.clone()
+                })),
+                exact_update::Outcome::Staged { seq: 1, .. }
+            ));
+            refresh(&client);
+            *lock(&CLIENT) = Some(client);
+            let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let transport = StalledTransport {
+                block_head,
+                entered: entered_tx,
+                release: Mutex::new(release_rx),
+                head: head(2, b"new plan"),
+                plan: b"new plan".to_vec(),
+            };
+            let checking = std::thread::spawn(move || run_check_with(&transport));
+            entered_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            let (responsive_tx, responsive_rx) = std::sync::mpsc::channel();
+            let foreground = std::thread::spawn(move || {
+                assert!(select() > 0);
+                let (_, bytes) = selected_plan().unwrap();
+                let (_session, batch) = crate::Host::boot(
+                    &bytes,
+                    caltrain_data::Caltrain,
+                    Box::<exact_kernel::MonospaceMeasurer>::default(),
+                    390.0,
+                    844.0,
+                )
+                .unwrap();
+                assert!(!batch.is_empty());
+                assert_eq!(activate() as usize, bytes.len());
+                assert_eq!(activate(), 0);
+                boot_started();
+                boot_succeeded();
+                let mut delivery = Delivery::default();
+                status_into(&mut delivery);
+                responsive_tx.send((delivery.seq, delivery.staged)).unwrap();
+            });
+            let response = responsive_rx.recv_timeout(std::time::Duration::from_secs(2));
+            release_tx.send(()).unwrap();
+            foreground.join().unwrap();
+            assert_eq!(checking.join().unwrap(), "staged seq 2");
+            assert_eq!(response.unwrap(), (1, false));
+            let mut delivery = Delivery::default();
+            status_into(&mut delivery);
+            assert_eq!(delivery.seq, 1);
+            assert!(delivery.staged);
+            *lock(&CLIENT) = None;
+            let _ = std::fs::remove_dir_all(base);
+        }
+    }
+
     fn stale_status() -> Status {
         Status {
             stream: "prod/abc".into(),
@@ -315,6 +472,7 @@ mod tests {
 
     #[test]
     fn boot_refusal_refreshes_the_cached_delivery_stream() {
+        let _test = lock(&TEST_STORE);
         let base =
             std::env::temp_dir().join(format!("exact-apple-refusal-cache-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
@@ -338,47 +496,4 @@ mod tests {
         *lock(&CLIENT) = None;
         let _ = std::fs::remove_dir_all(base);
     }
-}
-
-/// Activate (`exact_update_activate`): the staged plan's bytes into the
-/// output buffer — the host applies them to every session with carry and
-/// takes the entry's assets from `select` — or 0 when nothing is staged, no
-/// store is open, or a check holds the store this instant.
-pub fn activate() -> u32 {
-    let Ok(mut guard) = CLIENT.try_lock() else {
-        return 0;
-    };
-    let Some(client) = guard.as_mut() else {
-        return 0;
-    };
-    let Some((plan, _assets)) = client.activate() else {
-        return 0;
-    };
-    refresh(client);
-    emit(plan)
-}
-
-/// What the store has to say, into a runner's delivery facts (LLP 1030
-/// D7): the stream, the running and embedded `seq`, whether an entry is
-/// staged, the sunset. The binary's own three (`with_compat`) are left as
-/// they were; with no store open nothing changes.
-pub fn status_into(delivery: &mut Delivery) {
-    let snap = lock(&SNAPSHOT);
-    if let Some(s) = &snap.status {
-        delivery.stream = s.stream.clone();
-        delivery.seq = s.running_seq;
-        delivery.embedded_seq = s.embedded_seq;
-        delivery.staged = s.staged;
-        delivery.sunset = s.sunset.as_ref().map(|c| c.message.clone());
-    }
-}
-
-/// The last check's journal line, if any.
-pub fn last_line() -> Option<String> {
-    lock(&SNAPSHOT).line.clone()
-}
-
-/// A boot's note for the journal, taken once.
-pub fn take_note() -> Option<String> {
-    lock(&SNAPSHOT).note.take()
 }

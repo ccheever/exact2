@@ -13,7 +13,7 @@
 //! the boot, since the boot is what it selects (`app.rs`); first pixel is
 //! the first frame presented (the display loop) or, headless, the boot
 //! whole — laid out, its images in — before the agent serves or the frame
-//! is painted. While a check holds the store, the presenter answers from
+//! is painted. While a check downloads without the store lock, the presenter answers from
 //! the last known status rather than waiting on a download.
 
 use exact_runner::Delivery;
@@ -34,7 +34,7 @@ const MAX_FILE_BYTES: usize = 64 * 1024 * 1024;
 pub struct Updates {
     client: Arc<Mutex<Client>>,
     /// The status as of the last store operation, readable while a check
-    /// holds the store.
+    /// downloads.
     status: Arc<Mutex<Status>>,
     checking: Arc<AtomicBool>,
     lines: Receiver<String>,
@@ -198,9 +198,10 @@ impl Updates {
     }
 
     /// The staged plan's bytes and its assets directory, for an activation
-    /// now; `None` when nothing is staged or a check holds the store.
+    /// now; `None` when nothing is staged. A concurrent download cannot
+    /// suppress activation: this lock covers local store operations only.
     pub fn activate(&self) -> Option<(Vec<u8>, PathBuf)> {
-        let mut c = self.client.try_lock().ok()?;
+        let mut c = lock(&self.client);
         let taken = c.activate()?;
         *lock(&self.status) = c.status();
         Some(taken)
@@ -223,11 +224,28 @@ impl Updates {
 /// line. Every URL is bounded while the bytes arrive — the head at its
 /// envelope ceiling, a file at the plan's.
 fn run_check(client: &Mutex<Client>, status: &Mutex<Status>) -> String {
-    let transport = ibex2::transport::default_transport();
+    run_check_with(
+        client,
+        status,
+        ibex2::transport::default_transport().as_ref(),
+    )
+}
+
+fn run_check_with(
+    client: &Mutex<Client>,
+    status: &Mutex<Status>,
+    transport: &dyn ibex2::stdlib::fetch::Transport,
+) -> String {
+    let request = lock(client).begin_check();
+    let downloaded = request.map(|request| {
+        let head = request.head_url().to_string();
+        request.fetch(&mut |url| fetch_one(transport, Some(&head), url))
+    });
     let mut c = lock(client);
-    let head = c.head_url().map(str::to_string);
-    let mut fetch = |url: &str| fetch_one(transport.as_ref(), head.as_deref(), url);
-    let outcome = c.check(&mut fetch);
+    let outcome = match downloaded {
+        Ok(downloaded) => c.finish_check(downloaded),
+        Err(why) => exact_update::Outcome::Refused(why),
+    };
     *lock(status) = c.status();
     outcome.to_string()
 }
@@ -282,6 +300,113 @@ mod tests {
                 url: request.url.clone(),
                 redirected: false,
             })
+        }
+    }
+
+    struct StalledTransport {
+        block_head: bool,
+        entered: std::sync::mpsc::Sender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+        head: Vec<u8>,
+        plan: Vec<u8>,
+    }
+
+    impl Transport for StalledTransport {
+        fn send(&self, request: &Request) -> Result<Response, HostError> {
+            let head = request.url.ends_with("exact.json");
+            if head == self.block_head {
+                self.entered.send(()).unwrap();
+                lock(&self.release).recv().unwrap();
+            }
+            Ok(Response {
+                status: 200,
+                status_text: "OK".into(),
+                headers: Headers::new(),
+                body: if head {
+                    self.head.clone()
+                } else {
+                    self.plan.clone()
+                },
+                url: request.url.clone(),
+                redirected: false,
+            })
+        }
+    }
+
+    fn head(seq: u64, plan: &[u8]) -> Vec<u8> {
+        format!(r#"{{"exact":1,"app":{{"id":"com.exact.host-cache"}},"plan":{{"url":"./app.plan","sha256":"{}","bytes":{}}},"assets":[],"stream":{{"channel":"prod","compatibilityId":"abc","seq":{seq}}}}}"#, exact_update::sha256_hex(plan), plan.len()).into_bytes()
+    }
+
+    #[test]
+    fn a_stalled_check_allows_selection_session_boot_and_activation() {
+        for block_head in [true, false] {
+            let base = std::env::temp_dir().join(format!(
+                "exact-linux-stalled-{}-{block_head}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&base);
+            let plan = caltrain::build().unwrap().encode();
+            let mut client = Client::open(&base, &base, COMPAT, b"embedded plan").unwrap();
+            assert!(matches!(
+                client.check(&mut |url| Ok(if url.ends_with("exact.json") {
+                    head(1, &plan)
+                } else {
+                    plan.clone()
+                })),
+                exact_update::Outcome::Staged { seq: 1, .. }
+            ));
+            let mut updates = Updates::from_client(client).unwrap();
+            let client = Arc::clone(&updates.client);
+            let status = Arc::clone(&updates.status);
+            let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let transport = StalledTransport {
+                block_head,
+                entered: entered_tx,
+                release: Mutex::new(release_rx),
+                head: head(2, b"new plan"),
+                plan: b"new plan".to_vec(),
+            };
+            let checking = std::thread::spawn(move || run_check_with(&client, &status, &transport));
+            entered_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            let (responsive_tx, responsive_rx) = std::sync::mpsc::channel();
+            let foreground = std::thread::spawn(move || {
+                assert!(!updates.dir().as_os_str().is_empty());
+                let (bytes, _) = updates.activate().unwrap();
+                assert!(updates.activate().is_none());
+                let prepared = updates.prepare_selected().unwrap();
+                assert_eq!(prepared.plan.as_ref(), bytes);
+                let (session, _) = crate::host::Host::boot(
+                    &bytes,
+                    caltrain_data::Caltrain,
+                    Box::<exact_kernel::MonospaceMeasurer>::default(),
+                    390.0,
+                    844.0,
+                )
+                .unwrap();
+                assert!(session.kernel().live_count() > 0);
+                updates.boot_started();
+                updates.boot_succeeded();
+                let mut delivery = Delivery::default();
+                updates.status_into(&mut delivery);
+                responsive_tx
+                    .send((updates, delivery.seq, delivery.staged))
+                    .unwrap();
+            });
+            let response = responsive_rx.recv_timeout(std::time::Duration::from_secs(2));
+            release_tx.send(()).unwrap();
+            foreground.join().unwrap();
+            assert_eq!(checking.join().unwrap(), "staged seq 2");
+            let (updates, seq, staged) = response.unwrap();
+            assert_eq!((seq, staged), (1, false));
+            let mut delivery = Delivery::default();
+            updates.status_into(&mut delivery);
+            assert_eq!(delivery.seq, 1);
+            assert!(delivery.staged);
+            drop(updates);
+            let _ = std::fs::remove_dir_all(base);
         }
     }
 

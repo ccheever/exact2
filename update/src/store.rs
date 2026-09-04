@@ -685,13 +685,100 @@ impl Store {
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
         embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
     ) -> Result<Check, String> {
+        let envelope = self.download(head_url, fetch, embedded_asset)?;
+        self.finish_check(envelope, head_url, embedded_asset)
+    }
+
+    /// The immutable facts a download uses while its host releases the lock.
+    /// This private snapshot may write whole entries, never the live record.
+    pub(crate) fn check_snapshot(&self) -> Store {
+        Store {
+            dir: self.dir.clone(),
+            embedded: self.embedded.clone(),
+            record: self.record.clone(),
+            frozen: self.frozen,
+            hold: self.hold,
+            running: self.running.clone(),
+            running_seq: self.running_seq,
+            view: self.view.clone(),
+            launch_refusal: self.launch_refusal.clone(),
+        }
+    }
+
+    pub(crate) fn download(
+        &self,
+        head_url: &str,
+        fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
+    ) -> Result<Envelope, String> {
         if self.frozen {
             return Err(
                 "the update record was written by a newer binary; this one changes nothing".into(),
             );
         }
-        let raw = fetch(head_url)?;
-        let envelope = Envelope::parse(&raw)?;
+        let envelope = Envelope::parse(&fetch(head_url)?)?;
+        if !self.admit_check(&envelope, head_url, embedded_asset)? {
+            self.write_entry(&envelope, head_url, fetch)?;
+        }
+        Ok(envelope)
+    }
+
+    /// Recheck against the live record after downloading: activation, boot
+    /// marks, and a newer accepted head must never be overwritten by a copy
+    /// of the record taken before network I/O.
+    pub(crate) fn finish_check(
+        &mut self,
+        envelope: Envelope,
+        head_url: &str,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
+    ) -> Result<Check, String> {
+        if self.admit_check(&envelope, head_url, embedded_asset)? {
+            if self.record.seq != envelope.stream.seq {
+                self.record.seq = envelope.stream.seq;
+                self.write_record()?;
+            }
+            return Ok(Check::Current {
+                sunset: envelope.sunset,
+            });
+        }
+        let view = self
+            .validate(Some(envelope.digest.clone()))
+            .ok_or_else(|| {
+                format!(
+                    "entry {} was written but does not validate",
+                    envelope.digest
+                )
+            })?;
+        if self.hold {
+            // `app-decides`: whole on disk and known, booted by no launch
+            // until the app says so.
+            self.record.pending = Some(envelope.digest.clone());
+        } else {
+            self.record.selected = Some(envelope.digest.clone());
+            self.record.pending = None;
+            self.record.failures = 0;
+            self.view = Some(view);
+        }
+        self.record.seq = envelope.stream.seq;
+        self.write_record()?;
+        Ok(Check::Staged {
+            entry: envelope.digest,
+            seq: envelope.stream.seq,
+            sunset: envelope.sunset,
+        })
+    }
+
+    fn admit_check(
+        &self,
+        envelope: &Envelope,
+        head_url: &str,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
+    ) -> Result<bool, String> {
+        if self.frozen {
+            return Err(
+                "the update record was written by a newer binary; this one changes nothing".into(),
+            );
+        }
         if envelope.app_id != self.embedded.app_id {
             return Err(format!(
                 "the head is for {}; this binary is {}",
@@ -723,7 +810,7 @@ impl Store {
         // card whose bytes are already embedded or present in a whole entry.
         // Check the entire roster before Current can advance the observed
         // floor and before either whole-entry or digest reuse can return.
-        validate_card_urls(head_url, &envelope)?;
+        validate_card_urls(head_url, envelope)?;
         let floor = self
             .embedded
             .seq
@@ -750,13 +837,7 @@ impl Store {
             }
         };
         if current {
-            if self.record.seq != envelope.stream.seq {
-                self.record.seq = envelope.stream.seq;
-                self.write_record()?;
-            }
-            return Ok(Check::Current {
-                sunset: envelope.sunset,
-            });
+            return Ok(true);
         }
         if self.record.bad.contains(&envelope.digest) {
             return Err(format!(
@@ -769,32 +850,7 @@ impl Store {
                 "the head is seq {floor} but names another bundle; a used sequence cannot equivocate"
             ));
         }
-        self.write_entry(&envelope, head_url, fetch)?;
-        let view = self
-            .validate(Some(envelope.digest.clone()))
-            .ok_or_else(|| {
-                format!(
-                    "entry {} was written but does not validate",
-                    envelope.digest
-                )
-            })?;
-        if self.hold {
-            // `app-decides`: whole on disk and known, booted by no launch
-            // until the app says so.
-            self.record.pending = Some(envelope.digest.clone());
-        } else {
-            self.record.selected = Some(envelope.digest.clone());
-            self.record.pending = None;
-            self.record.failures = 0;
-            self.view = Some(view);
-        }
-        self.record.seq = envelope.stream.seq;
-        self.write_record()?;
-        Ok(Check::Staged {
-            entry: envelope.digest,
-            seq: envelope.stream.seq,
-            sunset: envelope.sunset,
-        })
+        Ok(false)
     }
 
     /// Hold what a check stages as pending — whole on disk, booted by no

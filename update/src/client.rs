@@ -73,6 +73,52 @@ pub struct Client {
     succeeded: bool,
 }
 
+/// An owned check snapshot: fetching it needs no access to the live client.
+#[derive(Debug)]
+pub struct CheckRequest {
+    store: Store,
+    head: String,
+    assets_root: PathBuf,
+    digests: HashMap<String, Option<String>>,
+}
+
+/// A finished download, ready to revalidate against the live client record.
+#[derive(Debug)]
+pub struct DownloadedCheck {
+    dir: PathBuf,
+    head: String,
+    envelope: Result<crate::Envelope, String>,
+    digests: HashMap<String, Option<String>>,
+}
+
+impl CheckRequest {
+    /// The head URL, for the host transport's response-size bound.
+    pub fn head_url(&self) -> &str {
+        &self.head
+    }
+
+    /// Fetch and verify the head and missing files without holding a host
+    /// mutex. Whole entries may be added, but the selection record is untouched.
+    pub fn fetch(
+        mut self,
+        fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+    ) -> DownloadedCheck {
+        let mut embedded = |name: &str| {
+            self.digests
+                .entry(name.to_string())
+                .or_insert_with(|| embedded_asset_digest(&self.assets_root, name))
+                .clone()
+        };
+        let envelope = self.store.download(&self.head, fetch, &mut embedded);
+        DownloadedCheck {
+            dir: self.store.dir().to_path_buf(),
+            head: self.head,
+            envelope,
+            digests: self.digests,
+        }
+    }
+}
+
 impl Client {
     /// Open the store for the binary whose `compat.json` and plan bytes are
     /// given, under `base` — the platform's data directory — at
@@ -229,20 +275,42 @@ impl Client {
     /// store needs goes through it, the head first. Never an error: a
     /// refusal is an [`Outcome`] the host logs.
     pub fn check(&mut self, fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>) -> Outcome {
-        let Some(head) = self.head_url.clone() else {
-            return Outcome::Refused(
-                "no origin: the manifest names none and EXACT_UPDATE_ORIGIN is unset".into(),
-            );
+        match self.begin_check() {
+            Ok(request) => self.finish_check(request.fetch(fetch)),
+            Err(why) => Outcome::Refused(why),
+        }
+    }
+
+    /// Snapshot the check's immutable inputs under the host mutex, then let
+    /// [`CheckRequest::fetch`] run after releasing it.
+    pub fn begin_check(&self) -> Result<CheckRequest, String> {
+        let head = self.head_url.clone().ok_or_else(|| {
+            "no origin: the manifest names none and EXACT_UPDATE_ORIGIN is unset".to_string()
+        })?;
+        Ok(CheckRequest {
+            store: self.store.check_snapshot(),
+            head,
+            assets_root: self.assets_root.clone(),
+            digests: self.digests.clone(),
+        })
+    }
+
+    /// Adopt a downloaded check under the host mutex. Only its result is
+    /// applied; boot and activation state changed during the fetch survives.
+    pub fn finish_check(&mut self, downloaded: DownloadedCheck) -> Outcome {
+        if downloaded.dir != self.dir() || self.head_url.as_deref() != Some(&downloaded.head) {
+            return Outcome::Refused("the update client changed during its check".into());
+        }
+        self.digests.extend(downloaded.digests);
+        let envelope = match downloaded.envelope {
+            Ok(envelope) => envelope,
+            Err(why) => return Outcome::Refused(why),
         };
-        let root = self.assets_root.clone();
-        let digests = &mut self.digests;
-        let mut embedded = |name: &str| -> Option<String> {
-            digests
-                .entry(name.to_string())
-                .or_insert_with(|| embedded_asset_digest(&root, name))
-                .clone()
-        };
-        match self.store.check(&head, fetch, &mut embedded) {
+        let mut embedded = |name: &str| self.digests.get(name).cloned().flatten();
+        match self
+            .store
+            .finish_check(envelope, &downloaded.head, &mut embedded)
+        {
             Ok(Check::Current { .. }) => Outcome::Current,
             Ok(Check::Staged { entry, seq, .. }) => Outcome::Staged { entry, seq },
             Err(why) => Outcome::Refused(why),
@@ -369,6 +437,52 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&base);
         let _ = std::fs::remove_dir_all(&assets);
+    }
+
+    fn head(seq: u64, plan: &[u8]) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "exact": 1, "app": {"id": "com.exact.t"},
+            "plan": {"url": "./app.plan", "sha256": sha256_hex(plan), "bytes": plan.len()},
+            "assets": [], "stream": {"channel": "prod", "compatibilityId": "abc", "seq": seq}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_download_cannot_overwrite_a_newer_check_or_concurrent_activation() {
+        let base = temp("check-race");
+        let mut client = Client::open(&base, &base, COMPAT, b"embedded").unwrap();
+        let fetch = |seq, plan: &[u8]| {
+            client.begin_check().unwrap().fetch(&mut |url| {
+                Ok(if url.ends_with("exact.json") {
+                    head(seq, plan)
+                } else {
+                    plan.to_vec()
+                })
+            })
+        };
+        let older = fetch(1, b"older");
+        let newer = fetch(2, b"newer");
+        assert!(matches!(
+            client.finish_check(newer),
+            Outcome::Staged { seq: 2, .. }
+        ));
+        assert_eq!(client.activate().unwrap().0, b"newer");
+        client.boot_started().unwrap();
+        client.boot_succeeded().unwrap();
+        let record = std::fs::read(client.dir().join("record.json")).unwrap();
+        assert!(
+            matches!(client.finish_check(older), Outcome::Refused(why) if why.contains("below the accepted seq 2"))
+        );
+        assert_eq!(
+            std::fs::read(client.dir().join("record.json")).unwrap(),
+            record
+        );
+        assert_eq!(client.status().running_seq, 2);
+        assert!(!client.status().staged);
+        let reopened = Client::open(&base, &base, COMPAT, b"embedded").unwrap();
+        assert_eq!(reopened.selected_plan().unwrap().1, b"newer");
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]
