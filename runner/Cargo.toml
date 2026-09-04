@@ -18,9 +18,3 @@ crate-type = ["rlib"]
 [dependencies]
 exact-kernel = { path = "../kernel" }
 exact-plan = { path = "../plan" }
-
-[dev-dependencies]
-# The corpus fixture, compiled and baked by the runner's own test: the
-# `delivery` resource is the runner's answer, so its proof wants real
-# Contract source. A dev-only edge; nothing the runner ships depends on it.
-contract = { path = "../contract/cli" }

@@ -18,7 +18,7 @@ impl DataSource for NoData {
 }
 
 fn corpus() -> String {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../contract/corpus/delivery.contract");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../corpus/delivery.contract");
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 

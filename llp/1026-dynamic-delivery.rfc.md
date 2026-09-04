@@ -827,6 +827,11 @@ scheduled.** Written because Charlie asked for the exploration
    next launch; a bad signature never touches disk; a bundle that fails
    to paint twice falls back to embedded; a downgrade is refused; the
    dev client still reloads in ~20 ms through the same store.
+   *The store's logic landed 2026-09-04 as `update/` (`exact-update`,
+   twenty tests over a temp directory and an in-memory origin; LLP
+   1030.000 §4 stage 4 says what is still owed: bake's two outputs
+   with the stream card and signature, the hosts wiring `open`, the
+   boot marks, and `check`, and the dev policy fold).*
 3. ~~**The data module**~~ — *removed from staging 2026-09-03 (LLP 1027
    §8's take: over-the-air logic is TypeScript bytecode; Rust logic is
    Level A). D4's pairing and D5's admission survive for 1027's module;

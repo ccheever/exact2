@@ -437,6 +437,18 @@ agent operation (LLP 1012's eight, and `rules/NOT-DOING.md`). An
 `delivery` with its embedded entry and nothing staged, which is the
 honest statement that it cannot be told anything.
 
+**Landed 2026-09-04** (the runner's `Delivery`, `runner/src/delivery.rs`;
+1030.000 §4 stage 3). Two spellings differ from the above and the
+code forced both: a Contract identifier holds no dot, so the source is
+`exactDelivery` and the commands are `deliveryCheck` and
+`deliveryActivate`; they are ordinary commands and reach the host by
+name. The runner answers the resource before the data seam, from the
+binary's `compat.json` handed in at boot before the first batch;
+`state.delivery` mirrors it and adds the compatibility id, `L`, and
+`E`. The entry-zero digest and everything the store has to say (the
+stream, `seq`, staged, the sunset) still read as the embedded answer
+until the store is wired into the hosts (stage 4).
+
 ### D8 — GPU: three sub-layers, and the interface digest — once shaders are assets
 
 Charlie's addition: WebGPU, shaders, WGSL, "and anything like that."
@@ -454,7 +466,9 @@ r1 on where the first one is today.
   shaders arrive with the asset row. After that, in dev a `.wgsl` edit
   is one `{seq}` and the surface builds a candidate pipeline and swaps
   it in only if it validates; in production it rides the bundle by
-  digest.
+  digest. (Landed: the packaging 2026-09-03, the asset row 2026-09-04 —
+  a `.wgsl` edit is one `{seq}` on the web and macOS, refused by name
+  when its interface moved; 1030.000 §4 stage 1.)
 - **The surface's Rust** — pipeline layout, bind groups, vertex
   formats, draw logic. A binary (1026 D6 off staging, 1029 §6).
 - **The GPU module** — wgpu, `exact-gpu`, the loader. exact2 itself; a

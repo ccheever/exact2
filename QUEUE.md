@@ -81,7 +81,7 @@ sits on that list carries the trade it would take.
   brownfield deferred to a later number). Both folded a two-round grok 4.6 xhigh + codex
   sol ultra panel (`llp/reviews/1030-delivery-unified.{grok,sol}.md`). Ruled 2026-09-03:
   continuous everywhere (`release: automatic`, phased by the store); the update economy
-  off NOT-DOING in its static form. Every §5 question ruled 2026-09-03 (shader packaging in stage 1; the conditional put required). Owed: an implementer and a date against 1030.000's four stages; stage 4 also waits on 1026 Level A.
+  off NOT-DOING in its static form. Every §5 question ruled 2026-09-03 (shader packaging in stage 1; the conditional put required). Landed: stage 1 (the asset row, 2026-09-04), stage 2 (the manifest, 2026-09-03), and of stages 3 and 4 the compatibility id, the `delivery` resource with `state.delivery`, and the update store as a crate. Owed: the artifact graph and the dry-run table (`exact deploy --dry-run`), the origin adapter and the publish, bake writing the stream card and signature into `exact.json`, the hosts opening the store and checking after first pixel, the dev policy folded onto the store, the Linux asset row, iOS driven for the asset row and `state.delivery`.
 
 - **The update store is built** (`update/`, `exact-update`, 2026-09-03) — LLP 1026 D9–D12
   and LLP 1030 D3a/D9 as store logic alone, no host wiring: the envelope with its stream
