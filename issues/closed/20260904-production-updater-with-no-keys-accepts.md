@@ -1,6 +1,6 @@
 # Production updater with no keys accepts unsigned heads
 
-**Status:** Open
+**Status:** Closed
 **Systems:** Update client, App manifest, Delivery
 **Severity:** P1
 **Author:** Codex (GPT-5) for Charlie Cheever
@@ -44,3 +44,22 @@ present, and runtime parsing must fail closed for missing/malformed trust
 policy. Tests must cover a release artifact with missing, `null`, and empty
 keys; each refuses an unsigned and an unverifiable signed head, while an
 explicit dev artifact can still use the unsigned local-network loop.
+
+Resolved 2026-09-04. The bake writes an explicit `inputs.trust` value into
+`compat.json` and the compatibility digest. Direct Cargo/Contract bakes default
+to production; `EXACT_UPDATE_TRUST=development` is the deliberate development
+choice, also set by the shared developer build scripts. Deploy always bakes
+production. Production with a linked store or origin requires at least one
+well-formed public key; omitted or malformed runtime trust policy refuses to
+open the updater. The verifier never accepts an empty trust root. Only an
+explicit development artifact admits unsigned heads, and even that artifact
+verifies any supplied signature.
+
+Validation: Contract and update regression suites cover missing/null/empty
+keys, malformed trust, unsigned/unverifiable signed heads, and distinct trust
+cohorts. Actual Contract CLI probes confirmed default production refusals and
+explicit development bakes. A native Caltrain agent staged an unsigned bundle
+from a loopback HTTP origin under development trust; the default production
+rebuild refused unsigned and unverifiable signed heads before any payload
+request, even with a development environment variable at runtime. Linux smoke
+passed, as did focused Clippy with warnings denied.

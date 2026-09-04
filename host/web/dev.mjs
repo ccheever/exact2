@@ -27,11 +27,12 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
-import { resolveApp } from '../../scripts/app.mjs';
+import { developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { applyStaticChange, applyStaticTreeChange, builtAppMatches, listAssets, readStaticFile, reflectShaderFiles, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
+const buildEnv = developmentBuildEnv();
 const app = resolveApp(arg('--app', undefined));
 const port = Number(arg('--port', 8765));
 const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
@@ -86,7 +87,7 @@ const hello = () => JSON.stringify({ hello: true, seq: current.seq, digest: curr
 let dev = null;
 let announced = false;
 function startCompiler() {
-  dev = spawn('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--bin', 'dev', '--', source, plan], { cwd: app.workspace, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
+  dev = spawn('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--bin', 'dev', '--', source, plan], { cwd: app.workspace, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
   let buffered = '';
@@ -266,7 +267,7 @@ function cohorts() {
   if (!existsSync(contractBin)) spawnSync('cargo', ['build', '-q', '-p', 'contract'], { cwd: root, stdio: 'ignore' });
   const out = {};
   for (const platform of platforms) {
-    const r = spawnSync(contractBin, ['compat', app.dir, '--platform', platform, '--json'], { encoding: 'utf8' });
+    const r = spawnSync(contractBin, ['compat', app.dir, '--platform', platform, '--json'], { env: buildEnv, encoding: 'utf8' });
     if (r.status === 0) { try { out[platform] = JSON.parse(r.stdout); } catch { /* an unreadable id is no id */ } }
   }
   return out;

@@ -3,14 +3,11 @@
 //! app id, the cohort, the channel and its origin, the verification keys,
 //! and the activation policy — nothing here is hand-declared.
 //!
-//! The file is `contract::Compat::to_json`'s: `{"id":…,"inputs":{…,"app":…,
-//! "keys":{…}|null,…},"delivery":{"activate":…,"channel":…,"origin":…|null}}`.
-//! A field the text does not carry degrades to the dev answer (no keys, no
-//! origin, `next-launch`) rather than refusing a boot: the store then admits
-//! unsigned heads and checks nowhere until a host names an origin.
+//! Trust is an explicit compatibility input. Missing or malformed trust
+//! policy refuses the updater; it never becomes development by omission.
 
 use crate::envelope::{base64_decode, sha256_hex};
-use crate::store::Embedded;
+use crate::store::{Embedded, Trust};
 
 /// When a staged bundle applies (LLP 1030.000 D4, `deploy.activate`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,8 +37,8 @@ pub struct Baked {
 
 impl Baked {
     /// Read `compat.json` and the embedded plan's bytes into what the store
-    /// and the check need. Refuses only a file that is not JSON or names no
-    /// compatibility id — the two facts a store cannot be opened without.
+    /// and the check need. Missing/malformed trust policy and production
+    /// artifacts without trust roots fail closed before a store opens.
     pub fn from_compat(compat_json: &str, plan: &[u8]) -> Result<Baked, String> {
         let value: serde_json::Value = serde_json::from_str(compat_json)
             .map_err(|e| format!("compat.json is not JSON: {e}"))?;
@@ -52,6 +49,15 @@ impl Baked {
             .ok_or_else(|| "compat.json names no compatibility id".to_string())?
             .to_string();
         let inputs = value.get("inputs");
+        let trust = match inputs.and_then(|i| i.get("trust")).and_then(|v| v.as_str()) {
+            Some("production") => Trust::Production,
+            Some("development") => Trust::Development,
+            _ => {
+                return Err(
+                    "compat.json needs an explicit production or development trust policy".into(),
+                )
+            }
+        };
         let store_linked = inputs
             .and_then(|i| i.get("store"))
             .and_then(|s| s.get("L"))
@@ -63,11 +69,16 @@ impl Baked {
             .unwrap_or_default()
             .to_string();
         let mut verification_keys = Vec::new();
-        if let Some(keys) = inputs
-            .and_then(|i| i.get("keys"))
-            .and_then(|k| k.as_object())
-        {
+        let keys = match inputs.and_then(|i| i.get("keys")) {
+            Some(serde_json::Value::Object(keys)) => Some(keys),
+            None | Some(serde_json::Value::Null) => None,
+            _ => return Err("compat.json verification keys must be an object".into()),
+        };
+        if let Some(keys) = keys {
             for (id, encoded) in keys {
+                if id.is_empty() {
+                    return Err("compat.json verification key id is empty".into());
+                }
                 let encoded = encoded
                     .as_str()
                     .ok_or_else(|| format!("the verification key {id} is not a string"))?;
@@ -94,6 +105,12 @@ impl Baked {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(str::to_string);
+        if trust == Trust::Production
+            && verification_keys.is_empty()
+            && (store_linked || origin.is_some())
+        {
+            return Err("production updater requires at least one verification key".into());
+        }
         let activate = match delivery
             .and_then(|d| d.get("activate"))
             .and_then(|v| v.as_str())
@@ -108,6 +125,7 @@ impl Baked {
                 seq: 0,
                 channel,
                 verification_keys,
+                trust,
                 embedded_plan_sha256: Some(sha256_hex(plan)),
             },
             origin,
@@ -136,7 +154,7 @@ mod tests {
     /// A real `compat.json`, shortened, with one key (32 zero bytes).
     const COMPAT: &str = concat!(
         r#"{"id":"9f1c0a2b3d4e5f60718293a4b5c6d7e8","inputs":{"app":"com.exact.caltrain","#,
-        r#""keys":{"caltrain-2026":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="},"#,
+        r#""trust":"production","keys":{"caltrain-2026":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="},"#,
         r#""store":{"L":"A"}},"delivery":{"activate":"app-decides","channel":"beta","#,
         r#""origin":"https://caltrain.example"}}"#,
         "\n"
@@ -178,7 +196,7 @@ mod tests {
     #[test]
     fn a_dev_binary_has_no_keys_no_origin_and_next_launch() {
         let b = Baked::from_compat(
-            r#"{"id":"abc","inputs":{"app":"x","keys":null},"delivery":{"channel":"prod","origin":null}}"#,
+            r#"{"id":"abc","inputs":{"app":"x","keys":null,"trust":"development"},"delivery":{"channel":"prod","origin":null}}"#,
             b"",
         )
         .unwrap();
@@ -187,15 +205,63 @@ mod tests {
         assert_eq!(b.activate, Activate::NextLaunch);
         assert!(b.store_linked, "unsaid is linked");
         assert_eq!(b.head_url(None), None);
-        let stripped =
-            Baked::from_compat(r#"{"id":"abc","inputs":{"store":{"L":"0"}}}"#, b"").unwrap();
+        let stripped = Baked::from_compat(
+            r#"{"id":"abc","inputs":{"store":{"L":"0"},"trust":"production"}}"#,
+            b"",
+        )
+        .unwrap();
         assert!(!stripped.store_linked);
         assert!(Baked::from_compat("{}", b"").is_err());
         assert!(Baked::from_compat("not json", b"").is_err());
-        assert!(
-            Baked::from_compat(r#"{"id":"abc","inputs":{"keys":{"k":"AAAA"}}}"#, b"")
+        assert!(Baked::from_compat(
+            r#"{"id":"abc","inputs":{"keys":{"k":"AAAA"},"trust":"production"}}"#,
+            b""
+        )
+        .unwrap_err()
+        .contains("32"));
+    }
+    #[test]
+    fn missing_or_malformed_trust_never_infers_development() {
+        for trust in [
+            None,
+            Some(serde_json::Value::Null),
+            Some(serde_json::json!(false)),
+            Some(serde_json::json!("dev")),
+        ] {
+            let mut value: serde_json::Value = serde_json::from_str(COMPAT).unwrap();
+            let inputs = value["inputs"].as_object_mut().unwrap();
+            inputs.remove("trust");
+            if let Some(trust) = trust {
+                inputs.insert("trust".into(), trust);
+            }
+            assert!(Baked::from_compat(&value.to_string(), b"plan")
                 .unwrap_err()
-                .contains("32")
-        );
+                .contains("trust policy"));
+        }
+    }
+
+    #[test]
+    fn production_with_missing_null_empty_or_malformed_keys_is_refused() {
+        for keys in [
+            None,
+            Some(serde_json::Value::Null),
+            Some(serde_json::json!({})),
+            Some(serde_json::json!([])),
+            Some(serde_json::json!({"key": false})),
+        ] {
+            let mut value: serde_json::Value = serde_json::from_str(COMPAT).unwrap();
+            let inputs = value["inputs"].as_object_mut().unwrap();
+            inputs.remove("keys");
+            if let Some(keys) = keys {
+                inputs.insert("keys".into(), keys);
+            }
+            assert!(
+                Baked::from_compat(&value.to_string(), b"plan").is_err(),
+                "{value}"
+            );
+        }
+        // Declaring no store does not excuse a production update origin.
+        let value = serde_json::json!({"id":"abc","inputs":{"trust":"production","store":{"L":"0"}},"delivery":{"origin":"https://updates.example"}});
+        assert!(Baked::from_compat(&value.to_string(), b"").is_err());
     }
 }

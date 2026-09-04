@@ -57,7 +57,7 @@ pub use client::{Client, Outcome};
 pub use envelope::{canonical_bytes, sha256_hex, Card, Envelope, FileCard, StreamCard};
 pub use store::{
     head_url, AssetSet, Check, Embedded, Generation, PreparedSelection, Selection,
-    SelectionRefusal, Staged, Status, Store,
+    SelectionRefusal, Staged, Status, Store, Trust,
 };
 
 /// The store's record codec (LLP 1030 D1, D9; `contract::compat::STORE_CODEC`):

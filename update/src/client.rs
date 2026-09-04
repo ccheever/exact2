@@ -393,7 +393,7 @@ mod tests {
         dir
     }
 
-    const COMPAT: &str = r#"{"id":"abc","inputs":{"app":"com.exact.t","keys":null,"store":{"L":"A"}},"delivery":{"activate":"next-launch","channel":"prod","origin":"https://o.example"}}"#;
+    const COMPAT: &str = r#"{"id":"abc","inputs":{"app":"com.exact.t","keys":null,"trust":"development","store":{"L":"A"}},"delivery":{"activate":"next-launch","channel":"prod","origin":"https://o.example"}}"#;
 
     #[test]
     fn a_client_opens_under_the_app_id_and_names_its_head() {

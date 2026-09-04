@@ -119,8 +119,8 @@ fn a_head_the_node_publisher_signed_verifies_with_the_manifests_key() {
     assert_eq!(head.signature.as_ref().unwrap().key_id, KEY_ID);
 
     head.verify(&keys()).unwrap();
-    // A dev binary (no keys) takes it too.
-    head.verify(&[]).unwrap();
+    // A missing trust root never authenticates a signed publisher head.
+    assert!(head.verify(&[]).is_err());
     // The same key under another id is an unknown signer.
     let err = head.verify(&[("other".into(), key())]).unwrap_err();
     assert!(err.contains("does not carry"), "{err}");
@@ -179,6 +179,7 @@ fn the_published_stream_is_staged_whole_by_a_client() {
             seq: 0,
             channel: head.stream.channel.clone(),
             verification_keys: keys(),
+            trust: exact_update::Trust::Production,
             embedded_plan_sha256: None,
         },
     )
@@ -270,6 +271,7 @@ fn the_published_stream_is_staged_whole_by_a_client() {
             seq: 0,
             channel: head.stream.channel.clone(),
             verification_keys: keys(),
+            trust: exact_update::Trust::Production,
             embedded_plan_sha256: None,
         },
     )

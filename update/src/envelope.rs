@@ -381,15 +381,11 @@ impl Envelope {
 
     /// Verify the head against the binary's embedded keys (LLP 1026 D11).
     ///
-    /// A binary with keys refuses an unsigned head and one signed by a key it
-    /// does not carry — the CDN is untrusted, and a bundle whose signature does
-    /// not verify is never written to the store. A binary with **no** keys is a
-    /// dev binary: it admits an unsigned head, and ignores a signature it
-    /// cannot check. Key rotation is a new binary, and a new trust epoch moves
-    /// the compatibility id, so this needs no negotiation.
+    /// Empty keys fail closed. Only the store's explicit development policy
+    /// may admit unsigned heads; absence of trust roots never enables it.
     pub fn verify(&self, keys: &[(String, [u8; 32])]) -> Result<(), String> {
         if keys.is_empty() {
-            return Ok(());
+            return Err("this binary carries no verification keys".into());
         }
         let signature = self
             .signature

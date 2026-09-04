@@ -424,7 +424,7 @@ mod tests {
     use exact_update::{sha256_hex, Client, Outcome};
     use std::path::Path;
 
-    const UPDATE_COMPAT: &str = r#"{"id":"fixture00000000","inputs":{"app":"com.exact.fixture","keys":null,"store":{"L":"A"}},"delivery":{"channel":"prod","origin":"https://updates.example"}}"#;
+    const UPDATE_COMPAT: &str = r#"{"id":"fixture00000000","inputs":{"app":"com.exact.fixture","keys":null,"trust":"development","store":{"L":"A"}},"delivery":{"channel":"prod","origin":"https://updates.example"}}"#;
 
     #[derive(Default)]
     struct Named;
@@ -559,7 +559,7 @@ mod tests {
             std::env::temp_dir().join(format!("exact-linux-dev-precedence-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let compat = r#"{"id":"fixture00000000","inputs":{"app":"com.exact.fixture","store":{"L":"A"}},"delivery":{"channel":"prod","origin":"https://updates.example"}}"#;
+        let compat = UPDATE_COMPAT;
         let mut client = Client::open(&dir, Path::new("."), compat, &baked).unwrap();
         let head_url = client.head_url().unwrap().to_string();
         let plan_url = head_url.replace("exact.json", "app.plan");

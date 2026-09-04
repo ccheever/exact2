@@ -280,7 +280,7 @@ mod tests {
     use ibex2::stdlib::fetch::{Headers, Request, Response, Transport};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    const COMPAT: &str = r#"{"id":"abc","inputs":{"app":"com.exact.host-cache","keys":null,"store":{"L":"A"}},"delivery":{"activate":"next-launch","channel":"prod","origin":"https://updates.example"}}"#;
+    const COMPAT: &str = r#"{"id":"abc","inputs":{"app":"com.exact.host-cache","keys":null,"trust":"development","store":{"L":"A"}},"delivery":{"activate":"next-launch","channel":"prod","origin":"https://updates.example"}}"#;
 
     struct RedirectTransport {
         requests: AtomicUsize,

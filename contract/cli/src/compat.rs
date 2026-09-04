@@ -112,27 +112,35 @@ impl Manifest {
             .unwrap_or_default()
     }
 
-    /// `deploy.signing.keys` — verification keys by id, base64 of 32 raw
-    /// Ed25519 bytes — as a sorted object, or `null` when the app names none.
-    fn keys(&self) -> serde_json::Value {
-        match self
-            .json
-            .get("deploy")
-            .and_then(|d| d.get("signing"))
-            .and_then(|s| s.get("keys"))
-            .and_then(|k| k.as_object())
-        {
-            Some(keys) if !keys.is_empty() => {
-                let mut sorted: Vec<(&String, &serde_json::Value)> = keys.iter().collect();
-                sorted.sort_by(|a, b| a.0.cmp(b.0));
-                let mut map = serde_json::Map::new();
-                for (id, key) in sorted {
-                    map.insert(id.clone(), key.clone());
-                }
-                serde_json::Value::Object(map)
+    /// `deploy.signing.keys`: canonical base64 of 32 raw Ed25519 bytes.
+    /// Missing keys remain absent; malformed configured keys are refused.
+    fn keys(&self) -> Result<serde_json::Value, String> {
+        let value = self.json.pointer("/deploy/signing/keys");
+        let keys = match value {
+            Some(serde_json::Value::Object(keys)) => keys,
+            None | Some(serde_json::Value::Null) => return Ok(serde_json::Value::Null),
+            _ => return Err("deploy.signing.keys must be an object".into()),
+        };
+        const ALPHABET: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for (id, value) in keys {
+            let valid = value.as_str().is_some_and(|key| {
+                key.len() == 44
+                    && key.ends_with('=')
+                    && key
+                        .bytes()
+                        .take(43)
+                        .all(|b| ALPHABET.as_bytes().contains(&b))
+                    && ALPHABET
+                        .find(key.as_bytes()[42] as char)
+                        .is_some_and(|n| n % 4 == 0)
+            });
+            if id.is_empty() || !valid {
+                return Err(format!(
+                    "deploy.signing.keys[{id:?}] must name a base64 Ed25519 public key (32 bytes)"
+                ));
             }
-            _ => serde_json::Value::Null,
         }
+        Ok(serde_json::Value::Object(keys.clone()))
     }
 
     /// The channel this build bakes in (`deploy.channel`; else the only key
@@ -246,7 +254,39 @@ pub fn compatibility_id(
     manifest: &Manifest,
     grants: Option<&str>,
 ) -> Result<Compat, String> {
+    // Cargo must rebake even when only the explicit trust selection changes.
+    // External apps call this same entrypoint from their own build scripts.
+    if std::env::var_os("OUT_DIR").is_some() {
+        println!("cargo:rerun-if-env-changed=EXACT_UPDATE_TRUST");
+    }
+    let trust = match std::env::var("EXACT_UPDATE_TRUST") {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => "production".into(),
+        Err(_) => return Err("EXACT_UPDATE_TRUST is not UTF-8".into()),
+    };
+    compatibility_with_trust(app_dir, platform, target, manifest, grants, &trust)
+}
+
+fn compatibility_with_trust(
+    app_dir: &Path,
+    platform: &str,
+    target: &str,
+    manifest: &Manifest,
+    grants: Option<&str>,
+    trust: &str,
+) -> Result<Compat, String> {
     use serde_json::{json, Value};
+    if !matches!(trust, "production" | "development") {
+        return Err("EXACT_UPDATE_TRUST must be production or development".into());
+    }
+    let keys = manifest.keys()?;
+    let (channel, origin) = manifest.channel();
+    if trust == "production"
+        && (manifest.store(platform) != "0" || origin.is_some())
+        && keys.as_object().is_none_or(|keys| keys.is_empty())
+    {
+        return Err("production updater requires deploy.signing.keys with at least one verification key; use EXACT_UPDATE_TRUST=development only for a development artifact".into());
+    }
     let host = manifest.host(platform);
     let executors = executors(app_dir);
     let hermes = executors.iter().any(|e| e == "hermes");
@@ -305,7 +345,8 @@ pub fn compatibility_id(
         },
         // The verification keys the binary carries (LLP 1026 D11), by id: a
         // rotation is a new cohort (1030 D3a).
-        "keys": manifest.keys(),
+        "keys": keys,
+        "trust": trust,
         "grantCeiling": grants.map_or(Value::Null, |g| Value::String(g.to_string())),
         "platform": platform,
         "arch": target.split('-').next().unwrap_or(target),
@@ -320,7 +361,6 @@ pub fn compatibility_id(
     h.update(canon.as_bytes());
     let digest = h.finalize();
     let id = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
-    let (channel, origin) = manifest.channel();
     Ok(Compat {
         id,
         inputs,
@@ -502,7 +542,7 @@ fn canonical(v: &serde_json::Value, out: &mut String) {
 
 #[cfg(test)]
 mod tests {
-    use super::{compatibility_id, Manifest};
+    use super::{compatibility_with_trust, Manifest};
     use std::path::{Path, PathBuf};
 
     /// A minimal app: a data crate with one file, a manifest with one icon
@@ -527,9 +567,16 @@ mod tests {
 
     fn id(dir: &Path, platform: &str) -> String {
         let m = Manifest::read(dir).unwrap();
-        compatibility_id(dir, platform, "aarch64-apple-ios", &m, Some(""))
-            .unwrap()
-            .id
+        compatibility_with_trust(
+            dir,
+            platform,
+            "aarch64-apple-ios",
+            &m,
+            Some(""),
+            "development",
+        )
+        .unwrap()
+        .id
     }
 
     #[test]
@@ -570,12 +617,13 @@ mod tests {
     fn the_inputs_name_every_field_and_an_undeclared_app_gets_defaults() {
         let dir = app("fields");
         let m = Manifest::read(&dir).unwrap();
-        let c = compatibility_id(
+        let c = compatibility_with_trust(
             &dir,
             "ios",
             "aarch64-apple-ios",
             &m,
             Some("net.fetch https://x/"),
+            "development",
         )
         .unwrap();
         let i = &c.inputs;
@@ -591,6 +639,7 @@ mod tests {
             "icons",
             "capabilities",
             "keys",
+            "trust",
             "grantCeiling",
             "platform",
             "arch",
@@ -636,5 +685,63 @@ mod tests {
         );
         assert!(m.name.starts_with("Exact-compat-fields-"), "{}", m.name);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn production_trust_requires_keys_and_has_a_distinct_cohort() {
+        let dir = app("trust");
+        let mut manifest = Manifest::read(&dir).unwrap();
+        for keys in [
+            None,
+            Some(serde_json::Value::Null),
+            Some(serde_json::json!({})),
+            Some(serde_json::json!([])),
+            Some(serde_json::json!({"k":"invalid"})),
+        ] {
+            manifest.json["deploy"]["signing"] = serde_json::json!({});
+            if let Some(keys) = keys {
+                manifest.json["deploy"]["signing"]["keys"] = keys;
+            }
+            assert!(compatibility_with_trust(
+                &dir,
+                "linux",
+                "aarch64",
+                &manifest,
+                None,
+                "production"
+            )
+            .is_err());
+        }
+        manifest.json["deploy"]["signing"] = serde_json::json!({});
+        let dev =
+            compatibility_with_trust(&dir, "linux", "aarch64", &manifest, None, "development")
+                .unwrap();
+        assert_eq!(dev.inputs["trust"], "development");
+        assert!(
+            compatibility_with_trust(&dir, "linux", "aarch64", &manifest, None, "dev").is_err()
+        );
+        manifest.json["deploy"]["store"] = serde_json::json!({"linux":"0"});
+        assert!(
+            compatibility_with_trust(&dir, "linux", "aarch64", &manifest, None, "production")
+                .is_ok()
+        );
+        manifest.json["app"]["origin"] = serde_json::json!("https://updates.example");
+        assert!(
+            compatibility_with_trust(&dir, "linux", "aarch64", &manifest, None, "production")
+                .is_err()
+        );
+        manifest.json["deploy"]["signing"]["keys"] =
+            serde_json::json!({"k":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="});
+        let production =
+            compatibility_with_trust(&dir, "linux", "aarch64", &manifest, None, "production")
+                .unwrap();
+        let development =
+            compatibility_with_trust(&dir, "linux", "aarch64", &manifest, None, "development")
+                .unwrap();
+        assert_eq!(production.inputs["trust"], "production");
+        assert_ne!(
+            production.id, development.id,
+            "unsigned development permission is its own trust epoch"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

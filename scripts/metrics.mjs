@@ -21,7 +21,7 @@ import { gzipSync } from 'node:zlib';
 import { dirname, resolve, sep } from 'node:path';
 import { staticFile, webContentType } from '../host/web/serve.mjs';
 import { macBinary, macHostBinary } from '../host/apple/build.mjs';
-import { resolveApp } from './app.mjs';
+import { developmentBuildEnv, resolveApp } from './app.mjs';
 
 const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -52,7 +52,7 @@ step('native', () => {
     out.native_note = `${app.name} has no web/src/bin/metrics.rs`; // the browser/dev rows below still measure the resolved app
     return;
   }
-  const r = spawnSync('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--bin', 'metrics'], { cwd: app.workspace, encoding: 'utf8' });
+  const r = spawnSync('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--bin', 'metrics'], { cwd: app.workspace, encoding: 'utf8', env: developmentBuildEnv() });
   if (r.status !== 0) { console.error(r.stderr); process.exit(1); }
   Object.assign(out, JSON.parse(r.stdout.trim().split('\n').pop()));
 });

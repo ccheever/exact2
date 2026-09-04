@@ -102,3 +102,8 @@ export function validate(value, node, at, root) {
   }
   return problems;
 }
+
+/** Developer entrypoints explicitly bake unsigned-update permission. Direct Cargo/contract bakes default to production; release callers can select it here too. */
+export function developmentBuildEnv() {
+  return { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' };
+}

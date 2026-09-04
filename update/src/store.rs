@@ -39,6 +39,15 @@ use std::sync::{Arc, Mutex};
 type AssetResult = Result<Arc<[u8]>, String>;
 type AssetCache = Arc<Mutex<BTreeMap<String, AssetResult>>>;
 
+/// The trust policy explicitly baked into a host (LLP 1026 D11/D12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trust {
+    /// Every head must verify against a baked public key.
+    Production,
+    /// Unsigned heads are allowed for the local development loop.
+    Development,
+}
+
 /// What the binary itself carries: entry zero's identity, the cohort it
 /// belongs to, and the keys it trusts (LLP 1026 D9/D11; LLP 1030 D3a). The bake
 /// writes every field; nothing here is hand-declared.
@@ -57,9 +66,10 @@ pub struct Embedded {
     /// channel — signed for it, replayed here — is refused.
     pub channel: String,
     /// The developer's verification keys, by key id — raw Ed25519 public keys.
-    /// **Empty means a dev binary**, which admits an unsigned head; a binary
-    /// with keys refuses one (LLP 1026 D11). Rotation is a new binary.
+    /// Empty never grants unsigned admission. Rotation is a new binary.
     pub verification_keys: Vec<(String, [u8; 32])>,
+    /// Whether unsigned development heads are permitted by this artifact.
+    pub trust: Trust,
     /// The SHA-256 of the plan the binary embeds — what a binary can actually
     /// know about entry zero (LLP 1026 D9: "the client knows, by digest, what
     /// it already has"). The published head is a document the binary never
@@ -69,6 +79,18 @@ pub struct Embedded {
     /// downloads nothing; without it, that client stages one copy of what it
     /// already has, once.
     pub embedded_plan_sha256: Option<String>,
+}
+
+impl Embedded {
+    /// Admit an unsigned head only under an explicit development policy.
+    /// Supplied signatures are always verified, including in development.
+    pub fn verify(&self, envelope: &Envelope) -> Result<(), String> {
+        if self.trust == Trust::Development && envelope.signature.is_none() {
+            Ok(())
+        } else {
+            envelope.verify(&self.verification_keys)
+        }
+    }
 }
 
 /// What to boot (LLP 1026 D9). `plan` is `None` for entry zero — the bundle in
@@ -805,7 +827,7 @@ impl Store {
                 envelope.stream.channel, self.embedded.channel
             ));
         }
-        envelope.verify(&self.embedded.verification_keys)?;
+        self.embedded.verify(&envelope)?;
         // URL admission is part of every authenticated card, including a
         // card whose bytes are already embedded or present in a whole entry.
         // Check the entire roster before Current can advance the observed
@@ -1006,7 +1028,7 @@ impl Store {
                 envelope.stream.seq, self.embedded.seq
             ));
         }
-        envelope.verify(&self.embedded.verification_keys)?;
+        self.embedded.verify(&envelope)?;
         Ok(EntryView {
             sha: sha.to_string(),
             seq: envelope.stream.seq,

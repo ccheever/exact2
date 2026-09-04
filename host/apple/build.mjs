@@ -17,11 +17,13 @@
 // devicectl to install and, with --run, launch — the phone connected,
 // unlocked, paired, Developer Mode on. The simulator helpers are exported
 // for scripts/agent.mjs, which launches the same bundle.
+// These developer builds explicitly allow unsigned updates. Set
+// EXACT_UPDATE_TRUST=production for a signed-update-only artifact.
 import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { resolveApp } from '../../scripts/app.mjs';
+import { developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent } from '../web/serve.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -293,7 +295,7 @@ function main(args) {
   const sdkName = ios ? (device ? 'iphoneos' : 'iphonesimulator') : 'macosx';
   const sdk = read('xcrun', ['--sdk', sdkName, '--show-sdk-path']).stdout.trim();
   const cargoEnv = {
-    ...process.env,
+    ...developmentBuildEnv(),
     SDKROOT: sdk,
     ...(ios ? { IPHONEOS_DEPLOYMENT_TARGET: '17.0' } : { MACOSX_DEPLOYMENT_TARGET: '14.0' }),
   };
@@ -318,7 +320,7 @@ function main(args) {
     copyFileSync(resolve(pkg, 'include/exact.h'), resolve(embed, 'include/exact.h'));
     if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(embed, loadName));
     copyAppleStaticTrees(app.dir, embed, [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]);
-    const compat = read(resolve(root, 'target/release/contract'), ['compat', app.dir, '--platform', ios ? 'ios' : 'macos', '--target', ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), '--json']);
+    const compat = read(resolve(root, 'target/release/contract'), ['compat', app.dir, '--platform', ios ? 'ios' : 'macos', '--target', ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), '--json'], { env: cargoEnv });
     if (compat.status === 0) writeFileSync(resolve(embed, 'compat.json'), compat.stdout);
     writeFileSync(resolve(embed, 'receipt.json'), receipt(app, { platform, target: ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), sdk, archive, gpu: hasGpu ? loadName : null, package: pkg }));
     const bytes = statSync(resolve(embed, archive)).size;

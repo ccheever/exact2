@@ -2,11 +2,13 @@
 // Build the web app: the wasm under the `web` profile (size-tuned), `wasm-opt -Oz`
 // when binaryen is on PATH, then `dist/` = index.html + glue.js + app.wasm.
 // Usage: node host/web/build.mjs [crate=caltrain-web]
+// Developer builds bake development trust; EXACT_UPDATE_TRUST=production
+// requires signing keys, and the deploy verb always selects production.
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { resolveApp } from '../../scripts/app.mjs';
+import { developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
@@ -22,7 +24,7 @@ const previous = `${dist}.previous`;
 // serve.mjs/dev.mjs also fall back to it during the live rename window.
 if (!existsSync(dist) && existsSync(previous)) renameSync(previous, dist);
 else if (existsSync(dist) && existsSync(previous)) rmSync(previous, { recursive: true, force: true });
-const r = spawnSync('cargo', ['build', '-p', crate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown'], { cwd: app.workspace, stdio: 'inherit' });
+const r = spawnSync('cargo', ['build', '-p', crate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown'], { cwd: app.workspace, stdio: 'inherit', env: developmentBuildEnv() });
 if (r.status !== 0) process.exit(r.status ?? 1);
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 // Build one app into its own staging directory. Only a complete build replaces
@@ -109,7 +111,7 @@ if (ios.associatedDomains && ios.team) {
 const gpuCrate = crate.replace(/-web$/, '-gpu');
 let gpuNote = 'no GPU crate';
 if (existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'))) {
-  const g = spawnSync('cargo', ['build', '-p', gpuCrate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown', '--config', 'profile.web.strip=false'], { cwd: app.workspace, stdio: 'inherit' });
+  const g = spawnSync('cargo', ['build', '-p', gpuCrate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown', '--config', 'profile.web.strip=false'], { cwd: app.workspace, stdio: 'inherit', env: developmentBuildEnv() });
   if (g.status !== 0) process.exit(g.status ?? 1);
   const gpuWasm = resolve(app.target, 'wasm32-unknown-unknown/web', gpuCrate.replace(/-/g, '_') + '.wasm');
   const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', stage, '--out-name', 'gpu', gpuWasm], { stdio: 'inherit' });

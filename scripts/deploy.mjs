@@ -577,7 +577,7 @@ export function deployRun(target, release) {
 function bake(app, run, exactRoot, sourceRoot) {
   mkdirSync(run, { recursive: true });
   const web = resolve(run, 'web');
-  const env = sealedSourceEnv(sourceRoot, { EXACT_WEB_DIST: web, CARGO_TARGET_DIR: app.target });
+  const env = sealedSourceEnv(sourceRoot, { EXACT_WEB_DIST: web, CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production' });
   if (app.workspace === exactRoot) delete env.EXACT_APP_DIR;
   else env.EXACT_APP_DIR = app.dir;
   const r = spawnSync(process.execPath, [resolve(exactRoot, 'host/web/build.mjs'), app.crate('web')], {
@@ -608,7 +608,7 @@ function readBundle(web, app) {
 /** The compatibility id and its inputs for `platform` (LLP 1030 D3a), from `contract compat` with the platform's default target. */
 function compatOf(app, platform, exactRoot, sourceRoot) {
   const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'compat', app.dir, '--platform', platform, '--json'], {
-    cwd: exactRoot, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target }), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024,
+    cwd: exactRoot, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production' }), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024,
   });
   if (r.status !== 0) refuse(`contract compat --platform ${platform} failed:\n${r.stderr}`);
   const compat = JSON.parse(r.stdout);

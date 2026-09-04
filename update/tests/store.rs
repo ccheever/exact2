@@ -214,6 +214,11 @@ fn embedded(keys: &[(&str, [u8; 32])]) -> Embedded {
         compatibility_id: COHORT.into(),
         seq: EMBEDDED_SEQ,
         channel: "release".into(),
+        trust: if keys.is_empty() {
+            exact_update::Trust::Development
+        } else {
+            exact_update::Trust::Production
+        },
         verification_keys: keys.iter().map(|(id, k)| ((*id).into(), *k)).collect(),
         embedded_plan_sha256: None,
     }
@@ -685,7 +690,7 @@ fn a_signed_head_verifies_with_the_right_key_and_is_refused_with_the_wrong_one()
 }
 
 #[test]
-fn an_unsigned_head_is_refused_with_keys_and_admitted_without_them() {
+fn an_unsigned_head_requires_explicit_development_policy() {
     let bundle = Bundle::new(4, b"plan four");
     let mut origin = Origin::of(&bundle);
 
@@ -704,6 +709,46 @@ fn an_unsigned_head_is_refused_with_keys_and_admitted_without_them() {
 
     let dev = Temp::new("unsigned-dev");
     let mut store = open(&dev);
+    assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
+}
+
+#[test]
+fn a_production_store_with_no_keys_refuses_unsigned_and_signed_heads() {
+    for signed in [false, true] {
+        let temp = Temp::new(if signed {
+            "no-keys-signed"
+        } else {
+            "no-keys-unsigned"
+        });
+        let mut bundle = Bundle::new(4, b"plan four");
+        if signed {
+            bundle.signer = Some(("k1".into(), key(7)));
+        }
+        let mut origin = Origin::of(&bundle);
+        let mut facts = embedded(&[]);
+        facts.trust = exact_update::Trust::Production;
+        let mut store = Store::open(temp.path(), facts).unwrap();
+        let refusal = origin.check(&mut store).unwrap_err();
+        assert!(refusal.contains("no verification keys"), "{refusal}");
+        assert_eq!(origin.asked.len(), 1, "no payloads fetched");
+        assert!(entry_names(&temp).is_empty());
+        assert!(store.select().entry.is_none());
+    }
+}
+
+#[test]
+fn development_does_not_ignore_a_supplied_unverifiable_signature() {
+    let temp = Temp::new("dev-bad-signature");
+    let mut bundle = Bundle::new(4, b"plan four");
+    bundle.signer = Some(("k1".into(), key(7)));
+    let mut origin = Origin::of(&bundle);
+    let mut store = open(&temp);
+    assert!(origin.check(&mut store).is_err());
+    assert!(entry_names(&temp).is_empty());
+    let mut facts = embedded(&[("k1", key(7).verifying_key().to_bytes())]);
+    facts.trust = exact_update::Trust::Development;
+    let mut store = Store::open(temp.path(), facts).unwrap();
+    origin.serving(&Bundle::new(4, b"unsigned local plan"));
     assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
 }
 
