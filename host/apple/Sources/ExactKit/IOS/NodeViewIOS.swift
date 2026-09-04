@@ -158,15 +158,11 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     /// the app bundle, which carries the app's `assets/` — a phone reads no
     /// other machine's paths) and never outside it; anything else (`file:`,
     /// `..` escaping the root) does not load.
-    static func resolveSource(_ source: String, root assetRoot: URL) -> URL? {
+    static func resolveSource(_ source: String, app: ExactApp?) -> URL? {
         if let u = URL(string: source), let scheme = u.scheme {
             return scheme == "http" || scheme == "https" ? u : nil
         }
-        let root = assetRoot.standardizedFileURL.resolvingSymlinksInPath()
-        let url = root.appendingPathComponent(source)
-            .standardizedFileURL.resolvingSymlinksInPath()
-        let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        return url.path == root.path || url.path.hasPrefix(rootPath) ? url : nil
+        return app?.resolveAsset(source)
     }
 
     /// Decode an image completely, off the main thread: the bitmap and its
@@ -188,7 +184,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         // one has loaded, as a browser keeps showing the old `src`.
         loadGeneration += 1
         let generation = loadGeneration
-        guard let url = NodeView.resolveSource(source, root: presenter?.session?.app.assetRoot ?? URL(fileURLWithPath: Bundle.main.bundlePath, isDirectory: true)) else {
+        guard let url = NodeView.resolveSource(source, app: presenter?.session?.app) else {
             image = nil
             FileHandle.standardError.write(Data("exact: image \(source) is not a loadable source\n".utf8))
             presenter?.intrinsic(id, nil)

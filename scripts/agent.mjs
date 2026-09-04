@@ -4,7 +4,7 @@
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
-// Usage:  node scripts/agent.mjs <web|macos|ios|linux> [--plan <file>] [--json] <op> [<op> …]
+// Usage:  node scripts/agent.mjs <web|macos|ios|linux|host> [--plan <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window]
 //   tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name>
 //   clock <ms|+ms|settle>
@@ -98,9 +98,9 @@ class Cdp {
   }
 }
 
-async function openWeb({ plan, size = [420, 900] }) {
+async function openWeb({ plan, size = [420, 900], url: pageURL }) {
   const dist = resolve(ROOT, 'host/web/dist');
-  if (!existsSync(resolve(dist, 'app.wasm'))) throw new Error('run node host/web/build.mjs first');
+  if (!pageURL && !existsSync(resolve(dist, 'app.wasm'))) throw new Error('run node host/web/build.mjs first');
   let gpuMs = null;
   const server = createServer((req, res) => {
     if (req.url.startsWith('/__gpu')) { gpuMs = Number(new URL(req.url, 'http://x').searchParams.get('ms')); res.writeHead(204); res.end(); return; }
@@ -153,7 +153,12 @@ async function openWeb({ plan, size = [420, 900] }) {
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
       return r.result.value;
     };
-    await call('Page.navigate', { url: `http://127.0.0.1:${port}/?agent=1&smoke=1` });
+    // The page: this carrier's own server over dist/, or a URL the caller
+    // named — the dev server, so a drive can watch an edit arrive.
+    const page = pageURL ? new URL(pageURL) : new URL(`http://127.0.0.1:${port}/`);
+    page.searchParams.set('agent', '1');
+    page.searchParams.set('smoke', '1');
+    await call('Page.navigate', { url: page.href });
     // The first frame: the glue stamps the root when it is in the DOM. A fresh profile's first launch can be slow.
     const t = Date.now();
     let boot = null;
@@ -378,8 +383,8 @@ async function openIOS({ plan, app, env: extra = {} }) {
 // ---------------------------------------------------------------- the eight operations
 
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `plan` boots a compiled contract instead of the app's baked plan; `env` adds to a native host's environment. */
-export async function open({ host, plan, size, env, app, session } = {}) {
-  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size });
+export async function open({ host, plan, size, env, app, session, url } = {}) {
+  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url });
   const s = {
     host: carrier.host,
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
@@ -580,6 +585,7 @@ async function main(argv) {
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
     else if (argv[i] === '--test') flags.test = argv[++i];
     else if (argv[i] === '--session') flags.session = argv[++i];
+    else if (argv[i] === '--url') flags.url = argv[++i];
     else rest.push(argv[i]);
   }
   const [host, ...ops] = rest;
@@ -596,7 +602,7 @@ async function main(argv) {
     console.error('usage: node scripts/agent.mjs <web|macos|ios|linux|host> [--app <name>] [--plan <file>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session });
+  const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url });
   try {
     for (const line of ops) {
       const [op, ...args] = line.trim().split(/\s+/);

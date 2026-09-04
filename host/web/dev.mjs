@@ -24,11 +24,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, watch } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
-import { resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { resolveApp } from '../../scripts/app.mjs';
-import { readStaticFile, webContentType } from './serve.mjs';
+import { listAssets, readStaticFile, webContentType } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -87,7 +87,7 @@ function startCompiler() {
         // nothing to time. An early native subscriber still learns the
         // revision: the hello goes out again once it exists.
         if (first) { first = false; for (const res of clients) res.write(`data: ${hello()}\n\n`); if (!announced) { announced = true; console.log(`plan ready: ${bytes} bytes (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) — edit ${source.replace(root + '/', '')} and watch`); } continue; }
-        console.log(`edit → plan ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms, ${bytes} bytes) · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}`);
+        console.log(`edit → plan ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms, ${bytes} bytes) · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  contract → restart with carry on every host; production: bundle`);
         push({ seq, bytes, digest: current.digest });
       } else if (kind === 'error') {
         console.log(`error: ${rest.join(' ')}`);
@@ -101,10 +101,96 @@ const killCompiler = () => { const d = dev; dev = null; if (d) { try { process.k
 startCompiler();
 const stop = () => { killCompiler(); process.exit(0); };
 
+// The asset row (LLP 1030 D10; 1030.000 stage 1): an edit to an image, a
+// font, a deck page, or a shader under the app's `assets/`, `deck/`, or
+// `gpu/shaders/` is one digest — the file is mirrored into dist/ (what the
+// page and a native client fetch), `{seq}` names the changed digests, and
+// each client re-renders what referenced it, carrying state. A shader is
+// classified by its interface digest (1030 D8): unchanged, it is an asset
+// the client validates and swaps in; changed, it is a rebuild of the native
+// host — and the wasm here, since the surfaces' Rust binds the new layout.
+const assetTrees = [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']].map(([from, to]) => [resolve(app.dir, from), to]).filter(([from]) => existsSync(from));
+const shaderDigests = new Map();
+const reflectBin = resolve(root, 'target/debug/exact-gpu-reflect');
+function interfaceDigests(files) {
+  if (!files.length) return new Map();
+  if (!existsSync(reflectBin)) spawnSync('cargo', ['build', '-q', '-p', 'exact-gpu-reflect'], { cwd: root, stdio: 'ignore' });
+  const r = spawnSync(reflectBin, ['digest', ...files], { encoding: 'utf8' });
+  const out = new Map();
+  for (const line of (r.stdout ?? '').trim().split('\n')) { const [name, digest, ...rest] = line.split(' '); if (name) out.set(name, digest === 'error' ? `error ${rest.join(' ')}` : digest); }
+  return out;
+}
+for (const [from, to] of assetTrees) if (to === 'shaders') for (const [n, d] of interfaceDigests(readdirRecursive(from).filter((f) => f.endsWith('.wgsl')))) shaderDigests.set(n, d);
+function readdirRecursive(dir) {
+  const out = [];
+  const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = resolve(d, e.name); if (e.isDirectory()) walk(p); else if (e.isFile()) out.push(p); } };
+  if (existsSync(dir)) walk(dir);
+  return out;
+}
+let assetChanges = new Map(); // dist-relative name -> source path (or null when removed)
+let assetTimer = null;
+for (const [from, to] of assetTrees) {
+  try {
+    watch(from, { recursive: true }, (_event, name) => {
+      if (!name || skipped.test(name) || /(^|\/)\./.test(name)) return;
+      assetChanges.set(`${to}/${name}`, resolve(from, name));
+      clearTimeout(assetTimer);
+      assetTimer = setTimeout(pushAssets, 100);
+    });
+  } catch (e) { console.error(`cannot watch ${from}: ${e.message}`); }
+}
+function pushAssets() {
+  const edits = [...assetChanges]; assetChanges = new Map();
+  const rows = [];
+  const carriers = [];
+  let needsRebuild = false;
+  for (const [name, source] of edits) {
+    const target = resolve(dist, name);
+    if (!existsSync(source) || !statSync(source).isFile()) { rmSync(target, { force: true }); rows.push({ name, removed: true }); carriers.push(`asset ${name} removed`); continue; }
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(source, target);
+    const bytes = readFileSync(target);
+    const row = { name, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length };
+    if (name.startsWith('shaders/') && name.endsWith('.wgsl')) {
+      const stem = name.slice('shaders/'.length, -'.wgsl'.length);
+      const digest = interfaceDigests([source]).get(stem) ?? 'error unreadable';
+      const before = shaderDigests.get(stem);
+      shaderDigests.set(stem, digest);
+      if (digest.startsWith('error')) { carriers.push(`shader ${name}: does not validate — ${digest.slice(6)}`); push({ error: `${name}: ${digest.slice(6)}` }); continue; }
+      row.interface = digest;
+      if (before === digest) carriers.push(`asset ${name} → live on the web, macOS, iOS (the client validates it); production: bundle`);
+      else { needsRebuild = true; carriers.push(`shader ${name}: interface ${before ?? '?'} → ${digest} — rebuild the native host; production: binary (the wasm rebuilds now)`); }
+    } else {
+      carriers.push(`asset ${name} → live on the web, macOS, iOS; production: bundle`);
+    }
+    rows.push(row);
+  }
+  if (!rows.length) return;
+  seq += 1;
+  current.seq = seq;
+  console.log(`edit → assets ${rows.map((r) => r.name).join(', ')} · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  ${carriers.join('\n  ')}`);
+  push({ seq, digest: current.digest, assets: rows });
+  if (needsRebuild) { for (const [name] of edits) changed.add(name); clearTimeout(timer); timer = setTimeout(rebuild, 200); }
+}
+
 // The Rust watch: the crates the wasm is built from.
 const watched = [...['kernel', 'plan', 'motion', 'runner', 'host/web', 'gpu', 'vendor/taffy'].map((d) => resolve(root, d)), ...['data', 'web', 'gpu'].map((d) => resolve(app.dir, d))].filter(existsSync);
-const wanted = /\.(rs|toml|json|wgsl|js|html)$/;
+const wanted = /\.(rs|toml|json|js|html)$/;
 const skipped = /(^|\/)(target|dist(?:\.previous)?|\.build|node_modules)(\/|$)/;
+// dist mirrors the asset trees at startup. A build wrote dist once; an asset
+// edited or restored while the server was down would otherwise be served
+// stale, and the shader digests above are the sources' — what the wasm binds.
+for (const [from, to] of assetTrees) {
+  const have = new Set(readdirRecursive(resolve(dist, to)).map((p) => relative(resolve(dist, to), p)));
+  for (const p of readdirRecursive(from)) {
+    const name = relative(from, p);
+    if (skipped.test(name) || /(^|\/)\./.test(name)) continue;
+    have.delete(name);
+    const target = resolve(dist, to, name);
+    if (!existsSync(target) || !readFileSync(target).equals(readFileSync(p))) { mkdirSync(dirname(target), { recursive: true }); copyFileSync(p, target); }
+  }
+  for (const name of have) rmSync(resolve(dist, to, name), { force: true });
+}
 let changed = new Set();
 let timer = null;
 let building = false;
@@ -115,6 +201,9 @@ for (const dir of watched) {
     watch(dir, { recursive: true }, (_event, name) => {
       if (!name || !wanted.test(name) || skipped.test(name) || name.endsWith('dev.js')) return;
       changed.add(`${dir.replace(root + '/', '')}/${name}`);
+      // The conservative classifier (LLP 1030 D3): a Rust edit is a new
+      // program on every host.
+      console.log(`edit ${dir.replace(root + '/', '')}/${name} → rebuild the native host (production: binary); the web rebuilds now`);
       clearTimeout(timer);
       timer = setTimeout(rebuild, 200);
     });
@@ -202,6 +291,7 @@ const server = createServer((req, res) => {
         exact: 1,
         app: appId ? { id: appId, name: app.name } : { name: app.name },
         plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length, formatVersion: bytes.readUInt32LE(4), kernelSchema: bytes.readBigUInt64LE(16).toString(16).padStart(16, '0') },
+        assets: listAssets(dist),
         seq: current.seq,
         events: './__dev',
       }) + '\n');

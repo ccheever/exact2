@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { resolveApp } from '../../scripts/app.mjs';
+import { listAssets } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
 const crate = app.crate('web');
@@ -92,6 +93,7 @@ writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({
     formatVersion: planBytes.readUInt32LE(4),
     kernelSchema: planBytes.readBigUInt64LE(16).toString(16).padStart(16, '0'),
   },
+  assets: listAssets(stage),
 }) + '\n');
 // The web app manifest (LLP 1030 D2/D10; 1030.000 D7): the W3C keys of
 // `app.json`, copied out as `manifest.json`; the page links it, takes its

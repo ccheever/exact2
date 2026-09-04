@@ -225,15 +225,11 @@ final class NodeView: NSView, NSTextFieldDelegate {
     /// URL as is; a relative path under the asset root (`EXACT_ASSETS`, else
     /// the current directory) and never outside it; anything else (`file:`,
     /// `..` escaping the root) does not load.
-    static func resolveSource(_ source: String, root assetRoot: URL) -> URL? {
+    static func resolveSource(_ source: String, app: ExactApp?) -> URL? {
         if let u = URL(string: source), let scheme = u.scheme {
             return scheme == "http" || scheme == "https" ? u : nil
         }
-        let root = assetRoot.standardizedFileURL.resolvingSymlinksInPath()
-        let url = root.appendingPathComponent(source)
-            .standardizedFileURL.resolvingSymlinksInPath()
-        let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        return url.path == root.path || url.path.hasPrefix(rootPath) ? url : nil
+        return app?.resolveAsset(source)
     }
 
     /// Decode an image completely, off the main thread: the bitmap and its
@@ -255,7 +251,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
         // one has loaded, as a browser keeps showing the old `src`.
         loadGeneration += 1
         let generation = loadGeneration
-        guard let url = NodeView.resolveSource(source, root: presenter?.session?.app.assetRoot ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)) else {
+        guard let url = NodeView.resolveSource(source, app: presenter?.session?.app) else {
             image = nil
             FileHandle.standardError.write(Data("exact: image \(source) is not a loadable source\n".utf8))
             presenter?.intrinsic(id, nil)

@@ -151,19 +151,22 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     /// Connect to `page` — the app URL. `apply` boots verified plan bytes
     /// into the app's sessions and returns true only when the candidate
     /// became the running app; the digest is committed with that success,
-    /// never merely with a good hash.
-    static func open(_ page: String, apply: @escaping (Data, String) -> Bool) -> PlanURL? {
+    /// never merely with a good hash. `asset` takes a changed asset's
+    /// verified bytes by name (the asset row, LLP 1030 D10).
+    static func open(_ page: String, apply: @escaping (Data, String) -> Bool, asset: @escaping (String, String, Data) -> Void) -> PlanURL? {
         guard let u = URL(string: page), u.host != nil else {
             print("exact url: not a URL: \(page)")
             return nil
         }
-        let s = PlanURL(u, apply: apply)
+        let s = PlanURL(u, apply: apply, asset: asset)
         s.resolveAndBoot(thenSubscribe: true)
         return s
     }
 
     let page: URL
     private let applyPlan: (Data, String) -> Bool
+    private let assetArrived: (String, String, Data) -> Void
+    static let assetLimit = 64 * 1024 * 1024
     /// "rebuild the native host" once `{rebuilt}` arrives; Reload clears it.
     var terminal: String?
     private var bootedDigest = ""
@@ -184,9 +187,40 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         return URLSession(configuration: c, delegate: self, delegateQueue: .main)
     }()
 
-    private init(_ u: URL, apply: @escaping (Data, String) -> Bool) {
+    private init(_ u: URL, apply: @escaping (Data, String) -> Bool, asset: @escaping (String, String, Data) -> Void) {
         page = u
         applyPlan = apply
+        assetArrived = asset
+    }
+
+    /// A changed asset (the dev push names it with its digest and size):
+    /// fetched by name beside the page, bounded by its declared size,
+    /// verified by digest, then handed to the app — or refused with the
+    /// numbers named and nothing changed.
+    private func fetchAsset(_ row: [String: Any], generation: UInt64) {
+        guard let name = row["name"] as? String, let sha = (row["sha256"] as? String)?.lowercased(), let count = row["bytes"] as? Int,
+              count >= 0, count <= PlanURL.assetLimit, !name.contains(".."), !name.hasPrefix("/"),
+              let u = URL(string: name, relativeTo: page)?.absoluteURL, PlanURL.sameOrigin(u, page) else { return }
+        var request = URLRequest(url: u)
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        fetch(request, limit: max(count, 1), generation: generation) { [weak self] result in
+            guard let self else { return }
+            guard case let .success((data, response)) = result, response.statusCode == 200 else {
+                self.status("cannot fetch the asset \(name); keeping the one shown")
+                return
+            }
+            guard data.count == count else {
+                self.status("asset \(name) is \(data.count) bytes, the push said \(count); keeping the one shown")
+                return
+            }
+            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            guard digest == sha else {
+                self.status("asset \(name) sha256 mismatch; keeping the one shown")
+                return
+            }
+            self.assetArrived(name, digest, data)
+            self.status("asset \(name) (\(count) bytes) arrived")
+        }
     }
 
     func close() {
@@ -438,6 +472,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         }
         if let e = frame["error"] as? String {
             status("dev: \(e)")
+            return
+        }
+        // The asset row: a `{seq}` that names changed assets fetches each
+        // by name; the plan itself is unchanged and is left alone.
+        if let assets = frame["assets"] as? [[String: Any]], terminal == nil {
+            for row in assets where row["removed"] as? Bool != true { fetchAsset(row, generation: resolution) }
             return
         }
         // hello and {seq}: both name the current revision; boot on mismatch.

@@ -49,6 +49,14 @@ public final class ExactApp {
     /// `EXACT_ASSETS`, else the bundle (iOS) or the working directory
     /// (macOS) — the way a page resolves against its URL.
     public var assetRoot: URL
+    /// Assets that arrived by name since launch (the dev connection's asset
+    /// row, LLP 1030 D10; the update store's entry, 1026 D11): a name
+    /// resolves here before the root. Files live in the app's cache by
+    /// digest.
+    public private(set) var assetOverrides: [String: URL] = [:]
+    /// The plan bytes last applied to every session, so a font edit can
+    /// restart them from the same plan and re-register the faces.
+    private(set) var lastPlan: Data?
 
     private var sessionRefs: [WeakSession] = []
     /// Every live session, in creation order.
@@ -86,7 +94,7 @@ public final class ExactApp {
     /// connection.
     public func connect(_ url: String) {
         connection?.close()
-        connection = PlanURL.open(url) { [weak self] bytes, label in self?.apply(bytes, label: label) ?? false }
+        connection = PlanURL.open(url, apply: { [weak self] bytes, label in self?.apply(bytes, label: label) ?? false }, asset: { [weak self] name, sha, bytes in self?.assetArrived(name: name, sha256: sha, bytes: bytes) })
     }
 
     public func disconnect() {
@@ -107,7 +115,57 @@ public final class ExactApp {
     public func apply(_ bytes: Data, label: String = "plan") -> Bool {
         var all = true
         for s in sessions { all = s.apply(bytes, label: label) && all }
+        if all { lastPlan = bytes }
         return all
+    }
+
+    /// A name (`assets/logo.png`, `shaders/aurora.wgsl`, a declared face's
+    /// source) as a file URL: an override that arrived by digest first, else
+    /// the file under the root — never outside it, as a page resolves `src`.
+    public func resolveAsset(_ name: String) -> URL? {
+        if let u = assetOverrides[name] { return u }
+        let root = assetRoot.standardizedFileURL.resolvingSymlinksInPath()
+        let url = root.appendingPathComponent(name).standardizedFileURL.resolvingSymlinksInPath()
+        let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        return url.path == root.path || url.path.hasPrefix(rootPath) ? url : nil
+    }
+
+    /// The cache an arriving asset is written into, by digest.
+    static var assetCache: URL {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        return base.appendingPathComponent("exact/assets", isDirectory: true)
+    }
+
+    /// An asset arrived (verified by its digest): kept by digest, named,
+    /// and every session refreshes what referenced it — an image repaints,
+    /// a shader is handed to the module (which validates it against the
+    /// interface it binds), a declared face restarts the sessions from the
+    /// current plan so the catalog re-registers, a deck page is left to the
+    /// arm (owed).
+    public func assetArrived(name: String, sha256: String, bytes: Data) {
+        let dir = ExactApp.assetCache
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let ext = (name as NSString).pathExtension
+        let file = dir.appendingPathComponent(ext.isEmpty ? sha256 : "\(sha256).\(ext)")
+        do { try bytes.write(to: file, options: .atomic) } catch { print("exact asset: \(name): \(error)"); return }
+        assetOverrides[name] = file
+        assetsChanged([name])
+    }
+
+    /// The names whose bytes changed: each session refreshes what it shows.
+    public func assetsChanged(_ names: [String]) {
+        var fonts = false
+        for name in names {
+            if name.hasPrefix("shaders/"), name.hasSuffix(".wgsl"), let url = assetOverrides[name] ?? resolveAsset(name), let text = FileManager.default.contents(atPath: url.path) {
+                let stem = String(name.dropFirst("shaders/".count).dropLast(".wgsl".count))
+                for s in sessions { s.canvases.shaderChanged(stem, text: text) }
+            } else if ["ttf", "otf", "woff", "woff2"].contains((name as NSString).pathExtension.lowercased()) {
+                fonts = true
+            } else {
+                for s in sessions { s.presenter.assetChanged(name) }
+            }
+        }
+        if fonts, let plan = lastPlan { for s in sessions { _ = s.apply(plan, label: "fonts") } }
     }
 }
 
@@ -169,7 +227,7 @@ public final class ExactSession {
         self.app = app
         self.label = label
         runtime = Runtime()
-        text = TextEngine(assetRoot: app.assetRoot)
+        text = TextEngine { [weak app] source in app?.resolveAsset(source) }
         presenter = Presenter()
         canvases = Canvases()
         webviews = WebViews()

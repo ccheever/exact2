@@ -118,6 +118,16 @@ final class GpuModule {
         return registered
     }
 
+    /// One shader's text into the module (LLP 1030 D8): validated, its
+    /// interface checked against the one the module binds; false, with the
+    /// reason at `error()`, when refused.
+    func register(shader name: String, text: Data) -> Bool {
+        guard let shader else { return false }
+        let bytes = Array(name.utf8)
+        let r = bytes.withUnsafeBufferPointer { n in text.withUnsafeBytes { t in shader(n.baseAddress, bytes.count, t.bindMemory(to: UInt8.self).baseAddress, text.count) } }
+        return r == 0
+    }
+
     func error() -> String {
         let n = Int(errorLen())
         guard n > 0, let p = errorPtr() else { return "" }

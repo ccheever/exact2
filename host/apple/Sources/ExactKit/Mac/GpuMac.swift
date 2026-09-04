@@ -90,6 +90,19 @@ final class Canvases {
         return exe.deletingLastPathComponent().appendingPathComponent("libexact_gpu.dylib").path
     }
 
+    /// A shader's text changed (the asset row, LLP 1030 D10): the module
+    /// takes it if its interface is the one it binds — every surface then
+    /// renders again through the new pipeline — or refuses it by name and
+    /// keeps the old one; a module not loaded yet reads the file when it is.
+    func shaderChanged(_ name: String, text: Data) {
+        guard let m = module else { return }
+        if m.register(shader: name, text: text) {
+            print("exact gpu: shader \(name) swapped in")
+        } else {
+            FileHandle.standardError.write(Data("exact gpu: shader \(name) refused — \(m.error()) — rebuild the native host\n".utf8))
+        }
+    }
+
     /// A surface op: new inputs for a canvas node.
     func surface(view: NodeView, name: String, values: [Any]) {
         if let e = entries[view.id], e.view !== view { destroy(view: view.id) }

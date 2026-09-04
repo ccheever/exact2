@@ -95,15 +95,16 @@ final class TextEngine {
     var fonts: [String: PlatformFont] = [:]
     var paragraphs: [Int: Paragraph] = [:]
     private var catalog: [Int: [RegisteredFace]] = [:]
-    /// Where a declared face's relative source resolves (the app's asset root).
-    var assetRoot: URL
+    /// Where a declared face's relative source resolves: the app's resolver
+    /// (LLP 1031 D1 — an override that arrived by digest, else the root).
+    let resolve: (String) -> URL?
     /// How many times the kernel asked, how many were answered from cache, and
     /// how long the misses took, since this session started.
     var measureCount = 0
     var measureHits = 0
     var measureSeconds = 0.0
 
-    init(assetRoot: URL) { self.assetRoot = assetRoot }
+    init(resolve: @escaping (String) -> URL?) { self.resolve = resolve }
 
     /// This engine as the context the C callbacks hand back.
     var opaque: UnsafeMutableRawPointer { Unmanaged.passUnretained(self).toOpaque() }
@@ -170,10 +171,7 @@ final class TextEngine {
 
     private func fontURL(_ source: String) -> URL? {
         guard URL(string: source)?.scheme == nil, !source.hasPrefix("/") else { return nil }
-        let root = assetRoot.standardizedFileURL.resolvingSymlinksInPath()
-        let url = root.appendingPathComponent(source).standardizedFileURL.resolvingSymlinksInPath()
-        guard url.path == root.path || url.path.hasPrefix(root.path + "/") else { return nil }
-        return url
+        return resolve(source)
     }
 
     private static func matched(_ faces: [RegisteredFace], weight: Int, italic: Bool) -> RegisteredFace {

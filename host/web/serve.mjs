@@ -4,7 +4,8 @@
 // EXACT_LOOPBACK=1) binds 127.0.0.1 only.
 // Usage: node host/web/serve.mjs [port=8765] [--loopback]
 import { createServer } from 'node:http';
-import { realpathSync, statSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, realpathSync, statSync, readFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +62,25 @@ export function readStaticFile(dist, pathname) {
     catch { /* retry against dist or dist.previous */ }
   }
   return null;
+}
+
+/** The assets by digest (LLP 1023 D4's owed slice; 1026 D11; 1030 D10): every file under assets/, deck/, and shaders/ in a build, named by its path beside the page, so a client fetches by name and verifies by digest and a dev push names what changed. Sorted by name. */
+export function listAssets(dir) {
+  const out = [];
+  const walk = (sub) => {
+    const abs = resolve(dir, sub);
+    if (!existsSync(abs)) return;
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      const rel = `${sub}/${entry.name}`;
+      if (entry.isDirectory()) walk(rel);
+      else if (entry.isFile()) {
+        const bytes = readFileSync(resolve(dir, rel));
+        out.push({ name: rel, url: `./${rel}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length });
+      }
+    }
+  };
+  for (const tree of ['assets', 'deck', 'shaders']) walk(tree);
+  return out.sort((a, b) => (a.name < b.name ? -1 : 1));
 }
 
 export function webContentType(route) {

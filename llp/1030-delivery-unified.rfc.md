@@ -578,6 +578,8 @@ re-registers (1019), a surface builds its candidate pipeline —
 carrying state as any `{seq}` does. Today assets are bundled-only on
 native and an image edit is a rebuild; that is the gap the first stage
 closes, because it is the one every designer hits on day one.
+(Closed 2026-09-04: 1030.000 stage 1 landed — its §4 says what was
+driven and what was not.)
 
 **In production, the platform decides, per item.** The manifest (D2)
 declares each once; bake generates per platform; the classifier

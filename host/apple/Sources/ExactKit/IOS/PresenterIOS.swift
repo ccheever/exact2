@@ -163,6 +163,13 @@ final class Presenter {
     /// The first root's frame size, zero before the first batch.
     var rootSize: CGSize { root.subviews.first?.frame.size ?? .zero }
 
+    /// An asset's bytes changed (LLP 1030 D10): every image showing it loads
+    /// it again — the old picture stays until the new one is decoded, as a
+    /// browser keeps the old `src`.
+    func assetChanged(_ name: String) {
+        for v in views.values where v.kind == "image" && v.imageSource == name { v.loadImage(name) }
+    }
+
     /// A restart: every view goes.
     func reset() {
         session?.canvases.reset()
