@@ -461,6 +461,13 @@ for (const [name, html, files, expectCode, expect] of [
   const table = await classify({ app, opts: {}, origin, channel: 'prod', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, release: 'test', web: newWeb,
     bundle: {}, compat: {}, platforms: [], wantOrigin: true });
   whole &&= table.rows[0].files.removed.join(',') === '.well-known/apple-app-site-association,assets/removed.txt';
+  let directHeadRefused = false;
+  try { await origin.put(`.exact/web/${'b'.repeat(64)}/exact.json`, Buffer.from('unguarded'), { immutable: true }); }
+  catch (error) { directHeadRefused = error.message.includes('stream heads require putHead'); }
+  whole &&= directHeadRefused;
+  const rootChannel = await classify({ app, opts: {}, origin, channel: 'root', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, release: 'test', web: newWeb,
+    bundle: { plan: { sha256: '0'.repeat(64), bytes: 3 }, assets: [] }, compat: { linux: { id: 'c'.repeat(32), inputs: { store: { L: 'A' }, executors: [] } } }, platforms: ['linux'], wantOrigin: false });
+  whole &&= rootChannel.rows.length === 1 && rootChannel.rows[0].compatibilityId === 'c'.repeat(32);
   const server = createServer((req, res) => serveStatic(root, req, res));
   await new Promise((done) => server.listen(0, '127.0.0.1', done));
   const url = `http://127.0.0.1:${server.address().port}`;

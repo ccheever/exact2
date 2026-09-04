@@ -917,7 +917,8 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
     try {
       const listed = await origin.list(`.exact/${channel}`);
       if (listed === null && origin.kind === 'https') notes.push(`an https origin cannot be listed: the streams classified are this snapshot's own; name deploy.streams in app.json to classify a retired cohort's`);
-      others = listed ?? [];
+      // The web pointer is publisher metadata, never a retired native cohort.
+      others = (listed ?? []).filter((id) => channel !== webRootStream.channel || id !== webRootStream.compatibilityId);
     } catch (error) {
       if (!(error instanceof OriginUnavailable)) throw error;
       notes.push(`stream discovery unavailable at ${origin.describe()}/.exact/${channel}: ${error.message}; the snapshot's own streams are still classified`);

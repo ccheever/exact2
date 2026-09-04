@@ -75,11 +75,6 @@ fn operate(root: &Directory, input: &Value, locked: Option<&Lock>) -> io::Result
         && parts.len() == 4
         && parts[0] == ".exact"
         && matches!(parts[3], "exact.json" | ".lock")
-        && !(parts[1] == "web"
-            && parts[2].len() == 64
-            && parts[2].bytes().all(|b| b.is_ascii_hexdigit())
-            && parts[3] == "exact.json"
-            && input["immutable"] == true)
     {
         return Err(refuse(
             "stream heads require putHead; stream locks are never replaced",
