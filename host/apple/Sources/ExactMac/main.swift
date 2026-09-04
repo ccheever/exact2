@@ -9,6 +9,7 @@
 // the app over stdio; `scripts/smoke.mjs` is a script of its operations.
 import AppKit
 import ExactKit
+import ExactComposition
 
 // The process's own start (exec), from the kernel: what happened before
 // `main` — dyld, the Swift runtime, the static library's initializers.
@@ -36,7 +37,7 @@ ExactEnv.stamp("setActivationPolicy")
 let appReadyMs = ExactEnv.wall()
 
 /// The one session and its view; the session's clock is the agent's under a script.
-let exact = ExactApp.shared
+let exact = ExactComposition.app
 final class Adapter: ExactSessionDelegate {
     /// The capabilities: `setScheme` is the app's appearance — light or dark,
     /// as the web's `color-scheme`; anything else is named and refused.

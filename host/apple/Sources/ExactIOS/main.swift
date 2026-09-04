@@ -11,6 +11,7 @@
 // environment through as SIMCTL_CHILD_*; `node host/apple/build.mjs --ios`
 // builds, bundles, installs, and launches.
 import ExactKit
+import ExactComposition
 import UIKit
 
 // The process's own start (exec), from the kernel: what happened before
@@ -37,7 +38,7 @@ let fpsMode = environment["EXACT_FPS"] == "1"
 nonisolated(unsafe) var fpsLabel: UILabel?
 setvbuf(stdout, nil, _IOLBF, 0)
 
-let exact = ExactApp.shared
+let exact = ExactComposition.app
 final class Adapter: ExactSessionDelegate {
     weak var window: UIWindow?
     var announced = false

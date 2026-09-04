@@ -13,11 +13,15 @@ import Foundation
 let libDir = ProcessInfo.processInfo.environment["EXACT_LIB_DIR"] ?? (Context.packageDirectory + "/../../target/release")
 let libName = ProcessInfo.processInfo.environment["EXACT_LIB"] ?? "caltrain_apple"
 
+let composition = ProcessInfo.processInfo.environment["EXACT_APP_COMPOSITION"] ?? "embedded"
+precondition(["embedded", "updating"].contains(composition), "EXACT_APP_COMPOSITION must be embedded or updating")
+
 let package = Package(
     name: "Exact",
     platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "ExactKit", targets: ["ExactKit"]),
+        .library(name: "ExactUpdates", targets: ["ExactUpdates"]),
         .executable(name: "ExactMac", targets: ["ExactMac"]),
         .executable(name: "ExactIOS", targets: ["ExactIOS"]),
         .executable(name: "ExactHostMac", targets: ["ExactHostMac"]),
@@ -31,9 +35,12 @@ let package = Package(
             path: "Sources/ExactKit",
             linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName), .linkedLibrary("c++")]
         ),
-        .executableTarget(name: "ExactMac", dependencies: ["ExactKit"], path: "Sources/ExactMac"),
-        .executableTarget(name: "ExactIOS", dependencies: ["ExactKit"], path: "Sources/ExactIOS"),
-        .executableTarget(name: "ExactHostMac", dependencies: ["ExactKit"], path: "Sources/ExactHostMac"),
-        .executableTarget(name: "ExactHostIOS", dependencies: ["ExactKit"], path: "Sources/ExactHostIOS"),
+        .target(name: "ExactUpdates", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactUpdates"),
+        .target(name: "ExactComposition", dependencies: [.target(name: "ExactKit")] + (composition == "updating" ? [.target(name: "ExactUpdates")] : []),
+                path: composition == "updating" ? "Sources/ExactUpdating" : "Sources/ExactEmbedded"),
+        .executableTarget(name: "ExactMac", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactMac"),
+        .executableTarget(name: "ExactIOS", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactIOS"),
+        .executableTarget(name: "ExactHostMac", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactHostMac"),
+        .executableTarget(name: "ExactHostIOS", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactHostIOS"),
     ]
 )

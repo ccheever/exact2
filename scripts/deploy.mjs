@@ -911,7 +911,7 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
   // Streams on the origin (or in `deploy.streams`) that are not this snapshot's cohorts: a retired cohort's stream, which needs a binary (LLP 1030 D3 rule 3). Not when the run wants no stream at all (`--only origin`, `--platform web`).
   const declared = app.manifest.deploy?.streams?.filter((s) => s.channel === channel) ?? null;
   let others;
-  if (!platforms.length) others = [];
+  if (!platforms.some((platform) => compat[platform]?.inputs?.store?.L !== '0')) others = [];
   else if (declared) others = declared.map((s) => s.compatibilityId);
   else {
     try {
@@ -938,6 +938,7 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
       continue;
     }
     const platform = record?.platform ?? null;
+    if (platform && compat[platform]?.inputs?.store?.L === '0') continue;
     if (opts.platform.length && platform && !opts.platform.includes(platform)) continue;
     if (!head && !record && !declared) continue; // an empty directory is not a stream
     const admission = head ? inspectHead(head, app, stream) : null;

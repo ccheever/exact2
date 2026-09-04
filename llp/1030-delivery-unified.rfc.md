@@ -325,14 +325,21 @@ no Cargo features on a core crate. Cargo may compile a declared but unused
 adapter dependency; L=0's final artifact must omit it, which is established
 by artifact inspection, not the dependency declaration alone.
 
-Apple C ABI 3 exposes a nullable delivery function table: L=0 returns null,
-so ExactKit does not open a store. The runner's delivery value and the debug
+Apple C ABI 3 exposes a nullable delivery function table: L=0 returns null.
+`ExactKit` contains only generic lifecycle, presentation and asset-provider seams;
+`ExactUpdates` is a separate Swift target owning store selection, commands and
+after-paint checks. Two thin app compositions use the same renderer. The shared
+Apple build reads the actual Cargo bake output for its target and selects the
+matching Swift graph (`embedded` or `updating`), in separate build directories;
+it never infers the choice from the development machine or a runtime flag. The runner's delivery value and the debug
 dev connection remain available. Linux takes an optional adapter; its
 selected-asset resolver preserves complete-roster tombstones and boot-time
 integrity fallback without a dependency on the store. L=0 compatibility
 metadata contains no verification keys, trust epoch, store codec or accepted
 bundle kinds, and no update origin. The publisher emits a binary row for it
-before reading a stream. Binary publication remains the separate unbuilt
+without discovering or reading retired streams when all selected platforms are
+L=0; in a mixed run, retired records identified as an L=0 platform are omitted.
+Binary publication remains the separate unbuilt
 verb described in 1030.000 §6.
 
 ### D5 — Propagation: what reaches whom, when, and the aids that need no service

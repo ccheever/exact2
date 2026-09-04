@@ -376,7 +376,17 @@ platform halves under `#if os(macOS)`/`#if os(iOS)`) and executable
 targets `ExactMac`, `ExactIOS` (the adapters) and `ExactHostMac`,
 `ExactHostIOS` (the sample hosts, D10). It links the archive `build.mjs`
 built; a brownfield consumer adds the package and the archive to its
-project. Optional artifacts stay what they are — `libexact_gpu.dylib`,
+project. `ExactKit` has no update owner or update commands. An L=A embedder
+also links `ExactUpdates` and installs it on the app before creating sessions;
+an L=0 embedder links only `ExactKit`. The standalone and sample executables
+share two thin compositions, selected by `build.mjs` from Cargo's baked
+actual-target compatibility output. `EXACT_APP_COMPOSITION` is the SwiftPM
+build input it supplies (default `embedded` for direct package use), never a
+runtime switch; the two compositions keep independent Swift scratch directories.
+`--embed` carries that same baked compatibility and records the composition.
+The lifecycle callback and complete asset provider in the core are generic;
+normal data networking and the debug dev connection remain usable at L=0.
+Optional artifacts stay what they are — `libexact_gpu.dylib`,
 `libexact_web.dylib`, the native-module dylib, the Hermes and wasmtime
 runtimes when 1027/1029 land — loaded once per process (D12), never cargo
 features on a core crate.

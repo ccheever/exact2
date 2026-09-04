@@ -291,7 +291,9 @@ import { classify, nativePlatforms, renderTable } from './scripts/deploy.mjs';
 const manifest = { deploy: { store: { linux: '0' }, binaries: { linux: 'manual' }, streams: [] } };
 assert.deepEqual(nativePlatforms(manifest), ['linux']);
 let reads = 0;
-const origin = { kind: 'directory', describe: () => 'unused', head: async () => { reads++; throw Error('L=0 read a stream'); } };
+const origin = { kind: 'directory', describe: () => 'unused', list: async () => { reads++; throw Error('L=0 discovered streams'); }, head: async () => { reads++; throw Error('L=0 read a stream'); } };
+for (const streams of [undefined, [], [{ channel: 'prod', compatibilityId: 'retired' }]]) {
+manifest.deploy.streams = streams;
 const result = await classify({
  app: { id: 'example', manifest }, opts: { only: 'bundle' }, origin, channel: 'prod',
  snapshot: { id: 'fixture', commit: 'fixture', dirty: false }, release: 'fixture',
@@ -304,7 +306,20 @@ assert.equal(result.rows[0].kind, 'binary');
 assert.equal(result.rows[0].action, 'binary');
 assert.match(renderTable(result), /links no update store/);
 assert.doesNotMatch(renderTable(result), /linux\s+stream/);
-console.log('level-zero deploy: binary only, zero stream reads');
+}
+// In a mixed run discovery still serves A, but a record for today's L=0
+// platform must not resurrect an extra bundle-carrier row.
+const mixed = await classify({
+ app: { id: 'example', manifest: { deploy: {} } }, opts: { only: 'bundle', platform: [] }, channel: 'prod',
+ origin: { kind: 'directory', describe: () => 'fixture', head: async () => null,
+   list: async (path) => path === '.exact/prod' ? ['retired'] : path.includes('/retired/') ? ['1.json'] : [],
+   get: async () => Buffer.from(JSON.stringify({ platform: 'linux', at: '1' })) },
+ snapshot: { id: 'fixture', commit: 'fixture', dirty: false }, release: 'fixture',
+ web: '.', bundle: { plan: {}, assets: [] }, platforms: ['linux', 'macos'], wantOrigin: false,
+ compat: { linux: { id: 'zero', inputs: { store: { L: '0' } } }, macos: { id: 'updating', inputs: { store: { L: 'A' } } } }
+});
+assert.deepEqual(mixed.rows.map(({kind, platform}) => [kind, platform]), [['binary', 'linux'], ['stream', 'macos']]);
+console.log('level-zero deploy: binary only, zero stream discovery or head reads; mixed runs retain only A streams');
 "#;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let result = std::process::Command::new("node")

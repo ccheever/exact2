@@ -1,7 +1,7 @@
 # Level-zero hosts still link and publish the update store
 
 **Status:** Closed
-**Resolution:** Implemented 2026-09-04: native hosts no longer depend on the updater; the bake selects a core or adapter entry, and L=0 deploys classify as binary-only.
+**Resolution:** Completed the upstream Rust split with a separate ExactUpdates Swift target and two bake-selected app compositions; Level 0 skips stream discovery and emits binary rows only. Paired linked artifacts, all native runtime/network probes, and sample-host smokes prove updater omission while ordinary networking remains available.
 **Systems:** Build, Delivery, Apple host, Linux host
 **Severity:** P2
 **Author:** Codex (GPT-5) for Charlie Cheever
@@ -94,3 +94,49 @@ and driving the former with `EXACT_AGENT=1`/`EXACT_SMOKE=1` and a fresh
 `EXACT_UPDATE_DIR`. Both normal app entry generators consume the compatibility
 record; neither relies on a Cargo feature. Higher adapter dependencies may be
 compiled by Cargo even when unused, but are absent from the L=0 linked artifact.
+
+## Completion of the Swift and classifier boundaries (2026-09-04)
+
+The Rust composition is retained. `ExactUpdates` is now a separate Swift target;
+`ExactKit` owns only generic lifecycle and complete asset-provider seams. The
+shared Apple script reads `compat.json` from Cargo's actual app bake output and
+selects the embedded or updating composition, with separate Swift build graphs.
+The classifier skips retired-stream discovery for all-L=0 runs and omits retired
+records identified as an L=0 platform in mixed runs. The regression covers no
+`deploy.streams`, an empty list, a declared retired stream, and a mixed L=0/L=A run.
+
+A disposable external Caltrain workspace, using `EXACT_APP_DIR` and the normal
+shared build/agent/smoke scripts, produced these paired release artifacts with
+identical dependencies and retained symbols:
+
+| Artifact | L=0 bytes | L=A bytes |
+|---|---:|---:|
+| Apple Rust archive | 32,270,448 | 34,574,000 |
+| Linux executable | 9,077,296 | 9,324,496 |
+| macOS standalone | 2,657,520 | 2,930,400 |
+| macOS sample host | 2,663,968 | 2,953,232 |
+
+Rust's matching `llvm-nm` inspected both the LLVM-bitcode archive members and
+final executables: the updater, higher Rust adapters, verification crypto and
+Swift `ExactUpdates` owner are absent at L=0 and present at L=A. L=0 artifacts
+also contain neither the fixture's verification key nor its update origin.
+The final iOS app, sample host and Rust archive likewise omit those symbols;
+the same manifest selected macOS/Linux=A and iOS=0, proving target-specific
+composition selection. Normal builds include GPU/web-arm packaging and pass the
+Apple deployment-target warning gate.
+
+macOS, Linux, the macOS sample host, and iOS each booted with delivery.L=0,
+stream=embedded, an override update origin and a fresh update directory. Each
+successfully performed an ordinary data request against an owned loopback server;
+after the scheduled-check interval, none contacted the update path or created
+that directory. First frames were 69.4, 553.0, 45.2 and 367.4 ms respectively
+(single probes, not latency distributions). The paired macOS A app opened its
+store and contacted the update origin after paint. The two-session shared host
+smoke passed at L=0 (11.0 s), L=A (25.5 s), and iOS L=0 (3.6 s).
+
+`caps.test` passes 40/40; the Apple core, both update adapters and updater tests
+pass (82 tests), including the expanded publisher regression. Caps, boot, format
+and issue-format checks pass. Broader native testing also found an unchanged
+`exact-linux` library test, `fetch::tests::a_page_that_never_ends_is_refused`,
+crashing with SIGSEGV on this Mac, reproduced once with one test thread. It is
+recorded in QUEUE; the full workspace suite is not claimed green by this evidence.

@@ -14,11 +14,12 @@
 // `mount <label>`, `apply <plan path>`.
 import AppKit
 import ExactKit
+import ExactComposition
 
 let app = NSApplication.shared
 app.setActivationPolicy(ExactEnv.agentMode ? .accessory : .regular)
 setvbuf(stdout, nil, _IOLBF, 0)
-let exact = ExactApp.shared
+let exact = ExactComposition.app
 /// The host's own lines go to stderr: under the agent, stdout is the protocol.
 func log(_ line: String) { FileHandle.standardError.write(Data((line + "\n").utf8)) }
 

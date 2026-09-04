@@ -10,6 +10,10 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **Linux fetch test crash on macOS** (2026-09-04):
+  `cargo test -p exact-linux --lib -- --test-threads=1` reproducibly SIGSEGVs
+  in `fetch::tests::a_page_that_never_ends_is_refused`; isolate the transport crash.
+
 - **macOS offscreen capture** (2026-09-04): a cover-window app can return a
   fully transparent default screenshot while its window capture is correct.
   Reduce to a generic canvas fixture; `issues/20260904-macos-offscreen-capture-can-be-transparent.md`.
