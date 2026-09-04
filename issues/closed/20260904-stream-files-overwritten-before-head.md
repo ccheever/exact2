@@ -1,6 +1,7 @@
 # Stream publish overwrites live plan files before swapping the head
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by immutable blob URLs and a release-record-before-head commit boundary, with injected failure coverage
 **Systems:** Delivery, exact deploy
 **Severity:** P1
 **Author:** Grok 4.6 for Charlie Cheever

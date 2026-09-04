@@ -2,9 +2,9 @@
 // 5, D7; LLP 1030 D3a): the static host that serves the web app at its root,
 // content-addressed blobs under `.exact/blobs/<sha256>`, and one directory
 // per stream — `.exact/<channel>/<compatibilityId>/` — holding the signed
-// head `exact.json`, `app.plan`, `assets/<name>`, and `releases/<release>.json`
-// (the immutable record of each publish). A client fetches by the head's
-// `url`s, relative to the head.
+// head `exact.json` and `releases/<release>.json` (the immutable prepared
+// record of each publish). A client resolves the head's relative `url`s to
+// the immutable blob tree; no mutable payload copy lives under a stream.
 //
 // Two adapters. A **directory** is v1's writable origin: any directory a
 // static host serves. Every file lands whole or absent (a temp file beside
@@ -18,7 +18,7 @@
 // files; an object-store adapter (`If-Match` on the ETag, which S3, GCS, R2,
 // and Azure all have) is owed, and `--yes` against https refuses by name.
 import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 /** SHA-256, lowercase hex — the digest every card and blob name carries (LLP 1023 D2). */
@@ -87,19 +87,31 @@ export class DirectoryOrigin {
     }
   }
 
-  /** Write `bytes` at `rel`, whole or absent (a temp file beside it, renamed into place). An `immutable` file is a blob named by its digest: present with the same bytes, it is skipped (`'present'`); present with other bytes, refused, because a blob never changes under its name. Returns `'written'` or `'present'`. */
+  /** Write `bytes` at `rel`, whole or absent (a temp file beside it, renamed into place). An `immutable` file is content-addressed or an audit record: present with the same bytes, it is skipped (`'present'`); present with other bytes, refused. Returns `'written'` or `'present'`. */
   async put(rel, bytes, { immutable = false } = {}) {
     const abs = this.path(rel);
-    if (immutable && existsSync(abs)) {
-      const have = readFileSync(abs);
+    const existing = immutable ? await this.get(rel) : null;
+    if (existing) {
+      const have = existing;
       if (have.equals(bytes)) return 'present';
-      throw new Error(`the blob ${rel} is on the origin with other bytes (${sha256(have)} on the origin, ${sha256(bytes)} here): a blob never changes under its name`);
+      throw new Error(`the immutable file ${rel} is on the origin with other bytes (${sha256(have)} on the origin, ${sha256(bytes)} here): it never changes under its name`);
     }
     mkdirSync(dirname(abs), { recursive: true });
     const temp = resolve(dirname(abs), `.tmp-${process.pid}-${randomBytes(4).toString('hex')}`);
     try {
-      writeFileSync(temp, bytes);
-      renameSync(temp, abs);
+      writeFileSync(temp, bytes, { flag: 'wx' });
+      if (immutable) {
+        try { linkSync(temp, abs); }
+        catch (error) {
+          if (error.code !== 'EEXIST') throw error;
+          const have = await this.get(rel);
+          if (have?.equals(bytes)) { rmSync(temp, { force: true }); return 'present'; }
+          throw new Error(`the immutable file ${rel} appeared with other bytes while it was being published: it never changes under its name`);
+        }
+        rmSync(temp, { force: true });
+      } else {
+        renameSync(temp, abs);
+      }
     } catch (e) {
       rmSync(temp, { force: true });
       throw e;

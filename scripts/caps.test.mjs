@@ -10,15 +10,15 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appManifestDigest, builtAppMatches, listPublicFiles, publicFileCards, staticFile, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
 import { deviceLaunchArgs } from '../host/apple/build.mjs';
-import { classify, defaultRelease, deployRun, streamHead } from './deploy.mjs';
-import { DirectoryOrigin, HttpsOrigin, OriginUnavailable } from './origin.mjs';
+import { canonicalBytes, classify, defaultRelease, deployRun, publishStream, streamHead } from './deploy.mjs';
+import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable } from './origin.mjs';
 
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
 const BOOT = join(dirname(fileURLToPath(import.meta.url)), 'boot.mjs');
@@ -358,6 +358,102 @@ for (const [name, html, files, expectCode, expect] of [
   result('deploy ids and private stages do not collide in one clock tick', ids.size === 32
     && first !== second && readFileSync(join(first, 'still-here'), 'utf8') === 'first');
   rmSync(target, { recursive: true, force: true });
+}
+
+// Stream heads point only at immutable blobs. Their immutable audit record is
+// prepared before the conditional head swap; a failed record cannot expose a
+// head, and a failed head leaves the preceding one and every named blob whole.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-stream-commit-'));
+  const origin = new DirectoryOrigin(dir);
+  const compatibilityId = 'c'.repeat(32);
+  const row = { kind: 'stream', platform: 'linux', channel: 'prod', compatibilityId,
+    action: 'bundle', changes: [{ name: 'app.plan', change: 'new' }, { name: 'assets/icon.png', change: 'new' }] };
+  const plan = Buffer.from('plan bytes');
+  const asset = Buffer.from('asset bytes');
+  const bundle = { plan: { bytes: plan, sha256: createHash('sha256').update(plan).digest('hex'), formatVersion: 4, kernelSchema: '0'.repeat(16) },
+    assets: [{ name: 'assets/icon.png', bytes: asset, sha256: createHash('sha256').update(asset).digest('hex') }] };
+  const app = { id: 'com.exact.test', displayName: 'Test', manifest: { deploy: {} } };
+  const signer = { keyId: 'test', sign: () => ({ keyId: 'test', ed25519: Buffer.alloc(64).toString('base64') }) };
+  const racedPath = blobPath('d'.repeat(64));
+  const raced = await Promise.allSettled([
+    origin.put(racedPath, Buffer.from('first'), { immutable: true }),
+    origin.put(racedPath, Buffer.from('second'), { immutable: true }),
+  ]);
+  const racedBytes = await origin.get(racedPath);
+  const immutableRaceHeld = raced.filter((attempt) => attempt.status === 'fulfilled').length === 1
+    && raced.filter((attempt) => attempt.status === 'rejected').length === 1
+    && (racedBytes.equals(Buffer.from('first')) || racedBytes.equals(Buffer.from('second')));
+  const order = [];
+  const put = origin.put.bind(origin);
+  origin.put = async (rel, bytes, options) => { const result = await put(rel, bytes, options); order.push(`put ${rel}`); return result; };
+  const putHead = origin.putHead.bind(origin);
+  origin.putHead = async (...args) => { order.push('put head'); return putHead(...args); };
+  const args = { origin, row, bundle, compat: { id: compatibilityId, inputs: {} }, app, signer,
+    release: 'one', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, opts: {}, log: () => {} };
+  await publishStream(args);
+  const stream = { channel: 'prod', compatibilityId };
+  const head = await origin.head(stream);
+  const base = `.exact/prod/${compatibilityId}`;
+  const recordPath = `${base}/releases/one.json`;
+  const record = JSON.parse((await origin.get(recordPath)).toString('utf8'));
+  let reusedRefused = false;
+  const beforeRetry = order.length;
+  try { await publishStream(args); }
+  catch (error) { reusedRefused = error.message.includes('already has an immutable record'); }
+  const names = await origin.list(base);
+  const blobCards = [head.json.plan, ...head.json.assets];
+  const recordBeforeHead = order.indexOf(`put ${recordPath}`) < order.indexOf('put head');
+
+  const interrupted = [];
+  for (const moment of ['before', 'after']) for (let stop = 1; stop <= 4; stop++) {
+    const failedDir = mkdtempSync(join(tmpdir(), `exact-stream-failure-${moment}-${stop}-`));
+    const failed = new DirectoryOrigin(failedDir);
+    const oldPlan = Buffer.from('old plan');
+    const oldBundle = { plan: { ...bundle.plan, bytes: oldPlan, sha256: createHash('sha256').update(oldPlan).digest('hex') }, assets: [] };
+    await failed.put(blobPath(oldBundle.plan.sha256), oldPlan, { immutable: true });
+    const oldHead = streamHead({ app, bundle: oldBundle, stream, seq: 1, release: 'old' });
+    oldHead.signature = signer.sign(oldHead);
+    const oldBytes = Buffer.from(JSON.stringify(oldHead) + '\n');
+    await failed.withLock(stream, () => failed.putHead(stream, oldBytes));
+    const rawPut = failed.put.bind(failed);
+    let writes = 0;
+    failed.put = async (...putArgs) => {
+      writes++;
+      if (writes === stop && moment === 'before') throw new Error(`injected before write ${stop}`);
+      const result = await rawPut(...putArgs);
+      if (writes === stop && moment === 'after') throw new Error(`injected after write ${stop}`);
+      return result;
+    };
+    const rawHead = failed.putHead.bind(failed);
+    failed.putHead = async (...headArgs) => {
+      writes++;
+      if (writes === stop && moment === 'before') throw new Error(`injected before write ${stop}`);
+      const result = await rawHead(...headArgs);
+      if (writes === stop && moment === 'after') throw new Error(`injected after write ${stop}`);
+      return result;
+    };
+    let stopped = false;
+    let result = null;
+    try { result = await publishStream({ ...args, origin: failed, release: `failed-${moment}-${stop}` }); }
+    catch (error) { stopped = error.message.includes('injected'); }
+    const after = await failed.head(stream);
+    interrupted.push((stop < 4
+      ? stopped && after.bytes.equals(oldBytes)
+      : moment === 'before'
+        ? stopped && after.bytes.equals(oldBytes)
+        : result?.action === 'published' && after.json.release === `failed-${moment}-${stop}`)
+      && (await failed.get(blobPath(oldBundle.plan.sha256))).equals(oldPlan));
+    rmSync(failedDir, { recursive: true, force: true });
+  }
+
+  result('stream publication commits immutable blobs and receipt before its head', recordBeforeHead
+    && names.join(',') === 'exact.json,releases' && blobCards.every((card) => card.url === `../../blobs/${card.sha256}`)
+    && blobCards.every((card) => existsSync(join(dir, '.exact', 'blobs', card.sha256)))
+    && record.head.entryDigest === createHash('sha256').update(canonicalBytes(head.json)).digest('hex')
+    && record.envelope.signature.keyId === 'test' && immutableRaceHeld && reusedRefused && order.length === beforeRetry
+    && interrupted.every(Boolean));
+  rmSync(dir, { recursive: true, force: true });
 }
 
 // A matching hand-written exact.json is not build identity. The agent must

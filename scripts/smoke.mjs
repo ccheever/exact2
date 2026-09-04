@@ -191,7 +191,11 @@ if (host === 'deploy') {
       const head = JSON.parse(headOf(id).toString('utf8'));
       const ok = verify(null, canonicalBytes(head), publicKeyFromRaw(Buffer.from(publicKey, 'base64')), Buffer.from(head.signature.ed25519, 'base64'));
       check(ok && head.stream.seq === 1 && head.stream.compatibilityId === id && head.stream.channel === channel && head.signature.keyId === keyId, `the head of ${id.slice(0, 8)} verifies and names its stream`);
-      check(existsSync(resolve(origin, '.exact', channel, id, 'app.plan')) && readdirSync(resolve(origin, '.exact', channel, id, 'releases')).length === 1, `the stream ${id.slice(0, 8)} has its plan and one release record`);
+      const cards = [head.plan, ...head.assets];
+      check(!existsSync(resolve(origin, '.exact', channel, id, 'app.plan'))
+        && cards.every((card) => card.url === `../../blobs/${card.sha256}` && existsSync(resolve(origin, '.exact', 'blobs', card.sha256)))
+        && readdirSync(resolve(origin, '.exact', channel, id, 'releases')).length === 1,
+      `the stream ${id.slice(0, 8)} points at immutable blobs and has one release record`);
     }
     // 3. Again: everything current, nothing rewritten.
     const before = mtimes();

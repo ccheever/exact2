@@ -15,13 +15,15 @@
 //! form): `exact.json`, `app.plan`, `assets/<name>`; plus `canonical.bin`,
 //! the bytes Node signed, written by the same `canonicalBytes`. The private
 //! key was discarded; the manifest's real key is Charlie's, and the release
-//! record was left out (it is the publisher's, not the client's).
+//! record was left out (it is the publisher's, not the client's). The head's
+//! cards point at the origin-wide immutable blob tree, as a live publisher's
+//! stream does.
 
 use exact_update::{canonical_bytes, Check, Embedded, Envelope, Store};
 use std::path::{Path, PathBuf};
 
 const HEAD: &[u8] = include_bytes!("fixtures/publisher/exact.json");
-const CANONICAL: &[u8] = include_bytes!("fixtures/publisher/canonical.bin");
+const CANONICAL: &str = include_str!("fixtures/publisher/canonical.bin");
 const PUBLIC_KEY: &str = include_str!("fixtures/publisher/caltrain-2026.pub");
 const KEY_ID: &str = "caltrain-2026";
 const APP: &str = "com.exact.caltrain";
@@ -80,10 +82,13 @@ impl Drop for Temp {
 
 #[test]
 fn the_canonical_bytes_agree_with_node_byte_for_byte() {
-    assert_eq!(canonical_bytes(text()).unwrap(), CANONICAL);
+    assert_eq!(
+        canonical_bytes(text()).unwrap(),
+        CANONICAL.trim_end().as_bytes()
+    );
     // And they are what the rule says: no whitespace, sorted keys, the
     // signature gone.
-    let canonical = std::str::from_utf8(CANONICAL).unwrap();
+    let canonical = CANONICAL.trim_end();
     assert!(canonical.starts_with("{\"app\":{\"id\":\"com.exact.caltrain\""));
     assert!(!canonical.contains("signature"));
     assert!(!canonical.contains(": "));
@@ -98,7 +103,7 @@ fn a_head_the_node_publisher_signed_verifies_with_the_manifests_key() {
     assert_eq!(head.stream.channel, "prod");
     assert_eq!(head.stream.seq, 1);
     assert_eq!(head.stream.compatibility_id.len(), 32);
-    assert_eq!(head.plan.url, "./app.plan");
+    assert_eq!(head.plan.url, format!("../../blobs/{}", head.plan.sha256));
     assert_eq!(head.format_version, Some(4));
     assert_eq!(head.kernel_schema.as_deref().map(str::len), Some(16));
     assert_eq!(head.assets.len(), 6);
@@ -107,7 +112,7 @@ fn a_head_the_node_publisher_signed_verifies_with_the_manifests_key() {
         .iter()
         .find(|a| a.name == "assets/caltrain.png")
         .expect("the icon is an asset");
-    assert_eq!(png.url, "./assets/assets/caltrain.png");
+    assert_eq!(png.url, format!("../../blobs/{}", png.sha256));
     assert_eq!(png.bytes, 699);
     assert!(head.release.as_deref().unwrap().starts_with("r-"));
     assert_eq!(head.sunset, None);
@@ -180,8 +185,9 @@ fn the_published_stream_is_staged_whole_by_a_client() {
     .unwrap();
     // The store asks for `<origin>/.exact/<channel>/<compatibilityId>/exact.json`
     // (`head_url`) and resolves each card's url against it — the layout the
-    // publisher writes (LLP 1030.000 D7: a channel is a prefix). This closure
-    // serves the fixture's stream directory at that path.
+    // publisher writes (LLP 1030.000 D7: a channel is a prefix). Payload cards
+    // resolve out to `.exact/blobs/<sha256>` and this closure maps those
+    // content-addressed URLs back to the fixture bytes.
     let origin = "https://caltrain.exact.invalid";
     let head_url =
         exact_update::head_url(origin, &head.stream.channel, &head.stream.compatibility_id);
@@ -189,14 +195,28 @@ fn the_published_stream_is_staged_whole_by_a_client() {
         "{origin}/.exact/{}/{}/",
         head.stream.channel, head.stream.compatibility_id
     );
+    let blob_prefix = format!("{origin}/.exact/blobs/");
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/publisher");
     let asked = std::cell::RefCell::new(Vec::new());
     let mut fetch = |url: &str| -> Result<Vec<u8>, String> {
         asked.borrow_mut().push(url.to_string());
-        let rest = url
-            .strip_prefix(&prefix)
-            .ok_or_else(|| format!("{url} is not under the stream"))?;
-        std::fs::read(fixture.join(rest)).map_err(|e| format!("{url}: {e}"))
+        if url == head_url {
+            return Ok(HEAD.to_vec());
+        }
+        let digest = url
+            .strip_prefix(&blob_prefix)
+            .ok_or_else(|| format!("{url} is not under the blob tree"))?;
+        let path = if digest == head.plan.sha256 {
+            fixture.join("app.plan")
+        } else {
+            let card = head
+                .assets
+                .iter()
+                .find(|card| card.sha256 == digest)
+                .ok_or_else(|| format!("{url} names no card"))?;
+            fixture.join("assets").join(&card.name)
+        };
+        std::fs::read(path).map_err(|e| format!("{url}: {e}"))
     };
     let Ok(Check::Staged { entry, seq, sunset }) =
         store.check(&head_url, &mut fetch, &mut |_| None)
@@ -213,9 +233,24 @@ fn the_published_stream_is_staged_whole_by_a_client() {
     let urls = asked.borrow().clone();
     assert_eq!(urls.len(), 8, "{urls:?}");
     assert_eq!(urls[0], format!("{prefix}exact.json"));
-    assert!(urls.contains(&format!("{prefix}app.plan")));
-    assert!(urls.contains(&format!("{prefix}assets/assets/caltrain.png")));
-    assert!(urls.contains(&format!("{prefix}assets/shaders/aurora.wgsl")));
+    assert!(urls.contains(&format!("{blob_prefix}{}", head.plan.sha256)));
+    assert!(urls.contains(&format!(
+        "{blob_prefix}{}",
+        head.assets
+            .iter()
+            .find(|card| card.name == "assets/caltrain.png")
+            .unwrap()
+            .sha256
+    )));
+    assert!(urls.iter().any(|url| url
+        == &format!(
+            "{blob_prefix}{}",
+            head.assets
+                .iter()
+                .find(|card| card.name == "shaders/aurora.wgsl")
+                .unwrap()
+                .sha256
+        )));
     let dir = temp.0.join("entries").join(&entry);
     assert_eq!(std::fs::read(dir.join("exact.json")).unwrap(), HEAD);
     assert_eq!(

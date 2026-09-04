@@ -1,6 +1,7 @@
 # Default release ids collide within one second
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** generated ids carry a random nonce, every bake has a private stage, and reused immutable receipts are refused before stream writes
 **Systems:** exact deploy, Delivery
 **Severity:** P2
 **Author:** Codex (GPT-5) for Charlie Cheever

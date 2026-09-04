@@ -21,10 +21,11 @@
 // snapshot's; **print** the table, which is the whole output of a dry run,
 // the default; and with `--yes` **publish** through the origin adapter
 // (`scripts/origin.mjs`): blobs first, each read back and its digest checked,
-// then the stream's `app.plan` and `assets/<name>`, then the signed head as a
-// conditional put with `seq` read under the stream's lock — never from a
-// local file — and the release record beside it; the web root's hashed files
-// first and `index.html` last. A failed step leaves the previous head.
+// then an immutable release record and the signed head as a conditional put
+// with `seq` read under the stream's lock — never from a local file. The head
+// points directly at the blobs, so no live payload path is overwritten; the
+// web root's hashed files come first and `index.html` last. A failed step
+// leaves the previous head and every URL it names.
 //
 // The **bundle** for a platform is `app.plan` plus every asset the bake
 // listed in `exact.json` (`assets/`, `deck/`, `shaders/*.wgsl`): the same
@@ -276,9 +277,9 @@ export function streamHead({ app, bundle, stream, seq, release, sunset = null })
   const head = {
     exact: 1,
     app: { id: app.id, name: app.displayName },
-    plan: { url: './app.plan', sha256: bundle.plan.sha256, bytes: bundle.plan.bytes.length,
+    plan: { url: `../../blobs/${bundle.plan.sha256}`, sha256: bundle.plan.sha256, bytes: bundle.plan.bytes.length,
       formatVersion: bundle.plan.formatVersion, kernelSchema: bundle.plan.kernelSchema },
-    assets: bundle.assets.map((asset) => ({ name: asset.name, url: `./assets/${asset.name}`,
+    assets: bundle.assets.map((asset) => ({ name: asset.name, url: `../../blobs/${asset.sha256}`,
       sha256: asset.sha256, bytes: asset.bytes.length })),
     stream: { app: app.id, channel: stream.channel, compatibilityId: stream.compatibilityId, seq },
     release,
@@ -454,40 +455,60 @@ function renderTable(table) {
 
 // ---------------------------------------------------------------- publishing
 
-/** Publish one stream (LLP 1030.000 D3 item 5): blobs, read back; then under the lock the head is read again, `seq` allocated from it, the stream's files written whole-or-absent, the signed head put conditionally on the digest read, and the release record written last. */
-async function publishStream({ origin, row, bundle, compat, app, signer, release, snapshot, opts, log }) {
+/** Publish one stream (LLP 1030.000 D3 item 5): under its lock, refuse a
+ * reused immutable receipt, read the head and allocate seq, put and verify
+ * content-addressed blobs, prepare the immutable release record, then swap
+ * the signed head conditionally. A failure before that last operation leaves
+ * every URL in the prior head untouched and its bytes still retrievable. */
+export async function publishStream({ origin, row, bundle, compat, app, signer, release, snapshot, opts, log }) {
   const stream = { channel: row.channel, compatibilityId: row.compatibilityId };
+  const base = streamPath(stream);
+  const recordPath = `${base}/releases/${release}.json`;
   const files = [{ name: 'app.plan', sha256: bundle.plan.sha256, bytes: bundle.plan.bytes }, ...bundle.assets];
-  let written = 0;
-  for (const file of files) {
-    if (await origin.put(blobPath(file.sha256), file.bytes, { immutable: true }) === 'written') written++;
-    const back = await origin.get(blobPath(file.sha256));
-    if (!back || sha256(back) !== file.sha256) refuse(`the blob ${file.sha256} (${file.name}) read back from ${origin.describe()} is not what was written`);
-  }
-  log(`  ${row.platform} ${row.compatibilityId.slice(0, 8)}: ${files.length} blobs on the origin (${written} written, ${files.length - written} present), each read back and checked`);
+  if (await origin.get(recordPath)) refuse(`release ${release} already has an immutable record at ${origin.describe()}/${recordPath}; choose another --release`);
   return origin.withLock(stream, async () => {
+    if (await origin.get(recordPath)) refuse(`release ${release} already has an immutable record at ${origin.describe()}/${recordPath}; choose another --release`);
     const current = await origin.head(stream);
     const previousDigest = current?.sha256 ?? null;
     if (current && !changesAgainst(bundle, current.json).length) return { ...row, action: 'current', seq: current.json.stream.seq, note: 'the head already names this bundle (published meanwhile)' };
     const seq = (current?.json.stream.seq ?? 0) + 1;
     if (opts.slowMs) await sleep(Number(opts.slowMs));
-    const base = streamPath(stream);
-    await origin.put(`${base}/app.plan`, bundle.plan.bytes);
-    for (const a of bundle.assets) await origin.put(`${base}/assets/${a.name}`, a.bytes);
+    let written = 0;
+    for (const file of files) {
+      if (await origin.put(blobPath(file.sha256), file.bytes, { immutable: true }) === 'written') written++;
+      const back = await origin.get(blobPath(file.sha256));
+      if (!back || sha256(back) !== file.sha256) refuse(`the blob ${file.sha256} (${file.name}) read back from ${origin.describe()} is not what was written`);
+    }
+    log(`  ${row.platform} ${row.compatibilityId.slice(0, 8)}: ${files.length} blobs on the origin (${written} written, ${files.length - written} present), each read back and checked`);
     const sunset = app.manifest.deploy?.sunset?.[`${stream.channel}/${stream.compatibilityId}`] ?? app.manifest.deploy?.sunset?.[stream.compatibilityId];
     const head = streamHead({ app, bundle, stream, seq, release, sunset });
     head.signature = signer.sign(head);
     const bytes = Buffer.from(JSON.stringify(head) + '\n', 'utf8');
-    await origin.putHead(stream, bytes, { previousDigest });
-    const digest = sha256(bytes);
+    const originDigest = sha256(bytes);
+    const entryDigest = sha256(canonicalBytes(head));
     const record = {
       release, at: new Date().toISOString(), by: userInfo().username, host: hostname(),
       platform: row.platform, stream: head.stream, seq, snapshot,
-      head: { sha256: digest, bytes: bytes.length, keyId: signer.keyId }, previous: previousDigest,
+      head: { entryDigest, originDigest, bytes: bytes.length, keyId: signer.keyId }, previous: previousDigest,
       compat: { id: compat.id, inputs: compat.inputs }, row: { action: row.action, changes: row.changes },
+      envelope: head,
     };
-    await origin.put(`${base}/releases/${release}.json`, Buffer.from(JSON.stringify(record, null, 2) + '\n', 'utf8'));
-    return { ...row, action: 'published', seq, head: { seq, sha256: digest, release }, previous: previousDigest };
+    await origin.put(recordPath, Buffer.from(JSON.stringify(record, null, 2) + '\n', 'utf8'), { immutable: true });
+    try {
+      await origin.putHead(stream, bytes, { previousDigest });
+    } catch (error) {
+      let observed;
+      try {
+        observed = await origin.head(stream);
+      } catch (readError) {
+        const unknown = new Error(`the head write failed (${error.message}) and its outcome could not be read back (${readError.message})`);
+        unknown.headOutcomeUnknown = true;
+        throw unknown;
+      }
+      if (!observed?.bytes.equals(bytes)) throw error;
+      log(`  ${row.platform} ${row.compatibilityId.slice(0, 8)}: the head write response failed, but readback confirms seq ${seq}`);
+    }
+    return { ...row, action: 'published', seq, head: { seq, sha256: originDigest, entryDigest, release }, previous: previousDigest };
   });
 }
 
@@ -559,7 +580,7 @@ async function deploy(opts) {
       log(result.action === 'published' ? `  ${name}: head seq ${result.seq} (${result.head.sha256.slice(0, 12)}), previous ${result.previous ? result.previous.slice(0, 12) : 'none'}` : `  ${name}: ${result.note}`);
     } catch (e) {
       failed.push({ platform: row.platform, compatibilityId: row.compatibilityId, error: e.message });
-      log(`  ${name}: failed — ${e.message}; the previous head stands`);
+      log(`  ${name}: failed — ${e.message}; ${e.headOutcomeUnknown ? 'the head outcome is unknown and must be inspected' : "this release's head is not visible"}`);
     }
   }
   const outcome = { ...table, dryRun: false, published, refused, failed };
