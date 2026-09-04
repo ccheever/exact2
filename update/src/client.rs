@@ -178,10 +178,15 @@ impl Client {
 
     /// The selected entry's plan was refused at boot and entry zero booted
     /// instead: the failure stands in the record (first pixel will not bless
-    /// the entry), and this is the line for the journal.
-    pub fn entry_refused(&mut self, entry: &str, why: &str) -> String {
+    /// the entry). Returns the journal line and the refreshed running status
+    /// together so a host cannot publish one without the other.
+    pub fn entry_refused(&mut self, entry: &str, why: &str) -> (String, Status) {
         self.booted_selection = false;
-        format!("exact update: entry {entry} refused at boot: {why}; booted entry zero")
+        self.store.entry_refused();
+        (
+            format!("exact update: entry {entry} refused at boot: {why}; booted entry zero"),
+            self.store.status(),
+        )
     }
 
     /// First pixel: the selection that booted is good (LLP 1026 D11), once
@@ -355,9 +360,12 @@ mod tests {
         let base = temp("refused");
         let mut c = Client::open(&base, &base, COMPAT, b"plan").unwrap();
         c.boot_started().unwrap();
-        let line = c.entry_refused("deadbeef", "format 9 is newer than this binary");
+        let (line, status) = c.entry_refused("deadbeef", "format 9 is newer than this binary");
         assert!(line.starts_with("exact update: entry deadbeef refused at boot: format 9"));
         assert!(line.ends_with("booted entry zero"));
+        assert_eq!(status.entry, None);
+        assert_eq!(status.stream, "embedded");
+        assert_eq!(status.running_seq, 0);
         c.boot_succeeded().unwrap();
         assert!(!c.succeeded);
         let _ = std::fs::remove_dir_all(&base);

@@ -311,6 +311,29 @@ fn the_same_head_again_is_current() {
     assert!(next.staged().is_none());
 }
 
+#[test]
+fn a_refused_selection_reports_entry_zero_as_the_running_generation() {
+    let temp = Temp::new("refused-running");
+    let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
+    let mut store = open(&temp);
+    assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
+
+    let mut launch = open(&temp);
+    launch.boot_started().unwrap();
+    launch.entry_refused();
+    let status = launch.status();
+    assert_eq!(status.entry, None);
+    assert_eq!(status.stream, "embedded");
+    assert_eq!(status.running_seq, EMBEDDED_SEQ);
+    assert_eq!(status.selected_seq, 4, "the durable selection still failed");
+
+    let record = std::fs::read_to_string(temp.path().join("record.json")).unwrap();
+    assert!(
+        record.contains("\"failures\":1"),
+        "the refusal is still counted"
+    );
+}
+
 // ------------------------------------------------------------------- refusals
 
 #[test]
@@ -759,7 +782,7 @@ fn activate_hands_over_the_staged_plan_and_status_follows_each_step() {
         "entry zero is still running"
     );
     assert_eq!(status.embedded_seq, EMBEDDED_SEQ);
-    assert_eq!(status.stream, format!("release/{COHORT}"));
+    assert_eq!(status.stream, "embedded", "entry zero is still running");
     let staged = store.staged().expect("staged");
     assert_eq!(staged.entry, entry);
     assert_eq!(staged.seq, seq);

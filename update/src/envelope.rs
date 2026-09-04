@@ -635,6 +635,49 @@ fn parse_port(port: &str, what: &str, text: &str) -> Result<u16, String> {
         .map_err(|_| format!("{what} {text} has an invalid port"))
 }
 
+/// Standard base64 with padding, decoded strictly: the signature is 64 bytes
+/// and a baked verification key 32, and nothing else is encoded, so this is
+/// the whole need and costs no dependency.
+pub(crate) fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
+    fn sextet(b: u8) -> Option<u8> {
+        match b {
+            b'A'..=b'Z' => Some(b - b'A'),
+            b'a'..=b'z' => Some(b - b'a' + 26),
+            b'0'..=b'9' => Some(b - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let bytes = text.as_bytes();
+    if bytes.is_empty() || !bytes.len().is_multiple_of(4) {
+        return Err("the signature is not padded base64".into());
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    let last = bytes.len() / 4 - 1;
+    for (index, chunk) in bytes.chunks(4).enumerate() {
+        let padding = chunk.iter().filter(|b| **b == b'=').count();
+        if padding > 2 || (padding > 0 && index != last) {
+            return Err("the signature is not padded base64".into());
+        }
+        let mut acc: u32 = 0;
+        for (i, b) in chunk.iter().enumerate() {
+            let value = if *b == b'=' {
+                if i < 4 - padding {
+                    return Err("the signature is not padded base64".into());
+                }
+                0
+            } else {
+                sextet(*b).ok_or_else(|| "the signature is not base64".to_string())?
+            };
+            acc = (acc << 6) | u32::from(value);
+        }
+        let decoded = acc.to_be_bytes();
+        out.extend_from_slice(&decoded[1..4 - padding]);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod url_tests {
     use super::resolve_url;
@@ -686,47 +729,4 @@ mod url_tests {
         assert!(resolve_url(base, r"..\app.plan").is_err());
         assert!(resolve_url("https://user@updates.example/head", "./plan").is_err());
     }
-}
-
-/// Standard base64 with padding, decoded strictly: the signature is 64 bytes
-/// and a baked verification key 32, and nothing else is encoded, so this is
-/// the whole need and costs no dependency.
-pub(crate) fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
-    fn sextet(b: u8) -> Option<u8> {
-        match b {
-            b'A'..=b'Z' => Some(b - b'A'),
-            b'a'..=b'z' => Some(b - b'a' + 26),
-            b'0'..=b'9' => Some(b - b'0' + 52),
-            b'+' => Some(62),
-            b'/' => Some(63),
-            _ => None,
-        }
-    }
-    let bytes = text.as_bytes();
-    if bytes.is_empty() || !bytes.len().is_multiple_of(4) {
-        return Err("the signature is not padded base64".into());
-    }
-    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
-    let last = bytes.len() / 4 - 1;
-    for (index, chunk) in bytes.chunks(4).enumerate() {
-        let padding = chunk.iter().filter(|b| **b == b'=').count();
-        if padding > 2 || (padding > 0 && index != last) {
-            return Err("the signature is not padded base64".into());
-        }
-        let mut acc: u32 = 0;
-        for (i, b) in chunk.iter().enumerate() {
-            let value = if *b == b'=' {
-                if i < 4 - padding {
-                    return Err("the signature is not padded base64".into());
-                }
-                0
-            } else {
-                sextet(*b).ok_or_else(|| "the signature is not base64".to_string())?
-            };
-            acc = (acc << 6) | u32::from(value);
-        }
-        let decoded = acc.to_be_bytes();
-        out.extend_from_slice(&decoded[1..4 - padding]);
-    }
-    Ok(out)
 }

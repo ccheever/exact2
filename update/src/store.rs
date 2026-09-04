@@ -118,8 +118,9 @@ pub enum Check {
 /// content, and what `state.delivery` mirrors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
-    /// `"<channel>/<compatibilityId>"`, or `"embedded"` when this client has
-    /// taken nothing from a stream.
+    /// `"<channel>/<compatibilityId>"` for the entry this process runs, or
+    /// `"embedded"` while it runs entry zero. A selection staged for another
+    /// launch does not change this generation identity.
     pub stream: String,
     /// The `seq` of what is selected for the next launch.
     pub selected_seq: u64,
@@ -130,7 +131,8 @@ pub struct Status {
     pub embedded_seq: u64,
     /// Whether a bundle is staged that the running one is not.
     pub staged: bool,
-    /// The stream's retirement notice, when the selected bundle carries one.
+    /// The accepted stream's retirement notice, when the selected bundle
+    /// carries one. It remains advisory while another generation runs.
     pub sunset: Option<Card>,
     /// The entry this process booted, or `None` for entry zero.
     pub entry: Option<String>,
@@ -162,7 +164,6 @@ pub struct Store {
 struct EntryView {
     sha: String,
     seq: u64,
-    channel: String,
     plan_sha256: String,
     sunset: Option<Card>,
 }
@@ -448,6 +449,15 @@ impl Store {
         self.write_record()
     }
 
+    /// The selected entry was refused before it could run and this process
+    /// booted entry zero instead. The durable failure count and selection stay
+    /// intact for crash recovery; only this process's running identity moves
+    /// to the embedded generation.
+    pub fn entry_refused(&mut self) {
+        self.running = None;
+        self.running_seq = self.embedded.seq;
+    }
+
     /// Ask the origin for this stream's head, and stage what it names.
     ///
     /// `head_url` is the stream's own path on the origin (LLP 1030 D3a;
@@ -642,14 +652,24 @@ impl Store {
     /// What the app and the agent are told (LLP 1030 D7).
     pub fn status(&self) -> Status {
         Status {
-            stream: match &self.view {
-                Some(view) => format!("{}/{}", view.channel, self.embedded.compatibility_id),
-                None => "embedded".to_string(),
+            // `view` is the durable selection for a future launch and may
+            // move after this process booted. The stream, like `entry` and
+            // `running_seq`, describes the generation actually running.
+            stream: if self.running.is_some() {
+                format!(
+                    "{}/{}",
+                    self.embedded.channel, self.embedded.compatibility_id
+                )
+            } else {
+                "embedded".to_string()
             },
             selected_seq: self.select().seq,
             running_seq: self.running_seq,
             embedded_seq: self.embedded.seq,
             staged: self.staged().is_some(),
+            // Sunset is an advisory for the accepted delivery stream, not
+            // generation identity. Keep it visible while an older or
+            // embedded generation runs, including after a boot refusal.
             sunset: self.view.as_ref().and_then(|v| v.sunset.clone()),
             entry: self.running.clone(),
         }
@@ -702,7 +722,6 @@ impl Store {
         Some(EntryView {
             sha,
             seq: envelope.stream.seq,
-            channel: envelope.stream.channel,
             plan_sha256: envelope.plan.sha256,
             sunset: envelope.sunset,
         })

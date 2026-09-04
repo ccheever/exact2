@@ -162,8 +162,10 @@ pub fn boot_started() {
 pub fn entry_refused(entry: &str, why: &str) {
     let mut guard = lock(&CLIENT);
     if let Some(c) = guard.as_mut() {
-        let note = c.entry_refused(entry, why);
-        lock(&SNAPSHOT).note = Some(note);
+        let (note, status) = c.entry_refused(entry, why);
+        let mut snap = lock(&SNAPSHOT);
+        snap.status = Some(status);
+        snap.note = Some(note);
     }
 }
 
@@ -263,6 +265,8 @@ mod tests {
     use ibex2::stdlib::fetch::{Headers, Request, Response, Transport};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    const COMPAT: &str = r#"{"id":"abc","inputs":{"app":"com.exact.host-cache","keys":null,"store":{"L":"A"}},"delivery":{"activate":"next-launch","channel":"prod","origin":"https://updates.example"}}"#;
+
     struct RedirectTransport {
         requests: AtomicUsize,
     }
@@ -295,6 +299,44 @@ mod tests {
 
         assert_eq!(error, format!("{head}: HTTP 302"));
         assert_eq!(transport.requests.load(Ordering::SeqCst), 1);
+    }
+
+    fn stale_status() -> Status {
+        Status {
+            stream: "prod/abc".into(),
+            selected_seq: 4,
+            running_seq: 4,
+            embedded_seq: 0,
+            staged: false,
+            sunset: None,
+            entry: Some("stale-entry".into()),
+        }
+    }
+
+    #[test]
+    fn boot_refusal_refreshes_the_cached_delivery_stream() {
+        let base =
+            std::env::temp_dir().join(format!("exact-apple-refusal-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let client = Client::open(&base, &base, COMPAT, b"embedded plan").unwrap();
+        *lock(&CLIENT) = Some(client);
+        *lock(&SNAPSHOT) = Snapshot {
+            status: Some(stale_status()),
+            activate: Activate::NextLaunch,
+            line: None,
+            note: None,
+            checking: false,
+        };
+
+        entry_refused("stale-entry", "plan refused");
+
+        let mut delivery = Delivery::default();
+        status_into(&mut delivery);
+        assert_eq!(delivery.stream, "embedded");
+        assert_eq!(delivery.seq, 0);
+        assert!(take_note().unwrap().contains("booted entry zero"));
+        *lock(&CLIENT) = None;
+        let _ = std::fs::remove_dir_all(base);
     }
 }
 

@@ -111,9 +111,10 @@ impl Updates {
 
     /// The selected entry's plan was refused at boot; entry zero boots.
     pub fn entry_refused(&mut self, entry: &str, why: &str) {
-        let note = lock(&self.client).entry_refused(entry, why);
+        let (note, status) = lock(&self.client).entry_refused(entry, why);
         eprintln!("{note}");
         self.note = Some(note);
+        *lock(&self.status) = status;
     }
 
     /// First pixel: the selection that booted is good (LLP 1026 D11).
@@ -240,6 +241,8 @@ mod tests {
     use ibex2::stdlib::fetch::{Headers, Request, Response, Transport};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    const COMPAT: &str = r#"{"id":"abc","inputs":{"app":"com.exact.host-cache","keys":null,"store":{"L":"A"}},"delivery":{"activate":"next-launch","channel":"prod","origin":"https://updates.example"}}"#;
+
     struct RedirectTransport {
         requests: AtomicUsize,
     }
@@ -261,6 +264,18 @@ mod tests {
         }
     }
 
+    fn stale_status() -> Status {
+        Status {
+            stream: "prod/abc".into(),
+            selected_seq: 4,
+            running_seq: 4,
+            embedded_seq: 0,
+            staged: false,
+            sunset: None,
+            entry: Some("stale-entry".into()),
+        }
+    }
+
     #[test]
     fn update_fetch_refuses_redirect_without_following_location() {
         let transport = RedirectTransport {
@@ -272,5 +287,35 @@ mod tests {
 
         assert_eq!(error, format!("{head}: HTTP 302"));
         assert_eq!(transport.requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn boot_refusal_refreshes_the_cached_delivery_stream() {
+        let base =
+            std::env::temp_dir().join(format!("exact-linux-refusal-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let client = Client::open(&base, &base, COMPAT, b"embedded plan").unwrap();
+        let (tx, lines) = channel();
+        let (wake, signal) = UnixStream::pair().unwrap();
+        let mut updates = Updates {
+            client: Arc::new(Mutex::new(client)),
+            status: Arc::new(Mutex::new(stale_status())),
+            checking: Arc::new(AtomicBool::new(false)),
+            lines,
+            tx,
+            wake,
+            signal,
+            note: None,
+        };
+
+        updates.entry_refused("stale-entry", "plan refused");
+
+        let mut delivery = Delivery::default();
+        updates.status_into(&mut delivery);
+        assert_eq!(delivery.stream, "embedded");
+        assert_eq!(delivery.seq, 0);
+        assert!(updates.take_note().unwrap().contains("booted entry zero"));
+        drop(updates);
+        let _ = std::fs::remove_dir_all(base);
     }
 }

@@ -1,6 +1,7 @@
 # A same-launch fallback to entry zero still reports the refused bundle's seq
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A refused selected entry now moves only the process-local running identity to entry zero while preserving the durable selection and failure count.
 **Systems:** Delivery, Apple host, Linux host
 **Severity:** P2
 **Author:** Grok 4.6 for Charlie Cheever
