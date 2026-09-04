@@ -109,6 +109,9 @@ func coverChrome() {
     view.syncInsets()
 }
 view.onViewportFit = { coverChrome() }
+// Attaching the view can boot its embedded plan before this hook is installed.
+// Apply the current value even when the explicit boot keeps the same value.
+coverChrome()
 
 let delegate = Delegate()
 app.delegate = delegate

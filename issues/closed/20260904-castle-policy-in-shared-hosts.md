@@ -1,6 +1,7 @@
 # Castle application policy lives in Exact's shared hosts
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Implemented 2026-09-04: Castle protocol and deck presentation live in the external app; generic host and external app smoke checks pass.
 **Systems:** Web host, Apple webview, Application boundary, Weird Castle
 **Severity:** P1
 **Author:** Codex, at Charlie Cheever's request
@@ -63,5 +64,16 @@ becomes its 420×900 viewport, has zero radius, sees the required CastleEmbed
 configuration before its scripts, and gets the expected UNAVAILABLE identity
 reply. The edited WebArm compiles. A native materialization probe checks
 that Castle-looking local HTML is now returned byte-for-byte and escaping
-paths are refused. Full shared-host smoke and external macOS/iOS app drives
-remain integration verification, so this issue stays open until those run.
+paths are refused. An AppKit/WKWebView probe also executes the app-owned
+wrapper and confirms full-viewport layout and the same identity refusal.
+
+Integration: the external app builds and passes the existing smoke on web,
+macOS and the iOS simulator. Its nine Rust application tests pass, covering
+login, kept sessions, account changes, bundle materialization and manifest
+identity; the GPU crate's test also passes. No live-account login was used.
+The shared Caltrain web, macOS, iOS and Linux smokes exercise generic frame
+messages, guest input, navigation and reload. The external sweep also fixed
+the app's missing data-source identity and two generic Apple initialization
+gaps: applying an already-booted viewport mode to window chrome, and sending
+existing view insets to a replacement runner. No Castle policy was added
+to accomplish either.

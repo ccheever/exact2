@@ -433,6 +433,12 @@ re-sent by the batch that changes the insets. `layout` reports the insets
 given as `env` (LLP 1012 §1) — zero when the viewport is the safe area, as
 `env()` is zero on a page without the meta.
 
+The standalone macOS adapter also applies the current `viewport-fit` when it
+installs its window callback: mounting the view can already have booted the
+embedded plan. Every successful session boot re-sends the view's insets,
+as a dev reload does, even if the new root keeps the same viewport mode
+(2026-09-04: the external cover-root app exposed both initialization gaps).
+
 **The keyboard (2026-08-30).** A software keyboard does not change the
 layout viewport — the web's default (`interactive-widget=resizes-visual`,
 Safari's only mode): the visual viewport shrinks and the focused field is

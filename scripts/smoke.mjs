@@ -370,6 +370,7 @@ if (host === 'web') {
 const s = await open({ host });
 let caltrainFixture = false;
 let deckFixture = false;
+let appCoversViewport = false;
 try {
   // 1. Every resolved app must produce a tree and a rendered root. A
   // `caltrain-main` root admits Caltrain's fixture; once admitted, every
@@ -378,6 +379,7 @@ try {
   check(tree.roots?.length > 0 && tree.nodes.length > 0, `${app.name} produced no live roots`);
   caltrainFixture = !!byTestId(tree, 'caltrain-main');
   deckFixture = !!byTestId(tree, 'deck-toggle');
+  appCoversViewport = tree.nodes.find((n) => n.id === tree.roots[0])?.props.viewportFit === 'cover';
   const appHasCanvas = tree.nodes.some((n) => n.type === 'Canvas');
   const countdowns = tree.nodes.filter((n) => n.props.testId?.startsWith('countdown-'));
 
@@ -454,7 +456,7 @@ try {
       `structured guest data did not reach the app: ${JSON.stringify(deckState.slots.deckMessage)}`);
     // A tap addressed to the iframe enters its guest in-process. Native
     // delivery is script-dispatched and therefore isTrusted:false (D4).
-    await s.tap('deck-frame');
+    await s.tap('deck-frame', { selector: '#deck-title' });
     for (let i = 0; i < 20; i++) {
       deckState = await s.state();
       if (deckState.slots.deckMessage === 'deck-tapped') break;
@@ -560,7 +562,7 @@ try {
     let g = s.gpuMs();
     for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = s.gpuMs(); }
     check(g != null, 'a canvas is on the page but the GPU module did not load (no beacon; WebGPU unavailable in this Chrome?)');
-    if (g != null) console.log(`gpu: module loaded ${g} ms after injection (after the first paint)`);
+    if (g != null) console.log(`gpu: module loaded ${g} ms after injection (after a rendering opportunity)`);
   }
 
   if (caltrainFixture) {
@@ -841,7 +843,8 @@ if (deckFixture) {
       check(rootBox && rootBox.w === l.viewport.w && rootBox.h === l.viewport.h, `a cover root fills the viewport: ${JSON.stringify(rootBox)} in ${JSON.stringify(l.viewport)}`);
       check(content && content.x === left && content.y === top && Math.abs(content.w - (l.viewport.w - left - right)) < 0.01 && Math.abs(content.h - (l.viewport.h - top - bottom)) < 0.01, `the content keeps out of the insets: ${JSON.stringify(content)} for env ${JSON.stringify(env)} in ${JSON.stringify(l.viewport)}`);
       if (host === 'ios') {
-        check(appViewport && Math.abs(l.viewport.h - (appViewport.h + top + bottom)) < 0.01 && Math.abs(l.viewport.w - (appViewport.w + left + right)) < 0.01, `a phone cover viewport is the safe-area app viewport plus its insets: ${JSON.stringify(l.viewport)} vs ${JSON.stringify(appViewport)} + ${top}/${right}/${bottom}/${left}`);
+        const extraH = appCoversViewport ? 0 : top + bottom, extraW = appCoversViewport ? 0 : left + right;
+        check(appViewport && Math.abs(l.viewport.h - (appViewport.h + extraH)) < 0.01 && Math.abs(l.viewport.w - (appViewport.w + extraW)) < 0.01, `a phone cover viewport matches the app's viewport-fit: ${JSON.stringify(l.viewport)} vs ${JSON.stringify(appViewport)}, cover=${appCoversViewport}, insets ${top}/${right}/${bottom}/${left}`);
         check(top > 0 && bottom > 0, `a phone reports its status bar and home indicator: ${top}, ${bottom}`);
       } else if (host === 'macos') {
         check(appViewport && l.viewport.w === appViewport.w && l.viewport.h === appViewport.h, `a macOS cover viewport is already the full-size-content app viewport: ${JSON.stringify(l.viewport)} vs ${JSON.stringify(appViewport)}`);

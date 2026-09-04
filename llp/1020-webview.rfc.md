@@ -449,7 +449,7 @@ D2r does not require a shared host to recognize an application protocol.
 An app-specific branch renamed as a generic helper is not the correction.
 
 The removal is tracked in
-[`issues/20260904-castle-policy-in-shared-hosts.md`](../issues/20260904-castle-policy-in-shared-hosts.md).
+[`issues/closed/20260904-castle-policy-in-shared-hosts.md`](../issues/closed/20260904-castle-policy-in-shared-hosts.md).
 It includes preserving the external app's behavior and generic iframe
 verification. Historical research and isolated example/test fixtures remain
 evidence, not runtime policy. This records Charlie's boundary ruling; the

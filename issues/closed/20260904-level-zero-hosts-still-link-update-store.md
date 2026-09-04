@@ -68,8 +68,8 @@ same dependencies and optimization settings, retaining symbols for inspection:
 
 | Artifact | L=0 bytes | L=A bytes | Difference |
 |---|---:|---:|---:|
-| Linux executable, arm64 macOS headless target | 8,704,960 | 8,942,032 | 237,072 |
-| Apple Rust archive (not the final app size) | 28,323,144 | 30,482,176 | 2,159,032 |
+| Linux executable, arm64 macOS headless target | 8,699,280 | 8,952,752 | 253,472 |
+| Apple Rust archive (not the final app size) | 28,419,632 | 30,574,864 | 2,155,232 |
 
 `nm` found no `exact_update`, adapter, `ed25519_dalek` or `curve25519_dalek`
 symbols in either L=0 artifact; their L=A counterparts contained 116 and 359

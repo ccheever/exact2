@@ -387,6 +387,9 @@ public final class ExactSession {
             generation += 1
         }
         apply(batch)
+        // A replacement runner starts without the view's existing environment,
+        // even when viewport-fit and the physical insets did not change.
+        if batch.error == nil { view?.rebooted() }
         applyMs = (CACurrentMediaTime() - tApply) * 1000
         bootMs = ExactEnv.wall()
         ExactEnv.stamp("first frame applied")

@@ -10,9 +10,6 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
-- **Principles follow-up (2026-09-04, Charlie):** remove Castle policy from
-  shared hosts (LLP 1020 §9; `issues/20260904-castle-policy-in-shared-hosts.md`).
-
 1. **Linux host follow-ups** (LLP 1015 landed 2026-08-29; r2 the same day: vello on
    the GPU is the main painter, tiny-skia the fallback and pixel oracle; green on
    `expo-build-1000` (CPU), the minisforum (Vulkan/llvmpipe), and headless on macOS
@@ -272,12 +269,6 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   the runner's boot gate catches a mismatch only after the download); `metrics.mjs`
   rows for cold URL→first-frame and hot seq→first-frame over the LAN (diagnostic,
   never a sixth check).
-
-- weird-castle declares its identity: `fn app_id(&self) -> &str { "com.exact.weird-castle" }`
-  on `Castle`'s DataSource impl — one line, waiting only because data/src/lib.rs was
-  mid-edit in another session on landing night (LLP 1023 Stage 2, 96ed314). Until then
-  its plans bake unnamed and boot everywhere; after it, a weird-castle plan served to a
-  caltrain binary is a refusal naming both apps.
 
 - LLP 1024 (native modules) is r2 after the 2026-08-31 three-model panel — unanimous,
   design settled (one app artifact, roster-at-bake, versioned table ABI). What it
