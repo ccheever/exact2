@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appManifestDigest, builtAppMatches, listPublicFiles, publicFileCards, staticFile, webEnvelope } from '../host/web/serve.mjs';
+import { assertWebDistApp } from './agent.mjs';
 import { deviceLaunchArgs } from '../host/apple/build.mjs';
 import { classify, defaultRelease, deployRun, streamHead } from './deploy.mjs';
 import { DirectoryOrigin, HttpsOrigin, OriginUnavailable } from './origin.mjs';
@@ -357,6 +358,20 @@ for (const [name, html, files, expectCode, expect] of [
   result('deploy ids and private stages do not collide in one clock tick', ids.size === 32
     && first !== second && readFileSync(join(first, 'still-here'), 'utf8') === 'first');
   rmSync(target, { recursive: true, force: true });
+}
+
+// A matching hand-written exact.json is not build identity. The agent must
+// consume the complete private marker verifier before it drives a dist.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-dist-app-'));
+  writeFileSync(join(dir, 'app.wasm'), 'wasm');
+  writeFileSync(join(dir, 'exact.json'), '{"app":{"id":"com.exact.castle"}}\n');
+  const app = { id: 'com.exact.castle', crate: (kind) => `castle-${kind}` };
+  let refused = false;
+  try { assertWebDistApp(dir, app); }
+  catch (e) { refused = /not a complete build for selected app com\.exact\.castle/.test(e.message); }
+  rmSync(dir, { recursive: true, force: true });
+  result('web agent refuses an unauthenticated matching envelope', refused);
 }
 
 // A phone gets the caller's LAN dev URL through devicectl, never a path on

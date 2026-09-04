@@ -8,17 +8,21 @@
 // `cargo build --release -p caltrain-linux`.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, verify } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
-import { browserDiagnosticNoise, open, render, runTests } from './agent.mjs';
+import { dirname, relative, resolve, sep } from 'node:path';
+import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
 import { resolveApp } from './app.mjs';
 import { canonicalBytes, publicKeyFromRaw } from './deploy.mjs';
 import { crop, decodePng, diff, encodePng } from './png.mjs';
 
 const argv = process.argv.slice(2);
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
-const app = resolveApp();
+const appName = argv.includes('--app') ? argv[argv.indexOf('--app') + 1] : undefined;
+const app = resolveApp(appName);
+let selectedWebDist = null;
+const open = (options) => openAgent({ ...options, app: options.app ?? app.name, webDist: options.webDist ?? selectedWebDist });
+const runTests = (options) => runAgentTests({ ...options, app: options.app ?? app.name, webDist: options.webDist ?? selectedWebDist });
 
 // 0. The transcript form (LLP 1012 §7): the one text rendering of the
 // replies, pinned by a fixture — `scripts/fixtures/transcript.json` rendered
@@ -33,7 +37,7 @@ const pinned = resolve(ROOT, 'scripts/fixtures/transcript.txt');
 if (argv.includes('--record')) { writeFileSync(pinned, transcript()); console.log(`recorded ${pinned.replace(ROOT + '/', '')}`); process.exit(0); }
 
 const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : argv[0] === 'deploy' ? 'deploy' : null;
-if (!host) { console.error('usage: node scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy> [--shot <png>] | --record'); process.exit(2); }
+if (!host) { console.error('usage: node scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy> [--app <name>] [--shot <png>] | --record'); process.exit(2); }
 
 // The two Apple presenters share one Canvases: children captured through the
 // surface, placements (LLP 1014 D2, D5) — what the canvas steps below assert.
@@ -48,6 +52,44 @@ const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
 const t0 = Date.now();
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
+
+// Copy the tracked working tree into a disposable directory. This includes
+// edits to tracked files under review but never copies generated target/ or
+// reaches back into the source checkout while the fixture is driven.
+function copyTrackedCheckout(source, target) {
+  const listed = spawnSync('git', ['ls-files', '-z'], { cwd: source, maxBuffer: 64 * 1024 * 1024 });
+  if (listed.status !== 0) throw new Error(`git ls-files failed: ${listed.stderr?.toString() ?? ''}`);
+  mkdirSync(target, { recursive: true });
+  for (const name of listed.stdout.toString('utf8').split('\0').filter(Boolean)) {
+    const from = resolve(source, name);
+    const to = resolve(target, name);
+    let info;
+    try { info = lstatSync(from); }
+    catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+    mkdirSync(dirname(to), { recursive: true });
+    if (info.isSymbolicLink()) symlinkSync(readlinkSync(from), to);
+    else if (info.isFile()) { copyFileSync(from, to); chmodSync(to, info.mode & 0o777); }
+  }
+}
+
+// A source-checkout invariant for destructive-looking smokes: names,
+// contents, modes, sizes, and mtimes are identical before and after, even
+// across the deliberately refused publisher calls.
+function treeFingerprint(root) {
+  const rows = [];
+  const walk = (path, name) => {
+    const info = lstatSync(path);
+    const meta = `${name}\0${info.mode}\0${info.size}\0${info.mtimeMs}`;
+    if (info.isSymbolicLink()) rows.push(`${meta}\0link\0${readlinkSync(path)}`);
+    else if (info.isDirectory()) {
+      rows.push(`${meta}\0dir`);
+      for (const child of readdirSync(path).sort()) walk(resolve(path, child), name ? `${name}/${child}` : child);
+    } else if (info.isFile()) rows.push(`${meta}\0file\0${createHash('sha256').update(readFileSync(path)).digest('hex')}`);
+    else rows.push(`${meta}\0other`);
+  };
+  walk(root, '');
+  return createHash('sha256').update(rows.join('\n')).digest('hex');
+}
 // The app's viewport (step 2): the safe area on a phone, which step 12's
 // full-bleed fixture grows by the insets.
 let appViewport;
@@ -57,8 +99,9 @@ check(browserDiagnosticNoise('CVDisplayLinkCreateWithCGDisplay failed. CVReturn:
 check(!browserDiagnosticNoise('console.error: exact: failed'), 'page/runtime errors must not be classified as browser noise');
 
 // The publisher (LLP 1030.000 D3–D5, D7): `exact deploy` driven end to end
-// against a directory origin with a throwaway key — the manifest's public
-// key is swapped for it while this runs and restored after. What it holds:
+// against a directory origin with a throwaway key. The app and the scripts
+// run from a disposable tracked checkout; manifest and asset edits never
+// touch the developer's source tree. What it holds:
 // a dry run prints the table and writes nothing; `--yes` publishes the web
 // root, the blobs, and one signed head per stream, and the head verifies
 // with the key; a second run is current and rewrites nothing; an asset edit
@@ -68,21 +111,48 @@ check(!browserDiagnosticNoise('console.error: exact: failed'), 'page/runtime err
 // is `binary` and `--only bundle` refuses it while the others publish; a
 // wrong `--snapshot` and a dirty tree without `--dirty` refuse.
 if (host === 'deploy') {
+  const repo = realpathSync(ROOT);
+  const selected = realpathSync(app.dir);
+  if (selected !== repo && !selected.startsWith(repo + sep)) {
+    console.error(`deploy smoke needs a disposable snapshot of an in-repo fixture; refusing to mutate external app ${app.dir}`);
+    process.exit(2);
+  }
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-deploy-'));
+  const fixtureRoot = resolve(dir, 'repo');
   const origin = resolve(dir, 'origin');
   const keys = resolve(dir, 'keys');
-  const manifestPath = resolve(app.dir, 'app.json');
-  const manifest0 = readFileSync(manifestPath);
-  const manifest = JSON.parse(manifest0.toString('utf8'));
+  const sourceState = treeFingerprint(app.dir);
+  copyTrackedCheckout(ROOT, fixtureRoot);
+  // This workspace deliberately consumes ibex from a sibling checkout. Keep
+  // that read-only dependency edge while every Exact/app file under test is
+  // the disposable copy.
+  const ibex = resolve(ROOT, '..', 'ibex');
+  if (existsSync(ibex)) symlinkSync(realpathSync(ibex), resolve(dir, 'ibex'), 'dir');
+  for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['-c', 'user.name=Exact smoke', '-c', 'user.email=smoke@exact.invalid', 'commit', '-qm', 'fixture']]) {
+    const initialized = spawnSync('git', args, { cwd: fixtureRoot, encoding: 'utf8' });
+    if (initialized.status !== 0) throw new Error(`git ${args[0]} failed: ${initialized.stderr}`);
+  }
+  // macOS exposes tmpdir through `/var` while process cwd/import URLs may
+  // resolve it through `/private/var`; use one canonical script name so a
+  // CLI's direct-execution guard cannot mistake this invocation for import.
+  const deployScript = realpathSync(resolve(fixtureRoot, 'scripts/deploy.mjs'));
+  const fixtureApp = resolve(fixtureRoot, relative(repo, selected));
+  const manifestPath = resolve(fixtureApp, 'app.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const keyId = manifest.deploy?.signing?.key;
   const channel = manifest.deploy?.channel ?? 'prod';
-  const assetName = existsSync(resolve(app.dir, 'assets')) ? readdirSync(resolve(app.dir, 'assets')).find((n) => statSync(resolve(app.dir, 'assets', n)).isFile()) : null;
-  const assetPath = assetName ? resolve(app.dir, 'assets', assetName) : null;
+  const assetName = existsSync(resolve(fixtureApp, 'assets')) ? readdirSync(resolve(fixtureApp, 'assets')).find((n) => statSync(resolve(fixtureApp, 'assets', n)).isFile()) : null;
+  const assetPath = assetName ? resolve(fixtureApp, 'assets', assetName) : null;
   const asset0 = assetPath ? readFileSync(assetPath) : null;
   const sha = (b) => createHash('sha256').update(b).digest('hex');
+  // Cargo build scripts record absolute source paths. Sharing Exact's target
+  // with this throwaway checkout would poison the developer's next build
+  // with paths that disappear at cleanup, so its build cache is private too.
+  const deployEnv = { ...process.env, EXACT_SIGNING_KEY_DIR: keys, CARGO_TARGET_DIR: resolve(dir, 'target') };
+  delete deployEnv.EXACT_APP_DIR;
   const deploy = (args, expectExit = 0) => {
-    const r = spawnSync(process.execPath, [resolve(ROOT, 'scripts/deploy.mjs'), ...args], { encoding: 'utf8', env: { ...process.env, EXACT_SIGNING_KEY_DIR: keys }, maxBuffer: 64 * 1024 * 1024 });
-    check(r.status === expectExit, `deploy ${args.filter((a) => !a.startsWith('/')).join(' ')} exited ${r.status}, not ${expectExit}:\n${(r.stderr + r.stdout).split('\n').slice(-12).join('\n')}`);
+    const r = spawnSync(process.execPath, [deployScript, ...args], { cwd: fixtureRoot, encoding: 'utf8', env: deployEnv, maxBuffer: 64 * 1024 * 1024 });
+    check(r.status === expectExit, `deploy ${args.filter((a) => !a.startsWith('/')).join(' ')} exited ${r.status}, not ${expectExit}: ${r.error?.message ?? ''}\n${(r.stderr + r.stdout).split('\n').slice(-12).join('\n')}`);
     return r;
   };
   const table = (...args) => { const r = deploy([app.name, '--origin', origin, '--json', ...args]); try { return JSON.parse(r.stdout); } catch { check(false, `deploy --json printed no object: ${r.stdout.slice(0, 200)}`); return { rows: [] }; } };
@@ -93,7 +163,9 @@ if (host === 'deploy') {
     if (!check(!!keyId, `${app.name}/app.json names no deploy.signing.key`)) throw new Error('no key');
     // 1. A throwaway key, and the dry run before the manifest is touched (the table, nothing written).
     const kg = deploy(['keygen', keyId, '--keys', keys, '--json']);
-    const publicKey = JSON.parse(kg.stdout).publicKey;
+    let publicKey;
+    try { publicKey = JSON.parse(kg.stdout).publicKey; }
+    catch { throw new Error(`keygen printed no JSON: ${kg.error?.message ?? ''} ${kg.stderr}${kg.stdout}`); }
     check(Buffer.from(publicKey, 'base64').length === 32, `keygen printed ${publicKey}`);
     const clean = spawnSync('git', ['status', '--porcelain', '--', '.'], { cwd: app.dir, encoding: 'utf8' }).stdout.trim() === '';
     const dry = table(...(clean ? [] : ['--dirty']));
@@ -101,11 +173,14 @@ if (host === 'deploy') {
     check(streams(dry).length >= 1 && streams(dry).every((r) => r.action === 'bundle' && r.seq === 1 && r.head === null), `the dry run's stream rows are ${JSON.stringify(streams(dry).map((r) => [r.platform, r.action, r.seq]))}`);
     check(/^[0-9a-f]{40}$/.test(dry.snapshot?.commit ?? ''), `the snapshot is ${JSON.stringify(dry.snapshot)}`);
     check(!existsSync(origin), 'a dry run wrote to the origin');
+    const https = deploy([app.name, '--origin', 'https://updates.invalid', '--yes'], 1);
+    check(/https origin, read-only/.test(https.stderr + https.stdout), `https --yes did not refuse as read-only: ${https.stderr + https.stdout}`);
     // 2. The manifest names the throwaway key; --yes publishes; every head verifies with it.
     manifest.deploy.signing.keys[keyId] = publicKey;
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
     deploy([app.name, '--origin', origin], 1); // dirty without --dirty refuses
     deploy([app.name, '--origin', origin, '--dirty', '--snapshot', 'deadbeef'], 1);
+    check(treeFingerprint(app.dir) === sourceState, 'a refused deploy changed the source app checkout');
     const pub1 = table('--yes', '--dirty');
     const ids = streams(pub1).map((r) => r.compatibilityId);
     check(ids.length >= 1 && pub1.published.filter((p) => p.kind === 'stream' && p.action === 'published').length === ids.length && pub1.failed.length === 0, `publish: ${JSON.stringify({ published: pub1.published.map((p) => [p.kind, p.action, p.seq]), failed: pub1.failed })}`);
@@ -140,7 +215,7 @@ if (host === 'deploy') {
     if (assetPath) {
       const platform = streams(pub1)[0].platform;
       const race = (name) => new Promise((done) => {
-        const child = spawn(process.execPath, [resolve(ROOT, 'scripts/deploy.mjs'), app.name, '--origin', origin, '--yes', '--dirty', '--platform', platform, '--only', 'bundle', '--slow-ms', '4000', '--release', name], { env: { ...process.env, EXACT_SIGNING_KEY_DIR: keys } });
+        const child = spawn(process.execPath, [deployScript, app.name, '--origin', origin, '--yes', '--dirty', '--platform', platform, '--only', 'bundle', '--slow-ms', '4000', '--release', name], { cwd: fixtureRoot, env: deployEnv });
         let text = '';
         child.stdout.on('data', (d) => { text += d; });
         child.stderr.on('data', (d) => { text += d; });
@@ -168,8 +243,7 @@ if (host === 'deploy') {
   } catch (e) {
     check(false, `the deploy smoke stopped: ${e.message}`);
   } finally {
-    writeFileSync(manifestPath, manifest0);
-    if (assetPath) writeFileSync(assetPath, asset0);
+    check(treeFingerprint(app.dir) === sourceState, 'the deploy smoke changed source app content, metadata, or tree shape');
     rmSync(dir, { recursive: true, force: true });
   }
   console.log(`deploy smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
@@ -267,6 +341,17 @@ if (host === 'host' || host === 'host-ios') {
   if (hostFailures.length) { console.log(`${host} smoke: ${hostFailures.length} failure(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s`); for (const f of hostFailures) console.log('  ' + f); process.exit(1); }
   console.log(`${host} smoke: ok in ${((Date.now() - t0) / 1000).toFixed(1)} s — two sessions of one plan, interleaved, one pushed under a native screen and back, a bad plan refused, one destroyed under the other`);
   process.exit(0);
+}
+
+// Materialize the selected app once into this smoke's private dist before its
+// many sessions. Another build cannot swap a different app under the run;
+// agent.open also proves the envelope identity on every local launch.
+if (host === 'web') {
+  const webBuild = mkdtempSync(resolve(tmpdir(), 'exact-smoke-web-'));
+  selectedWebDist = resolve(webBuild, 'dist');
+  process.on('exit', () => rmSync(webBuild, { recursive: true, force: true }));
+  const built = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_WEB_DIST: selectedWebDist } });
+  if (built.status !== 0) process.exit(built.status ?? 1);
 }
 
 const s = await open({ host });

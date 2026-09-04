@@ -6,6 +6,7 @@
  *
  *   node scripts/metrics.mjs            table
  *   node scripts/metrics.mjs --json     one JSON object
+ *   node scripts/metrics.mjs --app <name> measure that resolved app
  *   node scripts/metrics.mjs --rebuild  also time an app edit → wasm rebuild (the cold path)
  *   node scripts/metrics.mjs --long     also the macOS host: a warm build, a touch-one-line
  *                                       rebuild, and the app's boot phases (minutes, not seconds)
@@ -14,15 +15,21 @@
  */
 import { spawnSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { staticFile, webContentType } from '../host/web/serve.mjs';
 import { macBinary, macHostBinary } from '../host/apple/build.mjs';
+import { resolveApp } from './app.mjs';
 
 const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const appName = process.argv.includes('--app') ? process.argv[process.argv.indexOf('--app') + 1] : undefined;
+const app = resolveApp(appName);
+const repoPath = realpathSync(ROOT);
+const appPath = realpathSync(app.dir);
+const appInRepo = appPath === repoPath || appPath.startsWith(repoPath + sep);
 const json = process.argv.includes('--json');
 const rebuild = process.argv.includes('--rebuild');
 const long = process.argv.includes('--long');
@@ -33,13 +40,19 @@ const out = {};
 // first launch can stall for seconds); the --dump-dom render below gets a
 // fresh one each time (with a reused profile it waits out its whole
 // timeout). Every server here sends no-store, so nothing is cached.
-const profile = resolve(ROOT, 'target/exact-chrome-profile');
+const profile = resolve(ROOT, 'target/exact-chrome-profile', app.id.replace(/[^a-zA-Z0-9._-]/g, '_'));
 mkdirSync(profile, { recursive: true });
 const step = (name, f) => { const t = Date.now(); const v = f(); out[`_${name}_s`] = (Date.now() - t) / 1000; return v; };
 
 // 1. Native pipeline numbers (a release bin; warm cache builds in ~1 s).
 step('native', () => {
-  const r = spawnSync('cargo', ['run', '-q', '--release', '-p', 'caltrain-web', '--bin', 'metrics'], { cwd: ROOT, encoding: 'utf8' });
+  const source = resolve(app.dir, 'web/src/bin/metrics.rs');
+  if (!existsSync(source)) {
+    Object.assign(out, Object.fromEntries(['compile_ms', 'bake_ms', 'decode_ms', 'plan_bytes', 'baked_bytes', 'boot_ms', 'nodes', 'text_nodes', 'layout_ms', 'update_ms', 'tick_ms', 'web_boot_ms', 'web_first_batch_bytes', 'web_update_ms', 'web_update_batch_bytes'].map((key) => [key, NaN])));
+    out.native_note = `${app.name} has no web/src/bin/metrics.rs`; // the browser/dev rows below still measure the resolved app
+    return;
+  }
+  const r = spawnSync('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--bin', 'metrics'], { cwd: app.workspace, encoding: 'utf8' });
   if (r.status !== 0) { console.error(r.stderr); process.exit(1); }
   Object.assign(out, JSON.parse(r.stdout.trim().split('\n').pop()));
 });
@@ -48,7 +61,7 @@ step('native', () => {
 // so every number below is for the code as it is now.
 step('wasm', () => {
   const dist = resolve(ROOT, 'host/web/dist');
-  const b = spawnSync('node', [resolve(ROOT, 'host/web/build.mjs')], { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
+  const b = spawnSync('node', [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
   if (b.status !== 0) process.exit(b.status ?? 1);
   const wasm = readFileSync(resolve(dist, 'app.wasm'));
   out.wasm_bytes = wasm.length;
@@ -109,11 +122,15 @@ step('boot', () => {
 // resident driver (host/web/dev.mjs; no cargo build in the loop). The budget
 // row "Dev restart, request to present" measured end to end: file saved →
 // first frame of the new plan in the DOM.
-{
+if (!appInRepo) {
+  out.reload_ms = NaN;
+  out.reload_note = `unmeasured: Exact will not edit external source ${app.dir}/app.contract`;
+  out._reload_s = 0;
+} else {
   const t = Date.now();
   const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   const port = 20000 + Math.floor(Math.random() * 20000);
-  const dev = spawn('node', [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'], detached: true });
+  const dev = spawn('node', [resolve(ROOT, 'host/web/dev.mjs'), '--app', app.name, '--port', String(port)], { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'], detached: true });
   let compilerPid = null;
   const lines = [];
   let waiters = [];
@@ -121,8 +138,8 @@ step('boot', () => {
   dev.stdout.on('data', (d) => { buf += d; const parts = buf.split('\n'); buf = parts.pop(); for (const l of parts) { lines.push(l); compilerPid ??= /^compiler pid (\d+)/.exec(l)?.[1]; waiters = waiters.filter((w) => !w(l)); } });
   const until = (re, ms) => new Promise((ok) => { const timer = setTimeout(() => ok(null), ms); const w = (l) => { const m = re.exec(l); if (m) { clearTimeout(timer); ok(m); return true; } return false; }; waiters.push(w); });
   const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
-  const app = resolve(ROOT, 'apps/caltrain/app.contract');
-  const original = readFileSync(app, 'utf8');
+  const source = resolve(app.dir, 'app.contract');
+  const original = readFileSync(source, 'utf8');
   let page = null;
   try {
     const ready = await until(/^plan ready/, 120000); // a cold build of the dev bin can take a while; warm is ~1 s
@@ -135,7 +152,8 @@ step('boot', () => {
       if (!connected) out.reload_note = 'the page never subscribed';
       const planReady = until(/^edit → plan ready (\d+) ms \(compile ([\d.]+) ms, bake ([\d.]+) ms/, 6000);
       const reloaded = until(/^reloaded seq=\d+ total_ms=(\d+)/, 6000);
-      writeFileSync(app, original.replace('text "Caltrain"', 'text "Caltrain ·"'));
+      const marker = `\n// exact metrics ${Date.now()}\n`;
+      writeFileSync(source, original + marker);
       const [p, r] = await Promise.all([planReady, reloaded]);
       out.reload_plan_ms = p ? Number(p[1]) : NaN;
       out.reload_ms = r ? Number(r[1]) : NaN;
@@ -145,7 +163,7 @@ step('boot', () => {
       out.reload_note = ready ? 'no Chrome at $CHROME' : 'dev driver did not come up: ' + lines.slice(-2).join(' | ');
     }
   } finally {
-    writeFileSync(app, original);
+    writeFileSync(source, original);
     await sleep(300);
     if (page) { try { process.kill(-page.pid, 'SIGKILL'); } catch {} }
     // Both groups, explicitly: the driver's and its resident compiler's.
@@ -159,21 +177,32 @@ step('boot', () => {
 
 // 6. Optional: the dev loop without the resident driver — touch app.contract, rebuild the wasm.
 if (rebuild) {
-  step('rebuild', () => {
-    const app = resolve(ROOT, 'apps/caltrain/app.contract');
-    const now = new Date();
-    utimesSync(app, now, now);
-    const t = Date.now();
-    const r = spawnSync('node', [resolve(ROOT, 'host/web/build.mjs')], { cwd: ROOT, stdio: 'ignore' });
-    out.rebuild_ms = r.status === 0 ? Date.now() - t : NaN;
-  });
+  if (!appInRepo) {
+    out.rebuild_ms = NaN;
+    out.rebuild_note = `unmeasured: Exact will not touch external source metadata under ${app.dir}`;
+    out._rebuild_s = 0;
+  } else {
+    step('rebuild', () => {
+      const source = resolve(app.dir, 'app.contract');
+      const now = new Date();
+      utimesSync(source, now, now);
+      const t = Date.now();
+      const r = spawnSync('node', [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: 'ignore' });
+      out.rebuild_ms = r.status === 0 ? Date.now() - t : NaN;
+    });
+  }
 }
 
 // 6. The macOS app's startup, when it has been built (`node host/apple/build.mjs`;
 // --long builds it): exec → main (dyld), NSApplication, the window, the runner
 // with layout and text measurement, the batch applied, the first paint.
 const macBin = macBinary;
-const macRun = () => spawnSync(macBin, [], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_SMOKE: '1' }, timeout: 20000 });
+const macReceipt = resolve(dirname(macBin), 'receipt.json');
+const macBuiltApp = () => {
+  try { return JSON.parse(readFileSync(macReceipt, 'utf8')).app?.id ?? null; }
+  catch { return null; }
+};
+const macRun = () => spawnSync(macBin, [], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_ASSETS: app.dir, EXACT_SMOKE: '1' }, timeout: 20000 });
 const macParse = (o) => {
   out.macos_boot_ms = Number(/^boot ([\d.]+) ms/m.exec(o)?.[1] ?? NaN);
   const s = /startup: exec→main ([\d.?]+) ms; main→NSApplication ([\d.]+) ms; →window ([\d.]+) ms/.exec(o);
@@ -204,6 +233,8 @@ const floorRun = () => {
 };
 step('macos-boot', () => {
   if (!existsSync(macBin)) { out.macos_boot_ms = NaN; out.macos_note = 'not built (node host/apple/build.mjs)'; return; }
+  const built = macBuiltApp();
+  if (built !== app.id) { out.macos_boot_ms = NaN; out.macos_note = `binary receipt is for ${built ?? 'an unknown app'}, not ${app.id} (node host/apple/build.mjs ${app.crate('apple')})`; return; }
   macRun(); // the first launch of a fresh binary is a cold outlier: warm up, report the second
   macParse(macRun().stdout ?? '');
   floorRun();
@@ -216,7 +247,7 @@ if (long) {
   step('macos', () => {
     const build = () => {
       const t = Date.now();
-      const r = spawnSync('node', [resolve(ROOT, 'host/apple/build.mjs')], { cwd: ROOT, encoding: 'utf8' });
+      const r = spawnSync('node', [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple')], { cwd: ROOT, encoding: 'utf8' });
       const m = /cargo ([\d.]+) s, swift ([\d.]+) s/.exec(r.stdout ?? '');
       return { ok: r.status === 0, total_s: (Date.now() - t) / 1000, cargo_s: m ? Number(m[1]) : NaN, swift_s: m ? Number(m[2]) : NaN };
     };
@@ -229,15 +260,18 @@ if (long) {
     utimesSync(src, now, now);
     const touched = build();
     out.macos_touch_s = touched.ok ? touched.total_s : NaN;
-    macRun();
-    macParse(macRun().stdout ?? '');
+    if (touched.ok && macBuiltApp() === app.id) {
+      macRun();
+      macParse(macRun().stdout ?? '');
+      floorRun();
+    }
   });
   // The linked delta (LLP 1031 D7): the sample host — a native app linking
   // the archive and ExactKit and nothing else — against the empty AppKit app
   // `floor.swift`, installed bytes and gzip apart; each optional artifact
   // (the GPU module, the web arm) reported beside it, never folded in.
   step('macos-link-delta', () => {
-    const r = spawnSync('node', [resolve(ROOT, 'host/apple/build.mjs'), '--host'], { cwd: ROOT, encoding: 'utf8' });
+    const r = spawnSync('node', [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--host'], { cwd: ROOT, encoding: 'utf8' });
     if (r.status !== 0 || !existsSync(macHostBinary) || !existsSync(floorBin)) { out.link_delta_bytes = NaN; return; }
     const size = (f) => statSync(f).size;
     const gz = (f) => gzipSync(readFileSync(f), { level: 9 }).length;
@@ -266,7 +300,8 @@ out.total_s = (Date.now() - t0) / 1000;
 if (json) { console.log(JSON.stringify(out)); process.exit(0); }
 
 const ms = (v) => (Number.isFinite(v) ? `${v.toFixed(v < 10 ? 2 : 1)} ms` : 'n/a');
-const kib = (v) => `${(v / 1024).toFixed(0)} KiB`;
+const kib = (v) => Number.isFinite(v) ? `${(v / 1024).toFixed(0)} KiB` : 'n/a';
+const bytes = (v, suffix = '') => Number.isFinite(v) ? `${v.toLocaleString()} B${suffix}` : out.native_note ?? 'n/a';
 const grade = (v, label) => {
   const stated = budget(label);
   const ceiling = Number(/^([\d.]+)\s*ms\b/i.exec(stated)?.[1] ?? NaN);
@@ -274,10 +309,10 @@ const grade = (v, label) => {
   return `budget ${stated}; ${v <= ceiling ? 'within' : 'OVER'}`;
 };
 const rows = [
-  ['compile app.contract → plan', ms(out.compile_ms), `${out.plan_bytes.toLocaleString()} B`],
-  ['bake (one runner boot at build)', ms(out.bake_ms), `${out.baked_bytes.toLocaleString()} B baked`],
+  ['compile app.contract → plan', ms(out.compile_ms), bytes(out.plan_bytes)],
+  ['bake (one runner boot at build)', ms(out.bake_ms), bytes(out.baked_bytes, ' baked')],
   ['decode + validate the plan', ms(out.decode_ms), ''],
-  ['runner boot → first frame', ms(out.boot_ms), `${out.nodes} nodes, ${out.text_nodes} text`],
+  ['runner boot → first frame', ms(out.boot_ms), Number.isFinite(out.nodes) ? `${out.nodes} nodes, ${out.text_nodes} text` : ''],
   ['layout 390×844 (Taffy)', ms(out.layout_ms), ''],
   ['update: screen swap (press)', ms(out.update_ms), `budget ${budget('Dev restart')}`],
   ['tick: advance 1 s', ms(out.tick_ms), ''],
@@ -303,7 +338,7 @@ if (Number.isFinite(out.macos_paint_ms)) rows.push(
   ['  GPU module (dlopen + device)', ms(out.macos_gpu_ms), 'after first paint, first canvas'],
   ['  web arm (dlopen)', out.macos_web_loaded ? 'loaded' : 'not loaded', out.macos_web_loaded ? 'VIOLATION: first screen has no iframe' : 'first iframe commit only'],
 );
-if (rebuild) rows.push(['edit → wasm rebuilt (no driver)', ms(out.rebuild_ms), 'the cold path: cargo build of the app crate']);
+if (rebuild) rows.push(['edit → wasm rebuilt (no driver)', ms(out.rebuild_ms), out.rebuild_note ?? 'the cold path: cargo build of the app crate']);
 if (long) {
   const s = (v) => (Number.isFinite(v) ? `${v.toFixed(1)} s` : 'n/a');
   rows.push(['macOS: warm build', s(out.macos_build_s), `cargo ${s(out.macos_build_cargo_s)} · swift ${s(out.macos_build_swift_s)}; budget ${budget('Full build')}`]);

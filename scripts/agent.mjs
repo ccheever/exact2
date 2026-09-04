@@ -40,7 +40,7 @@ import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { appBundle, bundleId, hostBundle, install, macBinary, macHostBinary, simulator } from '../host/apple/build.mjs';
-import { staticFile, webContentType } from '../host/web/serve.mjs';
+import { builtAppMatches, staticFile, webContentType } from '../host/web/serve.mjs';
 import { resolveApp } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -98,9 +98,16 @@ class Cdp {
   }
 }
 
-async function openWeb({ plan, size = [420, 900], url: pageURL }) {
-  const dist = resolve(ROOT, 'host/web/dist');
-  if (!pageURL && !existsSync(resolve(dist, 'app.wasm'))) throw new Error('run node host/web/build.mjs first');
+/** Refuse to drive anything but a complete, authenticated build of the
+ * selected app. The build marker binds every public runtime artifact. */
+export function assertWebDistApp(dist, app) {
+  if (!builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; run node host/web/build.mjs ${app.crate('web')}`);
+}
+
+async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) {
+  const selected = resolveApp(app);
+  const dist = webDist ? resolve(webDist) : resolve(ROOT, 'host/web/dist');
+  if (!pageURL) assertWebDistApp(dist, selected);
   let gpuMs = null;
   const server = createServer((req, res) => {
     if (req.url.startsWith('/__gpu')) { gpuMs = Number(new URL(req.url, 'http://x').searchParams.get('ms')); res.writeHead(204); res.end(); return; }
@@ -387,8 +394,8 @@ async function openIOS({ plan, app, env: extra = {}, session, bundle = appBundle
 // ---------------------------------------------------------------- the eight operations
 
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `plan` boots a compiled contract instead of the app's baked plan; `env` adds to a native host's environment. */
-export async function open({ host, plan, size, env, app, session, url } = {}) {
-  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, bundle: hostBundle, id: `${resolveApp(app).id}.host` }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url });
+export async function open({ host, plan, size, env, app, session, url, webDist } = {}) {
+  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, bundle: hostBundle, id: `${resolveApp(app).id}.host` }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url, app, webDist });
   const s = {
     host: carrier.host,
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
@@ -515,7 +522,7 @@ export function render(op, r) {
  * operations use. One session per file; a failed expect names the test, the
  * line, and what was seen. Returns `{ passed, failed, results }`.
  */
-export async function runTests({ host, file, plan, app, size, env } = {}) {
+export async function runTests({ host, file, plan, app, size, env, webDist } = {}) {
   const { spawnSync } = await import('node:child_process');
   const root = resolve(new URL('..', import.meta.url).pathname);
   let bin = resolve(root, 'target/debug/contract');
@@ -530,7 +537,7 @@ export async function runTests({ host, file, plan, app, size, env } = {}) {
   // Every test starts from the first frame: a session of its own.
   for (const t of tests) {
     const failures = [];
-    const s = await open({ host, plan, size, env, app });
+    const s = await open({ host, plan, size, env, app, webDist });
     try {
       for (const st of t.steps) {
         const at = `${t.name}: line ${st.line}`;

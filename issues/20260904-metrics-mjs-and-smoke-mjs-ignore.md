@@ -1,6 +1,7 @@
 # metrics.mjs and smoke.mjs ignore the outside app
 
 **Status:** Open
+**Progress:** App selection and authenticated web-build identity are threaded end to end. In-repo deploy smoke now runs in a disposable checkout, but external deploy smoke is still refused and external edit-to-present is still unmeasured.
 **Systems:** Scripts, Dev loop
 **Severity:** P3
 **Author:** Muse Code for Charlie Cheever
