@@ -11,7 +11,7 @@
 //!
 //! ```text
 //! record.json                              { codec, selected, lastGood, failures, stream, bad }
-//! entries/<envelope sha256>/exact.json      the head, as it arrived
+//! entries/<canonical envelope sha256>/exact.json  the head, as it arrived
 //! entries/<envelope sha256>/app.plan        verified against the envelope
 //! entries/<envelope sha256>/assets/<name>   likewise
 //! entries/.tmp-<something>/                 an entry being built; never selected
@@ -168,7 +168,8 @@ struct EntryView {
 }
 
 /// The record, in memory. Its JSON is `{ "codec", "selected", "pending",
-/// "lastGood", "failures", "stream": { "compatibilityId", "seq" }, "bad" }`.
+/// "lastGood", "failures", "stream": { "channel", "compatibilityId",
+/// "seq" }, "bad" }`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Record {
     selected: Option<String>,
@@ -179,6 +180,9 @@ struct Record {
     last_good: Option<String>,
     failures: u64,
     compatibility_id: String,
+    channel: String,
+    /// The highest stream sequence this client has admitted, including an
+    /// embedded generation or a head found current while entry zero ran.
     seq: u64,
     /// Entries that failed to reach first pixel twice. A head that names one is
     /// refused rather than staged again, so a bad bundle cannot loop a client
@@ -194,14 +198,15 @@ const BAD_REMEMBERED: usize = 8;
 const FAILURES_ALLOWED: u64 = 2;
 
 impl Record {
-    fn fresh(compatibility_id: &str) -> Record {
+    fn fresh(embedded: &Embedded) -> Record {
         Record {
             selected: None,
             pending: None,
             last_good: None,
             failures: 0,
-            compatibility_id: compatibility_id.to_string(),
-            seq: 0,
+            compatibility_id: embedded.compatibility_id.clone(),
+            channel: embedded.channel.clone(),
+            seq: embedded.seq,
             bad: Vec::new(),
         }
     }
@@ -217,7 +222,7 @@ impl Record {
             "pending": quoted(&self.pending),
             "lastGood": quoted(&self.last_good),
             "failures": self.failures,
-            "stream": { "compatibilityId": self.compatibility_id, "seq": self.seq },
+            "stream": { "channel": self.channel, "compatibilityId": self.compatibility_id, "seq": self.seq },
             "bad": self.bad,
         });
         format!("{value}\n")
@@ -228,6 +233,9 @@ impl Record {
 enum RecordFile {
     /// No record, or one this client cannot read as JSON at all: start fresh.
     Fresh,
+    /// An older codec from this pre-1.0 crate. Its selections are not read;
+    /// open replaces it with this binary's clean entry-zero record.
+    Obsolete,
     /// A record written by a binary with another store codec (LLP 1030 D9).
     Foreign,
     /// This codec's record.
@@ -246,6 +254,7 @@ fn read_record(path: &Path) -> RecordFile {
     };
     match object.get("codec").and_then(|v| v.as_u64()) {
         Some(codec) if codec == crate::STORE_CODEC => {}
+        Some(codec) if codec < crate::STORE_CODEC => return RecordFile::Obsolete,
         _ => return RecordFile::Foreign,
     }
     let stream = object.get("stream").and_then(|v| v.as_object());
@@ -265,6 +274,11 @@ fn read_record(path: &Path) -> RecordFile {
         failures: object.get("failures").and_then(|v| v.as_u64()).unwrap_or(0),
         compatibility_id: stream
             .and_then(|s| s.get("compatibilityId"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        channel: stream
+            .and_then(|s| s.get("channel"))
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string(),
@@ -299,24 +313,30 @@ impl Store {
         let entries = dir.join("entries");
         std::fs::create_dir_all(&entries)
             .map_err(|e| format!("cannot make {}: {e}", entries.display()))?;
+        let record = Record::fresh(&embedded);
         let mut store = Store {
             dir: dir.to_path_buf(),
             running_seq: embedded.seq,
             embedded,
-            record: Record::fresh(""),
+            record,
             frozen: false,
             hold: false,
             running: None,
             view: None,
         };
+        let mut rewrite = false;
         match read_record(&store.record_path()) {
             RecordFile::Foreign => {
                 store.frozen = true;
-                store.record = Record::fresh(&store.embedded.compatibility_id);
+                store.record = Record::fresh(&store.embedded);
                 return Ok(store);
             }
+            RecordFile::Obsolete => {
+                store.record = Record::fresh(&store.embedded);
+                rewrite = true;
+            }
             RecordFile::Fresh => {
-                store.record = Record::fresh(&store.embedded.compatibility_id);
+                store.record = Record::fresh(&store.embedded);
             }
             RecordFile::Ours(record) => store.record = record,
         }
@@ -325,11 +345,13 @@ impl Store {
         sweep(dir);
         sweep(&entries);
         let before = store.record.clone();
-        if store.record.compatibility_id != store.embedded.compatibility_id {
+        if store.record.compatibility_id != store.embedded.compatibility_id
+            || store.record.channel != store.embedded.channel
+        {
             // A new binary over an old store: the old cohort's entries stay on
             // disk (their files are still reusable by digest) but none of them
             // is selectable here, so this cohort starts at entry zero.
-            store.record = Record::fresh(&store.embedded.compatibility_id);
+            store.record = Record::fresh(&store.embedded);
         }
         store.view = store.validate(store.record.selected.clone());
         if store.view.is_none() {
@@ -370,7 +392,7 @@ impl Store {
         }
         store.running = store.record.selected.clone();
         store.running_seq = store.select().seq;
-        if store.record != before {
+        if rewrite || store.record != before {
             store.write_record()?;
         }
         Ok(store)
@@ -490,10 +512,14 @@ impl Store {
                 envelope.stream.channel, self.embedded.channel
             ));
         }
-        let floor = self.select().seq;
+        let floor = self
+            .embedded
+            .seq
+            .max(self.select().seq)
+            .max(self.record.seq);
         if envelope.stream.seq < floor {
             return Err(format!(
-                "the head is seq {}, below the selected seq {floor}",
+                "the head is seq {}, below the accepted seq {floor}",
                 envelope.stream.seq
             ));
         }
@@ -525,6 +551,11 @@ impl Store {
             return Err(format!(
                 "bundle {} failed to reach first pixel twice; it is not staged again",
                 envelope.digest
+            ));
+        }
+        if envelope.stream.seq == floor {
+            return Err(format!(
+                "the head is seq {floor} but names another bundle; a used sequence cannot equivocate"
             ));
         }
         self.write_entry(&envelope, head_url, fetch)?;
@@ -664,6 +695,7 @@ impl Store {
         if envelope.digest != sha
             || envelope.app_id != self.embedded.app_id
             || envelope.stream.compatibility_id != self.embedded.compatibility_id
+            || envelope.stream.channel != self.embedded.channel
         {
             return None;
         }

@@ -16,9 +16,9 @@
 //!
 //! ```text
 //! <dir>/record.json                       the selected bundle, the last good one, the failures
-//! <dir>/entries/<envelope sha256>/exact.json
-//! <dir>/entries/<envelope sha256>/app.plan
-//! <dir>/entries/<envelope sha256>/assets/<name>
+//! <dir>/entries/<canonical envelope sha256>/exact.json
+//! <dir>/entries/<canonical envelope sha256>/app.plan
+//! <dir>/entries/<canonical envelope sha256>/assets/<name>
 //! ```
 //!
 //! Every entry is whole or absent: files land in `entries/.tmp-…` and the
@@ -60,7 +60,7 @@ pub use store::{head_url, Check, Embedded, Selection, Staged, Status, Store};
 /// The store's record codec (LLP 1030 D1, D9; `contract::compat::STORE_CODEC`):
 /// the first. A record whose `codec` major is not this one is another binary's
 /// and is left alone — the client selects entry zero and writes nothing.
-pub const STORE_CODEC: u64 = 1;
+pub const STORE_CODEC: u64 = 2;
 
 /// The envelope's major version (LLP 1023 D2): unknown majors are refused,
 /// unknown *fields* are ignored.

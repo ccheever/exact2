@@ -34,7 +34,7 @@ use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 
 /// The SHA-256 of `bytes`, lowercase hex — payload integrity as LLP 1023 D2
-/// defines it, and the key an entry is stored under.
+/// defines it. Bundle identity instead hashes [`canonical_bytes`].
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
@@ -184,10 +184,12 @@ pub struct Signature {
 /// the store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Envelope {
-    /// The bytes as they arrived — what the entry stores and what the digest
-    /// covers.
+    /// The bytes as they arrived — what the entry stores for later signature
+    /// verification.
     pub raw: Vec<u8>,
-    /// SHA-256 of [`Envelope::raw`], lowercase hex: the entry's name.
+    /// SHA-256 of the authenticated canonical bytes, lowercase hex: the
+    /// entry's name. Transport whitespace, key order, and the signature's own
+    /// encoding cannot give one signed bundle another crash-quarantine name.
     pub digest: String,
     /// The app this bundle belongs to (LLP 1023 D5).
     pub app_id: String,
@@ -234,7 +236,7 @@ impl Envelope {
         // Canonicalizing here is the parse's own check that the head can be
         // signed and verified at all: it refuses a non-integer number before
         // anything downstream depends on the bytes.
-        canonical_bytes(text)?;
+        let canonical = canonical_bytes(text)?;
         let value: serde_json::Value =
             serde_json::from_str(text).map_err(|e| format!("the envelope is not JSON: {e}"))?;
         let root = value
@@ -357,7 +359,7 @@ impl Envelope {
         };
         Ok(Envelope {
             raw: raw.to_vec(),
-            digest: sha256_hex(raw),
+            digest: sha256_hex(&canonical),
             app_id,
             app_name: app.get("name").and_then(|v| v.as_str()).map(str::to_string),
             plan,

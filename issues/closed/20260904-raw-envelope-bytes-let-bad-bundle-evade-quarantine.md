@@ -1,6 +1,7 @@
 # Raw envelope bytes let a bad signed bundle evade quarantine
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Bundle entries and crash quarantine now use the SHA-256 of the authenticated canonical envelope body, so transport reserialization retains one identity.
 **Systems:** Update store, Delivery, Security
 **Severity:** P1
 **Author:** Codex (GPT-5) for Charlie Cheever

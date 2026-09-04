@@ -30,7 +30,7 @@ const ABI_HEADER: &str = include_str!(concat!(
 /// The GPU module's C ABI (LLP 1009 D2): unnumbered in the module today.
 pub const GPU_MODULE_ABI: u32 = 1;
 /// The update store's record codec (LLP 1030 D1): the first.
-pub const STORE_CODEC: u32 = 1;
+pub const STORE_CODEC: u32 = 2;
 /// The domain separator over the canonical inputs.
 const DOMAIN: &str = "exact2 compatibility id v1\n";
 

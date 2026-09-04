@@ -1,6 +1,7 @@
 # The update store reuses a selection across channels
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Store codec 2 records the channel, validates entry channels at launch, and replaces older or different-channel records with a clean entry-zero record.
 **Systems:** Update store, Delivery, Apple host, Linux host
 **Severity:** P1
 **Author:** Codex (GPT-5) for Charlie Cheever

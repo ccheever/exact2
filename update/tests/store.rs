@@ -325,11 +325,69 @@ fn a_lower_seq_is_refused() {
     let mut next = open(&temp);
     let refusal = origin.check(&mut next).unwrap_err();
     assert!(
-        refusal.contains("below the selected seq 5"),
+        refusal.contains("below the accepted seq 5"),
         "unexpected refusal: {refusal}"
     );
     assert_eq!(origin.asked.len(), 1, "nothing was downloaded");
     assert_eq!(next.select().seq, 5);
+}
+
+#[test]
+fn the_embedded_and_observed_sequences_remain_rollback_floors() {
+    let fresh = Temp::new("embedded-floor");
+    let mut origin = Origin::of(&Bundle::new(2, b"plan two"));
+    let mut store = open(&fresh);
+    let refusal = origin.check(&mut store).unwrap_err();
+    assert!(
+        refusal.contains("below the accepted seq 3"),
+        "the embedded generation is the first floor: {refusal}"
+    );
+
+    let temp = Temp::new("observed-floor");
+    origin.serving(&Bundle::new(5, b"plan five"));
+    let mut store = open(&temp);
+    assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
+    boot_and_die(&temp);
+    boot_and_die(&temp);
+    assert_eq!(open(&temp).select().entry, None, "the bad update demoted");
+
+    origin.serving(&Bundle::new(4, b"plan four"));
+    let mut fallback = open(&temp);
+    let refusal = origin.check(&mut fallback).unwrap_err();
+    assert!(
+        refusal.contains("below the accepted seq 5"),
+        "fallback must not lower the observed floor: {refusal}"
+    );
+}
+
+#[test]
+fn a_signed_sequence_cannot_name_two_bundles() {
+    let signing = key(13);
+    let keys = [("k1", signing.verifying_key().to_bytes())];
+    let temp = Temp::new("seq-equivocation");
+    let mut first = Bundle::new(4, b"plan four");
+    first.signer = Some(("k1".into(), signing.clone()));
+    let mut origin = Origin::of(&first);
+    let mut store = Store::open(temp.path(), embedded(&keys)).unwrap();
+    assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
+
+    let mut equivocation = Bundle::new(4, b"another plan");
+    equivocation.signer = Some(("k1".into(), signing.clone()));
+    origin.serving(&equivocation);
+    let mut next = Store::open(temp.path(), embedded(&keys)).unwrap();
+    let refusal = origin.check(&mut next).unwrap_err();
+    assert!(
+        refusal.contains("used sequence cannot equivocate"),
+        "a valid signature cannot reuse an observed sequence: {refusal}"
+    );
+    assert_eq!(origin.asked.len(), 1, "no equivocating payload was fetched");
+
+    equivocation.seq = 5;
+    origin.serving(&equivocation);
+    assert!(
+        matches!(origin.check(&mut next), Ok(Check::Staged { seq: 5, .. })),
+        "the same valid content at a genuinely higher sequence is admissible"
+    );
 }
 
 #[test]
@@ -606,7 +664,7 @@ fn the_sunset_card_passes_through() {
 fn an_unknown_record_codec_selects_entry_zero_and_leaves_the_record_alone() {
     let temp = Temp::new("codec");
     let record = temp.path().join("record.json");
-    let foreign = b"{\"codec\":2,\"selected\":\"beef\",\"lastGood\":null,\"failures\":0}";
+    let foreign = b"{\"codec\":999,\"selected\":\"beef\",\"lastGood\":null,\"failures\":0}";
     std::fs::write(&record, foreign).unwrap();
 
     let mut store = Store::open(temp.path(), embedded(&[])).unwrap();
@@ -619,6 +677,28 @@ fn an_unknown_record_codec_selects_entry_zero_and_leaves_the_record_alone() {
     let refusal = origin.check(&mut store).unwrap_err();
     assert!(refusal.contains("newer binary"), "unexpected: {refusal}");
     assert_eq!(std::fs::read(&record).unwrap(), foreign);
+}
+
+#[test]
+fn the_pre_one_point_zero_record_is_replaced_without_booting_its_selection() {
+    let temp = Temp::new("old-codec");
+    let record = temp.path().join("record.json");
+    std::fs::write(
+        &record,
+        b"{\"codec\":1,\"selected\":\"beef\",\"stream\":{\"compatibilityId\":\"9a1f3c7e5b2d4086\",\"seq\":99}}",
+    )
+    .unwrap();
+
+    let store = open(&temp);
+    assert!(!store.frozen());
+    assert_eq!(store.select().entry, None);
+    assert_eq!(store.select().seq, EMBEDDED_SEQ);
+    let replaced: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(record).unwrap()).unwrap();
+    assert_eq!(replaced["codec"], exact_update::STORE_CODEC);
+    assert_eq!(replaced["selected"], serde_json::Value::Null);
+    assert_eq!(replaced["stream"]["channel"], "release");
+    assert_eq!(replaced["stream"]["seq"], EMBEDDED_SEQ);
 }
 
 #[test]
@@ -637,6 +717,25 @@ fn a_record_from_another_cohort_starts_this_one_at_entry_zero() {
         "another cohort's entry is not selectable"
     );
     assert_eq!(store.status().stream, "embedded");
+}
+
+#[test]
+fn a_record_from_another_channel_starts_at_entry_zero() {
+    let temp = Temp::new("other-channel");
+    let mut origin = Origin::of(&Bundle::new(4, b"release plan"));
+    let mut store = open(&temp);
+    assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
+
+    let mut beta = embedded(&[]);
+    beta.channel = "beta".into();
+    let store = Store::open(temp.path(), beta).unwrap();
+    assert_eq!(store.select().entry, None);
+    assert_eq!(store.select().seq, EMBEDDED_SEQ);
+    assert_eq!(store.status().stream, "embedded");
+    let record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(temp.path().join("record.json")).unwrap())
+            .unwrap();
+    assert_eq!(record["stream"]["channel"], "beta");
 }
 
 #[test]
@@ -765,7 +864,10 @@ fn a_head_naming_the_embedded_plan_and_assets_is_current_and_downloads_nothing()
     assert_eq!(store.status().stream, "embedded");
     assert_eq!(store.status().running_seq, EMBEDDED_SEQ);
 
-    // The same plan with a changed asset is an asset-only update: staged.
+    // The same plan at a higher sequence with a changed asset is an
+    // asset-only update: staged.
+    let update = Bundle::new(4, b"plan three").asset("mark.png", b"a mark");
+    origin.serving(&update);
     let mut store = Store::open(temp.path(), carried.clone()).unwrap();
     let Ok(Check::Staged { entry, .. }) =
         origin.check_embedding(&mut store, &[("mark.png", b"an older mark")])
@@ -813,7 +915,38 @@ fn the_canonical_bytes_are_what_a_head_is_signed_over() {
     bundle.signer = Some(("k1".into(), signing.clone()));
     let (text, _) = bundle.publish();
     let value: serde_json::Value = serde_json::from_str(&text).unwrap();
-    let shuffled = serde_json::to_string_pretty(&value).unwrap();
+    let object = value.as_object().unwrap();
+    let mut keys: Vec<&String> = object.keys().collect();
+    keys.sort_by(|a, b| b.cmp(a));
+    let shuffled = format!(
+        "{{{}}}",
+        keys.iter()
+            .map(|key| format!(
+                "{}:{}",
+                serde_json::to_string(key).unwrap(),
+                serde_json::to_string(&object[*key]).unwrap()
+            ))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    assert_ne!(
+        shuffled, text,
+        "the test explicitly reverses top-level keys"
+    );
+    assert_eq!(
+        canonical_bytes(&shuffled).unwrap(),
+        canonical_bytes(&text).unwrap(),
+        "key order is not part of the authenticated payload"
+    );
+    assert_eq!(
+        exact_update::Envelope::parse(text.as_bytes())
+            .unwrap()
+            .digest,
+        exact_update::Envelope::parse(shuffled.as_bytes())
+            .unwrap()
+            .digest,
+        "the authenticated payload, not its transport serialization, names the bundle"
+    );
 
     let temp = Temp::new("canonical-head");
     let mut origin = Origin::of(&bundle);
@@ -845,4 +978,46 @@ fn the_canonical_bytes_are_what_a_head_is_signed_over() {
     .unwrap();
     let refusal = origin.check(&mut store).unwrap_err();
     assert!(refusal.contains("does not verify"), "unexpected: {refusal}");
+}
+
+#[test]
+fn reserializing_a_bad_signed_bundle_does_not_evade_quarantine() {
+    let signing = key(12);
+    let mut bundle = Bundle::new(4, b"plan four");
+    bundle.signer = Some(("k1".into(), signing.clone()));
+    let mut origin = Origin::of(&bundle);
+    let temp = Temp::new("canonical-quarantine");
+    let carried = embedded(&[("k1", signing.verifying_key().to_bytes())]);
+    let mut store = Store::open(temp.path(), carried.clone()).unwrap();
+    let Ok(Check::Staged { entry, .. }) = origin.check(&mut store) else {
+        panic!("the signed bundle should stage");
+    };
+
+    for _ in 0..2 {
+        let mut launch = Store::open(temp.path(), carried.clone()).unwrap();
+        assert_eq!(launch.select().entry.as_deref(), Some(entry.as_str()));
+        launch.boot_started().unwrap();
+    }
+    assert_eq!(
+        Store::open(temp.path(), carried.clone())
+            .unwrap()
+            .select()
+            .entry,
+        None
+    );
+
+    let head_url = exact_update::head_url(ORIGIN, "release", COHORT);
+    let raw = origin.files.get(&head_url).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(raw).unwrap();
+    let pretty = serde_json::to_string_pretty(&value).unwrap().into_bytes();
+    assert_ne!(&pretty, raw);
+    origin.files.insert(head_url, pretty);
+
+    let mut store = Store::open(temp.path(), carried).unwrap();
+    let refusal = origin.check(&mut store).unwrap_err();
+    assert!(
+        refusal.contains("failed to reach first pixel twice"),
+        "reformatting must retain the bad bundle's identity: {refusal}"
+    );
+    assert_eq!(entry_names(&temp), vec![entry]);
 }
