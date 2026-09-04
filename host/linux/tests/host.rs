@@ -50,6 +50,7 @@ fn boot() -> Presenter<caltrain_data::Caltrain> {
     p
 }
 
+#[derive(Default)]
 struct NoData;
 impl DataSource for NoData {
     fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {

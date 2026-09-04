@@ -121,6 +121,26 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The delivery facts whole (LLP 1030 D7) — what the update store has to
+    /// say after a check or an activation, on top of the binary's own — into
+    /// the runner, as one commit when they changed.
+    pub fn set_delivery(&mut self, delivery: exact_runner::Delivery) -> Option<String> {
+        match self.runner.set_delivery(delivery) {
+            Ok(None) => None,
+            Ok(Some(receipt)) => {
+                let at_ms = self.now_ms;
+                self.commit(&[Timed { at_ms, receipt }], None)
+            }
+            Err(e) => Some(format!("delivery: {e:?}")),
+        }
+    }
+
+    /// The commands the last commits' actions asked for, in order (LLP 1005
+    /// §3): `deliveryCheck`, `deliveryActivate`, `setScheme`.
+    pub fn take_commands(&mut self) -> Vec<exact_runner::Command> {
+        self.runner.take_commands()
+    }
+
     /// The runner.
     pub fn runner(&self) -> &Runner<D> {
         &self.runner

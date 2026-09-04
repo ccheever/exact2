@@ -28,6 +28,10 @@ struct Loaded {
 /// Every image node's source, picture, and load in flight.
 pub struct Images {
     assets: PathBuf,
+    /// Files that stand in for a name under the root: an update entry's
+    /// assets (LLP 1026 D11), resolved before the root and kept across a
+    /// reload — they are the store's, not the plan's.
+    overrides: BTreeMap<String, PathBuf>,
     sources: BTreeMap<ViewId, String>,
     generation: BTreeMap<ViewId, u64>,
     /// Decoded pictures, premultiplied RGBA.
@@ -50,6 +54,7 @@ impl Images {
         let (tx, rx) = channel();
         Images {
             assets,
+            overrides: BTreeMap::new(),
             sources: BTreeMap::new(),
             generation: BTreeMap::new(),
             bitmaps: BTreeMap::new(),
@@ -66,6 +71,9 @@ impl Images {
     pub fn resolve(&self, source: &str) -> Option<PathBuf> {
         if source.contains("://") || source.starts_with('/') {
             return None;
+        }
+        if let Some(path) = self.overrides.get(source) {
+            return Some(path.clone());
         }
         let root = self.assets.canonicalize().ok()?;
         let path = root.join(source).canonicalize().ok()?;
@@ -203,6 +211,27 @@ impl Images {
     /// The asset root.
     pub fn assets(&self) -> &Path {
         &self.assets
+    }
+
+    /// Every file under `dir` stands in for its relative name from here on
+    /// (an update entry's `assets/`, LLP 1026 D11): `assets/mark.png` under
+    /// it is what the source `assets/mark.png` resolves to.
+    pub fn use_overrides(&mut self, dir: &Path) {
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            let Ok(read) = std::fs::read_dir(&d) else {
+                continue;
+            };
+            for entry in read.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if let Ok(rel) = path.strip_prefix(dir) {
+                    self.overrides
+                        .insert(rel.to_string_lossy().into_owned(), path.clone());
+                }
+            }
+        }
     }
 }
 

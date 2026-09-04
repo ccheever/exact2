@@ -22,6 +22,14 @@ shape Departure
   headsign: string
   at: number
 
+// What the binary knows about its own delivery (LLP 1030 D7): the runner
+// answers it before the data seam, from the update store — `staged` is what
+// the banner reads, and `deliveryActivate` applies the bundle with carry.
+shape DeliveryState
+  stream: string
+  seq: number
+  staged: bool
+
 component Caltrain
   state nowMs = 1787915400000
   state screen = "home"
@@ -51,9 +59,12 @@ component Caltrain
   resource nearby = nearest(location, 3) as shape list<Station>
   resource allStations = stations(location) as shape list<Station>
   resource matches = search(query, location) as shape list<Station>
+  resource delivery = exactDelivery() as shape DeliveryState
 
   action tick writes nowMs
     nowMs = nowMs + 1000
+  action activateUpdate
+    deliveryActivate()
   action openStations writes screen
     screen = "stations"
   action openDeck writes screen, deckLoaded, deckLoads, deckMessage
@@ -126,7 +137,7 @@ component Caltrain
           // The sky or the plain page around the same content, written once:
           // `Sky` declares a slot and the content is what is indented under it.
           Sky(on=skyOn, material=material, selectedId=selectedId)
-            Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, openStations=openStations, openDeck=openDeck, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey)
+            Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate)
 
 component Sky
   props
@@ -168,6 +179,7 @@ component Content
     nearby: list<Station>
     allStations: list<Station>
     matches: list<Station>
+    delivery: DeliveryState
     openStations: action
     openDeck: action
     setScheme: action
@@ -182,13 +194,21 @@ component Content
     focusSearch: action
     blurSearch: action
     searchKey: action
+    activateUpdate: action
   view
     column gap=16 padding=20 max-width=640 align-self="center" width="100%" box-sizing="border-box"
+      // An update is staged (LLP 1030 D7): say so, and let the person take it
+      // now — with carry, the selected station survives — or at the next launch.
+      when delivery.staged
+        row justify-content="space-between" align-items="center" background-color="#fff4d6" border-radius=12 padding=12 testId="update-banner"
+          text "An update is ready" font-size=13 font-weight=600 color="#5a4a1a" testId="update-ready"
+          button press=activateUpdate aria-label="Apply the update now" testId="delivery-activate" padding=8 border-radius=8 background-color="#1e3a5f"
+            text "Update now" font-size=12 font-weight=600 color="#ffffff"
       header width="100%" background-color="#ffffffd9" border-radius=16 padding=14 box-sizing="border-box"
         row justify-content="space-between" align-items="center"
           column gap=2
             image "assets/caltrain.png" width=96 object-fit="contain" aria-label="A Caltrain train" testId="logo"
-            text "Caltrain" font-size=13 font-weight=700 letter-spacing=1.2 color=accent
+            text "Caltrain" font-size=13 font-weight=700 letter-spacing=1.2 color=accent testId="brand"
             text station.name font-size=24 font-weight=700 testId="station-name" aria-level=1
             text `${formatDistance(station.distance)} · ${formatWalk(station.distance)}` font-size=12 color="#666666"
           column gap=6 align-items="flex-end"

@@ -53,8 +53,11 @@ fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
     // change, LLP 1005 §3); deckLoaded, deckLoads, and deckMessage (the
     // iframe fixture, @ref LLP 1020 M1).
     assert_eq!(a.slots.len(), 15);
-    assert_eq!(a.resources.len(), 7);
-    assert_eq!(a.actions.len(), 17);
+    // Seven data-crate resources, and `delivery` — the runner's own
+    // `exactDelivery` (LLP 1030 D7), read by the update banner.
+    assert_eq!(a.resources.len(), 8);
+    // …and `activateUpdate`, the banner's `deliveryActivate`.
+    assert_eq!(a.actions.len(), 18);
     assert_eq!(a.timers.len(), 1);
     assert!(
         a.resources.iter().all(|r| r.initial.len == 0),

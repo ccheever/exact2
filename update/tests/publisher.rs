@@ -172,19 +172,23 @@ fn the_published_stream_is_staged_whole_by_a_client() {
             app_id: APP.into(),
             compatibility_id: head.stream.compatibility_id.clone(),
             seq: 0,
+            channel: head.stream.channel.clone(),
             verification_keys: keys(),
-            embedded_digest: None,
+            embedded_plan_sha256: None,
         },
     )
     .unwrap();
-    // The store asks for `<origin>/.exact/<compatibilityId>/exact.json` and
-    // resolves each card's url against it; the publisher writes the stream
-    // under `.exact/<channel>/<compatibilityId>/` (LLP 1030.000 D7: a channel
-    // is a prefix). This closure maps by the path below the cohort's
-    // directory, which both layouts share; the channel segment is the one
-    // thing left between them, and it is owed (QUEUE).
+    // The store asks for `<origin>/.exact/<channel>/<compatibilityId>/exact.json`
+    // (`head_url`) and resolves each card's url against it — the layout the
+    // publisher writes (LLP 1030.000 D7: a channel is a prefix). This closure
+    // serves the fixture's stream directory at that path.
     let origin = "https://caltrain.exact.invalid";
-    let prefix = format!("{origin}/.exact/{}/", head.stream.compatibility_id);
+    let head_url =
+        exact_update::head_url(origin, &head.stream.channel, &head.stream.compatibility_id);
+    let prefix = format!(
+        "{origin}/.exact/{}/{}/",
+        head.stream.channel, head.stream.compatibility_id
+    );
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/publisher");
     let asked = std::cell::RefCell::new(Vec::new());
     let mut fetch = |url: &str| -> Result<Vec<u8>, String> {
@@ -194,7 +198,9 @@ fn the_published_stream_is_staged_whole_by_a_client() {
             .ok_or_else(|| format!("{url} is not under the stream"))?;
         std::fs::read(fixture.join(rest)).map_err(|e| format!("{url}: {e}"))
     };
-    let Ok(Check::Staged { entry, seq, sunset }) = store.check(origin, &mut fetch) else {
+    let Ok(Check::Staged { entry, seq, sunset }) =
+        store.check(&head_url, &mut fetch, &mut |_| None)
+    else {
         panic!("the published stream should have staged");
     };
     assert_eq!(seq, 1);
@@ -227,14 +233,15 @@ fn the_published_stream_is_staged_whole_by_a_client() {
             app_id: APP.into(),
             compatibility_id: head.stream.compatibility_id.clone(),
             seq: 0,
+            channel: head.stream.channel.clone(),
             verification_keys: keys(),
-            embedded_digest: None,
+            embedded_plan_sha256: None,
         },
     )
     .unwrap();
     assert_eq!(next.select().seq, 1);
     assert!(matches!(
-        next.check(origin, &mut fetch),
+        next.check(&head_url, &mut fetch, &mut |_| None),
         Ok(Check::Current { sunset: None })
     ));
 }

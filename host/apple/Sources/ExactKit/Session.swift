@@ -57,6 +57,15 @@ public final class ExactApp {
     /// The plan bytes last applied to every session, so a font edit can
     /// restart them from the same plan and re-register the faces.
     private(set) var lastPlan: Data?
+    /// The update store (LLP 1026 D9; `Updates.swift`): opened once, before
+    /// the first boot, which the library then makes from its selection; the
+    /// selected entry's assets are overrides by name; the check runs after
+    /// first pixel (`firstPixel`).
+    private var storeOpen = false
+    private var firstPixelSeen = false
+    /// The last check's outcome line — `current`, `staged seq N`,
+    /// `refused: …` — for a dev menu's eyes.
+    public private(set) var updateStatus: String?
 
     private var sessionRefs: [WeakSession] = []
     /// Every live session, in creation order.
@@ -73,6 +82,75 @@ public final class ExactApp {
         let fallback = FileManager.default.currentDirectoryPath
         #endif
         assetRoot = URL(fileURLWithPath: ExactEnv.environment["EXACT_ASSETS"] ?? fallback, isDirectory: true)
+        storeOpen = Updates.open(assets: assetRoot)
+        if storeOpen { useAssets(Updates.selection().assets) }
+    }
+
+    /// Every file under an entry's assets directory becomes an override by
+    /// its name (`assets/mark.png`), what `resolveAsset` sees first (LLP
+    /// 1026 D11: assets by digest, kept whole under the entry).
+    func useAssets(_ dir: String) {
+        guard !dir.isEmpty, let e = FileManager.default.enumerator(atPath: dir) else { return }
+        let root = URL(fileURLWithPath: dir, isDirectory: true)
+        for case let rel as String in e {
+            var isDir: ObjCBool = false
+            let url = root.appendingPathComponent(rel)
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue { assetOverrides[rel] = url }
+        }
+    }
+
+    /// A session drew its first pixel: the selection that booted is good
+    /// (LLP 1026 D11), and the check follows off the boot path — two
+    /// seconds later, on the library's thread. Under a script the check
+    /// runs only when `EXACT_UPDATE_ORIGIN` names an origin: the driver
+    /// owns the clock, and the network is not a smoke's to touch; the app's
+    /// own `deliveryCheck` runs it regardless.
+    func firstPixel() {
+        guard storeOpen, !firstPixelSeen else { return }
+        firstPixelSeen = true
+        Updates.bootSucceeded()
+        if ExactEnv.agentMode, ExactEnv.environment["EXACT_UPDATE_ORIGIN"] == nil { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.checkForUpdate() }
+    }
+
+    /// Check the stream's head now (the app's `deliveryCheck`; a dev
+    /// menu's). The outcome reaches `updateChecked`.
+    public func checkForUpdate() {
+        guard storeOpen else { return }
+        if !Updates.check() { FileHandle.standardError.write(Data("exact update: a check is already running\n".utf8)) }
+    }
+
+    /// The check ended: one line to stderr, and every session's runner
+    /// hears what the store has to say (the `delivery` resource,
+    /// `state.delivery`, and the line in `logs`).
+    func updateChecked(_ line: String) {
+        updateStatus = line
+        FileHandle.standardError.write(Data("exact update: \(line)\n".utf8))
+        for s in sessions { s.apply(s.runtime.updateSync()) }
+    }
+
+    /// Apply the staged bundle now, carrying state (the app's
+    /// `deliveryActivate`, LLP 1030 D7): its assets become overrides, its
+    /// plan restarts every session. False when nothing is staged.
+    @discardableResult
+    public func activateUpdate() -> Bool {
+        guard storeOpen, let bytes = Updates.activate() else { return false }
+        useAssets(Updates.selection().assets)
+        let ok = apply(bytes, label: "update")
+        for s in sessions { s.apply(s.runtime.updateSync()) }
+        return ok
+    }
+
+    /// The delivery commands (LLP 1030 D7) are the app owner's, on every
+    /// host alike; anything else is the adapter's. An activation runs on
+    /// the next turn: a command is delivered from the tail of a batch's
+    /// apply, and the restart it asks for replaces that session's views.
+    func handleCommand(_ name: String) -> Bool {
+        switch name {
+        case "deliveryCheck": checkForUpdate(); return true
+        case "deliveryActivate": DispatchQueue.main.async { [weak self] in self?.activateUpdate() }; return true
+        default: return false
+        }
     }
 
     /// A session of this app: one runtime, unbooted until `boot` or its view's first layout.
@@ -364,15 +442,19 @@ public final class ExactSession {
             applying = false
             let queued = pendingCommands
             pendingCommands = []
-            for (name, args) in queued { delegate?.exactSession(self, command: name, args: args) }
+            for (name, args) in queued {
+                if app.handleCommand(name) { continue }
+                delegate?.exactSession(self, command: name, args: args)
+            }
         }
     }
 
     /// The first node drew: the GPU module may load now (LLP 1009 D4), on
-    /// the next turn.
+    /// the next turn; the update store hears first pixel (LLP 1026 D11).
     func firstDrawn() {
         guard firstDrawMs == nil else { return }
         firstDrawMs = ExactEnv.wall()
+        app.firstPixel()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             canvases.loadIfNeeded()

@@ -167,6 +167,19 @@ impl Manifest {
         (channel, origin)
     }
 
+    /// `deploy.activate` (LLP 1030.000 D4): when a staged bundle applies —
+    /// `next-launch` (the default; `deliveryActivate` applies it sooner) or
+    /// `app-decides` (only `deliveryActivate` does). Policy, not identity:
+    /// it rides beside the id, never in it.
+    pub fn activate(&self) -> String {
+        self.json
+            .get("deploy")
+            .and_then(|d| d.get("activate"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("next-launch")
+            .to_string()
+    }
+
     /// `deploy.store.<platform>`: `"A"` (an update store) or `"0"` (none);
     /// `"A"` when unsaid (LLP 1030.000 D4).
     fn store(&self, platform: &str) -> String {
@@ -192,13 +205,17 @@ pub struct Compat {
     pub channel: String,
     /// The channel's origin URL, if the manifest names one.
     pub origin: Option<String>,
+    /// When a staged bundle applies (`deploy.activate`): `next-launch` or
+    /// `app-decides` — policy the binary's store follows (LLP 1030.000 D4).
+    pub activate: String,
 }
 
 impl Compat {
-    /// `{"id":…,"inputs":{…},"delivery":{"channel":…,"origin":…}}`, canonical
-    /// (sorted keys within each value), the id first, one line plus a newline.
-    /// The runner reads `id`, `store.L`, and `executors` from this text by
-    /// hand (`exact_runner::Delivery::with_compat`); a host reads the rest.
+    /// `{"id":…,"inputs":{…},"delivery":{"activate":…,"channel":…,"origin":…}}`,
+    /// canonical (sorted keys within each value), the id first, one line plus
+    /// a newline. The runner reads `id`, `store.L`, and `executors` from this
+    /// text by hand (`exact_runner::Delivery::with_compat`); a host's update
+    /// store reads the rest (`exact_update::Baked::from_compat`).
     pub fn to_json(&self) -> String {
         let mut s = String::from("{\"id\":");
         canonical(&serde_json::Value::String(self.id.clone()), &mut s);
@@ -207,6 +224,7 @@ impl Compat {
         s.push_str(",\"delivery\":");
         canonical(
             &serde_json::json!({
+                "activate": self.activate,
                 "channel": self.channel,
                 "origin": self.origin.clone().map_or(serde_json::Value::Null, serde_json::Value::String),
             }),
@@ -308,6 +326,7 @@ pub fn compatibility_id(
         inputs,
         channel,
         origin,
+        activate: manifest.activate(),
     })
 }
 
@@ -597,6 +616,15 @@ mod tests {
         );
         assert_eq!(i["grantCeiling"], "net.fetch https://x/");
         assert!(c.to_json().starts_with("{\"id\":\""));
+        // Policy rides beside the id (LLP 1030.000 D4): the channel, its
+        // origin, and when a staged bundle applies — `next-launch` unsaid.
+        assert!(
+            c.to_json().ends_with(
+                ",\"delivery\":{\"activate\":\"next-launch\",\"channel\":\"prod\",\"origin\":null}}\n"
+            ),
+            "{}",
+            c.to_json()
+        );
         // No manifest: the derived defaults, as scripts/app.mjs derives them.
         std::fs::remove_file(dir.join("app.json")).unwrap();
         let m = Manifest::read(&dir).unwrap();

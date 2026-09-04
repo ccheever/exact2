@@ -199,7 +199,8 @@ nonisolated(unsafe) var readySent = false
 func agentReady() {
     guard ExactEnv.agentMode, !readySent else { return }
     readySent = true
-    Agent.reply(["ready": true, "boot": max(a.bootMs, b.bootMs), "views": a.viewCount + b.viewCount, "sessions": sessions.map(\.0), "error": a.bootError ?? b.bootError ?? NSNull()])
+    let error: Any = (a.bootError ?? b.bootError).map { $0 as Any } ?? NSNull()
+    Agent.reply(["ready": true, "boot": max(a.bootMs, b.bootMs), "views": a.viewCount + b.viewCount, "sessions": sessions.map(\.0), "error": error])
     Agent.startStdio(sessions: sessions)
 }
 if ExactEnv.agentMode { DispatchQueue.main.async { agentReady() } }

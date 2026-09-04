@@ -556,6 +556,7 @@ dependencies = [
  "exact-motion",
  "exact-plan",
  "exact-runner",
+ "exact-update",
  "ibex2",
 ]
 
@@ -619,6 +620,7 @@ dependencies = [
  "exact-motion",
  "exact-plan",
  "exact-runner",
+ "exact-update",
  "ibex2",
  "libc",
  "png",

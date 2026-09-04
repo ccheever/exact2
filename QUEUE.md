@@ -87,23 +87,17 @@ sits on that list carries the trade it would take.
   brownfield deferred to a later number). Both folded a two-round grok 4.6 xhigh + codex
   sol ultra panel (`llp/reviews/1030-delivery-unified.{grok,sol}.md`). Ruled 2026-09-03:
   continuous everywhere (`release: automatic`, phased by the store); the update economy
-  off NOT-DOING in its static form. Every §5 question ruled 2026-09-03 (shader packaging in stage 1; the conditional put required). Landed: stage 1 (the asset row, 2026-09-04), stage 2 (the manifest, 2026-09-03), and of stages 3 and 4 the compatibility id, the `delivery` resource with `state.delivery`, the update store as a crate, and — 2026-09-04 — `exact deploy` (`scripts/deploy.mjs`: snapshot, bake into `target/deploy/<release>`, the per-platform, per-stream table with the origin row as the default dry run, `--yes` through the directory origin adapter `scripts/origin.mjs` with the lock-file conditional put, blobs read back, the signed head, the release record; `keygen`; `node scripts/smoke.mjs deploy` drives it; `update/tests/publisher.rs` is the cross-language proof over a head it wrote). Owed: `--watch`; an object-store adapter (https is read-only); the artifact graph with dependency computed from it and the icon roster refusal (the classifier compares digests against heads and treats an unchanged compatibility id as the cohort check); `dev.mjs` importing the classifier for its table; `Store::check` fetching `.exact/<compatibilityId>/` while the origin is laid out `.exact/<channel>/<compatibilityId>/` (the store should take the channel from `compat.json`'s `delivery.channel`); bake writing the stream card and signature into the embedded `exact.json`; the hosts opening the store and checking after first pixel; the dev policy folded onto the store; the Linux asset row; iOS driven for the asset row and `state.delivery`; a client driven to show the sunset card.
+  off NOT-DOING in its static form. Every §5 question ruled 2026-09-03 (shader packaging in stage 1; the conditional put required). Landed: stage 1 (the asset row, 2026-09-04), stage 2 (the manifest, 2026-09-03), and of stages 3 and 4 the compatibility id, the `delivery` resource with `state.delivery`, the update store as a crate, and the macOS and Linux hosts opening it (2026-09-04: selection inside the boot, the boot marks, the check after first pixel on the host's own thread, `deliveryCheck`/`deliveryActivate`, the drive of 1026 §9 item 2 green on both). Owed: the artifact graph and the dry-run table (`exact deploy --dry-run`), the origin adapter and the publish, bake writing the update bundle (the stream card, the signature) beside the archive, the dev policy folded onto the store, the Linux asset row, iOS driven for the asset row, `state.delivery`, and the store.
 
-- **The update store is built** (`update/`, `exact-update`, 2026-09-03) — LLP 1026 D9–D12
-  and LLP 1030 D3a/D9 as store logic alone, no host wiring: the envelope with its stream
-  and its signature, the canonical bytes a Node publisher has to reproduce, entries
-  whole-or-absent under their envelope digest, selection at launch with entry zero as the
-  fallback, the crash counter, the anti-rollback and wrong-cohort and wrong-app refusals,
-  files reused from another entry by digest, and `staged`/`activate`/`status` for LLP 1030
-  D7's two acts. Twenty tests over a temp directory and an in-memory origin. Owed before
-  it delivers anything: bake writing `stream`, `release`, `signature`, and the embedded
-  bundle's own digest into `exact.json` (the stream heads on the origin carry all three
-  since `exact deploy` landed 2026-09-04 — `update/tests/publisher.rs` reads one; the
-  bake's own embedded `exact.json` still carries none); a host
-  calling `open` and the two boot marks and running `check` after first pixel on its own
-  executor, on Apple, Linux, and the web; the `delivery` resource and commands with
-  `state.delivery` beside them; and the dev policy folded onto the same store (1026 D12),
-  which is what retires the file poll and the two URL loaders.
+- **The update store is wired** (`update/`, `exact-update`, built 2026-09-03; the macOS and
+  Linux hosts open it 2026-09-04 — LLP 1030.000 §4 stage 4 has the landing). Owed (the publisher, `exact deploy`, landed the same day — `scripts/deploy.mjs`): bake
+  writing the update bundle beside the archive; the dev
+  policy folded onto the same store (1026 D12), which is what retires `EXACT_DEV_PLAN`'s
+  file poll and the two URL loaders; iOS driven (`ExactKit` is shared, undriven there);
+  `BGAppRefreshTask` and a desktop timer beyond the one check after first pixel; Linux
+  overrides for fonts and deck pages from an entry (images only today); a sunset card
+  shown by the app, not just answered; the web host, which has no store (`L = A` in its
+  `compat.json` is a lie until it does, or the manifest says `0` for it).
 
 - **LLP 1031 owed after the 2026-09-03 landing** (the handle, `ExactKit`, the macOS
   sample host, the manifest stage; the iOS sample host landed 2026-09-04 — each pane its

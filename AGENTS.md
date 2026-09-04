@@ -47,6 +47,12 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   in your hands (`clock settle` instead of waiting). `node scripts/smoke.mjs
   <web|macos|ios|linux|host>` is the whole app driven that way. The Linux host
   (`cargo build --release -p caltrain-linux`) runs headless anywhere, macOS included.
+- Delivery (LLP 1030.000): `node scripts/deploy.mjs <app> [--origin <dir>]` prints the
+  classifier's table (a dry run); `--yes` publishes signed bundles per stream through
+  `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters
+  the repo). `node scripts/smoke.mjs deploy` drives it. A native host opens its update
+  store at launch and checks after first pixel (`EXACT_UPDATE_ORIGIN=<url>` points a dev
+  build at a directory `serve.mjs` serves; `state.delivery` shows what it did).
 - `QUEUE.md` is what would make sense to do next. Add a line when you find something
   worth doing; delete it when it lands. It decides nothing.
 - Never `git stash`. Kill only PIDs you recorded. Agents remove apparatus freely and add

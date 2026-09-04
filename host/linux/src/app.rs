@@ -24,8 +24,18 @@
 //!   pointer and keys as input (display mode; `1` is `0.0.0.0:5900`).
 //! - `EXACT_FONTS=<dir>` — a directory of fonts to add to the system's.
 //! - `EXACT_FONT=<family>` — what `sans-serif` means (fontconfig's answer otherwise).
+//! - `EXACT_UPDATE_ORIGIN=<url>` — the update store checks this origin
+//!   instead of the manifest's (dev apparatus: a drive against a static
+//!   directory; the baked keys still bind). `EXACT_UPDATE_DIR=<dir>` — the
+//!   store's directory instead of `$XDG_DATA_HOME/exact/<app id>/update`;
+//!   under `EXACT_AGENT=1` a fresh temporary one (`update.rs`).
+//!
+//! With neither `EXACT_PLAN` nor `EXACT_DEV_PLAN`, the boot is the update
+//! store's selection (LLP 1026 D9): the selected entry's plan, else the
+//! baked one; an entry refused at boot boots the baked plan in the same run.
 
 use crate::presenter::Presenter;
+use crate::update::Updates;
 use exact_runner::DataSource;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -58,6 +68,14 @@ pub struct Config {
     /// The archive's `compat.json` (LLP 1030 D3a) as the binary carries it:
     /// what the `delivery` resource and `state.delivery` answer from.
     pub compat: String,
+    /// Whether the environment named the plan (a URL, `EXACT_PLAN`): the
+    /// update store's selection then stands aside.
+    pub(crate) explicit: bool,
+    /// The update store's entry whose plan `plan` is, when one is selected.
+    pub(crate) entry: Option<String>,
+    /// The update store, opened before the boot it selects (`run`); the
+    /// presenter takes it at boot.
+    pub(crate) updates: Option<Updates>,
 }
 
 impl Config {
@@ -80,19 +98,17 @@ impl Config {
                 }
             });
         let fallback_plan = from_url.as_ref().map(|_| baked.to_vec());
-        let plan = from_url
-            .or_else(|| {
-                env("EXACT_PLAN")
-                    .filter(|p| !crate::fetch::is_url(p))
-                    .and_then(|p| match std::fs::read(&p) {
-                        Ok(b) => Some(b),
-                        Err(e) => {
-                            eprintln!("exact: EXACT_PLAN {p}: {e}; booting the baked plan");
-                            None
-                        }
-                    })
-            })
-            .unwrap_or_else(|| baked.to_vec());
+        let named = env("EXACT_PLAN")
+            .filter(|p| !crate::fetch::is_url(p))
+            .and_then(|p| match std::fs::read(&p) {
+                Ok(b) => Some(b),
+                Err(e) => {
+                    eprintln!("exact: EXACT_PLAN {p}: {e}; booting the baked plan");
+                    None
+                }
+            });
+        let explicit = from_url.is_some() || named.is_some();
+        let plan = from_url.or(named).unwrap_or_else(|| baked.to_vec());
         let size = env("EXACT_SIZE")
             .and_then(|s| {
                 let (w, h) = s.split_once('x')?;
@@ -119,6 +135,31 @@ impl Config {
             card: env("EXACT_DRM").unwrap_or_else(|| "/dev/dri/card0".to_string()),
             vnc: env("EXACT_VNC"),
             compat: compat.to_string(),
+            explicit,
+            entry: None,
+            updates: None,
+        }
+    }
+
+    /// Open the update store (LLP 1026 D9) and, unless the environment named
+    /// the plan, take its selection as what boots: the selected entry's plan
+    /// with the baked one to fall back on, counting the boot (D11). A
+    /// binary that links no store, or a directory that cannot be made, is
+    /// one stderr line and the baked plan.
+    pub fn select_update(&mut self, baked: &[u8]) {
+        match Updates::open(&self.compat, baked, &self.assets) {
+            Ok(mut updates) => {
+                if !self.explicit {
+                    if let Some((entry, bytes)) = updates.selected_plan() {
+                        self.plan = bytes;
+                        self.fallback_plan = Some(baked.to_vec());
+                        self.entry = Some(entry);
+                    }
+                    updates.boot_started();
+                }
+                self.updates = Some(updates);
+            }
+            Err(e) => eprintln!("exact update: {e}"),
         }
     }
 
@@ -133,17 +174,23 @@ impl Config {
 }
 
 /// Boot the selected plan, falling back only when it was fetched from the
-/// app URL. Transport, length, and hash refusals already take this path in
-/// `Config::from_env`; decode and runner refusals belong to the same gate.
+/// app URL or is an update entry's. Transport, length, and hash refusals
+/// already take this path in `Config::from_env`; decode and runner refusals
+/// belong to the same gate — for an entry, the refusal stands in the store's
+/// record and entry zero boots (LLP 1026 D11). The presenter takes the
+/// update store here, so its facts are in the first frame.
 pub(crate) fn boot_presenter<D: DataSource + Default>(
-    config: &Config,
+    config: &mut Config,
     viewport: (f32, f32),
 ) -> Result<(Presenter<D>, Option<String>), String> {
-    let delivered = |mut booted: (Presenter<D>, Option<String>)| {
+    let mut updates = config.updates.take();
+    let compat = config.compat.clone();
+    let delivered = |mut booted: (Presenter<D>, Option<String>), updates: Option<Updates>| {
         // The binary's delivery facts, before anything reads a frame (LLP
         // 1030 D7). The kernel is the display list here, so the commit a
         // re-answered `delivery` resource makes needs nothing from boot.
-        let e = booted.0.set_delivery_from_compat(&config.compat);
+        let e = booted.0.set_delivery_from_compat(&compat);
+        booted.0.set_updates(updates);
         booted.1 = booted.1.or(e);
         booted
     };
@@ -153,17 +200,18 @@ pub(crate) fn boot_presenter<D: DataSource + Default>(
         viewport,
         config.scale,
         config.assets.clone(),
-    )
-    .map(delivered)
-    {
-        Ok(value) => Ok(value),
+    ) {
+        Ok(value) => Ok(delivered(value, updates)),
         Err(fetched_error) => {
             let Some(baked) = config.fallback_plan.as_deref() else {
                 return Err(fetched_error.to_string());
             };
-            eprintln!(
-                "exact url: fetched plan refused at boot: {fetched_error}; booting the baked plan"
-            );
+            match (&config.entry, updates.as_mut()) {
+                (Some(entry), Some(u)) => u.entry_refused(entry, &fetched_error.to_string()),
+                _ => eprintln!(
+                    "exact url: fetched plan refused at boot: {fetched_error}; booting the baked plan"
+                ),
+            }
             Presenter::boot(
                 baked,
                 D::default(),
@@ -171,7 +219,7 @@ pub(crate) fn boot_presenter<D: DataSource + Default>(
                 config.scale,
                 config.assets.clone(),
             )
-            .map(delivered)
+            .map(|v| delivered(v, updates))
             .map_err(|baked_error| {
                 format!("fetched plan refused: {fetched_error}; baked plan refused: {baked_error}")
             })
@@ -183,13 +231,14 @@ pub(crate) fn boot_presenter<D: DataSource + Default>(
 /// `compat.json` (LLP 1030 D3a), which the `delivery` resource answers from.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
     let started = Instant::now();
-    let config = Config::from_env(baked, compat);
+    let mut config = Config::from_env(baked, compat);
+    config.select_update(baked);
     if config.headless() {
-        return headless::<D>(&config, started);
+        return headless::<D>(&mut config, started);
     }
     #[cfg(target_os = "linux")]
     {
-        crate::display::run::<D>(&config, started)
+        crate::display::run::<D>(&mut config, started)
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -197,9 +246,10 @@ pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
     }
 }
 
-fn headless<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
+fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i32 {
     let t_boot = Instant::now();
-    let (mut p, error) = match boot_presenter::<D>(config, config.size) {
+    let size = config.size;
+    let (mut p, error) = match boot_presenter::<D>(config, size) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("exact: boot: {e}");
@@ -210,6 +260,13 @@ fn headless<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
     // Local files decode in a moment; a first frame with the pictures in
     // it is what a smoke, a screenshot, and an agent's first `layout` want.
     p.wait_images(Duration::from_millis(500));
+    // First pixel, headless: the boot is whole — laid out, its pictures in
+    // — before anything reads it (LLP 1026 D11). The check follows when a
+    // drive named an origin; a headless run has no user to wait for.
+    p.first_pixel();
+    if std::env::var_os("EXACT_UPDATE_ORIGIN").is_some() {
+        p.check_update();
+    }
     let boot_ms = started.elapsed().as_secs_f64() * 1000.0;
     if config.agent {
         return crate::agent::serve(&mut p, boot_ms, error.as_deref());
@@ -335,7 +392,7 @@ mod tests {
         let mut foreign = contract::compile(source).unwrap();
         foreign.app_id = "com.exact.foreign".into();
         let baked = contract::compile(source).unwrap().encode();
-        let config = Config {
+        let mut config = Config {
             plan: foreign.encode(),
             fallback_plan: Some(baked),
             assets: std::env::current_dir().unwrap(),
@@ -348,8 +405,12 @@ mod tests {
             card: String::new(),
             vnc: None,
             compat: r#"{"id":"fixture00000000","inputs":{"store":{"L":"0"}}}"#.into(),
+            explicit: true,
+            entry: None,
+            updates: None,
         };
-        let (presenter, error) = boot_presenter::<Named>(&config, config.size).unwrap();
+        let size = config.size;
+        let (presenter, error) = boot_presenter::<Named>(&mut config, size).unwrap();
         assert!(error.is_none(), "{error:?}");
         assert_eq!(presenter.node_count(), 1);
         // The binary's facts reached the runner past the fallback (LLP 1030 D7).

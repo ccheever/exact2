@@ -40,6 +40,9 @@ pub struct Presenter<D: DataSource> {
     page: (f32, f32),
     images: Images,
     asset_root: PathBuf,
+    /// The binary's `compat.json` (LLP 1030 D3a), once handed over: a
+    /// reload boots a fresh runner, which is told again.
+    compat: String,
     focus: Option<ViewId>,
     pointer: Option<(f32, f32)>,
     boxes: Vec<PaintedBox>,
@@ -54,6 +57,11 @@ pub struct Presenter<D: DataSource> {
     pub painter: PainterInfo,
     /// The executor for a request that leaves the process (LLP 1016 D2).
     executor: crate::executor::Executor,
+    /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
+    updates: Option<crate::update::Updates>,
+    /// The commands the last commits' actions asked for, for the loop that
+    /// runs them (`run_commands`).
+    commands: Vec<exact_runner::Command>,
 }
 
 /// Two decimals, the agent API's precision.
@@ -189,6 +197,7 @@ impl<D: DataSource> Presenter<D> {
             page: (0.0, 0.0),
             images: Images::new(assets.clone()),
             asset_root: assets,
+            compat: String::new(),
             focus: None,
             pointer: None,
             boxes: Vec::new(),
@@ -196,9 +205,111 @@ impl<D: DataSource> Presenter<D> {
             choice,
             fonts_ms,
             painter,
+            updates: None,
+            commands: Vec::new(),
         };
         let e = p.after_commit();
         Ok((p, error.or(e)))
+    }
+
+    /// Attach the update store (LLP 1026 D9): what it has to say reaches
+    /// the runner now (`state.delivery`, the `delivery` resource) and after
+    /// every check; a boot note it left goes to the journal.
+    pub fn set_updates(&mut self, updates: Option<crate::update::Updates>) {
+        self.updates = updates;
+        if let Some(note) = self.updates.as_mut().and_then(|u| u.take_note()) {
+            self.host.log(note);
+        }
+        self.sync_delivery();
+    }
+
+    /// The store's wake, for the display loop's poll set.
+    pub fn update_fd(&self) -> Option<std::os::unix::io::RawFd> {
+        self.updates.as_ref().map(|u| u.fd())
+    }
+
+    /// First pixel (LLP 1026 D11): the selection that booted is good.
+    pub fn first_pixel(&mut self) {
+        if let Some(u) = self.updates.as_mut() {
+            u.boot_succeeded();
+        }
+        self.sync_delivery();
+    }
+
+    /// Check the stream's head now, on the store's thread; the outcome
+    /// arrives through `poll_update`. `false` with no store, or a check
+    /// already running.
+    pub fn check_update(&mut self) -> bool {
+        match &self.updates {
+            Some(u) => u.check(),
+            None => false,
+        }
+    }
+
+    /// A finished check, if one landed: its line to stderr and the journal
+    /// (`exact update: …`), the store's facts into the runner.
+    pub fn poll_update(&mut self) -> bool {
+        let Some(line) = self.updates.as_mut().and_then(|u| u.take_line()) else {
+            return false;
+        };
+        eprintln!("exact update: {line}");
+        self.host.log(format!("exact update: {line}"));
+        self.sync_delivery();
+        true
+    }
+
+    /// Apply the staged bundle now with carry (`deliveryActivate`, LLP 1030
+    /// D7): its assets stand in for the root's by name, its plan restarts
+    /// the app. `Ok(false)` when nothing is staged.
+    pub fn activate_update(&mut self, data: D) -> Result<bool, HostError> {
+        let Some((plan, assets)) = self.updates.as_ref().and_then(|u| u.activate()) else {
+            return Ok(false);
+        };
+        self.images.use_overrides(&assets);
+        if let Some(e) = self.reload(&plan, data)? {
+            eprintln!("exact: {e}");
+        }
+        self.host.log("exact update: activated the staged bundle");
+        self.sync_delivery();
+        Ok(true)
+    }
+
+    /// The store's facts into the runner (LLP 1030 D7): a `delivery`
+    /// resource is answered again, and the picture follows.
+    fn sync_delivery(&mut self) {
+        let Some(u) = &self.updates else {
+            return;
+        };
+        let mut delivery = self.host.runner().delivery().clone();
+        u.status_into(&mut delivery);
+        if let Some(e) = self.host.set_delivery(delivery) {
+            eprintln!("exact: {e}");
+        }
+        if let Some(e) = self.after_commit() {
+            eprintln!("exact: {e}");
+        }
+    }
+
+    /// Run the commands the last commits asked for (LLP 1005 §3): the
+    /// delivery pair are the store's (LLP 1030 D7); `setScheme` has no
+    /// appearance to set on this painter; anything else is named.
+    pub fn run_commands(&mut self, mut data: impl FnMut() -> D) {
+        for c in std::mem::take(&mut self.commands) {
+            match c.name.as_str() {
+                "deliveryCheck" => {
+                    if !self.check_update() {
+                        eprintln!("exact update: no store, or a check is already running");
+                    }
+                }
+                "deliveryActivate" => match self.activate_update(data()) {
+                    Ok(true) => {}
+                    Ok(false) => eprintln!("exact update: nothing is staged"),
+                    Err(e) => eprintln!("exact update: activate: {e}"),
+                },
+                "setScheme" => {}
+                other => eprintln!("exact: unknown command {other}"),
+            }
+        }
     }
 
     /// The dev loop's restart: boot the new plan with state carried; every
@@ -218,6 +329,22 @@ impl<D: DataSource> Presenter<D> {
             Some(&carried),
         )?;
         self.host = host;
+        // A fresh runner knows nothing of the binary's delivery facts (LLP
+        // 1030 D7): the compat file and the store's status again, before
+        // anything reads a frame — a reload is not a launch, and the facts
+        // must not read as the embedded answer after one.
+        if !self.compat.is_empty() {
+            if let Some(e) = self.host.set_delivery_from_compat(&self.compat) {
+                eprintln!("exact: {e}");
+            }
+        }
+        if let Some(u) = &self.updates {
+            let mut delivery = self.host.runner().delivery().clone();
+            u.status_into(&mut delivery);
+            if let Some(e) = self.host.set_delivery(delivery) {
+                eprintln!("exact: {e}");
+            }
+        }
         self.text = candidate_text.clone();
         self.brush.text = candidate_text;
         self.executor = crate::executor::Executor::start(&self.host.grants());
@@ -292,10 +419,12 @@ impl<D: DataSource> Presenter<D> {
     fn after_commit(&mut self) -> Option<String> {
         self.dirty = true;
         // What the commit asked the host to run goes to the executor (LLP
-        // 1016 D2); the reply comes back through `pump`.
+        // 1016 D2); the reply comes back through `pump`. Its commands wait
+        // for the loop (`run_commands`).
         for r in self.host.take_requests() {
             self.executor.run(r);
         }
+        self.commands.extend(self.host.take_commands());
         let live = self.host.preorder();
         let reports = self.images.sync(self.host.kernel(), &live);
         let mut error = None;
@@ -716,6 +845,7 @@ impl<D: DataSource> Presenter<D> {
     /// The binary's delivery facts (LLP 1030 D7), from its `compat.json`:
     /// a `delivery` resource is answered again, and the picture follows.
     pub fn set_delivery_from_compat(&mut self, json: &str) -> Option<String> {
+        self.compat = json.to_string();
         let e = self.host.set_delivery_from_compat(json);
         let after = self.after_commit();
         e.or(after)
