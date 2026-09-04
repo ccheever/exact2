@@ -6,12 +6,14 @@
 // a window server): `node scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`
 // after `node host/web/build.mjs` / `node host/apple/build.mjs [--ios]` /
 // `cargo build --release -p caltrain-linux`.
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { createHash, verify } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { browserDiagnosticNoise, open, render, runTests } from './agent.mjs';
 import { resolveApp } from './app.mjs';
+import { canonicalBytes, publicKeyFromRaw } from './deploy.mjs';
 import { crop, decodePng, diff, encodePng } from './png.mjs';
 
 const argv = process.argv.slice(2);
@@ -30,8 +32,8 @@ const transcript = () => {
 const pinned = resolve(ROOT, 'scripts/fixtures/transcript.txt');
 if (argv.includes('--record')) { writeFileSync(pinned, transcript()); console.log(`recorded ${pinned.replace(ROOT + '/', '')}`); process.exit(0); }
 
-const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : null;
-if (!host) { console.error('usage: node scripts/smoke.mjs <web|macos|ios|linux|host> [--shot <png>] | --record'); process.exit(2); }
+const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : argv[0] === 'deploy' ? 'deploy' : null;
+if (!host) { console.error('usage: node scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy> [--shot <png>] | --record'); process.exit(2); }
 
 // The two Apple presenters share one Canvases: children captured through the
 // surface, placements (LLP 1014 D2, D5) — what the canvas steps below assert.
@@ -53,6 +55,127 @@ let appViewport;
 check(transcript() === readFileSync(pinned, 'utf8'), 'the transcript form drifted from scripts/fixtures/transcript.txt (a deliberate change: node scripts/smoke.mjs --record)');
 check(browserDiagnosticNoise('CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670'), 'the known headless display-service diagnostic is no longer classified as browser noise');
 check(!browserDiagnosticNoise('console.error: exact: failed'), 'page/runtime errors must not be classified as browser noise');
+
+// The publisher (LLP 1030.000 D3–D5, D7): `exact deploy` driven end to end
+// against a directory origin with a throwaway key — the manifest's public
+// key is swapped for it while this runs and restored after. What it holds:
+// a dry run prints the table and writes nothing; `--yes` publishes the web
+// root, the blobs, and one signed head per stream, and the head verifies
+// with the key; a second run is current and rewrites nothing; an asset edit
+// is `bundle seq 2` naming the asset, with the record's `previous` the old
+// head's digest and the old blob kept; two publishers racing on one stream
+// leave one head and one refusal naming the lock; a retired cohort's stream
+// is `binary` and `--only bundle` refuses it while the others publish; a
+// wrong `--snapshot` and a dirty tree without `--dirty` refuse.
+if (host === 'deploy') {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-deploy-'));
+  const origin = resolve(dir, 'origin');
+  const keys = resolve(dir, 'keys');
+  const manifestPath = resolve(app.dir, 'app.json');
+  const manifest0 = readFileSync(manifestPath);
+  const manifest = JSON.parse(manifest0.toString('utf8'));
+  const keyId = manifest.deploy?.signing?.key;
+  const channel = manifest.deploy?.channel ?? 'prod';
+  const assetName = existsSync(resolve(app.dir, 'assets')) ? readdirSync(resolve(app.dir, 'assets')).find((n) => statSync(resolve(app.dir, 'assets', n)).isFile()) : null;
+  const assetPath = assetName ? resolve(app.dir, 'assets', assetName) : null;
+  const asset0 = assetPath ? readFileSync(assetPath) : null;
+  const sha = (b) => createHash('sha256').update(b).digest('hex');
+  const deploy = (args, expectExit = 0) => {
+    const r = spawnSync(process.execPath, [resolve(ROOT, 'scripts/deploy.mjs'), ...args], { encoding: 'utf8', env: { ...process.env, EXACT_SIGNING_KEY_DIR: keys }, maxBuffer: 64 * 1024 * 1024 });
+    check(r.status === expectExit, `deploy ${args.filter((a) => !a.startsWith('/')).join(' ')} exited ${r.status}, not ${expectExit}:\n${(r.stderr + r.stdout).split('\n').slice(-12).join('\n')}`);
+    return r;
+  };
+  const table = (...args) => { const r = deploy([app.name, '--origin', origin, '--json', ...args]); try { return JSON.parse(r.stdout); } catch { check(false, `deploy --json printed no object: ${r.stdout.slice(0, 200)}`); return { rows: [] }; } };
+  const streams = (t) => t.rows.filter((r) => r.kind === 'stream');
+  const headOf = (id) => { const p = resolve(origin, '.exact', channel, id, 'exact.json'); return existsSync(p) ? readFileSync(p) : null; };
+  const mtimes = () => { const out = []; const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = resolve(d, e.name); if (e.isDirectory()) walk(p); else out.push(`${statSync(p).mtimeMs} ${p}`); } }; walk(origin); return out.sort().join('\n'); };
+  try {
+    if (!check(!!keyId, `${app.name}/app.json names no deploy.signing.key`)) throw new Error('no key');
+    // 1. A throwaway key, and the dry run before the manifest is touched (the table, nothing written).
+    const kg = deploy(['keygen', keyId, '--keys', keys, '--json']);
+    const publicKey = JSON.parse(kg.stdout).publicKey;
+    check(Buffer.from(publicKey, 'base64').length === 32, `keygen printed ${publicKey}`);
+    const clean = spawnSync('git', ['status', '--porcelain', '--', '.'], { cwd: app.dir, encoding: 'utf8' }).stdout.trim() === '';
+    const dry = table(...(clean ? [] : ['--dirty']));
+    check(dry.dryRun === true && dry.rows[0]?.kind === 'origin' && dry.rows[0].action === 'publish', `the dry run's origin row is ${JSON.stringify(dry.rows[0])}`);
+    check(streams(dry).length >= 1 && streams(dry).every((r) => r.action === 'bundle' && r.seq === 1 && r.head === null), `the dry run's stream rows are ${JSON.stringify(streams(dry).map((r) => [r.platform, r.action, r.seq]))}`);
+    check(/^[0-9a-f]{40}$/.test(dry.snapshot?.commit ?? ''), `the snapshot is ${JSON.stringify(dry.snapshot)}`);
+    check(!existsSync(origin), 'a dry run wrote to the origin');
+    // 2. The manifest names the throwaway key; --yes publishes; every head verifies with it.
+    manifest.deploy.signing.keys[keyId] = publicKey;
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    deploy([app.name, '--origin', origin], 1); // dirty without --dirty refuses
+    deploy([app.name, '--origin', origin, '--dirty', '--snapshot', 'deadbeef'], 1);
+    const pub1 = table('--yes', '--dirty');
+    const ids = streams(pub1).map((r) => r.compatibilityId);
+    check(ids.length >= 1 && pub1.published.filter((p) => p.kind === 'stream' && p.action === 'published').length === ids.length && pub1.failed.length === 0, `publish: ${JSON.stringify({ published: pub1.published.map((p) => [p.kind, p.action, p.seq]), failed: pub1.failed })}`);
+    check(existsSync(resolve(origin, 'index.html')) && existsSync(resolve(origin, 'exact.json')) && existsSync(resolve(origin, 'app.plan')), 'the web root was published');
+    const blobs1 = readdirSync(resolve(origin, '.exact/blobs')).length;
+    check(blobs1 >= 1, 'blobs were written');
+    for (const id of ids) {
+      const head = JSON.parse(headOf(id).toString('utf8'));
+      const ok = verify(null, canonicalBytes(head), publicKeyFromRaw(Buffer.from(publicKey, 'base64')), Buffer.from(head.signature.ed25519, 'base64'));
+      check(ok && head.stream.seq === 1 && head.stream.compatibilityId === id && head.stream.channel === channel && head.signature.keyId === keyId, `the head of ${id.slice(0, 8)} verifies and names its stream`);
+      check(existsSync(resolve(origin, '.exact', channel, id, 'app.plan')) && readdirSync(resolve(origin, '.exact', channel, id, 'releases')).length === 1, `the stream ${id.slice(0, 8)} has its plan and one release record`);
+    }
+    // 3. Again: everything current, nothing rewritten.
+    const before = mtimes();
+    const again = table('--yes', '--dirty');
+    check(streams(again).every((r) => r.action === 'current' && r.seq === 1) && again.rows[0].action === 'current', `the second run's rows are ${JSON.stringify(again.rows.map((r) => [r.kind, r.action, r.seq]))}`);
+    check(mtimes() === before, 'the second run rewrote a file on the origin');
+    // 4. An asset edit: bundle seq 2 naming it; the record's previous is the old head's digest; the old blob is kept.
+    if (assetPath) {
+      const first = ids[0];
+      const prev = sha(headOf(first));
+      writeFileSync(assetPath, Buffer.concat([asset0, Buffer.from([0])]));
+      const edited = table('--dirty');
+      check(streams(edited).every((r) => r.action === 'bundle' && r.seq === 2 && r.changes.some((c) => c.name === `assets/${assetName}` && c.change === 'changed')), `after the asset edit the rows are ${JSON.stringify(streams(edited).map((r) => [r.action, r.seq, r.changes]))}`);
+      const pub2 = table('--yes', '--dirty');
+      const head2 = JSON.parse(headOf(first).toString('utf8'));
+      const record = JSON.parse(readFileSync(resolve(origin, '.exact', channel, first, 'releases', `${pub2.release}.json`), 'utf8'));
+      check(head2.stream.seq === 2 && record.previous === prev && record.seq === 2 && readdirSync(resolve(origin, '.exact/blobs')).length === blobs1 + 1, `seq 2: head seq ${head2.stream.seq}, previous ${record.previous === prev}, blobs ${readdirSync(resolve(origin, '.exact/blobs')).length} (was ${blobs1})`);
+      writeFileSync(assetPath, asset0);
+    }
+    // 5. Two publishers racing on one stream (the restored asset makes the bundle new again): one head, one refusal naming the lock.
+    if (assetPath) {
+      const platform = streams(pub1)[0].platform;
+      const race = (name) => new Promise((done) => {
+        const child = spawn(process.execPath, [resolve(ROOT, 'scripts/deploy.mjs'), app.name, '--origin', origin, '--yes', '--dirty', '--platform', platform, '--only', 'bundle', '--slow-ms', '4000', '--release', name], { env: { ...process.env, EXACT_SIGNING_KEY_DIR: keys } });
+        let text = '';
+        child.stdout.on('data', (d) => { text += d; });
+        child.stderr.on('data', (d) => { text += d; });
+        child.on('close', (code) => done({ code, text }));
+      });
+      const [a, b] = await Promise.all([race('r-race-a'), race('r-race-b')]);
+      const winner = a.code === 0 ? a : b;
+      const loser = a.code === 0 ? b : a;
+      check(winner.code === 0 && loser.code === 1 && /locked by pid \d+/.test(loser.text), `the race: exits ${a.code}/${b.code}; loser said ${loser.text.split('\n').filter((l) => /locked|failed/.test(l)).join(' | ').slice(0, 300)}`);
+      const seqNow = JSON.parse(headOf(ids[0]).toString('utf8')).stream.seq;
+      check(seqNow === 3, `after the race the head is seq ${seqNow}, not 3`);
+      check(!existsSync(resolve(origin, '.exact', channel, ids[0], '.lock')), 'a lock was left behind');
+    }
+    // 6. A retired cohort's stream on the origin: binary in the table; --only bundle refuses it, the others go on.
+    const dead = 'deadbeefdeadbeefdeadbeefdeadbeef';
+    const deadHead = JSON.parse(headOf(ids[0]).toString('utf8'));
+    deadHead.stream.compatibilityId = dead;
+    deadHead.stream.seq = 7;
+    mkdirSync(resolve(origin, '.exact', channel, dead), { recursive: true });
+    writeFileSync(resolve(origin, '.exact', channel, dead, 'exact.json'), JSON.stringify(deadHead) + '\n');
+    const retired = table('--dirty', '--only', 'bundle', '--yes');
+    const deadRow = streams(retired).find((r) => r.compatibilityId === dead);
+    check(deadRow?.action === 'binary' && retired.refused.some((r) => r.compatibilityId === dead) && retired.failed.length === 0 && streams(retired).filter((r) => r.compatibilityId !== dead).every((r) => r.action !== 'binary'), `the retired stream: ${JSON.stringify({ row: deadRow?.action, refused: retired.refused.length, failed: retired.failed, others: streams(retired).filter((r) => r.compatibilityId !== dead).map((r) => r.action) })}`);
+    check(retired.notes.some((n) => n.includes(dead) && n.includes('does not verify')), 'the table names the retired stream\'s head as one no binary would take');
+  } catch (e) {
+    check(false, `the deploy smoke stopped: ${e.message}`);
+  } finally {
+    writeFileSync(manifestPath, manifest0);
+    if (assetPath) writeFileSync(assetPath, asset0);
+    rmSync(dir, { recursive: true, force: true });
+  }
+  console.log(`deploy smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  if (failures.length) { for (const f of failures) console.error('  ' + f); process.exit(1); }
+  process.exit(0);
+}
 
 // The sample host (LLP 1031 D10): a native macOS app that is not Exact's,
 // hosting two sessions of the one plan. What the fixture holds, driven
