@@ -67,7 +67,13 @@ sits on that list carries the trade it would take.
   2026-09-03 — wasmtime optional, never mandatory even for Rust logic, the default app
   mixed TS + Rust — are its Summary; §7 stages it (phone numbers first), §8 asks
   Pulley-or-wasmi and four more. Awaits Charlie; the 1026/1027 amendment notes land at
-  acceptance.
+  acceptance. **LLP 1032** (Research, 2026-09-04) measured Charlie's "does wasm make
+  Hermes unnecessary?": QuickJS inside a wasm module on the same twin and seam is
+  1.5–3× the lean Hermes VM with precompiled desktop code, 40–134× under Pulley and
+  17–64× under wasmi (an interpreter inside an interpreter), and 1.5–2.1 MB as a
+  Pulley artifact against Hermes's 1.8 MB; 20/20 bytes on every engine. Feeds 1029 §8
+  and stage 0's phone afternoon (the iOS Pulley host builds; the phone was not
+  connected).
 
 - **Delivery, unified** — LLP 1030 r2 (Draft RFC, 2026-09-03: every layer's artifact,
   identity, and carrier in dev and production; the per-platform compatibility id and its

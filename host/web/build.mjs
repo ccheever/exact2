@@ -14,7 +14,9 @@ const app = resolveApp(process.argv[2]);
 const crate = app.crate('web');
 const kib = (n) => `${(n / 1024).toFixed(0)} KiB`;
 const root = resolve(new URL('../..', import.meta.url).pathname);
-const dist = resolve(root, 'host/web/dist');
+// `EXACT_WEB_DIST` names another output directory: `exact deploy` bakes into a
+// run-specific one and never publishes from the dev server's shared dist/.
+const dist = process.env.EXACT_WEB_DIST ? resolve(process.env.EXACT_WEB_DIST) : resolve(root, 'host/web/dist');
 const previous = `${dist}.previous`;
 // A hard stop can land after dist moved aside but before the completed stage
 // took its place. Restore the prior complete build before doing slow work;

@@ -112,6 +112,61 @@ impl Manifest {
             .unwrap_or_default()
     }
 
+    /// `deploy.signing.keys` — verification keys by id, base64 of 32 raw
+    /// Ed25519 bytes — as a sorted object, or `null` when the app names none.
+    fn keys(&self) -> serde_json::Value {
+        match self
+            .json
+            .get("deploy")
+            .and_then(|d| d.get("signing"))
+            .and_then(|s| s.get("keys"))
+            .and_then(|k| k.as_object())
+        {
+            Some(keys) if !keys.is_empty() => {
+                let mut sorted: Vec<(&String, &serde_json::Value)> = keys.iter().collect();
+                sorted.sort_by(|a, b| a.0.cmp(b.0));
+                let mut map = serde_json::Map::new();
+                for (id, key) in sorted {
+                    map.insert(id.clone(), key.clone());
+                }
+                serde_json::Value::Object(map)
+            }
+            _ => serde_json::Value::Null,
+        }
+    }
+
+    /// The channel this build bakes in (`deploy.channel`; else the only key
+    /// of `deploy.channels`; else `prod`) and its origin (`deploy.channels.
+    /// <channel>`, else `app.origin`): where the binary's update store checks
+    /// (LLP 1030.000 D4). A stream is `(channel, compatibility id)`; the
+    /// channel is not part of the id.
+    pub fn channel(&self) -> (String, Option<String>) {
+        let deploy = self.json.get("deploy");
+        let channels = deploy
+            .and_then(|d| d.get("channels"))
+            .and_then(|c| c.as_object());
+        let channel = deploy
+            .and_then(|d| d.get("channel"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .or_else(|| match channels {
+                Some(c) if c.len() == 1 => c.keys().next().cloned(),
+                _ => None,
+            })
+            .unwrap_or_else(|| "prod".to_string());
+        let origin = channels
+            .and_then(|c| c.get(&channel))
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                self.json
+                    .get("app")
+                    .and_then(|a| a.get("origin"))
+                    .and_then(|v| v.as_str())
+            })
+            .map(str::to_string);
+        (channel, origin)
+    }
+
     /// `deploy.store.<platform>`: `"A"` (an update store) or `"0"` (none);
     /// `"A"` when unsaid (LLP 1030.000 D4).
     fn store(&self, platform: &str) -> String {
@@ -132,15 +187,31 @@ pub struct Compat {
     pub id: String,
     /// The inputs, one named field each, `null` where a thing does not exist yet.
     pub inputs: serde_json::Value,
+    /// The channel this build bakes in and its origin (LLP 1030.000 D4) —
+    /// beside the id, not in it: where the binary's update store checks.
+    pub channel: String,
+    /// The channel's origin URL, if the manifest names one.
+    pub origin: Option<String>,
 }
 
 impl Compat {
-    /// `{"id":…,"inputs":{…}}`, canonical (sorted keys), one line plus a newline.
+    /// `{"id":…,"inputs":{…},"delivery":{"channel":…,"origin":…}}`, canonical
+    /// (sorted keys within each value), the id first, one line plus a newline.
+    /// The runner reads `id`, `store.L`, and `executors` from this text by
+    /// hand (`exact_runner::Delivery::with_compat`); a host reads the rest.
     pub fn to_json(&self) -> String {
         let mut s = String::from("{\"id\":");
         canonical(&serde_json::Value::String(self.id.clone()), &mut s);
         s.push_str(",\"inputs\":");
         canonical(&self.inputs, &mut s);
+        s.push_str(",\"delivery\":");
+        canonical(
+            &serde_json::json!({
+                "channel": self.channel,
+                "origin": self.origin.clone().map_or(serde_json::Value::Null, serde_json::Value::String),
+            }),
+            &mut s,
+        );
         s.push_str("}\n");
         s
     }
@@ -201,10 +272,11 @@ pub fn compatibility_id(
         "abi": { "c": abi_version()?, "gpuModule": GPU_MODULE_ABI, "storeCodec": STORE_CODEC },
         "executors": executors,
         "dataCrate": data_crate(app_dir)?,
-        // Each shader's bytes for now; the reflected interface digest (LLP
-        // 1030 D8) replaces the file digest once shaders are packaged as
-        // assets, so a colour edit stops moving the id and a binding edit
-        // still does.
+        // Each shader's reflected interface digest (LLP 1030 D8) — entry
+        // points, bindings, layouts, inputs, outputs, overrides, never the
+        // text — so a colour edit does not move the id and a binding edit
+        // does. Shaders are assets (1030.000 stage 1); the surface's Rust
+        // binds this interface.
         "gpuSurfaces": gpu_surfaces(app_dir)?,
         "nativeModules": Value::Null,
         "icons": icons,
@@ -213,7 +285,9 @@ pub fn compatibility_id(
             "urlSchemes": list("urlSchemes"),
             "associatedDomains": host.get("associatedDomains").and_then(|v| v.as_bool()).map_or(Value::Null, Value::Bool),
         },
-        "keys": Value::Null,
+        // The verification keys the binary carries (LLP 1026 D11), by id: a
+        // rotation is a new cohort (1030 D3a).
+        "keys": manifest.keys(),
         "grantCeiling": grants.map_or(Value::Null, |g| Value::String(g.to_string())),
         "platform": platform,
         "arch": target.split('-').next().unwrap_or(target),
@@ -228,7 +302,13 @@ pub fn compatibility_id(
     h.update(canon.as_bytes());
     let digest = h.finalize();
     let id = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
-    Ok(Compat { id, inputs })
+    let (channel, origin) = manifest.channel();
+    Ok(Compat {
+        id,
+        inputs,
+        channel,
+        origin,
+    })
 }
 
 /// `EXACT_ABI_VERSION` from the C header.
@@ -347,14 +427,17 @@ fn gpu_surfaces(app_dir: &Path) -> Result<serde_json::Value, String> {
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            shaders.push((stem, hex(&Sha256::digest(&bytes))));
+            let text =
+                std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let digest = exact_gpu_reflect::interface_digest(&text)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            shaders.push((stem, format!("{digest:016x}")));
         }
     }
     shaders.sort();
     Ok(serde_json::json!(shaders
         .into_iter()
-        .map(|(name, sha256)| serde_json::json!({ "name": name, "sha256": sha256 }))
+        .map(|(name, interface)| serde_json::json!({ "name": name, "interface": interface }))
         .collect::<Vec<_>>()))
 }
 
