@@ -1,6 +1,7 @@
 # Production updater with no keys accepts unsigned heads
 
 **Status:** Closed
+**Resolution:** fixed by 2d914399889767b0916c6df615658e6594ee2242
 **Systems:** Update client, App manifest, Delivery
 **Severity:** P1
 **Author:** Codex (GPT-5) for Charlie Cheever

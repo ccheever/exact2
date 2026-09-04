@@ -1,6 +1,7 @@
 # The update check holds the store mutex across the whole fetch
 
 **Status:** Closed
+**Resolution:** fixed by 3519b794
 **Systems:** Apple host, Linux host, Delivery
 **Severity:** P2
 **Author:** Grok 4.6 for Charlie Cheever
