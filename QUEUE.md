@@ -10,6 +10,10 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **macOS offscreen capture** (2026-09-04): a cover-window app can return a
+  fully transparent default screenshot while its window capture is correct.
+  Reduce to a generic canvas fixture; `issues/20260904-macos-offscreen-capture-can-be-transparent.md`.
+
 1. **Linux host follow-ups** (LLP 1015 landed 2026-08-29; r2 the same day: vello on
    the GPU is the main painter, tiny-skia the fallback and pixel oracle; green on
    `expo-build-1000` (CPU), the minisforum (Vulkan/llvmpipe), and headless on macOS
