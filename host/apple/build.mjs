@@ -342,12 +342,21 @@ function main(args) {
     // identity a rebuild keeps them; ad-hoc, every rebuild is a new app and
     // the keychain asks again — before the first frame.
     const sha1 = macIdentity();
+    // The bundle's plist — what a `.app` would carry when one is assembled —
+    // is written beside the bare executable under its product's name, never
+    // as `Info.plist`: codesign treats an `Info.plist` adjacent to a bare
+    // Mach-O as a bundle's and seals the whole directory (169 files), so the
+    // next write there — the receipt, another product, another app's plist —
+    // fails verification and the binary is killed at launch (Weird Castle's
+    // manifest found it). The signing identifier is the app's id, explicit,
+    // so two apps built here are two identities to the keychain (LLP 1018 D7).
+    rmSync(resolve(binDir, 'Info.plist'), { force: true });
+    rmSync(resolve(binDir, '_CodeSignature'), { recursive: true, force: true });
+    writeFileSync(resolve(binDir, `${products[0]}-Info.plist`), macInfoPlist(app));
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
-    run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bin], { stdio: 'ignore' });
-    for (const p of products.slice(1)) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, p)], { stdio: 'ignore' });
-    // The bundle's plist and the receipt beside the bare executable the
-    // scripts run: what a `.app` would carry when one is assembled.
-    writeFileSync(resolve(binDir, 'Info.plist'), macInfoPlist(app));
+    run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', app.id, bin], { stdio: 'ignore' });
+    for (const p of products.slice(1)) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', `${app.id}.${p.toLowerCase()}`, resolve(binDir, p)], { stdio: 'ignore' });
+    // The receipt beside it (LLP 1030 D2).
     writeFileSync(resolve(binDir, 'receipt.json'), receipt(app, { platform: 'macos', target: process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin', sdk, identity: sha1 ?? 'ad-hoc', profile: null, entitlements: null, gpu: hasGpu ? dylib : null }));
     rmSync(webBuildDir, { recursive: true, force: true });
     console.log(`host/apple: ${bin.replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${webLoadName}`);

@@ -113,8 +113,10 @@ sits on that list carries the trade it would take.
   a request in flight under a destroy (needs a fetching app — Weird Castle — as the
   fixture); and the host smoke's last step, which takes ~4 s after remounting a
   destroyed session's view (the `clock settle` that follows) — find out why.
-  Weird Castle's `gpu/` crate needs the `Registry { surfaces, shaders }` shape and
-  `module()` in place of `MODULE` once the shader-packaging lane is merged.
+  Weird Castle is on today's exact2 (2026-09-04: the registry shape, `host!` with
+  `COMPAT`, `app.json`), but its `tests/app.rs` does not compile since LLP 1027 stage 3 —
+  six assertions want `Answer::Now(...)` around a `Value` — and the file carries another
+  session's uncommitted edits; whoever owns them wraps them.
 
 - **Tab on iOS with a hardware keyboard** (Weird Castle login): macOS now
   wires the key-view loop after each batch (fields and buttons, tree order,

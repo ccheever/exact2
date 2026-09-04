@@ -209,6 +209,38 @@ for (const dir of watched) {
     });
   } catch (e) { console.error(`cannot watch ${dir}: ${e.message}`); }
 }
+// The exact classifier, after a rebuild (LLP 1030 D3; 1030.000 D5): the
+// conservative line at edit time says "binary"; once the producers finish,
+// the compatibility id per platform (`contract compat`, LLP 1030 D3a) says
+// whether the cohort actually moved — a data-crate edit does, an edit to the
+// web host's own Rust does not — and which inputs moved it.
+const contractBin = resolve(root, 'target/debug/contract');
+const platforms = ['web', 'macos', 'ios', 'linux'];
+function cohorts() {
+  if (!existsSync(contractBin)) spawnSync('cargo', ['build', '-q', '-p', 'contract'], { cwd: root, stdio: 'ignore' });
+  const out = {};
+  for (const platform of platforms) {
+    const r = spawnSync(contractBin, ['compat', app.dir, '--platform', platform, '--json'], { encoding: 'utf8' });
+    if (r.status === 0) { try { out[platform] = JSON.parse(r.stdout); } catch { /* an unreadable id is no id */ } }
+  }
+  return out;
+}
+let cohortsBefore = cohorts();
+function classifyRebuild() {
+  const after = cohorts();
+  const lines = [];
+  for (const platform of platforms) {
+    const was = cohortsBefore[platform], now = after[platform];
+    if (!was || !now) { lines.push(`${platform}: no compatibility id (contract compat failed)`); continue; }
+    if (platform === 'web') { lines.push(`web: the origin — the page reloads now${was.id === now.id ? '' : ' (the cohort moved too)'}`); continue; }
+    if (was.id === now.id) { lines.push(`${platform}: cohort ${now.id.slice(0, 8)} unchanged — nothing to ship natively for this edit`); continue; }
+    const moved = Object.keys(now.inputs).filter((k) => JSON.stringify(was.inputs[k]) !== JSON.stringify(now.inputs[k]));
+    lines.push(`${platform}: cohort ${was.id.slice(0, 8)} → ${now.id.slice(0, 8)} (${moved.join(', ') || 'inputs'}) — binary`);
+  }
+  cohortsBefore = after;
+  return lines;
+}
+
 function rebuild() {
   if (building) { again = true; return; }
   building = true;
@@ -229,7 +261,7 @@ function rebuild() {
       // too (cargo, warm), and its first plan reaches the reloaded page.
       killCompiler();
       startCompiler();
-      console.log(`rust: rebuilt in ${(ms / 1000).toFixed(1)} s · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading`);
+      console.log(`rust: rebuilt in ${(ms / 1000).toFixed(1)} s · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading\n  ${classifyRebuild().join('\n  ')}`);
       push({ rebuilt: builds });
     } else {
       const errors = out.split('\n').filter((l) => /^(error|warning: unused|\s+-->)/.test(l)).join('\n') || out.trim().split('\n').slice(-12).join('\n');
