@@ -1,6 +1,7 @@
 # iOS device lane has no dev-loop wiring
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `build.mjs --device --run` now passes a caller-set HTTP(S) `EXACT_DEV_PLAN` through `devicectl` as launch environment, and refuses local Mac paths that a phone cannot read. The remote envelope supplies the generation's assets, so no host filesystem path crosses to the device.
 **Systems:** Apple host, Dev loop
 **Severity:** P3
 **Author:** Muse Code for Charlie Cheever

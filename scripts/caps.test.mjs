@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { staticFile } from '../host/web/serve.mjs';
+import { deviceLaunchArgs } from '../host/apple/build.mjs';
 import { classify } from './deploy.mjs';
 import { DirectoryOrigin, HttpsOrigin, OriginUnavailable } from './origin.mjs';
 
@@ -264,6 +265,22 @@ for (const [name, html, files, expectCode, expect] of [
     && losers[0].stderr.includes('a signing key is never overwritten') && matches,
   attempts.map((attempt) => `exit ${attempt.code}: ${attempt.stdout}${attempt.stderr}`).join('\n'));
   rmSync(dir, { recursive: true, force: true });
+}
+
+// A phone gets the caller's LAN dev URL through devicectl, never a path on
+// this Mac. With no locator it remains a normal baked launch.
+{
+  const remote = deviceLaunchArgs('PHONE', 'com.example.app', { EXACT_DEV_PLAN: 'http://192.168.1.20:8765/' });
+  const baked = deviceLaunchArgs('PHONE', 'com.example.app', {});
+  let refused = false;
+  try { deviceLaunchArgs('PHONE', 'com.example.app', { EXACT_DEV_PLAN: '/tmp/app.plan' }); }
+  catch (e) { refused = /http\(s\) URL/.test(e.message); }
+  result('device launch carries only a reachable dev-plan URL',
+    remote.at(-3) === '--environment-variables'
+      && remote.at(-2) === '{"EXACT_DEV_PLAN":"http://192.168.1.20:8765/"}'
+      && remote.at(-1) === 'com.example.app'
+      && !baked.includes('--environment-variables')
+      && refused);
 }
 
 console.log(`\n${total - failed}/${total} passed`);

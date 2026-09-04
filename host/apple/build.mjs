@@ -119,6 +119,25 @@ export function phone(pick = process.env.EXACT_PHONE) {
   return dev;
 }
 
+/**
+ * A phone cannot read a plan or asset directory on this Mac. When the caller
+ * names the dev server with EXACT_DEV_PLAN, carry that URL into the launched
+ * process; the envelope supplies its own complete asset URLs.
+ */
+export function deviceLaunchArgs(device, id, environment = process.env) {
+  const args = ['devicectl', 'device', 'process', 'launch', '--terminate-existing', '--device', device];
+  const locator = environment.EXACT_DEV_PLAN;
+  if (locator) {
+    let url;
+    try { url = new URL(locator); }
+    catch { throw new Error(`--device cannot open EXACT_DEV_PLAN=${locator} on this Mac; name the dev server's http(s) URL`); }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error(`--device requires EXACT_DEV_PLAN to be an http(s) dev-server URL, not ${locator}`);
+    args.push('--environment-variables', JSON.stringify({ EXACT_DEV_PLAN: url.href }));
+  }
+  args.push(id);
+  return args;
+}
+
 /** A development profile on this Mac covering the phone and the bundle id (the team's wildcard or the id itself), unexpired; EXACT_PROFILE names one. */
 export function profile(udid, bundle) {
   if (process.env.EXACT_PROFILE) return decodeProfile(process.env.EXACT_PROFILE);
@@ -428,7 +447,10 @@ function main(args) {
     if (i.status !== 0) { console.error(i.stderr || i.stdout); process.exit(i.status ?? 1); }
     console.log(`installed on ${ph.name} in ${((Date.now() - t2) / 1000).toFixed(1)} s`);
     if (args.includes('--run')) {
-      const l = read('xcrun', ['devicectl', 'device', 'process', 'launch', '--terminate-existing', '--device', ph.udid, app.id]);
+      let launch;
+      try { launch = deviceLaunchArgs(ph.udid, app.id); }
+      catch (e) { console.error(e.message); process.exit(1); }
+      const l = read('xcrun', launch);
       if (l.status !== 0) { console.error(l.stderr || l.stdout); process.exit(l.status ?? 1); }
       console.log(`launched ${app.id} on ${ph.name}`);
     }
