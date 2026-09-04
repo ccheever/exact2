@@ -30,7 +30,7 @@ const transcript = () => {
 const pinned = resolve(ROOT, 'scripts/fixtures/transcript.txt');
 if (argv.includes('--record')) { writeFileSync(pinned, transcript()); console.log(`recorded ${pinned.replace(ROOT + '/', '')}`); process.exit(0); }
 
-const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : null;
+const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : null;
 if (!host) { console.error('usage: node scripts/smoke.mjs <web|macos|ios|linux|host> [--shot <png>] | --record'); process.exit(2); }
 
 // The two Apple presenters share one Canvases: children captured through the
@@ -62,12 +62,12 @@ check(!browserDiagnosticNoise('console.error: exact: failed'), 'page/runtime err
 // (unmounted, alive) and pops it (remounted) with both intact; a bad
 // candidate plan is refused and the running apps kept; a session destroyed
 // under the other is refused by name after, and the other still answers.
-if (host === 'host') {
+if (host === 'host' || host === 'host-ios') {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-host-'));
   const control = resolve(dir, 'control');
   writeFileSync(control, '');
   const say = (line) => writeFileSync(control, readFileSync(control, 'utf8') + line + '\n');
-  const s = await open({ host: 'host', session: 'a', env: { EXACT_HOST_CONTROL: control } });
+  const s = await open({ host, session: 'a', env: { EXACT_HOST_CONTROL: control } });
   const hostFailures = [];
   const trace = process.env.EXACT_SMOKE_TRACE ? (m) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${m}`) : () => {};
   const hcheck = (ok, what) => { trace(`${ok ? 'ok' : 'FAIL'} ${what}`); if (!ok) hostFailures.push(what); return ok; };
@@ -141,8 +141,8 @@ if (host === 'host') {
     await s.close();
     rmSync(dir, { recursive: true, force: true });
   }
-  if (hostFailures.length) { console.log(`host smoke: ${hostFailures.length} failure(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s`); for (const f of hostFailures) console.log('  ' + f); process.exit(1); }
-  console.log(`host smoke: ok in ${((Date.now() - t0) / 1000).toFixed(1)} s — two sessions of one plan, interleaved, one pushed under a native screen and back, a bad plan refused, one destroyed under the other`);
+  if (hostFailures.length) { console.log(`${host} smoke: ${hostFailures.length} failure(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s`); for (const f of hostFailures) console.log('  ' + f); process.exit(1); }
+  console.log(`${host} smoke: ok in ${((Date.now() - t0) / 1000).toFixed(1)} s — two sessions of one plan, interleaved, one pushed under a native screen and back, a bad plan refused, one destroyed under the other`);
   process.exit(0);
 }
 

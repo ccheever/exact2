@@ -4,7 +4,7 @@
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
-// Usage:  node scripts/agent.mjs <web|macos|ios|linux|host> [--plan <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
+// Usage:  node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window]
 //   tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name>
 //   clock <ms|+ms|settle>
@@ -39,7 +39,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { appBundle, bundleId, install, macBinary, macHostBinary, simulator } from '../host/apple/build.mjs';
+import { appBundle, bundleId, hostBundle, install, macBinary, macHostBinary, simulator } from '../host/apple/build.mjs';
 import { staticFile, webContentType } from '../host/web/serve.mjs';
 import { resolveApp } from './app.mjs';
 
@@ -309,9 +309,10 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session }) {
 // ---------------------------------------------------------------- iOS, over a Unix socket
 
 /** The simulator carrier: the bundle `build.mjs --ios` assembled, installed and launched on a simulator with the agent socket's path in its environment (simctl passes SIMCTL_CHILD_*); then the same JSON lines over that socket (`AgentIOS.swift`). A `simctl launch --console` stays attached for the app's stdout and stderr (its `--stdout=`/`--stderr=` files stay empty on Xcode 26). One app per bundle id per device: a session replaces a running copy; closing hangs up the socket, which ends the app, and kills the pid the app reported if it lingers. */
-async function openIOS({ plan, app, env: extra = {} }) {
+async function openIOS({ plan, app, env: extra = {}, session, bundle = appBundle, id }) {
   const a = resolveApp(app);
-  if (!existsSync(appBundle)) throw new Error('run node host/apple/build.mjs --ios first');
+  const hostFixture = bundle !== appBundle;
+  if (!existsSync(bundle)) throw new Error(hostFixture ? 'run node host/apple/build.mjs --ios --host first' : 'run node host/apple/build.mjs --ios first');
   const dev = simulator();
   install(dev);
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
@@ -319,7 +320,7 @@ async function openIOS({ plan, app, env: extra = {} }) {
   const env = { EXACT_ASSETS: a.dir, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...extra };
   const childEnv = { ...process.env };
   for (const [k, v] of Object.entries(env)) childEnv[`SIMCTL_CHILD_${k}`] = v;
-  const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, bundleId(a.crate('apple'))], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, id ?? bundleId(a.crate('apple'))], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   const hostLines = [];
   for (const stream of [console_.stdout, console_.stderr]) stream.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !/^com\.exact\.\w+: \d+$/.test(l)) hostLines.push('app: ' + l); });
   let consoleDone = false;
@@ -358,17 +359,20 @@ async function openIOS({ plan, app, env: extra = {} }) {
     if (!ready.ready) throw new Error('unexpected first line: ' + JSON.stringify(ready));
     if (ready.error) throw new Error('the app booted with an error: ' + ready.error);
     pid = ready.pid ?? null;
+    // The sample host routes by label, as the macOS one does over stdio.
+    const state = { session: session ?? null };
+    const ask = (req) => lines.ask(state.session ? { ...req, session: state.session } : req);
     return {
-      host: 'ios', boot: ready.boot, hostLines, gpuMs: () => null,
-      ask: lines.ask,
+      host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
+      ask,
       async input(id, kind, opts) {
         const guest = { selector: opts.selector, x: opts.x, y: opts.y };
-        const r = kind === 'wheel' ? await lines.ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'hover' ? await lines.ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await lines.ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await lines.ask({ op: 'type', id, key: opts.key, ...guest }) : await lines.ask({ op: 'type', id, text: opts.text, ...guest });
+        const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
       async screenshot(path, window = false) {
-        const r = await lines.ask({ op: 'screenshot', path, window });
+        const r = await ask({ op: 'screenshot', path, window });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -384,7 +388,7 @@ async function openIOS({ plan, app, env: extra = {} }) {
 
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `plan` boots a compiled contract instead of the app's baked plan; `env` adds to a native host's environment. */
 export async function open({ host, plan, size, env, app, session, url } = {}) {
-  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url });
+  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, bundle: hostBundle, id: `${resolveApp(app).id}.host` }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url });
   const s = {
     host: carrier.host,
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
@@ -599,7 +603,7 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux|host> [--app <name>] [--plan <file>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url });

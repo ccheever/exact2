@@ -451,7 +451,7 @@ embedding contract when the next lane edits `Presenter.swift`.
 
 1. **The fixture** — `ExactHostMac` / `ExactHostIOS` (D6): a native
    application that is not Exact's — an AppKit window with a split view
-   and a native table, a UIKit tab bar with a navigation controller —
+   and a native table, a UIKit root with a navigation controller per pane —
    that links the archive and `ExactKit` and, driven by the eight
    operations through the existing carriers: creates two sessions of one
    plan with overlapping node ids and interleaves operations on them;
@@ -579,6 +579,17 @@ in the order round 2 converged on (§8):
    crate makes none — a fetching app is the fixture for that), a busy
    handle from a delegate (the Rust tests hold the refusal), and the iOS
    sample host (a placeholder target that builds; the fixture is owed).
+   **And on iOS, 2026-09-04:** `ExactHostIOS` — a UIKit app whose root
+   stacks a native header over two panes, each a session inside its own
+   navigation controller (the phone's shape of the split view: a native
+   screen pushed over session a covers a's pane and no other, which is
+   what lets the smoke keep tapping b under it — one stack for both
+   sessions refused the tap as off screen, a faithful first attempt).
+   `build.mjs --ios --host` assembles its own bundle, `<app id>.host`,
+   beside the app's on the simulator; `scripts/agent.mjs host-ios` is
+   the socket carrier with the stdio carrier's session routing;
+   `scripts/smoke.mjs host-ios` runs the same five steps unchanged,
+   green in 3.5 s at a phone's width (402).
 4. **1030.000 stage 1, the asset row** — against the app's asset
    resolver, per app, never `EXACT_ASSETS` alone; the shader packaging
    (1030 D8) lands from its own lane and joins it.

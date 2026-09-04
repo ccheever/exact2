@@ -52,6 +52,8 @@ export const pkg = resolve(root, 'host/apple');
 /** Where `--ios` leaves the assembled app (the simulator's), and `--device` the phone's. */
 export const appBundle = resolve(pkg, '.build/ExactIOS.app');
 export const deviceBundle = resolve(pkg, '.build/device/ExactIOS.app');
+/** The iOS sample host's bundle (LLP 1031 D10), assembled by `--ios --host` beside the app's: bundle id `<app id>.host`. */
+export const hostBundle = resolve(pkg, '.build/ExactHostIOS.app');
 /** The simulator's Rust target and Swift triple on this machine. */
 export const iosTarget = process.arch === 'arm64' ? 'aarch64-apple-ios-sim' : 'x86_64-apple-ios';
 export const iosTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios17.0-simulator`;
@@ -88,9 +90,9 @@ export function simulator(pick = process.env.EXACT_SIM) {
 }
 
 /** Install the assembled bundle on the simulator. */
-export function install(dev) {
-  if (!existsSync(appBundle)) throw new Error('run node host/apple/build.mjs --ios first');
-  const r = read('xcrun', ['simctl', 'install', dev.udid, appBundle]);
+export function install(dev, bundle = appBundle) {
+  if (!existsSync(bundle)) throw new Error(bundle === appBundle ? 'run node host/apple/build.mjs --ios first' : 'run node host/apple/build.mjs --ios --host first');
+  const r = read('xcrun', ['simctl', 'install', dev.udid, bundle]);
   if (r.status !== 0) throw new Error('simctl install: ' + r.stderr);
 }
 
@@ -183,14 +185,14 @@ export const entitlements = (app, team) => {
 };
 
 /** The iOS `Info.plist` from the manifest (LLP 1030 D2: one declaration; `build.mjs` consumes what it generates). The dev client's local-networking permission is `host.ios.localNetworking` (a string: the prompt); the store-required version numbers are counters bake owns, not authored. */
-export const infoPlist = (app, device = false) => {
+export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = app.id, name = app.displayName } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
   const families = (ios.deviceFamily ?? ['iphone', 'ipad']).map((f) => (f === 'ipad' ? 2 : 1));
   const dict = {
-    CFBundleExecutable: 'ExactIOS',
-    CFBundleIdentifier: app.id,
-    CFBundleName: app.displayName,
-    CFBundleDisplayName: app.displayName,
+    CFBundleExecutable: executable,
+    CFBundleIdentifier: id,
+    CFBundleName: name,
+    CFBundleDisplayName: name,
     CFBundlePackageType: 'APPL',
     CFBundleVersion: '1',
     CFBundleShortVersionString: '0.1.0',
@@ -416,6 +418,19 @@ function main(args) {
   rmSync(webBuildDir, { recursive: true, force: true });
   const dev = simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined);
   install(dev);
+  // The sample host (LLP 1031 D10): its own bundle beside the app's, the
+  // same assets and frameworks, bundle id `<app id>.host`, ad-hoc signed and
+  // installed on the same simulator; `scripts/smoke.mjs host-ios` drives it.
+  if (args.includes('--host')) {
+    rmSync(hostBundle, { recursive: true, force: true });
+    mkdirSync(resolve(hostBundle, 'Frameworks'), { recursive: true });
+    copyFileSync(productPath('ExactHostIOS', triple), resolve(hostBundle, 'ExactHostIOS'));
+    writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, false, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)' }));
+    for (const tree of ['assets', 'deck', 'shaders']) if (existsSync(resolve(appBundle, tree))) cpSync(resolve(appBundle, tree), resolve(hostBundle, tree), { recursive: true });
+    for (const f of readdirSync(resolve(appBundle, 'Frameworks'))) { copyFileSync(resolve(appBundle, 'Frameworks', f), resolve(hostBundle, 'Frameworks', f)); run('codesign', ['--force', '--sign', '-', resolve(hostBundle, 'Frameworks', f)], { stdio: 'ignore' }); }
+    run('codesign', ['--force', '--sign', '-', hostBundle], { stdio: 'ignore' });
+    install(dev, hostBundle);
+  }
   const t3 = Date.now();
   console.log(`host/apple: ${appBundle.replace(root + '/', '')} on ${dev.name} (${dev.runtime.replace(/.*SimRuntime\./, '')}, ${dev.udid}) (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s, install ${((t3 - t2) / 1000).toFixed(1)} s); GPU: ${gpuNote}; web arm: ${webLoadName}`);
   if (args.includes('--run')) {

@@ -104,9 +104,8 @@ sits on that list carries the trade it would take.
   which is what retires the file poll and the two URL loaders.
 
 - **LLP 1031 owed after the 2026-09-03 landing** (the handle, `ExactKit`, the macOS
-  sample host, the manifest stage): the **iOS sample host** (`ExactHostIOS` builds as a
-  placeholder; the fixture with a navigation controller pushing over a session is owed,
-  driven over the socket with `session` routing); **content-height containment** (D3's
+  sample host, the manifest stage; the iOS sample host landed 2026-09-04 — each pane its
+  own navigation controller, `smoke.mjs host-ios`): **content-height containment** (D3's
   guard is written; bounded only today); **the request and store crossings** (D4's
   contract; triggered by an adopter whose client cannot be wrapped); **packaging**
   (`build.mjs --embed` and the link delta against `floor.swift` in `metrics.mjs --long`);

@@ -35,7 +35,8 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   `--device --run` on a connected iPhone (signed with a team profile on this Mac);
   `--host` also builds the sample host (LLP 1031 D10), the native app that embeds two
   sessions, which `node scripts/smoke.mjs host` drives and `scripts/agent.mjs host
-  --session a …` addresses. The Swift is one package, `host/apple/Package.swift`:
+  --session a …` addresses; `--ios --host` is the same fixture on a simulator, driven
+  by `smoke.mjs host-ios` and `agent.mjs host-ios`. The Swift is one package, `host/apple/Package.swift`:
   `ExactKit` (session, view, app owner — what an embedder links) and the executables
   as adapters over it. `apps/<name>/app.json` is the app manifest (LLP 1030 D2): the
   bundle id, name, host files, and deploy policy come from it, never from a crate name.
