@@ -5,6 +5,7 @@
  * timer, and parsing keeps valid HTML/ESM spellings from bypassing the count.
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import vm from 'node:vm';
 import { dirname, resolve } from 'node:path';
@@ -155,7 +156,7 @@ function run() {
     if (seen.has(file)) continue;
     seen.add(file);
     const rel = file.slice(root.length + 1);
-    if (!ALLOWED.has(rel)) problems.push(`module before first pixel is not host glue: ${rel}`);
+    if (!ALLOWED.has(rel)) problems.push(`module before first pixel is outside the allowed host paths: ${rel}`);
     if (rel.startsWith('apps/')) problems.push(`app JS before first pixel: ${rel}`);
     if (!existsSync(file)) { problems.push(`missing module: ${rel}`); continue; }
     const source = readFileSync(file, 'utf8');
@@ -170,10 +171,21 @@ function run() {
     }
   }
   const wasm = (html.match(/\.wasm/g) ?? []).length + [...sources.values()].reduce((n, source) => n + (source.match(/\.wasm/g) ?? []).length, 0);
-  console.log(`boot — modules reachable before first pixel: ${seen.size} (${[...seen].map((file) => file.slice(root.length + 1)).join(', ') || 'none'}); wasm references: ${wasm}`);
-  if (problems.length) { for (const problem of problems) console.log('  ' + problem); console.log(`${problems.length} violation(s).`); return 1; }
-  console.log('Within budget: host glue only, no app JS.');
-  return 0;
+  const modules = [...sources].map(([file, source]) => ({
+    path: file.slice(root.length + 1), bytes: Buffer.byteLength(source),
+    sha256: createHash('sha256').update(source).digest('hex'),
+  }));
+  const report = { modules: seen.size, javascript_bytes: modules.reduce((n, m) => n + m.bytes, 0),
+    html_bytes: Buffer.byteLength(html), files: modules, wasm_references: wasm, problems };
+  if (process.argv.includes('--json')) console.log(JSON.stringify(report));
+  else {
+    console.log(`boot — modules reachable before first pixel: ${seen.size} (${[...seen].map((file) => file.slice(root.length + 1)).join(', ') || 'none'}); wasm references: ${wasm}`);
+    console.log(`  reachable JavaScript: ${report.javascript_bytes} B; page: ${report.html_bytes} B (diagnostic sizes, no byte budget)`);
+    for (const m of modules) console.log(`  ${m.path}: ${m.bytes} B; sha256 ${m.sha256}`);
+    for (const problem of problems) console.log('  ' + problem);
+    console.log(problems.length ? `${problems.length} violation(s).` : 'Allowed import paths only. This does not prove generic content, constant startup work, or absence of runtime-loaded code; metrics measures built artifacts and browser work.');
+  }
+  return problems.length ? 1 : 0;
 }
 
 const entry = process.argv[1]

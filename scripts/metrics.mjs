@@ -7,6 +7,8 @@
  *   node scripts/metrics.mjs            table
  *   node scripts/metrics.mjs --json     one JSON object
  *   node scripts/metrics.mjs --app <name> measure that resolved app
+ *   node scripts/metrics.mjs --scaling  runner workloads (300/3000/10000 rows), no browser
+ *   node scripts/metrics.mjs --interaction <testId> first browser action to measure
  *   node scripts/metrics.mjs --rebuild  also time an app edit → wasm rebuild (the cold path)
  *   node scripts/metrics.mjs --long     also the macOS host: a warm build, a touch-one-line
  *                                       rebuild, and the app's boot phases (minutes, not seconds)
@@ -14,14 +16,16 @@
  * Budgets are read from rules/RULES.md so they cannot drift from the prose.
  */
 import { spawnSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { arch, cpus, platform, release, tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import { dirname, resolve, sep } from 'node:path';
-import { staticFile, webContentType } from '../host/web/serve.mjs';
+import { publicFileCards, staticFile, webContentType } from '../host/web/serve.mjs';
 import { macBinary, macHostBinary } from '../host/apple/build.mjs';
 import { developmentBuildEnv, resolveApp } from './app.mjs';
+import { Cdp } from './agent.mjs';
 
 const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -35,7 +39,27 @@ const rebuild = process.argv.includes('--rebuild');
 const long = process.argv.includes('--long');
 const rules = readFileSync(resolve(ROOT, 'rules/RULES.md'), 'utf8');
 const budget = (label) => rules.match(new RegExp(`\\|\\s*${label}[^|]*\\|\\s*([^|\\n]+)`, 'i'))?.[1].trim() ?? '?';
-const out = {};
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+const out = { identity: { commit: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim(),
+  platform: platform(), release: release(), arch: arch(), cpu: cpus()[0]?.model,
+  source_diff_sha256: sha256(spawnSync('git', ['diff', 'HEAD', '--', '*.rs', '*.mjs', '*.js', 'Cargo.*'], { cwd: ROOT }).stdout),
+  rustc: spawnSync('rustc', ['--version'], { encoding: 'utf8' }).stdout.trim() } };
+// Opt-in large workloads run in the existing metrics binary. No browser or
+// rebuild is needed to compare runner algorithms on one fixed machine.
+if (process.argv.includes('--scaling')) {
+  const run = spawnSync('cargo', ['run', '-q', '--release', '-p', 'caltrain-web', '--bin', 'metrics', '--', '--scaling'],
+    { cwd: ROOT, encoding: 'utf8', env: developmentBuildEnv() });
+  if (run.status !== 0) { console.error(run.stderr); process.exit(run.status ?? 1); }
+  Object.assign(out, JSON.parse(run.stdout.trim().split('\n').pop()));
+  out.identity.binary_sha256 = sha256(readFileSync(resolve(ROOT, 'target/release/metrics')));
+  if (json) console.log(JSON.stringify(out));
+  else {
+    console.log(`runner scaling — ${JSON.stringify(out.identity)}`);
+    for (const r of out.scaling) console.log(`  ${r.rows} rows / ${r.action}: runner ${r.runner_update_ms.p50}/${r.runner_update_ms.p95} ms p50/p95; layout ${r.layout_ms.p50}; web+runner ${r.web_runner_and_batch_ms.p50}; requests ${r.source_requests.p50}; touched ${r.touched.p50}`);
+    console.log(out.scaling_note);
+  }
+  process.exit(0);
+}
 // The live dev-loop session reuses one Chrome profile (a fresh profile's
 // first launch can stall for seconds); the --dump-dom render below gets a
 // fresh one each time (with a reused profile it waits out its whole
@@ -63,6 +87,8 @@ step('wasm', () => {
   const dist = resolve(ROOT, 'host/web/dist');
   const b = spawnSync('node', [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
   if (b.status !== 0) process.exit(b.status ?? 1);
+  out.web_artifacts = publicFileCards(dist);
+  out.web_artifact_id = sha256(JSON.stringify(out.web_artifacts));
   const wasm = readFileSync(resolve(dist, 'app.wasm'));
   out.wasm_bytes = wasm.length;
   out.wasm_gzip_bytes = gzipSync(wasm, { level: 9 }).length;
@@ -78,43 +104,143 @@ step('wasm', () => {
 
 // 3. Boot modules (the fifth check's count).
 step('boot', () => {
-  const r = spawnSync('node', [resolve(ROOT, 'scripts/boot.mjs')], { cwd: ROOT, encoding: 'utf8' });
-  out.boot_modules = Number(/before first pixel: (\d+)/.exec(r.stdout)?.[1] ?? NaN);
+  const r = spawnSync('node', [resolve(ROOT, 'scripts/boot.mjs'), '--json'], { cwd: ROOT, encoding: 'utf8' });
+  out.boot = JSON.parse(r.stdout);
+  out.boot_modules = out.boot.modules;
   out.boot_ok = r.status === 0;
 });
 
-// 4. A real browser: script start → first frame in the DOM (and painted, when a compositor exists).
+// 4. A real browser. Instrumentation is installed by CDP only for this
+// diagnostic run: shipped HTML/glue/wasm stay byte-identical to the build.
+// Paint Timing is navigation-relative; the old rAF stamp is not a paint.
 {
   const t = Date.now();
   const dist = resolve(ROOT, 'host/web/dist');
+  const served = new Map();
   const server = createServer((req, res) => {
     const found = staticFile(dist, req.url.split('?')[0]);
     if (!found) { res.writeHead(404); res.end(); return; }
+    const body = readFileSync(found.path);
+    served.set(found.route, { path: found.route, bytes: body.length, sha256: sha256(body) });
     res.writeHead(200, { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
-    res.end(readFileSync(found.path));
+    res.end(body);
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const port = server.address().port;
   const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  const render = () => new Promise((done) => {
-    const fresh = mkdtempSync(resolve(tmpdir(), 'exact-metrics-'));
-    const child = spawn(chrome, ['--headless=new', '--disable-gpu', `--user-data-dir=${fresh}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking', '--no-first-run', '--no-default-browser-check', '--timeout=4000', '--dump-dom', `http://127.0.0.1:${port}/`], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
-    let dom = '';
-    child.stdout.on('data', (d) => { dom += d; });
-    const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 20000);
-    child.on('exit', () => { clearTimeout(timer); try { process.kill(-child.pid, 'SIGKILL'); } catch {} rmSync(fresh, { recursive: true, force: true }); done(dom); });
-  });
-  if (existsSync(chrome)) {
-    let dom = await render();
-    if (!/data-boot-ms=/.test(dom)) dom = await render();
-    out.browser_dom_ms = Number(/data-boot-ms="([\d.]+)"/.exec(dom)?.[1] ?? NaN);
-    out.browser_paint_ms = Number(/data-paint-ms="([\d.]+)"/.exec(dom)?.[1] ?? NaN);
-    out.browser_dom_bytes = dom.length;
-  } else {
-    out.browser_dom_ms = NaN;
-    out.browser_note = 'no Chrome at $CHROME';
+  let child, fresh;
+  try {
+    if (!existsSync(chrome)) throw new Error('no Chrome at $CHROME');
+    fresh = mkdtempSync(resolve(tmpdir(), 'exact-metrics-'));
+    child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${fresh}`,
+      '--no-sandbox', '--disable-extensions', '--disable-background-networking', '--no-first-run',
+      '--no-default-browser-check', 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
+    child.on('exit', () => cdp.fail('metrics Chrome exited'));
+    const { targetInfos } = await cdp.send('Target.getTargets');
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: targetInfos.find((x) => x.type === 'page').targetId, flatten: true });
+    const call = (method, params) => cdp.send(method, params, sessionId);
+    const evaluate = async (expression) => {
+      const result = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+      if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
+      return result.result.value;
+    };
+    out.browser_version = await cdp.send('Browser.getVersion');
+    await call('Page.enable');
+    await call('Page.bringToFront');
+    await call('Performance.enable');
+    await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
+    await call('Page.addScriptToEvaluateOnNewDocument', { source: `(${function instrument() {
+      const m = globalThis.__exactMetrics = { longtasks: [], wasm_instantiations: [] };
+      new PerformanceObserver((entries) => {
+        for (const e of entries.getEntries()) m.longtasks.push({ start_ms: e.startTime, duration_ms: e.duration });
+      }).observe({ type: 'longtask', buffered: true });
+      const instantiate = WebAssembly.instantiateStreaming;
+      WebAssembly.instantiateStreaming = async function(...args) {
+        const start = performance.now();
+        const value = await instantiate.apply(this, args);
+        m.wasm_instantiations.push({ start_ms: start, duration_ms: performance.now() - start });
+        return value;
+      };
+      new MutationObserver(() => {
+        const root = document.getElementById('exact-root');
+        if (m.dom_navigation_ms == null && root?.dataset.bootMs != null) {
+          m.dom_navigation_ms = performance.now();
+          m.content_text_characters = root.innerText.trim().length;
+          m.content_dom_ms = m.content_text_characters ? m.dom_navigation_ms : null;
+        }
+      }).observe(document, { subtree: true, childList: true, attributes: true });
+    }.toString()})()` });
+    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/?agent=1` });
+    await evaluate(`new Promise((resolve, reject) => {
+      const start = performance.now();
+      const check = () => {
+        const root = document.getElementById('exact-root');
+        if (root?.dataset.error) return reject(new Error(root.dataset.error));
+        if (root?.dataset.bootMs) return requestAnimationFrame(() => requestAnimationFrame(resolve));
+        if (performance.now() - start > 10000) return reject(new Error('no first DOM frame'));
+        setTimeout(check, 10);
+      }; check();
+    })`);
+    const startup = await evaluate(`({ ...__exactMetrics,
+      script_to_dom_ms: Number(exact.root.dataset.bootMs),
+      script_to_raf_ms: Number(exact.root.dataset.frameCallbackMs),
+      paints: performance.getEntriesByType('paint').map(e => ({ name: e.name, start_ms: e.startTime })),
+      resources: performance.getEntriesByType('resource').map(e => ({ path: new URL(e.name).pathname,
+        start_ms: e.startTime, duration_ms: e.duration, bytes: e.decodedBodySize, initiator: e.initiatorType })) })`);
+    const paint = startup.paints.find(p => p.name === 'first-paint')?.start_ms;
+    for (const resource of startup.resources) {
+      resource.phase = resource.start_ms <= startup.dom_navigation_ms ? 'before first DOM commit'
+        : paint != null && resource.start_ms > paint ? 'after observed first paint'
+        : 'after DOM; paint order unconfirmed';
+    }
+    startup.initial_js_and_wasm_bytes = startup.resources
+      .filter(r => r.start_ms <= startup.dom_navigation_ms && /\.(?:js|wasm)$/.test(r.path))
+      .reduce((bytes, r) => bytes + r.bytes, 0);
+    startup.data_executor = 'this web build has no TypeScript executor; Rust data is linked in app.wasm';
+    out.browser_startup = startup;
+    out.browser_dom_ms = startup.script_to_dom_ms;
+    out.browser_paint_ms = startup.paints.find((p) => p.name === 'first-paint')?.start_ms ?? NaN;
+    out.browser_contentful_paint_ms = startup.paints.find((p) => p.name === 'first-contentful-paint')?.start_ms ?? NaN;
+    out.browser_performance = (await call('Performance.getMetrics')).metrics;
+    // The sample's first useful action. Other apps name a testId explicitly;
+    // no random button is activated merely to produce a timing number.
+    const interaction = process.argv.includes('--interaction') ? process.argv[process.argv.indexOf('--interaction') + 1]
+      : app.name === 'caltrain' ? 'change-station' : null;
+    if (interaction) {
+      const point = await evaluate(`(() => {
+        const el = [...document.querySelectorAll('[data-testid]')].find(e => e.dataset.testid === ${JSON.stringify(interaction)});
+        if (!el) throw new Error('missing interaction target');
+        const r = el.getBoundingClientRect();
+        __exactMetrics.interaction = { target: ${JSON.stringify(interaction)} };
+        document.addEventListener('click', () => {
+          __exactMetrics.interaction.input_ms = performance.now();
+          const observer = new MutationObserver(() => {
+            __exactMetrics.interaction.changed_dom_ms = performance.now(); observer.disconnect();
+          }); observer.observe(exact.root, { subtree: true, childList: true, attributes: true, characterData: true });
+        }, { capture: true, once: true });
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      })()`);
+      await call('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', clickCount: 1, ...point });
+      await call('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, ...point });
+      out.browser_first_interaction = await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+        ...__exactMetrics.interaction, frame_opportunity_ms: performance.now(),
+        note: 'real CDP click; DOM change observed, frame opportunity is not confirmed presentation'
+      }))))`);
+    } else out.browser_interaction_note = 'unmeasured: name --interaction <testId> for this app';
+    out.browser_served = [...served.values()];
+    out.browser_startup_note = 'headless Chrome, empty profile, localhost/no-store; instrumented single sample; content is nonempty DOM text, not application-specific readiness; paints are navigation-relative';
+  } catch (error) {
+    out.browser_note = String(error);
+    out.browser_dom_ms ??= NaN;
+  } finally {
+    if (child) {
+      const exited = new Promise(resolve => child.once('exit', resolve));
+      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+      await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 2000))]);
+    }
+    if (fresh) rmSync(fresh, { recursive: true, force: true });
+    server.close();
   }
-  server.close();
   out._browser_s = (Date.now() - t) / 1000;
 }
 
@@ -319,10 +445,12 @@ const rows = [
   ['web host first batch', ms(out.web_boot_ms), `${kib(out.web_first_batch_bytes)} JSON`],
   ['web host update batch', ms(out.web_update_ms), `${kib(out.web_update_batch_bytes)} JSON`],
   ['wasm (web profile + wasm-opt)', kib(out.wasm_bytes), `${kib(out.wasm_gzip_bytes)} gzip; glue ${kib(out.glue_bytes)}`],
-  ['GPU module (web, on demand)', Number.isFinite(out.gpu_wasm_bytes) ? kib(out.gpu_wasm_bytes) : 'n/a', Number.isFinite(out.gpu_wasm_bytes) ? `${kib(out.gpu_wasm_gzip_bytes)} gzip; glue ${kib(out.gpu_glue_bytes)}; after first paint` : ''],
+  ['GPU module (web, on demand)', Number.isFinite(out.gpu_wasm_bytes) ? kib(out.gpu_wasm_bytes) : 'n/a', Number.isFinite(out.gpu_wasm_bytes) ? `${kib(out.gpu_wasm_gzip_bytes)} gzip; glue ${kib(out.gpu_glue_bytes)}; observed load order in JSON` : ''],
   ['browser: script → DOM', ms(out.browser_dom_ms), `budget ${budget('Cold start')}`],
-  ['browser: → painted', ms(out.browser_paint_ms), Number.isFinite(out.browser_paint_ms) ? '' : 'headless has no compositor frame'],
-  ['boot modules before first pixel', `${out.boot_modules}`, `budget: ${budget('App JS executed')} app JS; ${out.boot_ok ? 'ok' : 'VIOLATION'}`],
+  ['browser: navigation → first paint', ms(out.browser_paint_ms), 'Paint Timing, single instrumented sample'],
+  ['browser: → contentful paint', ms(out.browser_contentful_paint_ms), 'browser content, not application readiness'],
+  ['browser: click → changed DOM', ms(out.browser_first_interaction?.changed_dom_ms - out.browser_first_interaction?.input_ms), out.browser_first_interaction?.target ?? out.browser_interaction_note ?? out.browser_note ?? 'unmeasured'],
+  ['boot modules before first pixel', `${out.boot_modules}`, `${out.boot.javascript_bytes} B source JS; ${out.boot_ok ? 'allowed paths' : 'VIOLATION'}; not a content/work proof`],
   ['edit → present (resident dev loop)', ms(out.reload_ms), Number.isFinite(out.reload_ms) ? `plan ready ${ms(out.reload_plan_ms)} after save; budget ${budget('Dev restart')}` : out.reload_note ?? ''],
   ['macOS: exec → first paint (raw)', ms(out.macos_total_ms), Number.isFinite(out.macos_paint_ms) ? `${out.macos_views} views; empty AppKit main → draw ${ms(out.floor_draw_ms)}` : out.macos_note ?? ''],
 ];
@@ -350,6 +478,7 @@ if (long) {
   );
   rows.push(['macOS: touch one line, rebuild', s(out.macos_touch_s), `host/apple/src/host.rs; budget ${budget('Touch one line')}`]);
 }
+console.log(`web artifact sha256 ${out.web_artifact_id}; hardware ${out.identity.cpu}; commit ${out.identity.commit}`);
 console.log(`exact2 metrics — ${new Date().toISOString().slice(0, 19)}Z, warm cache, p50 where repeated`);
 for (const [k, v, note] of rows) console.log(`  ${k.padEnd(34)} ${v.padStart(11)}   ${note}`);
 console.log(`  ${'total'.padEnd(34)} ${`${out.total_s.toFixed(1)} s`.padStart(11)}   native ${out._native_s.toFixed(1)} s · wasm ${out._wasm_s.toFixed(1)} s · browser ${out._browser_s.toFixed(1)} s · dev loop ${out._reload_s.toFixed(1)} s · macOS boot ${out['_macos-boot_s'].toFixed(1)} s${rebuild ? ` · rebuild ${out._rebuild_s.toFixed(1)} s` : ''}${long ? ` · macOS ${out._macos_s.toFixed(1)} s` : ''}`);

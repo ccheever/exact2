@@ -119,8 +119,11 @@ impl Engine {
     /// Forget a node entirely.
     pub fn remove(&mut self, node: u64) {
         self.transitions.remove(&node);
-        self.slots.retain(|(n, _), _| *n != node);
-        self.dirty.retain(|(n, _)| *n != node);
+        // Removing a list must not scan every other node once per row.
+        for property in Property::ALL {
+            self.slots.remove(&(node, property));
+            self.dirty.remove(&(node, property));
+        }
     }
 
     /// A committed change to one animatable row. This is CSS Transitions §3:

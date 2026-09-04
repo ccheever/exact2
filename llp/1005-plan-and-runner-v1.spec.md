@@ -218,6 +218,22 @@ refused); state-preserving reload (LLP 1004 D5); a request's cancellation on
 the wire (a forgotten ticket is dropped on arrival, LLP 1016 D5);
 cursors, cells, confidentiality, cost claims, speculation (LLP 1004 §3).
 
+### Measured scaling correction (2026-09-04)
+
+Implemented by Codex at Charlie's request; investigation and exact samples:
+[runner scaling issue](../issues/closed/20260904-measure-runner-update-scaling.md).
+On the M5 Max release fixture, a 10,000-row local edit took 29.70 ms and a
+reorder 64.79 ms p50. Canonical-key lookup and constant-time child membership
+bring those to 6.47 and 7.62 ms. Final child lists precede the runner's
+unique-id destroys in the same atomic batch, removing repeated sibling
+rebuilds; the same topology replacement falls from 164.49 to 9.36 ms.
+A replacement can temporarily keep old and new kernel nodes live in the
+commit; peak allocation is unmeasured.
+The full evaluation walk remains. No Deps table or scheduling semantics
+changed. Bulk listener discovery and bounded motion-slot removal reduce
+web runner-plus-batch topology cost from 566.02 to 19.59 ms. These are
+in-process desktop measurements, not a browser or phone frame budget.
+
 ## 9. Checks that hold this
 
 `plan/tests/format.rs` (canonical bytes, validation refusals by table/row/

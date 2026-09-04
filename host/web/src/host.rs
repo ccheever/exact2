@@ -162,8 +162,9 @@ impl<D: DataSource> Host<D> {
             children.reverse();
             stack.extend(children);
         }
+        let handlers = host.runner.handlers();
         for id in &order {
-            host.create(*id, &mut batch);
+            host.create(*id, &mut batch, handlers.get(id).map_or(&[], Vec::as_slice));
         }
         for id in &order {
             host.emit_children(*id, &mut batch);
@@ -286,10 +287,15 @@ impl<D: DataSource> Host<D> {
                     batch.destroy(id);
                 }
             }
+            let handlers = if r.created.is_empty() {
+                BTreeMap::new()
+            } else {
+                self.runner.handlers()
+            };
             for key in &r.created {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
                     let id = node.id;
-                    self.create(id, &mut batch);
+                    self.create(id, &mut batch, handlers.get(&id).map_or(&[], Vec::as_slice));
                 }
             }
             for key in r.created.iter().chain(r.touched.iter()) {
@@ -382,17 +388,15 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    fn create(&mut self, id: ViewId, batch: &mut Batch) {
+    fn create(&mut self, id: ViewId, batch: &mut Batch, kinds: &[EventKind]) {
         let node = self.runner.kernel().node(id).expect("live");
         let key = node.key;
         let tag = tag_for(&node);
         let props = props_for(&node);
         let (css, _skipped) = css::css_text(node.style, &self.font_names);
         let css = host_css(&node, css);
-        let handlers: Vec<&str> = self
-            .runner
-            .handlers_of(id)
-            .into_iter()
+        let handlers: Vec<&str> = kinds
+            .iter()
             .map(|e| match e {
                 EventKind::Press => "press",
                 EventKind::Change => "change",

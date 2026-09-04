@@ -56,7 +56,7 @@ export function browserDiagnosticNoise(line) {
 // ---------------------------------------------------------------- web
 
 /** The DevTools protocol over Chrome's --remote-debugging-pipe (fd 3 in, fd 4 out; NUL-delimited JSON). A closed pipe or a dead Chrome fails every pending call; every call has a deadline. */
-class Cdp {
+export class Cdp {
   constructor(input, output) {
     this.input = input;
     this.next = 1;

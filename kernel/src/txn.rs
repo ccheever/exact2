@@ -466,8 +466,9 @@ pub fn apply(
                     continue;
                 }
                 let old: Vec<u32> = arena.children(slot).to_vec();
+                let retained: HashSet<u32> = new.iter().copied().collect();
                 for o in &old {
-                    if !new.contains(o) {
+                    if !retained.contains(o) {
                         arena.set_parent(*o, None);
                     }
                 }

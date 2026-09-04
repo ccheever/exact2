@@ -285,6 +285,18 @@ before first pixel: none". A count, not a timer. Today: one module
 (`host/web/glue.js`), one wasm reference. `dev.js` is added only by
 `dev.mjs`, never to `dist/`.
 
+The count enforces an import boundary, not the content of an allowed file
+or its execution cost. Since 2026-09-04, `boot --json` also reports reachable
+source bytes and file digests without a new blocking budget. `metrics --json`
+records built artifact identities (including wasm), observed runtime fetches,
+long tasks and browser timing. DOM readiness, nonempty text, first paint,
+contentful paint and the first CDP action are distinct observations; absent
+Paint Timing entries remain unmeasured. The host's `frameCallbackMs` stamp
+names a pre-paint callback and is never treated as proof of presentation.
+GPU scheduling uses two rAFs to permit a rendering opportunity; actual
+resource timing determines the measured load phase. See the
+[boot measurement correction](../issues/closed/20260904-boot-count-misses-in-module-growth.md).
+
 ## 9. Not in v1 (and where each is declared)
 
 A text-measurement bridge for the kernel's layout on web (the browser lays

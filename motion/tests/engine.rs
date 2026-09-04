@@ -373,6 +373,29 @@ fn removing_a_node_forgets_it() {
     assert!(engine.quiescent());
     assert_eq!(engine.value(NODE, Property::Opacity), None);
     assert!(engine.frame().is_empty());
+
+    // Forget every kind of slot and its queued frame, without disturbing a
+    // neighbouring node in the same engine.
+    for node in [NODE, NODE + 1] {
+        for property in Property::ALL {
+            engine
+                .observe(Change {
+                    node,
+                    property,
+                    value: property.identity(),
+                    velocity: None,
+                })
+                .unwrap();
+        }
+    }
+    engine.remove(NODE);
+    for property in Property::ALL {
+        assert_eq!(engine.value(NODE, property), None);
+        assert_eq!(engine.value(NODE + 1, property), Some(property.identity()));
+    }
+    let frame = engine.frame();
+    assert_eq!(frame.len(), Property::ALL.len());
+    assert!(frame.iter().all(|value| value.node == NODE + 1));
 }
 
 #[test]

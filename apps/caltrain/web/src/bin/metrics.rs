@@ -5,8 +5,10 @@
 //! layout → update → tick, plus the web host's batches.
 
 use exact_kernel::{Kernel, Offer, PropId};
-use exact_runner::{Event, Runner};
+use exact_runner::{DataError, DataSource, Event, Runner, Value};
 use exact_web::Host;
+use std::cell::Cell;
+use std::rc::Rc;
 use std::time::Instant;
 
 fn p50(mut samples: Vec<f64>) -> f64 {
@@ -37,6 +39,10 @@ fn view_of(k: &Kernel, test_id: &str) -> u32 {
 }
 
 fn main() {
+    if std::env::args().any(|arg| arg == "--scaling") {
+        scaling();
+        return;
+    }
     let (plan, compile_ms) = repeat(20, || caltrain::compile().unwrap());
     let plan_bytes = plan.encode().len();
     let (baked, bake_ms) = repeat(5, || {
@@ -125,4 +131,130 @@ fn main() {
         first_batch.len(),
         batch.len()
     );
+}
+
+// A diagnostic workload, not a blocking benchmark or a runtime dependency graph.
+// Every row has one text node; unrelated rows remain present during local edits.
+#[derive(Clone)]
+struct Rows {
+    count: usize,
+    requests: Rc<Cell<usize>>,
+}
+
+impl DataSource for Rows {
+    fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+        self.requests.set(self.requests.get() + 1);
+        let mut rows: Vec<_> = (0..self.count)
+            .map(|id| Value::Record(vec![Value::Number(id as f64)].into()))
+            .collect();
+        if args == [Value::Bool(true)] {
+            rows.reverse();
+        }
+        Ok(Value::List(rows.into()))
+    }
+}
+
+fn summary(mut samples: Vec<f64>) -> String {
+    samples.sort_by(f64::total_cmp);
+    format!(
+        "{{\"p50\":{:.4},\"p95\":{:.4}}}",
+        samples[samples.len() / 2],
+        samples[(samples.len() * 95).div_ceil(100) - 1]
+    )
+}
+
+fn scaling() {
+    let source = r#"shape Row
+  id: number
+component App
+  state count = 0
+  state reverse = false
+  state shown = true
+  resource rows = rows(reverse) as shape list<Row>
+  derive total = length(rows)
+  action bump writes count
+    count = count + 1
+  action reorder writes reverse
+    reverse = !reverse
+  action topology writes shown
+    shown = !shown
+  view
+    column
+      button press=bump testId="bump"
+        text `${count}`
+      button press=reorder testId="reorder"
+        text "reorder"
+      button press=topology testId="topology"
+        text "topology"
+      text `${total}`
+      when shown
+        each row in rows key=row.id
+          text `${row.id}` testId=`row-${row.id}`
+"#;
+    let plan = contract::compile(source).unwrap();
+    let mut results = Vec::new();
+    for count in [300, 3000, 10000] {
+        let data = Rows {
+            count,
+            requests: Rc::new(Cell::new(0)),
+        };
+        let encoded = plan.encode();
+        for action in ["bump", "reorder", "topology"] {
+            let mut runner =
+                Runner::boot(plan.clone(), data.clone(), Kernel::with_monospace()).unwrap();
+            let root = runner.roots()[0];
+            runner
+                .kernel_mut()
+                .compute_layout(root, Offer::definite(390.0, 844.0))
+                .unwrap();
+            let (mut host, _) = Host::boot(&encoded, data.clone()).unwrap();
+            let id = view_of(runner.kernel(), action);
+            let host_id = view_of(host.runner().kernel(), action);
+            let mut updates = Vec::new();
+            let mut layouts = Vec::new();
+            let mut batches = Vec::new();
+            let mut requests = Vec::new();
+            let mut touched = Vec::new();
+            let mut created = Vec::new();
+            let mut destroyed = Vec::new();
+            let mut batch_bytes = Vec::new();
+            for iteration in 0..44 {
+                let before = data.requests.get();
+                let (receipt, update_ms) = time(|| runner.dispatch(id, Event::Press).unwrap());
+                let requested = data.requests.get() - before;
+                let (_, layout_ms) = time(|| {
+                    runner
+                        .kernel_mut()
+                        .compute_layout(root, Offer::definite(390.0, 844.0))
+                        .unwrap()
+                });
+                let (batch, host_ms) = time(|| host.dispatch(host_id, Event::Press));
+                assert!(!batch.contains("\"error\":\""), "{batch}");
+                if iteration >= 4 {
+                    updates.push(update_ms);
+                    layouts.push(layout_ms);
+                    batches.push(host_ms);
+                    requests.push(requested as f64);
+                    touched.push(receipt.touched.len() as f64);
+                    created.push(receipt.created.len() as f64);
+                    destroyed.push(receipt.destroyed.len() as f64);
+                    batch_bytes.push(batch.len() as f64);
+                }
+                if action == "bump" {
+                    assert_eq!(receipt.touched.len(), 1);
+                    assert_eq!(requested, 0);
+                }
+                if action == "reorder" {
+                    assert!(receipt.created.is_empty() && receipt.destroyed.is_empty());
+                    assert_eq!(requested, 1);
+                }
+            }
+            results.push(format!(
+                "{{\"rows\":{count},\"nodes\":{},\"action\":\"{action}\",\"samples\":40,\"runner_update_ms\":{},\"layout_ms\":{},\"web_runner_and_batch_ms\":{},\"source_requests\":{},\"touched\":{},\"created\":{},\"destroyed\":{},\"batch_bytes\":{}}}",
+                runner.kernel().live_count(), summary(updates), summary(layouts), summary(batches),
+                summary(requests), summary(touched), summary(created), summary(destroyed), summary(batch_bytes)
+            ));
+        }
+    }
+    println!("{{\"scaling\":[{}],\"scaling_note\":\"release; four warmup updates, 40 measured; runner includes settlement/evaluation/kernel apply; web timings include runner and serialization, not browser; layout uses monospace, no physical device or allocation measurement\"}}", results.join(","));
 }

@@ -160,3 +160,61 @@ fn nested_row_actions_use_lexical_items_even_when_a_root_name_collides() {
     assert_eq!(text_of(&r, "result-mv-pa"), "Mountain View/Palo Alto");
     assert_eq!(r.slot("item"), Some(&Value::str("root collision")));
 }
+
+#[test]
+fn numeric_keys_keep_identity_and_listener_catalog_follows_topology() {
+    struct Keys;
+    impl DataSource for Keys {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            let keys = if args == [Value::Bool(true)] {
+                vec![2.0, -0.0, 1.0]
+            } else {
+                vec![0.0, 1.0, 2.0]
+            };
+            Ok(Value::list(keys.into_iter().map(Value::Number).collect()))
+        }
+    }
+    let source = r#"component App
+  state reverse = false
+  state shown = true
+  resource keys = keys(reverse) as shape list<number>
+  action flip writes reverse
+    reverse = !reverse
+  action toggle writes shown
+    shown = !shown
+  view
+    column testId="root"
+      when shown
+        each item in keys key=item
+          button press=flip testId=`key-${item}`
+            text `${item}`
+      else
+        button "empty" press=toggle testId="empty"
+"#;
+    let plan = contract::compile(source).unwrap();
+    let mut runner = Runner::boot(plan, Keys, Kernel::with_monospace()).unwrap();
+    let before = runner.kernel().find_by_test_id("key-0")[0];
+    let receipt = runner.act("flip", vec![]).unwrap();
+    assert!(receipt.created.is_empty() && receipt.destroyed.is_empty());
+    assert_eq!(runner.kernel().find_by_test_id("key-0")[0], before);
+    let listeners = runner.handlers();
+    assert_eq!(listeners.len(), 3);
+    for (view, events) in &listeners {
+        assert_eq!(*events, runner.handlers_of(*view));
+    }
+    let root = runner.roots()[0];
+    let old_order = runner.kernel().node(root).unwrap().children();
+    let receipt = runner.act("toggle", vec![]).unwrap();
+    assert_eq!(receipt.destroyed.len(), 6);
+    assert_eq!(receipt.created.len(), 2);
+    let new_listeners = runner.handlers();
+    assert_eq!(new_listeners.len(), 1);
+    assert!(listeners.keys().all(|id| !new_listeners.contains_key(id)));
+    assert!(old_order
+        .iter()
+        .all(|id| runner.kernel().node(*id).is_none()));
+    assert_eq!(runner.kernel().node(root).unwrap().children().len(), 1);
+    runner.act("toggle", vec![]).unwrap();
+    assert_eq!(runner.handlers().len(), 3);
+    assert_ne!(runner.kernel().find_by_test_id("key-0")[0], before);
+}

@@ -2,11 +2,9 @@
 //!
 //! @ref LLP 1004 D3 (the refusal tuple) / D4 (the data seam) / D5 (restart)
 //!
-//! One frame on a native host: `dispatch` or `advance` → the runner
-//! re-evaluates derives, re-requests resources whose arguments changed,
-//! re-evaluates every site, and applies one atomic op batch to the kernel →
-//! the host lays out and paints. Every write is validated by the kernel before
-//! anything changes; a trap or refusal leaves the kernel exactly as it was.
+//! Each event settles derives and changed resource arguments, evaluates all
+//! sites, and applies one atomic kernel batch; hosts then lay out and paint.
+//! Kernel validation precedes every write; a refusal leaves the kernel untouched.
 
 mod delivery;
 mod kept;
@@ -763,6 +761,13 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .map(|h| self.plan.handler(h).event)
             .collect()
+    }
+
+    /// All live listener declarations in one tree walk (bulk host creation).
+    pub fn handlers(&self) -> std::collections::BTreeMap<ViewId, Vec<EventKind>> {
+        self.tree
+            .as_ref()
+            .map_or_else(Default::default, |t| t.handlers(&self.plan))
     }
 
     /// Whether the plan has timers (a host then drives `advance`).

@@ -434,7 +434,7 @@ impl RegionInst {
                 };
                 let arm = row.arms.iter().next();
                 // Key every item; refuse duplicates.
-                let mut keyed: Vec<(Value, Frame)> = Vec::with_capacity(items.len());
+                let mut keyed: Vec<(String, Value, Frame)> = Vec::with_capacity(items.len());
                 let mut seen: BTreeMap<String, ()> = BTreeMap::new();
                 for item in items.iter() {
                     let frame = Frame {
@@ -448,25 +448,32 @@ impl RegionInst {
                     let key_text = key_text(&key).ok_or(InstanceError::KeyKind {
                         region: self.region,
                     })?;
-                    if seen.insert(key_text, ()).is_some() {
+                    if seen.insert(key_text.clone(), ()).is_some() {
                         return Err(InstanceError::DuplicateKey {
                             region: self.region,
                         });
                     }
-                    keyed.push((key, frame));
+                    keyed.push((key_text, key, frame));
                 }
                 // Reuse rows by key, create the new, destroy the gone; order follows the items.
+                // A linear search per row made an unchanged 10,000-row list
+                // quadratic. Reuse the same canonical keys as duplicate checking.
+                // Keep old order for destruction, which is observable in receipts.
                 let mut old: Vec<Option<Row>> =
                     std::mem::take(rows).into_iter().map(Some).collect();
+                let by_key: BTreeMap<String, usize> = old
+                    .iter()
+                    .enumerate()
+                    .map(|(i, r)| {
+                        (
+                            key_text(&r.as_ref().unwrap().key).expect("validated key"),
+                            i,
+                        )
+                    })
+                    .collect();
                 let mut next = Vec::with_capacity(keyed.len());
-                for (key, mut frame) in keyed {
-                    let existing = old
-                        .iter_mut()
-                        .find(|r| {
-                            r.as_ref()
-                                .is_some_and(|r| vm::equal(&r.key, &key) == Some(true))
-                        })
-                        .and_then(Option::take);
+                for (key_text, key, mut frame) in keyed {
+                    let existing = by_key.get(&key_text).and_then(|i| old[*i].take());
                     frame.region = Some(self.region.0);
                     match existing {
                         Some(mut r) => {
@@ -638,7 +645,46 @@ impl Tree {
     pub fn update(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
         update_all(u, &mut self.children, &[])?;
         self.emit_roots(u);
+        // Views are never reused within a runner. Detach removed children in
+        // the final child lists before destroying them, so a removed list does
+        // not rebuild its parent's siblings once per row. Still one atomic
+        // batch; preserve relative destroy order for receipts and host effects.
+        let (mut live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut u.ops)
+            .into_iter()
+            .partition(|op| !matches!(op, Op::DestroyView { .. }));
+        live.extend(gone);
+        u.ops = live;
         Ok(())
+    }
+
+    /// Listener declarations for every live view in one walk, without
+    /// reconstructing event argument frames for each created view.
+    pub fn handlers(&self, plan: &Plan) -> BTreeMap<ViewId, Vec<exact_plan::EventKind>> {
+        let mut out = BTreeMap::new();
+        let mut stack: Vec<_> = self.children.iter().collect();
+        while let Some(child) = stack.pop() {
+            match child {
+                Child::Node(node) => {
+                    let handlers = plan.node(node.node).handlers;
+                    if handlers.len > 0 {
+                        out.insert(
+                            node.view,
+                            handlers.iter().map(|h| plan.handler(h).event).collect(),
+                        );
+                    }
+                    stack.extend(node.children.iter());
+                }
+                Child::Region(region) => match &region.active {
+                    Active::Arm { roots, .. } => stack.extend(roots.iter()),
+                    Active::Rows { rows } => {
+                        for row in rows {
+                            stack.extend(row.roots.iter());
+                        }
+                    }
+                },
+            }
+        }
+        out
     }
 
     fn emit_roots(&mut self, u: &mut Update<'_>) {
