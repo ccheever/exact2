@@ -16,7 +16,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appManifestDigest, builtAppMatches, copyStaticTree, installStaticCandidate, listPublicFiles, publicFileCards, staticFile, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
-import { deviceLaunchArgs } from '../host/apple/build.mjs';
+import { copyAppleStaticTrees, deviceLaunchArgs } from '../host/apple/build.mjs';
 import { canonicalBytes, classify, defaultRelease, deployRun, inspectHead, publishStream, streamHead } from './deploy.mjs';
 import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable } from './origin.mjs';
 
@@ -734,6 +734,39 @@ for (const [name, html, files, expectCode, expect] of [
       && remote.at(-1) === 'com.example.app'
       && !baked.includes('--environment-variables')
       && refused);
+}
+
+// Apple packages the standalone app and then the sample host through the
+// same static-file gate as web. A link introduced at either source boundary
+// is refused instead of being followed into a signed bundle.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-apple-static-'));
+  const source = join(dir, 'app');
+  const bundle = join(dir, 'ExactIOS.app');
+  const host = join(dir, 'ExactHostIOS.app');
+  const outside = join(dir, 'private.txt');
+  mkdirSync(join(source, 'assets'), { recursive: true });
+  mkdirSync(join(source, 'gpu', 'shaders'), { recursive: true });
+  writeFileSync(join(source, 'assets', 'logo.png'), 'image');
+  writeFileSync(join(source, 'gpu', 'shaders', 'surface.wgsl'), 'shader');
+  writeFileSync(outside, 'private');
+  const appTrees = [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']];
+  copyAppleStaticTrees(source, bundle, appTrees);
+  copyAppleStaticTrees(bundle, host);
+  const copied = readFileSync(join(bundle, 'assets', 'logo.png'), 'utf8') === 'image'
+    && readFileSync(join(bundle, 'shaders', 'surface.wgsl'), 'utf8') === 'shader'
+    && readFileSync(join(host, 'assets', 'logo.png'), 'utf8') === 'image'
+    && readFileSync(join(host, 'shaders', 'surface.wgsl'), 'utf8') === 'shader';
+  symlinkSync(outside, join(source, 'assets', 'linked'));
+  let appRefused = false;
+  try { copyAppleStaticTrees(source, join(dir, 'refused-app'), appTrees); }
+  catch (error) { appRefused = error.message.includes('cannot be symlinks'); }
+  symlinkSync(outside, join(bundle, 'assets', 'linked'));
+  let hostRefused = false;
+  try { copyAppleStaticTrees(bundle, join(dir, 'refused-host')); }
+  catch (error) { hostRefused = error.message.includes('cannot be symlinks'); }
+  rmSync(dir, { recursive: true, force: true });
+  result('Apple app and sample-host packages reject linked static files', copied && appRefused && hostRefused);
 }
 
 console.log(`\n${total - failed}/${total} passed`);

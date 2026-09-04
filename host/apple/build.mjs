@@ -20,8 +20,9 @@
 import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolveApp } from '../../scripts/app.mjs';
+import { copyStaticTree } from '../web/serve.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => { const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', ...opts }); if (r.status !== 0) process.exit(r.status ?? 1); return r; };
@@ -63,6 +64,16 @@ export const productPath = (product, triple = macTriple) => resolve(pkg, '.build
 /** The standalone macOS app (`scripts/agent.mjs`, `metrics.mjs`) and the sample host. */
 export const macBinary = productPath('ExactMac');
 export const macHostBinary = productPath('ExactHostMac');
+
+/** Copy the app-visible static trees into a private Apple package stage.
+ * Every leaf goes through the web host's no-symlink policy; `trees` maps an
+ * app-relative source (notably `gpu/shaders`) to its bundle-visible name. */
+export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets'], ['deck', 'deck'], ['shaders', 'shaders']]) {
+  for (const [from, to] of trees) {
+    const tree = resolve(source, from);
+    if (existsSync(tree)) copyStaticTree(tree, resolve(target, to));
+  }
+}
 
 /** Every available simulator: { udid, name, runtime, state }. */
 export function simulators() {
@@ -307,7 +318,7 @@ function main(args) {
     copyFileSync(resolve(libDir, archive), resolve(embed, archive));
     copyFileSync(resolve(pkg, 'include/exact.h'), resolve(embed, 'include/exact.h'));
     if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(embed, loadName));
-    for (const [from, to] of [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]) if (existsSync(resolve(app.dir, from))) cpSync(resolve(app.dir, from), resolve(embed, to), { recursive: true });
+    copyAppleStaticTrees(app.dir, embed, [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]);
     const compat = read(resolve(root, 'target/release/contract'), ['compat', app.dir, '--platform', ios ? 'ios' : 'macos', '--target', ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), '--json']);
     if (compat.status === 0) writeFileSync(resolve(embed, 'compat.json'), compat.stdout);
     writeFileSync(resolve(embed, 'receipt.json'), receipt(app, { platform, target: ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), sdk, archive, gpu: hasGpu ? loadName : null, package: pkg }));
@@ -419,11 +430,9 @@ function main(args) {
   mkdirSync(resolve(bundle, 'Frameworks'), { recursive: true });
   copyFileSync(bin, resolve(bundle, product));
   writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device));
-  if (existsSync(resolve(app.dir, 'assets'))) cpSync(resolve(app.dir, 'assets'), resolve(bundle, 'assets'), { recursive: true });
-  if (existsSync(resolve(app.dir, 'deck'))) cpSync(resolve(app.dir, 'deck'), resolve(bundle, 'deck'), { recursive: true });
   // The GPU crate's shaders (LLP 1030 D8): files the presenter registers
   // with the module before a surface is created, never strings in the dylib.
-  if (existsSync(resolve(app.dir, 'gpu', 'shaders'))) cpSync(resolve(app.dir, 'gpu', 'shaders'), resolve(bundle, 'shaders'), { recursive: true });
+  copyAppleStaticTrees(app.dir, bundle, [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]);
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
   if (device) {
@@ -471,7 +480,7 @@ function main(args) {
     mkdirSync(resolve(hostBundle, 'Frameworks'), { recursive: true });
     copyFileSync(productPath('ExactHostIOS', triple), resolve(hostBundle, 'ExactHostIOS'));
     writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, false, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)' }));
-    for (const tree of ['assets', 'deck', 'shaders']) if (existsSync(resolve(appBundle, tree))) cpSync(resolve(appBundle, tree), resolve(hostBundle, tree), { recursive: true });
+    copyAppleStaticTrees(appBundle, hostBundle);
     for (const f of readdirSync(resolve(appBundle, 'Frameworks'))) { copyFileSync(resolve(appBundle, 'Frameworks', f), resolve(hostBundle, 'Frameworks', f)); run('codesign', ['--force', '--sign', '-', resolve(hostBundle, 'Frameworks', f)], { stdio: 'ignore' }); }
     run('codesign', ['--force', '--sign', '-', hostBundle], { stdio: 'ignore' });
     install(dev, hostBundle);
