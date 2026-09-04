@@ -27,6 +27,13 @@ struct Loaded {
     pixels: Option<(Vec<u8>, u32, u32)>,
 }
 
+enum ImageInput {
+    /// Entry-zero and legacy activation files stay off the presenter thread.
+    Path(PathBuf),
+    /// A selected generation is verified before the boot fallback decision.
+    Bytes(Arc<[u8]>),
+}
+
 /// One generation's asset resolver. Entry zero reads beneath the binary's
 /// root; a selected update reads through its complete, verified [`AssetSet`].
 /// An absent selected name is a tombstone and never falls through to the
@@ -76,12 +83,20 @@ impl Assets {
     /// Immutable bytes for one relative asset name. A selected generation's
     /// absent name returns `None`, even when entry zero contains that name.
     pub fn read(&self, name: &str) -> Option<Arc<[u8]>> {
+        match self.image_input(name)? {
+            ImageInput::Path(path) => std::fs::read(path).ok().map(Arc::from),
+            ImageInput::Bytes(bytes) => Some(bytes),
+        }
+    }
+
+    fn image_input(&self, name: &str) -> Option<ImageInput> {
         if !Self::relative(name) {
             return None;
         }
         if let Some(selected) = &self.selected {
             return match selected.resolve(name) {
-                Ok(bytes) => bytes,
+                Ok(Some(bytes)) => Some(ImageInput::Bytes(bytes)),
+                Ok(None) => None,
                 Err(reason) => {
                     let mut refusal = self.refusal.lock().unwrap_or_else(|e| e.into_inner());
                     refusal.get_or_insert(reason);
@@ -89,12 +104,7 @@ impl Assets {
                 }
             };
         }
-        let root = self.root.canonicalize().ok()?;
-        let path = root.join(name).canonicalize().ok()?;
-        if !path.starts_with(&root) {
-            return None;
-        }
-        std::fs::read(path).ok().map(Arc::from)
+        self.path(name).map(ImageInput::Path)
     }
 
     /// Take the first selected-file integrity refusal observed by this
@@ -176,12 +186,12 @@ impl Images {
             .or_else(|| self.assets.path(source))
     }
 
-    fn read(&self, source: &str) -> Option<Arc<[u8]>> {
+    fn input(&self, source: &str) -> Option<ImageInput> {
         self.overrides
             .get(source)
-            .and_then(|path| std::fs::read(path).ok())
-            .map(Arc::from)
-            .or_else(|| self.assets.read(source))
+            .cloned()
+            .map(ImageInput::Path)
+            .or_else(|| self.assets.image_input(source))
     }
 
     /// After a commit: start a load for every image node whose source is
@@ -215,7 +225,7 @@ impl Images {
                 reports.push((*id, None));
                 continue;
             }
-            let Some(bytes) = self.read(&source) else {
+            let Some(input) = self.input(&source) else {
                 eprintln!("exact: image {source} is not a loadable source");
                 self.bitmaps.remove(id);
                 reports.push((*id, None));
@@ -225,7 +235,12 @@ impl Images {
             let view = *id;
             self.pending += 1;
             std::thread::spawn(move || {
-                let pixels = decode(&bytes);
+                let pixels = match input {
+                    ImageInput::Path(path) => {
+                        std::fs::read(path).ok().and_then(|bytes| decode(&bytes))
+                    }
+                    ImageInput::Bytes(bytes) => decode(&bytes),
+                };
                 let _ = tx.send(Loaded {
                     view,
                     generation,

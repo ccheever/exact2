@@ -5,12 +5,14 @@
 //! values; an image's size lays out; the agent's operations answer on the
 //! wire.
 
+use exact_kernel::{Kernel, NodeType, Op, PropId};
 use exact_linux::agent::handle;
+use exact_linux::image::Images;
 use exact_linux::paint::PaintedBox;
 use exact_linux::Presenter;
 use exact_runner::{DataError, DataSource, Value};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 fn assets() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"))
@@ -348,6 +350,60 @@ fn an_image_lays_out_from_its_decoded_size() {
         p.images().resolve("https://example.com/a.png").is_none(),
         "no URLs yet"
     );
+}
+
+#[test]
+fn an_embedded_image_is_not_opened_on_the_boot_thread() {
+    let dir = std::env::temp_dir().join(format!("exact-linux-image-worker-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let fifo = dir.join("blocking.png");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap();
+    assert!(made.success(), "the blocking image fixture is a FIFO");
+    let mut kernel = Kernel::with_monospace();
+    kernel
+        .apply(
+            0,
+            1,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::Image,
+                },
+                Op::SetProp {
+                    id: 1,
+                    prop: PropId::ImageSource,
+                    value: "blocking.png".into(),
+                },
+                Op::AttachRoot { id: 1 },
+            ],
+        )
+        .unwrap();
+    let mut images = Images::new(dir.clone());
+    let writer_path = fifo.clone();
+    let writer = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(250));
+        use std::io::Write as _;
+        let mut writer = std::fs::OpenOptions::new()
+            .write(true)
+            .open(writer_path)
+            .unwrap();
+        writer.write_all(b"not a png").unwrap();
+    });
+    let started = Instant::now();
+    let reports = images.sync(&kernel, &kernel.roots());
+    let elapsed = started.elapsed();
+    assert!(reports.is_empty(), "the worker owns the first image report");
+    assert!(
+        elapsed < Duration::from_millis(100),
+        "image scheduling waited {elapsed:?} for the FIFO reader"
+    );
+    writer.join().unwrap();
+    images.wait(Duration::from_secs(2));
+    let _ = std::fs::remove_dir_all(fifo.parent().unwrap());
 }
 
 #[test]
