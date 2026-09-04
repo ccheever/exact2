@@ -83,6 +83,7 @@ async function readEnvelope(url, signal) {
   return { envelope: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(response.bytes)), url: response.url };
 }
 async function fetchGeneration(message, signal) {
+  const started = performance.now();
   const { envelope, url } = await readEnvelope(message.envelope, signal);
   const identity = envelope.dev;
   if (envelope.exact !== 1 || !validIdentity(identity) || identity.epoch !== message.epoch
@@ -115,7 +116,7 @@ async function fetchGeneration(message, signal) {
   const canonical = { assets: [...envelope.assets].sort((a, b) => utf8Compare(a.name, b.name)).map((a) => ({ bytes: a.bytes, name: a.name, sha256: a.sha256 })),
     plan: { bytes: plan.bytes.length, sha256: plan.sha256 } };
   if (await digest(encoder.encode(JSON.stringify(canonical))) !== identity.generation) throw new Error("the generation digest does not bind its complete manifest");
-  return { ...identity, plan: plan.bytes, assets };
+  return { ...identity, plan: plan.bytes, assets, fetchMs: performance.now() - started };
 }
 
 // Fetches may finish in any order. Only the latest request can enter the
@@ -164,7 +165,7 @@ if (es) {
       const t = performance.now();
       const accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current);
       if (accepted) {
-        navigator.sendBeacon(`/__dev/reloaded?epoch=${candidate.epoch}&seq=${candidate.seq}&dom=${Date.now()}&fetch=0&boot=${(performance.now() - t).toFixed(1)}`);
+        navigator.sendBeacon(`/__dev/reloaded?epoch=${candidate.epoch}&seq=${candidate.seq}&dom=${Date.now()}&fetch=${candidate.fetchMs.toFixed(1)}&boot=${(performance.now() - t).toFixed(1)}`);
         requestAnimationFrame(() => navigator.sendBeacon(`/__dev/painted?epoch=${candidate.epoch}&seq=${candidate.seq}&paint=${Date.now()}`));
       }
       return accepted;

@@ -67,7 +67,8 @@ function writeIn(text) {
 function localAssetURL(source, assets = devAssets) {
   let url;
   try { url = new URL(source, document.baseURI); } catch { return source; }
-  const name = decodeURIComponent(url.pathname.replace(/^\//, ""));
+  let name;
+  try { name = decodeURIComponent(url.pathname.replace(/^\//, "")); } catch { return source; }
   if (assets !== null && url.origin === location.origin && /^(assets|deck|shaders)\//.test(name)) {
     const card = assets.get(name);
     if (!card) return `/__dev/absent/${name.split("/").map(encodeURIComponent).join("/")}`;
