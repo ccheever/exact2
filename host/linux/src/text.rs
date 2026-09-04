@@ -13,6 +13,7 @@
 //! in the box, which cosmic-text does itself. Glyphs are rasterized by swash
 //! once per (glyph, color) into small premultiplied pixmaps.
 
+use crate::image::Assets;
 use cosmic_text::{
     fontdb, Align, Attrs, Buffer, CacheKey, Ellipsize, EllipsizeHeightLimit, Family, FontSystem,
     Metrics, PenikoFont, Shaping, Style, SwashCache, SwashContent, Weight, Wrap,
@@ -291,14 +292,24 @@ impl TextEngine {
     /// on the system last resort and names the refused identity on stderr;
     /// boot still presents (LLP 1019 D5).
     pub fn shared_for_plan(plan: &Plan, assets: &Path) -> Shared {
+        Self::shared_for_assets(plan, &Assets::embedded(assets.to_path_buf()))
+    }
+
+    /// A fresh catalog whose declared faces resolve through one immutable
+    /// bundle generation.
+    pub(crate) fn shared_for_assets(plan: &Plan, assets: &Assets) -> Shared {
         let mut engine = TextEngine::new();
-        engine.install_plan(plan, assets);
+        engine.install_plan_assets(plan, assets);
         Rc::new(RefCell::new(engine))
     }
 
     /// Replace the complete catalog and every family-bearing cache. This is
     /// the plan-identity boundary on a dev reload (LLP 1019 D4).
     pub fn install_plan(&mut self, plan: &Plan, assets: &Path) {
+        self.install_plan_assets(plan, &Assets::embedded(assets.to_path_buf()));
+    }
+
+    fn install_plan_assets(&mut self, plan: &Plan, assets: &Assets) {
         let mut next = TextEngine::new();
         next.families = Vec::with_capacity(plan.stacks.len());
         next.families
@@ -315,7 +326,6 @@ impl TextEngine {
                 }
             }));
 
-        let root = assets.canonicalize().ok();
         for (stack_index, stack) in plan.stacks.iter().enumerate() {
             let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
             if member.kind != StackMemberKind::Family {
@@ -325,26 +335,16 @@ impl TextEngine {
             let family = plan.familie(family_id);
             let alias = format!("ExactPlanStack{stack_index}");
             let mut staged = Vec::new();
-            let mut failed = root.is_none();
+            let mut failed = false;
             for face_id in family.faces.iter() {
                 let face = plan.face(face_id);
-                let source = Path::new(plan.str(face.source));
-                let Some(root) = root.as_ref() else { break };
-                let Some(path) = root
-                    .join(source)
-                    .canonicalize()
-                    .ok()
-                    .filter(|path| path.starts_with(root))
-                else {
-                    failed = true;
-                    break;
-                };
-                let Ok(bytes) = std::fs::read(path) else {
+                let source = plan.str(face.source);
+                let Some(bytes) = assets.read(source) else {
                     failed = true;
                     break;
                 };
                 let mut parsed = fontdb::Database::new();
-                let ids = parsed.load_font_source(fontdb::Source::Binary(Arc::new(bytes)));
+                let ids = parsed.load_font_source(fontdb::Source::Binary(Arc::new(bytes.to_vec())));
                 if ids.len() != 1 {
                     failed = true;
                     break;

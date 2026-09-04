@@ -17,7 +17,7 @@
 //! the last known status rather than waiting on a download.
 
 use exact_runner::Delivery;
-use exact_update::{Client, Status};
+use exact_update::{Client, Generation, PreparedSelection, Status};
 use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
@@ -95,9 +95,20 @@ impl Updates {
         lock(&self.client).dir().to_path_buf()
     }
 
-    /// The selected entry's name and plan bytes; `None` for entry zero.
-    pub fn selected_plan(&self) -> Option<(String, Vec<u8>)> {
-        lock(&self.client).selected_plan()
+    /// The selected generation's verified plan and complete asset roster;
+    /// `None` for entry zero or after a durable launch-time refusal.
+    pub fn prepare_selected(&mut self) -> Option<PreparedSelection> {
+        let result = lock(&self.client).prepare_selected();
+        match result {
+            Ok(prepared) => prepared,
+            Err(refusal) => {
+                let line = format!("exact update: {refusal}; booted entry zero");
+                eprintln!("{line}");
+                *lock(&self.status) = *refusal.status;
+                self.note = Some(line);
+                None
+            }
+        }
     }
 
     /// The selection is booting: count it (LLP 1026 D11).
@@ -115,6 +126,16 @@ impl Updates {
         eprintln!("{note}");
         self.note = Some(note);
         *lock(&self.status) = status;
+    }
+
+    /// A selected asset failed its signed card during the boot transaction;
+    /// durably discard that generation and refresh the cached fallback facts.
+    pub fn selection_corrupt(&mut self, generation: &Generation, why: &str) {
+        let refusal = lock(&self.client).selection_corrupt(generation, why);
+        let line = format!("exact update: {refusal}; booted entry zero");
+        eprintln!("{line}");
+        *lock(&self.status) = *refusal.status;
+        self.note = Some(line);
     }
 
     /// First pixel: the selection that booted is good (LLP 1026 D11).

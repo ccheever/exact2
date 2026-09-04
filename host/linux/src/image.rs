@@ -11,10 +11,12 @@
 //! has loaded, as a browser keeps showing the old `src`.
 
 use exact_kernel::{Kernel, NodeType, PropId, ViewId};
+use exact_update::AssetSet;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tiny_skia::{IntSize, Pixmap};
 
@@ -25,12 +27,103 @@ struct Loaded {
     pixels: Option<(Vec<u8>, u32, u32)>,
 }
 
+/// One generation's asset resolver. Entry zero reads beneath the binary's
+/// root; a selected update reads through its complete, verified [`AssetSet`].
+/// An absent selected name is a tombstone and never falls through to the
+/// embedded root.
+#[derive(Clone)]
+pub struct Assets {
+    root: PathBuf,
+    selected: Option<AssetSet>,
+    refusal: Arc<Mutex<Option<String>>>,
+}
+
+impl Assets {
+    /// Resolve entry zero beneath `root`.
+    pub fn embedded(root: PathBuf) -> Assets {
+        Assets {
+            root,
+            selected: None,
+            refusal: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Resolve the selected generation through its complete signed roster.
+    pub fn selected(root: PathBuf, selected: AssetSet) -> Assets {
+        Assets {
+            root,
+            selected: Some(selected),
+            refusal: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// The embedded asset root, retained for diagnostics and entry zero.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    fn relative(name: &str) -> bool {
+        !name.is_empty()
+            && !name.starts_with('/')
+            && !name.starts_with('\\')
+            && !name.contains('\\')
+            && !name.contains(':')
+            && name
+                .split('/')
+                .all(|part| !part.is_empty() && part != "." && part != "..")
+    }
+
+    /// Immutable bytes for one relative asset name. A selected generation's
+    /// absent name returns `None`, even when entry zero contains that name.
+    pub fn read(&self, name: &str) -> Option<Arc<[u8]>> {
+        if !Self::relative(name) {
+            return None;
+        }
+        if let Some(selected) = &self.selected {
+            return match selected.resolve(name) {
+                Ok(bytes) => bytes,
+                Err(reason) => {
+                    let mut refusal = self.refusal.lock().unwrap_or_else(|e| e.into_inner());
+                    refusal.get_or_insert(reason);
+                    None
+                }
+            };
+        }
+        let root = self.root.canonicalize().ok()?;
+        let path = root.join(name).canonicalize().ok()?;
+        if !path.starts_with(&root) {
+            return None;
+        }
+        std::fs::read(path).ok().map(Arc::from)
+    }
+
+    /// Take the first selected-file integrity refusal observed by this
+    /// resolver. Hosts use a boot-time refusal to fall back transactionally;
+    /// a later one is surfaced without retitling an already-running session.
+    pub fn take_refusal(&self) -> Option<String> {
+        self.refusal
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+
+    /// Where an entry-zero source resolves, for diagnostics and tests. A
+    /// selected generation deliberately exposes bytes rather than raw paths.
+    pub fn path(&self, name: &str) -> Option<PathBuf> {
+        if self.selected.is_some() || !Self::relative(name) {
+            return None;
+        }
+        let root = self.root.canonicalize().ok()?;
+        let path = root.join(name).canonicalize().ok()?;
+        path.starts_with(&root).then_some(path)
+    }
+}
+
 /// Every image node's source, picture, and load in flight.
 pub struct Images {
-    assets: PathBuf,
-    /// Files that stand in for a name under the root: an update entry's
-    /// assets (LLP 1026 D11), resolved before the root and kept across a
-    /// reload — they are the store's, not the plan's.
+    assets: Assets,
+    /// Legacy activation overlays. Activation still uses the pre-generation
+    /// core API; launch-selected assets never enter this map.
     overrides: BTreeMap<String, PathBuf>,
     sources: BTreeMap<ViewId, String>,
     generation: BTreeMap<ViewId, u64>,
@@ -51,6 +144,11 @@ pub type Report = (ViewId, Option<(f32, f32)>);
 impl Images {
     /// With the asset root.
     pub fn new(assets: PathBuf) -> Images {
+        Images::with_assets(Assets::embedded(assets))
+    }
+
+    /// With one generation-scoped asset resolver.
+    pub(crate) fn with_assets(assets: Assets) -> Images {
         let (tx, rx) = channel();
         Images {
             assets,
@@ -72,12 +170,18 @@ impl Images {
         if source.contains("://") || source.starts_with('/') {
             return None;
         }
-        if let Some(path) = self.overrides.get(source) {
-            return Some(path.clone());
-        }
-        let root = self.assets.canonicalize().ok()?;
-        let path = root.join(source).canonicalize().ok()?;
-        path.starts_with(&root).then_some(path)
+        self.overrides
+            .get(source)
+            .cloned()
+            .or_else(|| self.assets.path(source))
+    }
+
+    fn read(&self, source: &str) -> Option<Arc<[u8]>> {
+        self.overrides
+            .get(source)
+            .and_then(|path| std::fs::read(path).ok())
+            .map(Arc::from)
+            .or_else(|| self.assets.read(source))
     }
 
     /// After a commit: start a load for every image node whose source is
@@ -111,7 +215,7 @@ impl Images {
                 reports.push((*id, None));
                 continue;
             }
-            let Some(path) = self.resolve(&source) else {
+            let Some(bytes) = self.read(&source) else {
                 eprintln!("exact: image {source} is not a loadable source");
                 self.bitmaps.remove(id);
                 reports.push((*id, None));
@@ -121,7 +225,7 @@ impl Images {
             let view = *id;
             self.pending += 1;
             std::thread::spawn(move || {
-                let pixels = std::fs::read(&path).ok().and_then(|bytes| decode(&bytes));
+                let pixels = decode(&bytes);
                 let _ = tx.send(Loaded {
                     view,
                     generation,
@@ -210,12 +314,12 @@ impl Images {
 
     /// The asset root.
     pub fn assets(&self) -> &Path {
-        &self.assets
+        self.assets.root()
     }
 
-    /// Every file under `dir` stands in for its relative name from here on
-    /// (an update entry's `assets/`, LLP 1026 D11): `assets/mark.png` under
-    /// it is what the source `assets/mark.png` resolves to.
+    /// Every file under `dir` stands in for its relative name during the
+    /// legacy activation path. The generation-token activation API will
+    /// replace this adapter together with its commit-before-accept behavior.
     pub fn use_overrides(&mut self, dir: &Path) {
         let mut stack = vec![dir.to_path_buf()];
         while let Some(d) = stack.pop() {

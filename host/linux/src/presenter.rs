@@ -14,7 +14,7 @@
 
 use crate::gpu::Gpu;
 use crate::host::{Host, HostError};
-use crate::image::Images;
+use crate::image::{Assets, Images};
 use crate::paint::{
     content_size, effective_overflow, Backend, Frame, PaintedBox, Painter, Rect4, Scene,
 };
@@ -24,6 +24,7 @@ use exact_kernel::{NodeType, Overflow, PropId, ViewId};
 use exact_plan::{EventKind, Plan};
 use exact_runner::agent::{num, quote};
 use exact_runner::{DataSource, Event};
+use exact_update::AssetSet;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -39,7 +40,7 @@ pub struct Presenter<D: DataSource> {
     scroll: BTreeMap<ViewId, (f32, f32)>,
     page: (f32, f32),
     images: Images,
-    asset_root: PathBuf,
+    assets: Assets,
     /// The binary's `compat.json` (LLP 1030 D3a), once handed over: a
     /// reload boots a fresh runner, which is told again.
     compat: String,
@@ -62,6 +63,10 @@ pub struct Presenter<D: DataSource> {
     /// The commands the last commits' actions asked for, for the loop that
     /// runs them (`run_commands`).
     commands: Vec<exact_runner::Command>,
+    /// Boot resolves every initially referenced asset before first pixel.
+    /// During that transaction its integrity refusal is returned as a boot
+    /// error; later refusals are journaled without retitling a live session.
+    booting: bool,
 }
 
 /// Two decimals, the agent API's precision.
@@ -171,9 +176,54 @@ impl<D: DataSource> Presenter<D> {
         assets: PathBuf,
         choice: PainterChoice,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        Self::boot_with_assets(
+            plan,
+            data,
+            viewport,
+            scale,
+            Assets::embedded(assets),
+            choice,
+        )
+    }
+
+    /// Boot from entry zero or one selected generation. The selected asset
+    /// roster is complete: absent names cannot fall through to `root`.
+    pub(crate) fn boot_selected(
+        plan: &[u8],
+        data: D,
+        viewport: (f32, f32),
+        scale: f32,
+        root: PathBuf,
+        selected: Option<AssetSet>,
+    ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        let assets = match selected {
+            Some(set) => Assets::selected(root, set),
+            None => Assets::embedded(root),
+        };
+        Self::boot_with_assets(
+            plan,
+            data,
+            viewport,
+            scale,
+            assets,
+            PainterChoice::from_env(),
+        )
+    }
+
+    fn boot_with_assets(
+        plan: &[u8],
+        data: D,
+        viewport: (f32, f32),
+        scale: f32,
+        assets: Assets,
+        choice: PainterChoice,
+    ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let t = std::time::Instant::now();
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
-        let text = TextEngine::shared_for_plan(&decoded, &assets);
+        let text = TextEngine::shared_for_assets(&decoded, &assets);
+        if let Some(reason) = assets.take_refusal() {
+            return Err(HostError::Asset(reason));
+        }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
         let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
         let (mut host, error) = Host::boot(
@@ -195,8 +245,8 @@ impl<D: DataSource> Presenter<D> {
             viewport,
             scroll: BTreeMap::new(),
             page: (0.0, 0.0),
-            images: Images::new(assets.clone()),
-            asset_root: assets,
+            images: Images::with_assets(assets.clone()),
+            assets,
             compat: String::new(),
             focus: None,
             pointer: None,
@@ -207,8 +257,13 @@ impl<D: DataSource> Presenter<D> {
             painter,
             updates: None,
             commands: Vec::new(),
+            booting: true,
         };
         let e = p.after_commit();
+        p.booting = false;
+        if let Some(reason) = p.assets.take_refusal() {
+            return Err(HostError::Asset(reason));
+        }
         Ok((p, error.or(e)))
     }
 
@@ -318,7 +373,10 @@ impl<D: DataSource> Presenter<D> {
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
         // Fonts are candidate state too. Keep the running plan's catalog and
         // caches untouched until its runner has booted successfully.
-        let candidate_text = TextEngine::shared_for_plan(&decoded, &self.asset_root);
+        let candidate_text = TextEngine::shared_for_assets(&decoded, &self.assets);
+        if let Some(reason) = self.assets.take_refusal() {
+            return Err(HostError::Asset(reason));
+        }
         let carried = self.host.carry();
         let (host, error) = Host::boot_with(
             plan,
@@ -430,6 +488,13 @@ impl<D: DataSource> Presenter<D> {
         let mut error = None;
         for (view, size) in reports {
             error = error.or(self.host.set_intrinsic(view, size));
+        }
+        if !self.booting {
+            error = error.or_else(|| {
+                self.assets
+                    .take_refusal()
+                    .map(|reason| format!("selected asset refused: {reason}"))
+            });
         }
         if let Some(f) = self.focus {
             if self.host.kernel().node(f).is_none() {

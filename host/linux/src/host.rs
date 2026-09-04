@@ -26,6 +26,7 @@ pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
     Painter(String),
+    Asset(String),
 }
 
 impl std::fmt::Display for HostError {

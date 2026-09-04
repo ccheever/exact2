@@ -1,6 +1,7 @@
 # Linux next-launch boots the selected plan against the baked assets
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Linux now pins the selected generation's verified plan and complete asset roster through boot; images and declared fonts resolve from immutable verified bytes, absent names are tombstones, and a corrupt boot asset durably falls back to entry zero before first pixel.
 **Systems:** Linux host, Delivery
 **Severity:** P1
 **Author:** Grok 4.6 for Charlie Cheever
