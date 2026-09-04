@@ -158,12 +158,15 @@ function pushAssets() {
       } : null);
       bytes = change.bytes;
       if (change.removed) {
-        if (shader) {
-          shaderDigests.delete(name.slice('shaders/'.length, -'.wgsl'.length));
-          needsRebuild = true;
+        for (const suffix of change.removedFiles) {
+          const removedName = suffix ? `${name}/${suffix}` : name;
+          if (removedName.startsWith('shaders/') && removedName.endsWith('.wgsl')) {
+            shaderDigests.delete(removedName.slice('shaders/'.length, -'.wgsl'.length));
+            needsRebuild = true;
+          }
+          rows.push({ name: removedName, removed: true });
+          carriers.push(`asset ${removedName} removed`);
         }
-        rows.push({ name, removed: true });
-        carriers.push(`asset ${name} removed`);
         continue;
       }
     } catch (error) {

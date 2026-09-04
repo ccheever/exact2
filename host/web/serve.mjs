@@ -154,8 +154,14 @@ export function applyStaticChange(source, name, target, validate = null) {
   try { return { bytes: installStaticCandidate(source, name, target, validate), removed: false }; }
   catch (error) {
     if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+    let removedFiles = [''];
+    const targetInfo = optionalInfo(resolve(target));
+    if (targetInfo?.isDirectory()) {
+      const files = listStaticFiles(target);
+      removedFiles = files.length ? files : [''];
+    }
     rmSync(target, { recursive: true, force: true });
-    return { bytes: null, removed: true };
+    return { bytes: null, removed: true, removedFiles };
   }
 }
 

@@ -6,7 +6,7 @@
 // module (which validates it against the interface it binds), a deck page
 // reloads its frame, a font restarts the app from the current plan so the
 // faces re-register — carrying state, as every `{seq}` does.
-const es = new EventSource("/__dev");
+const es = typeof EventSource === "undefined" ? null : new EventSource("/__dev");
 let overlay = null;
 let seen = 0;
 let queued = 0;
@@ -65,14 +65,67 @@ async function refresh(asset) {
   const loads = [];
   for (const img of document.querySelectorAll("img")) {
     const src = img.getAttribute("src") ?? "";
-    if (src.split("?")[0].replace(/^\.?\//, "") !== name) continue;
-    img.setAttribute("src", `${src.split("?")[0]}${bust}`);
+    const tracked = img.dataset.exactDevAsset;
+    if ((tracked ?? src.split("?")[0].replace(/^\.?\//, "")) !== name) continue;
+    const base = img.dataset.exactDevSource ?? src.split("?")[0] ?? `/${name}`;
+    delete img.dataset.exactDevAsset;
+    delete img.dataset.exactDevSource;
+    img.setAttribute("src", `${base}${bust}`);
     loads.push(img.decode().catch(() => { throw new Error(`${name}: the browser could not decode the new bytes`); }));
   }
   await Promise.all(loads);
   return loads.length ? `image (${loads.length})` : "unreferenced";
 }
-es.onmessage = (e) => {
+
+// A removal is an asset revision too. Clear referenced image pixels while
+// retaining their source name for a later restoration, re-register fonts
+// from the current plan, reload affected deck guests, and reset a GPU module
+// by reloading the page (the server classifies a removed shader as a rebuild).
+async function remove(asset) {
+  const name = asset.name;
+  if (name.startsWith("shaders/") && name.endsWith(".wgsl")) {
+    location.reload();
+    return "shader (removed; reloading)";
+  }
+  if (/\.(ttf|otf|woff2?)$/i.test(name)) {
+    const bytes = lastPlan ?? new Uint8Array(await (await fetch("/app.plan", { cache: "no-store" })).arrayBuffer());
+    lastPlan = bytes;
+    await globalThis.exact.reload(bytes);
+    return "font (removed)";
+  }
+  if (name.startsWith("deck/")) {
+    let count = 0;
+    for (const frame of document.querySelectorAll("iframe")) {
+      const src = frame.getAttribute("src") ?? "";
+      if (!src.startsWith("/deck/") && !src.startsWith("deck/") && !src.startsWith("./deck/")) continue;
+      frame.contentWindow?.location.reload();
+      count++;
+    }
+    return count ? `deck removed (${count})` : "deck removed";
+  }
+  let count = 0;
+  for (const img of document.querySelectorAll("img")) {
+    const src = img.getAttribute("src") ?? "";
+    if (src.split("?")[0].replace(/^\.?\//, "") !== name) continue;
+    img.dataset.exactDevAsset = name;
+    img.dataset.exactDevSource = src.split("?")[0] || `/${name}`;
+    img.removeAttribute("src");
+    count++;
+  }
+  return count ? `image removed (${count})` : "unreferenced removal";
+}
+
+/** Apply rows without filtering removals, preserving one result label at the
+ * same index as every row. Exported so the browser protocol is executable in
+ * the repository's existing Node suite without a synthetic DOM. */
+async function applyDevAssetChanges(assets, changed = refresh, removed = remove) {
+  return Promise.all(assets.map((asset) => asset.removed ? removed(asset) : changed(asset)));
+}
+// The repository suite executes this dev-only module without an EventSource
+// and drives the same handlers with a tiny DOM. Nothing is exposed on a page.
+if (!es) globalThis.applyDevAssetChanges = applyDevAssetChanges;
+
+if (es) es.onmessage = (e) => {
   const m = JSON.parse(e.data);
   if (m.error) { show(m.error); console.error("exact dev:", m.error); return; }
   // A rebuilt wasm is a new program: the page reloads (no state carried).
@@ -90,7 +143,7 @@ es.onmessage = (e) => {
   if (!Number.isInteger(m.seq) || m.seq <= queued) return;
   queued = m.seq;
   const step = m.assets
-    ? () => Promise.all(m.assets.filter((a) => !a.removed).map(refresh)).then((kinds) => { console.log("exact dev: assets", m.assets.map((a, i) => `${a.name} → ${kinds[i]}`).join(", ")); })
+    ? () => applyDevAssetChanges(m.assets).then((kinds) => { console.log("exact dev: assets", m.assets.map((a, i) => `${a.name} → ${kinds[i]}`).join(", ")); })
     : () => reload(m);
   reloads = reloads
     .then(step)

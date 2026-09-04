@@ -1,6 +1,7 @@
 # Live and Apple asset copies bypass the static-file symlink gate
 
 **Status:** Open
+**Progress:** Web bake, startup, and live candidates now share one stable-tree policy, including dangling-root refusal and last-good validation. Apple consumption is landing separately; hostile concurrent intermediate-directory replacement still needs the authorized handle-relative origin/static primitive.
 **Systems:** Dev loop, Web host, Apple build, Security
 **Severity:** P1
 **Author:** Codex (GPT-5) for Charlie Cheever

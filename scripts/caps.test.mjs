@@ -10,10 +10,11 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync, rmSync, symlinkSync, utimesSync } from 'node:fs';
+import { hostname, tmpdir } from 'node:os';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import { applyStaticChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listPublicFiles, publicFileCards, staticFile, syncStaticTree, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
 import { copyAppleStaticTrees, deviceLaunchArgs } from '../host/apple/build.mjs';
@@ -247,9 +248,35 @@ for (const [name, html, files, expectCode, expect] of [
   result('static candidates reject links and preserve last-good bytes', treeRefused && invalidRefused
     && linkRefused && missingRefused && readFileSync(join(target, 'ok.txt'), 'utf8') === 'good'
     && installed.toString() === 'next good' && readFileSync(join(target, 'live.txt'), 'utf8') === 'next good'
-    && removedDirectory.removed && !existsSync(join(target, 'gone')) && startupPresent && startupRemoved
+    && removedDirectory.removed && removedDirectory.removedFiles.join(',') === 'inside/one.txt'
+    && !existsSync(join(target, 'gone')) && startupPresent && startupRemoved
     && brokenRootRefused && lastGoodRoot && absentCopySkipped && brokenCopyRefused);
   rmSync(dir, { recursive: true, force: true });
+}
+
+// A removal stays in the protocol rather than being filtered out, and every
+// reported kind remains paired with the row that produced it.
+{
+  const attrs = new Map([['src', '/assets/gone.png']]);
+  const image = { dataset: {}, getAttribute: (name) => attrs.get(name) ?? null,
+    setAttribute: (name, value) => attrs.set(name, value), removeAttribute: (name) => attrs.delete(name), decode: async () => {} };
+  const context = { EventSource: undefined, location: { reload() {} }, fetch: async () => { throw new Error('unexpected fetch'); },
+    document: { querySelectorAll: (selector) => selector === 'img' ? [image] : [] }, console };
+  runInNewContext(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../host/web/dev.js'), 'utf8'), context);
+  const removed = await context.applyDevAssetChanges([{ name: 'assets/gone.png', removed: true }]);
+  const cleared = !attrs.has('src') && image.dataset.exactDevAsset === 'assets/gone.png';
+  const restored = await context.applyDevAssetChanges([{ name: 'assets/gone.png', sha256: '1'.repeat(64) }]);
+  const called = [];
+  const assets = [{ name: 'assets/gone.png', removed: true }, { name: 'deck/live.html', sha256: '1'.repeat(64) }];
+  const kinds = await context.applyDevAssetChanges(assets,
+    async (asset) => { called.push(`change ${asset.name}`); return 'deck'; },
+    async (asset) => { called.push(`remove ${asset.name}`); return 'image removed'; });
+  result('web dev applies and labels asset removals in row order',
+    removed[0] === 'image removed (1)' && cleared && restored[0] === 'image (1)'
+    && attrs.get('src') === `/assets/gone.png?v=${'1'.repeat(12)}` && !image.dataset.exactDevAsset
+    && called.join(',') === 'remove assets/gone.png,change deck/live.html'
+    && assets.map((asset, i) => `${asset.name} → ${kinds[i]}`).join(',')
+      === 'assets/gone.png → image removed,deck/live.html → deck');
 }
 
 {
