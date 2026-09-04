@@ -18,20 +18,27 @@ const PUBLIC_FILES = new Set([
   '/.well-known/apple-app-site-association',
 ]);
 const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/'];
+// An origin's update streams (LLP 1030.000 D7; `scripts/origin.mjs`):
+// `.exact/blobs/<sha256>` and `.exact/<channel>/<compatibility id>/…` — the
+// one dot path a client fetches. Inside it every other dot name (the
+// stream's `.lock`) stays private.
+const UPDATE_TREE = '/.exact/';
 
 /** Resolve one URL path to the current build, or to the stable previous tree
  * while build.mjs has renamed the current one aside. Generated top-level
- * files are explicit; app assets live only under the two replaced trees. Dot
- * paths and every symlink are private, even when their target is inside a
- * build. Returns null for anything that must not be served. */
+ * files are explicit; app assets live only under the replaced trees, and an
+ * origin's update streams under `.exact/`. Every other dot path and every
+ * symlink are private, even when their target is inside a build. Returns
+ * null for anything that must not be served. */
 export function staticFile(dist, pathname) {
   let route;
   try { route = decodeURIComponent(pathname === '/' ? '/index.html' : pathname); }
   catch { return null; }
   if (!route.startsWith('/') || route.includes('\\') || route.includes('\0')) return null;
   const parts = route.split('/').filter(Boolean);
-  if (parts.some((part) => part.startsWith('.')) && !PUBLIC_FILES.has(route)) return null;
-  if (!PUBLIC_FILES.has(route) && !PUBLIC_TREES.some((tree) => route.startsWith(tree))) return null;
+  const update = route.startsWith(UPDATE_TREE);
+  if (parts.some((part, i) => part.startsWith('.') && !(update && i === 0)) && !PUBLIC_FILES.has(route)) return null;
+  if (!PUBLIC_FILES.has(route) && !update && !PUBLIC_TREES.some((tree) => route.startsWith(tree))) return null;
   // A complete current build is authoritative even when it lacks an optional
   // route (notably GPU files). Consult previous only while the current root
   // itself is absent; otherwise two apps' artifacts could be mixed.
