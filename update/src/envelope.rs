@@ -465,34 +465,44 @@ pub(crate) fn safe_name(name: &str) -> Result<(), String> {
 }
 
 /// Resolve a card's `url` against the envelope's own URL, the way a browser
-/// resolves against the document URL (LLP 1023 D2). `http` and `https` only: a
-/// bundle names files on an origin, never a scheme that reads this machine.
+/// resolves against the document URL (LLP 1023 D1/D2). `http` and `https`
+/// only, and the result must have the base URL's scheme, host, and effective
+/// port: every file card is same-origin in v1. Credentials are refused rather
+/// than copied into a request.
 pub fn resolve_url(base: &str, url: &str) -> Result<String, String> {
-    if let Some((scheme, _)) = url.split_once("://") {
-        if scheme != "http" && scheme != "https" {
-            return Err(format!("the url {url} is not http or https"));
+    if base.contains('\\') || url.contains('\\') {
+        return Err(format!("the url {url} is not an http or https URL"));
+    }
+    let base = parse_http_url(base, "the envelope url")?;
+    if url.contains("://") || url.starts_with("//") {
+        let absolute = if url.starts_with("//") {
+            format!("{}:{url}", base.scheme)
+        } else {
+            url.to_string()
+        };
+        let resolved = parse_http_url(&absolute, "the file url")?;
+        if resolved.origin() != base.origin() {
+            return Err(format!(
+                "the url {url} is cross-origin; file cards must stay on {}://{}",
+                base.scheme, base.authority
+            ));
         }
-        return Ok(url.to_string());
+        return Ok(resolved.without_fragment());
     }
     if url.contains(':') && !url.starts_with('/') {
         // `mailto:`, `data:`, `file:` — anything with a scheme and no origin.
         return Err(format!("the url {url} is not http or https"));
     }
-    let (scheme, rest) = base
-        .split_once("://")
-        .ok_or_else(|| format!("the envelope url {base} has no scheme"))?;
-    if scheme != "http" && scheme != "https" {
-        return Err(format!("the envelope url {base} is not http or https"));
-    }
-    let (authority, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, "/"),
-    };
-    let joined = if let Some(absolute) = url.strip_prefix('/') {
+    let (reference, fragment) = url.split_once('#').unwrap_or((url, ""));
+    let (reference_path, query) = reference.split_once('?').unwrap_or((reference, ""));
+    let (base_path, _) = base.path.split_once('?').unwrap_or((base.path, ""));
+    let joined = if let Some(absolute) = reference_path.strip_prefix('/') {
         format!("/{absolute}")
+    } else if reference_path.is_empty() {
+        base_path.to_string()
     } else {
-        let directory = &path[..=path.rfind('/').unwrap_or(0)];
-        format!("{directory}{url}")
+        let directory = &base_path[..=base_path.rfind('/').unwrap_or(0)];
+        format!("{directory}{reference_path}")
     };
     let mut segments: Vec<&str> = Vec::new();
     for segment in joined.split('/') {
@@ -506,7 +516,174 @@ pub fn resolve_url(base: &str, url: &str) -> Result<String, String> {
             other => segments.push(other),
         }
     }
-    Ok(format!("{scheme}://{authority}/{}", segments.join("/")))
+    let mut out = format!(
+        "{}://{}/{}",
+        base.scheme,
+        base.authority,
+        segments.join("/")
+    );
+    if reference.contains('?') {
+        out.push('?');
+        out.push_str(query);
+    }
+    let _ = fragment; // Fragments identify no bytes and are never sent.
+    Ok(out)
+}
+
+/// The pieces needed to compare HTTP origins without accepting credentials or
+/// confusing an explicit default port with another origin.
+struct HttpUrl<'a> {
+    scheme: &'a str,
+    authority: &'a str,
+    host: String,
+    port: u16,
+    path: &'a str,
+}
+
+impl HttpUrl<'_> {
+    fn origin(&self) -> (&str, &str, u16) {
+        (self.scheme, self.host.as_str(), self.port)
+    }
+
+    fn without_fragment(&self) -> String {
+        let path = self
+            .path
+            .split_once('#')
+            .map_or(self.path, |(path, _)| path);
+        format!("{}://{}{}", self.scheme, self.authority, path)
+    }
+}
+
+fn parse_http_url<'a>(text: &'a str, what: &str) -> Result<HttpUrl<'a>, String> {
+    let (scheme, rest) = text
+        .split_once("://")
+        .ok_or_else(|| format!("{what} {text} has no scheme"))?;
+    if scheme != "http" && scheme != "https" {
+        return Err(format!("{what} {text} is not http or https"));
+    }
+    let boundary = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..boundary];
+    if authority.is_empty() || authority.contains('@') {
+        return Err(format!(
+            "{what} {text} has an invalid or credentialed authority"
+        ));
+    }
+    let (host, port) = if let Some(bracketed) = authority.strip_prefix('[') {
+        let close = bracketed
+            .find(']')
+            .ok_or_else(|| format!("{what} {text} has an invalid IPv6 host"))?;
+        let host = format!("[{}]", &bracketed[..close]);
+        let suffix = &bracketed[close + 1..];
+        let port = if suffix.is_empty() {
+            default_port(scheme)
+        } else {
+            parse_port(
+                suffix
+                    .strip_prefix(':')
+                    .ok_or_else(|| format!("{what} {text} has an invalid authority"))?,
+                what,
+                text,
+            )?
+        };
+        (host.to_ascii_lowercase(), port)
+    } else {
+        if authority.matches(':').count() > 1 {
+            return Err(format!("{what} {text} has an unbracketed IPv6 host"));
+        }
+        match authority.rsplit_once(':') {
+            Some((host, port)) => {
+                if host.is_empty() {
+                    return Err(format!("{what} {text} has no host"));
+                }
+                (host.to_ascii_lowercase(), parse_port(port, what, text)?)
+            }
+            None => (authority.to_ascii_lowercase(), default_port(scheme)),
+        }
+    };
+    if host.is_empty() || host.chars().any(char::is_whitespace) {
+        return Err(format!("{what} {text} has no valid host"));
+    }
+    let path = if boundary == rest.len() {
+        "/"
+    } else {
+        &rest[boundary..]
+    };
+    Ok(HttpUrl {
+        scheme,
+        authority,
+        host,
+        port,
+        path,
+    })
+}
+
+fn default_port(scheme: &str) -> u16 {
+    if scheme == "https" {
+        443
+    } else {
+        80
+    }
+}
+
+fn parse_port(port: &str, what: &str, text: &str) -> Result<u16, String> {
+    if port.is_empty() {
+        return Err(format!("{what} {text} has an empty port"));
+    }
+    port.parse::<u16>()
+        .map_err(|_| format!("{what} {text} has an invalid port"))
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::resolve_url;
+
+    #[test]
+    fn file_cards_resolve_only_within_the_envelopes_origin() {
+        let base = "https://Updates.Example:443/.exact/prod/cohort/exact.json";
+        assert_eq!(
+            resolve_url(base, "./blobs/plan?download=1#ignored").unwrap(),
+            "https://Updates.Example:443/.exact/prod/cohort/blobs/plan?download=1"
+        );
+        assert_eq!(
+            resolve_url(base, "/.exact/blobs/asset").unwrap(),
+            "https://Updates.Example:443/.exact/blobs/asset"
+        );
+        assert_eq!(
+            resolve_url(base, "https://updates.example/a").unwrap(),
+            "https://updates.example/a"
+        );
+        assert_eq!(
+            resolve_url(base, "//updates.example:443/a").unwrap(),
+            "https://updates.example:443/a"
+        );
+
+        for refused in [
+            "https://elsewhere.example/a",
+            "https://updates.example:444/a",
+            "http://updates.example/a",
+            "//elsewhere.example/a",
+            "https://user:secret@updates.example/a",
+            "file:///tmp/plan",
+            "data:text/plain,no",
+        ] {
+            assert!(
+                resolve_url(base, refused).is_err(),
+                "cross-origin or credentialed card was admitted: {refused}"
+            );
+        }
+    }
+
+    #[test]
+    fn relative_cards_cannot_escape_or_smuggle_a_url() {
+        let base = "http://127.0.0.1:8000/a/b/exact.json";
+        assert_eq!(
+            resolve_url(base, "../app.plan").unwrap(),
+            "http://127.0.0.1:8000/a/app.plan"
+        );
+        assert!(resolve_url(base, "../../../../app.plan").is_err());
+        assert!(resolve_url(base, r"..\app.plan").is_err());
+        assert!(resolve_url("https://user@updates.example/head", "./plan").is_err());
+    }
 }
 
 /// Standard base64 with padding, decoded strictly: the signature is 64 bytes
