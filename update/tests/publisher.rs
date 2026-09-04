@@ -1,7 +1,7 @@
 //! The cross-language proof `exact deploy` rests on: a head that
 //! `scripts/deploy.mjs` produced — Caltrain's ios stream at `seq` 1, signed in
-//! Node with `crypto.sign(null, canonicalBytes, key)` over
-//! `JSON.stringify(sortKeysDeep(head))` — is read and verified here, byte for
+//! Node with `crypto.sign(null, canonicalBytes, key)` over the direct
+//! recursively key-sorted serialization — is read and verified here, byte for
 //! byte, by the client's own reader, and the whole published stream is staged
 //! by the store.
 //!

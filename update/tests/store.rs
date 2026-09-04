@@ -4,7 +4,7 @@
 //! @ref LLP 1026 D9–D12 / LLP 1030 D3a, D5, D9 / LLP 1030.000 §4 stage 4
 
 use ed25519_dalek::{Signer, SigningKey};
-use exact_update::{canonical_bytes, sha256_hex, Check, Embedded, Store};
+use exact_update::{canonical_bytes, sha256_hex, Check, Embedded, Envelope, Store};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -846,6 +846,13 @@ fn canonical_bytes_sorts_keys_drops_the_signature_and_refuses_a_float() {
     );
     let float = canonical_bytes(r#"{"seq": 1.5}"#).unwrap_err();
     assert!(float.contains("non-integer"), "unexpected: {float}");
+    for spelling in ["7.0", "7e0", "-0"] {
+        let raw = format!(r#"{{"seq":{spelling}}}"#);
+        assert!(
+            canonical_bytes(&raw).is_err(),
+            "{spelling} is not a shortest integer"
+        );
+    }
     assert!(canonical_bytes("not json").is_err());
     assert!(
         canonical_bytes("[1,2]").is_err(),
@@ -854,17 +861,40 @@ fn canonical_bytes_sorts_keys_drops_the_signature_and_refuses_a_float() {
 }
 
 #[test]
-fn the_canonical_bytes_are_json_stringify_over_recursively_sorted_keys() {
-    // `expected` is what node printed for `JSON.stringify(sortKeysDeep(head))`
-    // with `signature` deleted — the publisher is a Node script, and this is
-    // the agreement, byte for byte: sorted keys, no whitespace, `"` `\` and the
-    // C0 controls escaped and nothing else, non-ASCII literal.
-    let head = r#"{"exact":1,"signature":{"keyId":"k1","ed25519":"AA=="},"app":{"name":"Weird Castle é—ü","id":"com.exact.weird-castle"},"plan":{"url":"./app.plan","bytes":12580,"sha256":"aa","formatVersion":4},"assets":[{"name":"a/b \"q\" \\ \u0001.png","bytes":0}],"stream":{"seq":41,"channel":"release","compatibilityId":"9a1f","app":"com.exact.weird-castle"},"sunset":{"message":"Retiring — update.","store":null}}"#;
-    let expected = r#"{"app":{"id":"com.exact.weird-castle","name":"Weird Castle é—ü"},"assets":[{"bytes":0,"name":"a/b \"q\" \\ \u0001.png"}],"exact":1,"plan":{"bytes":12580,"formatVersion":4,"sha256":"aa","url":"./app.plan"},"stream":{"app":"com.exact.weird-castle","channel":"release","compatibilityId":"9a1f","seq":41},"sunset":{"message":"Retiring — update.","store":null}}"#;
+fn canonical_bytes_match_the_direct_node_serializer() {
+    // `expected` is also asserted by the Node publisher fixture. The numeric
+    // unknown keys are deliberately written in JavaScript's enumeration order
+    // and must emerge in UTF-8 lexical order, byte for byte.
+    let head = r#"{"exact":1,"signature":{"keyId":"k1","ed25519":"AA=="},"app":{"name":"Weird Castle é—ü","id":"com.exact.weird-castle"},"plan":{"url":"./app.plan","bytes":12580,"sha256":"aa","formatVersion":4},"assets":[{"name":"a/b \"q\" \\ \u0001.png","bytes":0}],"stream":{"seq":41,"channel":"release","compatibilityId":"9a1f","app":"com.exact.weird-castle"},"sunset":{"message":"Retiring — update.","store":null},"unknownKeys":{"2":"two","10":"ten"}}"#;
+    let expected = r#"{"app":{"id":"com.exact.weird-castle","name":"Weird Castle é—ü"},"assets":[{"bytes":0,"name":"a/b \"q\" \\ \u0001.png"}],"exact":1,"plan":{"bytes":12580,"formatVersion":4,"sha256":"aa","url":"./app.plan"},"stream":{"app":"com.exact.weird-castle","channel":"release","compatibilityId":"9a1f","seq":41},"sunset":{"message":"Retiring — update.","store":null},"unknownKeys":{"10":"ten","2":"two"}}"#;
     assert_eq!(
         String::from_utf8(canonical_bytes(head).unwrap()).unwrap(),
         expected
     );
+}
+
+#[test]
+fn envelope_parse_refuses_node_normalizations_before_admission() {
+    let (valid, _) = Bundle::new(7, b"plan").publish();
+    for raw in [
+        valid.replace("\"seq\":7", "\"seq\":7.0"),
+        valid.replace("\"seq\":7", "\"seq\":7e0"),
+    ] {
+        assert!(Envelope::parse(raw.as_bytes()).is_err(), "admitted {raw}");
+        assert!(canonical_bytes(&raw).is_err(), "canonicalized {raw}");
+    }
+    let mut value: serde_json::Value = serde_json::from_str(&valid).unwrap();
+    value["unknownNumber"] = serde_json::json!(0);
+    let negative_zero = serde_json::to_string(&value)
+        .unwrap()
+        .replace("\"unknownNumber\":0", "\"unknownNumber\":-0");
+    assert!(Envelope::parse(negative_zero.as_bytes()).is_err());
+    value["unknownText"] = serde_json::json!("scalar");
+    let lone_surrogate = serde_json::to_string(&value)
+        .unwrap()
+        .replace("\"scalar\"", "\"\\ud800\"");
+    assert!(Envelope::parse(lone_surrogate.as_bytes()).is_err());
+    assert!(canonical_bytes(&lone_surrogate).is_err());
 }
 
 #[test]

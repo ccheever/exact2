@@ -9,7 +9,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash, createPrivateKey, createPublicKey } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { appManifestDigest, builtAppMatches, listPublicFiles, publicFileCards, staticFile, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
 import { deviceLaunchArgs } from '../host/apple/build.mjs';
-import { canonicalBytes, classify, defaultRelease, deployRun, publishStream, streamHead } from './deploy.mjs';
+import { canonicalBytes, classify, defaultRelease, deployRun, inspectHead, publishStream, streamHead } from './deploy.mjs';
 import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable } from './origin.mjs';
 
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
@@ -259,12 +259,221 @@ for (const [name, html, files, expectCode, expect] of [
     && stream.app.name === web.app.name && mismatchedPlanRefused);
 }
 
+// "Current" means the production client admits the complete authenticated
+// head. An unusable head contributes no rollback floor: repair advances from
+// the largest immutable record whose embedded envelope verifies, or refuses
+// when no such history exists. Raw JSON spellings rejected by Rust are also
+// rejected before JavaScript can normalize them. The locked publisher repeats
+// the same admission in case the head changed after the table was printed.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-head-admission-'));
+  const compatibilityId = 'a'.repeat(32);
+  const stream = { channel: 'prod', compatibilityId };
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const publicRaw = publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64');
+  const app = { id: 'com.exact.admission', displayName: 'Admission', dir,
+    manifest: { deploy: { signing: { key: 'test', keys: { test: publicRaw } } } } };
+  const planBytes = Buffer.from('same plan');
+  const assetBytes = Buffer.from('same asset');
+  const bundle = {
+    plan: { bytes: planBytes, sha256: createHash('sha256').update(planBytes).digest('hex'), formatVersion: 4, kernelSchema: '0'.repeat(16) },
+    assets: [{ name: 'assets/icon.png', bytes: assetBytes, sha256: createHash('sha256').update(assetBytes).digest('hex') }],
+  };
+  const signer = { keyId: 'test', sign: (head) => ({ keyId: 'test', ed25519: cryptoSign(null, canonicalBytes(head), privateKey).toString('base64') }) };
+  const signed = (edit = () => {}) => {
+    const head = streamHead({ app, bundle, stream, seq: 7, release: 'old' });
+    edit(head);
+    head.signature = signer.sign(head);
+    return head;
+  };
+  const found = (head) => {
+    const bytes = Buffer.from(JSON.stringify(head) + '\n');
+    return { json: head, bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
+  };
+  const rawFound = (text) => {
+    const bytes = Buffer.from(text + '\n');
+    return { json: JSON.parse(text), bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
+  };
+  const valid = signed();
+  const history = Buffer.from(JSON.stringify({ envelope: valid }) + '\n');
+  const tableFor = (candidate, withHistory = true) => classify({ app, opts: { platform: [] },
+    origin: {
+      kind: 'directory', describe: () => dir,
+      get: async (name) => withHistory && name.endsWith('/releases/old.json') ? history : null,
+      head: async () => candidate === null ? null : candidate?.bytes ? candidate : found(candidate),
+      list: async (name) => withHistory && name.endsWith('/releases') ? ['old.json'] : [],
+    },
+    channel: stream.channel, snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
+    release: 'next', web: dir, bundle, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
+    platforms: ['linux'], wantOrigin: false });
+  const missingSignature = signed(); delete missingSignature.signature;
+  const badSignature = signed(); badSignature.signature.ed25519 = Buffer.alloc(64).toString('base64');
+  const forgedLow = signed((head) => { head.stream.seq = 2; }); forgedLow.signature.ed25519 = Buffer.alloc(64).toString('base64');
+  const forgedHuge = signed((head) => { head.stream.seq = Number.MAX_SAFE_INTEGER; }); forgedHuge.signature.ed25519 = Buffer.alloc(64).toString('base64');
+  const noSeq = signed((head) => { head.stream.seq = 'seven'; });
+  const decimal = rawFound(JSON.stringify(valid).replace('"seq":7', '"seq":7.0'));
+  const exponent = rawFound(JSON.stringify(valid).replace('"seq":7', '"seq":7e0'));
+  const zeroHead = signed((head) => { head.unknownNumber = 0; });
+  const negativeZero = rawFound(JSON.stringify(zeroHead).replace('"unknownNumber":0', '"unknownNumber":-0'));
+  const scalarHead = { ...valid, unknownText: String.fromCharCode(0xd800) };
+  const loneSurrogate = rawFound(JSON.stringify(scalarHead));
+  const variants = [
+    missingSignature,
+    badSignature,
+    forgedLow,
+    forgedHuge,
+    noSeq,
+    decimal,
+    exponent,
+    negativeZero,
+    loneSurrogate,
+    signed((head) => { head.stream.channel = 'beta'; }),
+    signed((head) => { head.exact = 2; }),
+    signed((head) => { delete head.plan.bytes; }),
+  ];
+  const validTable = await tableFor(valid);
+  const reordered = { signature: valid.signature, stream: valid.stream, release: valid.release,
+    plan: valid.plan, exact: valid.exact, assets: valid.assets, app: valid.app };
+  const prettyBytes = Buffer.from(JSON.stringify(reordered, null, 2) + '\n');
+  const pretty = { json: reordered, bytes: prettyBytes, sha256: createHash('sha256').update(prettyBytes).digest('hex') };
+  const numberedKeys = signed((head) => { head.unknownKeys = { 2: 'two', 10: 'ten' }; });
+  const numberedCanonical = canonicalBytes(numberedKeys).toString('utf8');
+  let surrogateValueRefused = false;
+  try { canonicalBytes({ value: String.fromCharCode(0xd800) }); }
+  catch (error) { surrogateValueRefused = error.message.includes('not a Unicode scalar value'); }
+  let surrogateKeyRefused = false;
+  try { canonicalBytes({ [String.fromCharCode(0xdc00)]: 'value' }); }
+  catch (error) { surrogateKeyRefused = error.message.includes('not a Unicode scalar value'); }
+  const repaired = await Promise.all(variants.map((candidate) => tableFor(candidate)));
+  const missingHeadTable = await tableFor(null);
+  const emptyHeadTable = await tableFor(null, false);
+  const unlistableTable = await classify({ app, opts: { platform: [] },
+    origin: {
+      kind: 'https', describe: () => 'https://origin.example', get: async () => null,
+      head: async () => null, list: async () => null,
+    },
+    channel: stream.channel, snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
+    release: 'next', web: dir, bundle, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
+    platforms: ['linux'], wantOrigin: false });
+  let noHistoryRefused = false;
+  try { await tableFor(badSignature, false); }
+  catch (error) { noHistoryRefused = error.message.includes('release history has no authenticated sequence floor'); }
+
+  let unknownHistoryRefused = false;
+  let unknownHistoryWrote = false;
+  const unknownOrigin = {
+    kind: 'object', describe: () => 'unknown-object-origin', get: async () => null,
+    head: async () => null, list: async () => null,
+    withLock: async (_stream, body) => body(),
+    put: async () => { unknownHistoryWrote = true; },
+    putHead: async () => { unknownHistoryWrote = true; },
+  };
+  try {
+    await publishStream({ origin: unknownOrigin,
+      row: { kind: 'stream', platform: 'linux', channel: stream.channel, compatibilityId, action: 'bundle', changes: [] },
+      bundle, compat: { id: compatibilityId, inputs: {} }, app, signer, release: 'unknown-history',
+      snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, opts: {}, log: () => {} });
+  } catch (error) { unknownHistoryRefused = error.message.includes('cannot enumerate its authenticated release history'); }
+
+  const badHistoryOrigin = (bytes) => ({
+    kind: 'directory', describe: () => 'bad-history-origin',
+    get: async (name) => name.endsWith('/releases/broken.json') ? bytes : null,
+    head: async () => null, list: async () => ['broken.json'],
+  });
+  const foreignHistory = Buffer.from(JSON.stringify({ envelope: signed((head) => { head.app.id = 'com.exact.foreign'; }) }) + '\n');
+  const badHistories = [Buffer.from('{not json'), Buffer.from(JSON.stringify({ envelope: missingSignature }) + '\n'), foreignHistory];
+  const badHistoryClassifyRefused = [];
+  for (const bytes of badHistories) {
+    try {
+      await classify({ app, opts: { platform: [] }, origin: badHistoryOrigin(bytes),
+        channel: stream.channel, snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
+        release: 'next', web: dir, bundle, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
+        platforms: ['linux'], wantOrigin: false });
+      badHistoryClassifyRefused.push(false);
+    } catch (error) { badHistoryClassifyRefused.push(error.message.includes('nonempty release history has no authenticated sequence floor')); }
+  }
+  let corruptHistoryPublishRefused = false;
+  let corruptHistoryWrote = false;
+  try {
+    await publishStream({ origin: {
+      ...badHistoryOrigin(Buffer.from('{not json')), withLock: async (_stream, body) => body(),
+      put: async () => { corruptHistoryWrote = true; }, putHead: async () => { corruptHistoryWrote = true; },
+    }, row: { kind: 'stream', platform: 'linux', channel: stream.channel, compatibilityId, action: 'bundle', changes: [] },
+    bundle, compat: { id: compatibilityId, inputs: {} }, app, signer, release: 'corrupt-history',
+    snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, opts: {}, log: () => {} });
+  } catch (error) { corruptHistoryPublishRefused = error.message.includes('nonempty release history has no authenticated sequence floor'); }
+  const vanishedTable = await classify({ app, opts: { platform: [] }, origin: badHistoryOrigin(null),
+    channel: stream.channel, snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
+    release: 'next', web: dir, bundle, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
+    platforms: ['linux'], wantOrigin: false });
+  const vanishedHistoryUnavailable = vanishedTable.rows[0].action === 'unavailable'
+    && vanishedTable.rows[0].reason.includes('disappeared while establishing');
+
+  const origin = new DirectoryOrigin(dir);
+  mkdirSync(join(dir, '.exact', stream.channel, compatibilityId), { recursive: true });
+  writeFileSync(join(dir, '.exact', stream.channel, compatibilityId, 'exact.json'), found(forgedHuge).bytes);
+  await origin.put(`.exact/${stream.channel}/${compatibilityId}/releases/old.json`, history, { immutable: true });
+  const locked = await publishStream({ origin,
+    row: { kind: 'stream', platform: 'linux', channel: stream.channel, compatibilityId, action: 'current', changes: [] },
+    bundle, compat: { id: compatibilityId, inputs: {} }, app, signer, release: 'locked-repair',
+    snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, opts: {}, log: () => {} });
+  const repairedHead = await origin.head(stream);
+  const missingDir = mkdtempSync(join(tmpdir(), 'exact-missing-head-'));
+  const missingOrigin = new DirectoryOrigin(missingDir);
+  await missingOrigin.put(`.exact/${stream.channel}/${compatibilityId}/releases/old.json`, history, { immutable: true });
+  const missingPublished = await publishStream({ origin: missingOrigin,
+    row: { kind: 'stream', platform: 'linux', channel: stream.channel, compatibilityId, action: 'bundle', changes: [] },
+    bundle, compat: { id: compatibilityId, inputs: {} }, app, signer, release: 'after-missing',
+    snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, opts: {}, log: () => {} });
+  const hiddenDir = mkdtempSync(join(tmpdir(), 'exact-hidden-history-'));
+  const hiddenOrigin = new DirectoryOrigin(hiddenDir);
+  await hiddenOrigin.put(`.exact/${stream.channel}/${compatibilityId}/releases/.old.json`, history, { immutable: true });
+  const hiddenTable = await classify({ app, opts: { platform: [] }, origin: hiddenOrigin,
+    channel: stream.channel, snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
+    release: 'after-hidden', web: dir, bundle, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
+    platforms: ['linux'], wantOrigin: false });
+  const hiddenPublished = await publishStream({ origin: hiddenOrigin,
+    row: { kind: 'stream', platform: 'linux', channel: stream.channel, compatibilityId, action: 'bundle', changes: [] },
+    bundle, compat: { id: compatibilityId, inputs: {} }, app, signer, release: 'after-hidden',
+    snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, opts: {}, log: () => {} });
+  const hiddenReleaseCli = spawnSync(process.execPath,
+    [DEPLOY, 'caltrain', '--release', '.hidden', '--json'],
+    { cwd: join(dirname(DEPLOY), '..'), encoding: 'utf8' });
+  result('deploy calls only an admitted authenticated head current', validTable.rows[0].action === 'current'
+    && validTable.rows[0].seq === 7 && inspectHead(found(valid), app, stream).usable && inspectHead(pretty, app, stream).usable
+    && inspectHead(found(numberedKeys), app, stream).usable
+    && numberedCanonical.includes('"unknownKeys":{"10":"ten","2":"two"}')
+    && surrogateValueRefused && surrogateKeyRefused
+    && missingHeadTable.rows[0].action === 'bundle' && missingHeadTable.rows[0].seq === 8
+    && emptyHeadTable.rows[0].action === 'bundle' && emptyHeadTable.rows[0].seq === 1
+    && unlistableTable.rows[0].action === 'unavailable'
+    && unlistableTable.rows[0].reason.includes('cannot enumerate its authenticated release history')
+    && repaired.every((table) => table.rows[0].action === 'bundle' && table.rows[0].seq === 8
+      && table.rows[0].changes[0].name === 'exact.json' && table.rows[0].changes[0].change === 'repair')
+    && noHistoryRefused && unknownHistoryRefused && !unknownHistoryWrote
+    && badHistoryClassifyRefused.every(Boolean) && corruptHistoryPublishRefused && !corruptHistoryWrote
+    && vanishedHistoryUnavailable
+    && locked.action === 'published' && locked.seq === 8
+    && missingPublished.action === 'published' && missingPublished.seq === 8
+    && hiddenTable.rows[0].seq === 8 && hiddenPublished.seq === 8
+    && hiddenReleaseCli.status === 1 && hiddenReleaseCli.stderr.includes('start with a letter or digit')
+    && locked.changes[0].change === 'repair' && inspectHead(repairedHead, app, stream).usable,
+  JSON.stringify({ missingHead: missingHeadTable.rows[0], emptyHead: emptyHeadTable.rows[0], unlistable: unlistableTable.rows[0],
+    noHistoryRefused, unknownHistoryRefused, unknownHistoryWrote, badHistoryClassifyRefused, corruptHistoryPublishRefused, corruptHistoryWrote,
+    vanishedHistoryUnavailable, hiddenTable: hiddenTable.rows[0], hiddenPublished: { action: hiddenPublished.action, seq: hiddenPublished.seq },
+    hiddenReleaseCli: { status: hiddenReleaseCli.status, stderr: hiddenReleaseCli.stderr },
+    locked: { action: locked.action, seq: locked.seq }, missingPublished: { action: missingPublished.action, seq: missingPublished.seq } }));
+  rmSync(hiddenDir, { recursive: true, force: true });
+  rmSync(missingDir, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
+}
+
 {
   const dir = mkdtempSync(join(tmpdir(), 'exact-list-outage-'));
   const cohort = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   const origin = {
     kind: 'directory', describe: () => dir, get: async () => null, head: async () => null,
-    list: async () => { throw new OriginUnavailable('EACCES'); },
+    list: async (name) => { if (name.endsWith('/releases')) return null; throw new OriginUnavailable('EACCES'); },
   };
   const table = await classify({ app: { id: 'com.exact.test', displayName: 'Test', dir, manifest: {} }, opts: { platform: [] },
     origin, channel: 'prod', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },

@@ -90,7 +90,7 @@ function parseArgs(argv) {
   }
   for (const p of opts.platform) if (!PLATFORMS.includes(p)) refuse(`--platform ${p}: one of ${PLATFORMS.join(', ')}`);
   if (opts.only && opts.only !== 'bundle' && opts.only !== 'origin') refuse(`--only ${opts.only}: bundle or origin`);
-  if (opts.release && !/^[A-Za-z0-9._-]+$/.test(opts.release)) refuse(`--release ${opts.release}: letters, digits, . _ - only (it names a directory and a file)`);
+  if (opts.release && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(opts.release)) refuse(`--release ${opts.release}: start with a letter or digit, then use letters, digits, . _ - only (it names a directory and a file)`);
   if (opts.slowMs !== undefined && !(Number(opts.slowMs) >= 0)) refuse(`--slow-ms ${opts.slowMs}: a number of milliseconds`);
   opts.keys = resolve(opts.keys ?? process.env.EXACT_SIGNING_KEY_DIR ?? resolve(homedir(), '.config/exact/keys'));
   return opts;
@@ -98,18 +98,75 @@ function parseArgs(argv) {
 
 // ---------------------------------------------------------------- the signer
 
-/** Every object's keys sorted (JavaScript's default sort, by UTF-16 code unit, agrees with UTF-8 byte order on every key an envelope has), arrays in order, integers only — the rule `update/src/envelope.rs` states for `canonical_bytes`. */
-export function sortKeysDeep(value) {
-  if (Array.isArray(value)) return value.map(sortKeysDeep);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((k) => [k, sortKeysDeep(value[k])]));
-  if (typeof value === 'number' && !Number.isInteger(value)) refuse(`the head carries the non-integer number ${value}; canonical bytes are integers only (update/src/envelope.rs)`);
-  return value;
+/** One JSON value in the signed representation. Write sorted entries
+ * directly: rebuilding an object and then calling `JSON.stringify` is not
+ * canonical for integer-like keys because JavaScript enumerates those in
+ * numeric order regardless of insertion order. */
+function requireUnicodeScalars(text) {
+  for (let i = 0; i < text.length; i++) {
+    const unit = text.charCodeAt(i);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const low = text.charCodeAt(i + 1);
+      if (!(low >= 0xdc00 && low <= 0xdfff)) refuse('the head carries an unpaired UTF-16 surrogate, not a Unicode scalar value');
+      i++;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) refuse('the head carries an unpaired UTF-16 surrogate, not a Unicode scalar value');
+  }
+  return text;
 }
 
-/** The bytes the signature covers: the head without its top-level `signature`, `JSON.stringify` over recursively sorted keys (LLP 1026 D11; LLP 1030 D3a). */
+function canonicalJson(value, dropSignature = false) {
+  if (value === null) return 'null';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'string') return JSON.stringify(requireUnicodeScalars(value));
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || Object.is(value, -0)) refuse(`the head carries the unsafe or non-canonical integer ${value}; canonical bytes require exact integers (update/src/envelope.rs)`);
+    return String(value);
+  }
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
+  if (!value || typeof value !== 'object') refuse(`the head carries a ${typeof value}; canonical bytes require JSON values`);
+  const keys = Object.keys(value).filter((key) => !dropSignature || key !== 'signature').map(requireUnicodeScalars)
+    .sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+}
+
+/** Refuse a numeric token whose spelling Rust's canonical parser cannot
+ * admit. `JSON.parse` alone loses this evidence by normalizing `7.0`, `7e0`,
+ * and `-0` to the number 7 or 0 before the signature check sees it. */
+function validateRawIntegers(text) {
+  for (let i = 0; i < text.length;) {
+    if (text[i] === '"') {
+      i++;
+      while (i < text.length && text[i] !== '"') {
+        if (text[i] !== '\\') { i++; continue; }
+        if (text[i + 1] !== 'u') { i += 2; continue; }
+        const first = Number.parseInt(text.slice(i + 2, i + 6), 16);
+        if (first >= 0xd800 && first <= 0xdbff) {
+          const second = text.slice(i + 6, i + 8) === '\\u' ? Number.parseInt(text.slice(i + 8, i + 12), 16) : NaN;
+          if (!(second >= 0xdc00 && second <= 0xdfff)) throw new Error('the envelope carries an escaped lone surrogate, not a Unicode scalar value');
+          i += 12;
+          continue;
+        }
+        if (first >= 0xdc00 && first <= 0xdfff) throw new Error('the envelope carries an escaped lone surrogate, not a Unicode scalar value');
+        i += 6;
+      }
+      if (text[i] === '"') i++;
+      continue;
+    }
+    if (text[i] !== '-' && (text[i] < '0' || text[i] > '9')) { i++; continue; }
+    const token = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(text.slice(i))?.[0];
+    if (!token) { i++; continue; } // JSON.parse below reports malformed JSON.
+    if (!/^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/.test(token) || !Number.isSafeInteger(Number(token))) {
+      throw new Error(`the envelope carries the non-canonical integer ${token}; canonical bytes require shortest exact integers`);
+    }
+    i += token.length;
+  }
+}
+
+/** The bytes the signature covers: the head without its top-level
+ * `signature`, keys sorted by UTF-8 bytes and emitted directly. */
 export function canonicalBytes(head) {
-  const { signature, ...rest } = head;
-  return Buffer.from(JSON.stringify(sortKeysDeep(rest)), 'utf8');
+  if (!head || typeof head !== 'object' || Array.isArray(head)) refuse('the envelope is not a JSON object');
+  return Buffer.from(canonicalJson(head, true), 'utf8');
 }
 
 /** An Ed25519 public key from its 32 raw bytes: the SubjectPublicKeyInfo prefix Node wants, then the bytes. */
@@ -259,12 +316,17 @@ function changesAgainst(bundle, head) {
     for (const a of bundle.assets) changes.push({ name: a.name, change: 'new' });
     return changes;
   }
-  if (head.plan?.sha256 !== bundle.plan.sha256) changes.push({ name: 'app.plan', change: 'changed' });
-  const before = new Map((head.assets ?? []).map((a) => [a.name, a.sha256]));
+  const plan = head.plan;
+  if (plan?.sha256 !== bundle.plan.sha256 || plan?.bytes !== bundle.plan.bytes.length
+    || plan?.url !== `../../blobs/${bundle.plan.sha256}` || plan?.formatVersion !== bundle.plan.formatVersion
+    || plan?.kernelSchema !== bundle.plan.kernelSchema) changes.push({ name: 'app.plan', change: 'changed' });
+  const before = new Map((head.assets ?? []).map((a) => [a.name, a]));
   for (const a of bundle.assets) {
     const had = before.get(a.name);
     if (had === undefined) changes.push({ name: a.name, change: 'new' });
-    else if (had !== a.sha256) changes.push({ name: a.name, change: 'changed', note: a.name.endsWith('.wgsl') ? 'interface unchanged: asset' : undefined });
+    else if (had.sha256 !== a.sha256 || had.bytes !== a.bytes.length || had.url !== `../../blobs/${a.sha256}`) {
+      changes.push({ name: a.name, change: 'changed', note: a.name.endsWith('.wgsl') ? 'interface unchanged: asset' : undefined });
+    }
     before.delete(a.name);
   }
   for (const name of before.keys()) changes.push({ name, change: 'removed' });
@@ -288,21 +350,136 @@ export function streamHead({ app, bundle, stream, seq, release, sunset = null })
   return head;
 }
 
-/** What a live head's signature says against the manifest's verification keys — the check an installed binary makes (LLP 1026 D11), so a head the classifier reads that no binary would take is named in the table. */
-function headSignature(head, manifest) {
-  const keys = manifest.deploy?.signing?.keys ?? {};
-  const signature = head.signature;
-  if (!signature) return Object.keys(keys).length ? 'unsigned: a binary with keys refuses it' : 'unsigned';
-  const declared = keys[signature.keyId];
-  if (!declared) return `signed by ${signature.keyId}, which app.json does not name`;
+function strictBase64(text, length, label) {
+  if (typeof text !== 'string') throw new Error(`${label} is not base64 text`);
+  const decoded = Buffer.from(text, 'base64');
+  if (decoded.length !== length || decoded.toString('base64') !== text) throw new Error(`${label} is not canonical base64 of ${length} bytes`);
+  return decoded;
+}
+
+function fileCard(object, name) {
+  if (!object || typeof object !== 'object' || Array.isArray(object)) throw new Error(`the envelope names no ${name}`);
+  if (typeof object.url !== 'string') throw new Error(`${name} has no url`);
+  if (typeof object.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(object.sha256)) throw new Error(`${name}'s sha256 is not 64 lowercase hex digits`);
+  if (!Number.isSafeInteger(object.bytes) || object.bytes < 0) throw new Error(`${name} has no exact nonnegative byte count`);
+}
+
+function safeAssetName(name) {
+  if (typeof name !== 'string' || !name) throw new Error('an asset has no nonempty name');
+  if (name.startsWith('/') || name.startsWith('\\') || name.includes('\\') || name.includes(':')
+    || name.split('/').some((part) => !part || part === '.' || part === '..')) throw new Error(`the asset name ${name} is not a relative path`);
+}
+
+/** Parse and authenticate one origin head by the same pre-download rules as
+ * exact-update. An unusable head contributes no sequence: even a syntactically
+ * valid number is attacker-controlled until its signature has verified. */
+export function inspectHead(found, app, stream) {
   try {
-    return verify(null, canonicalBytes(head), publicKeyFromRaw(Buffer.from(declared, 'base64')), Buffer.from(signature.ed25519 ?? '', 'base64')) ? null : `signed by ${signature.keyId} but the signature does not verify`;
-  } catch (e) { return `signed by ${signature.keyId} but cannot be checked: ${e.message}`; }
+    if (!Buffer.isBuffer(found?.bytes)) throw new Error('the origin returned no head bytes');
+    if (found.bytes.length > 64 * 1024) throw new Error(`the envelope is ${found.bytes.length} bytes; the most is ${64 * 1024}`);
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(found.bytes);
+    validateRawIntegers(text);
+    const head = JSON.parse(text);
+    if (!head || typeof head !== 'object' || Array.isArray(head)) throw new Error('the envelope is not a JSON object');
+    canonicalBytes(head); // recursively rejects every inexact JSON number
+    if (head.exact !== 1) throw new Error(`the envelope is exact ${head.exact ?? '(missing)'}; this binary reads exact 1`);
+    if (!head.app || typeof head.app !== 'object' || Array.isArray(head.app)) throw new Error('the envelope names no app');
+    if (typeof head.app.id !== 'string' || !head.app.id) throw new Error('the envelope names no nonempty app id');
+    fileCard(head.plan, 'app.plan');
+    if (!head.stream || typeof head.stream !== 'object' || Array.isArray(head.stream)) throw new Error('the envelope names no stream');
+    if (typeof head.stream.channel !== 'string') throw new Error('the stream names no channel');
+    if (typeof head.stream.compatibilityId !== 'string') throw new Error('the stream names no compatibility id');
+    if (!Number.isSafeInteger(head.stream.seq) || head.stream.seq < 0) throw new Error('the stream names no exact nonnegative seq');
+    if (head.assets !== undefined && !Array.isArray(head.assets)) throw new Error("the envelope's assets are not a list");
+    const names = new Set();
+    for (const asset of head.assets ?? []) {
+      if (!asset || typeof asset !== 'object' || Array.isArray(asset)) throw new Error('an asset is not an object');
+      safeAssetName(asset.name);
+      if (names.has(asset.name)) throw new Error(`the envelope names the asset ${asset.name} twice`);
+      names.add(asset.name);
+      fileCard(asset, asset.name);
+    }
+    if (head.sunset !== undefined) {
+      if (!head.sunset || typeof head.sunset !== 'object' || Array.isArray(head.sunset)) throw new Error('the sunset card is not an object');
+      if (typeof head.sunset.message !== 'string') throw new Error('the sunset card has no message');
+    }
+    let signature = null;
+    if (head.signature !== undefined) {
+      if (!head.signature || typeof head.signature !== 'object' || Array.isArray(head.signature)) throw new Error('the signature is not an object');
+      if (typeof head.signature.keyId !== 'string') throw new Error('the signature names no key id');
+      signature = strictBase64(head.signature.ed25519, 64, 'the signature');
+    }
+    if (head.app.id !== app.id) throw new Error(`the head is for ${head.app.id}; this binary is ${app.id}`);
+    if (head.app.name !== app.displayName) throw new Error(`the head calls ${app.id} ${JSON.stringify(head.app.name)}, not ${JSON.stringify(app.displayName)}`);
+    if (typeof head.stream.app === 'string' && head.stream.app !== app.id) throw new Error(`the head's stream is for ${head.stream.app}; this binary is ${app.id}`);
+    if (head.stream.channel !== stream.channel) throw new Error(`the head is for channel ${head.stream.channel}; this binary is ${stream.channel}`);
+    if (head.stream.compatibilityId !== stream.compatibilityId) throw new Error(`the head is for cohort ${head.stream.compatibilityId}; this binary is ${stream.compatibilityId}`);
+    const keys = app.manifest.deploy?.signing?.keys ?? {};
+    let authenticated = false;
+    if (Object.keys(keys).length) {
+      if (!signature) throw new Error('the head is unsigned and this binary carries keys');
+      if (!Object.hasOwn(keys, head.signature.keyId)) throw new Error(`the head is signed by ${head.signature.keyId}, which this binary does not carry`);
+      const key = strictBase64(keys[head.signature.keyId], 32, `the embedded key ${head.signature.keyId}`);
+      if (!verify(null, canonicalBytes(head), publicKeyFromRaw(key), signature)) throw new Error(`the head's signature by ${head.signature.keyId} does not verify`);
+      authenticated = true;
+    }
+    return { usable: true, authenticated, head, seq: head.stream.seq, problem: null };
+  } catch (error) {
+    return { usable: false, authenticated: false, head: found?.json ?? null, seq: null, problem: error.message || String(error) };
+  }
+}
+
+/** The largest sequence authenticated inside an immutable release record.
+ * The record wrapper is audit metadata; only its embedded signed envelope is
+ * authority for a client's rollback floor. Malformed, foreign, and unsigned
+ * records do not contribute a number. */
+async function authenticatedReleaseFloor(origin, app, stream) {
+  // Hidden names were accepted by older publishers. Include them while
+  // recovering the rollback floor even though new release ids cannot begin
+  // with a dot.
+  const names = await origin.list(`${streamPath(stream)}/releases`, { includeHidden: true });
+  // A missing directory on the writable filesystem origin is authoritative
+  // emptiness. Other adapters use null when they cannot enumerate history;
+  // that is not evidence that no client has observed a higher sequence.
+  if (names === null && origin.kind !== 'directory') return { known: false, empty: false, floor: null };
+  if (names === null || names.length === 0) return { known: true, empty: true, floor: null };
+  let floor = null;
+  for (const name of names.filter((entry) => entry.endsWith('.json'))) {
+    const bytes = await origin.get(`${streamPath(stream)}/releases/${name}`);
+    if (!bytes) throw new OriginUnavailable(`the listed release record ${origin.describe()}/${streamPath(stream)}/releases/${name} disappeared while establishing the authenticated sequence floor`);
+    try {
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      const record = JSON.parse(text);
+      if (!record.envelope || typeof record.envelope !== 'object' || Array.isArray(record.envelope)) continue;
+      const recordApp = { ...app, displayName: record.envelope.app?.name };
+      const envelopeBytes = Buffer.from(JSON.stringify(record.envelope), 'utf8');
+      const admission = inspectHead({ bytes: envelopeBytes, json: record.envelope, sha256: sha256(envelopeBytes) }, recordApp, stream);
+      if (admission.usable && admission.authenticated) floor = Math.max(floor ?? 0, admission.seq);
+    } catch { /* an unauthenticated audit record has no say in the floor */ }
+  }
+  return { known: true, empty: false, floor };
+}
+
+/** Allocate after an admitted head. Repairing an unusable head instead uses
+ * the maximum signed immutable history; if none exists, overwriting would
+ * guess at the clients' rollback floor and is refused. */
+async function nextSeq(origin, app, stream, admission, at) {
+  let floor;
+  if (admission?.usable) floor = admission.seq;
+  else {
+    const history = await authenticatedReleaseFloor(origin, app, stream);
+    if (!history.known) throw new OriginUnavailable(`${at} ${admission ? `is unusable (${admission.problem})` : 'is missing'}, but ${origin.describe()} cannot enumerate its authenticated release history; a rollback-safe sequence cannot be allocated`);
+    floor = history.floor;
+    if (floor === null && !admission && history.empty) return 1;
+    if (floor === null) refuse(`${at} ${admission ? `is unusable (${admission.problem}) and its` : 'is missing, and its nonempty'} release history has no authenticated sequence floor; restore a signed release record before repairing it`);
+  }
+  if (floor === Number.MAX_SAFE_INTEGER) refuse(`${at} is at the largest exact JavaScript seq; a higher repair seq cannot be allocated safely`);
+  return floor + 1;
 }
 
 /** The latest release record under a stream, when the origin has any: it names the platform and carries the cohort's inputs, so two ids that differ are explained field by field. */
 async function latestRecord(origin, stream) {
-  const names = await origin.list(`${streamPath(stream)}/releases`);
+  const names = await origin.list(`${streamPath(stream)}/releases`, { includeHidden: true });
   if (!names?.length) return null;
   const records = [];
   for (const name of names.filter((n) => n.endsWith('.json'))) {
@@ -314,7 +491,7 @@ async function latestRecord(origin, stream) {
 }
 
 /** Which top-level compat inputs differ between two cohorts, by name. */
-const inputsDiff = (a, b) => Object.keys({ ...a, ...b }).filter((k) => JSON.stringify(sortKeysDeep(a?.[k] ?? null)) !== JSON.stringify(sortKeysDeep(b?.[k] ?? null))).sort();
+const inputsDiff = (a, b) => Object.keys({ ...a, ...b }).filter((k) => canonicalJson(a?.[k] ?? null) !== canonicalJson(b?.[k] ?? null)).sort();
 
 /** The table (LLP 1030 D3; 1030.000 D3 item 3): the origin row, a row per stream, a binary row per stream whose cohort this snapshot is not. Nothing is written. */
 export async function classify({ app, opts, origin, channel, snapshot, release, web, bundle, compat, platforms, wantOrigin }) {
@@ -351,22 +528,34 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
         head: null, action: 'unavailable', changes: [], reason: error.message });
       continue;
     }
-    if (head) {
-      const h = head.json;
-      if (h.stream?.compatibilityId !== compatibilityId) refuse(`the head at ${origin.describe()}/${streamPath(stream)}/exact.json names the cohort ${h.stream?.compatibilityId}, not its own path's: the origin is inconsistent`);
-      if (h.app?.id !== app.id) refuse(`the head at ${origin.describe()}/${streamPath(stream)}/exact.json is ${h.app?.id}'s, not ${app.id}'s`);
-      if (!Number.isInteger(h.stream.seq) || h.stream.seq < 0) refuse(`the head at ${origin.describe()}/${streamPath(stream)}/exact.json has no integer seq`);
-      const problem = headSignature(h, app.manifest);
-      if (problem) notes.push(`the head of ${streamPath(stream)} (seq ${h.stream.seq}) is ${problem}`);
-    }
+    const admission = head ? inspectHead(head, app, stream) : null;
+    if (admission && !admission.usable) notes.push(`the head of ${streamPath(stream)} (seq ${admission.seq ?? '?'}) is unusable: ${admission.problem}; this deploy will repair it`);
     const inputs = compat[platform].inputs ?? {};
-    const changes = changesAgainst(bundle, head?.json);
+    const changes = admission?.usable
+      ? changesAgainst(bundle, admission.head)
+      : head ? [{ name: 'exact.json', change: 'repair', note: admission.problem }] : changesAgainst(bundle, null);
+    let seq = admission?.seq;
+    if (changes.length) {
+      try { seq = await nextSeq(origin, app, stream, admission, `the head at ${origin.describe()}/${streamPath(stream)}/exact.json`); }
+      catch (error) {
+        if (!(error instanceof OriginUnavailable)) throw error;
+        rows.push({
+          kind: 'stream', platform, channel, compatibilityId,
+          cohort: { L: inputs.store?.L ?? '?', E: inputs.executors ?? [] },
+          head: head ? { seq: admission.seq, sha256: head.sha256, release: typeof head.json.release === 'string' ? head.json.release : null,
+            ...(admission.usable ? {} : { unusable: admission.problem }) } : null,
+          action: 'unavailable', changes: [], reason: error.message,
+        });
+        continue;
+      }
+    }
     rows.push({
       kind: 'stream', platform, channel, compatibilityId,
       cohort: { L: inputs.store?.L ?? '?', E: inputs.executors ?? [] },
-      head: head ? { seq: head.json.stream.seq, sha256: head.sha256, release: head.json.release ?? null } : null,
+      head: head ? { seq: admission.seq, sha256: head.sha256, release: typeof head.json.release === 'string' ? head.json.release : null,
+        ...(admission.usable ? {} : { unusable: admission.problem }) } : null,
       action: changes.length ? 'bundle' : 'current',
-      seq: changes.length ? (head?.json.stream.seq ?? 0) + 1 : head.json.stream.seq,
+      seq: changes.length ? seq : admission.seq,
       changes,
     });
   }
@@ -402,8 +591,8 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
     const platform = record?.platform ?? null;
     if (opts.platform.length && platform && !opts.platform.includes(platform)) continue;
     if (!head && !record && !declared) continue; // an empty directory is not a stream
-    const problem = head ? headSignature(head.json, app.manifest) : null;
-    if (problem) notes.push(`the head of ${streamPath(stream)} (seq ${head.json.stream?.seq}) is ${problem}`);
+    const admission = head ? inspectHead(head, app, stream) : null;
+    if (admission && !admission.usable) notes.push(`the head of ${streamPath(stream)} (seq ${admission.seq ?? '?'}) is unusable: ${admission.problem}`);
     const cohort = record?.compat?.inputs ?? null;
     const ours = platform && compat[platform] ? compat[platform] : null;
     const differs = cohort && ours ? inputsDiff(cohort, ours.inputs) : null;
@@ -412,7 +601,8 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
     rows.push({
       kind: 'stream', platform, channel, compatibilityId,
       cohort: cohort ? { L: cohort.store?.L ?? '?', E: cohort.executors ?? [] } : null,
-      head: head ? { seq: head.json.stream?.seq ?? null, sha256: head.sha256, release: head.json.release ?? null } : null,
+      head: head ? { seq: admission.seq, sha256: head.sha256, release: typeof head.json.release === 'string' ? head.json.release : null,
+        ...(admission.usable ? {} : { unusable: admission.problem }) } : null,
       action: 'binary', changes: [], reason,
     });
   }
@@ -470,8 +660,12 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
     if (await origin.get(recordPath)) refuse(`release ${release} already has an immutable record at ${origin.describe()}/${recordPath}; choose another --release`);
     const current = await origin.head(stream);
     const previousDigest = current?.sha256 ?? null;
-    if (current && !changesAgainst(bundle, current.json).length) return { ...row, action: 'current', seq: current.json.stream.seq, note: 'the head already names this bundle (published meanwhile)' };
-    const seq = (current?.json.stream.seq ?? 0) + 1;
+    const admission = current ? inspectHead(current, app, stream) : null;
+    const changes = admission?.usable
+      ? changesAgainst(bundle, admission.head)
+      : current ? [{ name: 'exact.json', change: 'repair', note: admission.problem }] : changesAgainst(bundle, null);
+    if (admission?.usable && !changes.length) return { ...row, action: 'current', seq: admission.seq, note: 'the head is admissible and already names this bundle (published meanwhile)' };
+    const seq = await nextSeq(origin, app, stream, admission, `the locked head at ${origin.describe()}/${base}/exact.json`);
     if (opts.slowMs) await sleep(Number(opts.slowMs));
     let written = 0;
     for (const file of files) {
@@ -490,7 +684,7 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
       release, at: new Date().toISOString(), by: userInfo().username, host: hostname(),
       platform: row.platform, stream: head.stream, seq, snapshot,
       head: { entryDigest, originDigest, bytes: bytes.length, keyId: signer.keyId }, previous: previousDigest,
-      compat: { id: compat.id, inputs: compat.inputs }, row: { action: row.action, changes: row.changes },
+      compat: { id: compat.id, inputs: compat.inputs }, row: { action: row.action, changes },
       envelope: head,
     };
     await origin.put(recordPath, Buffer.from(JSON.stringify(record, null, 2) + '\n', 'utf8'), { immutable: true });
@@ -508,7 +702,7 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
       if (!observed?.bytes.equals(bytes)) throw error;
       log(`  ${row.platform} ${row.compatibilityId.slice(0, 8)}: the head write response failed, but readback confirms seq ${seq}`);
     }
-    return { ...row, action: 'published', seq, head: { seq, sha256: originDigest, entryDigest, release }, previous: previousDigest };
+    return { ...row, action: 'published', seq, changes, head: { seq, sha256: originDigest, entryDigest, release }, previous: previousDigest };
   });
 }
 
@@ -573,7 +767,6 @@ async function deploy(opts) {
     const name = `${row.platform ?? '?'} stream ${row.compatibilityId.slice(0, 8)}`;
     if (row.action === 'unavailable') { failed.push({ platform: row.platform, compatibilityId: row.compatibilityId, error: row.reason }); log(`  ${name}: unavailable — ${row.reason}`); continue; }
     if (row.action === 'binary') { refused.push({ platform: row.platform, compatibilityId: row.compatibilityId, reason: row.reason }); log(`  ${name}: refused — ${row.reason}`); continue; }
-    if (row.action === 'current') { published.push({ ...row }); log(`  ${name}: current (seq ${row.seq})`); continue; }
     try {
       const result = await publishStream({ origin, row, bundle, compat: compat[row.platform], app, signer, release, snapshot: table.snapshot, opts, log });
       published.push(result);

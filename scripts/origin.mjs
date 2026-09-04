@@ -79,8 +79,8 @@ export class DirectoryOrigin {
   }
 
   /** The names under the directory `rel` (files and directories), or null when it does not exist. */
-  async list(rel) {
-    try { return readdirSync(this.path(rel)).filter((n) => !n.startsWith('.')).sort(); } catch (e) {
+  async list(rel, { includeHidden = false } = {}) {
+    try { return readdirSync(this.path(rel)).filter((n) => includeHidden || !n.startsWith('.')).sort(); } catch (e) {
       if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return null;
       if (['EACCES', 'EPERM', 'EIO', 'EMFILE', 'ENFILE'].includes(e.code)) throw new OriginUnavailable(`${this.path(rel)}: ${e.code}`);
       throw e;

@@ -1,6 +1,7 @@
 # exact deploy can call an unusable stream head current
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by shared client-parity head admission in classification and the locked publish recheck, with authenticated seq+1 repair
 **Systems:** Delivery, exact deploy, Update store
 **Severity:** P1
 **Author:** Codex (GPT-5) for Charlie Cheever
