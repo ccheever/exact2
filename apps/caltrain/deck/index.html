@@ -11,21 +11,19 @@
   button { font: inherit; }
 </style>
 <main id="deck-fixture" data-testid="deck-guest">
-  <h1 id="deck-title">Castle deck</h1>
+  <h1 id="deck-title">Embedded document</h1>
   <p id="deck-status">ready to play</p>
   <button id="deck-navigate" type="button">navigation probe</button>
 </main>
 <script>
   const query = new URLSearchParams(location.search);
   if (query.has('attacker')) {
-    addEventListener('message', (event) => {
-      if (event.source === parent && event.data?.castleSdk === 1 && event.data.requestId === 'navigation-probe' && event.data.ok) {
-        parent.postMessage('identity-leaked-after-navigation', '*');
-      }
-    });
-    parent.postMessage({ castleSdk: 1, requestId: 'navigation-probe', command: 'user.getCurrent' }, '*');
+    parent.postMessage('message-from-navigated-document', '*');
   } else {
     addEventListener('load', () => parent.postMessage('deck-ready', '*'));
+    document.getElementById('deck-status').addEventListener('click', () => {
+      parent.postMessage({ protocol: 'fixture', request: 'status' }, '*');
+    });
     addEventListener('pointerdown', () => parent.postMessage('deck-tapped', '*'));
     document.getElementById('deck-navigate').addEventListener('click', () => {
       parent.postMessage('attacker-navigating', '*');

@@ -43,8 +43,8 @@ function guestMessageAuthorized(el, eventOrigin) {
   const committed = iframeOrigins.get(el);
   if (!committed) return false;
   // Opaque sandboxed guests retain source identity but have no targetable
-  // origin. Their explicit capability is guest→app string messages and
-  // unauthenticated UNAVAILABLE replies; identity never crosses this branch.
+  // origin. Source identity still bounds their guest→app string messages;
+  // application protocols and any replies belong to the app.
   return committed.opaque ? eventOrigin === "null" : eventOrigin === committed.origin;
 }
 
@@ -97,55 +97,6 @@ function applyProps(el, set, clear) {
   if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
 }
 
-// castleSdk (LLP 1020 §8 Q1): a deck posts `{castleSdk:1, requestId, command}`
-// to the parent. `user.getCurrent` is answered from the iframe src's `user`
-// / `id` query — the token never enters the guest. Other commands reply
-// unavailable so the SDK does not wait out its 15s timeout.
-function castleUserFromSrc(src) {
-  if (!src) return null;
-  try {
-    const q = new URL(src, "https://exact.invalid/").searchParams;
-    const username = q.get("user");
-    if (!username) return null;
-    return { userId: q.get("id") || username, username };
-  } catch {
-    return null;
-  }
-}
-function replyCastleSdk(el, data, eventOrigin) {
-  if (!data || data.castleSdk !== 1) return false;
-  if (data.lifecycle) return true;
-  if (typeof data.requestId !== "string") return true;
-  const win = el.contentWindow;
-  if (!win) return true;
-  const committed = iframeOrigins.get(el);
-  if (!guestMessageAuthorized(el, eventOrigin)) return true;
-  if (data.command === "user.getCurrent") {
-    if (committed.opaque) {
-      // `*` is only for the deliberately opaque, unprivileged branch; never
-      // broadcast identity to a WindowProxy that can survive navigation.
-      win.postMessage({ castleSdk: 1, requestId: data.requestId, ok: false, error: { code: "UNAVAILABLE", message: "Identity is unavailable to an opaque guest" } }, "*");
-    } else {
-      win.postMessage({ castleSdk: 1, requestId: data.requestId, ok: true, data: { user: castleUserFromSrc(el.getAttribute("src") || "") } }, committed.origin);
-    }
-  } else {
-    win.postMessage({ castleSdk: 1, requestId: data.requestId, ok: false, error: { code: "UNAVAILABLE", message: "This host does not implement " + String(data.command) } }, committed.opaque ? "*" : committed.origin);
-  }
-  return true;
-}
-window.addEventListener("message", (event) => {
-  let data = event.data;
-  if (typeof data === "string") {
-    try { data = JSON.parse(data); } catch { return; }
-  }
-  if (!data || data.castleSdk !== 1) return;
-  for (const el of views.values()) {
-    if (!(el instanceof HTMLIFrameElement) || event.source !== el.contentWindow) continue;
-    replyCastleSdk(el, data, event.origin);
-    return;
-  }
-});
-
 // @ref LLP 1020 D2 — one page listener routes a guest by source identity.
 // Strings cross unchanged; every other structured-clone value narrows to
 // JSON, and a value JSON cannot represent is not an event.
@@ -156,11 +107,6 @@ function ensureMessageListener() {
     for (const el of messageFrames) {
       if (event.source !== el.contentWindow) continue;
       if (!guestMessageAuthorized(el, event.origin)) return;
-      let data = event.data;
-      if (typeof data === "string") {
-        try { data = JSON.parse(data); } catch { data = null; }
-      }
-      if (data && data.castleSdk === 1) return;
       let payload = event.data;
       if (typeof payload !== "string") {
         try { payload = JSON.stringify(payload); } catch { return; }
@@ -333,7 +279,7 @@ function apply(batch) {
       case "surface": {
         // A canvas's inputs (LLP 1009 D2): to the GPU module when it is
         // loaded, queued until then. The module itself is fetched only
-        // after the first painted frame, and only when a canvas exists.
+        // after a rendering opportunity, and only when a canvas exists.
         if (globalThis.exact.gpu) globalThis.exact.gpu.surface(op.id, op.name, op.values);
         else {
           const pending = (globalThis.exact.pendingSurfaces ??= []);
@@ -794,7 +740,7 @@ async function boot(bytes) {
   await installFonts(faces);
   const timers = applyBatch(batch).timers;
   if (timers && !agentMode) ticker = setInterval(() => send(wasm.exact_advance(now())), 250);
-  if (bytes) requestAnimationFrame(loadGpuIfNeeded);
+  if (bytes) requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded));
   return performance.now() - t;
 }
 
@@ -809,8 +755,8 @@ globalThis.exact = {
   ...(agentMode ? { agent, now } : {}), views, root, generation: 0, pendingSurfaces: [],
 };
 
-// The GPU module, on demand: a script element after the first painted
-// frame — never an import, which the boot check counts — and only when a
+// The GPU module, on demand: a script element after a rendering opportunity
+// (two animation-frame callbacks), never an eager import, and only when a
 // canvas is on the page.
 let gpuRequested = false;
 function loadGpuIfNeeded() {
@@ -842,11 +788,13 @@ async function main() {
   }
   await boot(null);
   // The first frame is in the DOM: stamp the time from script start, so a
-  // headless run can read it. A second stamp lands when it is painted.
+  // headless run can read it. rAF runs before paint; its stamp is only the
+  // first frame callback. The nested callback gives the browser a rendering
+  // opportunity before optional module loading begins.
   root.dataset.bootMs = (performance.now() - t0).toFixed(1);
   requestAnimationFrame(() => {
-    root.dataset.paintMs = (performance.now() - t0).toFixed(1);
-    loadGpuIfNeeded();
+    root.dataset.frameCallbackMs = (performance.now() - t0).toFixed(1);
+    requestAnimationFrame(loadGpuIfNeeded);
   });
 }
 

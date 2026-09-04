@@ -443,8 +443,9 @@ The implementation crossed that boundary: `host/web/glue.js` and
 `host/apple/webarm/WebArm.swift` answer `castleSdk` identity requests, and
 the Apple arm changes local Castle HTML to fill the frame. Move that
 protocol, identity policy, and presentation adaptation into Weird Castle's
-own source/assets/integration. Exact supplies the generic iframe and D2r
-reply mechanism, with its sandbox, source/origin, and lifecycle checks.
+own source/assets/integration. Exact supplies the generic iframe with its sandbox, source/origin, and
+lifecycle checks. Replies can live inside an app-owned wrapper document;
+D2r does not require a shared host to recognize an application protocol.
 An app-specific branch renamed as a generic helper is not the correction.
 
 The removal is tracked in
@@ -453,3 +454,18 @@ It includes preserving the external app's behavior and generic iframe
 verification. Historical research and isolated example/test fixtures remain
 evidence, not runtime policy. This records Charlie's boundary ruling; the
 rest of this Draft's unbuilt proposals do not become accepted by implication.
+
+Implemented 2026-09-04: the shared web and Apple hosts no longer parse
+Castle SDK commands, construct account identity, or recognize Castle HTML.
+Generic structured guest messages still narrow to JSON and reach the app;
+Caltrain's fixture exercises that transport and rejects messages after a
+cross-origin navigation without involving the Castle protocol.
+
+Weird Castle now materializes an ordinary single-file wrapper document in
+its own data crate. That document owns SDK replies and the inner deck's
+full-viewport presentation. The app's existing opaque sandbox is retained:
+`user.getCurrent` is refused, as it was before this move; no authenticated
+SDK capability is introduced. The app no longer puts a username in the
+iframe URL. Its nested opaque deck remains a browser-owned input region;
+Exact's agent outline reaches the wrapper, not the nested opaque DOM.
+This move needs no new Exact reply API, property, hook, or injected script.

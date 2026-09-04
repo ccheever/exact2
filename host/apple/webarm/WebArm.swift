@@ -176,7 +176,6 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         <script>
         (() => {
           const inner = document.getElementById('exact-frame');
-          const castleUser = \(castleUserLiteral());
           const guestOrigin = \(expectedOrigin);
           let committed = false;
           let navigated = false;
@@ -184,22 +183,6 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
           addEventListener('message', event => {
             if (event.source !== inner.contentWindow) return;
             if (navigated || guestOrigin === null || event.origin !== guestOrigin) return;
-            let data = event.data;
-            if (typeof data === 'string') {
-              try { data = JSON.parse(data); } catch { data = null; }
-            }
-            if (data && data.castleSdk === 1) {
-              if (data.lifecycle) return;
-              if (typeof data.requestId === 'string') {
-                const reply = data.command === 'user.getCurrent' && guestOrigin === 'null'
-                  ? { castleSdk: 1, requestId: data.requestId, ok: false, error: { code: 'UNAVAILABLE', message: 'Identity is unavailable to an opaque guest' } }
-                  : data.command === 'user.getCurrent'
-                    ? { castleSdk: 1, requestId: data.requestId, ok: true, data: { user: castleUser } }
-                    : { castleSdk: 1, requestId: data.requestId, ok: false, error: { code: 'UNAVAILABLE', message: 'This host does not implement ' + String(data.command) } };
-                inner.contentWindow.postMessage(reply, guestOrigin === 'null' ? '*' : guestOrigin);
-              }
-              return;
-            }
             let payload = event.data;
             if (typeof payload !== 'string') {
               try { payload = JSON.stringify(payload); } catch { return; }
@@ -242,36 +225,11 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         return text.replacingOccurrences(of: "<", with: "\\u003c")
     }
 
-    func castleUserLiteral() -> String {
-        let username = srcQuery("user")
-        guard !username.isEmpty else { return "null" }
-        let id = srcQuery("id")
-        let userId = id.isEmpty ? username : id
-        let obj: [String: String] = ["userId": userId, "username": username]
-        guard let data = try? JSONSerialization.data(withJSONObject: obj),
-              var json = String(data: data, encoding: .utf8) else { return "null" }
-        json = json.replacingOccurrences(of: "<", with: "\\u003c")
-        return json
-    }
-
-    func srcQuery(_ name: String) -> String {
-        guard let src else { return "" }
-        guard let q = src.split(separator: "?", maxSplits: 1).dropFirst().first else { return "" }
-        let query = q.split(separator: "#", maxSplits: 1)[0]
-        for pair in query.split(separator: "&") {
-            let kv = pair.split(separator: "=", maxSplits: 1)
-            guard kv.first.map(String.init) == name else { continue }
-            let raw = kv.count > 1 ? String(kv[1]) : ""
-            return raw.removingPercentEncoding ?? raw
-        }
-        return ""
-    }
-
     func localDocument(_ source: String) -> String? {
         // Hosted http(s) decks keep their URL. A scheme-less src — including
         // `URL(string:)` returning nil for a leading-dot relative path — is a
-        // file under EXACT_ASSETS, inlined as srcdoc. Query/hash are identity
-        // for the castleSdk wrapper, not part of the path.
+        // file under EXACT_ASSETS, inlined as srcdoc. Query and fragment
+        // are URL metadata, not part of the filesystem path.
         if let scheme = URL(string: source)?.scheme?.lowercased(),
            scheme == "http" || scheme == "https" || scheme == "data" || scheme == "about" || scheme == "blob" {
             return nil
@@ -289,36 +247,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         let file = base.appendingPathComponent(String(relative))
             .resolvingSymlinksInPath().standardizedFileURL
         guard file.path == root || file.path.hasPrefix(root.hasSuffix("/") ? root : root + "/") else { return nil }
-        guard var html = try? String(contentsOf: file, encoding: .utf8) else { return nil }
-        // Castle playables letterbox a 5:7 card in the iframe. Weird Castle
-        // asked for the deck to fill the viewport, so the card becomes the
-        // iframe's box (the kernel already owns that box).
-        if html.contains("CastleEmbed") || html.contains("castle-card") {
-            html += """
-            <style id="exact-fullbleed">
-            html,body{width:100%!important;height:100%!important;margin:0!important}
-            #castle-card,#root > *,[data-castle-card]{
-              position:fixed!important;inset:0!important;left:0!important;top:0!important;
-              transform:none!important;width:100%!important;height:100%!important;
-              max-width:none!important;max-height:none!important;border-radius:0!important;
-            }
-            </style>
-            <script>
-            (function(){
-              function fill(){
-                document.documentElement.style.setProperty('--castle-card-w', innerWidth+'px');
-                document.documentElement.style.setProperty('--castle-card-h', innerHeight+'px');
-                var c=document.getElementById('castle-card');
-                if(c){c.style.width=innerWidth+'px';c.style.height=innerHeight+'px';c.style.borderRadius='0';}
-              }
-              addEventListener('resize', fill);
-              fill();
-              new MutationObserver(fill).observe(document.documentElement,{childList:true,subtree:true});
-            })();
-            </script>
-            """
-        }
-        return html
+        return try? String(contentsOf: file, encoding: .utf8)
     }
 
     func errorDocument(_ message: String) -> String {
@@ -369,7 +298,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         guard !invalidated else { decisionHandler(.cancel); return }
         guard navigationAction.targetFrame?.isMainFrame == true else {
             // Once the injected guest agent identified the committed child,
-            // revoke its identity capability at the start of any subsequent
+            // revoke its message channel at the start of any subsequent
             // child navigation, before the replacement document can run.
             if guestFrame != nil { webView.evaluateJavaScript("window.__exactRevokeGuest?.()") }
             decisionHandler(.allow)

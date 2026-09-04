@@ -417,7 +417,7 @@ try {
       if (frameNode?.loading === false && deckState.slots.deckLoaded === true && deckState.slots.deckMessage === 'deck-ready') break;
       await sleep(50);
     }
-    check(frameNode?.type === 'WebView' && frameNode.url === '/deck/index.html?user=caltrain&id=user-caltrain', `the iframe tree node is ${JSON.stringify(frameNode)}`);
+    check(frameNode?.type === 'WebView' && frameNode.url === '/deck/index.html', `the iframe tree node is ${JSON.stringify(frameNode)}`);
     check(frameNode?.loading === false, `the iframe is still loading: ${JSON.stringify(frameNode)}`);
     check(deckState?.slots.deckLoaded === true, `load did not record its flag: ${JSON.stringify(deckState?.slots)}`);
     check(deckState?.slots.deckMessage === 'deck-ready', `message recorded ${JSON.stringify(deckState?.slots.deckMessage)}, not "deck-ready"`);
@@ -442,6 +442,16 @@ try {
     } finally {
       rmSync(deckTmp, { recursive: true, force: true });
     }
+    // Structured-clone data narrows to JSON, with no application protocol
+    // intercepted by the shared host (@ref LLP 1020 §9).
+    await s.tap('deck-frame', { selector: '#deck-status' });
+    for (let i = 0; i < 20; i++) {
+      deckState = await s.state();
+      if (deckState.slots.deckMessage === '{"protocol":"fixture","request":"status"}') break;
+      await sleep(25);
+    }
+    check(deckState.slots.deckMessage === '{"protocol":"fixture","request":"status"}',
+      `structured guest data did not reach the app: ${JSON.stringify(deckState.slots.deckMessage)}`);
     // A tap addressed to the iframe enters its guest in-process. Native
     // delivery is script-dispatched and therefore isTrusted:false (D4).
     await s.tap('deck-frame');
@@ -454,7 +464,7 @@ try {
     if (host === 'web') {
       // A WindowProxy survives cross-origin navigation. The committed src
       // origin remains the authority: the navigated document must not receive
-      // the authenticated castleSdk identity reply (@ref LLP 1020 D2r/Q2).
+      // delivery of its messages into the app (@ref LLP 1020 D2).
       await s.tap('deck-frame', { selector: '#deck-navigate' });
       for (let i = 0; i < 40; i++) {
         deckState = await s.state();
@@ -464,7 +474,7 @@ try {
       check(deckState.slots.deckLoads >= 2, `the navigation probe did not load its cross-origin document: ${JSON.stringify(deckState.slots)}`);
       await sleep(100);
       deckState = await s.state();
-      check(deckState.slots.deckMessage === 'attacker-navigating', `authenticated identity crossed navigation: ${JSON.stringify(deckState.slots.deckMessage)}`);
+      check(deckState.slots.deckMessage === 'attacker-navigating', `a guest message crossed navigation: ${JSON.stringify(deckState.slots.deckMessage)}`);
     }
     await s.tap('deck-back');
     tree = await s.tree();

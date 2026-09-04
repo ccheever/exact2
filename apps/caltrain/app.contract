@@ -128,7 +128,7 @@ component Caltrain
               text "Back" font-size=13
           // The hosted-deck sandbox pair (LLP 1020 §8 Q1's survey): same-origin
           // scripts, so the agent's guest outline is live on the web arm too.
-          iframe src="/deck/index.html?user=caltrain&id=user-caltrain" sandbox="allow-scripts allow-same-origin" testId="deck-frame" load=recordDeckLoad message=recordDeckMessage
+          iframe src="/deck/index.html" sandbox="allow-scripts allow-same-origin" testId="deck-frame" load=recordDeckLoad message=recordDeckMessage
           text `${deckLoaded}` testId="deck-loaded" color="#ffffff"
           text deckMessage testId="deck-message" color="#ffffff"
       else

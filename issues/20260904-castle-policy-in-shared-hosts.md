@@ -42,3 +42,26 @@ host changes. Replace any protocol-specific core smoke assertion with a
 generic request/reply fixture and move the Castle assertion to its app.
 References in research and deliberately isolated test data are not production
 logic and should not be removed merely to make a text search empty.
+
+## Implementation and verification — 2026-09-04
+
+Shared runtime Castle protocol handlers and Apple HTML rewriting have been
+removed. Caltrain's fixture now asserts generic JSON message delivery and
+cross-origin navigation rejection. Weird Castle's own `data/src/deck.rs`
+and `deck-host.html` wrap downloaded single-file bundles, apply full-viewport
+card layout, and own Castle SDK responses. Old unwrapped cached documents
+are treated as a cache miss. The app no longer sends a username in its URL.
+
+The app already authors an opaque sandbox, so its identity request was
+always refused before this change. That refusal is preserved; this fix does
+not grant an authenticated SDK. The app-owned wrapper introduces a nested
+opaque frame: ordinary browser input reaches the deck; the Exact agent's
+DOM outline reaches the wrapper, not that nested opaque DOM.
+
+Verified in the browser through the existing agent driver: a 100×140 card
+becomes its 420×900 viewport, has zero radius, sees the required CastleEmbed
+configuration before its scripts, and gets the expected UNAVAILABLE identity
+reply. The edited WebArm compiles. A native materialization probe checks
+that Castle-looking local HTML is now returned byte-for-byte and escaping
+paths are refused. Full shared-host smoke and external macOS/iOS app drives
+remain integration verification, so this issue stays open until those run.
