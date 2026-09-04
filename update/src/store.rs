@@ -827,7 +827,7 @@ impl Store {
                 envelope.stream.channel, self.embedded.channel
             ));
         }
-        self.embedded.verify(&envelope)?;
+        self.embedded.verify(envelope)?;
         // URL admission is part of every authenticated card, including a
         // card whose bytes are already embedded or present in a whole entry.
         // Check the entire roster before Current can advance the observed
