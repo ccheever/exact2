@@ -49,12 +49,13 @@
 // head and writing the next one — a test flag for racing two publishers.
 import { spawnSync } from 'node:child_process';
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, userInfo } from 'node:os';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveApp } from './app.mjs';
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath } from './origin.mjs';
+import { listPublicFiles } from '../host/web/serve.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const PLATFORMS = ['web', 'ios', 'macos', 'linux'];
@@ -219,17 +220,6 @@ function compatOf(app, platform) {
   return compat;
 }
 
-/** Every file under `dir`, as posix paths relative to it, sorted. */
-function walk(dir, sub = '') {
-  const out = [];
-  for (const entry of readdirSync(resolve(dir, sub), { withFileTypes: true })) {
-    const rel = sub ? `${sub}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) out.push(...walk(dir, rel));
-    else if (entry.isFile()) out.push(rel);
-  }
-  return out.sort();
-}
-
 // --------------------------------------------------------------- classifying
 
 /** The channel the manifest bakes in: `deploy.channel`, else the only key of `deploy.channels`, else `prod` — the same rule as `contract/cli/src/compat.rs`. */
@@ -269,6 +259,23 @@ function changesAgainst(bundle, head) {
   return changes;
 }
 
+/** The unsigned stream head. One producer keeps its identity/name and blob
+ * pointers identical across classification fixtures and publication. */
+export function streamHead({ app, bundle, stream, seq, release, sunset = null }) {
+  const head = {
+    exact: 1,
+    app: { id: app.id, name: app.displayName },
+    plan: { url: './app.plan', sha256: bundle.plan.sha256, bytes: bundle.plan.bytes.length,
+      formatVersion: bundle.plan.formatVersion, kernelSchema: bundle.plan.kernelSchema },
+    assets: bundle.assets.map((asset) => ({ name: asset.name, url: `./assets/${asset.name}`,
+      sha256: asset.sha256, bytes: asset.bytes.length })),
+    stream: { app: app.id, channel: stream.channel, compatibilityId: stream.compatibilityId, seq },
+    release,
+  };
+  if (sunset) head.sunset = sunset.store ? { message: sunset.message, store: sunset.store } : { message: sunset.message };
+  return head;
+}
+
 /** What a live head's signature says against the manifest's verification keys — the check an installed binary makes (LLP 1026 D11), so a head the classifier reads that no binary would take is named in the table. */
 function headSignature(head, manifest) {
   const keys = manifest.deploy?.signing?.keys ?? {};
@@ -306,7 +313,7 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
   if (wantOrigin) {
     const files = { new: [], changed: [], current: [] };
     let unavailable = null;
-    for (const rel of walk(web)) {
+    for (const rel of listPublicFiles(web)) {
       const bytes = readFileSync(resolve(web, rel));
       let have;
       try { have = await origin.get(rel); }
@@ -456,16 +463,8 @@ async function publishStream({ origin, row, bundle, compat, app, signer, release
     const base = streamPath(stream);
     await origin.put(`${base}/app.plan`, bundle.plan.bytes);
     for (const a of bundle.assets) await origin.put(`${base}/assets/${a.name}`, a.bytes);
-    const head = {
-      exact: 1,
-      app: { id: app.id, name: app.displayName },
-      plan: { url: './app.plan', sha256: bundle.plan.sha256, bytes: bundle.plan.bytes.length, formatVersion: bundle.plan.formatVersion, kernelSchema: bundle.plan.kernelSchema },
-      assets: bundle.assets.map((a) => ({ name: a.name, url: `./assets/${a.name}`, sha256: a.sha256, bytes: a.bytes.length })),
-      stream: { app: app.id, channel: stream.channel, compatibilityId: stream.compatibilityId, seq },
-      release,
-    };
     const sunset = app.manifest.deploy?.sunset?.[`${stream.channel}/${stream.compatibilityId}`] ?? app.manifest.deploy?.sunset?.[stream.compatibilityId];
-    if (sunset) head.sunset = sunset.store ? { message: sunset.message, store: sunset.store } : { message: sunset.message };
+    const head = streamHead({ app, bundle, stream, seq, release, sunset });
     head.signature = signer.sign(head);
     const bytes = Buffer.from(JSON.stringify(head) + '\n', 'utf8');
     await origin.putHead(stream, bytes, { previousDigest });

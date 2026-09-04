@@ -9,14 +9,14 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { createPrivateKey, createPublicKey } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey } from 'node:crypto';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { staticFile } from '../host/web/serve.mjs';
+import { appManifestDigest, builtAppMatches, listPublicFiles, publicFileCards, staticFile, webEnvelope } from '../host/web/serve.mjs';
 import { deviceLaunchArgs } from '../host/apple/build.mjs';
-import { classify } from './deploy.mjs';
+import { classify, streamHead } from './deploy.mjs';
 import { DirectoryOrigin, HttpsOrigin, OriginUnavailable } from './origin.mjs';
 
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
@@ -179,6 +179,83 @@ for (const [name, html, files, expectCode, expect] of [
     && staticFile(dist, '/assets/linked-dir/secret') === null;
   rmSync(dir, { recursive: true, force: true });
   result('web serving rejects stale, dot, and symlink paths', ok);
+}
+
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-built-app-'));
+  const id = 'com.exact.one';
+  const app = { id, displayName: 'One', manifest: { name: 'Install One', app: { id, name: 'One' } } };
+  const plan = Buffer.alloc(36 + Buffer.byteLength(id));
+  plan.write('EXPL'); plan.writeUInt32LE(4, 4); plan.writeBigUInt64LE(1n, 16);
+  plan.writeUInt32LE(Buffer.byteLength(id), 32); plan.write(id, 36);
+  const planDigest = createHash('sha256').update(plan).digest('hex');
+  writeFileSync(join(dir, 'app.wasm'), 'wasm');
+  writeFileSync(join(dir, 'exact.json'), JSON.stringify({ exact: 1, app: { id, name: app.displayName }, plan: { url: './app.plan', sha256: planDigest, bytes: plan.length } }));
+  result('dev startup rejects an incomplete dist', !builtAppMatches(dir, app));
+  writeFileSync(join(dir, 'app.plan'), plan);
+  writeFileSync(join(dir, 'glue.js'), '');
+  writeFileSync(join(dir, 'index.html'), '');
+  writeFileSync(join(dir, 'manifest.json'), '{}');
+  writeFileSync(join(dir, '.exact-build.json'), JSON.stringify({ exactBuild: 1,
+    app: { id, name: app.displayName }, manifestSha256: appManifestDigest(app),
+    files: publicFileCards(dir) }));
+  const complete = builtAppMatches(dir, app);
+  const staleName = !builtAppMatches(dir, { ...app, displayName: 'Renamed' });
+  const staleManifest = !builtAppMatches(dir, { ...app, manifest: { ...app.manifest, theme_color: '#000000' } });
+  const wasm = readFileSync(join(dir, 'app.wasm'));
+  writeFileSync(join(dir, 'app.wasm'), 'another app');
+  const replacedWasm = !builtAppMatches(dir, app);
+  writeFileSync(join(dir, 'app.wasm'), wasm);
+  writeFileSync(join(dir, 'glue.js'), 'truncated');
+  const changedRuntime = !builtAppMatches(dir, app);
+  writeFileSync(join(dir, 'glue.js'), '');
+  const named = JSON.parse(readFileSync(join(dir, 'exact.json'), 'utf8'));
+  delete named.app.id;
+  writeFileSync(join(dir, 'exact.json'), JSON.stringify(named));
+  const missingEnvelopeId = !builtAppMatches(dir, app);
+  let unnamedPlanRefused = false;
+  try { webEnvelope(app, Buffer.alloc(36), []); } catch (error) { unnamedPlanRefused = error.message.includes('nonempty app id'); }
+  writeFileSync(join(dir, 'app.plan'), 'corrupt');
+  result('dev startup identifies only a complete coherent named app build', complete && staleName
+    && staleManifest && replacedWasm && changedRuntime && missingEnvelopeId
+    && unnamedPlanRefused && !builtAppMatches(dir, app));
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// The completion marker is build-private. The exact same public inventory
+// drives deploy classification, so it cannot leak to an origin even though it
+// lives beside public artifacts in the completed stage.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-public-web-'));
+  writeFileSync(join(dir, 'index.html'), 'public');
+  writeFileSync(join(dir, '.exact-build.json'), 'private');
+  writeFileSync(join(dir, 'unexpected.txt'), 'private too');
+  const origin = { kind: 'directory', describe: () => 'test-origin', get: async () => null };
+  const table = await classify({ app: { id: 'com.exact.test', displayName: 'Test', dir, manifest: {} }, opts: { platform: [] },
+    origin, channel: 'prod', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
+    release: 'test', web: dir, bundle: { plan: { sha256: '0'.repeat(64) }, assets: [] },
+    compat: { web: { id: 'a'.repeat(32), inputs: {} } }, platforms: [], wantOrigin: true });
+  const published = table.rows[0]?.files.new ?? [];
+  result('deploy publishes only the shared public web inventory', listPublicFiles(dir).join(',') === 'index.html'
+    && published.join(',') === 'index.html' && !published.includes('.exact-build.json'), JSON.stringify(published));
+  rmSync(dir, { recursive: true, force: true });
+}
+
+{
+  const id = 'com.exact.names';
+  const bytes = Buffer.alloc(36 + Buffer.byteLength(id));
+  bytes.write('EXPL'); bytes.writeUInt32LE(4, 4); bytes.writeBigUInt64LE(1n, 16);
+  bytes.writeUInt32LE(Buffer.byteLength(id), 32); bytes.write(id, 36);
+  const app = { name: 'internal-slug', id, displayName: 'Cross-platform Display', manifest: { name: 'Web Install Name' } };
+  const web = webEnvelope(app, bytes, []);
+  let mismatchedPlanRefused = false;
+  try { webEnvelope({ ...app, id: 'com.exact.another' }, bytes, []); }
+  catch (error) { mismatchedPlanRefused = error.message.includes(`plan is for ${id}`); }
+  const stream = streamHead({ app, bundle: { plan: { bytes, sha256: web.plan.sha256, formatVersion: 4, kernelSchema: '0000000000000001' }, assets: [] },
+    stream: { channel: 'prod', compatibilityId: 'a'.repeat(32) }, seq: 1, release: 'test' });
+  result('web and stream envelopes use the cross-platform display name', app.name !== app.manifest.name
+    && app.manifest.name !== app.displayName && web.app.name === app.displayName
+    && stream.app.name === web.app.name && mismatchedPlanRefused);
 }
 
 {

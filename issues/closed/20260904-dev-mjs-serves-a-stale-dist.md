@@ -1,6 +1,7 @@
 # dev.mjs serves a stale dist across --app switches
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Web builds write a private completion marker last, binding the requested manifest identity and every public artifact's digest and size. Dev startup rebuilds unless that marker, the named plan, the envelope, and the exact public inventory agree; deploy uses the same public allowlist and never publishes the marker.
 **Systems:** Web host, Dev loop
 **Severity:** P2
 **Author:** Muse Code for Charlie Cheever

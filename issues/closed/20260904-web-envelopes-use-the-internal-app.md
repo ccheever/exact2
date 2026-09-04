@@ -1,6 +1,7 @@
 # Web envelopes use the internal app slug as their name
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Static and live web envelopes now publish the manifest display name while retaining the app id as identity.
 **Systems:** Web host, App manifest, Delivery
 **Severity:** P3
 **Author:** Codex (GPT-5) for Charlie Cheever

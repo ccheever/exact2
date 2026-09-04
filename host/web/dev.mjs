@@ -28,7 +28,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { networkInterfaces } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { resolveApp } from '../../scripts/app.mjs';
-import { listAssets, readStaticFile, webContentType } from './serve.mjs';
+import { builtAppMatches, listAssets, readStaticFile, webContentType, webEnvelope } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -40,7 +40,7 @@ const root = resolve(new URL('../..', import.meta.url).pathname);
 const dist = resolve(root, 'host/web/dist');
 const source = resolve(app.dir, 'app.contract');
 const plan = resolve(dist, 'app.plan');
-if (!existsSync(resolve(dist, 'app.wasm'))) {
+if (!builtAppMatches(dist, app)) {
   const b = spawnSync('node', [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, stdio: 'inherit' });
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
@@ -316,17 +316,8 @@ const server = createServer((req, res) => {
       const found = readStaticFile(dist, '/app.plan');
       if (!found) throw new Error('no current plan');
       const bytes = found.body;
-      const idLen = bytes.readUInt32LE(32);
-      const appId = idLen ? bytes.subarray(36, 36 + idLen).toString('utf8') : '';
       res.writeHead(200, { 'content-type': 'application/vnd.exact.envelope+json', vary: 'Accept', 'cache-control': 'no-store' });
-      res.end(JSON.stringify({
-        exact: 1,
-        app: appId ? { id: appId, name: app.name } : { name: app.name },
-        plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length, formatVersion: bytes.readUInt32LE(4), kernelSchema: bytes.readBigUInt64LE(16).toString(16).padStart(16, '0') },
-        assets: listAssets(dist),
-        seq: current.seq,
-        events: './__dev',
-      }) + '\n');
+      res.end(JSON.stringify(webEnvelope(app, bytes, listAssets(dist), { seq: current.seq, events: './__dev' })) + '\n');
     } catch { res.writeHead(404); res.end(); }
     return;
   }

@@ -4,11 +4,10 @@
 // Usage: node host/web/build.mjs [crate=caltrain-web]
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { resolveApp } from '../../scripts/app.mjs';
-import { listAssets } from './serve.mjs';
+import { appManifestDigest, listAssets, publicFileCards, webEnvelope } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
 const crate = app.crate('web');
@@ -83,20 +82,7 @@ const planPtr = exports.exact_out();
 const planBytes = Buffer.from(new Uint8Array(exports.memory.buffer, planPtr, planLen));
 if (planBytes.length < 36 || planBytes.subarray(0, 4).toString() !== 'EXPL') throw new Error('the web wasm returned an invalid baked plan');
 writeFileSync(planOut, planBytes);
-const idLen = planBytes.readUInt32LE(32);
-const appId = idLen ? planBytes.subarray(36, 36 + idLen).toString('utf8') : '';
-writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({
-  exact: 1,
-  app: appId ? { id: appId, name: app.name } : { name: app.name },
-  plan: {
-    url: './app.plan',
-    sha256: createHash('sha256').update(planBytes).digest('hex'),
-    bytes: planBytes.length,
-    formatVersion: planBytes.readUInt32LE(4),
-    kernelSchema: planBytes.readBigUInt64LE(16).toString(16).padStart(16, '0'),
-  },
-  assets: listAssets(stage),
-}) + '\n');
+writeFileSync(resolve(stage, 'exact.json'), JSON.stringify(webEnvelope(app, planBytes, listAssets(stage))) + '\n');
 // The web app manifest (LLP 1030 D2/D10; 1030.000 D7): the W3C keys of
 // `app.json`, copied out as `manifest.json`; the page links it, takes its
 // name as the title, and its first icon as the favicon. An installed PWA's
@@ -144,6 +130,13 @@ if (existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'))) {
     gpuNote = `gpu_bg.wasm ${kib(gw.length)} (${kib(gzipSync(gw, { level: 9 }).length)} gzip${o.status === 0 ? ', wasm-opt' : ''}), gpu.js ${kib(readFileSync(resolve(stage, 'gpu.js')).length)}, on demand`;
   }
 }
+// Written last inside the private stage. Dev startup trusts a dist only when
+// this marker and the public plan card agree, so a partial/corrupt directory
+// can never be mistaken for a completed build of the requested app.
+writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
+  exactBuild: 1, app: { id: app.id, name: app.displayName }, manifestSha256: appManifestDigest(app),
+  files: publicFileCards(stage),
+}) + '\n');
 rmSync(previous, { recursive: true, force: true });
 if (existsSync(dist)) renameSync(dist, previous);
 try {

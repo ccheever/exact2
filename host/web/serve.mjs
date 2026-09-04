@@ -18,6 +18,7 @@ const PUBLIC_FILES = new Set([
   '/.well-known/apple-app-site-association',
 ]);
 const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/'];
+const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', 'index.html', 'manifest.json'];
 // An origin's update streams (LLP 1030.000 D7; `scripts/origin.mjs`):
 // `.exact/blobs/<sha256>` and `.exact/<channel>/<compatibility id>/…` — the
 // one dot path a client fetches. Inside it every other dot name (the
@@ -71,6 +72,79 @@ export function readStaticFile(dist, pathname) {
   return null;
 }
 
+/** Every file a static web build is allowed to expose, relative to its root.
+ * Private completion metadata and any unexpected top-level file are omitted.
+ * Deploy imports this inventory, so serving and origin publication cannot
+ * disagree about whether a build artifact is public. */
+export function listPublicFiles(dist) {
+  const root = resolve(dist);
+  const out = [];
+  for (const route of PUBLIC_FILES) if (staticFile(root, route)) out.push(route.slice(1));
+  for (const asset of listAssets(root)) {
+    if (!staticFile(root, `/${asset.name}`)) {
+      throw new Error(`public web file is not safely readable: ${resolve(root, asset.name)}`);
+    }
+    out.push(asset.name);
+  }
+  return out.sort();
+}
+
+/** Digest cards for the complete public web build. The private completion
+ * marker records these after every generated/optional artifact exists. */
+export function publicFileCards(dist) {
+  return listPublicFiles(dist).map((name) => {
+    const found = readStaticFile(dist, `/${name}`);
+    if (!found) throw new Error(`public web file changed while inventorying: ${resolve(dist, name)}`);
+    return { name, sha256: createHash('sha256').update(found.body).digest('hex'), bytes: found.body.length };
+  });
+}
+
+/** The manifest input identity a completed build records. Binding the whole
+ * object means a name, icon, host card, or deploy-policy edit cannot reuse a
+ * dist assembled from the prior app.json. */
+export function appManifestDigest(app) {
+  return createHash('sha256').update(JSON.stringify(app.manifest)).digest('hex');
+}
+
+function planAppId(bytes) {
+  if (bytes.length < 36 || bytes.subarray(0, 4).toString() !== 'EXPL') return null;
+  const idLen = bytes.readUInt32LE(32);
+  if (idLen === 0 || 36 + idLen > bytes.length) return null;
+  return bytes.subarray(36, 36 + idLen).toString('utf8');
+}
+
+/** Whether the complete build at `dist` belongs to `app`. The completion
+ * marker, public envelope, and named plan must all agree with the requested
+ * manifest identity before dev starts that app's resident compiler. */
+export function builtAppMatches(dist, app) {
+  try {
+    if (!app?.id || !app?.displayName) return false;
+    const root = realpathSync(dist);
+    const markerPath = resolve(root, '.exact-build.json');
+    if (realpathSync(markerPath) !== markerPath || !statSync(markerPath).isFile()) return false;
+    const marker = JSON.parse(readFileSync(markerPath, 'utf8'));
+    const files = publicFileCards(root);
+    const names = new Set(files.map((file) => file.name));
+    if (REQUIRED_BUILD_FILES.some((name) => !names.has(name))) return false;
+    if (!Array.isArray(marker.files) || marker.files.length !== files.length
+      || files.some((file, i) => marker.files[i]?.name !== file.name
+        || marker.files[i]?.sha256 !== file.sha256 || marker.files[i]?.bytes !== file.bytes
+        || Object.keys(marker.files[i]).sort().join(',') !== 'bytes,name,sha256')) return false;
+    const found = readStaticFile(dist, '/exact.json');
+    const plan = readStaticFile(dist, '/app.plan');
+    if (!found || !plan) return false;
+    const envelope = JSON.parse(found.body.toString('utf8'));
+    const digest = createHash('sha256').update(plan.body).digest('hex');
+    return envelope.exact === 1 && envelope.app?.id === app.id
+      && envelope.app.name === app.displayName && planAppId(plan.body) === app.id
+      && envelope.plan?.url === './app.plan'
+      && envelope.plan.sha256 === digest && envelope.plan.bytes === plan.body.length
+      && marker.exactBuild === 1 && marker.app?.id === app.id
+      && marker.app.name === app.displayName
+      && marker.manifestSha256 === appManifestDigest(app);
+  } catch { return false; }
+}
+
 /** The assets by digest (LLP 1023 D4's owed slice; 1026 D11; 1030 D10): every file under assets/, deck/, and shaders/ in a build, named by its path beside the page, so a client fetches by name and verifies by digest and a dev push names what changed. Sorted by name. */
 export function listAssets(dir) {
   const out = [];
@@ -88,6 +162,23 @@ export function listAssets(dir) {
   };
   for (const tree of ['assets', 'deck', 'shaders']) walk(tree);
   return out.sort((a, b) => (a.name < b.name ? -1 : 1));
+}
+
+/** The one web envelope producer for static builds and the live dev overlay.
+ * App identity comes from the plan header; the human name comes from the
+ * manifest's cross-platform `app.name`, never the internal crate slug. */
+export function webEnvelope(app, bytes, assets, live = {}) {
+  const appId = planAppId(bytes);
+  if (!appId) throw new Error('the web envelope needs a valid Exact plan with a nonempty app id');
+  if (appId !== app.id) throw new Error(`the web plan is for ${appId}, not manifest app ${app.id}`);
+  return {
+    exact: 1,
+    app: { id: appId, name: app.displayName },
+    plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length,
+      formatVersion: bytes.readUInt32LE(4), kernelSchema: bytes.readBigUInt64LE(16).toString(16).padStart(16, '0') },
+    assets,
+    ...live,
+  };
 }
 
 export function webContentType(route) {
