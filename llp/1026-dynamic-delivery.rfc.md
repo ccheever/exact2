@@ -828,10 +828,17 @@ scheduled.** Written because Charlie asked for the exploration
    to paint twice falls back to embedded; a downgrade is refused; the
    dev client still reloads in ~20 ms through the same store.
    *The store's logic landed 2026-09-04 as `update/` (`exact-update`,
-   twenty tests over a temp directory and an in-memory origin; LLP
-   1030.000 §4 stage 4 says what is still owed: bake's two outputs
-   with the stream card and signature, the hosts wiring `open`, the
-   boot marks, and `check`, and the dev policy fold).*
+   twenty tests over a temp directory and an in-memory origin), and
+   the same day the macOS and Linux hosts opened it: selection inside
+   the boot, the two boot marks, the check two seconds after first
+   pixel on a thread of the host's own, `deliveryActivate` with carry,
+   `state.delivery` following — the recipe above driven on both,
+   every head signed. Two things this item said that the code
+   corrected: the binary knows entry zero by the embedded plan's digest
+   (a bake never embeds the published head), and a head binds its
+   channel as well as its cohort. LLP 1030.000 §4 stage 4 has the
+   landing and what is still owed: bake's update bundle and the
+   publisher, the dev policy fold, iOS driven, `BGAppRefreshTask`.*
 3. ~~**The data module**~~ — *removed from staging 2026-09-03 (LLP 1027
    §8's take: over-the-air logic is TypeScript bytecode; Rust logic is
    Level A). D4's pairing and D5's admission survive for 1027's module;

@@ -5,7 +5,7 @@
 **Systems:** Apple host (AppKit and UIKit presenters), Kernel (layout, text measurement), Runner (seam), Motion (native executor), C ABI, Boot
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-08-29 (§9: iOS — the UIKit presenter over the same archive, the Swift the two presenters share, the simulator as the run; §7 and the summary follow); 2026-08-30 (§9: `viewport-fit=cover` with the insets to the kernel, and the keyboard's inset on the viewport; §4: `exact_insets`); 2026-08-31 (§9: macOS `viewport-fit=cover` is a full-size-content window, titlebar height as `safe-area-inset-top`; §5: Edit menu so the field editor's command keys work); **2026-09-03 (LLP 1031 D2/D1 landed: the C ABI is v2 — every export takes a runtime handle from `exact_create`, callbacks are set per runtime, a destroyed or busy handle is refused by name, never a trap — and the Swift is one package, `host/apple/Package.swift`: the `ExactKit` library (`ExactApp` / `ExactSession` / `ExactView`, the presenters, text per session, canvases and web views per session over modules loaded once, the agent, the dev connection) with `ExactMac` and `ExactIOS` as adapters over it and `ExactHostMac` as the sample host; §4 and §5 describe the shape before that landing where they name `exact_boot(measure, …)`, the static `enum Exact`, `host/apple/macos/Package.swift`, or `host/apple/swift/`; the header comment in `include/exact.h` and LLP 1031 are current)**
+**Revised:** 2026-08-29 (§9: iOS — the UIKit presenter over the same archive, the Swift the two presenters share, the simulator as the run; §7 and the summary follow); 2026-08-30 (§9: `viewport-fit=cover` with the insets to the kernel, and the keyboard's inset on the viewport; §4: `exact_insets`); 2026-09-04 (§4: the update store's entries — `exact_update_*`, per process, no handle but `exact_update_sync`; the ABI stays v2; `exact_boot` boots the store's selection); 2026-08-31 (§9: macOS `viewport-fit=cover` is a full-size-content window, titlebar height as `safe-area-inset-top`; §5: Edit menu so the field editor's command keys work); **2026-09-03 (LLP 1031 D2/D1 landed: the C ABI is v2 — every export takes a runtime handle from `exact_create`, callbacks are set per runtime, a destroyed or busy handle is refused by name, never a trap — and the Swift is one package, `host/apple/Package.swift`: the `ExactKit` library (`ExactApp` / `ExactSession` / `ExactView`, the presenters, text per session, canvases and web views per session over modules loaded once, the agent, the dev connection) with `ExactMac` and `ExactIOS` as adapters over it and `ExactHostMac` as the sample host; §4 and §5 describe the shape before that landing where they name `exact_boot(measure, …)`, the static `enum Exact`, `host/apple/macos/Package.swift`, or `host/apple/swift/`; the header comment in `include/exact.h` and LLP 1031 are current)**
 **Implementer:** Claude (Fable 5), landing 2026-08-29 (this document transcribes the landing; iOS the same day, §9)
 **Related:** LLP 1007 (the web host whose shape this repeats), LLP 1001 §5–6 (layout is a host call; text measurement is an injected trait object) and §9 (the C ABI waited for its consumer — this is it), LLP 1002 D2/§4 (every host but the web runs `exact-motion`; Core Animation delegation is a measured question), LLP 1003 §4 (the seam), LLP 1000 (the map: web first, then Apple, then Linux), `rules/RULES.md` §Time budgets, `rules/NOT-DOING.md` §Motion (no CA executor yet). Research, never authority, whose lessons this applies: exact1's LLP 0113/0116/0169 (SwiftUI's delivery hop measured), 0223 (the AppKit/UIKit cutover), 0418/0430/0432 (CoreText as the one text engine), 0323 (measurement caching — shelved there, adopted here at its cheap end).
 
@@ -132,6 +132,30 @@ pumps the queue itself while the run loop turns (its handler runs inside a
 main-queue block, so the wake's own main-queue pump cannot run until it
 returns) and reports `settled: false` after twenty seconds of a request
 still out.
+
+**The update store (LLP 1026 D9/D11; LLP 1030 D7; built 2026-09-04).**
+`host/apple/src/update.rs` holds one `exact_update::Client` per process
+behind a lock — the app's container holds the store and every runtime
+boots from its selection, and the runtime registry is thread-local — so
+the entries take no handle except `exact_update_sync(rt)`, and the
+version stays 2. `exact_update_open(len)` reads
+`{"base":…,"assets":…}` from the store's own input buffer
+(`exact_update_in`; `exact_update_out` answers) and puts the store at
+`<base>/exact/<app id>/update` from `compat.json`'s facts;
+`exact_update_select` reports the entry and its assets directory (the
+host's overrides by name); **`exact_boot` boots the selection** — the
+entry's plan, else the baked bytes — and counts the boot, falling back
+to entry zero in the same launch when the entry's plan is refused;
+`exact_update_boot_succeeded` at first pixel (`ExactSession.firstDrawn`).
+`exact_update_check(done, ctx)` runs the check on a thread of the
+library's own over ibex2's transport (the executor's `NSURLSession`) and
+calls `done` there with one line; `ExactApp` hops to the main thread,
+logs it, and calls `exact_update_sync` per session so the `delivery`
+resource follows. `exact_update_activate` hands the staged plan's bytes
+over and `ExactApp.apply` restarts every session with carry. Swift holds
+no networking for updates; `Updates.swift` is the whole face. The dev
+policy fold (1026 D12) is owed: `EXACT_DEV_PLAN` and `PlanURL` are as
+they were.
 
 LLP 1001 §9 left the C ABI "waiting for the consumer that would make its spec
 transcription rather than speculation"; this is that consumer, and the ABI

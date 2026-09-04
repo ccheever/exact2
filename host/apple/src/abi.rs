@@ -163,6 +163,49 @@ impl<D: DataSource> Bridge<D> {
     /// the monospace reference measurer when none is given) under a
     /// viewport; the output is the first batch.
     pub fn boot(&mut self, plan: &[u8], data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
+        match self.boot_fresh(plan, data, hooks, width, height) {
+            Ok(batch) => self.emit(batch),
+            Err(e) => self.emit(format!(
+                "{{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"boot: {}\"}}",
+                escape(&e)
+            )),
+        }
+    }
+
+    /// `exact_boot`: boot what the update store selected (LLP 1026 D9) —
+    /// the selected entry's plan when there is one, else `embedded`, the
+    /// bytes baked into the library — counting the boot first (D11). An
+    /// entry whose plan is refused at boot boots entry zero in the same
+    /// launch, the refusal journaled and the failure left standing in the
+    /// record, so first pixel does not bless it. `data` makes the source
+    /// for each attempt.
+    pub fn boot_selected(
+        &mut self,
+        embedded: &[u8],
+        mut data: impl FnMut() -> D,
+        hooks: Hooks,
+        width: f32,
+        height: f32,
+    ) -> u32 {
+        let selected = crate::update::selected_plan();
+        crate::update::boot_started();
+        if let Some((entry, bytes)) = selected {
+            match self.boot_fresh(&bytes, data(), hooks, width, height) {
+                Ok(batch) => return self.emit(batch),
+                Err(e) => crate::update::entry_refused(&entry, &e),
+            }
+        }
+        self.boot(embedded, data(), hooks, width, height)
+    }
+
+    fn boot_fresh(
+        &mut self,
+        plan: &[u8],
+        data: D,
+        hooks: Hooks,
+        width: f32,
+        height: f32,
+    ) -> Result<String, String> {
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
             None => Box::new(MonospaceMeasurer::default()),
@@ -199,13 +242,21 @@ impl<D: DataSource> Bridge<D> {
                     hooks.wake.map(|w| (w, hooks.wake_ctx)),
                 ));
                 self.host = Some(host);
-                self.emit(batch)
+                Ok(batch)
             }
-            Err(e) => self.emit(format!(
-                "{{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"boot: {}\"}}",
-                escape(&format!("{e:?}"))
-            )),
+            Err(e) => Err(format!("{e:?}")),
         }
+    }
+
+    /// What the update store has to say, into this runtime's runner (LLP
+    /// 1030 D7) — after a check, after an activation; the output is the
+    /// batch of the `delivery` resource's re-answer.
+    pub fn sync_delivery(&mut self) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.sync_delivery());
+        self.emit(out)
     }
 
     /// Boot from the input buffer's first `len` bytes (a plan the app
@@ -594,13 +645,70 @@ macro_rules! host {
             }
         }
 
-        /// Boot the baked plan; returns the first batch's length.
+        /// Boot the selected plan — the update store's entry when one is
+        /// selected (LLP 1026 D9), else the baked one; returns the first
+        /// batch's length.
         #[no_mangle]
         pub extern "C" fn exact_boot(rt: u32, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
                 b.set_compat($compat);
-                b.boot($plan, <$data as ::std::default::Default>::default(), hooks, width, height)
+                b.boot_selected($plan, || <$data as ::std::default::Default>::default(), hooks, width, height)
             }, |n| n)
+        }
+
+        /// The update store's input buffer (a path payload); its address.
+        #[no_mangle]
+        pub extern "C" fn exact_update_in(len: usize) -> *mut u8 {
+            $crate::update::input(len)
+        }
+
+        /// The update store's output buffer: the last update call's answer.
+        #[no_mangle]
+        pub extern "C" fn exact_update_out() -> *const u8 {
+            $crate::update::output_ptr()
+        }
+
+        /// Open the update store (LLP 1026 D9) for this binary: the input
+        /// buffer's first `len` bytes are `{"base":…,"assets":…}`. 0, or the
+        /// refusal's length.
+        #[no_mangle]
+        pub extern "C" fn exact_update_open(len: usize) -> u32 {
+            $crate::update::open(len, $compat, $plan)
+        }
+
+        /// The selection, one JSON line; its length.
+        #[no_mangle]
+        pub extern "C" fn exact_update_select() -> u32 {
+            $crate::update::select()
+        }
+
+        /// First pixel: the selection that booted is good (LLP 1026 D11).
+        #[no_mangle]
+        pub extern "C" fn exact_update_boot_succeeded() {
+            $crate::update::boot_succeeded()
+        }
+
+        /// Check the stream's head on a thread of the library's own (LLP
+        /// 1026 D11): 0 started, 1 already checking, 2 no store.
+        #[no_mangle]
+        pub extern "C" fn exact_update_check(
+            done: ::std::option::Option<$crate::update::DoneFn>,
+            ctx: *mut ::std::ffi::c_void,
+        ) -> u32 {
+            $crate::update::check(done, ctx)
+        }
+
+        /// The staged plan's bytes (LLP 1030 D7 `deliveryActivate`); its
+        /// length, 0 when nothing is staged.
+        #[no_mangle]
+        pub extern "C" fn exact_update_activate() -> u32 {
+            $crate::update::activate()
+        }
+
+        /// What the store has to say, into this runtime's runner; the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_update_sync(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.sync_delivery(), |n| n)
         }
 
         /// The executor's queued replies into the runner (LLP 1016 D2), on

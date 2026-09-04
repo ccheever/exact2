@@ -510,9 +510,9 @@ pub fn resolve_url(base: &str, url: &str) -> Result<String, String> {
 }
 
 /// Standard base64 with padding, decoded strictly: the signature is 64 bytes
-/// and nothing else in an envelope is encoded, so this is the whole need and
-/// costs no dependency.
-fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
+/// and a baked verification key 32, and nothing else is encoded, so this is
+/// the whole need and costs no dependency.
+pub(crate) fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
     fn sextet(b: u8) -> Option<u8> {
         match b {
             b'A'..=b'Z' => Some(b - b'A'),

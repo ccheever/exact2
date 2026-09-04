@@ -24,6 +24,8 @@
 //!   motion, events, timers.
 //! - [`store`] — the app's kept secrets (LLP 1018): `ibex2::host::Secrets`
 //!   read into a snapshot before boot, written after each commit.
+//! - [`update`] — the update store (LLP 1026 D9/D11): one per process,
+//!   selection at boot, the check on its own thread after first pixel.
 //! - [`abi`] — the C exports: the web's buffer discipline over `extern "C"`.
 //!
 //! [`TextMeasurer`]: exact_kernel::TextMeasurer
@@ -38,5 +40,6 @@ pub mod host;
 pub mod measure;
 pub mod store;
 pub mod style;
+pub mod update;
 
 pub use host::{Host, HostError};

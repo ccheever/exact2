@@ -24,6 +24,9 @@ exact-kernel = { path = "../../kernel" }
 exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
+# The update store (LLP 1026 D9/D11; LLP 1030 D7): selection at launch, the
+# check after first pixel over the transport below, on one thread of its own.
+exact-update = { path = "../../update" }
 # The executor for a request that leaves the process (LLP 1016 D2): ibex2's
 # standard library for a Rust consumer (ibex LLP 0068) — rustls off Apple
 # (its OQ2) — from the sibling checkout, as the Apple host takes it.

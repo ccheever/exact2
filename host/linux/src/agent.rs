@@ -16,7 +16,11 @@ use std::io::{BufRead, Write};
 
 /// Serve requests until stdin closes or `quit` arrives. The first line out
 /// is `{"ready":true,"boot":ms,"views":n,"error":null|"…"}`.
-pub fn serve<D: DataSource>(p: &mut Presenter<D>, boot_ms: f64, boot_error: Option<&str>) -> i32 {
+pub fn serve<D: DataSource + Default>(
+    p: &mut Presenter<D>,
+    boot_ms: f64,
+    boot_error: Option<&str>,
+) -> i32 {
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
     let mut ready = format!(
@@ -48,13 +52,23 @@ pub fn serve<D: DataSource>(p: &mut Presenter<D>, boot_ms: f64, boot_error: Opti
 }
 
 /// Answer one request.
-pub fn handle<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> String {
     p.poll_images();
     // A reply that landed since the last operation commits before this one
-    // (the other hosts apply it as it lands; here nothing runs between).
+    // (the other hosts apply it as it lands; here nothing runs between) —
+    // a finished update check likewise, and the commands the last
+    // operation's commits asked for run before this one is answered.
     if let Some(e) = p.pump(p.host().now()) {
         eprintln!("exact: {e}");
     }
+    p.poll_update();
+    p.run_commands(D::default);
+    let reply = answer(p, line);
+    p.run_commands(D::default);
+    reply
+}
+
+fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let id = || field_num(line, "id").map(|n| n as u32);
     match field_str(line, "op").as_deref() {
         Some("tree") => unavailable_tree(p),

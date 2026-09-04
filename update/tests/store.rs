@@ -90,7 +90,7 @@ impl Bundle {
             });
             text = serde_json::to_string(&envelope).unwrap();
         }
-        let base = format!("{ORIGIN}/.exact/{}", self.cohort);
+        let base = format!("{ORIGIN}/.exact/{}/{}", self.channel, self.cohort);
         let mut files = HashMap::new();
         files.insert(format!("{base}/exact.json"), text.clone().into_bytes());
         // The tampered body is the declared *length* with other bytes, so the
@@ -127,6 +127,15 @@ impl Origin {
     }
 
     fn check(&mut self, store: &mut Store) -> Result<Check, String> {
+        self.check_embedding(store, &[])
+    }
+
+    /// The same check from a binary that embeds `assets` (name, bytes).
+    fn check_embedding(
+        &mut self,
+        store: &mut Store,
+        assets: &[(&str, &[u8])],
+    ) -> Result<Check, String> {
         self.asked.clear();
         let files = &self.files;
         let asked = &mut self.asked;
@@ -134,7 +143,17 @@ impl Origin {
             asked.push(url.to_string());
             files.get(url).cloned().ok_or_else(|| format!("404 {url}"))
         };
-        store.check(ORIGIN, &mut fetch)
+        let mut embedded = |name: &str| -> Option<String> {
+            assets
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, bytes)| sha256_hex(bytes))
+        };
+        store.check(
+            &exact_update::head_url(ORIGIN, "release", COHORT),
+            &mut fetch,
+            &mut embedded,
+        )
     }
 }
 
@@ -194,8 +213,9 @@ fn embedded(keys: &[(&str, [u8; 32])]) -> Embedded {
         app_id: APP.into(),
         compatibility_id: COHORT.into(),
         seq: EMBEDDED_SEQ,
+        channel: "release".into(),
         verification_keys: keys.iter().map(|(id, k)| ((*id).into(), *k)).collect(),
-        embedded_digest: None,
+        embedded_plan_sha256: None,
     }
 }
 
@@ -321,7 +341,7 @@ fn another_compatibility_id_is_refused_before_any_download() {
     let (text, _) = other.publish();
     let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
     origin.files.insert(
-        format!("{ORIGIN}/.exact/{COHORT}/exact.json"),
+        format!("{ORIGIN}/.exact/release/{COHORT}/exact.json"),
         text.into_bytes(),
     );
     let mut store = open(&temp);
@@ -371,7 +391,7 @@ fn a_tampered_plan_is_refused_and_nothing_is_written() {
 
     // A body of another length is refused before it is even hashed.
     origin.files.insert(
-        format!("{ORIGIN}/.exact/{COHORT}/app.plan"),
+        format!("{ORIGIN}/.exact/release/{COHORT}/app.plan"),
         b"a much longer plan than the head declared".to_vec(),
     );
     let mut store = open(&temp);
@@ -388,7 +408,7 @@ fn a_head_over_64_kb_is_refused() {
     let temp = Temp::new("huge");
     let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
     origin.files.insert(
-        format!("{ORIGIN}/.exact/{COHORT}/exact.json"),
+        format!("{ORIGIN}/.exact/release/{COHORT}/exact.json"),
         vec![b' '; 64 * 1024 + 1],
     );
     let mut store = open(&temp);
@@ -536,8 +556,8 @@ fn an_asset_already_in_the_store_is_reused_by_digest() {
     assert_eq!(
         origin.asked,
         vec![
-            format!("{ORIGIN}/.exact/{COHORT}/exact.json"),
-            format!("{ORIGIN}/.exact/{COHORT}/app.plan"),
+            format!("{ORIGIN}/.exact/release/{COHORT}/exact.json"),
+            format!("{ORIGIN}/.exact/release/{COHORT}/app.plan"),
         ],
         "the asset was reused, not fetched"
     );
@@ -635,6 +655,10 @@ fn activate_hands_over_the_staged_plan_and_status_follows_each_step() {
     assert!(status.staged);
     assert_eq!(status.entry, None, "entry zero is still running");
     assert_eq!(status.selected_seq, 4);
+    assert_eq!(
+        status.running_seq, EMBEDDED_SEQ,
+        "entry zero is still running"
+    );
     assert_eq!(status.embedded_seq, EMBEDDED_SEQ);
     assert_eq!(status.stream, format!("release/{COHORT}"));
     let staged = store.staged().expect("staged");
@@ -645,7 +669,45 @@ fn activate_hands_over_the_staged_plan_and_status_follows_each_step() {
     let status = store.status();
     assert!(!status.staged);
     assert_eq!(status.entry, Some(entry));
+    assert_eq!(status.running_seq, 4);
     assert!(store.activate().is_none(), "activated once");
+}
+
+#[test]
+fn app_decides_holds_a_checked_bundle_until_the_app_activates_it() {
+    let temp = Temp::new("app-decides");
+    let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
+    let mut store = open(&temp);
+    store.hold_staged(true);
+    store.boot_started().unwrap();
+    store.boot_succeeded().unwrap();
+    let Ok(Check::Staged { entry, seq, .. }) = origin.check(&mut store) else {
+        panic!("the head should have staged");
+    };
+    assert_eq!(seq, 4);
+    let status = store.status();
+    assert!(status.staged, "held, and the app is told");
+    assert_eq!(status.selected_seq, EMBEDDED_SEQ, "but nothing is selected");
+    assert_eq!(status.stream, "embedded");
+    assert!(
+        matches!(origin.check(&mut store), Ok(Check::Current { .. })),
+        "the held bundle is what the head names: current, not staged twice"
+    );
+
+    // The next launch still boots entry zero, and still holds it.
+    let mut next = open(&temp);
+    next.hold_staged(true);
+    assert_eq!(next.select().entry, None);
+    assert_eq!(next.staged().map(|s| s.entry), Some(entry.clone()));
+
+    // Until the app activates: then it runs, and the launches after boot it.
+    assert_eq!(next.activate(), Some(b"plan four".to_vec()));
+    assert_eq!(next.status().entry, Some(entry.clone()));
+    assert_eq!(next.status().running_seq, 4);
+    assert!(!next.status().staged);
+    let after = open(&temp);
+    assert_eq!(after.select().entry, Some(entry));
+    assert_eq!(after.select().seq, 4);
 }
 
 // -------------------------------------------------------------- canonical bytes
@@ -684,16 +746,15 @@ fn the_canonical_bytes_are_json_stringify_over_recursively_sorted_keys() {
 }
 
 #[test]
-fn a_head_the_binary_already_embeds_is_current_and_downloads_nothing() {
-    let temp = Temp::new("embedded-digest");
-    let bundle = Bundle::new(EMBEDDED_SEQ, b"plan three");
-    let (text, _) = bundle.publish();
+fn a_head_naming_the_embedded_plan_and_assets_is_current_and_downloads_nothing() {
+    let temp = Temp::new("embedded-plan");
+    let bundle = Bundle::new(EMBEDDED_SEQ, b"plan three").asset("mark.png", b"a mark");
     let mut origin = Origin::of(&bundle);
     let mut carried = embedded(&[]);
-    carried.embedded_digest = Some(sha256_hex(text.as_bytes()));
-    let mut store = Store::open(temp.path(), carried).unwrap();
+    carried.embedded_plan_sha256 = Some(sha256_hex(b"plan three"));
+    let mut store = Store::open(temp.path(), carried.clone()).unwrap();
     assert!(matches!(
-        origin.check(&mut store),
+        origin.check_embedding(&mut store, &[("mark.png", b"a mark")]),
         Ok(Check::Current { sunset: None })
     ));
     assert_eq!(origin.asked.len(), 1, "only the head is fetched");
@@ -701,6 +762,45 @@ fn a_head_the_binary_already_embeds_is_current_and_downloads_nothing() {
         entry_names(&temp).is_empty(),
         "entry zero is not in the store"
     );
+    assert_eq!(store.status().stream, "embedded");
+    assert_eq!(store.status().running_seq, EMBEDDED_SEQ);
+
+    // The same plan with a changed asset is an asset-only update: staged.
+    let mut store = Store::open(temp.path(), carried.clone()).unwrap();
+    let Ok(Check::Staged { entry, .. }) =
+        origin.check_embedding(&mut store, &[("mark.png", b"an older mark")])
+    else {
+        panic!("a changed asset should have staged");
+    };
+    assert_eq!(origin.asked.len(), 3, "head, plan, asset");
+    assert_eq!(entry_names(&temp), vec![entry]);
+
+    // And a binary that does not embed the asset at all stages it too.
+    let temp = Temp::new("embedded-plan-no-asset");
+    let mut store = Store::open(temp.path(), carried).unwrap();
+    assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
+}
+
+#[test]
+fn another_channel_is_refused_before_any_download() {
+    let temp = Temp::new("channel");
+    let mut beta = Bundle::new(4, b"plan four");
+    beta.channel = "beta".into();
+    // Served at the release channel's path: a head replayed across channels.
+    let (text, _) = beta.publish();
+    let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
+    origin.files.insert(
+        format!("{ORIGIN}/.exact/release/{COHORT}/exact.json"),
+        text.into_bytes(),
+    );
+    let mut store = open(&temp);
+    let refusal = origin.check(&mut store).unwrap_err();
+    assert!(
+        refusal.contains("channel beta; this binary is release"),
+        "unexpected refusal: {refusal}"
+    );
+    assert_eq!(origin.asked.len(), 1, "nothing was downloaded");
+    assert!(entry_names(&temp).is_empty());
 }
 
 #[test]
@@ -718,7 +818,7 @@ fn the_canonical_bytes_are_what_a_head_is_signed_over() {
     let temp = Temp::new("canonical-head");
     let mut origin = Origin::of(&bundle);
     origin.files.insert(
-        format!("{ORIGIN}/.exact/{COHORT}/exact.json"),
+        format!("{ORIGIN}/.exact/release/{COHORT}/exact.json"),
         shuffled.into_bytes(),
     );
     let mut store = Store::open(
@@ -735,7 +835,7 @@ fn the_canonical_bytes_are_what_a_head_is_signed_over() {
     assert_ne!(edited, text);
     let temp = Temp::new("canonical-edited");
     origin.files.insert(
-        format!("{ORIGIN}/.exact/{COHORT}/exact.json"),
+        format!("{ORIGIN}/.exact/release/{COHORT}/exact.json"),
         edited.into_bytes(),
     );
     let mut store = Store::open(

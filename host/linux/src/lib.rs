@@ -28,6 +28,8 @@
 //! - [`agent`] — the agent API on stdio (`Agent.swift`'s twin).
 //! - [`executor`] — `ibex2::host` on a worker thread for a request that
 //!   leaves the process (LLP 1016 D2), its wake a socketpair the loop polls.
+//! - [`update`] — the update store (LLP 1026 D9/D11): selection at launch,
+//!   the check on its own thread after first pixel, its wake in the poll set.
 //! - [`app`] — the entry: the environment, headless or display.
 //! - [`display`], [`input`], [`vnc`] (Linux) — KMS dumb buffers, evdev, and
 //!   the screen over RFB with a client's pointer and keys as input.
@@ -50,6 +52,7 @@ pub mod paint;
 pub mod presenter;
 pub mod raster;
 pub mod text;
+pub mod update;
 #[cfg(target_os = "linux")]
 pub mod vnc;
 

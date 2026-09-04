@@ -39,15 +39,23 @@
 //!
 //! - [`envelope`] — the envelope, its canonical bytes, and the signature.
 //! - [`store`] — the store directory, selection, the crash counter, the check.
+//! - [`binary`] — what the bake wrote into the binary (`compat.json`), read
+//!   back into what the store is opened with and where it checks.
+//! - [`client`] — the store as a host runs it: open from the baked facts,
+//!   select, the boot marks, one check as an outcome line, activate.
 
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod binary;
+pub mod client;
 pub mod envelope;
 pub mod store;
 
+pub use binary::{Activate, Baked};
+pub use client::{Client, Outcome};
 pub use envelope::{canonical_bytes, sha256_hex, Card, Envelope, FileCard, StreamCard};
-pub use store::{Check, Embedded, Selection, Staged, Status, Store};
+pub use store::{head_url, Check, Embedded, Selection, Staged, Status, Store};
 
 /// The store's record codec (LLP 1030 D1, D9; `contract::compat::STORE_CODEC`):
 /// the first. A record whose `codec` major is not this one is another binary's

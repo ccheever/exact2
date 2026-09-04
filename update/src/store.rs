@@ -47,17 +47,23 @@ pub struct Embedded {
     /// The `seq` of the bundle the binary embeds: the anti-rollback floor for a
     /// client that has taken no update.
     pub seq: u64,
+    /// The channel this binary bakes in (LLP 1030.000 D4): the stream it
+    /// checks is `(channel, compatibility id)`, and a head for another
+    /// channel — signed for it, replayed here — is refused.
+    pub channel: String,
     /// The developer's verification keys, by key id — raw Ed25519 public keys.
     /// **Empty means a dev binary**, which admits an unsigned head; a binary
     /// with keys refuses one (LLP 1026 D11). Rotation is a new binary.
     pub verification_keys: Vec<(String, [u8; 32])>,
-    /// The SHA-256 of the embedded bundle's own `exact.json`, when the bake
-    /// wrote it beside the archive (LLP 1026 D9: "the client knows, by digest,
-    /// what it already has"). With it, a fresh install whose origin still
-    /// serves the bundle it shipped with answers [`Check::Current`] and
+    /// The SHA-256 of the plan the binary embeds — what a binary can actually
+    /// know about entry zero (LLP 1026 D9: "the client knows, by digest, what
+    /// it already has"). The published head is a document the binary never
+    /// carried, so its digest could not say "current"; the plan's can. With
+    /// it, a fresh install whose origin still serves the plan it shipped with
+    /// — and assets it also embeds, by digest — answers [`Check::Current`] and
     /// downloads nothing; without it, that client stages one copy of what it
     /// already has, once.
-    pub embedded_digest: Option<String>,
+    pub embedded_plan_sha256: Option<String>,
 }
 
 /// What to boot (LLP 1026 D9). `plan` is `None` for entry zero — the bundle in
@@ -117,6 +123,9 @@ pub struct Status {
     pub stream: String,
     /// The `seq` of what is selected for the next launch.
     pub selected_seq: u64,
+    /// The `seq` of the entry this process booted — the embedded one's for
+    /// entry zero.
+    pub running_seq: u64,
     /// The `seq` of the bundle in the binary.
     pub embedded_seq: u64,
     /// Whether a bundle is staged that the running one is not.
@@ -136,8 +145,13 @@ pub struct Store {
     /// A record written by a binary with a newer store codec: this client
     /// selects entry zero and **writes nothing at all** (LLP 1030 D9).
     frozen: bool,
+    /// `app-decides` (LLP 1030.000 D4): a checked bundle is held as
+    /// `pending` rather than selected, until [`Store::activate`].
+    hold: bool,
     /// The entry this process booted, remembered from the selection at open.
     running: Option<String>,
+    /// That entry's `seq` (the embedded one's for entry zero).
+    running_seq: u64,
     /// The validated view of `record.selected`, or `None` for entry zero.
     view: Option<EntryView>,
 }
@@ -153,11 +167,15 @@ struct EntryView {
     sunset: Option<Card>,
 }
 
-/// The record, in memory. Its JSON is `{ "codec", "selected", "lastGood",
-/// "failures", "stream": { "compatibilityId", "seq" }, "bad" }`.
+/// The record, in memory. Its JSON is `{ "codec", "selected", "pending",
+/// "lastGood", "failures", "stream": { "compatibilityId", "seq" }, "bad" }`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Record {
     selected: Option<String>,
+    /// An entry on disk whole that no launch boots until the app activates
+    /// it — the `app-decides` policy (LLP 1030.000 D4): `check` puts it
+    /// here instead of `selected`, and `activate` promotes it.
+    pending: Option<String>,
     last_good: Option<String>,
     failures: u64,
     compatibility_id: String,
@@ -179,6 +197,7 @@ impl Record {
     fn fresh(compatibility_id: &str) -> Record {
         Record {
             selected: None,
+            pending: None,
             last_good: None,
             failures: 0,
             compatibility_id: compatibility_id.to_string(),
@@ -195,6 +214,7 @@ impl Record {
         let value = serde_json::json!({
             "codec": crate::STORE_CODEC,
             "selected": quoted(&self.selected),
+            "pending": quoted(&self.pending),
             "lastGood": quoted(&self.last_good),
             "failures": self.failures,
             "stream": { "compatibilityId": self.compatibility_id, "seq": self.seq },
@@ -232,6 +252,10 @@ fn read_record(path: &Path) -> RecordFile {
     RecordFile::Ours(Record {
         selected: object
             .get("selected")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        pending: object
+            .get("pending")
             .and_then(|v| v.as_str())
             .map(str::to_string),
         last_good: object
@@ -277,9 +301,11 @@ impl Store {
             .map_err(|e| format!("cannot make {}: {e}", entries.display()))?;
         let mut store = Store {
             dir: dir.to_path_buf(),
+            running_seq: embedded.seq,
             embedded,
             record: Record::fresh(""),
             frozen: false,
+            hold: false,
             running: None,
             view: None,
         };
@@ -332,7 +358,18 @@ impl Store {
         if store.validate(store.record.last_good.clone()).is_none() {
             store.record.last_good = None;
         }
+        if store.record.pending == store.record.selected
+            || store
+                .record
+                .pending
+                .as_ref()
+                .is_some_and(|p| store.record.bad.contains(p))
+            || store.validate(store.record.pending.clone()).is_none()
+        {
+            store.record.pending = None;
+        }
         store.running = store.record.selected.clone();
+        store.running_seq = store.select().seq;
         if store.record != before {
             store.write_record()?;
         }
@@ -391,39 +428,41 @@ impl Store {
 
     /// Ask the origin for this stream's head, and stage what it names.
     ///
-    /// The URL is the stream's own path (LLP 1030 D3a):
-    /// `<origin>/.exact/<compatibilityId>/exact.json`, so a static host serves
-    /// each cohort its own manifest with no negotiation. `fetch` is the host's
-    /// network — this crate opens no socket — and is called once for the head,
-    /// then once for each file the store does not already have.
+    /// `head_url` is the stream's own path on the origin (LLP 1030 D3a;
+    /// 1030.000 D4) — [`head_url`] builds it:
+    /// `<origin>/.exact/<channel>/<compatibilityId>/exact.json`, so a static
+    /// host serves each cohort of each channel its own manifest with no
+    /// negotiation, and the head's file cards resolve against it. `fetch` is
+    /// the host's network — this crate opens no socket — and is called once
+    /// for the head, then once for each file the store does not already
+    /// have. `embedded_asset` says what the binary itself carries: the digest
+    /// of the embedded asset by that name, or `None`; it is asked only when
+    /// the head's plan is the embedded one, so a host may hash lazily.
     ///
     /// Refused, before anything is written: a head over
     /// [`MAX_ENVELOPE_BYTES`](crate::MAX_ENVELOPE_BYTES), an `exact` major this
     /// binary does not read, another app's id, another cohort's compatibility
-    /// id, a `seq` below what is selected (anti-rollback), an unsigned or
-    /// wrongly signed head when the binary carries keys, a bundle already
-    /// demoted for failing to boot, a file whose digest or byte count is not
-    /// what the head declared, and a url that is not http or https.
+    /// id, another channel's stream, a `seq` below what is selected
+    /// (anti-rollback), an unsigned or wrongly signed head when the binary
+    /// carries keys, a bundle already demoted for failing to boot, a file
+    /// whose digest or byte count is not what the head declared, and a url
+    /// that is not http or https.
     ///
     /// On success the entry is on disk whole and selected for the **next**
     /// launch; nothing about the running app changes until the host calls
     /// [`Store::activate`] (LLP 1026 D11; LLP 1030 D5: two acts).
     pub fn check(
         &mut self,
-        origin: &str,
+        head_url: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
     ) -> Result<Check, String> {
         if self.frozen {
             return Err(
                 "the update record was written by a newer binary; this one changes nothing".into(),
             );
         }
-        let head_url = format!(
-            "{}/.exact/{}/exact.json",
-            origin.trim_end_matches('/'),
-            self.embedded.compatibility_id
-        );
-        let raw = fetch(&head_url)?;
+        let raw = fetch(head_url)?;
         let envelope = Envelope::parse(&raw)?;
         if envelope.app_id != self.embedded.app_id {
             return Err(format!(
@@ -445,6 +484,12 @@ impl Store {
                 envelope.stream.compatibility_id, self.embedded.compatibility_id
             ));
         }
+        if envelope.stream.channel != self.embedded.channel {
+            return Err(format!(
+                "the head is for channel {}; this binary is {}",
+                envelope.stream.channel, self.embedded.channel
+            ));
+        }
         let floor = self.select().seq;
         if envelope.stream.seq < floor {
             return Err(format!(
@@ -454,8 +499,18 @@ impl Store {
         }
         envelope.verify(&self.embedded.verification_keys)?;
         let current = match &self.view {
+            _ if self.record.pending.as_deref() == Some(envelope.digest.as_str()) => true,
             Some(view) => view.sha == envelope.digest,
-            None => self.embedded.embedded_digest.as_deref() == Some(envelope.digest.as_str()),
+            // Entry zero is current when the head names the plan the binary
+            // embeds and, for every asset, one the binary embeds too — an
+            // asset-only update is still an update.
+            None => {
+                self.embedded.embedded_plan_sha256.as_deref() == Some(envelope.plan.sha256.as_str())
+                    && envelope
+                        .assets
+                        .iter()
+                        .all(|a| embedded_asset(&a.name).as_deref() == Some(a.sha256.as_str()))
+            }
         };
         if current {
             if self.record.seq != envelope.stream.seq {
@@ -472,7 +527,7 @@ impl Store {
                 envelope.digest
             ));
         }
-        self.write_entry(&envelope, &head_url, fetch)?;
+        self.write_entry(&envelope, head_url, fetch)?;
         let view = self
             .validate(Some(envelope.digest.clone()))
             .ok_or_else(|| {
@@ -481,10 +536,17 @@ impl Store {
                     envelope.digest
                 )
             })?;
-        self.record.selected = Some(envelope.digest.clone());
+        if self.hold {
+            // `app-decides`: whole on disk and known, booted by no launch
+            // until the app says so.
+            self.record.pending = Some(envelope.digest.clone());
+        } else {
+            self.record.selected = Some(envelope.digest.clone());
+            self.record.pending = None;
+            self.record.failures = 0;
+            self.view = Some(view);
+        }
         self.record.seq = envelope.stream.seq;
-        self.record.failures = 0;
-        self.view = Some(view);
         self.write_record()?;
         Ok(Check::Staged {
             entry: envelope.digest,
@@ -493,16 +555,29 @@ impl Store {
         })
     }
 
-    /// The bundle selected for the next launch, when it is not the one this
-    /// process booted (LLP 1030 D5/D7).
+    /// Hold what a check stages as pending — whole on disk, booted by no
+    /// launch — until [`Store::activate`]: the `app-decides` policy (LLP
+    /// 1030.000 D4). Off, a staged bundle is selected for the next launch.
+    pub fn hold_staged(&mut self, hold: bool) {
+        self.hold = hold;
+    }
+
+    /// The bundle waiting for this process: held pending, or selected for
+    /// the next launch and not the one this process booted (LLP 1030 D5/D7).
     pub fn staged(&self) -> Option<Staged> {
-        let view = self.view.as_ref()?;
-        if self.running.as_deref() == Some(view.sha.as_str()) {
-            return None;
-        }
+        let view = match self.validate(self.record.pending.clone()) {
+            Some(pending) => pending,
+            None => {
+                let view = self.view.as_ref()?;
+                if self.running.as_deref() == Some(view.sha.as_str()) {
+                    return None;
+                }
+                view.clone()
+            }
+        };
         let dir = self.entry_dir(&view.sha);
         Some(Staged {
-            entry: view.sha.clone(),
+            entry: view.sha,
             seq: view.seq,
             plan: dir.join("app.plan"),
             assets_dir: dir.join("assets"),
@@ -512,15 +587,24 @@ impl Store {
     /// The staged plan's bytes, for a host that applies it now — the app's own
     /// `delivery.activate` (LLP 1030 D7). The digest is checked once more
     /// against the entry's envelope before the bytes are handed over; from here
-    /// the staged entry is the running one.
+    /// the staged entry is the running one, and a pending entry is selected
+    /// for the launches after.
     pub fn activate(&mut self) -> Option<Vec<u8>> {
         let staged = self.staged()?;
+        let view = self.validate(Some(staged.entry.clone()))?;
         let plan = std::fs::read(&staged.plan).ok()?;
-        let expected = self.view.as_ref().map(|v| v.plan_sha256.clone())?;
-        if sha256_hex(&plan) != expected {
+        if sha256_hex(&plan) != view.plan_sha256 {
             return None;
         }
+        if self.record.pending.as_deref() == Some(staged.entry.as_str()) {
+            self.record.pending = None;
+            self.record.selected = Some(staged.entry.clone());
+            self.record.failures = 0;
+            self.view = Some(view);
+            self.write_record().ok()?;
+        }
         self.running = Some(staged.entry);
+        self.running_seq = staged.seq;
         Some(plan)
     }
 
@@ -532,6 +616,7 @@ impl Store {
                 None => "embedded".to_string(),
             },
             selected_seq: self.select().seq,
+            running_seq: self.running_seq,
             embedded_seq: self.embedded.seq,
             staged: self.staged().is_some(),
             sunset: self.view.as_ref().and_then(|v| v.sunset.clone()),
@@ -542,6 +627,11 @@ impl Store {
     /// The store's directory.
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// What the binary carries, as this store was opened with.
+    pub fn embedded(&self) -> &Embedded {
+        &self.embedded
     }
 
     /// Whether an unknown store codec froze this store (LLP 1030 D9): the
@@ -710,6 +800,16 @@ impl Store {
         }
         None
     }
+}
+
+/// The head's URL for a stream (LLP 1030 D3a; 1030.000 D4): the channel's
+/// directory under the origin's `.exact/`, then the cohort's, then the
+/// manifest — `<origin>/.exact/<channel>/<compatibilityId>/exact.json`.
+pub fn head_url(origin: &str, channel: &str, compatibility_id: &str) -> String {
+    format!(
+        "{}/.exact/{channel}/{compatibility_id}/exact.json",
+        origin.trim_end_matches('/')
+    )
 }
 
 /// Remove every `.tmp-…` left in `dir` by a write that did not finish.

@@ -29,7 +29,7 @@ use std::fs::{File, OpenOptions};
 use std::os::fd::{AsFd, BorrowedFd};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use tiny_skia::Pixmap;
 
 struct Card(File);
@@ -194,7 +194,7 @@ fn mtime(path: &Path) -> Option<SystemTime> {
 
 /// The display loop: paint when something changed, present, wait for input
 /// or the next timer or motion frame, repeat. Exit code.
-pub fn run<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
+pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i32 {
     let mut display = match Display::open(&config.card) {
         Ok(d) => d,
         Err(e) => {
@@ -233,6 +233,10 @@ pub fn run<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
     let mut down: Option<u32> = None;
     let mut last_tick = 0.0f64;
     let mut plan_seen = config.dev_plan.as_deref().and_then(mtime);
+    // First pixel is the first frame presented (LLP 1026 D11); the update
+    // check follows two seconds after it, off the boot path.
+    let mut first_pixel: Option<Instant> = None;
+    let mut check_due: Option<Instant> = None;
     println!(
         "exact: {pw}x{ph} @{}Hz on {}, scale {}, {} input device(s){}, boot {:.1} ms",
         display.refresh(),
@@ -256,6 +260,11 @@ pub fn run<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
             if let Some(v) = &vnc {
                 v.publish(Arc::new(frame));
             }
+            if first_pixel.is_none() {
+                first_pixel = Some(Instant::now());
+                check_due = Some(Instant::now() + Duration::from_secs(2));
+                p.first_pixel();
+            }
         }
         let now = wall();
         let mut timeout: i32 = -1;
@@ -267,6 +276,10 @@ pub fn run<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
         if p.images().pending() || config.dev_plan.is_some() {
             timeout = if timeout < 0 { 100 } else { timeout.min(100) };
         }
+        if let Some(due) = check_due {
+            let wait = due.saturating_duration_since(Instant::now()).as_millis() as i32;
+            timeout = if timeout < 0 { wait } else { timeout.min(wait) };
+        }
         if input.is_empty() && vnc.is_none() && timeout < 0 {
             timeout = 1000;
         }
@@ -274,11 +287,21 @@ pub fn run<D: DataSource + Default>(config: &Config, started: Instant) -> i32 {
         if let Some(v) = &vnc {
             fds.push(v.fd());
         }
-        // A reply from the executor wakes the loop like a key would.
+        // A reply from the executor wakes the loop like a key would; a
+        // finished update check the same.
         fds.push(p.executor_fd());
+        if let Some(fd) = p.update_fd() {
+            fds.push(fd);
+        }
         poll(&fds, timeout);
         if let Some(e) = p.pump(wall()) {
             eprintln!("exact: {e}");
+        }
+        p.poll_update();
+        p.run_commands(D::default);
+        if check_due.is_some_and(|due| Instant::now() >= due) {
+            check_due = None;
+            p.check_update();
         }
         let mut events = input.read();
         if let Some(v) = vnc.as_mut() {
