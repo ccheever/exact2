@@ -31,8 +31,13 @@
 //!    so a bundle that never reaches first pixel is demoted at the launch after
 //!    next (LLP 1026 D11; LLP 0421 invariant 11).
 
-use crate::envelope::{resolve_url, safe_name, sha256_hex, Card, Envelope};
+use crate::envelope::{resolve_url, safe_name, sha256_hex, Card, Envelope, FileCard};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+type AssetResult = Result<Arc<[u8]>, String>;
+type AssetCache = Arc<Mutex<BTreeMap<String, AssetResult>>>;
 
 /// What the binary itself carries: entry zero's identity, the cohort it
 /// belongs to, and the keys it trusts (LLP 1026 D9/D11; LLP 1030 D3a). The bake
@@ -79,6 +84,106 @@ pub struct Selection {
     /// The `seq` this selection carries: the entry's, or the embedded one's.
     pub seq: u64,
 }
+
+/// The immutable identity of one prepared bundle generation. It lets a host
+/// keep asset reads tied to the plan it prepared and guards boot-time refusal
+/// from clearing a newer selection.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Generation {
+    /// The signed entry's canonical digest, or `None` for entry zero.
+    pub entry: Option<String>,
+    /// The stream sequence carried by this generation.
+    pub seq: u64,
+}
+
+/// A generation-scoped complete asset roster. A name absent here is absent
+/// from the generation — callers must not fall through to embedded files.
+/// Named assets are read and verified only at their first resolution, then
+/// retained as immutable bytes for every clone pinned to this generation.
+#[derive(Debug, Clone)]
+pub struct AssetSet {
+    generation: Generation,
+    root: PathBuf,
+    cards: Arc<BTreeMap<String, FileCard>>,
+    resolved: AssetCache,
+}
+
+impl AssetSet {
+    fn stored(generation: Generation, root: PathBuf, cards: Vec<FileCard>) -> AssetSet {
+        AssetSet {
+            generation,
+            root,
+            cards: Arc::new(
+                cards
+                    .into_iter()
+                    .map(|card| (card.name.clone(), card))
+                    .collect(),
+            ),
+            resolved: Arc::new(Mutex::new(BTreeMap::new())),
+        }
+    }
+
+    /// The generation this roster belongs to.
+    pub fn generation(&self) -> &Generation {
+        &self.generation
+    }
+
+    /// Every asset name in this generation, sorted. This complete roster is
+    /// also the tombstone boundary for embedded or predecessor assets.
+    pub fn names(&self) -> Vec<String> {
+        self.cards.keys().cloned().collect()
+    }
+
+    /// Resolve one name. `Ok(None)` means the complete roster omits it;
+    /// `Err` means the signed card exists but the stored bytes no longer match.
+    /// A result, including a refusal, is cached across clones after one read.
+    pub fn resolve(&self, name: &str) -> Result<Option<Arc<[u8]>>, String> {
+        safe_name(name)?;
+        let Some(card) = self.cards.get(name) else {
+            return Ok(None);
+        };
+        let mut resolved = self.resolved.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(result) = resolved.get(name) {
+            return result.clone().map(Some);
+        }
+        let path = self.root.join(name);
+        let result = read_card(&path, card).map(Arc::from);
+        resolved.insert(name.to_string(), result.clone());
+        result.map(Some)
+    }
+}
+
+/// A selected update after its mandatory plan read has re-proved the signed
+/// card. Its asset set remains lazy and is safe to pin per host session.
+#[derive(Debug, Clone)]
+pub struct PreparedSelection {
+    /// The selected update's generation token.
+    pub generation: Generation,
+    /// The verified plan bytes to decode.
+    pub plan: Arc<[u8]>,
+    /// The generation's complete, lazily verified asset roster.
+    pub assets: AssetSet,
+}
+
+/// Why a selected update could not be prepared at launch. The store has
+/// already moved this process and its durable selection to entry zero.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectionRefusal {
+    /// The entry that failed its signed card.
+    pub entry: String,
+    /// The integrity or store-write refusal.
+    pub reason: String,
+    /// Refreshed delivery status for a host cache before it boots entry zero.
+    pub status: Box<Status>,
+}
+
+impl std::fmt::Display for SelectionRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "entry {} refused at launch: {}", self.entry, self.reason)
+    }
+}
+
+impl std::error::Error for SelectionRefusal {}
 
 /// A bundle selected for the next launch that is not the one running (LLP 1030
 /// D5: check and activate are two acts).
@@ -156,6 +261,9 @@ pub struct Store {
     running_seq: u64,
     /// The validated view of `record.selected`, or `None` for entry zero.
     view: Option<EntryView>,
+    /// A selected entry rejected while opening, retained until the host asks
+    /// for the launch candidate so it can publish the fallback note/status.
+    launch_refusal: Option<(String, String)>,
 }
 
 /// The selected entry, validated: it exists, it parses, and it is this app's
@@ -164,7 +272,8 @@ pub struct Store {
 struct EntryView {
     sha: String,
     seq: u64,
-    plan_sha256: String,
+    plan: FileCard,
+    assets: Vec<FileCard>,
     sunset: Option<Card>,
 }
 
@@ -324,6 +433,7 @@ impl Store {
             hold: false,
             running: None,
             view: None,
+            launch_refusal: None,
         };
         let mut rewrite = false;
         match read_record(&store.record_path()) {
@@ -354,9 +464,14 @@ impl Store {
             // is selectable here, so this cohort starts at entry zero.
             store.record = Record::fresh(&store.embedded);
         }
-        store.view = store.validate(store.record.selected.clone());
-        if store.view.is_none() {
-            store.record.selected = None;
+        if let Some(selected) = store.record.selected.clone() {
+            match store.read_view(&selected) {
+                Ok(view) => store.view = Some(view),
+                Err(reason) => {
+                    store.launch_refusal = Some((selected.clone(), reason));
+                    store.clear_entry_references(&selected);
+                }
+            }
         }
         if store.record.failures >= FAILURES_ALLOWED {
             if let Some(bad) = store.record.selected.take() {
@@ -378,7 +493,12 @@ impl Store {
                 }
             }
         }
-        if store.validate(store.record.last_good.clone()).is_none() {
+        let last_good_is_selected = store
+            .view
+            .as_ref()
+            .zip(store.record.last_good.as_ref())
+            .is_some_and(|(view, last_good)| view.sha == *last_good);
+        if !last_good_is_selected && store.validate(store.record.last_good.clone()).is_none() {
             store.record.last_good = None;
         }
         if store.record.pending == store.record.selected
@@ -424,6 +544,82 @@ impl Store {
                 seq: self.embedded.seq,
             },
         }
+    }
+
+    /// Prepare the update generation this process selected at open. The
+    /// authenticated envelope was read once during [`Store::open`]; this
+    /// mandatory plan read now re-proves its signed byte count and digest.
+    /// Assets stay lazy behind the returned complete [`AssetSet`].
+    ///
+    /// A corrupt candidate is removed from every durable role, is not counted
+    /// as a boot failure, and cannot later be blessed by this process. The
+    /// refusal includes status after the running generation moved to entry
+    /// zero, so a host can refresh its cache before it falls back.
+    pub fn prepare_selected(&mut self) -> Result<Option<PreparedSelection>, SelectionRefusal> {
+        if let Some((entry, reason)) = self.launch_refusal.clone() {
+            return Err(SelectionRefusal {
+                entry,
+                reason,
+                status: Box::new(self.status()),
+            });
+        }
+        let Some(entry) = self.running.clone() else {
+            return Ok(None);
+        };
+        let view = match self.view.as_ref().filter(|view| view.sha == entry).cloned() {
+            Some(view) => view,
+            None => match self.read_view(&entry) {
+                Ok(view) => view,
+                Err(reason) => return Err(self.refuse_running(entry, reason)),
+            },
+        };
+        let plan_path = self.entry_dir(&entry).join("app.plan");
+        let plan = match read_card(&plan_path, &view.plan) {
+            Ok(bytes) => Arc::from(bytes),
+            Err(reason) => return Err(self.refuse_running(entry, reason)),
+        };
+        let generation = Generation {
+            entry: Some(entry.clone()),
+            seq: view.seq,
+        };
+        Ok(Some(PreparedSelection {
+            generation: generation.clone(),
+            plan,
+            assets: AssetSet::stored(
+                generation,
+                self.entry_dir(&entry).join("assets"),
+                view.assets,
+            ),
+        }))
+    }
+
+    /// Refuse a prepared generation before it becomes live after an asset
+    /// resolution proves its stored bytes corrupt. Only the matching running
+    /// generation moves to entry zero; a stale token cannot clear a newer
+    /// selection. Any boot count for the corrupt entry is removed, and it
+    /// cannot be last-good. A host with multiple live sessions must not use
+    /// this as a per-session refusal mechanism.
+    pub fn refuse_prepared(
+        &mut self,
+        generation: &Generation,
+        reason: impl Into<String>,
+    ) -> SelectionRefusal {
+        let reason = reason.into();
+        let Some(entry) = generation.entry.clone() else {
+            return SelectionRefusal {
+                entry: "embedded".to_string(),
+                reason: format!("entry zero is not a stored generation: {reason}"),
+                status: Box::new(self.status()),
+            };
+        };
+        if self.running.as_deref() != Some(entry.as_str()) || self.running_seq != generation.seq {
+            return SelectionRefusal {
+                entry,
+                reason: format!("the generation is no longer running: {reason}"),
+                status: Box::new(self.status()),
+            };
+        }
+        self.refuse_running(entry, reason)
     }
 
     /// Count this boot before it happens (LLP 1026 D11). A no-op when entry
@@ -522,6 +718,12 @@ impl Store {
                 envelope.stream.channel, self.embedded.channel
             ));
         }
+        envelope.verify(&self.embedded.verification_keys)?;
+        // URL admission is part of every authenticated card, including a
+        // card whose bytes are already embedded or present in a whole entry.
+        // Check the entire roster before Current can advance the observed
+        // floor and before either whole-entry or digest reuse can return.
+        validate_card_urls(head_url, &envelope)?;
         let floor = self
             .embedded
             .seq
@@ -533,7 +735,6 @@ impl Store {
                 envelope.stream.seq
             ));
         }
-        envelope.verify(&self.embedded.verification_keys)?;
         let current = match &self.view {
             _ if self.record.pending.as_deref() == Some(envelope.digest.as_str()) => true,
             Some(view) => view.sha == envelope.digest,
@@ -633,10 +834,7 @@ impl Store {
     pub fn activate(&mut self) -> Option<Vec<u8>> {
         let staged = self.staged()?;
         let view = self.validate(Some(staged.entry.clone()))?;
-        let plan = std::fs::read(&staged.plan).ok()?;
-        if sha256_hex(&plan) != view.plan_sha256 {
-            return None;
-        }
+        let plan = read_card(&staged.plan, &view.plan).ok()?;
         if self.record.pending.as_deref() == Some(staged.entry.as_str()) {
             self.record.pending = None;
             self.record.selected = Some(staged.entry.clone());
@@ -706,25 +904,93 @@ impl Store {
     /// The envelope of an entry that is whole, this app's, and this cohort's.
     fn validate(&self, sha: Option<String>) -> Option<EntryView> {
         let sha = sha?;
-        let dir = self.entry_dir(&sha);
-        if !dir.join("app.plan").is_file() {
-            return None;
+        self.read_view(&sha).ok()
+    }
+
+    /// Read an entry's authenticated metadata without reading payload bytes.
+    /// Launch stats and reads this envelope once; the mandatory plan read
+    /// verifies its card, and each asset read verifies its own lazily.
+    fn read_view(&self, sha: &str) -> Result<EntryView, String> {
+        let dir = self.entry_dir(sha);
+        let plan_path = dir.join("app.plan");
+        if !regular_file(&plan_path) {
+            return Err(format!(
+                "{} is not a regular plan file",
+                plan_path.display()
+            ));
         }
-        let raw = std::fs::read(dir.join("exact.json")).ok()?;
-        let envelope = Envelope::parse(&raw).ok()?;
+        let envelope_path = dir.join("exact.json");
+        if !regular_file(&envelope_path) {
+            return Err(format!(
+                "{} is not a regular envelope file",
+                envelope_path.display()
+            ));
+        }
+        let raw = std::fs::read(&envelope_path)
+            .map_err(|e| format!("cannot read {}: {e}", envelope_path.display()))?;
+        let envelope = Envelope::parse(&raw)?;
         if envelope.digest != sha
             || envelope.app_id != self.embedded.app_id
             || envelope.stream.compatibility_id != self.embedded.compatibility_id
             || envelope.stream.channel != self.embedded.channel
         {
-            return None;
+            return Err(format!("entry {sha} does not belong to this update stream"));
         }
-        Some(EntryView {
-            sha,
+        if envelope
+            .stream
+            .app
+            .as_ref()
+            .is_some_and(|app| *app != self.embedded.app_id)
+        {
+            return Err(format!("entry {sha} names another app in its stream"));
+        }
+        if envelope.stream.seq < self.embedded.seq {
+            return Err(format!(
+                "entry {sha} is seq {}, below embedded seq {}",
+                envelope.stream.seq, self.embedded.seq
+            ));
+        }
+        envelope.verify(&self.embedded.verification_keys)?;
+        Ok(EntryView {
+            sha: sha.to_string(),
             seq: envelope.stream.seq,
-            plan_sha256: envelope.plan.sha256,
+            plan: envelope.plan,
+            assets: envelope.assets,
             sunset: envelope.sunset,
         })
+    }
+
+    /// Remove a corrupt entry from every role that could select or bless it.
+    /// The accepted sequence remains an anti-rollback floor.
+    fn clear_entry_references(&mut self, entry: &str) {
+        if self.record.selected.as_deref() == Some(entry) {
+            self.record.selected = None;
+            self.record.failures = 0;
+        }
+        if self.record.pending.as_deref() == Some(entry) {
+            self.record.pending = None;
+        }
+        if self.record.last_good.as_deref() == Some(entry) {
+            self.record.last_good = None;
+        }
+        if self.view.as_ref().is_some_and(|view| view.sha == entry) {
+            self.view = None;
+        }
+    }
+
+    fn refuse_running(&mut self, entry: String, mut reason: String) -> SelectionRefusal {
+        self.clear_entry_references(&entry);
+        self.running = None;
+        self.running_seq = self.embedded.seq;
+        if let Err(write) = self.write_record() {
+            reason.push_str(&format!("; could not persist the fallback: {write}"));
+        }
+        self.launch_refusal = Some((entry.clone(), reason.clone()));
+        SelectionRefusal {
+            entry,
+            reason,
+            status: Box::new(self.status()),
+        }
     }
 
     fn write_record(&self) -> Result<(), String> {
@@ -744,8 +1010,10 @@ impl Store {
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<(), String> {
         let target = self.entry_dir(&envelope.digest);
-        if self.validate(Some(envelope.digest.clone())).is_some() {
-            return Ok(()); // already here, whole: the record just selects it
+        if let Some(view) = self.validate(Some(envelope.digest.clone())) {
+            if self.validate_contents(&view).is_ok() {
+                return Ok(()); // already here, whole: the record just selects it
+            }
         }
         if target.exists() {
             std::fs::remove_dir_all(&target)
@@ -761,6 +1029,15 @@ impl Store {
             let _ = std::fs::remove_dir_all(&tmp);
             format!("cannot put {} in place: {e}", target.display())
         })
+    }
+
+    fn validate_contents(&self, view: &EntryView) -> Result<(), String> {
+        let dir = self.entry_dir(&view.sha);
+        read_card(&dir.join("app.plan"), &view.plan)?;
+        for asset in &view.assets {
+            read_card(&dir.join("assets").join(&asset.name), asset)?;
+        }
+        Ok(())
     }
 
     fn fill(
@@ -790,10 +1067,10 @@ impl Store {
         head_url: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<Vec<u8>, String> {
+        let url = resolve_url(head_url, &card.url)?;
         if let Some(bytes) = self.have(&card.sha256) {
             return Ok(bytes);
         }
-        let url = resolve_url(head_url, &card.url)?;
         let bytes = fetch(&url)?;
         // The closure hands back a whole body, so the declared length is
         // checked here; a host that streams bounds the read by it as it goes.
@@ -879,6 +1156,45 @@ fn sweep(dir: &Path) {
             let _ = std::fs::remove_file(path);
         }
     }
+}
+
+fn regular_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
+}
+
+fn read_card(path: &Path, card: &FileCard) -> Result<Vec<u8>, String> {
+    if !regular_file(path) {
+        return Err(format!(
+            "{} is not a regular file for {}",
+            path.display(),
+            card.name
+        ));
+    }
+    let bytes = std::fs::read(path)
+        .map_err(|e| format!("cannot read {} for {}: {e}", path.display(), card.name))?;
+    if bytes.len() as u64 != card.bytes {
+        return Err(format!(
+            "{} is {} bytes; the signed card declared {}",
+            card.name,
+            bytes.len(),
+            card.bytes
+        ));
+    }
+    let digest = sha256_hex(&bytes);
+    if digest != card.sha256 {
+        return Err(format!(
+            "{} hashes to {digest}; the signed card declared {}",
+            card.name, card.sha256
+        ));
+    }
+    Ok(bytes)
+}
+
+fn validate_card_urls(head_url: &str, envelope: &Envelope) -> Result<(), String> {
+    for card in std::iter::once(&envelope.plan).chain(envelope.assets.iter()) {
+        resolve_url(head_url, &card.url)?;
+    }
+    Ok(())
 }
 
 fn write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {

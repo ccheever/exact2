@@ -22,7 +22,9 @@
 
 use crate::binary::{Activate, Baked};
 use crate::envelope::sha256_hex;
-use crate::store::{Check, Selection, Status, Store};
+use crate::store::{
+    Check, Generation, PreparedSelection, Selection, SelectionRefusal, Status, Store,
+};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -138,6 +140,17 @@ impl Client {
         Some((entry, bytes))
     }
 
+    /// Prepare the update selected for this launch, or `None` for entry zero.
+    /// The plan bytes and complete asset roster are pinned to one generation;
+    /// a corrupt plan returns refreshed fallback status instead of booting or
+    /// counting that selection. This is additive to [`Client::selected_plan`]
+    /// while hosts migrate to generation-scoped asset resolution.
+    pub fn prepare_selected(&mut self) -> Result<Option<PreparedSelection>, SelectionRefusal> {
+        let prepared = self.store.prepare_selected();
+        self.booted_selection = matches!(prepared, Ok(Some(_)));
+        prepared
+    }
+
     /// The selection as one JSON line for a host that reads it across an
     /// ABI: `{"entry":…|null,"seq":N,"plan":"…","assets":"…"}` — the paths
     /// empty for entry zero.
@@ -187,6 +200,19 @@ impl Client {
             format!("exact update: entry {entry} refused at boot: {why}; booted entry zero"),
             self.store.status(),
         )
+    }
+
+    /// A prepared generation's asset verification failed before it became
+    /// live. Integrity failure removes that boot candidate without a boot
+    /// count or blessing and returns already-refreshed fallback status. This
+    /// is not a per-session refusal API for a multi-session host.
+    pub fn selection_corrupt(
+        &mut self,
+        generation: &Generation,
+        why: impl Into<String>,
+    ) -> SelectionRefusal {
+        self.booted_selection = false;
+        self.store.refuse_prepared(generation, why)
     }
 
     /// First pixel: the selection that booted is good (LLP 1026 D11), once
@@ -315,6 +341,7 @@ mod tests {
         );
         assert_eq!(c.activate_policy(), Activate::NextLaunch);
         assert_eq!(c.selected_plan(), None);
+        assert!(matches!(c.prepare_selected(), Ok(None)));
         assert_eq!(
             c.selection_json(),
             "{\"entry\":null,\"seq\":0,\"plan\":\"\",\"assets\":\"\"}"

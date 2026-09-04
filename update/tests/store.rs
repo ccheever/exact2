@@ -294,6 +294,147 @@ fn a_valid_head_is_staged_and_selected_at_the_next_launch() {
 }
 
 #[test]
+fn a_selected_plan_changed_after_staging_is_refused_before_it_counts_or_boots() {
+    let temp = Temp::new("selected-plan-corrupt");
+    let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
+    let mut store = open(&temp);
+    let Ok(Check::Staged { entry, .. }) = origin.check(&mut store) else {
+        panic!("the head should have staged");
+    };
+    std::fs::write(
+        temp.path().join("entries").join(&entry).join("app.plan"),
+        b"PLAN FOUR",
+    )
+    .unwrap();
+
+    let mut launch = open(&temp);
+    let refusal = launch.prepare_selected().unwrap_err();
+    assert_eq!(refusal.entry, entry);
+    assert!(
+        refusal.reason.contains("hashes to"),
+        "unexpected refusal: {}",
+        refusal.reason
+    );
+    assert_eq!(refusal.status.entry, None);
+    assert_eq!(refusal.status.stream, "embedded");
+    assert_eq!(refusal.status.running_seq, EMBEDDED_SEQ);
+    assert_eq!(refusal.status.selected_seq, EMBEDDED_SEQ);
+    launch.boot_started().unwrap();
+    launch.boot_succeeded().unwrap();
+
+    let record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(temp.path().join("record.json")).unwrap())
+            .unwrap();
+    assert_eq!(record["selected"], serde_json::Value::Null);
+    assert_eq!(record["lastGood"], serde_json::Value::Null);
+    assert_eq!(record["failures"], 0);
+    assert_eq!(record["stream"]["seq"], 4, "the rollback floor remains");
+}
+
+#[test]
+fn selected_assets_are_a_complete_lazy_verified_generation() {
+    let temp = Temp::new("selected-assets");
+    let bundle = Bundle::new(4, b"plan four")
+        .asset("icons/mark.png", b"a mark")
+        .asset("unused.png", b"not read yet");
+    let mut origin = Origin::of(&bundle);
+    let mut store = open(&temp);
+    let Ok(Check::Staged { entry, .. }) = origin.check(&mut store) else {
+        panic!("the head should have staged");
+    };
+
+    let mut launch = open(&temp);
+    let entry_dir = temp.path().join("entries").join(&entry);
+    std::fs::remove_file(entry_dir.join("exact.json")).unwrap();
+    let prepared = launch
+        .prepare_selected()
+        .unwrap()
+        .expect("the update generation");
+    assert_eq!(prepared.generation.entry.as_deref(), Some(entry.as_str()));
+    assert_eq!(prepared.generation.seq, 4);
+    assert_eq!(&*prepared.plan, b"plan four");
+    assert_eq!(
+        prepared.assets.names(),
+        vec!["icons/mark.png".to_string(), "unused.png".to_string()]
+    );
+    assert_eq!(prepared.assets.generation(), &prepared.generation);
+    std::fs::remove_file(entry_dir.join("app.plan")).unwrap();
+    assert_eq!(
+        &*prepared.plan, b"plan four",
+        "the authenticated envelope and verified plan are not read twice"
+    );
+    assert!(
+        prepared.assets.resolve("removed.png").unwrap().is_none(),
+        "absence from the complete roster is a tombstone"
+    );
+
+    let first = prepared
+        .assets
+        .resolve("icons/mark.png")
+        .unwrap()
+        .expect("declared asset");
+    assert_eq!(&*first, b"a mark");
+    let asset_path = entry_dir.join("assets/icons/mark.png");
+    std::fs::write(&asset_path, b"changed").unwrap();
+    let again = prepared
+        .assets
+        .clone()
+        .resolve("icons/mark.png")
+        .unwrap()
+        .expect("the verified bytes stay pinned");
+    assert!(
+        std::sync::Arc::ptr_eq(&first, &again),
+        "a clean asset is read and verified only once across pinned clones"
+    );
+    assert_eq!(&*again, b"a mark");
+
+    let unused = entry_dir.join("assets/unused.png");
+    std::fs::remove_file(&unused).unwrap();
+    let reason = prepared.assets.resolve("unused.png").unwrap_err();
+    assert!(
+        reason.contains("not a regular file"),
+        "unexpected: {reason}"
+    );
+    std::fs::write(&unused, b"not read yet").unwrap();
+    assert_eq!(
+        prepared.assets.resolve("unused.png").unwrap_err(),
+        reason,
+        "a terminal integrity refusal is cached across clones too"
+    );
+
+    let refusal = launch.refuse_prepared(&prepared.generation, reason);
+    assert_eq!(refusal.status.entry, None);
+    assert_eq!(refusal.status.stream, "embedded");
+    assert_eq!(launch.select().entry, None);
+    launch.boot_started().unwrap();
+    launch.boot_succeeded().unwrap();
+    let record = std::fs::read_to_string(temp.path().join("record.json")).unwrap();
+    assert!(record.contains("\"failures\":0"));
+}
+
+#[test]
+fn a_selected_asset_changed_before_first_resolution_is_refused_by_its_card() {
+    let temp = Temp::new("selected-asset-corrupt");
+    let bundle = Bundle::new(4, b"plan four").asset("mark.png", b"a mark");
+    let mut origin = Origin::of(&bundle);
+    let mut store = open(&temp);
+    let Ok(Check::Staged { entry, .. }) = origin.check(&mut store) else {
+        panic!("the head should have staged");
+    };
+    let asset = temp
+        .path()
+        .join("entries")
+        .join(entry)
+        .join("assets/mark.png");
+    std::fs::write(asset, b"b mark").unwrap();
+
+    let mut launch = open(&temp);
+    let prepared = launch.prepare_selected().unwrap().unwrap();
+    let refusal = prepared.assets.resolve("mark.png").unwrap_err();
+    assert!(refusal.contains("hashes to"), "unexpected: {refusal}");
+}
+
+#[test]
 fn the_same_head_again_is_current() {
     let temp = Temp::new("current");
     let bundle = Bundle::new(4, b"plan four");
@@ -934,6 +1075,80 @@ fn a_head_naming_the_embedded_plan_and_assets_is_current_and_downloads_nothing()
     let temp = Temp::new("embedded-plan-no-asset");
     let mut store = Store::open(temp.path(), carried).unwrap();
     assert!(matches!(origin.check(&mut store), Ok(Check::Staged { .. })));
+}
+
+#[test]
+fn every_asset_url_is_admitted_before_embedded_current_advances_the_floor() {
+    let temp = Temp::new("embedded-current-card-origin");
+    let bundle = Bundle::new(4, b"plan three")
+        .asset("first.png", b"first")
+        .asset("second.png", b"second");
+    let mut origin = Origin::of(&bundle);
+    let head_url = exact_update::head_url(ORIGIN, "release", COHORT);
+    let mut head: serde_json::Value =
+        serde_json::from_slice(origin.files.get(&head_url).unwrap()).unwrap();
+    head["assets"][1]["url"] =
+        serde_json::Value::String("https://attacker.example/second.png".into());
+    origin.files.insert(
+        head_url,
+        serde_json::to_vec(&head).expect("the edited head is JSON"),
+    );
+
+    let mut carried = embedded(&[]);
+    carried.embedded_plan_sha256 = Some(sha256_hex(b"plan three"));
+    let mut store = Store::open(temp.path(), carried).unwrap();
+    store.boot_succeeded().unwrap();
+    let record = temp.path().join("record.json");
+    let before = std::fs::read(&record).unwrap();
+    let refusal = origin
+        .check_embedding(
+            &mut store,
+            &[("first.png", b"first"), ("second.png", b"second")],
+        )
+        .unwrap_err();
+    assert!(refusal.contains("cross-origin"), "unexpected: {refusal}");
+    assert_eq!(origin.asked.len(), 1, "no card URL was fetched");
+    assert_eq!(
+        std::fs::read(record).unwrap(),
+        before,
+        "a bad card cannot advance the embedded generation's observed floor"
+    );
+    assert_eq!(store.status().selected_seq, EMBEDDED_SEQ);
+    assert!(entry_names(&temp).is_empty());
+}
+
+#[test]
+fn a_plan_url_is_admitted_before_a_whole_old_entry_is_reused() {
+    let temp = Temp::new("whole-entry-card-origin");
+    let bundle = Bundle::new(4, b"plan four").asset("mark.png", b"a mark");
+    let mut origin = Origin::of(&bundle);
+    let head_url = exact_update::head_url(ORIGIN, "release", COHORT);
+    let mut head: serde_json::Value =
+        serde_json::from_slice(origin.files.get(&head_url).unwrap()).unwrap();
+    head["plan"]["url"] = serde_json::Value::String("https://attacker.example/app.plan".into());
+    let raw = serde_json::to_vec(&head).expect("the edited head is JSON");
+    let envelope = exact_update::Envelope::parse(&raw).unwrap();
+    origin.files.insert(head_url, raw.clone());
+
+    let mut store = open(&temp);
+    store.boot_succeeded().unwrap();
+    let record = temp.path().join("record.json");
+    let before = std::fs::read(&record).unwrap();
+    let entry = temp.path().join("entries").join(&envelope.digest);
+    std::fs::create_dir_all(entry.join("assets")).unwrap();
+    std::fs::write(entry.join("exact.json"), raw).unwrap();
+    std::fs::write(entry.join("app.plan"), b"plan four").unwrap();
+    std::fs::write(entry.join("assets/mark.png"), b"a mark").unwrap();
+
+    let refusal = origin.check(&mut store).unwrap_err();
+    assert!(refusal.contains("cross-origin"), "unexpected: {refusal}");
+    assert_eq!(origin.asked.len(), 1, "the whole entry was not reused");
+    assert_eq!(store.select().entry, None);
+    assert_eq!(
+        std::fs::read(record).unwrap(),
+        before,
+        "a bad card cannot mutate selection or its accepted floor"
+    );
 }
 
 #[test]
