@@ -20,7 +20,7 @@
 import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolveApp } from '../../scripts/app.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -273,6 +273,29 @@ function main(args) {
   // the bundle's Frameworks on iOS), loaded on demand by the presenter.
   if (hasGpu) runApple('cargo', ['build', '--release', '-p', gpuCrate, ...targetArgs], { cwd: app.workspace, env: cargoEnv });
   const gpuNote = hasGpu ? dylib : 'no GPU crate';
+  // --embed (LLP 1031 D10, the developer-facing promise): what a consumer
+  // without a Rust toolchain links — the archive, the C header, the GPU
+  // module, the shaders and assets, and the cohort's `compat.json` — under
+  // `target/embed/<app>/<platform>/`, with `ExactKit` as the package at
+  // `host/apple`. No Swift is built for it; the sample hosts are the proof
+  // that the same pieces link.
+  if (args.includes('--embed')) {
+    const platform = ios ? (device ? 'ios' : 'ios-simulator') : 'macos';
+    const embed = resolve(app.target, 'embed', app.name, platform);
+    rmSync(embed, { recursive: true, force: true });
+    mkdirSync(resolve(embed, 'include'), { recursive: true });
+    const archive = `lib${crate.replace(/-/g, '_')}.a`;
+    copyFileSync(resolve(libDir, archive), resolve(embed, archive));
+    copyFileSync(resolve(pkg, 'include/exact.h'), resolve(embed, 'include/exact.h'));
+    if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(embed, loadName));
+    for (const [from, to] of [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]) if (existsSync(resolve(app.dir, from))) cpSync(resolve(app.dir, from), resolve(embed, to), { recursive: true });
+    const compat = read(resolve(root, 'target/release/contract'), ['compat', app.dir, '--platform', ios ? 'ios' : 'macos', '--target', ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), '--json']);
+    if (compat.status === 0) writeFileSync(resolve(embed, 'compat.json'), compat.stdout);
+    writeFileSync(resolve(embed, 'receipt.json'), receipt(app, { platform, target: ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), sdk, archive, gpu: hasGpu ? loadName : null, package: pkg }));
+    const bytes = statSync(resolve(embed, archive)).size;
+    console.log(`host/apple: ${embed.replace(root + '/', '')} — ${archive} ${(bytes / 1048576).toFixed(2)} MB, include/exact.h${hasGpu ? `, ${loadName}` : ''}, shaders, assets, compat.json; link it with the ExactKit package at ${pkg.replace(root + '/', '')}`);
+    if (!args.includes('--run') && !args.includes('--host')) return;
+  }
   const t1 = Date.now();
   // SwiftPM compiles Package.swift itself for macOS before applying the iOS
   // product triple; an iPhone SDKROOT in its environment breaks that host

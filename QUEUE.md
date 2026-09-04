@@ -109,9 +109,7 @@ sits on that list carries the trade it would take.
   sample host, the manifest stage; the iOS sample host landed 2026-09-04 — each pane its
   own navigation controller, `smoke.mjs host-ios`): **content-height containment** (D3's
   guard is written; bounded only today); **the request and store crossings** (D4's
-  contract; triggered by an adopter whose client cannot be wrapped); **packaging**
-  (`build.mjs --embed` and the link delta against `floor.swift` in `metrics.mjs --long`);
-  a request in flight under a destroy (needs a fetching app — Weird Castle — as the
+  contract; triggered by an adopter whose client cannot be wrapped); a request in flight under a destroy (needs a fetching app — Weird Castle — as the
   fixture); and the host smoke's last step, which takes ~4 s after remounting a
   destroyed session's view (the `clock settle` that follows) — find out why.
   Weird Castle is on today's exact2 (2026-09-04: the registry shape, `host!` with

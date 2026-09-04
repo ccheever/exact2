@@ -392,6 +392,19 @@ symbols are the archive's build receipt (1030 D2).
 
 ### D7 — Optional weight is visible and separately payable
 
+**Measured 2026-09-04** (`node scripts/metrics.mjs --long`, this Mac,
+arm64): the sample host `ExactHostMac` — the archive and `ExactKit`,
+nothing optional — is 2.51 MB against `floor.swift`'s 0.08 MB, a **linked
+delta of 2.44 MB, 1.04 MB gzip**; beside it the optional GPU module
+(`libexact_gpu.dylib`, dlopened at the first canvas) is 3.02 MB, 1.43 MB
+gzip, and the web arm 0.16 MB, 0.04 MB gzip — each reported apart, never
+folded in. `node host/apple/build.mjs --embed` (D10's promise) writes
+what a consumer without a Rust toolchain links under
+`target/embed/<app>/<platform>/`: the archive (`libcaltrain_apple.a`,
+30.6 MB unstripped — the linked delta above is what a binary pays), the
+C header, the GPU module, the shaders and assets, the cohort's
+`compat.json`, and a receipt; `ExactKit` is the package at `host/apple`.
+
 The base measurement is the **final linked delta against
 `host/apple/macos/floor.swift`** — the empty AppKit app `metrics.mjs
 --long` already builds — per architecture, from the sample host (D10)

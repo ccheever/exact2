@@ -14,12 +14,12 @@
  */
 import { spawnSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { staticFile, webContentType } from '../host/web/serve.mjs';
-import { macBinary } from '../host/apple/build.mjs';
+import { macBinary, macHostBinary } from '../host/apple/build.mjs';
 
 const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -232,6 +232,27 @@ if (long) {
     macRun();
     macParse(macRun().stdout ?? '');
   });
+  // The linked delta (LLP 1031 D7): the sample host — a native app linking
+  // the archive and ExactKit and nothing else — against the empty AppKit app
+  // `floor.swift`, installed bytes and gzip apart; each optional artifact
+  // (the GPU module, the web arm) reported beside it, never folded in.
+  step('macos-link-delta', () => {
+    const r = spawnSync('node', [resolve(ROOT, 'host/apple/build.mjs'), '--host'], { cwd: ROOT, encoding: 'utf8' });
+    if (r.status !== 0 || !existsSync(macHostBinary) || !existsSync(floorBin)) { out.link_delta_bytes = NaN; return; }
+    const size = (f) => statSync(f).size;
+    const gz = (f) => gzipSync(readFileSync(f), { level: 9 }).length;
+    const binDir = dirname(macHostBinary);
+    out.floor_bytes = size(floorBin); out.floor_gzip_bytes = gz(floorBin);
+    out.host_bytes = size(macHostBinary); out.host_gzip_bytes = gz(macHostBinary);
+    out.macos_bytes = size(macBin); out.macos_gzip_bytes = gz(macBin);
+    out.link_delta_bytes = out.host_bytes - out.floor_bytes;
+    out.link_delta_gzip_bytes = out.host_gzip_bytes - out.floor_gzip_bytes;
+    for (const [key, name] of [['gpu_module', 'libexact_gpu.dylib'], ['web_module', 'libexact_web.dylib']]) {
+      const f = resolve(binDir, name);
+      out[`${key}_bytes`] = existsSync(f) ? size(f) : NaN;
+      out[`${key}_gzip_bytes`] = existsSync(f) ? gz(f) : NaN;
+    }
+  });
 }
 
 out.total_s = (Date.now() - t0) / 1000;
@@ -273,6 +294,12 @@ if (rebuild) rows.push(['edit → wasm rebuilt (no driver)', ms(out.rebuild_ms),
 if (long) {
   const s = (v) => (Number.isFinite(v) ? `${v.toFixed(1)} s` : 'n/a');
   rows.push(['macOS: warm build', s(out.macos_build_s), `cargo ${s(out.macos_build_cargo_s)} · swift ${s(out.macos_build_swift_s)}; budget ${budget('Full build')}`]);
+  const mib = (v) => (Number.isFinite(v) ? `${(v / 1048576).toFixed(2)} MB` : 'n/a');
+  rows.push(
+    ['macOS: link delta (sample host − floor)', mib(out.link_delta_bytes), Number.isFinite(out.link_delta_bytes) ? `${mib(out.link_delta_gzip_bytes)} gzip; host ${mib(out.host_bytes)}, floor ${mib(out.floor_bytes)}; the archive + ExactKit, nothing optional (LLP 1031 D7)` : 'not measured (the sample host or the floor did not build)'],
+    ['  optional: GPU module (dlopen)', mib(out.gpu_module_bytes), Number.isFinite(out.gpu_module_bytes) ? `${mib(out.gpu_module_gzip_bytes)} gzip; paid at the first canvas` : 'no GPU crate'],
+    ['  optional: web arm (dlopen)', mib(out.web_module_bytes), Number.isFinite(out.web_module_bytes) ? `${mib(out.web_module_gzip_bytes)} gzip; paid at the first iframe` : 'n/a'],
+  );
   rows.push(['macOS: touch one line, rebuild', s(out.macos_touch_s), `host/apple/src/host.rs; budget ${budget('Touch one line')}`]);
 }
 console.log(`exact2 metrics — ${new Date().toISOString().slice(0, 19)}Z, warm cache, p50 where repeated`);
