@@ -204,22 +204,73 @@ fn run_check(client: &Mutex<Client>, status: &Mutex<Status>) -> String {
     let transport = ibex2::transport::default_transport();
     let mut c = lock(client);
     let head = c.head_url().map(str::to_string);
-    let mut fetch = |url: &str| -> Result<Vec<u8>, String> {
-        let limit = if head.as_deref() == Some(url) {
-            MAX_HEAD_BYTES
-        } else {
-            MAX_FILE_BYTES
-        };
-        let mut req = ibex2::stdlib::fetch::Request::get(url);
-        req.headers.set("cache-control", "no-cache");
-        req.max_body = Some(limit);
-        let r = transport.send(&req).map_err(|e| format!("{url}: {e}"))?;
-        if r.status != 200 {
-            return Err(format!("{url}: HTTP {}", r.status));
-        }
-        Ok(r.body)
-    };
+    let mut fetch = |url: &str| fetch_one(transport.as_ref(), head.as_deref(), url);
     let outcome = c.check(&mut fetch);
     *lock(status) = c.status();
     outcome.to_string()
+}
+
+/// Fetch one update object. Update cards are same-origin, immutable objects;
+/// a redirect is an answer to refuse, never authority to make another request.
+fn fetch_one(
+    transport: &dyn ibex2::stdlib::fetch::Transport,
+    head: Option<&str>,
+    url: &str,
+) -> Result<Vec<u8>, String> {
+    let limit = if head == Some(url) {
+        MAX_HEAD_BYTES
+    } else {
+        MAX_FILE_BYTES
+    };
+    let mut req = ibex2::stdlib::fetch::Request::get(url);
+    req.redirect = ibex2::stdlib::fetch::RedirectMode::Manual;
+    req.headers.set("cache-control", "no-cache");
+    req.max_body = Some(limit);
+    let r = transport.send(&req).map_err(|e| format!("{url}: {e}"))?;
+    if r.status != 200 {
+        return Err(format!("{url}: HTTP {}", r.status));
+    }
+    Ok(r.body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ibex2::boundary::HostError;
+    use ibex2::stdlib::fetch::{Headers, Request, Response, Transport};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct RedirectTransport {
+        requests: AtomicUsize,
+    }
+
+    impl Transport for RedirectTransport {
+        fn send(&self, request: &Request) -> Result<Response, HostError> {
+            self.requests.fetch_add(1, Ordering::SeqCst);
+            assert_eq!(request.redirect, ibex2::stdlib::fetch::RedirectMode::Manual);
+            let mut headers = Headers::new();
+            headers.set_response("location", "https://attacker.example/entry.json");
+            Ok(Response {
+                status: 302,
+                status_text: "Found".into(),
+                headers,
+                body: b"not an update".to_vec(),
+                url: request.url.clone(),
+                redirected: false,
+            })
+        }
+    }
+
+    #[test]
+    fn update_fetch_refuses_redirect_without_following_location() {
+        let transport = RedirectTransport {
+            requests: AtomicUsize::new(0),
+        };
+        let head = "https://updates.example/apps/demo/head.json";
+
+        let error = fetch_one(&transport, Some(head), head).unwrap_err();
+
+        assert_eq!(error, format!("{head}: HTTP 302"));
+        assert_eq!(transport.requests.load(Ordering::SeqCst), 1);
+    }
 }

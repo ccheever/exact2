@@ -1,6 +1,7 @@
 # The update store allows cross-origin file cards
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The updater now resolves only credential-free HTTP(S) cards on the head's normalized origin; both host transports perform exactly one no-redirect request and reject every 3xx.
 **Systems:** Update store, Delivery, Security
 **Severity:** P1
 **Author:** Codex (GPT-5) for Charlie Cheever
