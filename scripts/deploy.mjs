@@ -54,7 +54,7 @@ import { homedir, hostname, userInfo } from 'node:os';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveApp } from './app.mjs';
-import { blobPath, openOrigin, sha256, streamPath } from './origin.mjs';
+import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath } from './origin.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const PLATFORMS = ['web', 'ios', 'macos', 'linux'];
@@ -298,27 +298,40 @@ async function latestRecord(origin, stream) {
 const inputsDiff = (a, b) => Object.keys({ ...a, ...b }).filter((k) => JSON.stringify(sortKeysDeep(a?.[k] ?? null)) !== JSON.stringify(sortKeysDeep(b?.[k] ?? null))).sort();
 
 /** The table (LLP 1030 D3; 1030.000 D3 item 3): the origin row, a row per stream, a binary row per stream whose cohort this snapshot is not. Nothing is written. */
-async function classify({ app, opts, origin, channel, snapshot, release, web, bundle, compat, platforms, wantOrigin }) {
+export async function classify({ app, opts, origin, channel, snapshot, release, web, bundle, compat, platforms, wantOrigin }) {
   const notes = [];
   if (snapshot.dirty) notes.push(`UNCOMMITTED CHANGES under ${relative(snapshot.repo, app.dir) || '.'} are in this snapshot (--dirty): ${snapshot.changes.join(', ')}`);
   const rows = [];
 
   if (wantOrigin) {
     const files = { new: [], changed: [], current: [] };
+    let unavailable = null;
     for (const rel of walk(web)) {
       const bytes = readFileSync(resolve(web, rel));
-      const have = await origin.get(rel);
+      let have;
+      try { have = await origin.get(rel); }
+      catch (error) { if (!(error instanceof OriginUnavailable)) throw error; unavailable = error.message; break; }
       if (!have) files.new.push(rel);
       else if (!have.equals(bytes)) files.changed.push(rel);
       else files.current.push(rel);
     }
-    rows.push({ kind: 'origin', compatibilityId: compat.web?.id ?? null, action: files.new.length + files.changed.length ? 'publish' : 'current', files });
+    rows.push({ kind: 'origin', compatibilityId: compat.web?.id ?? null,
+      action: unavailable ? 'unavailable' : files.new.length + files.changed.length ? 'publish' : 'current', files,
+      ...(unavailable ? { reason: unavailable } : {}) });
   }
 
   const own = platforms.map((platform) => ({ platform, compatibilityId: compat[platform].id }));
   for (const { platform, compatibilityId } of own) {
     const stream = { channel, compatibilityId };
-    const head = await origin.head(stream);
+    let head;
+    try { head = await origin.head(stream); }
+    catch (error) {
+      if (!(error instanceof OriginUnavailable)) throw error;
+      rows.push({ kind: 'stream', platform, channel, compatibilityId,
+        cohort: { L: compat[platform].inputs?.store?.L ?? '?', E: compat[platform].inputs?.executors ?? [] },
+        head: null, action: 'unavailable', changes: [], reason: error.message });
+      continue;
+    }
     if (head) {
       const h = head.json;
       if (h.stream?.compatibilityId !== compatibilityId) refuse(`the head at ${origin.describe()}/${streamPath(stream)}/exact.json names the cohort ${h.stream?.compatibilityId}, not its own path's: the origin is inconsistent`);
@@ -345,14 +358,28 @@ async function classify({ app, opts, origin, channel, snapshot, release, web, bu
   if (!platforms.length) others = [];
   else if (declared) others = declared.map((s) => s.compatibilityId);
   else {
-    const listed = await origin.list(`.exact/${channel}`);
-    if (listed === null && origin.kind === 'https') notes.push(`an https origin cannot be listed: the streams classified are this snapshot's own; name deploy.streams in app.json to classify a retired cohort's`);
-    others = listed ?? [];
+    try {
+      const listed = await origin.list(`.exact/${channel}`);
+      if (listed === null && origin.kind === 'https') notes.push(`an https origin cannot be listed: the streams classified are this snapshot's own; name deploy.streams in app.json to classify a retired cohort's`);
+      others = listed ?? [];
+    } catch (error) {
+      if (!(error instanceof OriginUnavailable)) throw error;
+      notes.push(`stream discovery unavailable at ${origin.describe()}/.exact/${channel}: ${error.message}; the snapshot's own streams are still classified`);
+      others = [];
+    }
   }
   for (const compatibilityId of others.filter((id) => !own.some((o) => o.compatibilityId === id))) {
     const stream = { channel, compatibilityId };
-    const head = await origin.head(stream);
-    const record = await latestRecord(origin, stream);
+    let head, record;
+    try {
+      head = await origin.head(stream);
+      record = await latestRecord(origin, stream);
+    } catch (error) {
+      if (!(error instanceof OriginUnavailable)) throw error;
+      rows.push({ kind: 'stream', platform: null, channel, compatibilityId,
+        cohort: null, head: null, action: 'unavailable', changes: [], reason: error.message });
+      continue;
+    }
     const platform = record?.platform ?? null;
     if (opts.platform.length && platform && !opts.platform.includes(platform)) continue;
     if (!head && !record && !declared) continue; // an empty directory is not a stream
@@ -384,6 +411,7 @@ function renderTable(table) {
   for (const row of table.rows) {
     if (row.kind === 'origin') {
       const f = row.files;
+      if (row.action === 'unavailable') { out.push(line('origin', `web app: ${row.reason}`, 'unavailable')); continue; }
       const summary = [f.new.length ? `${f.new.length} new` : '', f.changed.length ? `${f.changed.length} changed` : '', f.current.length ? `${f.current.length} current` : ''].filter(Boolean).join(', ');
       const named = [...f.changed, ...f.new].filter((n) => !n.startsWith('assets/') && !n.startsWith('deck/') && !n.startsWith('shaders/')).slice(0, 6);
       out.push(line('origin', `web app${row.compatibilityId ? ` (cohort ${row.compatibilityId.slice(0, 8)})` : ''}: ${summary}${named.length ? ` — ${named.join(', ')}` : ''}`, row.action === 'publish' ? 'publish (index.html last)' : 'current'));
@@ -392,6 +420,7 @@ function renderTable(table) {
     const cohort = row.cohort ? ` (L=${row.cohort.L}, E={${row.cohort.E.join(',')}})` : '';
     const head = row.head ? ` — head seq ${row.head.seq}${row.head.release ? ` (${row.head.release})` : ''}` : ' — no head';
     out.push(`${(row.platform ?? '?').padEnd(8)} stream ${row.compatibilityId.slice(0, 8)}${cohort}${head}`);
+    if (row.action === 'unavailable') { out.push(line('', row.reason, 'unavailable')); continue; }
     if (row.action === 'binary') { out.push(line('', row.reason, 'binary')); continue; }
     if (row.action === 'current') { out.push(line('', 'app.plan and every asset as the head names them', `current (seq ${row.seq})`)); continue; }
     const assets = row.changes.filter((c) => c.name !== 'app.plan');
@@ -504,12 +533,14 @@ async function deploy(opts) {
   log('publishing');
   for (const row of table.rows) {
     if (row.kind === 'origin') {
+      if (row.action === 'unavailable') { failed.push({ kind: 'origin', error: row.reason }); log(`  origin: unavailable — ${row.reason}`); continue; }
       if (row.action !== 'publish') { published.push({ ...row, action: 'current' }); continue; }
       // A step that fails leaves what was there (D3 item 5); the run goes on to the next row and exits 1.
       try { published.push(await publishRoot({ origin, row, web, log })); } catch (e) { failed.push({ kind: 'origin', error: e.message }); log(`  origin: failed — ${e.message}`); }
       continue;
     }
     const name = `${row.platform ?? '?'} stream ${row.compatibilityId.slice(0, 8)}`;
+    if (row.action === 'unavailable') { failed.push({ platform: row.platform, compatibilityId: row.compatibilityId, error: row.reason }); log(`  ${name}: unavailable — ${row.reason}`); continue; }
     if (row.action === 'binary') { refused.push({ platform: row.platform, compatibilityId: row.compatibilityId, reason: row.reason }); log(`  ${name}: refused — ${row.reason}`); continue; }
     if (row.action === 'current') { published.push({ ...row }); log(`  ${name}: current (seq ${row.seq})`); continue; }
     try {

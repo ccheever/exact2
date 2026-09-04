@@ -27,6 +27,11 @@ export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex'
 /** A lock older than this is a dead publisher's and is removed (with its pid checked first). */
 export const LOCK_STALE_MS = 60_000;
 
+/** A transport or filesystem availability failure. Classifiers turn only
+ * this typed failure into an `unavailable` row; malformed heads and broken
+ * invariants still fail closed. */
+export class OriginUnavailable extends Error {}
+
 /** The stream's directory on the origin, relative to its root (LLP 1030.000 D7). */
 export const streamPath = ({ channel, compatibilityId }) => `.exact/${channel}/${compatibilityId}`;
 
@@ -66,12 +71,20 @@ export class DirectoryOrigin {
 
   /** The bytes at `rel`, or null when there is no such file. */
   async get(rel) {
-    try { return readFileSync(this.path(rel)); } catch (e) { if (e.code === 'ENOENT' || e.code === 'EISDIR' || e.code === 'ENOTDIR') return null; throw e; }
+    try { return readFileSync(this.path(rel)); } catch (e) {
+      if (e.code === 'ENOENT' || e.code === 'EISDIR' || e.code === 'ENOTDIR') return null;
+      if (['EACCES', 'EPERM', 'EIO', 'EMFILE', 'ENFILE'].includes(e.code)) throw new OriginUnavailable(`${this.path(rel)}: ${e.code}`);
+      throw e;
+    }
   }
 
   /** The names under the directory `rel` (files and directories), or null when it does not exist. */
   async list(rel) {
-    try { return readdirSync(this.path(rel)).filter((n) => !n.startsWith('.')).sort(); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return null; throw e; }
+    try { return readdirSync(this.path(rel)).filter((n) => !n.startsWith('.')).sort(); } catch (e) {
+      if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return null;
+      if (['EACCES', 'EPERM', 'EIO', 'EMFILE', 'ENFILE'].includes(e.code)) throw new OriginUnavailable(`${this.path(rel)}: ${e.code}`);
+      throw e;
+    }
   }
 
   /** Write `bytes` at `rel`, whole or absent (a temp file beside it, renamed into place). An `immutable` file is a blob named by its digest: present with the same bytes, it is skipped (`'present'`); present with other bytes, refused, because a blob never changes under its name. Returns `'written'` or `'present'`. */
@@ -163,9 +176,14 @@ export class HttpsOrigin {
   /** The body at `rel`, or null on 404. Any other failure is an error naming the URL. */
   async get(rel) {
     const url = `${this.url}/${safeRelative(rel)}`;
-    const response = await fetch(url, { headers: { 'cache-control': 'no-cache' }, redirect: 'follow' });
+    let response;
+    try {
+      response = await fetch(url, { headers: { 'cache-control': 'no-cache' }, redirect: 'follow' });
+    } catch (error) {
+      throw new OriginUnavailable(`${url}: ${error.cause?.code ?? error.message}`);
+    }
     if (response.status === 404) return null;
-    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+    if (!response.ok) throw new OriginUnavailable(`${url}: HTTP ${response.status}`);
     return Buffer.from(await response.arrayBuffer());
   }
 

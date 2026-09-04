@@ -15,6 +15,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { staticFile } from '../host/web/serve.mjs';
+import { classify } from './deploy.mjs';
+import { DirectoryOrigin, HttpsOrigin, OriginUnavailable } from './origin.mjs';
 
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
 const BOOT = join(dirname(fileURLToPath(import.meta.url)), 'boot.mjs');
@@ -176,6 +178,64 @@ for (const [name, html, files, expectCode, expect] of [
     && staticFile(dist, '/assets/linked-dir/secret') === null;
   rmSync(dir, { recursive: true, force: true });
   result('web serving rejects stale, dot, and symlink paths', ok);
+}
+
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-list-outage-'));
+  const cohort = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const origin = {
+    kind: 'directory', describe: () => dir, get: async () => null, head: async () => null,
+    list: async () => { throw new OriginUnavailable('EACCES'); },
+  };
+  const table = await classify({ app: { id: 'com.exact.test', displayName: 'Test', dir, manifest: {} }, opts: { platform: [] },
+    origin, channel: 'prod', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
+    release: 'test', web: dir, bundle: { plan: { sha256: '0'.repeat(64) }, assets: [] },
+    compat: { linux: { id: cohort, inputs: { store: { L: 'A' }, executors: [] } } }, platforms: ['linux'], wantOrigin: false });
+  result('stream discovery outage retains the classified cohort row', table.rows.length === 1
+    && table.rows[0].action === 'bundle' && table.notes.some((note) => note.includes('stream discovery unavailable')),
+  JSON.stringify(table));
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// A dry-run renders network availability per row, including declared retired
+// streams. A corrupt response remains a hard refusal rather than masquerading
+// as a transient network problem.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-origin-table-'));
+  writeFileSync(join(dir, 'index.html'), 'web');
+  const app = { id: 'com.exact.test', displayName: 'Test', dir,
+    manifest: { deploy: { streams: [{ channel: 'prod', compatibilityId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }] } } };
+  const compat = {
+    web: { id: 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww', inputs: {} },
+    linux: { id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', inputs: { store: { L: 'A' }, executors: [] } },
+  };
+  const table = await classify({ app, opts: { platform: [] },
+    origin: new HttpsOrigin('https://127.0.0.1:1'), channel: 'prod',
+    snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir }, release: 'test', web: dir,
+    bundle: { plan: { sha256: '0'.repeat(64) }, assets: [] }, compat, platforms: ['linux'], wantOrigin: true });
+  const unavailable = table.rows.filter((row) => row.action === 'unavailable');
+  result('deploy tables preserve every row when HTTPS is unavailable', unavailable.length === 3
+    && unavailable.some((row) => row.kind === 'origin')
+    && unavailable.some((row) => row.platform === 'linux')
+    && unavailable.some((row) => row.compatibilityId.startsWith('bbbb')),
+  JSON.stringify(table.rows));
+  rmSync(dir, { recursive: true, force: true });
+}
+
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-bad-head-'));
+  const cohort = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  mkdirSync(join(dir, '.exact', 'prod', cohort), { recursive: true });
+  writeFileSync(join(dir, '.exact', 'prod', cohort, 'exact.json'), '{not json');
+  let message = '';
+  try {
+    await classify({ app: { id: 'com.exact.test', displayName: 'Test', dir, manifest: {} }, opts: { platform: [] },
+      origin: new DirectoryOrigin(dir), channel: 'prod', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
+      release: 'test', web: dir, bundle: { plan: { sha256: '0'.repeat(64) }, assets: [] },
+      compat: { linux: { id: cohort, inputs: { store: { L: 'A' }, executors: [] } } }, platforms: ['linux'], wantOrigin: false });
+  } catch (error) { message = error.message; }
+  result('deploy does not hide a malformed head as unavailable', message.includes('is not JSON'), message);
+  rmSync(dir, { recursive: true, force: true });
 }
 
 // Signing-key creation is one exclusive filesystem operation. Two publishers

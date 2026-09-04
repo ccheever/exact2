@@ -1,6 +1,7 @@
 # default exact deploy dry run crashes on unreachable origin
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Origin transport failures are now named per table row; the default invalid HTTPS origin produces a complete JSON dry-run table instead of throwing.
 **Systems:** Delivery, Deploy
 **Severity:** P2
 **Author:** Muse Code for Charlie Cheever
