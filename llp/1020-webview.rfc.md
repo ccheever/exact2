@@ -5,6 +5,7 @@
 **Systems:** Kernel (one node type, two props), Contract (one tag, two attributes, two events), Web host (the element itself), Apple host (a WKWebView arm loaded on demand; the capture handshake), Linux host (declared absent), Agent API (the guest joins the eight operations — no ninth), Weird Castle (the content model: the client exists to surface web decks)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
+**Revised:** 2026-09-04 (Charlie clarified the application boundary; §9)
 **Related:** `rules/NOT-DOING.md` §Components (`webview`; §6 records the trade this RFC owes), weird-castle `llp/0000` §Web decks only (the governing invariant this serves), LLP 1001 (the kernel: a box is a box), LLP 1009 D3 + LLP 1014 (the on-demand module shape and the capture handshake this reuses), LLP 1012 (the eight operations), LLP 1016/1018 (the Weird Castle lane precedent), LLP 1017 §8.1 (literal HTML/CSS names, no aliases). Predecessor record (research, never authority): exact1 LLP 0433 `~/projects/exact/llp/0433-embedded-webview.rfc.md` (799 lines, Implemented, 4 review rounds) and its issue trail, cited per finding in §3.
 
 ## 1. Summary
@@ -431,3 +432,24 @@ host, and the M1 fixture deck asserted against the browser.
   3. ~~The D6 dividend~~ — withdrawn with Q5's resolution: D6 rules out
      per-frame guest capture (no canvas around the webview), so there is
      no capture stream to ride; the choice is between lanes 1 and 2.
+
+## 9. Application boundary correction (Charlie, 2026-09-04)
+
+**Decided:** Weird Castle is an example application. Castle-specific logic
+does not belong in Exact's shared runtime. Its use as the motivating
+consumer in this document never makes the Castle protocol a host semantic.
+
+The implementation crossed that boundary: `host/web/glue.js` and
+`host/apple/webarm/WebArm.swift` answer `castleSdk` identity requests, and
+the Apple arm changes local Castle HTML to fill the frame. Move that
+protocol, identity policy, and presentation adaptation into Weird Castle's
+own source/assets/integration. Exact supplies the generic iframe and D2r
+reply mechanism, with its sandbox, source/origin, and lifecycle checks.
+An app-specific branch renamed as a generic helper is not the correction.
+
+The removal is tracked in
+[`issues/20260904-castle-policy-in-shared-hosts.md`](../issues/20260904-castle-policy-in-shared-hosts.md).
+It includes preserving the external app's behavior and generic iframe
+verification. Historical research and isolated example/test fixtures remain
+evidence, not runtime policy. This records Charlie's boundary ruling; the
+rest of this Draft's unbuilt proposals do not become accepted by implication.

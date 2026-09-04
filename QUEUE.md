@@ -10,6 +10,15 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **Principles follow-up (2026-09-04, Charlie):** remove Castle policy from
+  shared hosts (LLP 1020 §9; `issues/20260904-castle-policy-in-shared-hosts.md`).
+- **Explicit time and randomness:** LLP 1027.000 (Draft) and
+  `issues/20260904-data-sources-read-ambient-time.md`; settle the API before landing it.
+- **Optional updater:** the existing `issues/20260904-level-zero-hosts-still-link-update-store.md`
+  now includes composition and artifact-proof requirements.
+- **Measure before optimizing:** `issues/20260904-measure-runner-update-scaling.md`
+  and `issues/20260904-boot-count-misses-in-module-growth.md` use existing tooling.
+
 1. **Linux host follow-ups** (LLP 1015 landed 2026-08-29; r2 the same day: vello on
    the GPU is the main painter, tiny-skia the fallback and pixel oracle; green on
    `expo-build-1000` (CPU), the minisforum (Vulkan/llvmpipe), and headless on macOS
