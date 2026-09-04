@@ -40,6 +40,10 @@ use exact_runner::DataSource;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+fn has_explicit_locator(plan: Option<&str>, dev_plan: Option<&str>) -> bool {
+    plan.is_some() || dev_plan.is_some()
+}
+
 /// What the environment asked for.
 pub struct Config {
     /// The plan to boot.
@@ -83,7 +87,9 @@ impl Config {
     /// and `compat` its `compat.json` (LLP 1030 D3a).
     pub fn from_env(baked: &[u8], compat: &str) -> Config {
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-        let from_url = [env("EXACT_PLAN"), env("EXACT_DEV_PLAN")]
+        let exact_plan = env("EXACT_PLAN");
+        let exact_dev_plan = env("EXACT_DEV_PLAN");
+        let from_url = [exact_plan.as_deref(), exact_dev_plan.as_deref()]
             .into_iter()
             .flatten()
             .find(|v| crate::fetch::is_url(v))
@@ -97,8 +103,8 @@ impl Config {
                     None
                 }
             });
-        let fallback_plan = from_url.as_ref().map(|_| baked.to_vec());
-        let named = env("EXACT_PLAN")
+        let named = exact_plan
+            .as_deref()
             .filter(|p| !crate::fetch::is_url(p))
             .and_then(|p| match std::fs::read(&p) {
                 Ok(b) => Some(b),
@@ -107,8 +113,29 @@ impl Config {
                     None
                 }
             });
-        let explicit = from_url.is_some() || named.is_some();
-        let plan = from_url.or(named).unwrap_or_else(|| baked.to_vec());
+        let dev_plan = exact_dev_plan
+            .as_deref()
+            .filter(|p| !crate::fetch::is_url(p))
+            .map(PathBuf::from);
+        let dev = dev_plan.as_deref().and_then(|p| match std::fs::read(p) {
+            Ok(b) => Some(b),
+            Err(e) => {
+                eprintln!(
+                    "exact: EXACT_DEV_PLAN {}: {e}; booting the baked plan until it appears",
+                    p.display()
+                );
+                None
+            }
+        });
+        // Network plans and an initial dev file are candidates, never the
+        // only bootable copy. A compiler may be killed between its truncate
+        // and replace; decode refusal must still show the baked app.
+        let fallback_plan = (from_url.is_some() || dev.is_some()).then(|| baked.to_vec());
+        // A locator is explicit even when its first read failed. The dev
+        // compiler may not have produced the file yet; a persisted release
+        // selection must not win in that window or have its boot counted.
+        let explicit = has_explicit_locator(exact_plan.as_deref(), exact_dev_plan.as_deref());
+        let plan = from_url.or(named).or(dev).unwrap_or_else(|| baked.to_vec());
         let size = env("EXACT_SIZE")
             .and_then(|s| {
                 let (w, h) = s.split_once('x')?;
@@ -129,9 +156,7 @@ impl Config {
             agent: env("EXACT_AGENT").as_deref() == Some("1"),
             smoke: env("EXACT_SMOKE").as_deref() == Some("1"),
             shot: env("EXACT_SHOT"),
-            dev_plan: env("EXACT_DEV_PLAN")
-                .filter(|p| !crate::fetch::is_url(p))
-                .map(PathBuf::from),
+            dev_plan,
             card: env("EXACT_DRM").unwrap_or_else(|| "/dev/dri/card0".to_string()),
             vnc: env("EXACT_VNC"),
             compat: compat.to_string(),
@@ -148,19 +173,21 @@ impl Config {
     /// one stderr line and the baked plan.
     pub fn select_update(&mut self, baked: &[u8]) {
         match Updates::open(&self.compat, baked, &self.assets) {
-            Ok(mut updates) => {
-                if !self.explicit {
-                    if let Some((entry, bytes)) = updates.selected_plan() {
-                        self.plan = bytes;
-                        self.fallback_plan = Some(baked.to_vec());
-                        self.entry = Some(entry);
-                    }
-                    updates.boot_started();
-                }
-                self.updates = Some(updates);
-            }
+            Ok(updates) => self.use_updates(updates, baked),
             Err(e) => eprintln!("exact update: {e}"),
         }
+    }
+
+    fn use_updates(&mut self, mut updates: Updates, baked: &[u8]) {
+        if !self.explicit {
+            if let Some((entry, bytes)) = updates.selected_plan() {
+                self.plan = bytes;
+                self.fallback_plan = Some(baked.to_vec());
+                self.entry = Some(entry);
+            }
+            updates.boot_started();
+        }
+        self.updates = Some(updates);
     }
 
     /// Whether to run without a display.
@@ -372,6 +399,8 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
 mod tests {
     use super::*;
     use exact_runner::{DataError, Value};
+    use exact_update::{sha256_hex, Client, Outcome};
+    use std::path::Path;
 
     #[derive(Default)]
     struct Named;
@@ -415,5 +444,80 @@ mod tests {
         assert_eq!(presenter.node_count(), 1);
         // The binary's facts reached the runner past the fallback (LLP 1030 D7).
         assert_eq!(presenter.host().runner().delivery().store, '0');
+    }
+
+    #[test]
+    fn a_dev_plan_locator_stands_a_persisted_selection_aside() {
+        assert!(has_explicit_locator(None, Some("not-produced-yet.plan")));
+        assert!(has_explicit_locator(None, Some("http://dev.example/")));
+        assert!(!has_explicit_locator(None, None));
+    }
+
+    #[test]
+    fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
+        let source = "component App\n  view\n    text \"baked\"\n";
+        let baked = contract::compile(source).unwrap().encode();
+        let update = contract::compile("component App\n  view\n    text \"selected\"\n")
+            .unwrap()
+            .encode();
+        let dir =
+            std::env::temp_dir().join(format!("exact-linux-dev-precedence-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let compat = r#"{"id":"fixture00000000","inputs":{"app":"com.exact.fixture","store":{"L":"A"}},"delivery":{"channel":"prod","origin":"https://updates.example"}}"#;
+        let mut client = Client::open(&dir, Path::new("."), compat, &baked).unwrap();
+        let head_url = client.head_url().unwrap().to_string();
+        let plan_url = head_url.replace("exact.json", "app.plan");
+        let head = serde_json::to_vec(&serde_json::json!({
+            "exact": 1,
+            "app": { "id": "com.exact.fixture", "name": "Fixture" },
+            "plan": { "url": "./app.plan", "sha256": sha256_hex(&update), "bytes": update.len() },
+            "assets": [],
+            "stream": { "app": "com.exact.fixture", "channel": "prod", "compatibilityId": "fixture00000000", "seq": 1 }
+        }))
+        .unwrap();
+        let mut fetch = |url: &str| {
+            if url == head_url {
+                Ok(head.clone())
+            } else if url == plan_url {
+                Ok(update.clone())
+            } else {
+                Err(format!("unexpected fetch {url}"))
+            }
+        };
+        assert!(matches!(
+            client.check(&mut fetch),
+            Outcome::Staged { seq: 1, .. }
+        ));
+        let record = client.dir().join("record.json");
+        let updates = Updates::from_client(client).unwrap();
+        let mut config = Config {
+            plan: b"EXPL".to_vec(), // the compiler was interrupted mid-write
+            fallback_plan: Some(baked.clone()),
+            assets: PathBuf::from("."),
+            scale: 1.0,
+            size: (390.0, 844.0),
+            agent: false,
+            smoke: false,
+            shot: None,
+            dev_plan: Some(PathBuf::from("app.plan")),
+            card: String::new(),
+            vnc: None,
+            compat: compat.into(),
+            explicit: true,
+            entry: None,
+            updates: None,
+        };
+        config.use_updates(updates, &baked);
+        assert_eq!(config.plan, b"EXPL");
+        assert!(config.entry.is_none(), "the selected entry did not win");
+        let (presenter, _) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
+        assert_eq!(presenter.node_count(), 1, "the baked plan booted");
+        let saved = std::fs::read_to_string(record).unwrap();
+        assert!(
+            saved.contains("\"failures\":0"),
+            "the store boot was not counted: {saved}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

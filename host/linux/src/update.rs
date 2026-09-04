@@ -66,6 +66,13 @@ impl Updates {
     /// binary links no store, or the directory cannot be made.
     pub fn open(compat: &str, plan: &[u8], assets: &Path) -> Result<Updates, String> {
         let client = Client::open(&data_dir(), assets, compat, plan)?;
+        Updates::from_client(client)
+    }
+
+    /// Wrap an already-open client in the host's status and wake plumbing.
+    /// Kept separate from [`open`](Self::open) so launch precedence can be
+    /// exercised against a real selected store without process environment.
+    pub(crate) fn from_client(client: Client) -> Result<Updates, String> {
         let status = client.status();
         let (tx, lines) = channel();
         let (wake, signal) = UnixStream::pair().map_err(|e| format!("the update wake: {e}"))?;

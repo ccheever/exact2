@@ -1,6 +1,7 @@
 # Linux EXACT_DEV_PLAN loses to the update store's selection
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Linux now treats every EXACT_DEV_PLAN locator as explicit, boots a ready local dev plan immediately, and never selects or crash-counts a persisted production entry while the dev compiler is starting.
 **Systems:** Linux host, Web dev loop
 **Severity:** P2
 **Author:** Grok 4.6 for Charlie Cheever
