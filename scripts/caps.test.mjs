@@ -8,8 +8,9 @@
  * the suite cannot be satisfied by a check that simply always fails.
  */
 
-import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { createPrivateKey, createPublicKey } from 'node:crypto';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,7 @@ import { staticFile } from '../host/web/serve.mjs';
 
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
 const BOOT = join(dirname(fileURLToPath(import.meta.url)), 'boot.mjs');
+const DEPLOY = join(dirname(fileURLToPath(import.meta.url)), 'deploy.mjs');
 
 const GOOD_RULES = `# Rules
 
@@ -174,6 +176,34 @@ for (const [name, html, files, expectCode, expect] of [
     && staticFile(dist, '/assets/linked-dir/secret') === null;
   rmSync(dir, { recursive: true, force: true });
   result('web serving rejects stale, dot, and symlink paths', ok);
+}
+
+// Signing-key creation is one exclusive filesystem operation. Two publishers
+// racing for an id cannot both report a public half and silently replace the
+// private half behind the first one's result.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-keygen-'));
+  const run = () => new Promise((done) => {
+    const child = spawn(process.execPath, [DEPLOY, 'keygen', 'race', '--keys', dir, '--json']);
+    let stdout = '', stderr = '';
+    child.stdout.on('data', (bytes) => { stdout += bytes; });
+    child.stderr.on('data', (bytes) => { stderr += bytes; });
+    child.on('close', (code) => done({ code, stdout, stderr }));
+  });
+  const attempts = await Promise.all([run(), run()]);
+  const winners = attempts.filter((attempt) => attempt.code === 0);
+  const losers = attempts.filter((attempt) => attempt.code !== 0);
+  let matches = false;
+  try {
+    const reported = Buffer.from(JSON.parse(winners[0]?.stdout ?? '{}').publicKey ?? '', 'base64');
+    const actual = createPublicKey(createPrivateKey(readFileSync(join(dir, 'race.pem'))))
+      .export({ type: 'spki', format: 'der' }).subarray(-32);
+    matches = reported.equals(actual);
+  } catch { /* the result below names the failed invariant */ }
+  result('concurrent keygen has one truthful winner', winners.length === 1 && losers.length === 1
+    && losers[0].stderr.includes('a signing key is never overwritten') && matches,
+  attempts.map((attempt) => `exit ${attempt.code}: ${attempt.stdout}${attempt.stderr}`).join('\n'));
+  rmSync(dir, { recursive: true, force: true });
 }
 
 console.log(`\n${total - failed}/${total} passed`);

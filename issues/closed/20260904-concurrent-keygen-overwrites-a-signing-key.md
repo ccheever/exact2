@@ -1,6 +1,7 @@
 # Concurrent keygen overwrites a signing key
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Signing-key creation now uses an exclusive wx write, and a concurrent-process test proves one truthful winner while the loser leaves the PEM unchanged.
 **Systems:** exact deploy, Security
 **Severity:** P2
 **Author:** Codex (GPT-5) for Charlie Cheever

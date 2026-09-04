@@ -151,7 +151,12 @@ function keygen(opts) {
   if (existsSync(path)) refuse(`${path} exists: a signing key is never overwritten — remove it yourself, or pick another id (a rotation is a new cohort, LLP 1030 D3a)`);
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   mkdirSync(opts.keys, { recursive: true, mode: 0o700 });
-  writeFileSync(path, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
+  try {
+    writeFileSync(path, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600, flag: 'wx' });
+  } catch (error) {
+    if (error.code === 'EEXIST') refuse(`${path} exists: a signing key is never overwritten — remove it yourself, or pick another id (a rotation is a new cohort, LLP 1030 D3a)`);
+    throw error;
+  }
   const raw = rawPublic(publicKey).toString('base64');
   if (opts.json) console.log(JSON.stringify({ id, path, publicKey: raw }));
   else console.log(`wrote ${path}\npaste into app.json → deploy.signing.keys["${id}"]: ${JSON.stringify(raw)}`);
