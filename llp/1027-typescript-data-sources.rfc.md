@@ -651,8 +651,9 @@ reaching-out global), never linked (§10 Q6).
 ### D10 — What the module can and cannot use; `console` as the one binding
 
 - **Language:** Hermes's — ES2015 and most of what followed; no
-  `eval`/`Function` (closed at construction); no `Intl` in the lean
-  build measured; `fetch` per D1a; timers never. Whatever is missing is
+  `eval`/`Function` (closed at construction); the current lean build does
+  include `Intl.DateTimeFormat` (verified 2026-09-04; its default-time calls
+  are guarded by LLP 1027.000); `fetch` per D1a; timers never. Whatever is missing is
   missing at the first call, by name, in the fixture the bake drives.
 - **The pure tier, as Rust bindings (proposed 2026-09-03, recommended;
   Charlie: "would it make sense to just implement the wintercg spec in

@@ -25,6 +25,29 @@ const FORMS: &[(&str, &str)] = &[
     ("bound-now", "Date.now()"),
     ("bound-new", "new Date()"),
     ("reflect", "new Date()"),
+    ("intl-format", "Intl.DateTimeFormat.format()"),
+    ("intl-format-undefined", "Intl.DateTimeFormat.format()"),
+    ("intl-parts", "Intl.DateTimeFormat.formatToParts()"),
+    (
+        "intl-parts-undefined",
+        "Intl.DateTimeFormat.formatToParts()",
+    ),
+    ("intl-format-alias", "Intl.DateTimeFormat.format()"),
+    (
+        "intl-format-alias-undefined",
+        "Intl.DateTimeFormat.format()",
+    ),
+    ("intl-parts-alias", "Intl.DateTimeFormat.formatToParts()"),
+    (
+        "intl-parts-alias-undefined",
+        "Intl.DateTimeFormat.formatToParts()",
+    ),
+    ("intl-format-getter", "Intl.DateTimeFormat.format()"),
+    ("intl-format-computed", "Intl.DateTimeFormat.format()"),
+    (
+        "intl-parts-prototype",
+        "Intl.DateTimeFormat.formatToParts()",
+    ),
 ];
 
 const SRC: &str = r#"
@@ -50,6 +73,8 @@ component App
     send result = atInit(form)
   action utc writes result
     send result = utc()
+  action intl writes result
+    send result = intl(elapsedMs)
   view
     text value testId="value"
 "#;
@@ -131,6 +156,12 @@ fn explicit_dates_and_seeds_repeat_across_calls_modules_and_async_interleaving()
         module.query("utc", &[]).unwrap(),
         Value::str("2024-02-29T12:34:56.789Z/12/1709210096789/true")
     );
+    for (epoch_ms, year) in [(0.0, "1970"), (1709210096789.0, "2024"), (-1.0, "1969")] {
+        assert_eq!(
+            module.query("intl", &[Value::Number(epoch_ms)]).unwrap(),
+            Value::str(&[year; 4].join("/"))
+        );
+    }
     module.unload();
     module.load().unwrap();
     assert_eq!(module.query("explicit", &args).unwrap(), expected);

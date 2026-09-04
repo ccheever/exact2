@@ -1,7 +1,7 @@
 # TypeScript data sources read time and randomness outside the runner
 
 **Status:** Closed
-**Resolution:** Guard ambient Date/Math.random before Hermes module evaluation; explicit time/seed inputs verified through bake, cache, refresh, async replies and reload (LLP 1027.000).
+**Resolution:** Guard ambient Date/Math.random and default-time Intl.DateTimeFormat calls before Hermes module evaluation; explicit inputs verified through bake, cache, refresh, async replies and reload (LLP 1027.000).
 **Systems:** TypeScript executor, Runner, Bake, Agent API
 **Severity:** P1
 **Author:** Codex, at Charlie Cheever's request
@@ -37,10 +37,18 @@ while claiming browser coverage, or from a source-pattern ban alone.
 Implemented 2026-09-04 in the existing macOS Hermes executor. Its prelude
 installs guards before app bytecode loads, including Date's prototype
 constructor; explicit-value Date/UTC computations still use Hermes itself.
-Fourteen ambient forms refuse during initialization, direct calls, bake,
+Twenty-five ambient forms refuse during initialization, direct calls, bake,
 and asynchronous fetch continuations. Six new integration tests also drive
 explicit inputs through bake, runner caching, refresh, clock changes,
 reload carry, and stale async completion. All 18 exact-js tests pass.
+
+Review follow-up on the same date: `Intl.DateTimeFormat().format()` and
+`formatToParts()` also read machine time for omitted/undefined timestamps.
+The native prototype getter/method now refuse those defaults, including
+aliases captured during initialization and async continuations. Explicit
+timestamps (zero, positive and negative), bound format identity and explicit
+UTC formatting still work. The reviewer's original native probe now refuses
+all four ambient calls and still returns `1970` for `format(0)`.
 
 The browser TypeScript executor remains unbuilt; iOS/Linux or missing-engine
 builds retain the existing named refusing stub. This closes the defect in

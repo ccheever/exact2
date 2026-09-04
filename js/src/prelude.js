@@ -39,6 +39,36 @@
   fixed(global, "Date", InputDate);
   fixed(global.Math, "random", function () { return refuseAmbient("Math.random()"); });
 
+  // Intl's formatting methods also default an omitted/undefined date to
+  // machine time. Guard the prototype before an app can capture its bound
+  // format getter or formatToParts method; explicit timestamps still use
+  // the engine's locale/timezone implementation unchanged.
+  if (global.Intl && global.Intl.DateTimeFormat) {
+    var dateFormat = global.Intl.DateTimeFormat.prototype;
+    var getFormat = Object.getOwnPropertyDescriptor(dateFormat, "format").get;
+    var formats = new WeakMap();
+    var apply = Reflect.apply;
+    function explicitFormat(fn, name) {
+      return new Proxy(fn, {
+        apply: function (target, receiver, args) {
+          if (args[0] === undefined) return refuseAmbient("Intl.DateTimeFormat." + name + "()");
+          return apply(target, receiver, args);
+        },
+      });
+    }
+    Object.defineProperty(dateFormat, "format", {
+      configurable: false,
+      get: function () {
+        var native = getFormat.call(this);
+        if (!formats.has(native)) formats.set(native, explicitFormat(native, "format"));
+        return formats.get(native);
+      },
+    });
+    if (typeof dateFormat.formatToParts === "function") {
+      fixed(dateFormat, "formatToParts", explicitFormat(dateFormat.formatToParts, "formatToParts"));
+    }
+  }
+
   // --- base64, for a response body's bytes (Hermes has no atob) -----------
   var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   var B64V = {};

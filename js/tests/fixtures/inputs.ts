@@ -4,6 +4,10 @@ const { now } = Date;
 const { random } = Math;
 const DateAlias = globalThis.Date;
 const constructorAlias = new Date(0).constructor as DateConstructor;
+const dateFormatter = new Intl.DateTimeFormat("en-US", { year: "numeric", timeZone: "UTC" });
+const { format } = dateFormatter;
+const parts = dateFormatter.formatToParts.bind(dateFormatter);
+const formatGetter = Object.getOwnPropertyDescriptor(Intl.DateTimeFormat.prototype, "format")!.get!;
 const calls: Record<string, () => unknown> = {
   now: () => Date.now(),
   new: () => new Date(),
@@ -19,6 +23,17 @@ const calls: Record<string, () => unknown> = {
   "bound-now": () => Date.now.bind(Date)(),
   "bound-new": () => new (Date.bind(null) as any)(),
   reflect: () => Reflect.construct(Date, []),
+  "intl-format": () => dateFormatter.format(),
+  "intl-format-undefined": () => dateFormatter.format(undefined),
+  "intl-parts": () => dateFormatter.formatToParts(),
+  "intl-parts-undefined": () => dateFormatter.formatToParts(undefined),
+  "intl-format-alias": () => format(),
+  "intl-format-alias-undefined": () => format(undefined),
+  "intl-parts-alias": () => parts(),
+  "intl-parts-alias-undefined": () => parts(undefined),
+  "intl-format-getter": () => formatGetter.call(dateFormatter)(),
+  "intl-format-computed": () => new globalThis["In" + "tl"]["DateTime" + "Format"]()["for" + "mat"](),
+  "intl-parts-prototype": () => Intl.DateTimeFormat.prototype.formatToParts.call(dateFormatter),
 };
 
 const atInit: Record<string, string> = {};
@@ -52,6 +67,17 @@ function answer(source: string, args: any[]): unknown {
         Date.parse("2024-02-29T12:34:56.789Z"),
         Number.isNaN(new Date(undefined).getTime()),
       ].join("/");
+    case "intl": {
+      const epochMs = args[0];
+      if (format !== dateFormatter.format || format !== formatGetter.call(dateFormatter)) {
+        throw new Error("DateTimeFormat format identity");
+      }
+      return [
+        dateFormatter.format(epochMs), format(epochMs),
+        parts(epochMs).map((part) => part.value).join(""),
+        Intl.DateTimeFormat.prototype.formatToParts.call(dateFormatter, epochMs).map((part) => part.value).join(""),
+      ].join("/");
+    }
     default: throw new Error("unknown source " + source);
   }
 }
