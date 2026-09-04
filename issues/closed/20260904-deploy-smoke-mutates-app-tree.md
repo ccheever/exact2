@@ -1,6 +1,7 @@
 # The deploy smoke writes a throwaway key and an asset edit into the live app
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Deploy smoke now runs from a disposable tracked checkout, preserves the source app tree byte-for-byte, and asserts HTTPS --yes refusal.
 **Systems:** exact deploy, smokes
 **Severity:** P3
 **Author:** Grok 4.6 for Charlie Cheever
