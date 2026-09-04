@@ -1,6 +1,7 @@
 # The dev reconnect cannot identify the current generation
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by epoch/program identity and canonical complete manifests with immutable payload URLs; browser and modular native runtime drives prove initial/reconnect repair, reversed-fetch refusal, restart ordering, unchanged reconnect, all-session acceptance and explicit-apply invalidation.
 **Systems:** Dev loop, Web host, Apple host
 **Severity:** P1
 **Author:** Codex (GPT-5) for Charlie Cheever

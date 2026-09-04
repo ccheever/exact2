@@ -528,19 +528,24 @@ embedding contract when the next lane edits `Presenter.swift`.
 An embedded surface hot-reloads from `dev.mjs` exactly as the standalone
 app does, or it is not Exact. The primitives:
 
-- **`session.apply(planBytes)`** — `exact_boot_plan` with `Runner::carry`:
-  the transactional restart with carry, the thing every loader calls.
+- **`session.apply(planBytes)`** — prepare/commit with `Runner::carry`:
+  the transactional restart with carry, also available without a loader.
   Public, so a test or an embedder's own debug UI can drive it.
 - **`app.connect(url)` / `app.disconnect()`** — the app's one dev
   connection: `PlanURL` per app, never per session (two sessions would
-  otherwise open two streams and fight over one `current`); on `{seq}`
-  it fetches and verifies once, prepares every live session, and commits
-  only after all accept under D1's app-wide acceptance; `{rebuilt}`
-  is terminal for the connection as today. When the update store lands
-  (1030.000 stage 4) this is the same object under the dev policy (1026
-  D12) and `check`/`activate` under the production policy — which is why
-  the thin `ExactApp` exists from the extraction on: so neither the
-  asset resolver nor the store is ever born global.
+  otherwise open two streams and fight over one `current`). Each revision
+  identifies the plan and complete asset manifest, with epoch and sequence
+  ordering (LLP 1023 D3). Initial connection and reconnect fetch and verify
+  the whole generation, prepare every live or unmounted session, and commit
+  only after all accept under D1. Missing asset names are absent, including
+  embedded names; image, font, deck, and shader consumers take the new resolver.
+  The app remembers the committed content identity across connections, so
+  an unchanged reconnect does not reapply; an explicit session or app apply
+  invalidates it. Older fetch completions cannot commit after newer ones.
+  A changed server program digest or `{rebuilt}` is terminal until the native
+  binary is rebuilt; a process restart with the same program resets only the
+  revision ordering. The optional production updater uses the same core
+  acceptance primitive and owns its separate store policy.
 - The adapters keep `EXACT_DEV_PLAN`, `EXACT_PLAN`, Open Project…, ⌘R,
   the four-finger tap, and the dev menu. The SDK installs none of them;
   an embedder that wants a debug affordance calls `connect` from its own.

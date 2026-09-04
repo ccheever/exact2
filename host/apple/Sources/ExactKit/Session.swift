@@ -72,13 +72,10 @@ public final class ExactApp {
     /// `EXACT_ASSETS`, else the bundle (iOS) or the working directory
     /// (macOS) — the way a page resolves against its URL.
     public var assetRoot: URL
-    /// Assets that arrived by name since launch (the dev connection's asset
-    /// row, LLP 1030 D10; the update store's entry, 1026 D11): a name
-    /// resolves here before the root. Files live in the app's cache by
-    /// digest.
-    public private(set) var assetOverrides: [String: URL] = [:]
-    /// The plan bytes last applied to every session, so a font edit can
-    /// restart them from the same plan and re-register the faces.
+    /// The complete generation last accepted by every live session. A new
+    /// connection can recognize it without restarting carried app state.
+    private var devGeneration: String?
+    /// The plan last applied across the app, also used by newly created sessions.
     private(set) var lastPlan: Data?
     private(set) var resolver: AssetResolver!
     private var transaction = false
@@ -154,7 +151,11 @@ public final class ExactApp {
     /// connection.
     public func connect(_ url: String) {
         connection?.close()
-        connection = PlanURL.open(url, apply: { [weak self] bytes, label in self?.apply(bytes, label: label) ?? false }, asset: { [weak self] name, sha, bytes in self?.assetArrived(name: name, sha256: sha, bytes: bytes) })
+        connection = PlanURL.open(url, current: { [weak self] in self?.devGeneration }, apply: { [weak self] candidate, label in
+            guard let self else { return false }
+            let resolver = AssetResolver(root: self.assetRoot, names: Array(candidate.assets.keys), read: { candidate.assets[$0] })
+            return self.applyTogether(candidate.plan, label: label, resolver: resolver, token: 0, identity: candidate.identity, commit: { true })
+        })
     }
 
     public func disconnect() {
@@ -182,7 +183,7 @@ public final class ExactApp {
         applyTogether(candidate.plan, label: label, resolver: candidate.assets, token: candidate.token, commit: commit)
     }
 
-    private func applyTogether(_ bytes: Data, label: String, resolver candidateResolver: AssetResolver, token: UInt64, commit: () -> Bool) -> Bool {
+    private func applyTogether(_ bytes: Data, label: String, resolver candidateResolver: AssetResolver, token: UInt64, identity: String? = nil, commit: () -> Bool) -> Bool {
         guard !transaction else { return false }
         let participants = sessions.filter { $0.state != .destroyed }
         // An app may stage before creating a view. Validate its plan now,
@@ -210,7 +211,7 @@ public final class ExactApp {
         transaction = true
         let batches = prepared.map { (session, candidate) in (session, session.commit(candidate)) }
         resolver = candidateResolver
-        assetOverrides = candidateResolver.overrides
+        devGeneration = identity
         lastPlan = bytes
         selectedToken = token
         if let shaderSources { GpuModule.loaded?.replaceShaders(shaderSources) }
@@ -230,44 +231,10 @@ public final class ExactApp {
     /// same pinned bytes; removed names never reach the embedded directory.
     public func resolveAsset(_ name: String) -> URL? { resolver.url(name) }
 
-    /// The cache an arriving asset is written into, by digest.
-    static var assetCache: URL {
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return base.appendingPathComponent("exact/assets", isDirectory: true)
-    }
+    /// Explicit session replacement invalidates the connection's claim that
+    /// every session still runs its last accepted complete generation.
+    func invalidateDevGeneration() { devGeneration = nil }
 
-    /// An asset arrived (verified by its digest): kept by digest, named,
-    /// and every session refreshes what referenced it — an image repaints,
-    /// a shader is handed to the module (which validates it against the
-    /// interface it binds), a declared face restarts the sessions from the
-    /// current plan so the catalog re-registers, a deck page is left to the
-    /// arm (owed).
-    public func assetArrived(name: String, sha256: String, bytes: Data) {
-        let dir = ExactApp.assetCache
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let ext = (name as NSString).pathExtension
-        let file = dir.appendingPathComponent(ext.isEmpty ? sha256 : "\(sha256).\(ext)")
-        do { try bytes.write(to: file, options: .atomic) } catch { print("exact asset: \(name): \(error)"); return }
-        assetOverrides[name] = file
-        resolver = AssetResolver(root: assetRoot, overrides: assetOverrides)
-        assetsChanged([name])
-    }
-
-    /// The names whose bytes changed: each session refreshes what it shows.
-    public func assetsChanged(_ names: [String]) {
-        var fonts = false
-        for name in names {
-            if name.hasPrefix("shaders/"), name.hasSuffix(".wgsl"), let url = assetOverrides[name] ?? resolveAsset(name), let text = FileManager.default.contents(atPath: url.path) {
-                let stem = String(name.dropFirst("shaders/".count).dropLast(".wgsl".count))
-                for s in sessions { s.canvases.shaderChanged(stem, text: text) }
-            } else if ["ttf", "otf", "woff", "woff2"].contains((name as NSString).pathExtension.lowercased()) {
-                fonts = true
-            } else {
-                for s in sessions { s.presenter.assetChanged(name) }
-            }
-        }
-        if fonts, let plan = lastPlan { for s in sessions { _ = s.apply(plan, label: "fonts") } }
-    }
 }
 
 private struct WeakSession {
@@ -408,7 +375,7 @@ public final class ExactSession {
         let t = CACurrentMediaTime()
         let cp = text.checkpoint()
         let batch = runtime.bootPlan(bytes, width: size.width, height: size.height)
-        if batch.error == nil { updateToken = 0 }
+        if batch.error == nil { updateToken = 0; app.invalidateDevGeneration() }
         if batch.error != nil { text.restore(cp) }
         return finishBoot(batch, started: t)
     }
@@ -497,7 +464,9 @@ public final class ExactSession {
     @discardableResult
     public func apply(_ bytes: Data, label: String = "plan") -> Bool {
         guard let candidate = prepare(bytes, resolver: app.resolver) else { return false }
-        presentCommitted(commit(candidate), label: label)
+        let batch = commit(candidate)
+        app.invalidateDevGeneration()
+        presentCommitted(batch, label: label)
         return true
     }
 

@@ -1,7 +1,7 @@
 # dev-loop asset deletion is a no-op; dev.js mislabels kinds after removals
 
-**Status:** Open
-**Progress:** The web publisher now recursively removes deleted output, expands a removed directory into leaf rows, and the browser clears/reloads every removed row without losing result alignment. ExactKit still needs native override eviction.
+**Status:** Closed
+**Resolution:** Fixed by complete generation replacement on web and native; no add-only overlay remains. Actual browser and native image/font/deck/GPU consumer drives prove removal, restoration, and refusal without partial application.
 **Systems:** Web host, Apple host, Dev loop
 **Severity:** P3
 **Author:** Muse Code for Charlie Cheever

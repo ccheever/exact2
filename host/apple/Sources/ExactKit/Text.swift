@@ -96,7 +96,7 @@ final class TextEngine {
     var paragraphs: [Int: Paragraph] = [:]
     private var catalog: [Int: [RegisteredFace]] = [:]
     /// Where a declared face's relative source resolves: the app's resolver
-    /// (LLP 1031 D1 — an override that arrived by digest, else the root).
+    /// (LLP 1031 D1 — the committed complete generation, else the root).
     let resolve: (String) -> URL?
     let read: (String) -> Data?
     private var pendingFonts: [URL] = []

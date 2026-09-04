@@ -7,7 +7,6 @@ public final class AssetResolver {
     private let names: [String]?
     private let read: ((String) throws -> Data?)?
     var isComplete: Bool { names != nil }
-    let overrides: [String: URL]
     private var cache: [String: Data] = [:]
     private var files: [String: URL] = [:]
     private var directory: URL?
@@ -15,11 +14,11 @@ public final class AssetResolver {
 
     /// A complete provider never falls through to the embedded directory.
     public init(root: URL, names: [String], read: @escaping (String) throws -> Data?) {
-        self.root = root; self.names = names; self.read = read; overrides = [:]
+        self.root = root; self.names = names; self.read = read
     }
 
-    init(root: URL, overrides: [String: URL] = [:]) {
-        self.root = root; names = nil; read = nil; self.overrides = overrides
+    init(root: URL) {
+        self.root = root; names = nil; read = nil
     }
 
     deinit { if let directory { try? FileManager.default.removeItem(at: directory) } }
@@ -71,7 +70,6 @@ public final class AssetResolver {
     private func embeddedURL(_ name: String) -> URL? {
         guard !name.isEmpty, !name.hasPrefix("/"), !name.contains(":"), !name.contains("\\"),
               name.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
-        if let override = overrides[name] { return override }
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let url = base.appendingPathComponent(name).standardizedFileURL.resolvingSymlinksInPath()
         return url.path.hasPrefix(base.path + "/") ? url : nil
