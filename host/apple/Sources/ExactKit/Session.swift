@@ -41,11 +41,25 @@ public extension ExactSessionDelegate {
     func exactSession(_ session: ExactSession, didChange state: ExactSession.State) {}
 }
 
-/// Optional app-level behavior supplied by a higher composition. The core
-/// owns presentation and the command boundary; it knows no update policy.
+/// Optional app behavior supplied by a higher composition. Every callback
+/// identifies the generation that caused it; the core owns no store policy.
 public protocol ExactAppLifecycle: AnyObject {
-    func firstPixel(_ app: ExactApp)
+    func generationStarted(_ app: ExactApp, token: UInt64)
+    func firstPixel(_ app: ExactApp, token: UInt64)
+    func initialGenerationRefused(_ app: ExactApp, token: UInt64, reason: String)
     func handleCommand(_ name: String, app: ExactApp) -> Bool
+}
+
+/// A plan and its complete asset namespace prepared by an app composition.
+/// The opaque token is meaningful only to that composition; zero is an
+/// ordinary core/dev plan, with no delivery selection to count or bless.
+public struct ExactGeneration {
+    public let plan: Data
+    public let assets: AssetResolver
+    public let token: UInt64
+    public init(plan: Data, assets: AssetResolver, token: UInt64 = 0) {
+        self.plan = plan; self.assets = assets; self.token = token
+    }
 }
 
 /// The one Exact app this process links (LLP 1031 D1, D11).
@@ -64,12 +78,16 @@ public final class ExactApp {
     /// The plan bytes last applied to every session, so a font edit can
     /// restart them from the same plan and re-register the faces.
     private(set) var lastPlan: Data?
-    /// Retained for the app lifetime; an embedded-only app supplies none.
+    private(set) var resolver: AssetResolver!
+    private var transaction = false
+    private var notifications: [() -> Void] = []
+
+    func deliver(_ body: @escaping () -> Void) {
+        if transaction { notifications.append(body) } else { body() }
+    }
+    /// Retained for the app lifetime; embedded-only apps supply none.
     public var lifecycle: ExactAppLifecycle?
-    /// A complete namespace supplied by an app composition. When installed,
-    /// a missing name stays absent instead of falling through to bundled files.
-    public var assetProvider: ((String) -> URL?)?
-    private var firstPixelSeen = false
+    private(set) var selectedToken: UInt64 = 0
 
     private var sessionRefs: [WeakSession] = []
     /// Every live session, in creation order.
@@ -86,22 +104,34 @@ public final class ExactApp {
         let fallback = FileManager.default.currentDirectoryPath
         #endif
         assetRoot = URL(fileURLWithPath: ExactEnv.environment["EXACT_ASSETS"] ?? fallback, isDirectory: true)
+        resolver = AssetResolver(root: assetRoot)
     }
 
-    func firstPixel() {
-        guard !firstPixelSeen else { return }
-        firstPixelSeen = true
-        lifecycle?.firstPixel(self)
+    /// Install a composition's launch generation before creating sessions.
+    public func installInitial(_ generation: ExactGeneration) {
+        precondition(sessions.isEmpty, "install the initial generation before creating sessions")
+        resolver = generation.assets
+        lastPlan = generation.plan
+        selectedToken = generation.token
     }
 
-    /// Refresh the runner's generic delivery facts after an app-owned event.
+    func fallBackFromInitial(reason: String) -> Bool {
+        guard selectedToken != 0, !sessions.contains(where: \.booted) else { return false }
+        lifecycle?.initialGenerationRefused(self, token: selectedToken, reason: reason)
+        resolver = AssetResolver(root: assetRoot)
+        lastPlan = nil
+        selectedToken = 0
+        return true
+    }
+
+    func firstPixel(_ token: UInt64) { lifecycle?.firstPixel(self, token: token) }
+
+    /// Refresh generic delivery facts after a composition-owned event.
     public func refreshDelivery() {
         for session in sessions { session.apply(session.runtime.deliverySync()) }
     }
 
-    func handleCommand(_ name: String) -> Bool {
-        lifecycle?.handleCommand(name, app: self) ?? false
-    }
+    func handleCommand(_ name: String) -> Bool { lifecycle?.handleCommand(name, app: self) ?? false }
 
     /// A session of this app: one runtime, unbooted until `boot` or its view's first layout.
     public func makeSession(delegate: ExactSessionDelegate? = nil, label: String = "") -> ExactSession {
@@ -137,27 +167,66 @@ public final class ExactApp {
     /// Re-resolve the connection (the menu's Reload; clears a `{rebuilt}` stop).
     public func reloadConnection() { connection?.reload() }
 
-    /// Plan bytes into every session, each transactionally: true when every
-    /// session took them (a session that refused keeps its last good app).
+    /// A plan is one app generation: every session accepts before any swaps.
     @discardableResult
     public func apply(_ bytes: Data, label: String = "plan") -> Bool {
-        var all = true
-        for s in sessions { all = s.apply(bytes, label: label) && all }
-        if all { lastPlan = bytes }
-        return all
+        applyTogether(bytes, label: label, resolver: resolver, token: 0, commit: { true })
     }
 
-    /// A name (`assets/logo.png`, `shaders/aurora.wgsl`, a declared face's
-    /// source) as a file URL: an override that arrived by digest first, else
-    /// the file under the root — never outside it, as a page resolves `src`.
-    public func resolveAsset(_ name: String) -> URL? {
-        if let u = assetOverrides[name] { return u }
-        if let provider = assetProvider { return provider(name) }
-        let root = assetRoot.standardizedFileURL.resolvingSymlinksInPath()
-        let url = root.appendingPathComponent(name).standardizedFileURL.resolvingSymlinksInPath()
-        let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        return url.path == root.path || url.path.hasPrefix(rootPath) ? url : nil
+    /// Every session and local consumer accepts before the composition's
+    /// durable commit runs. Refusal leaves the previous generation intact.
+    @discardableResult
+    public func applyGeneration(_ candidate: ExactGeneration, label: String = "generation", commit: () -> Bool) -> Bool {
+        applyTogether(candidate.plan, label: label, resolver: candidate.assets, token: candidate.token, commit: commit)
     }
+
+    private func applyTogether(_ bytes: Data, label: String, resolver candidateResolver: AssetResolver, token: UInt64, commit: () -> Bool) -> Bool {
+        guard !transaction else { return false }
+        let participants = sessions.filter { $0.state != .destroyed }
+        // An app may stage before creating a view. Validate its plan now,
+        // without committing a hidden runner or starting its requests.
+        if participants.isEmpty {
+            let validator = ExactSession(app: self, label: "")
+            defer { validator.destroy() }
+            guard validator.prepare(bytes, resolver: candidateResolver, token: token, size: CGSize(width: 1, height: 1)) != nil else { return false }
+            validator.runtime.discardPlan()
+        }
+        var prepared: [(ExactSession, ExactSession.Prepared)] = []
+        for session in participants {
+            guard let candidate = session.prepare(bytes, resolver: candidateResolver, token: token) else {
+                for (session, _) in prepared { session.runtime.discardPlan() }
+                return false
+            }
+            prepared.append((session, candidate))
+        }
+        let shaderSources = GpuModule.loaded == nil ? nil : candidateResolver.shaderSources()
+        let shadersAccepted = shaderSources.map { GpuModule.loaded?.accepts($0) == true } ?? true
+        guard candidateResolver.refusal == nil, shadersAccepted, commit() else {
+            for (session, _) in prepared { session.runtime.discardPlan() }
+            return false
+        }
+        transaction = true
+        let batches = prepared.map { (session, candidate) in (session, session.commit(candidate)) }
+        resolver = candidateResolver
+        assetOverrides = candidateResolver.overrides
+        lastPlan = bytes
+        selectedToken = token
+        if let shaderSources { GpuModule.loaded?.replaceShaders(shaderSources) }
+        for (session, batch) in batches { session.presentCommitted(batch, label: label) }
+        for session in participants { session.apply(session.runtime.deliverySync()) }
+        transaction = false
+        let callbacks = notifications
+        notifications = []
+        for callback in callbacks { callback() }
+        return true
+    }
+
+    /// A local asset as pinned bytes, verified before any native consumer uses it.
+    func assetBytes(_ name: String) -> Data? { resolver.bytes(name) }
+
+    /// Path-only native consumers receive a private materialization of those
+    /// same pinned bytes; removed names never reach the embedded directory.
+    public func resolveAsset(_ name: String) -> URL? { resolver.url(name) }
 
     /// The cache an arriving asset is written into, by digest.
     static var assetCache: URL {
@@ -178,6 +247,7 @@ public final class ExactApp {
         let file = dir.appendingPathComponent(ext.isEmpty ? sha256 : "\(sha256).\(ext)")
         do { try bytes.write(to: file, options: .atomic) } catch { print("exact asset: \(name): \(error)"); return }
         assetOverrides[name] = file
+        resolver = AssetResolver(root: assetRoot, overrides: assetOverrides)
         assetsChanged([name])
     }
 
@@ -217,13 +287,14 @@ public final class ExactSession {
     public let label: String
     public weak var delegate: ExactSessionDelegate?
     public private(set) var state: State = .created {
-        didSet { if state != oldValue { delegate?.exactSession(self, didChange: state) } }
+        didSet { if state != oldValue { let changed = state; app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, didChange: changed) } } }
     }
     /// Bumped by every reboot; a callback from an older generation is dropped.
     public private(set) var generation = 0
+    private var updateToken: UInt64 = 0
 
     let runtime: Runtime
-    let text: TextEngine
+    var text: TextEngine
     let presenter: Presenter
     let canvases: Canvases
     let webviews: WebViews
@@ -256,7 +327,7 @@ public final class ExactSession {
         self.app = app
         self.label = label
         runtime = Runtime()
-        text = TextEngine { [weak app] source in app?.resolveAsset(source) }
+        text = TextEngine(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) })
         presenter = Presenter()
         canvases = Canvases()
         webviews = WebViews()
@@ -309,6 +380,17 @@ public final class ExactSession {
     @discardableResult
     public func boot(size: CGSize) -> Batch {
         let t = CACurrentMediaTime()
+        if let bytes = app.lastPlan {
+            if let candidate = prepare(bytes, resolver: app.resolver, token: app.selectedToken, size: size) {
+                let batch = commit(candidate)
+                presentCommitted(batch, label: "selected")
+                return batch
+            }
+            let reason = app.resolver.refusal ?? "initial plan refused"
+            if !app.fallBackFromInitial(reason: reason) {
+                return finishBoot(Batch(ops: [], timers: false, motion: false, clock: nil, error: reason), started: t)
+            }
+        }
         let cp = text.checkpoint()
         let batch = runtime.boot(width: size.width, height: size.height)
         if batch.error != nil { text.restore(cp) }
@@ -321,6 +403,7 @@ public final class ExactSession {
         let t = CACurrentMediaTime()
         let cp = text.checkpoint()
         let batch = runtime.bootPlan(bytes, width: size.width, height: size.height)
+        if batch.error == nil { updateToken = 0 }
         if batch.error != nil { text.restore(cp) }
         return finishBoot(batch, started: t)
     }
@@ -336,10 +419,10 @@ public final class ExactSession {
             if booted { presenter.reset() }
             booted = true
             generation += 1
+            text.commitFonts()
         }
         apply(batch)
-        // A replacement runner starts without the view's existing environment,
-        // even when viewport-fit and the physical insets did not change.
+        // A fresh runner must receive the view's current viewport and insets.
         if batch.error == nil { view?.rebooted() }
         applyMs = (CACurrentMediaTime() - tApply) * 1000
         bootMs = ExactEnv.wall()
@@ -349,30 +432,68 @@ public final class ExactSession {
         return batch
     }
 
-    /// Plan bytes into a running session: the restart with carry (LLP 1007
-    /// §6; D11) — transactional, so a refused candidate leaves the running
-    /// app, its fonts, and its views exactly as they were. Returns whether
-    /// the candidate became the running app.
+    struct Prepared {
+        let text: TextEngine
+        let resolver: AssetResolver
+        let token: UInt64
+    }
+
+    func prepare(_ bytes: Data, resolver: AssetResolver, token: UInt64 = 0, size: CGSize? = nil) -> Prepared? {
+        guard state != .destroyed else { return nil }
+        let candidate = TextEngine(resolve: { resolver.url($0) }, read: { resolver.bytes($0) })
+        runtime.setMeasure(TextEngine.measureText, ctx: candidate.opaque)
+        runtime.setFonts(TextEngine.installFonts, ctx: candidate.opaque)
+        let viewport = size ?? presenter.viewportSize
+        let batch = runtime.preparePlan(bytes, width: viewport.width, height: viewport.height, token: token)
+        runtime.setMeasure(TextEngine.measureText, ctx: text.opaque)
+        runtime.setFonts(TextEngine.installFonts, ctx: text.opaque)
+        // Resolve initially used local payloads before first pixel, without
+        // applying a presenter batch or starting an image/web/GPU operation.
+        for op in batch.ops {
+            let props = (op["props"] as? [String: String]) ?? (op["set"] as? [String: String]) ?? [:]
+            if let source = props["src"] ?? props["imageSource"], URL(string: source)?.scheme == nil, !source.hasPrefix("//") {
+                let path = source.components(separatedBy: "?")[0].components(separatedBy: "#")[0]
+                let name = path.hasPrefix("/") ? String(path.dropFirst()) : path
+                if !name.isEmpty { _ = resolver.bytes(name) }
+            }
+        }
+        if let error = batch.error ?? resolver.refusal {
+            runtime.discardPlan()
+            fputs("exact: prepare refused: \(error)\n", stderr)
+            return nil
+        }
+        return Prepared(text: candidate, resolver: resolver, token: token)
+    }
+
+    func commit(_ candidate: Prepared) -> Batch {
+        text = candidate.text
+        updateToken = candidate.token
+        runtime.setMeasure(TextEngine.measureText, ctx: text.opaque)
+        runtime.setFonts(TextEngine.installFonts, ctx: text.opaque)
+        text.commitFonts()
+        let batch = runtime.commitPlan()
+        precondition(batch.error == nil, "an accepted session candidate must remain commit-ready")
+        generation += 1
+        return batch
+    }
+
+    func presentCommitted(_ batch: Batch, label: String) {
+        presenter.reset()
+        booted = true
+        app.lifecycle?.generationStarted(app, token: updateToken)
+        apply(batch)
+        view?.rebooted()
+        state = .ready
+        print("reloaded \(label)")
+    }
+
+    /// A host may replace one session's plan transactionally; app delivery
+    /// uses prepare/commit across every attached session instead.
     @discardableResult
     public func apply(_ bytes: Data, label: String = "plan") -> Bool {
-        guard state != .destroyed else { return false }
-        let started = CACurrentMediaTime()
-        let size = presenter.viewportSize
-        let cp = text.checkpoint()
-        let batch = runtime.bootPlan(bytes, width: size.width, height: size.height)
-        if let error = batch.error {
-            text.restore(cp)
-            FileHandle.standardError.write(Data("exact: \(error)\n".utf8))
-        } else {
-            generation += 1
-            presenter.reset()
-            booted = true
-            apply(batch)
-            view?.rebooted()
-            state = .ready
-        }
-        print("reloaded \(label) in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
-        return batch.error == nil
+        guard let candidate = prepare(bytes, resolver: app.resolver) else { return false }
+        presentCommitted(commit(candidate), label: label)
+        return true
     }
 
     /// A batch into the presenter; frames and the clock follow it; its
@@ -398,17 +519,25 @@ public final class ExactSession {
             pendingCommands = []
             for (name, args) in queued {
                 if app.handleCommand(name) { continue }
-                delegate?.exactSession(self, command: name, args: args)
+                app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, command: name, args: args) }
             }
         }
     }
 
     /// The first node drew: the GPU module may load now (LLP 1009 D4), on
-    /// the next turn; the optional app lifecycle hears first pixel.
-    func firstDrawn() {
+    /// the next turn; the update store hears first pixel (LLP 1026 D11).
+    /// Capture at node creation. A delayed old draw cannot bless its successor.
+    func drawReceipt() -> () -> Void {
+        let drawnGeneration = generation
+        let token = updateToken
+        return { [weak self] in self?.firstDrawn(generation: drawnGeneration, token: token) }
+    }
+
+    private func firstDrawn(generation drawnGeneration: Int, token: UInt64) {
+        guard state != .destroyed, generation == drawnGeneration else { return }
+        app.firstPixel(token)
         guard firstDrawMs == nil else { return }
         firstDrawMs = ExactEnv.wall()
-        app.firstPixel()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             canvases.loadIfNeeded()

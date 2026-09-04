@@ -79,6 +79,11 @@ pub struct Embedded {
     /// downloads nothing; without it, that client stages one copy of what it
     /// already has, once.
     pub embedded_plan_sha256: Option<String>,
+    /// Complete baked asset roster by name: digest and byte count. Missing
+    /// metadata is unknown, never an empty generation.
+    pub embedded_assets: Option<BTreeMap<String, (String, u64)>>,
+    /// The canonical envelope this binary embeds, when published.
+    pub entry_digest: Option<String>,
 }
 
 impl Embedded {
@@ -275,7 +280,7 @@ pub struct Store {
     /// selects entry zero and **writes nothing at all** (LLP 1030 D9).
     frozen: bool,
     /// `app-decides` (LLP 1030.000 D4): a checked bundle is held as
-    /// `pending` rather than selected, until [`Store::activate`].
+    /// `pending` rather than selected, until [`Store::commit_activation`].
     hold: bool,
     /// The entry this process booted, remembered from the selection at open.
     running: Option<String>,
@@ -316,6 +321,7 @@ struct Record {
     /// The highest stream sequence this client has admitted, including an
     /// embedded generation or a head found current while entry zero ran.
     seq: u64,
+    digest: Option<String>,
     /// Entries that failed to reach first pixel twice. A head that names one is
     /// refused rather than staged again, so a bad bundle cannot loop a client
     /// through the same download every launch.
@@ -339,6 +345,7 @@ impl Record {
             compatibility_id: embedded.compatibility_id.clone(),
             channel: embedded.channel.clone(),
             seq: embedded.seq,
+            digest: embedded.entry_digest.clone(),
             bad: Vec::new(),
         }
     }
@@ -354,7 +361,7 @@ impl Record {
             "pending": quoted(&self.pending),
             "lastGood": quoted(&self.last_good),
             "failures": self.failures,
-            "stream": { "channel": self.channel, "compatibilityId": self.compatibility_id, "seq": self.seq },
+            "stream": { "channel": self.channel, "compatibilityId": self.compatibility_id, "seq": self.seq, "digest": self.digest },
             "bad": self.bad,
         });
         format!("{value}\n")
@@ -418,6 +425,10 @@ fn read_record(path: &Path) -> RecordFile {
             .and_then(|s| s.get("seq"))
             .and_then(|v| v.as_u64())
             .unwrap_or(0),
+        digest: stream
+            .and_then(|s| s.get("digest"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         bad: object
             .get("bad")
             .and_then(|v| v.as_array())
@@ -658,8 +669,8 @@ impl Store {
     /// First pixel: the bundle that booted is good (LLP 1026 D11). Clears the
     /// counter and makes what is **running** — not what a check has since
     /// staged — the fallback for the next bad update.
-    pub fn boot_succeeded(&mut self) -> Result<(), String> {
-        if self.frozen {
+    pub fn boot_succeeded(&mut self, generation: &Generation) -> Result<(), String> {
+        if self.frozen || *generation != self.generation() {
             return Ok(());
         }
         self.record.failures = 0;
@@ -700,7 +711,7 @@ impl Store {
     ///
     /// On success the entry is on disk whole and selected for the **next**
     /// launch; nothing about the running app changes until the host calls
-    /// [`Store::activate`] (LLP 1026 D11; LLP 1030 D5: two acts).
+    /// [`Store::commit_activation`] (LLP 1026 D11; LLP 1030 D5: two acts).
     pub fn check(
         &mut self,
         head_url: &str,
@@ -755,8 +766,11 @@ impl Store {
         embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
     ) -> Result<Check, String> {
         if self.admit_check(&envelope, head_url, embedded_asset)? {
-            if self.record.seq != envelope.stream.seq {
+            if self.record.seq != envelope.stream.seq
+                || self.record.digest.as_ref() != Some(&envelope.digest)
+            {
                 self.record.seq = envelope.stream.seq;
+                self.record.digest = Some(envelope.digest.clone());
                 self.write_record()?;
             }
             return Ok(Check::Current {
@@ -782,6 +796,7 @@ impl Store {
             self.view = Some(view);
         }
         self.record.seq = envelope.stream.seq;
+        self.record.digest = Some(envelope.digest.clone());
         self.write_record()?;
         Ok(Check::Staged {
             entry: envelope.digest,
@@ -844,14 +859,41 @@ impl Store {
                 envelope.stream.seq
             ));
         }
+        if envelope.stream.seq == floor {
+            let accepted = if self.record.seq == floor {
+                self.record.digest.as_ref()
+            } else {
+                None
+            }
+            .or_else(|| {
+                (self.embedded.seq == floor)
+                    .then_some(self.embedded.entry_digest.as_ref())
+                    .flatten()
+            });
+            if accepted.is_some_and(|digest| *digest != envelope.digest) {
+                return Err(format!("the head is seq {floor} but names another bundle; a used sequence cannot equivocate"));
+            }
+        }
         let current = match &self.view {
             _ if self.record.pending.as_deref() == Some(envelope.digest.as_str()) => true,
             Some(view) => view.sha == envelope.digest,
             // Entry zero is current when the head names the plan the binary
-            // embeds and, for every asset, one the binary embeds too — an
-            // asset-only update is still an update.
+            // embeds and exactly the same complete asset roster — removal
+            // and an unknown roster are both updates.
             None => {
                 self.embedded.embedded_plan_sha256.as_deref() == Some(envelope.plan.sha256.as_str())
+                    && self
+                        .embedded
+                        .embedded_assets
+                        .as_ref()
+                        .is_some_and(|assets| {
+                            assets.len() == envelope.assets.len()
+                                && envelope.assets.iter().all(|a| {
+                                    assets.get(&a.name).is_some_and(|(sha, bytes)| {
+                                        sha == &a.sha256 && *bytes == a.bytes
+                                    })
+                                })
+                        })
                     && envelope
                         .assets
                         .iter()
@@ -876,7 +918,7 @@ impl Store {
     }
 
     /// Hold what a check stages as pending — whole on disk, booted by no
-    /// launch — until [`Store::activate`]: the `app-decides` policy (LLP
+    /// launch — until [`Store::commit_activation`]: the `app-decides` policy (LLP
     /// 1030.000 D4). Off, a staged bundle is selected for the next launch.
     pub fn hold_staged(&mut self, hold: bool) {
         self.hold = hold;
@@ -904,25 +946,52 @@ impl Store {
         })
     }
 
-    /// The staged plan's bytes, for a host that applies it now — the app's own
-    /// `delivery.activate` (LLP 1030 D7). The digest is checked once more
-    /// against the entry's envelope before the bytes are handed over; from here
-    /// the staged entry is the running one, and a pending entry is selected
-    /// for the launches after.
-    pub fn activate(&mut self) -> Option<Vec<u8>> {
-        let staged = self.staged()?;
-        let view = self.validate(Some(staged.entry.clone()))?;
-        let plan = read_card(&staged.plan, &view.plan).ok()?;
-        if self.record.pending.as_deref() == Some(staged.entry.as_str()) {
-            self.record.pending = None;
-            self.record.selected = Some(staged.entry.clone());
-            self.record.failures = 0;
-            self.view = Some(view);
-            self.write_record().ok()?;
+    /// Verify and pin a staged candidate without changing the record or
+    /// running generation. Every clone shares its lazy, immutable asset bytes.
+    pub fn prepare_activation(&self) -> Result<Option<PreparedSelection>, String> {
+        let Some(staged) = self.staged() else {
+            return Ok(None);
+        };
+        let view = self.read_view(&staged.entry)?;
+        let generation = Generation {
+            entry: Some(view.sha.clone()),
+            seq: view.seq,
+        };
+        Ok(Some(PreparedSelection {
+            generation: generation.clone(),
+            plan: Arc::from(read_card(&staged.plan, &view.plan)?),
+            assets: AssetSet::stored(generation, staged.assets_dir, view.assets),
+        }))
+    }
+
+    /// Commit only the generation the host prepared and accepted. A check
+    /// may have advanced staging while the host prepared: its candidate then
+    /// fails without overwriting that newer record. A write failure likewise
+    /// changes neither the in-memory selection nor the running generation.
+    pub fn commit_activation(&mut self, generation: &Generation) -> Result<(), String> {
+        let staged = self.staged().ok_or("nothing is staged")?;
+        if generation.entry.as_deref() != Some(&staged.entry) || generation.seq != staged.seq {
+            return Err("the staged generation changed during preparation".into());
         }
+        let view = self.read_view(&staged.entry)?;
+        let mut record = self.record.clone();
+        record.pending = None;
+        record.selected = Some(staged.entry.clone());
+        record.failures = 0;
+        write_atomic(&self.record_path(), record.to_json().as_bytes())?;
+        self.record = record;
+        self.view = Some(view);
         self.running = Some(staged.entry);
         self.running_seq = staged.seq;
-        Some(plan)
+        Ok(())
+    }
+
+    /// Identity of the app generation running in this process.
+    pub fn generation(&self) -> Generation {
+        Generation {
+            entry: self.running.clone(),
+            seq: self.running_seq,
+        }
     }
 
     /// What the app and the agent are told (LLP 1030 D7).

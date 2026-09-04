@@ -37,6 +37,7 @@ final class GpuModule {
     typealias PlacementFn = @convention(c) (UInt32, UInt32, UnsafeMutablePointer<Float>?, Int) -> UInt32
     typealias ErrorFn = @convention(c) () -> UInt32
     typealias ErrorPtrFn = @convention(c) () -> UnsafePointer<UInt8>?
+    typealias ClearShadersFn = @convention(c) () -> Void
     typealias ShaderFn = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> UInt32
 
     let create: CreateFn
@@ -63,6 +64,8 @@ final class GpuModule {
     /// A shader's text by name (LLP 1030 D8): validated, its interface
     /// checked against the module's; 0 on success, else `error()` says why.
     let shader: ShaderFn?
+    let validateShader: ShaderFn?
+    let clearShaders: ClearShadersFn?
     private let errorLen: ErrorFn
     private let errorPtr: ErrorPtrFn
 
@@ -85,37 +88,36 @@ final class GpuModule {
               let errorLen = sym("gpu_error", ErrorFn.self), let errorPtr = sym("gpu_error_ptr", ErrorPtrFn.self) else {
             return .failure(GpuLoadError(message: "\(path) is not an exact GPU module (missing exports)"))
         }
-        let module = GpuModule(create: create, bind: bind, render: render, dirty: dirty, destroy: destroy, texture: texture, textureMetal: sym("gpu_texture_metal", TextureMetalFn.self), sync: sym("gpu_sync", SyncFn.self), wantsChildren: wantsChildren, readback: readback, wantsChildrenEach: wantsChildrenEach, child: child, childrenCount: childrenCount, placement: placement, shader: sym("gpu_shader", ShaderFn.self), errorLen: errorLen, errorPtr: errorPtr)
+        let module = GpuModule(create: create, bind: bind, render: render, dirty: dirty, destroy: destroy, texture: texture, textureMetal: sym("gpu_texture_metal", TextureMetalFn.self), sync: sym("gpu_sync", SyncFn.self), wantsChildren: wantsChildren, readback: readback, wantsChildrenEach: wantsChildrenEach, child: child, childrenCount: childrenCount, placement: placement, shader: sym("gpu_shader", ShaderFn.self), validateShader: sym("gpu_shader_validate", ShaderFn.self), clearShaders: sym("gpu_shaders_clear", ClearShadersFn.self), errorLen: errorLen, errorPtr: errorPtr)
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
         return .success(module)
     }
 
-    private init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, textureMetal: TextureMetalFn?, sync: SyncFn?, wantsChildren: @escaping WantsFn, readback: @escaping ReadbackFn, wantsChildrenEach: @escaping WantsFn, child: @escaping ChildFn, childrenCount: @escaping CountFn, placement: @escaping PlacementFn, shader: ShaderFn?, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn) {
+    private init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, textureMetal: TextureMetalFn?, sync: SyncFn?, wantsChildren: @escaping WantsFn, readback: @escaping ReadbackFn, wantsChildrenEach: @escaping WantsFn, child: @escaping ChildFn, childrenCount: @escaping CountFn, placement: @escaping PlacementFn, shader: ShaderFn?, validateShader: ShaderFn?, clearShaders: ClearShadersFn?, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn) {
         self.create = create; self.bind = bind; self.render = render; self.dirty = dirty; self.destroy = destroy; self.texture = texture; self.textureMetal = textureMetal; self.sync = sync; self.wantsChildren = wantsChildren; self.readback = readback
-        self.wantsChildrenEach = wantsChildrenEach; self.child = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.errorLen = errorLen; self.errorPtr = errorPtr
+        self.wantsChildrenEach = wantsChildrenEach; self.child = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.validateShader = validateShader; self.clearShaders = clearShaders; self.errorLen = errorLen; self.errorPtr = errorPtr
     }
 
-    /// Register every `.wgsl` under the asset root's `shaders/` (a bundle,
-    /// a `dist/`) or `gpu/shaders/` (the app's source tree) with the module
-    /// (LLP 1030 D8), before a surface is created — each validated, its
-    /// interface checked against the one the module binds. A refusal is
-    /// reported and the module then refuses that surface by name, never a
-    /// crash. Returns how many were registered.
-    func registerShaders(root: String) -> Int {
-        guard let shader else { return 0 }
-        let fm = FileManager.default
-        guard let dir = ["shaders", "gpu/shaders"].map({ root + "/" + $0 }).first(where: { fm.fileExists(atPath: $0) }) else {
-            FileHandle.standardError.write(Data("exact gpu: no shaders under \(root) (shaders/ or gpu/shaders/)\n".utf8))
-            return 0
+    /// A loaded module validates candidate shaders without changing its registry.
+    static var loaded: GpuModule? { if case .success(let module)? = shared { return module }; return nil }
+    func accepts(_ sources: [String: Data]) -> Bool {
+        guard let validateShader, clearShaders != nil else { return false }
+        for (name, text) in sources {
+            let bytes = Array(name.utf8)
+            let result = bytes.withUnsafeBufferPointer { n in text.withUnsafeBytes { t in validateShader(n.baseAddress, bytes.count, t.bindMemory(to: UInt8.self).baseAddress, text.count) } }
+            if result != 0 { fputs("exact gpu: \(error())\n", stderr); return false }
         }
-        var registered = 0
-        for file in ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).sorted() where file.hasSuffix(".wgsl") {
-            let name = Array(String(file.dropLast(5)).utf8)
-            guard let text = fm.contents(atPath: dir + "/" + file) else { continue }
-            let r = name.withUnsafeBufferPointer { n in text.withUnsafeBytes { t in shader(n.baseAddress, name.count, t.bindMemory(to: UInt8.self).baseAddress, text.count) } }
-            if r != 0 { FileHandle.standardError.write(Data("exact gpu: \(error())\n".utf8)) } else { registered += 1 }
-        }
-        return registered
+        return true
+    }
+    /// Called after acceptance, on the same thread, before new surfaces exist.
+    func replaceShaders(_ sources: [String: Data]) {
+        clearShaders?()
+        for (name, text) in sources { _ = register(shader: name, text: text) }
+    }
+    func registerShaders(resolver: AssetResolver) {
+        let sources = resolver.shaderSources()
+        guard resolver.refusal == nil, accepts(sources) else { return }
+        replaceShaders(sources)
     }
 
     /// One shader's text into the module (LLP 1030 D8): validated, its

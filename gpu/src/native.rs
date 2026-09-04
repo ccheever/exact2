@@ -114,6 +114,24 @@ pub fn shader(name: &str, text: &str) -> u32 {
     }
 }
 
+/// Validate without replacing a live shader, during app generation preparation.
+pub fn validate_shader(name: &str, text: &str) -> u32 {
+    let result = with(|m| {
+        let digest = m
+            .expected_digest(name)
+            .ok_or_else(|| format!("no shader named `{name}` in this module"))?;
+        crate::shaders::validate_shader(name, text, Some(digest)).map(|_| ())
+    })
+    .unwrap_or_else(|| Err("GPU module not loaded".into()));
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            refuse(&error);
+            1
+        }
+    }
+}
+
 /// Bind inputs (a JSON array of values). Returns 0 on success.
 pub fn bind(id: u32, values: &str) -> u32 {
     let values = match json::parse_values(values) {
@@ -300,15 +318,22 @@ macro_rules! module {
             unsafe { $crate::native::create(name, layer, width, height) }
         }
 
-        /// Register the text of a shader (LLP 1030 D8): `name` is `name_len`
-        /// bytes of UTF-8, `text` is `text_len` bytes of WGSL. 0 on success;
-        /// 1 and `gpu_error` says why — the shader does not validate, or its
-        /// interface is not the one this module binds (a rebuild), or the
-        /// module has no shader of that name. Call after `gpu_load`, before
-        /// `gpu_create`; again at any time to swap a compatible edit in.
-        ///
+        /// Clear the previous complete shader namespace after app acceptance.
+        #[no_mangle]
+        pub extern "C" fn gpu_shaders_clear() { $crate::shaders::clear_shaders(); }
+        /// Validate source and interface without changing the current shader.
         /// # Safety
-        /// `name` is `name_len` readable bytes and `text` is `text_len`.
+        /// Each pointer is readable for its corresponding byte length.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_shader_validate(name: *const u8, name_len: usize, text: *const u8, text_len: usize) -> u32 {
+            let Some(name) = (unsafe { $crate::native::bytes("gpu_shader_validate", name, name_len) }) else { return 1 };
+            let Some(text) = (unsafe { $crate::native::bytes("gpu_shader_validate", text, text_len) }) else { return 1 };
+            let (Ok(name), Ok(text)) = (::std::str::from_utf8(name), ::std::str::from_utf8(text)) else { return 1 };
+            $crate::native::validate_shader(name, text)
+        }
+        /// Register validated shader text for the next surface frame.
+        /// # Safety
+        /// Each pointer is readable for its corresponding byte length.
         #[no_mangle]
         pub unsafe extern "C" fn gpu_shader(name: *const u8, name_len: usize, text: *const u8, text_len: usize) -> u32 {
             let Some(name) = (unsafe { $crate::native::bytes("gpu_shader", name, name_len) }) else { return 1 };

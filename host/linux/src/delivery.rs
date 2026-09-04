@@ -2,13 +2,14 @@
 //! The host owns sessions and assets; the higher adapter owns store policy.
 use crate::image::AssetResolver;
 use exact_runner::Delivery;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 /// A pinned plan with its complete asset resolver.
 pub struct Selection {
     /// The selected entry, absent for the embedded plan.
     pub entry: Option<String>,
+    /// The sequence belonging to this exact entry.
+    pub seq: u64,
     /// Validated plan bytes.
     pub plan: Arc<[u8]>,
     /// Complete selected assets; missing names never fall through to embedded files.
@@ -36,8 +37,12 @@ pub trait Store {
     fn check(&self) -> bool;
     /// Take the latest asynchronous outcome.
     fn take_line(&mut self) -> Option<String>;
-    /// Activate a staged plan and its assets.
-    fn activate(&self) -> Option<(Vec<u8>, PathBuf)>;
+    /// Prepare a complete staged generation without changing live state.
+    fn prepare_activation(&self) -> Result<Option<Selection>, String>;
+    /// Commit the exact entry and sequence accepted by the host.
+    fn commit_activation(&mut self, entry: Option<String>, seq: u64) -> Result<(), String>;
+    /// Candidate stream facts, before the live store changes.
+    fn staged_stream_into(&self, delivery: &mut Delivery);
     /// Copy the latest delivery facts into the runner.
     fn status_into(&self, delivery: &mut Delivery);
 }

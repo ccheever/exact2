@@ -16,8 +16,9 @@ import { hostname, tmpdir } from 'node:os';
 import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
-import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listPublicFiles, publicFileCards, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
+import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
+import { verifyBakeFiles } from './app.mjs';
 import { copyAppleStaticTrees, deviceLaunchArgs } from '../host/apple/build.mjs';
 import { canonicalBytes, classify, defaultRelease, deployRun, inspectHead, materializeSnapshot, publishStream, publishRoot, webRelease, renderTable, snapshotOf, streamHead } from './deploy.mjs';
 import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, webRootPath, webReleasePath, sha256 } from './origin.mjs';
@@ -1345,6 +1346,28 @@ for (const [name, html, files, expectCode, expect] of [
     && readFileSync(join(bundle, 'shaders', 'surface.wgsl'), 'utf8') === 'shader'
     && readFileSync(join(host, 'assets', 'logo.png'), 'utf8') === 'image'
     && readFileSync(join(host, 'shaders', 'surface.wgsl'), 'utf8') === 'shader';
+  const plan = Buffer.from('the archived plan');
+  const receipt = { embedded: { plan: { sha256: sha256(plan), bytes: plan.length }, assets: [
+    { name: 'assets/logo.png', sha256: sha256(Buffer.from('image')), bytes: 5 },
+    { name: 'shaders/surface.wgsl', sha256: sha256(Buffer.from('shader')), bytes: 6 },
+  ] } };
+  let matched = true;
+  try { verifyBakeFiles(receipt, plan, listAssets(bundle).reverse()); }
+  catch { matched = false; }
+  const refuses = (bytes = plan) => {
+    try { verifyBakeFiles(receipt, bytes, listAssets(bundle)); return false; }
+    catch { return true; }
+  };
+  const changedPlan = refuses(Buffer.from('a changed plan'));
+  rmSync(join(bundle, 'assets', 'logo.png'));
+  const removed = refuses();
+  writeFileSync(join(bundle, 'assets', 'logo.png'), 'other');
+  const changed = refuses();
+  writeFileSync(join(bundle, 'assets', 'logo.png'), 'image');
+  writeFileSync(join(bundle, 'assets', 'extra.png'), 'extra');
+  const added = refuses();
+  rmSync(join(bundle, 'assets', 'extra.png'));
+  result('Apple and web packaging enforce the baked plan and complete static roster', matched && changedPlan && removed && changed && added);
   symlinkSync(outside, join(source, 'assets', 'linked'));
   let appRefused = false;
   try { copyAppleStaticTrees(source, join(dir, 'refused-app'), appTrees); }

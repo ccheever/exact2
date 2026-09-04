@@ -55,6 +55,7 @@ final class ChainingScrollView: NSScrollView {
 
 final class NodeView: NSView, NSTextFieldDelegate {
     let id: UInt32
+    let firstDraw: () -> Void
     let kind: String
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
@@ -258,8 +259,10 @@ final class NodeView: NSView, NSTextFieldDelegate {
             return
         }
         let id = self.id
+        let pinned = presenter?.session?.app.resolver.isComplete == true && url.isFileURL
+            ? presenter?.session?.app.assetBytes(source) : nil
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let loaded = (try? Data(contentsOf: url)).flatMap(NodeView.decode)
+            let loaded = (pinned ?? (try? Data(contentsOf: url))).flatMap(NodeView.decode)
             DispatchQueue.main.async {
                 guard let self, self.loadGeneration == generation, let presenter = self.presenter, presenter.views[id] === self else { return }
                 if let (cg, size) = loaded {
@@ -298,6 +301,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
 
     init(id: UInt32, kind: String, presenter: Presenter) {
         self.id = id
+        firstDraw = presenter.session?.drawReceipt() ?? {}
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
@@ -612,7 +616,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
         // display pass and finds no first draw yet; an app with no later
         // batch — no image, no timer, no motion — would never load it
         // (found by the readback fixture, LLP 1014).
-        presenter?.session?.firstDrawn()
+        if presenter?.views[id] === self { firstDraw() }
         let radius = number("border_radius", number("border_radius_top_left"))
         let path = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
         let bg = color("background_color", .clear)

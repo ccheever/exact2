@@ -123,3 +123,19 @@ export function readBake(app, platform, target, directory = bakeOutput(app)) {
   if (receipt.id !== id || receipt.inputs.app !== app.id || receipt.inputs.platform !== platform || receipt.target !== target || !receipt.embedded || !Array.isArray(receipt.embedded.assets)) throw new Error(`invalid baked receipt for ${app.id} ${platform} ${target}`);
   return receipt;
 }
+
+/** Refuse packaging bytes that differ from the binary's complete bake receipt. */
+export function verifyBakeFiles(receipt, plan, assets) {
+  const embedded = receipt.embedded;
+  const ordered = (cards) => [...cards].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  if (!embedded || !Array.isArray(embedded.assets)
+      || embedded.plan?.sha256 !== createHash('sha256').update(plan).digest('hex')
+      || embedded.plan?.bytes !== plan.length) {
+    throw new Error('the packaged plan differs from the binary bake receipt');
+  }
+  const copied = ordered(assets), baked = ordered(embedded.assets);
+  if (copied.length !== baked.length
+      || copied.some((asset, i) => ['name', 'sha256', 'bytes'].some((key) => asset[key] !== baked[i][key]))) {
+    throw new Error('the packaged static files differ from the binary bake receipt');
+  }
+}

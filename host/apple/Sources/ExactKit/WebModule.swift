@@ -34,6 +34,7 @@ private final class WebModule {
     let create: CreateFn
     let platformView: PlatformViewFn
     let setSrc: SetFn
+    let setDocument: SetFn
     let setSandbox: SetFn
     let snapshot: SnapshotFn
     let evaluate: EvalFn
@@ -49,6 +50,7 @@ private final class WebModule {
         guard let create = symbol("exact_web_create", CreateFn.self),
               let platformView = symbol("exact_web_platform_view", PlatformViewFn.self),
               let setSrc = symbol("exact_web_set_src", SetFn.self),
+              let setDocument = symbol("exact_web_set_document", SetFn.self),
               let setSandbox = symbol("exact_web_set_sandbox", SetFn.self),
               let snapshot = symbol("exact_web_snapshot", SnapshotFn.self),
               let evaluate = symbol("exact_web_agent_eval", EvalFn.self),
@@ -59,13 +61,13 @@ private final class WebModule {
         }
         return .success(WebModule(
             library: library, create: create, platformView: platformView,
-            setSrc: setSrc, setSandbox: setSandbox, snapshot: snapshot,
+            setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, snapshot: snapshot,
             evaluate: evaluate, destroy: destroy))
     }
 
     private init(
         library: UnsafeMutableRawPointer, create: @escaping CreateFn,
-        platformView: @escaping PlatformViewFn, setSrc: @escaping SetFn,
+        platformView: @escaping PlatformViewFn, setSrc: @escaping SetFn, setDocument: @escaping SetFn,
         setSandbox: @escaping SetFn, snapshot: @escaping SnapshotFn,
         evaluate: @escaping EvalFn, destroy: @escaping DestroyFn
     ) {
@@ -73,6 +75,7 @@ private final class WebModule {
         self.create = create
         self.platformView = platformView
         self.setSrc = setSrc
+        self.setDocument = setDocument
         self.setSandbox = setSandbox
         self.snapshot = snapshot
         self.evaluate = evaluate
@@ -210,6 +213,12 @@ final class WebViews {
         entry.initialized = true
         guard let module, let handle = entry.handle else { return }
         if changedSrc || changedSandbox { entry.loading = true }
+        if let src, URL(string: src)?.scheme == nil, !src.hasPrefix("//"), let resolver = session?.app.resolver {
+            let path = src.components(separatedBy: "?")[0].components(separatedBy: "#")[0]
+            let name = path.hasPrefix("/") ? String(path.dropFirst()) : path
+            let document = resolver.bytes(name).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            send(document, to: handle, using: module.setDocument)
+        } else { send(nil, to: handle, using: module.setDocument) }
         if changedSandbox { send(sandbox, to: handle, using: module.setSandbox) }
         if changedSrc { send(src, to: handle, using: module.setSrc) }
     }

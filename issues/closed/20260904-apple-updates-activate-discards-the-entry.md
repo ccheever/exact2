@@ -1,6 +1,7 @@
 # Apple Updates::activate discards the entry assets dir that Linux returns
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed with generation tokens carrying verified plan and complete lazy asset providers through the optional Apple adapter; activated and newly created sessions consume the accepted generation together.
 **Systems:** Apple host, Linux host, Delivery
 **Severity:** P3
 **Author:** Muse Code for Charlie Cheever

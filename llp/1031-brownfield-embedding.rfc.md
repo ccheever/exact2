@@ -126,9 +126,30 @@ session:
   shared by every session of the app;
 - one dev or production connection (D11): the `PlanURL` session in dev,
   the update store's selection and check in production; a verified
-  candidate is staged once and every attached session attempts it
-  transactionally;
+  candidate is staged once; every live session prepares it before the
+  app commits its store, complete asset resolver, and sessions together;
 - the loaded optional modules (D12), shared by nature.
+
+**App-wide acceptance (Charlie, 2026-09-04).** One generation owns the
+plan and the complete asset namespace. Preparation decodes and lays out a
+candidate beside every live runner, including unmounted and not-yet-booted
+sessions, with its own font catalog, carried state, and candidate delivery
+facts. It releases no requests, secret writes, font registration, presenter
+batches, or delegate callbacks. An app with no sessions validates with a
+disposable runtime and starts no executor. Any refusal discards all candidates
+and leaves the live store, runners, and resolver unchanged. Once every session
+accepts, the store commits the same pinned identity; prepared runners swap
+without another fallible layout, then the app presents batches and releases
+callbacks. Newly created sessions take the app's committed generation.
+
+The selected plan is verified during its mandatory read; assets verify lazily
+once and retain immutable bytes. A selected roster replaces the namespace:
+absent names hide embedded and older entries. Images, fonts, shaders, and local
+decks consume those bytes; path-only consumers receive private materializations.
+A draw receipt captures its session generation and bundle token when its node
+is created. An old draw cannot bless a newer token. A corrupt initial candidate
+falls back app-wide before any session runs; a later per-session refusal cannot
+switch the resolver beneath sessions already running.
 
 **`ExactSession`** — any number — is the unit of execution. It owns one
 runtime handle (D2) and with it one runner, one decoded plan, its store
@@ -145,6 +166,13 @@ thread; mirroring one session into two views is not supported. A session
 may live unmounted (a native pop that keeps state): frames and
 visibility-dependent GPU work stop, the runner stands, destruction is
 explicit.
+
+**Landed 2026-09-04, composition port:** `ExactKit` owns the generic
+`ExactGeneration`, complete `AssetResolver`, and all-session prepare/commit
+operation. `ExactUpdates` supplies immutable reads through the optional C
+function table and owns store selection, commit, check, and generation-specific
+boot marks. ABI v4 adds the prepare/commit/discard calls and token-aware table;
+an embedded-only composition links neither this target nor its updater calls.
 
 **One plan, N sessions.** In v1 a process links one Exact app, which has
 one plan, one `app_id`, one compatibility id, one envelope, one stream,
@@ -167,7 +195,7 @@ targets, so embedding cannot become a divergent presenter.
 
 ### D2 — Every ABI call takes a runtime handle; destruction is complete; re-entry is refused — **landed 2026-09-03**
 
-The C ABI (`host/apple/include/exact.h`, v2) is instance-scoped:
+The C ABI (`host/apple/include/exact.h`, v4) is instance-scoped:
 
 ```c
 typedef uint32_t ExactRuntime;                     /* never 0, never reused */
@@ -506,8 +534,8 @@ app does, or it is not Exact. The primitives:
 - **`app.connect(url)` / `app.disconnect()`** — the app's one dev
   connection: `PlanURL` per app, never per session (two sessions would
   otherwise open two streams and fight over one `current`); on `{seq}`
-  it fetches and verifies once and applies to every attached session,
-  each transactionally, each pinning the generation it kept; `{rebuilt}`
+  it fetches and verifies once, prepares every live session, and commits
+  only after all accept under D1's app-wide acceptance; `{rebuilt}`
   is terminal for the connection as today. When the update store lands
   (1030.000 stage 4) this is the same object under the dev policy (1026
   D12) and `check`/`activate` under the production policy — which is why

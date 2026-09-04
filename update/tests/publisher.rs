@@ -181,6 +181,8 @@ fn the_published_stream_is_staged_whole_by_a_client() {
             verification_keys: keys(),
             trust: exact_update::Trust::Production,
             embedded_plan_sha256: None,
+            embedded_assets: None,
+            entry_digest: None,
         },
     )
     .unwrap();
@@ -273,6 +275,8 @@ fn the_published_stream_is_staged_whole_by_a_client() {
             verification_keys: keys(),
             trust: exact_update::Trust::Production,
             embedded_plan_sha256: None,
+            embedded_assets: None,
+            entry_digest: None,
         },
     )
     .unwrap();

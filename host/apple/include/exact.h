@@ -1,4 +1,4 @@
-/* exact.h — the Apple host's C ABI, v2 (LLP 1008 §4; LLP 1031 D2).
+/* exact.h — the Apple host's C ABI, v4 (LLP 1008 §4; LLP 1031 D2).
  *
  * Every call takes a runtime handle: exact_create() hands one out (a u32,
  * never 0, never reused) and exact_destroy() frees everything attributable
@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 3
+#define EXACT_ABI_VERSION 4
 
 #ifdef __cplusplus
 extern "C" {
@@ -117,6 +117,9 @@ uint32_t exact_baked_compat(ExactRuntime rt);
  * running app, if any, exactly as it was. */
 uint32_t exact_boot(ExactRuntime rt, float width, float height);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
+uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
+uint32_t exact_commit_plan(ExactRuntime rt);
+void exact_discard_plan(ExactRuntime rt);
 /* Every queued reply into the runner, on its thread: the batch of their
  * commits (empty when none). A request the app sends (LLP 1016) runs on the
  * library's own executor thread — ibex2::host — never through the host. */
@@ -156,9 +159,15 @@ typedef struct {
     const uint8_t *(*output)(void);
     uint32_t (*open)(size_t len);
     uint32_t (*select)(void);
-    void (*boot_succeeded)(void);
+    void (*boot_succeeded)(uint64_t token);
     uint32_t (*check)(ExactUpdateDoneFn done, void *ctx);
-    uint32_t (*activate)(void);
+    uint32_t (*prepare)(void);
+    uint32_t (*plan)(uint64_t token);
+    uint32_t (*asset)(uint64_t token, size_t len);
+    uint32_t (*commit)(uint64_t token);
+    void (*discard)(uint64_t token);
+    uint32_t (*refuse)(uint64_t token, size_t len);
+    void (*started)(uint64_t token);
 } ExactDeliveryApi;
 const ExactDeliveryApi *exact_delivery_api(void);
 uint32_t exact_delivery_sync(ExactRuntime rt);

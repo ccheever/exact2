@@ -23,8 +23,8 @@ import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
-import { copyStaticTreeIfPresent } from '../web/serve.mjs';
+import { developmentBuildEnv, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => { const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', ...opts }); if (r.status !== 0) process.exit(r.status ?? 1); return r; };
@@ -306,6 +306,7 @@ function main(args) {
   const bake = messages.find((m) => m.reason === 'build-script-executed' && m.package_id === artifact?.package_id);
   if (!bake) throw new Error(`host/apple: cargo did not report the app's bake output for ${crate}`);
   const bakedCompat = JSON.parse(readFileSync(resolve(bake.out_dir, 'compat.json'), 'utf8'));
+  const bakedPlan = readFileSync(resolve(bake.out_dir, 'app.plan'));
   const level = bakedCompat.inputs?.store?.L;
   if (!['0', 'A'].includes(level)) throw new Error(`host/apple: unsupported baked store level ${level}`);
   const composition = level === '0' ? 'embedded' : 'updating';
@@ -330,6 +331,7 @@ function main(args) {
     copyFileSync(resolve(pkg, 'include/exact.h'), resolve(embed, 'include/exact.h'));
     if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(embed, loadName));
     copyAppleStaticTrees(app.dir, embed, [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]);
+    verifyBakeFiles(bakedCompat, bakedPlan, listAssets(embed));
     writeFileSync(resolve(embed, 'compat.json'), JSON.stringify(bakedCompat, null, 2) + '\n');
     writeFileSync(resolve(embed, 'receipt.json'), receipt(app, { platform, target: ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), sdk, archive, gpu: hasGpu ? loadName : null, package: pkg, composition }));
     const bytes = statSync(resolve(embed, archive)).size;
@@ -454,6 +456,7 @@ function main(args) {
   // The GPU crate's shaders (LLP 1030 D8): files the presenter registers
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(app.dir, bundle, [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]);
+  verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle));
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
   if (device) {
@@ -502,6 +505,7 @@ function main(args) {
     copyFileSync(productPath('ExactHostIOS', triple), resolve(hostBundle, 'ExactHostIOS'));
     writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, false, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)' }));
     copyAppleStaticTrees(appBundle, hostBundle);
+    verifyBakeFiles(bakedCompat, bakedPlan, listAssets(hostBundle));
     for (const f of readdirSync(resolve(appBundle, 'Frameworks'))) { copyFileSync(resolve(appBundle, 'Frameworks', f), resolve(hostBundle, 'Frameworks', f)); run('codesign', ['--force', '--sign', '-', resolve(hostBundle, 'Frameworks', f)], { stdio: 'ignore' }); }
     run('codesign', ['--force', '--sign', '-', hostBundle], { stdio: 'ignore' });
     install(dev, hostBundle);

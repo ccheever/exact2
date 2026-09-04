@@ -260,10 +260,10 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             if let Some(v) = &vnc {
                 v.publish(Arc::new(frame));
             }
+            p.first_pixel();
             if first_pixel.is_none() {
                 first_pixel = Some(Instant::now());
                 check_due = Some(Instant::now() + Duration::from_secs(2));
-                p.first_pixel();
             }
         }
         let now = wall();

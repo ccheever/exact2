@@ -1,6 +1,7 @@
 # Entry zero mistakes an asset removal for current
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by exact embedded roster equality and complete generation resolvers; store tests cover same-plan removal and readdition, Apple runtime and Linux selected-asset tests prove omitted names hide embedded bytes.
 **Systems:** Update store, Delivery
 **Severity:** P1
 **Author:** Codex (GPT-5) for Charlie Cheever

@@ -8,6 +8,8 @@ use std::ffi::c_void;
 pub struct Hooks {
     /// The selected candidate, before boot.
     pub selected_plan: fn() -> Option<(String, Vec<u8>)>,
+    /// Candidate facts supplied before the containing app commits it.
+    pub candidate_delivery: fn(u64, &str) -> Option<Delivery>,
     /// Record an attempted boot.
     pub boot_started: fn(),
     /// Refuse a selected candidate and fall back to the embedded plan.
@@ -36,9 +38,21 @@ pub struct Api {
     /// The selection as JSON in the output buffer.
     pub select: extern "C" fn() -> u32,
     /// Record first pixel.
-    pub boot_succeeded: extern "C" fn(),
+    pub boot_succeeded: extern "C" fn(u64),
     /// Start the asynchronous check.
     pub check: extern "C" fn(Option<DoneFn>, *mut c_void) -> u32,
-    /// A staged plan in the output buffer, or zero.
-    pub activate: extern "C" fn() -> u32,
+    /// Prepare an immutable candidate descriptor, or zero.
+    pub prepare: extern "C" fn() -> u32,
+    /// Pinned plan bytes for a generation token.
+    pub plan: extern "C" fn(u64) -> u32,
+    /// Verified asset bytes, named in the input buffer.
+    pub asset: extern "C" fn(u64, usize) -> u32,
+    /// Commit the candidate after every session accepts it.
+    pub commit: extern "C" fn(u64) -> u32,
+    /// Release an uncommitted candidate.
+    pub discard: extern "C" fn(u64),
+    /// Refuse a corrupt initial generation before first pixel.
+    pub refuse: extern "C" fn(u64, usize) -> u32,
+    /// A session accepted the generation, before first pixel.
+    pub started: extern "C" fn(u64),
 }

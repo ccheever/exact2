@@ -180,7 +180,6 @@ impl Config {
                 self.entry = prepared.entry;
                 self.selected_assets = Some(prepared.assets);
             }
-            updates.boot_started();
         }
         self.updates = Some(updates);
     }
@@ -225,7 +224,14 @@ pub fn boot_presenter<D: DataSource + Default>(
         config.assets.clone(),
         config.selected_assets.clone(),
     ) {
-        Ok(value) => Ok(delivered(value, updates)),
+        Ok(value) => {
+            if !config.explicit && config.entry.is_some() {
+                if let Some(updates) = updates.as_mut() {
+                    updates.boot_started();
+                }
+            }
+            Ok(delivered(value, updates))
+        }
         Err(fetched_error) => {
             let Some(baked) = config.fallback_plan.as_deref() else {
                 return Err(fetched_error.to_string());
@@ -320,6 +326,7 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
     // First pixel, headless: the boot is whole — laid out, its pictures in
     // — before anything reads it (LLP 1026 D11). The check follows when a
     // drive named an origin; a headless run has no user to wait for.
+    let _ = p.frame();
     p.first_pixel();
     if std::env::var_os("EXACT_UPDATE_ORIGIN").is_some() {
         p.check_update();

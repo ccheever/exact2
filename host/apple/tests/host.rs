@@ -562,37 +562,51 @@ fn a_refused_fresh_boot_keeps_the_running_host() {
 }
 
 #[test]
-fn swift_boots_checkpoint_all_plan_scoped_text_state() {
-    // The session checkpoints its text engine around every boot (LLP 1031
-    // D12: the catalog is the session's) and restores it on a refusal, so
-    // a refused candidate leaves the running app's fonts exactly as they
-    // were.
-    let session = include_str!("../Sources/ExactKit/Session.swift");
-    for (head, boot) in [
-        ("public func boot(size: CGSize)", "runtime.boot("),
-        ("public func boot(plan bytes: Data", "runtime.bootPlan("),
-        ("public func apply(_ bytes: Data", "runtime.bootPlan("),
-    ] {
-        // The last match: `ExactApp` has an `apply(_ bytes:)` of its own
-        // before the session's.
-        let body = session.split(head).last().unwrap();
-        let body = &body[..body.find("\n    }\n").unwrap()];
-        let checkpoint = body.find("text.checkpoint()").unwrap();
-        let booted = body.find(boot).unwrap();
-        let restore = body.find("text.restore(cp)").unwrap();
-        assert!(checkpoint < booted && booted < restore, "{head}: {body}");
-    }
-    let text = include_str!("../Sources/ExactKit/Text.swift");
-    let checkpoint = text
-        .split("final class Checkpoint")
-        .nth(1)
+fn two_prepared_sessions_keep_their_live_hosts_until_both_accept() {
+    let running = contract::compile("component App\n  view\n    text \"running\"\n")
         .unwrap()
-        .split("func checkpoint()")
-        .next()
-        .unwrap();
-    assert!(checkpoint.contains("engine.fonts = fonts"));
-    assert!(checkpoint.contains("engine.paragraphs = paragraphs"));
-    assert!(checkpoint.contains("engine.catalog = catalog"));
+        .encode();
+    let candidate = contract::compile("component App\n  view\n    text \"candidate\"\n")
+        .unwrap()
+        .encode();
+    let hooks = exact_apple::abi::Hooks {
+        measure: None,
+        ctx: std::ptr::null_mut(),
+        wake: None,
+        wake_ctx: std::ptr::null_mut(),
+    };
+    let mut a: Bridge<NoData> = Bridge::new();
+    let mut b: Bridge<NoData> = Bridge::new();
+    a.boot(&running, NoData, hooks, 390.0, 844.0);
+    b.boot(&running, NoData, hooks, 390.0, 844.0);
+    for bridge in [&mut a, &mut b] {
+        bridge.input_write(&candidate);
+    }
+    let n = a.prepare_plan(candidate.len(), NoData, hooks, 390.0, 844.0);
+    assert!(String::from_utf8_lossy(a.output_bytes(n as usize)).contains("\"error\":null"));
+    let n = b.prepare_plan(candidate.len(), NoData, hooks, f32::NAN, 844.0);
+    assert!(String::from_utf8_lossy(b.output_bytes(n as usize)).contains("InvalidOffer"));
+    a.discard_plan();
+    b.discard_plan();
+    for bridge in [&mut a, &mut b] {
+        let n = bridge.input_write(br#"{"op":"tree"}"#);
+        let n = bridge.agent(n);
+        let tree = String::from_utf8_lossy(bridge.output_bytes(n as usize));
+        assert!(tree.contains("running"));
+        assert!(!tree.contains("candidate"));
+        bridge.input_write(&candidate);
+        bridge.prepare_plan(candidate.len(), NoData, hooks, 390.0, 844.0);
+    }
+    for bridge in [&mut a, &mut b] {
+        bridge.commit_plan();
+    }
+    for bridge in [&mut a, &mut b] {
+        let n = bridge.input_write(br#"{"op":"tree"}"#);
+        let n = bridge.agent(n);
+        let tree = String::from_utf8_lossy(bridge.output_bytes(n as usize));
+        assert!(tree.contains("candidate"));
+        assert!(!tree.contains("running"));
+    }
 }
 
 #[test]
@@ -641,39 +655,6 @@ fn the_plan_font_catalog_and_family_runs_cross_the_host_seam_before_layout() {
     assert!(runs.contains(&(8, 400, false)), "{runs:?}");
     assert!(runs.contains(&(8, 600, false)), "{runs:?}");
     assert!(runs.contains(&(8, 700, false)), "{runs:?}");
-}
-
-#[test]
-fn url_descriptors_survive_process_registration_name_collisions() {
-    let source = include_str!("../Sources/ExactKit/Text.swift");
-    let install = source
-        .split("func install(")
-        .nth(1)
-        .unwrap()
-        .split("private func fontURL")
-        .next()
-        .unwrap();
-    let descriptor = install
-        .find("CTFontManagerCreateFontDescriptorsFromURL")
-        .unwrap();
-    let registration = install.find("if !FontRegistry.register(url)").unwrap();
-    assert!(
-        descriptor < registration,
-        "URL identity must be acquired before best-effort process registration"
-    );
-
-    // Registration is process-wide by platform (LLP 1031 D12): once per
-    // URL, a collision tolerated, never unregistered.
-    let register = source
-        .split("enum FontRegistry")
-        .nth(1)
-        .unwrap()
-        .split("final class TextEngine")
-        .next()
-        .unwrap();
-    assert!(register.contains("CTFontManagerError.alreadyRegistered"));
-    assert!(register.contains("CTFontManagerError.duplicatedName"));
-    assert!(!source.contains("CTFontManagerUnregisterFontsForURL"));
 }
 
 #[test]

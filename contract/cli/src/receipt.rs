@@ -48,9 +48,9 @@ pub(crate) fn emit(
     // A binary without an updater has no stream or rollback floor.
     // Native L=A artifacts still require authenticated sequence provenance.
     let development = compat.inputs["trust"] == "development";
-    if development {
-        // Explicit development artifacts have a local genesis, never a
-        // production sequence inherited from an absent receipt.
+    if development || compat.inputs["store"]["L"] == "0" {
+        // Explicit development artifacts and updater-free hosts have a
+        // local genesis; neither inherits a production stream receipt.
     } else if let Some(path) = std::env::var_os("EXACT_UPDATE_RECEIPT") {
         let path = PathBuf::from(path);
         println!("cargo:rerun-if-changed={}", path.display());
@@ -227,6 +227,7 @@ mod tests {
         assert_eq!(compat.embedded["entryDigest"].as_str().unwrap().len(), 64);
         let baked = Baked::from_compat(&compat.to_json(), &plan).unwrap();
         assert_eq!(baked.embedded.compatibility_id, compat.id);
+        assert_eq!(baked.embedded.seq, 1);
 
         let (mut wrong, _, _) = signed_fixture();
         wrong.embedded["assets"] = json!([]);
@@ -240,7 +241,7 @@ mod tests {
         assert!(
             apply_release(&mut wrong, &serde_json::to_vec(&receipt).unwrap(), &plan)
                 .unwrap_err()
-                .contains("embedded plan bytes")
+                .contains("embedded.plan does not match")
         );
         let (mut wrong, mut forged, _) = signed_fixture();
         forged["envelope"]["stream"]["seq"] = json!(41);

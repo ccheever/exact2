@@ -317,15 +317,66 @@ impl<D: DataSource> Presenter<D> {
     /// D7): its assets stand in for the root's by name, its plan restarts
     /// the app. `Ok(false)` when nothing is staged.
     pub fn activate_update(&mut self, data: D) -> Result<bool, HostError> {
-        let Some((plan, assets)) = self.updates.as_ref().and_then(|u| u.activate()) else {
+        let Some(updates) = self.updates.as_ref() else {
             return Ok(false);
         };
-        self.images.use_overrides(&assets);
-        if let Some(e) = self.reload(&plan, data)? {
-            eprintln!("exact: {e}");
+        let Some(candidate) = updates.prepare_activation().map_err(HostError::Asset)? else {
+            return Ok(false);
+        };
+        let assets = Assets::selected(self.assets.root().to_path_buf(), candidate.assets.clone());
+        let decoded = Plan::decode(&candidate.plan).map_err(HostError::Plan)?;
+        let text = TextEngine::shared_for_assets(&decoded, &assets);
+        let carried = self.host.carry();
+        let (mut host, error) = Host::boot_with(
+            &candidate.plan,
+            data,
+            Box::new(Measurer(text.clone())),
+            self.viewport.0,
+            self.viewport.1,
+            Some(&carried),
+        )?;
+        if let Some(error) = error {
+            return Err(HostError::Layout(error));
         }
+        let mut delivery = host.runner().delivery().with_compat(&self.compat);
+        updates.status_into(&mut delivery);
+        updates.staged_stream_into(&mut delivery);
+        delivery.seq = candidate.seq;
+        delivery.staged = false;
+        if let Some(error) = host.set_delivery(delivery) {
+            return Err(HostError::Layout(error));
+        }
+        let mut images = Images::with_assets(assets.clone());
+        let mut reports = images.sync(host.kernel(), &host.preorder());
+        reports.extend(images.wait(Duration::from_secs(1)));
+        for (view, size) in reports {
+            if let Some(error) = host.set_intrinsic(view, size) {
+                return Err(HostError::Layout(error));
+            }
+        }
+        if let Some(reason) = assets.take_refusal() {
+            return Err(HostError::Asset(reason));
+        }
+        self.updates
+            .as_mut()
+            .unwrap()
+            .commit_activation(candidate.entry, candidate.seq)
+            .map_err(HostError::Asset)?;
+        self.updates.as_mut().unwrap().boot_started();
+        self.host = host;
+        self.text = text.clone();
+        self.brush.text = text;
+        self.assets = assets;
+        self.images = images;
+        self.executor = crate::executor::Executor::start(&self.host.grants());
+        self.scroll.clear();
+        self.page = (0.0, 0.0);
+        self.focus = None;
+        self.pointer = None;
+        self.commands.clear();
         self.host.log("exact update: activated the staged bundle");
         self.sync_delivery();
+        self.after_commit();
         Ok(true)
     }
 

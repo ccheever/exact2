@@ -136,7 +136,7 @@ final class Canvases {
             // The shaders as files (LLP 1030 D8), from the app's asset root
             // (LLP 1031 D1): the app's directory in dev, the bundle in a
             // release.
-            if let root = session?.app.assetRoot.path { _ = m.registerShaders(root: root) }
+            if let resolver = session?.app.resolver { m.registerShaders(resolver: resolver) }
             for e in entries.values { create(m, e) }
         }
     }

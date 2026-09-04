@@ -16,10 +16,11 @@ enum Updates {
     /// What the store selected for this launch: the entry (nil for entry
     /// zero), its seq, and its plan and assets paths (empty for entry zero).
     struct Selection {
-        let entry: String?
-        let seq: Int
-        let plan: String
-        let assets: String
+        let token: UInt64
+        let entry: String
+        let seq: UInt64
+        let plan: Data
+        let assets: [String]
     }
 
     private static func read(_ len: UInt32) -> Data {
@@ -40,7 +41,6 @@ enum Updates {
     /// `assets` as what the binary embeds by name. A refusal is one stderr
     /// line, and the app runs on the embedded facts.
     static func open(assets: URL) -> Bool {
-        guard linked else { return false }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.path ?? NSTemporaryDirectory()
         guard let payload = try? JSONSerialization.data(withJSONObject: ["base": base, "assets": assets.path]) else { return false }
         let n = write(String(decoding: payload, as: UTF8.self))
@@ -50,41 +50,59 @@ enum Updates {
         return false
     }
 
-    static func selection() -> Selection {
-        let len = api!.pointee.select()
+    private static func selection(_ len: UInt32) -> Selection? {
         let obj = (try? JSONSerialization.jsonObject(with: read(len)) as? [String: Any]) ?? [:]
-        return Selection(entry: obj["entry"] as? String, seq: obj["seq"] as? Int ?? 0, plan: obj["plan"] as? String ?? "", assets: obj["assets"] as? String ?? "")
+        guard let token = (obj["token"] as? NSNumber)?.uint64Value, token != 0,
+              let entry = obj["entry"] as? String else { return nil }
+        let plan = read(api!.pointee.plan(token))
+        return Selection(token: token, entry: entry, seq: (obj["seq"] as? NSNumber)?.uint64Value ?? 0,
+                         plan: plan, assets: obj["assets"] as? [String] ?? [])
     }
 
-    /// First pixel: the selection that booted is good (LLP 1026 D11).
-    static func bootSucceeded() { api?.pointee.boot_succeeded() }
+    static func selection() -> Selection? { selection(api!.pointee.select()) }
+    static func prepare() -> Selection? { selection(api!.pointee.prepare()) }
+    static func commit(_ selection: Selection) -> Bool {
+        let len = api!.pointee.commit(selection.token)
+        if len != 0 { fputs("exact update: \(String(decoding: read(len), as: UTF8.self))\n", stderr) }
+        return len == 0
+    }
+    static func discard(_ selection: Selection) { api!.pointee.discard(selection.token) }
+    static func refuse(_ token: UInt64, reason: String) {
+        _ = api!.pointee.refuse(token, write(reason))
+    }
+    static func asset(_ selection: Selection, name: String) -> Result<Data?, NSError> {
+        let data = read(api!.pointee.asset(selection.token, write(name)))
+        switch data.first {
+        case 0: return .success(nil)
+        case 1: return .success(Data(data.dropFirst()))
+        default: return .failure(NSError(domain: "ExactAsset", code: 1, userInfo: [NSLocalizedDescriptionKey: String(decoding: data.dropFirst(), as: UTF8.self)]))
+        }
+    }
 
-    /// Start the check on the library's thread; the owner gets its line
-    /// on the main thread. False when a check already runs or
+    /// Only the generation which drew can bless the running selection.
+    static func started(_ token: UInt64) { api!.pointee.started(token) }
+    static func bootSucceeded(_ token: UInt64) { api!.pointee.boot_succeeded(token) }
+
+    /// Start the check on the library's thread; `ExactApp.updateChecked`
+    /// gets the line on the main thread. False when a check already runs or
     /// no store is open.
-    static func check() -> Bool { api?.pointee.check(done, nil) == 0 }
+    static func check() -> Bool { api!.pointee.check(done, nil) == 0 }
 
     private static let done: ExactUpdateDoneFn = { _, line, len in
         let text = line.map { String(decoding: Data(bytes: $0, count: len), as: UTF8.self) } ?? ""
         DispatchQueue.main.async { Updates.completed?(text) }
     }
 
-    /// The staged plan's bytes, or nil when nothing is staged.
-    static func activate() -> Data? {
-        let len = api!.pointee.activate()
-        return len == 0 ? nil : read(len)
-    }
 }
 
-/// The update-capable app composition. ExactKit itself does not link this
-/// owner, its commands, its check scheduling, or the C adapter facade.
+/// The app-owned updating composition. Core ExactKit owns preparation and
+/// presentation; this target alone owns its store, checks and boot marks.
 public final class ExactUpdates: ExactAppLifecycle {
     private weak var app: ExactApp?
     private let storeOpen: Bool
+    private var firstPixelSeen = false
     public private(set) var status: String?
 
-    /// Install before creating the app's first session. A mismatched archive
-    /// fails explicitly rather than silently pretending the adapter exists.
     @discardableResult
     public static func install(on app: ExactApp) -> ExactUpdates {
         precondition(Updates.linked, "the updating composition requires an update-capable app archive")
@@ -97,7 +115,7 @@ public final class ExactUpdates: ExactAppLifecycle {
     private init(app: ExactApp) {
         self.app = app
         storeOpen = Updates.open(assets: app.assetRoot)
-        if storeOpen { useAssets(Updates.selection().assets) }
+        if storeOpen, let selected = Updates.selection() { app.installInitial(generation(selected, app: app)) }
         Updates.completed = { [weak self] line in
             self?.status = line
             FileHandle.standardError.write(Data("exact update: \(line)\n".utf8))
@@ -105,24 +123,22 @@ public final class ExactUpdates: ExactAppLifecycle {
         }
     }
 
-    private func useAssets(_ directory: String) {
-        guard let app else { return }
-        guard !directory.isEmpty else { app.assetProvider = nil; return }
-        let root = URL(fileURLWithPath: directory, isDirectory: true)
-        var files: [String: URL] = [:]
-        if let entries = FileManager.default.enumerator(atPath: directory) {
-            for case let name as String in entries {
-                let url = root.appendingPathComponent(name)
-                var directory: ObjCBool = false
-                if FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), !directory.boolValue { files[name] = url }
-            }
+    private func generation(_ selection: Updates.Selection, app: ExactApp) -> ExactGeneration {
+        let assets = AssetResolver(root: app.assetRoot, names: selection.assets) { name in
+            try Updates.asset(selection, name: name).get()
         }
-        app.assetProvider = { files[$0] }
+        return ExactGeneration(plan: selection.plan, assets: assets, token: selection.token)
     }
 
-    public func firstPixel(_ app: ExactApp) {
+    public func generationStarted(_ app: ExactApp, token: UInt64) { if storeOpen { Updates.started(token) } }
+    public func initialGenerationRefused(_ app: ExactApp, token: UInt64, reason: String) {
+        if storeOpen { Updates.refuse(token, reason: reason) }
+    }
+    public func firstPixel(_ app: ExactApp, token: UInt64) {
         guard storeOpen else { return }
-        Updates.bootSucceeded()
+        Updates.bootSucceeded(token)
+        guard !firstPixelSeen else { return }
+        firstPixelSeen = true
         if ExactEnv.agentMode, ExactEnv.environment["EXACT_UPDATE_ORIGIN"] == nil { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.check() }
     }
@@ -134,10 +150,9 @@ public final class ExactUpdates: ExactAppLifecycle {
 
     @discardableResult
     public func activate() -> Bool {
-        guard storeOpen, let app, let bytes = Updates.activate() else { return false }
-        useAssets(Updates.selection().assets)
-        let accepted = app.apply(bytes, label: "update")
-        app.refreshDelivery()
+        guard storeOpen, let app, let selected = Updates.prepare() else { return false }
+        let accepted = app.applyGeneration(generation(selected, app: app), label: "update", commit: { Updates.commit(selected) })
+        if !accepted { Updates.discard(selected) }
         return accepted
     }
 

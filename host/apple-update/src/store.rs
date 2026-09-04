@@ -30,7 +30,7 @@
 
 use exact_runner::agent::field_str;
 use exact_runner::Delivery;
-use exact_update::{Activate, Client, Status};
+use exact_update::{Activate, Client, PreparedSelection, Status};
 use std::ffi::c_void;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -46,6 +46,100 @@ const MAX_FILE_BYTES: usize = 64 * 1024 * 1024;
 
 /// The one store, once opened.
 static CLIENT: Mutex<Option<Client>> = Mutex::new(None);
+
+#[derive(Clone)]
+struct Pinned {
+    token: u64,
+    selection: PreparedSelection,
+}
+struct Generations {
+    next: u64,
+    initialized: bool,
+    live: Option<Pinned>,
+    candidate: Option<Pinned>,
+}
+static GENERATIONS: Mutex<Generations> = Mutex::new(Generations {
+    next: 1,
+    initialized: false,
+    live: None,
+    candidate: None,
+});
+
+fn pin(state: &mut Generations, selection: PreparedSelection) -> Pinned {
+    let token = state.next;
+    state.next = state
+        .next
+        .checked_add(1)
+        .expect("update generation token exhausted");
+    Pinned { token, selection }
+}
+
+fn quote(value: &str) -> String {
+    let mut out = String::new();
+    exact_runner::agent::quote(value, &mut out);
+    out
+}
+
+fn descriptor(pinned: Option<&Pinned>) -> Vec<u8> {
+    match pinned {
+        Some(p) => format!(
+            "{{\"token\":{},\"entry\":{},\"seq\":{},\"assets\":[{}]}}",
+            p.token,
+            p.selection
+                .generation
+                .entry
+                .as_deref()
+                .map(quote)
+                .unwrap_or_else(|| "null".into()),
+            p.selection.generation.seq,
+            p.selection
+                .assets
+                .names()
+                .iter()
+                .map(|s| quote(s))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+        .into_bytes(),
+        None => format!(
+            "{{\"token\":0,\"entry\":null,\"seq\":{},\"assets\":[]}}",
+            lock(&SNAPSHOT)
+                .status
+                .as_ref()
+                .map_or(0, |s| s.embedded_seq)
+        )
+        .into_bytes(),
+    }
+}
+
+fn initial_selection() -> Option<Pinned> {
+    let mut client = lock(&CLIENT);
+    let mut generations = lock(&GENERATIONS);
+    if !generations.initialized {
+        generations.initialized = true;
+        if let Some(client) = client.as_mut() {
+            match client.prepare_selected() {
+                Ok(Some(selection)) => generations.live = Some(pin(&mut generations, selection)),
+                Ok(None) => {}
+                Err(refusal) => {
+                    let mut snapshot = lock(&SNAPSHOT);
+                    snapshot.note = Some(format!("exact update: {refusal}; booted entry zero"));
+                    snapshot.status = Some(*refusal.status);
+                }
+            }
+        }
+    }
+    generations.live.clone()
+}
+
+fn pinned(token: u64) -> Option<Pinned> {
+    let g = lock(&GENERATIONS);
+    g.candidate
+        .as_ref()
+        .filter(|p| p.token == token)
+        .or_else(|| g.live.as_ref().filter(|p| p.token == token))
+        .cloned()
+}
 
 /// The cheap facts, readable while a check downloads.
 struct Snapshot {
@@ -124,6 +218,10 @@ pub fn open(len: usize, compat: &str, plan: &[u8]) -> u32 {
         Ok(client) => {
             refresh(&client);
             *lock(&CLIENT) = Some(client);
+            let mut generations = lock(&GENERATIONS);
+            generations.initialized = false;
+            generations.live = None;
+            generations.candidate = None;
             0
         }
         Err(e) => emit(e.into_bytes()),
@@ -134,17 +232,65 @@ pub fn open(len: usize, compat: &str, plan: &[u8]) -> u32 {
 /// `{"entry":…|null,"seq":N,"plan":"…","assets":"…"}`, the paths empty for
 /// entry zero and when no store is open.
 pub fn select() -> u32 {
-    let line = match lock(&CLIENT).as_ref() {
-        Some(c) => c.selection_json(),
-        None => "{\"entry\":null,\"seq\":0,\"plan\":\"\",\"assets\":\"\"}".to_string(),
-    };
-    emit(line.into_bytes())
+    emit(descriptor(initial_selection().as_ref()))
 }
 
-/// The selected entry's name and plan bytes, for a boot; `None` for entry
-/// zero or with no store (LLP 1026 D9: a stat and a read).
+/// The immutable plan bytes pinned by a selection or activation token.
+pub fn plan(token: u64) -> u32 {
+    emit(
+        pinned(token)
+            .map(|p| p.selection.plan.to_vec())
+            .unwrap_or_default(),
+    )
+}
+
+/// A selected boot uses the verified bytes pinned once for the whole app.
 pub fn selected_plan() -> Option<(String, Vec<u8>)> {
-    lock(&CLIENT).as_ref()?.selected_plan()
+    let p = initial_selection()?;
+    Some((p.selection.generation.entry?, p.selection.plan.to_vec()))
+}
+
+/// One signed asset: status byte 0 absent, 1 verified bytes, 2 refusal text.
+/// The consumer receives immutable bytes, never a path it must reopen.
+pub fn asset(token: u64, len: usize) -> u32 {
+    let name = input_text(len);
+    let answer = pinned(token)
+        .ok_or_else(|| "unknown update generation".to_string())
+        .and_then(|p| p.selection.assets.resolve(&name));
+    let mut out = Vec::new();
+    match answer {
+        Ok(Some(bytes)) => {
+            out.push(1);
+            out.extend_from_slice(&bytes);
+        }
+        Ok(None) => out.push(0),
+        Err(why) => {
+            out.push(2);
+            out.extend_from_slice(why.as_bytes());
+        }
+    }
+    emit(out)
+}
+
+/// Discard a corrupt initial generation before it becomes visible. A staged
+/// candidate refusal leaves every committed generation unchanged.
+pub fn refuse(token: u64, len: usize) -> u32 {
+    let why = input_text(len);
+    let mut client = lock(&CLIENT);
+    let mut g = lock(&GENERATIONS);
+    if g.candidate.as_ref().is_some_and(|p| p.token == token) {
+        g.candidate = None;
+        return 0;
+    }
+    if g.live.as_ref().is_some_and(|p| p.token == token) {
+        let p = g.live.take().unwrap();
+        if let Some(client) = client.as_mut() {
+            let refusal = client.selection_corrupt(&p.selection.generation, why);
+            refresh(client);
+            lock(&SNAPSHOT).note = Some(format!("exact update: {refusal}; booted entry zero"));
+        }
+    }
+    0
 }
 
 /// The selection is booting: count it (LLP 1026 D11), once per process.
@@ -161,6 +307,7 @@ pub fn boot_started() {
 /// The selected entry's plan was refused at boot; entry zero boots instead.
 pub fn entry_refused(entry: &str, why: &str) {
     let mut guard = lock(&CLIENT);
+    lock(&GENERATIONS).live = None;
     if let Some(c) = guard.as_mut() {
         let (note, status) = c.entry_refused(entry, why);
         let mut snap = lock(&SNAPSHOT);
@@ -169,12 +316,27 @@ pub fn entry_refused(entry: &str, why: &str) {
     }
 }
 
+/// Count only a generation the app actually accepted, once per process.
+pub fn started(token: u64) {
+    let Some(p) = pinned(token) else { return };
+    let mut client = lock(&CLIENT);
+    if let Some(client) = client.as_mut() {
+        if client.generation() == p.selection.generation {
+            if let Err(error) = client.boot_started() {
+                lock(&SNAPSHOT).note = Some(error);
+            }
+            refresh(client);
+        }
+    }
+}
+
 /// First pixel (`exact_update_boot_succeeded`): the selection that booted
 /// is good, once per process.
-pub fn boot_succeeded() {
+pub fn boot_succeeded(token: u64) {
+    let Some(p) = pinned(token) else { return };
     let mut guard = lock(&CLIENT);
     if let Some(c) = guard.as_mut() {
-        if let Err(e) = c.boot_succeeded() {
+        if let Err(e) = c.boot_succeeded(&p.selection.generation) {
             lock(&SNAPSHOT).note = Some(format!("exact update: {e}"));
         }
         refresh(c);
@@ -269,20 +431,50 @@ fn fetch_one(
     Ok(r.body)
 }
 
-/// Activate (`exact_update_activate`): the staged plan's bytes into the
-/// output buffer — the host applies them to every session with carry and
-/// takes the entry's assets from `select` — or 0 when nothing is staged, no
-/// store is open. A check's network work never holds this lock.
-pub fn activate() -> u32 {
-    let mut guard = lock(&CLIENT);
-    let Some(client) = guard.as_mut() else {
-        return 0;
+/// Pin the staged generation for app-wide preparation, without committing it.
+pub fn prepare() -> u32 {
+    let client = lock(&CLIENT);
+    let result = client
+        .as_ref()
+        .ok_or_else(|| "no store is open".to_string())
+        .and_then(Client::prepare_activation);
+    match result {
+        Ok(Some(selection)) => {
+            let mut g = lock(&GENERATIONS);
+            g.candidate = Some(pin(&mut g, selection));
+            emit(descriptor(g.candidate.as_ref()))
+        }
+        Ok(None) => emit(descriptor(None)),
+        Err(error) => emit(format!("{{\"error\":{}}}", quote(&error)).into_bytes()),
+    }
+}
+
+/// Commit the exact candidate all sessions accepted. Zero succeeds; a refusal
+/// string leaves the old running selection, assets and candidate intact.
+pub fn commit(token: u64) -> u32 {
+    let mut client = lock(&CLIENT);
+    let mut g = lock(&GENERATIONS);
+    let Some(p) = g.candidate.as_ref().filter(|p| p.token == token) else {
+        return emit(b"no matching update candidate".to_vec());
     };
-    let Some((plan, _assets)) = client.activate() else {
-        return 0;
+    let Some(client) = client.as_mut() else {
+        return emit(b"no store is open".to_vec());
     };
+    if let Err(error) = client.commit_activation(&p.selection.generation) {
+        return emit(error.into_bytes());
+    }
+    g.live = g.candidate.take();
+    g.initialized = true;
     refresh(client);
-    emit(plan)
+    0
+}
+
+/// Drop an uncommitted candidate.
+pub fn discard(token: u64) {
+    let mut g = lock(&GENERATIONS);
+    if g.candidate.as_ref().is_some_and(|p| p.token == token) {
+        g.candidate = None;
+    }
 }
 
 /// What the store has to say, into a runner's delivery facts (LLP 1030
@@ -298,6 +490,24 @@ pub fn status_into(delivery: &mut Delivery) {
         delivery.staged = s.staged;
         delivery.sunset = s.sunset.as_ref().map(|c| c.message.clone());
     }
+}
+
+/// Candidate facts used only by a prepared runner. The shared status stays live.
+pub fn prepared_delivery(token: u64, compat: &str) -> Option<Delivery> {
+    let pinned = pinned(token)?;
+    let mut delivery = Delivery::default().with_compat(compat);
+    status_into(&mut delivery);
+    if let Some(client) = lock(&CLIENT).as_ref() {
+        delivery.stream = format!(
+            "{}/{}",
+            client.embedded().channel,
+            client.embedded().compatibility_id
+        );
+    }
+    delivery.seq = pinned.selection.generation.seq;
+    // Both an initial running selection and a committed activation are unstaged.
+    delivery.staged = false;
+    Some(delivery)
 }
 
 /// The last check's journal line, if any.
@@ -410,6 +620,12 @@ mod tests {
             ));
             refresh(&client);
             *lock(&CLIENT) = Some(client);
+            {
+                let mut g = lock(&GENERATIONS);
+                g.initialized = false;
+                g.live = None;
+                g.candidate = None;
+            }
             let (entered_tx, entered_rx) = std::sync::mpsc::channel();
             let (release_tx, release_rx) = std::sync::mpsc::channel();
             let transport = StalledTransport {
@@ -425,6 +641,9 @@ mod tests {
                 .unwrap();
             let (responsive_tx, responsive_rx) = std::sync::mpsc::channel();
             let foreground = std::thread::spawn(move || {
+                assert!(prepare() > 0);
+                let token = lock(&GENERATIONS).candidate.as_ref().unwrap().token;
+                assert_eq!(commit(token), 0);
                 assert!(select() > 0);
                 let (_, bytes) = selected_plan().unwrap();
                 let (_session, batch) = exact_apple::Host::boot(
@@ -436,10 +655,9 @@ mod tests {
                 )
                 .unwrap();
                 assert!(!batch.is_empty());
-                assert_eq!(activate() as usize, bytes.len());
-                assert_eq!(activate(), 0);
+                assert_eq!(super::plan(token) as usize, bytes.len());
                 boot_started();
-                boot_succeeded();
+                boot_succeeded(token);
                 let mut delivery = Delivery::default();
                 status_into(&mut delivery);
                 responsive_tx.send((delivery.seq, delivery.staged)).unwrap();
@@ -495,5 +713,68 @@ mod tests {
         assert!(take_note().unwrap().contains("booted entry zero"));
         *lock(&CLIENT) = None;
         let _ = std::fs::remove_dir_all(base);
+    }
+    #[test]
+    fn selected_plan_and_assets_are_verified_once_and_shared_by_later_sessions() {
+        let _test = lock(&TEST_STORE);
+        let base = std::env::temp_dir().join(format!("exact-apple-pinned-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let plan_bytes = b"verified plan";
+        let asset_bytes = b"verified asset";
+        let header = String::from_utf8(head(1, plan_bytes)).unwrap().replace(
+            "\"assets\":[]", &format!("\"assets\":[{{\"name\":\"assets/a\",\"url\":\"./assets/a\",\"sha256\":\"{}\",\"bytes\":{}}}]", exact_update::sha256_hex(asset_bytes), asset_bytes.len()));
+        let mut client = Client::open(&base, &base, COMPAT, b"embedded").unwrap();
+        assert!(matches!(
+            client.check(&mut |url| Ok(if url.ends_with("exact.json") {
+                header.as_bytes().to_vec()
+            } else if url.ends_with("app.plan") {
+                plan_bytes.to_vec()
+            } else {
+                asset_bytes.to_vec()
+            })),
+            exact_update::Outcome::Staged { .. }
+        ));
+        let selection = client.selection();
+        drop(client);
+        let client = Client::open(&base, &base, COMPAT, b"embedded").unwrap();
+        refresh(&client);
+        *lock(&CLIENT) = Some(client);
+        {
+            let mut g = lock(&GENERATIONS);
+            g.initialized = false;
+            g.live = None;
+            g.candidate = None;
+        }
+        let selected = initial_selection().unwrap();
+        assert_eq!(selected.selection.plan.as_ref(), plan_bytes);
+        std::fs::write(selection.plan.as_ref().unwrap(), b"changed plan").unwrap();
+        assert_eq!(selected_plan().unwrap().1, plan_bytes);
+        assert_eq!(initial_selection().unwrap().token, selected.token);
+        *lock(&INPUT) = b"assets/a".to_vec();
+        asset(selected.token, 8);
+        assert_eq!(&lock(&OUTPUT)[1..], asset_bytes);
+        std::fs::write(
+            selection.assets_dir.unwrap().join("assets/a"),
+            b"changed asset",
+        )
+        .unwrap();
+        asset(selected.token, 8);
+        assert_eq!(&lock(&OUTPUT)[1..], asset_bytes);
+        *lock(&INPUT) = b"removed".to_vec();
+        asset(selected.token, 7);
+        assert_eq!(*lock(&OUTPUT), vec![0]);
+        // A new process must re-prove the plan, before counting or blessing it.
+        let client = Client::open(&base, &base, COMPAT, b"embedded").unwrap();
+        *lock(&CLIENT) = Some(client);
+        {
+            let mut g = lock(&GENERATIONS);
+            g.initialized = false;
+            g.live = None;
+            g.candidate = None;
+        }
+        assert!(initial_selection().is_none());
+        assert_eq!(lock(&CLIENT).as_ref().unwrap().status().entry, None);
+        *lock(&CLIENT) = None;
+        std::fs::remove_dir_all(base).unwrap();
     }
 }

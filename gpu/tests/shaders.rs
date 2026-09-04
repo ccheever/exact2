@@ -59,4 +59,15 @@ fn a_shader_is_registered_at_its_interface_and_refused_off_it() {
         wgpu::ShaderSource::Wgsl(text) => assert_eq!(&*text, "", "empty until registered"),
         _ => panic!("WGSL"),
     }
+    // Preparation validates without publishing; complete replacement evicts
+    // omitted sources, including a source that was previously registered.
+    let before = shader_generation();
+    exact_gpu::shaders::validate_shader("t_next", FS, Some(digest)).unwrap();
+    assert_eq!(shader_generation(), before);
+    assert!(shader_source("t_next").is_none());
+    exact_gpu::shaders::clear_shaders();
+    assert!(shader_source("t_ok").is_none());
+    assert!(missing(&[("t_ok", digest)]).is_some());
+    set_shader("t_ok", FS.replace("1.0", "0.5"), Some(digest)).unwrap();
+    assert!(shader_source("t_ok").unwrap().contains("0.5"));
 }

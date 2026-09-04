@@ -32,8 +32,9 @@
 //!   closure** (`&mut dyn FnMut(&str) -> Result<Vec<u8>, String>`), so a host
 //!   runs [`Store::check`] on its own executor thread and this crate opens no
 //!   socket, links no TLS, and knows no platform.
-//! - It never boots anything: [`Store::select`] hands back paths, and
-//!   [`Store::activate`] hands back the staged plan's bytes.
+//! - It never boots anything: [`Store::prepare_selected`] and
+//!   [`Store::prepare_activation`] pin verified bytes; the host accepts
+//!   its whole app before [`Store::commit_activation`] changes the record.
 //! - The check is off the boot path (LLP 1026 D11): selection is a stat and a
 //!   read; nothing here touches the network until the host asks.
 //!

@@ -129,7 +129,7 @@ impl<D: DataSource> Host<D> {
         snapshot: Vec<(String, String)>,
         secrets: Option<Secrets>,
     ) -> Result<(Host<D>, String), HostError> {
-        Host::boot_stored_after_decode(
+        let (mut host, batch) = Host::boot_stored_after_decode(
             plan_bytes,
             data,
             measurer,
@@ -140,8 +140,11 @@ impl<D: DataSource> Host<D> {
             secrets,
             None,
             None,
+            None,
             |_| {},
-        )
+        )?;
+        host.commit_boot();
+        Ok((host, batch))
     }
 
     /// Boot with one action over the accepted plan before its first layout.
@@ -159,6 +162,7 @@ impl<D: DataSource> Host<D> {
         secrets: Option<Secrets>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
+        candidate_delivery: Option<exact_runner::Delivery>,
         prepare: impl FnOnce(&Plan),
     ) -> Result<(Host<D>, String), HostError> {
         if let Some(json) = compat {
@@ -174,9 +178,8 @@ impl<D: DataSource> Host<D> {
             None => Runner::boot_stored(plan, data, kernel, snapshot),
         }
         .map_err(HostError::Runner)?;
-        // Font installation is process-global on Apple. Do not expose a
-        // decoded plan to it until the runner has accepted the candidate;
-        // it still runs synchronously before the first text measurement.
+        // The candidate catalog is installed before first text measurement.
+        // Platform registration is deferred until the app accepts it.
         prepare(runner.plan());
         let mut host = Host {
             runner,
@@ -196,7 +199,11 @@ impl<D: DataSource> Host<D> {
         // stands, so a `delivery` resource re-answered here needs no ops of
         // its own, and the presenter is never told about a commit it will
         // see in that first batch anyway.
-        if let Some(json) = compat {
+        if let Some(delivery) = candidate_delivery {
+            host.runner
+                .set_delivery(delivery)
+                .map_err(HostError::Runner)?;
+        } else if let Some(json) = compat {
             host.set_delivery_from_compat(json)?;
         }
         let mut batch = Batch::new();
@@ -237,12 +244,19 @@ impl<D: DataSource> Host<D> {
         // A failed first layout is a refused boot, not a partially committed
         // host. In particular, no candidate secret writes escape before this
         // point on a dev reload.
-        host.persist();
         host.present(&mut batch, true);
         let timers = host.runner.has_timers();
         let motion = !host.engine.quiescent();
         let clock = host.runner.now_ms();
         Ok((host, batch.finish(timers, motion, clock, None)))
+    }
+
+    /// Release effects only after the containing app accepted every candidate.
+    pub(crate) fn commit_boot(&mut self) {
+        if let Some(note) = self.delivery.and_then(|hooks| (hooks.take_note)()) {
+            self.runner.log(note);
+        }
+        self.persist();
     }
 
     /// The runner.
@@ -271,9 +285,6 @@ impl<D: DataSource> Host<D> {
         let mut delivery = self.runner.delivery().with_compat(json);
         if let Some(hooks) = self.delivery {
             (hooks.status_into)(&mut delivery);
-            if let Some(note) = (hooks.take_note)() {
-                self.runner.log(note);
-            }
         }
         self.runner
             .set_delivery(delivery)

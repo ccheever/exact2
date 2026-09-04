@@ -166,6 +166,11 @@ impl Client {
         self.store.dir()
     }
 
+    /// The immutable baked identity, used to describe a prepared generation.
+    pub fn embedded(&self) -> &crate::Embedded {
+        &self.baked.embedded
+    }
+
     /// When a staged bundle applies (the manifest's `deploy.activate`).
     pub fn activate_policy(&self) -> Activate {
         self.baked.activate
@@ -176,21 +181,10 @@ impl Client {
         self.store.select()
     }
 
-    /// The selected entry's plan bytes, with the entry's name — or `None`
-    /// for entry zero, whose bytes the binary has. A stat and a read (LLP
-    /// 1026 D9); an entry whose file cannot be read boots entry zero.
-    pub fn selected_plan(&self) -> Option<(String, Vec<u8>)> {
-        let selection = self.store.select();
-        let entry = selection.entry?;
-        let bytes = std::fs::read(selection.plan?).ok()?;
-        Some((entry, bytes))
-    }
-
     /// Prepare the update selected for this launch, or `None` for entry zero.
     /// The plan bytes and complete asset roster are pinned to one generation;
     /// a corrupt plan returns refreshed fallback status instead of booting or
-    /// counting that selection. This is additive to [`Client::selected_plan`]
-    /// while hosts migrate to generation-scoped asset resolution.
+    /// counting that selection.
     pub fn prepare_selected(&mut self) -> Result<Option<PreparedSelection>, SelectionRefusal> {
         let prepared = self.store.prepare_selected();
         self.booted_selection = matches!(prepared, Ok(Some(_)));
@@ -263,12 +257,12 @@ impl Client {
 
     /// First pixel: the selection that booted is good (LLP 1026 D11), once
     /// per process, and only when the selection is what booted.
-    pub fn boot_succeeded(&mut self) -> Result<(), String> {
-        if self.succeeded || !self.booted_selection {
+    pub fn boot_succeeded(&mut self, generation: &Generation) -> Result<(), String> {
+        if self.succeeded || !self.booted_selection || *generation != self.store.generation() {
             return Ok(());
         }
         self.succeeded = true;
-        self.store.boot_succeeded()
+        self.store.boot_succeeded(generation)
     }
 
     /// One check against the head, over the host's `fetch` — every URL the
@@ -317,13 +311,24 @@ impl Client {
         }
     }
 
-    /// The staged plan's bytes and its assets directory, for a host that
-    /// applies them now (`deliveryActivate`, LLP 1030 D7); `None` when
-    /// nothing is staged.
-    pub fn activate(&mut self) -> Option<(Vec<u8>, PathBuf)> {
-        let assets = self.store.staged()?.assets_dir;
-        let plan = self.store.activate()?;
-        Some((plan, assets))
+    /// The staged generation, pinned but not applied.
+    pub fn prepare_activation(&self) -> Result<Option<PreparedSelection>, String> {
+        self.store.prepare_activation()
+    }
+
+    /// Commit the exact candidate accepted by the host. A new generation
+    /// gets its own first-pixel acknowledgement, not the previous boot's.
+    pub fn commit_activation(&mut self, generation: &Generation) -> Result<(), String> {
+        self.store.commit_activation(generation)?;
+        self.started = false;
+        self.succeeded = false;
+        self.booted_selection = true;
+        Ok(())
+    }
+
+    /// The app generation this process actually runs.
+    pub fn generation(&self) -> Generation {
+        self.store.generation()
     }
 
     /// What the app and the agent are told (`Store::status`).
@@ -408,7 +413,7 @@ mod tests {
             Some("https://o.example/.exact/prod/abc/exact.json")
         );
         assert_eq!(c.activate_policy(), Activate::NextLaunch);
-        assert_eq!(c.selected_plan(), None);
+        assert!(c.prepare_selected().unwrap().is_none());
         assert!(matches!(c.prepare_selected(), Ok(None)));
         assert_eq!(
             c.selection_json(),
@@ -417,7 +422,7 @@ mod tests {
         // The boot marks are once, and only for the selection.
         c.boot_started().unwrap();
         c.boot_started().unwrap();
-        c.boot_succeeded().unwrap();
+        c.boot_succeeded(&c.generation()).unwrap();
         assert_eq!(c.status().stream, "embedded");
         assert_eq!(
             embedded_asset_digest(&assets, "assets/mark.png").as_deref(),
@@ -467,9 +472,11 @@ mod tests {
             client.finish_check(newer),
             Outcome::Staged { seq: 2, .. }
         ));
-        assert_eq!(client.activate().unwrap().0, b"newer");
+        let candidate = client.prepare_activation().unwrap().unwrap();
+        assert_eq!(&*candidate.plan, b"newer");
+        client.commit_activation(&candidate.generation).unwrap();
         client.boot_started().unwrap();
-        client.boot_succeeded().unwrap();
+        client.boot_succeeded(&client.generation()).unwrap();
         let record = std::fs::read(client.dir().join("record.json")).unwrap();
         assert!(
             matches!(client.finish_check(older), Outcome::Refused(why) if why.contains("below the accepted seq 2"))
@@ -480,8 +487,11 @@ mod tests {
         );
         assert_eq!(client.status().running_seq, 2);
         assert!(!client.status().staged);
-        let reopened = Client::open(&base, &base, COMPAT, b"embedded").unwrap();
-        assert_eq!(reopened.selected_plan().unwrap().1, b"newer");
+        let mut reopened = Client::open(&base, &base, COMPAT, b"embedded").unwrap();
+        assert_eq!(
+            reopened.prepare_selected().unwrap().unwrap().plan.as_ref(),
+            b"newer"
+        );
         let _ = std::fs::remove_dir_all(base);
     }
 
@@ -507,7 +517,7 @@ mod tests {
         assert_eq!(status.entry, None);
         assert_eq!(status.stream, "embedded");
         assert_eq!(status.running_seq, 0);
-        c.boot_succeeded().unwrap();
+        c.boot_succeeded(&c.generation()).unwrap();
         assert!(!c.succeeded);
         let _ = std::fs::remove_dir_all(&base);
     }

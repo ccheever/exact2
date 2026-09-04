@@ -23,7 +23,20 @@ impl DataSource for Named {
 }
 
 fn stage(dir: &Path, baked: &[u8], plan: &[u8], assets: &[(&str, Vec<u8>)]) -> Client {
+    checked(dir, baked, plan, assets, false)
+}
+
+fn checked(
+    dir: &Path,
+    baked: &[u8],
+    plan: &[u8],
+    assets: &[(&str, Vec<u8>)],
+    running: bool,
+) -> Client {
     let mut client = Client::open(dir, dir, UPDATE_COMPAT, baked).unwrap();
+    if running {
+        client.boot_started().unwrap();
+    }
     let head_url = client.head_url().unwrap().to_string();
     let plan_url = head_url.replace("exact.json", "app.plan");
     let cards: Vec<_> = assets
@@ -63,8 +76,12 @@ fn stage(dir: &Path, baked: &[u8], plan: &[u8], assets: &[(&str, Vec<u8>)]) -> C
         client.check(&mut fetch),
         Outcome::Staged { seq: 1, .. }
     ));
-    drop(client);
-    Client::open(dir, dir, UPDATE_COMPAT, baked).unwrap()
+    if running {
+        client
+    } else {
+        drop(client);
+        Client::open(dir, dir, UPDATE_COMPAT, baked).unwrap()
+    }
 }
 
 fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
@@ -337,5 +354,57 @@ fn a_corrupt_selected_asset_falls_back_before_first_pixel() {
     let saved = std::fs::read_to_string(record).unwrap();
     assert!(saved.contains("\"selected\":null"), "{saved}");
     assert!(saved.contains("\"failures\":0"), "{saved}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn activation_refuses_carried_layout_without_advancing_then_commits_after_repair() {
+    let source = "component App\n  state divisor = 1\n  action breakIt writes divisor\n    divisor = 0\n  action repair writes divisor\n    divisor = 1\n  view\n    column width=100\n      text \"running\"\n      button press=breakIt testId=\"break\"\n        text \"break\"\n      button press=repair testId=\"repair\"\n        text \"repair\"\n";
+    let baked = contract::compile(source).unwrap().encode();
+    let candidate = contract::compile(
+        &source
+            .replace("width=100", "width=(100 / divisor)")
+            .replace("running", "candidate"),
+    )
+    .unwrap()
+    .encode();
+    let dir = std::env::temp_dir().join(format!("exact-linux-activation-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let client = checked(&dir, &baked, &candidate, &[], true);
+    let record = client.dir().join("record.json");
+    let (mut presenter, error) =
+        exact_linux::Presenter::boot(&baked, Named, (390.0, 844.0), 1.0, dir.clone()).unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert!(presenter.set_delivery_from_compat(UPDATE_COMPAT).is_none());
+    presenter.set_updates(Some(Box::new(Updates::from_client(client).unwrap())));
+    let view = |p: &exact_linux::Presenter<Named>, name: &str| {
+        let kernel = p.host().kernel();
+        kernel
+            .node_by_key(kernel.find_by_test_id(name)[0])
+            .unwrap()
+            .id
+    };
+    presenter.tap(view(&presenter, "break")).unwrap();
+    let tree = presenter.host().agent("{\"op\":\"tree\"}");
+    let before = std::fs::read(&record).unwrap();
+    assert!(presenter.activate_update(Named).is_err());
+    assert_eq!(presenter.host().agent("{\"op\":\"tree\"}"), tree);
+    assert_eq!(std::fs::read(&record).unwrap(), before);
+    presenter.tap(view(&presenter, "repair")).unwrap();
+    assert!(presenter.activate_update(Named).unwrap());
+    assert!(presenter
+        .host()
+        .agent("{\"op\":\"tree\"}")
+        .contains("candidate"));
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    assert!(saved["selected"].is_string());
+    assert!(saved["pending"].is_null());
+    assert_eq!(saved["failures"], 1, "only the accepted generation started");
+    let _ = presenter.frame();
+    presenter.first_pixel();
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    assert_eq!(saved["failures"], 0, "its rendered frame blesses it");
     let _ = std::fs::remove_dir_all(dir);
 }

@@ -221,6 +221,8 @@ fn embedded(keys: &[(&str, [u8; 32])]) -> Embedded {
         },
         verification_keys: keys.iter().map(|(id, k)| ((*id).into(), *k)).collect(),
         embedded_plan_sha256: None,
+        embedded_assets: None,
+        entry_digest: None,
     }
 }
 
@@ -325,7 +327,7 @@ fn a_selected_plan_changed_after_staging_is_refused_before_it_counts_or_boots() 
     assert_eq!(refusal.status.running_seq, EMBEDDED_SEQ);
     assert_eq!(refusal.status.selected_seq, EMBEDDED_SEQ);
     launch.boot_started().unwrap();
-    launch.boot_succeeded().unwrap();
+    launch.boot_succeeded(&launch.generation()).unwrap();
 
     let record: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(temp.path().join("record.json")).unwrap())
@@ -412,7 +414,7 @@ fn selected_assets_are_a_complete_lazy_verified_generation() {
     assert_eq!(refusal.status.stream, "embedded");
     assert_eq!(launch.select().entry, None);
     launch.boot_started().unwrap();
-    launch.boot_succeeded().unwrap();
+    launch.boot_succeeded(&launch.generation()).unwrap();
     let record = std::fs::read_to_string(temp.path().join("record.json")).unwrap();
     assert!(record.contains("\"failures\":0"));
 }
@@ -768,7 +770,7 @@ fn two_failed_boots_fall_back_to_the_last_good_entry_then_to_entry_zero() {
     let mut store = open(&temp);
     assert_eq!(store.select().entry.as_deref(), Some(first.as_str()));
     store.boot_started().unwrap();
-    store.boot_succeeded().unwrap();
+    store.boot_succeeded(&store.generation()).unwrap();
 
     let bad = Bundle::new(5, b"plan five");
     origin.serving(&bad);
@@ -881,7 +883,7 @@ fn an_unknown_record_codec_selects_entry_zero_and_leaves_the_record_alone() {
     assert_eq!(store.select().entry, None);
     assert_eq!(store.select().seq, EMBEDDED_SEQ);
     store.boot_started().unwrap();
-    store.boot_succeeded().unwrap();
+    store.boot_succeeded(&store.generation()).unwrap();
     let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
     let refusal = origin.check(&mut store).unwrap_err();
     assert!(refusal.contains("newer binary"), "unexpected: {refusal}");
@@ -953,8 +955,8 @@ fn activate_hands_over_the_staged_plan_and_status_follows_each_step() {
     let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
     let mut store = open(&temp);
     store.boot_started().unwrap();
-    store.boot_succeeded().unwrap();
-    assert!(store.activate().is_none(), "nothing is staged yet");
+    store.boot_succeeded(&store.generation()).unwrap();
+    assert!(activate(&mut store).is_none(), "nothing is staged yet");
 
     let Ok(Check::Staged { entry, seq, .. }) = origin.check(&mut store) else {
         panic!("the head should have staged");
@@ -973,12 +975,12 @@ fn activate_hands_over_the_staged_plan_and_status_follows_each_step() {
     assert_eq!(staged.entry, entry);
     assert_eq!(staged.seq, seq);
 
-    assert_eq!(store.activate(), Some(b"plan four".to_vec()));
+    assert_eq!(activate(&mut store), Some(b"plan four".to_vec()));
     let status = store.status();
     assert!(!status.staged);
     assert_eq!(status.entry, Some(entry));
     assert_eq!(status.running_seq, 4);
-    assert!(store.activate().is_none(), "activated once");
+    assert!(activate(&mut store).is_none(), "activated once");
 }
 
 #[test]
@@ -988,7 +990,7 @@ fn app_decides_holds_a_checked_bundle_until_the_app_activates_it() {
     let mut store = open(&temp);
     store.hold_staged(true);
     store.boot_started().unwrap();
-    store.boot_succeeded().unwrap();
+    store.boot_succeeded(&store.generation()).unwrap();
     let Ok(Check::Staged { entry, seq, .. }) = origin.check(&mut store) else {
         panic!("the head should have staged");
     };
@@ -1009,7 +1011,7 @@ fn app_decides_holds_a_checked_bundle_until_the_app_activates_it() {
     assert_eq!(next.staged().map(|s| s.entry), Some(entry.clone()));
 
     // Until the app activates: then it runs, and the launches after boot it.
-    assert_eq!(next.activate(), Some(b"plan four".to_vec()));
+    assert_eq!(activate(&mut next), Some(b"plan four".to_vec()));
     assert_eq!(next.status().entry, Some(entry.clone()));
     assert_eq!(next.status().running_seq, 4);
     assert!(!next.status().staged);
@@ -1090,6 +1092,10 @@ fn a_head_naming_the_embedded_plan_and_assets_is_current_and_downloads_nothing()
     let mut origin = Origin::of(&bundle);
     let mut carried = embedded(&[]);
     carried.embedded_plan_sha256 = Some(sha256_hex(b"plan three"));
+    carried.embedded_assets = Some(std::collections::BTreeMap::from([(
+        "mark.png".into(),
+        (sha256_hex(b"a mark"), 6),
+    )]));
     let mut store = Store::open(temp.path(), carried.clone()).unwrap();
     assert!(matches!(
         origin.check_embedding(&mut store, &[("mark.png", b"a mark")]),
@@ -1142,7 +1148,7 @@ fn every_asset_url_is_admitted_before_embedded_current_advances_the_floor() {
     let mut carried = embedded(&[]);
     carried.embedded_plan_sha256 = Some(sha256_hex(b"plan three"));
     let mut store = Store::open(temp.path(), carried).unwrap();
-    store.boot_succeeded().unwrap();
+    store.boot_succeeded(&store.generation()).unwrap();
     let record = temp.path().join("record.json");
     let before = std::fs::read(&record).unwrap();
     let refusal = origin
@@ -1176,7 +1182,7 @@ fn a_plan_url_is_admitted_before_a_whole_old_entry_is_reused() {
     origin.files.insert(head_url, raw.clone());
 
     let mut store = open(&temp);
-    store.boot_succeeded().unwrap();
+    store.boot_succeeded(&store.generation()).unwrap();
     let record = temp.path().join("record.json");
     let before = std::fs::read(&record).unwrap();
     let entry = temp.path().join("entries").join(&envelope.digest);
@@ -1333,4 +1339,128 @@ fn reserializing_a_bad_signed_bundle_does_not_evade_quarantine() {
         "reformatting must retain the bad bundle's identity: {refusal}"
     );
     assert_eq!(entry_names(&temp), vec![entry]);
+}
+
+fn activate(store: &mut Store) -> Option<Vec<u8>> {
+    let candidate = store.prepare_activation().ok()??;
+    store.commit_activation(&candidate.generation).ok()?;
+    Some(candidate.plan.to_vec())
+}
+
+#[test]
+fn preparation_refusal_and_stale_commit_leave_the_running_generation_and_record() {
+    let temp = Temp::new("activation-atomic");
+    let mut store = open(&temp);
+    store.hold_staged(true);
+    let mut origin = Origin::of(&Bundle::new(4, b"candidate"));
+    origin.check(&mut store).unwrap();
+    let record = temp.path().join("record.json");
+    let before = std::fs::read(&record).unwrap();
+    let running = store.generation();
+    let candidate = store.prepare_activation().unwrap().unwrap();
+    assert_eq!(&*candidate.plan, b"candidate");
+    assert_eq!(store.generation(), running);
+    assert_eq!(std::fs::read(&record).unwrap(), before);
+    drop(candidate); // a host refusal: nothing was committed
+    assert_eq!(store.generation(), running);
+    let candidate = store.prepare_activation().unwrap().unwrap();
+    origin = Origin::of(&Bundle::new(5, b"successor"));
+    origin.check(&mut store).unwrap();
+    let before = std::fs::read(&record).unwrap();
+    assert!(store.commit_activation(&candidate.generation).is_err());
+    assert_eq!(store.generation(), running);
+    assert_eq!(std::fs::read(&record).unwrap(), before);
+    let candidate = store.prepare_activation().unwrap().unwrap();
+    // A record write refusal must not move the in-memory running identity.
+    let saved = record.with_extension("saved");
+    std::fs::rename(&record, &saved).unwrap();
+    std::fs::create_dir(&record).unwrap();
+    assert!(store.commit_activation(&candidate.generation).is_err());
+    assert_eq!(store.generation(), running);
+    std::fs::remove_dir(&record).unwrap();
+    std::fs::rename(saved, &record).unwrap();
+    store.commit_activation(&candidate.generation).unwrap();
+    assert_eq!(store.generation(), candidate.generation);
+    store.boot_started().unwrap();
+    let before = std::fs::read(&record).unwrap();
+    store.boot_succeeded(&running).unwrap(); // delayed draw of entry zero
+    assert_eq!(std::fs::read(&record).unwrap(), before);
+    store.boot_succeeded(&candidate.generation).unwrap();
+    let record: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(record).unwrap()).unwrap();
+    assert_eq!(record["failures"], 0);
+    assert_eq!(record["lastGood"], candidate.generation.entry.unwrap());
+}
+
+#[test]
+fn complete_rosters_represent_embedded_and_stored_removal_then_readdition() {
+    let temp = Temp::new("complete-rosters");
+    let mut binary = embedded(&[]);
+    binary.embedded_plan_sha256 = Some(sha256_hex(b"same"));
+    binary.embedded_assets = Some(std::collections::BTreeMap::from([(
+        "mark.png".into(),
+        (sha256_hex(b"old"), 3),
+    )]));
+    let mut store = Store::open(temp.path(), binary).unwrap();
+    for (seq, asset) in [
+        (4, None),
+        (5, Some(b"new".as_slice())),
+        (6, None),
+        (7, Some(b"again".as_slice())),
+    ] {
+        let mut bundle = Bundle::new(seq, b"same");
+        if let Some(asset) = asset {
+            bundle = bundle.asset("mark.png", asset);
+        }
+        let mut origin = Origin::of(&bundle);
+        assert!(matches!(
+            origin
+                .check_embedding(&mut store, &[("mark.png", b"old")])
+                .unwrap(),
+            Check::Staged { .. }
+        ));
+        let candidate = store.prepare_activation().unwrap().unwrap();
+        assert_eq!(
+            candidate.assets.resolve("mark.png").unwrap().as_deref(),
+            asset
+        );
+        store.commit_activation(&candidate.generation).unwrap();
+        let pinned = store.prepare_selected().unwrap().unwrap();
+        assert_eq!(pinned.assets.resolve("mark.png").unwrap().as_deref(), asset);
+    }
+}
+
+#[test]
+fn embedded_current_and_fallback_keep_the_accepted_canonical_digest() {
+    let temp = Temp::new("current-digest");
+    let first = Bundle::new(4, b"same");
+    let (json, _) = first.publish();
+    let mut binary = embedded(&[]);
+    binary.embedded_plan_sha256 = Some(sha256_hex(b"same"));
+    binary.embedded_assets = Some(Default::default());
+    let mut store = Store::open(temp.path(), binary.clone()).unwrap();
+    assert!(matches!(
+        Origin::of(&first).check(&mut store).unwrap(),
+        Check::Current { .. }
+    ));
+    drop(store);
+    let mut store = Store::open(temp.path(), binary.clone()).unwrap();
+    let mut other = Bundle::new(4, b"same");
+    other.sunset = Some(("changed metadata at the same seq".into(), None));
+    assert!(Origin::of(&other)
+        .check(&mut store)
+        .unwrap_err()
+        .contains("equivocate"));
+    let baked = Temp::new("baked-digest");
+    binary.seq = 4;
+    binary.entry_digest = Some(Envelope::parse(json.as_bytes()).unwrap().digest);
+    let mut store = Store::open(baked.path(), binary).unwrap();
+    assert!(Origin::of(&other)
+        .check(&mut store)
+        .unwrap_err()
+        .contains("equivocate"));
+    assert!(matches!(
+        Origin::of(&first).check(&mut store).unwrap(),
+        Check::Current { .. }
+    ));
 }

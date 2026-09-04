@@ -1,6 +1,7 @@
 # Bundle activation commits before the host accepts the generation
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by app-wide prepare/accept/commit across core hosts and optional updater adapters; fresh two-session native refusal/success, delayed-draw, launch-integrity and Linux presenter transaction drives passed.
 **Systems:** Update store, Apple host, Linux host, Embedding
 **Severity:** P1
 **Author:** Codex (GPT-5) for Charlie Cheever

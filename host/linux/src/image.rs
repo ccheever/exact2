@@ -31,7 +31,7 @@ struct Loaded {
 }
 
 enum ImageInput {
-    /// Entry-zero and legacy activation files stay off the presenter thread.
+    /// Entry-zero files stay off the presenter thread.
     Path(PathBuf),
     /// A selected generation is verified before the boot fallback decision.
     Bytes(Arc<[u8]>),
@@ -135,9 +135,6 @@ impl Assets {
 /// Every image node's source, picture, and load in flight.
 pub struct Images {
     assets: Assets,
-    /// Legacy activation overlays. Activation still uses the pre-generation
-    /// core API; launch-selected assets never enter this map.
-    overrides: BTreeMap<String, PathBuf>,
     sources: BTreeMap<ViewId, String>,
     generation: BTreeMap<ViewId, u64>,
     /// Decoded pictures, premultiplied RGBA.
@@ -165,7 +162,6 @@ impl Images {
         let (tx, rx) = channel();
         Images {
             assets,
-            overrides: BTreeMap::new(),
             sources: BTreeMap::new(),
             generation: BTreeMap::new(),
             bitmaps: BTreeMap::new(),
@@ -183,18 +179,11 @@ impl Images {
         if source.contains("://") || source.starts_with('/') {
             return None;
         }
-        self.overrides
-            .get(source)
-            .cloned()
-            .or_else(|| self.assets.path(source))
+        self.assets.path(source)
     }
 
     fn input(&self, source: &str) -> Option<ImageInput> {
-        self.overrides
-            .get(source)
-            .cloned()
-            .map(ImageInput::Path)
-            .or_else(|| self.assets.image_input(source))
+        self.assets.image_input(source)
     }
 
     /// After a commit: start a load for every image node whose source is
@@ -333,27 +322,6 @@ impl Images {
     /// The asset root.
     pub fn assets(&self) -> &Path {
         self.assets.root()
-    }
-
-    /// Every file under `dir` stands in for its relative name during the
-    /// legacy activation path. The generation-token activation API will
-    /// replace this adapter together with its commit-before-accept behavior.
-    pub fn use_overrides(&mut self, dir: &Path) {
-        let mut stack = vec![dir.to_path_buf()];
-        while let Some(d) = stack.pop() {
-            let Ok(read) = std::fs::read_dir(&d) else {
-                continue;
-            };
-            for entry in read.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if let Ok(rel) = path.strip_prefix(dir) {
-                    self.overrides
-                        .insert(rel.to_string_lossy().into_owned(), path.clone());
-                }
-            }
-        }
     }
 }
 

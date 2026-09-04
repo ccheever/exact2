@@ -26,6 +26,7 @@ pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
     Painter(String),
+    Layout(String),
     Asset(String),
 }
 

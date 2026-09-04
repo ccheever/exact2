@@ -62,6 +62,7 @@ impl Hooks {
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
+    prepared: Option<PreparedHost<D>>,
     executor: Option<crate::executor::Executor>,
     fonts: Option<FontsFn>,
     fonts_ctx: *mut c_void,
@@ -74,6 +75,13 @@ pub struct Bridge<D: DataSource> {
     output: Vec<u8>,
 }
 
+struct PreparedHost<D: DataSource> {
+    host: Host<D>,
+    batch: String,
+    bindings: Option<ibex2::host::Bindings>,
+    hooks: Hooks,
+}
+
 fn not_booted() -> String {
     "{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"not booted\"}".to_string()
 }
@@ -83,6 +91,7 @@ impl<D: DataSource> Bridge<D> {
     pub const fn new() -> Bridge<D> {
         Bridge {
             host: None,
+            prepared: None,
             executor: None,
             fonts: None,
             fonts_ctx: std::ptr::null_mut(),
@@ -205,10 +214,12 @@ impl<D: DataSource> Bridge<D> {
             return self.boot(embedded, data(), hooks, width, height);
         };
         let selected = (delivery.selected_plan)();
-        (delivery.boot_started)();
         if let Some((entry, bytes)) = selected {
             match self.boot_fresh(&bytes, data(), hooks, width, height) {
-                Ok(batch) => return self.emit(batch),
+                Ok(batch) => {
+                    (delivery.boot_started)();
+                    return self.emit(batch);
+                }
                 Err(e) => (delivery.entry_refused)(&entry, &e),
             }
         }
@@ -248,13 +259,15 @@ impl<D: DataSource> Bridge<D> {
             secrets,
             self.compat,
             self.delivery,
+            None,
             move |decoded| {
                 if let Some(callback) = fonts {
                     install_fonts(decoded, callback, fonts_ctx);
                 }
             },
         ) {
-            Ok((host, batch)) => {
+            Ok((mut host, batch)) => {
+                host.commit_boot();
                 self.executor = Some(crate::executor::Executor::start(
                     bindings,
                     hooks.wake.map(|w| (w, hooks.wake_ctx)),
@@ -279,7 +292,28 @@ impl<D: DataSource> Bridge<D> {
 
     /// Boot from the input buffer's first `len` bytes (a plan the app
     /// fetched — the dev loop's restart).
-    pub fn boot_plan(&mut self, len: usize, data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
+    pub fn prepare_plan(
+        &mut self,
+        len: usize,
+        data: D,
+        hooks: Hooks,
+        width: f32,
+        height: f32,
+    ) -> u32 {
+        self.prepare_plan_with_delivery(len, data, hooks, width, height, None)
+    }
+
+    /// Prepare with candidate delivery facts, without publishing them globally.
+    pub fn prepare_plan_with_delivery(
+        &mut self,
+        len: usize,
+        data: D,
+        hooks: Hooks,
+        width: f32,
+        height: f32,
+        delivery: Option<exact_runner::Delivery>,
+    ) -> u32 {
+        self.prepared = None;
         let plan = self.input[..len.min(self.input.len())].to_vec();
         // Build the candidate beside the live host. A decode, app-identity,
         // or runner refusal must not turn a reload into an empty window.
@@ -305,6 +339,7 @@ impl<D: DataSource> Bridge<D> {
             secrets,
             self.compat,
             self.delivery,
+            delivery,
             move |decoded| {
                 if let Some(callback) = fonts {
                     install_fonts(decoded, callback, fonts_ctx);
@@ -312,21 +347,61 @@ impl<D: DataSource> Bridge<D> {
             },
         ) {
             Ok((host, batch)) => {
-                // Replacing the executor drops its sender. A job already on
-                // the old worker may finish, but its outcome receiver is gone
-                // and it can never be delivered to this new runner's tickets.
-                self.executor = Some(crate::executor::Executor::start(
+                self.output = batch.as_bytes().to_vec();
+                self.prepared = Some(PreparedHost {
+                    host,
+                    batch,
                     bindings,
-                    hooks.wake.map(|w| (w, hooks.wake_ctx)),
-                ));
-                self.host = Some(host);
-                self.emit(batch)
+                    hooks,
+                });
+                self.output.len() as u32
             }
-            Err(e) => self.emit(format!(
+            Err(e) => self.prepare_error(format!(
                 "{{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"boot: {}\"}}",
                 escape(&format!("{e:?}"))
             )),
         }
+    }
+
+    /// Prepare and commit a single session's plan replacement.
+    pub fn boot_plan(&mut self, len: usize, data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
+        let len = self.prepare_plan(len, data, hooks, width, height);
+        if self.prepared.is_some() {
+            self.commit_plan()
+        } else {
+            len
+        }
+    }
+
+    /// Refuse an invalid composition context without touching the live host.
+    pub fn refuse_preparation(&mut self, reason: &str) -> u32 {
+        self.prepared = None;
+        self.prepare_error(format!("{{\"ops\":[],\"error\":\"{}\"}}", escape(reason)))
+    }
+
+    fn prepare_error(&mut self, error: String) -> u32 {
+        self.output = error.into_bytes();
+        self.output.len() as u32
+    }
+
+    /// Commit the already-accepted candidate, without decoding or laying it
+    /// out again. The app calls this only after every session prepared.
+    pub fn commit_plan(&mut self) -> u32 {
+        let Some(mut candidate) = self.prepared.take() else {
+            return self.prepare_error("{\"ops\":[],\"error\":\"no prepared plan\"}".into());
+        };
+        candidate.host.commit_boot();
+        self.executor = Some(crate::executor::Executor::start(
+            candidate.bindings,
+            candidate.hooks.wake.map(|w| (w, candidate.hooks.wake_ctx)),
+        ));
+        self.host = Some(candidate.host);
+        self.emit(candidate.batch)
+    }
+
+    /// Drop an uncommitted candidate and retain the live host and executor.
+    pub fn discard_plan(&mut self) {
+        self.prepared = None;
     }
 
     /// Dispatch an event at `now_ms`; `kind` is 0 = press, 1 = change,
@@ -668,6 +743,7 @@ macro_rules! host {
         }
 
         /// The immutable compatibility and bundle receipt baked into this archive.
+
         #[no_mangle]
         pub extern "C" fn exact_baked_compat(rt: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.baked_compat($compat), |n| n)
@@ -688,6 +764,7 @@ macro_rules! host {
         /// The linked delivery adapter, null in a binary-only app.
         #[no_mangle]
         pub extern "C" fn exact_delivery_api() -> *const $crate::delivery::Api { $api }
+
 
         /// Refresh this session's delivery facts; the batch's length.
         #[no_mangle]
@@ -710,6 +787,31 @@ macro_rules! host {
                 b.set_delivery($delivery);
                 b.boot_plan(len, <$data as ::std::default::Default>::default(), hooks, width, height)
             }, |n| n)
+        }
+
+        /// Prepare one session, optionally using a composition-owned generation.
+        #[no_mangle]
+        pub extern "C" fn exact_prepare_plan(rt: u32, token: u64, len: usize, width: f32, height: f32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
+                b.set_compat($compat);
+                b.set_delivery($delivery);
+                let delivery: ::std::option::Option<&'static $crate::delivery::Hooks> = $delivery;
+                let facts = delivery.and_then(|h| (h.candidate_delivery)(token, $compat));
+                if token != 0 && facts.is_none() { return b.refuse_preparation("unknown composition generation"); }
+                b.prepare_plan_with_delivery(len, <$data as ::std::default::Default>::default(), hooks, width, height, facts)
+            }, |n| n)
+        }
+
+        /// Commit an accepted prepared plan.
+        #[no_mangle]
+        pub extern "C" fn exact_commit_plan(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.commit_plan(), |n| n)
+        }
+
+        /// Abort a prepared plan.
+        #[no_mangle]
+        pub extern "C" fn exact_discard_plan(rt: u32) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.discard_plan(), |_| ())
         }
 
         /// Dispatch an event; returns the batch's length.

@@ -55,6 +55,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     let world = WKContentWorld.world(name: "exact.agent")
     let webView: WKWebView
     var src: String?
+    var suppliedDocument: String?
     var sandbox: String?
     var srcInitialized = false
     var sandboxInitialized = false
@@ -226,6 +227,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     func localDocument(_ source: String) -> String? {
+        if let suppliedDocument { return suppliedDocument }
         // Hosted http(s) decks keep their URL. A scheme-less src — including
         // `URL(string:)` returning nil for a leading-dot relative path — is a
         // file under EXACT_ASSETS, inlined as srcdoc. Query and fragment
@@ -418,6 +420,11 @@ public func exactWebPlatformView(_ handle: UnsafeMutableRawPointer?) -> UnsafeMu
 @_cdecl("exact_web_set_src")
 public func exactWebSetSrc(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32, _ present: UInt32) {
     arm(handle)?.setSrc(present == 0 ? nil : String(decoding: UnsafeBufferPointer(start: bytes, count: Int(length)), as: UTF8.self))
+}
+
+@_cdecl("exact_web_set_document")
+public func exactWebSetDocument(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32, _ present: UInt32) {
+    arm(handle)?.suppliedDocument = present == 0 ? nil : String(decoding: UnsafeBufferPointer(start: bytes, count: Int(length)), as: UTF8.self)
 }
 
 @_cdecl("exact_web_set_sandbox")

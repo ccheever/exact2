@@ -4,7 +4,6 @@
 mod store;
 use exact_linux::delivery::{Selection, Store};
 use exact_runner::{DataSource, Delivery};
-use std::path::PathBuf;
 use std::sync::Arc;
 pub use store::Updates;
 
@@ -34,6 +33,7 @@ impl Store for Updates {
         self.pin(prepared.generation.clone());
         Some(Selection {
             entry: prepared.generation.entry,
+            seq: prepared.generation.seq,
             plan: prepared.plan,
             assets: Arc::new(move |name| prepared.assets.resolve(name)),
         })
@@ -62,8 +62,21 @@ impl Store for Updates {
     fn take_line(&mut self) -> Option<String> {
         Updates::take_line(self)
     }
-    fn activate(&self) -> Option<(Vec<u8>, PathBuf)> {
-        Updates::activate(self)
+    fn prepare_activation(&self) -> Result<Option<Selection>, String> {
+        Ok(
+            Updates::prepare_activation(self)?.map(|prepared| Selection {
+                entry: prepared.generation.entry,
+                seq: prepared.generation.seq,
+                plan: prepared.plan,
+                assets: Arc::new(move |name| prepared.assets.resolve(name)),
+            }),
+        )
+    }
+    fn commit_activation(&mut self, entry: Option<String>, seq: u64) -> Result<(), String> {
+        Updates::commit_activation(self, &exact_update::Generation { entry, seq })
+    }
+    fn staged_stream_into(&self, delivery: &mut Delivery) {
+        Updates::staged_stream_into(self, delivery);
     }
     fn status_into(&self, delivery: &mut Delivery) {
         Updates::status_into(self, delivery);

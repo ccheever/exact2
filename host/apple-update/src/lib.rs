@@ -7,6 +7,7 @@ pub use exact_apple;
 /// The process store's operations, injected before the first boot.
 pub static HOOKS: exact_apple::delivery::Hooks = exact_apple::delivery::Hooks {
     selected_plan: store::selected_plan,
+    candidate_delivery: store::prepared_delivery,
     boot_started: store::boot_started,
     entry_refused: store::entry_refused,
     status_into: store::status_into,
@@ -32,8 +33,8 @@ macro_rules! host {
             extern "C" fn select() -> u32 {
                 $crate::store::select()
             }
-            extern "C" fn boot_succeeded() {
-                $crate::store::boot_succeeded()
+            extern "C" fn boot_succeeded(token: u64) {
+                $crate::store::boot_succeeded(token)
             }
             extern "C" fn check(
                 done: Option<$crate::exact_apple::delivery::DoneFn>,
@@ -41,8 +42,26 @@ macro_rules! host {
             ) -> u32 {
                 $crate::store::check(done, ctx)
             }
-            extern "C" fn activate() -> u32 {
-                $crate::store::activate()
+            extern "C" fn prepare() -> u32 {
+                $crate::store::prepare()
+            }
+            extern "C" fn plan(token: u64) -> u32 {
+                $crate::store::plan(token)
+            }
+            extern "C" fn asset(token: u64, len: usize) -> u32 {
+                $crate::store::asset(token, len)
+            }
+            extern "C" fn commit(token: u64) -> u32 {
+                $crate::store::commit(token)
+            }
+            extern "C" fn discard(token: u64) {
+                $crate::store::discard(token)
+            }
+            extern "C" fn refuse(token: u64, len: usize) -> u32 {
+                $crate::store::refuse(token, len)
+            }
+            extern "C" fn started(token: u64) {
+                $crate::store::started(token)
             }
             pub static API: $crate::exact_apple::delivery::Api =
                 $crate::exact_apple::delivery::Api {
@@ -52,7 +71,13 @@ macro_rules! host {
                     select,
                     boot_succeeded,
                     check,
-                    activate,
+                    prepare,
+                    plan,
+                    asset,
+                    commit,
+                    discard,
+                    refuse,
+                    started,
                 };
         }
         $crate::exact_apple::host!(

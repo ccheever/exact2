@@ -118,15 +118,87 @@ impl Baked {
             Some("app-decides") => Activate::AppDecides,
             _ => Activate::NextLaunch,
         };
+        let metadata = value.get("embedded");
+        let (seq, embedded_assets, entry_digest) = if let Some(metadata) = metadata {
+            let seq = metadata
+                .get("seq")
+                .and_then(|v| v.as_u64())
+                .ok_or("compat.json embedded.seq must be a nonnegative integer")?;
+            let expected = metadata
+                .get("plan")
+                .ok_or("compat.json embedded.plan is missing")?;
+            if expected.get("sha256").and_then(|v| v.as_str()) != Some(sha256_hex(plan).as_str())
+                || expected.get("bytes").and_then(|v| v.as_u64()) != Some(plan.len() as u64)
+            {
+                return Err("compat.json embedded.plan does not match the baked plan".into());
+            }
+            let cards = metadata
+                .get("assets")
+                .and_then(|v| v.as_array())
+                .ok_or("compat.json embedded.assets must be a complete array")?;
+            let mut assets = std::collections::BTreeMap::new();
+            for card in cards {
+                let name = card
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .ok_or("embedded asset has no name")?;
+                crate::envelope::safe_name(name)?;
+                let sha = card
+                    .get("sha256")
+                    .and_then(|v| v.as_str())
+                    .ok_or("embedded asset has no digest")?;
+                if sha.len() != 64
+                    || !sha
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+                {
+                    return Err("embedded asset digest is not lowercase SHA-256".into());
+                }
+                let bytes = card
+                    .get("bytes")
+                    .and_then(|v| v.as_u64())
+                    .ok_or("embedded asset has no byte count")?;
+                if assets
+                    .insert(name.to_string(), (sha.to_string(), bytes))
+                    .is_some()
+                {
+                    return Err(format!("embedded asset {name} is duplicated"));
+                }
+            }
+            let digest = metadata
+                .get("entryDigest")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            if let Some(digest) = &digest {
+                if digest.len() != 64
+                    || !digest
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+                {
+                    return Err("embedded entryDigest is not lowercase SHA-256".into());
+                }
+            } else if trust == Trust::Production
+                && !(seq == 0 && metadata.get("genesis").and_then(|v| v.as_bool()) == Some(true))
+            {
+                return Err("production embedding needs an authenticated entryDigest or explicit seq-zero genesis".into());
+            }
+            (seq, Some(assets), digest)
+        } else if trust == Trust::Development || (!store_linked && origin.is_none()) {
+            (0, None, None)
+        } else {
+            return Err("production compat.json needs complete embedded release metadata".into());
+        };
         Ok(Baked {
             embedded: Embedded {
                 app_id,
                 compatibility_id,
-                seq: 0,
+                seq,
                 channel,
                 verification_keys,
                 trust,
                 embedded_plan_sha256: Some(sha256_hex(plan)),
+                embedded_assets,
+                entry_digest,
             },
             origin,
             activate,
@@ -162,7 +234,9 @@ mod tests {
 
     #[test]
     fn the_baked_facts_read_back() {
-        let b = Baked::from_compat(COMPAT, b"plan").unwrap();
+        let mut compat: serde_json::Value = serde_json::from_str(COMPAT).unwrap();
+        compat["embedded"] = serde_json::json!({"seq":0,"genesis":true,"entryDigest":null,"assets":[],"plan":{"sha256":sha256_hex(b"plan"),"bytes":4}});
+        let b = Baked::from_compat(&compat.to_string(), b"plan").unwrap();
         assert_eq!(b.embedded.app_id, "com.exact.caltrain");
         assert_eq!(
             b.embedded.compatibility_id,
@@ -263,5 +337,35 @@ mod tests {
         // Declaring no store does not excuse a production update origin.
         let value = serde_json::json!({"id":"abc","inputs":{"trust":"production","store":{"L":"0"}},"delivery":{"origin":"https://updates.example"}});
         assert!(Baked::from_compat(&value.to_string(), b"").is_err());
+    }
+    #[test]
+    fn production_embedded_metadata_carries_floor_digest_and_complete_roster() {
+        let mut value: serde_json::Value = serde_json::from_str(COMPAT).unwrap();
+        assert!(Baked::from_compat(&value.to_string(), b"plan").is_err());
+        value["embedded"] = serde_json::json!({
+            "seq":7,"entryDigest":"1".repeat(64),
+            "plan":{"sha256":sha256_hex(b"plan"),"bytes":4},
+            "assets":[{"name":"assets/a","sha256":"2".repeat(64),"bytes":3}]
+        });
+        let baked = Baked::from_compat(&value.to_string(), b"plan").unwrap();
+        assert_eq!(baked.embedded.seq, 7);
+        assert_eq!(baked.embedded.entry_digest, Some("1".repeat(64)));
+        assert_eq!(baked.embedded.embedded_assets.unwrap().len(), 1);
+        for (path, invalid) in [
+            ("seq", serde_json::json!(-1)),
+            ("entryDigest", serde_json::Value::Null),
+            ("assets", serde_json::Value::Null),
+            (
+                "plan",
+                serde_json::json!({"sha256":sha256_hex(b"other"),"bytes":4}),
+            ),
+        ] {
+            let mut wrong = value.clone();
+            wrong["embedded"][path] = invalid;
+            assert!(
+                Baked::from_compat(&wrong.to_string(), b"plan").is_err(),
+                "{wrong}"
+            );
+        }
     }
 }

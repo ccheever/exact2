@@ -43,7 +43,7 @@ pub struct Updates {
     signal: UnixStream,
     /// A boot's note — the selected entry refused at boot — taken once.
     note: Option<String>,
-    generation: Option<Generation>,
+    generation: Generation,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -63,12 +63,10 @@ fn data_dir() -> PathBuf {
 
 impl Updates {
     pub(crate) fn pin(&mut self, generation: Generation) {
-        self.generation = Some(generation);
+        self.generation = generation;
     }
     pub(crate) fn refuse_pinned(&mut self, why: &str) {
-        if let Some(generation) = self.generation.take() {
-            self.selection_corrupt(&generation, why);
-        }
+        self.selection_corrupt(&self.generation.clone(), why);
     }
 
     /// Open the store for the binary whose `compat.json` and baked plan are
@@ -84,6 +82,7 @@ impl Updates {
     /// exercised against a real selected store without process environment.
     pub(crate) fn from_client(client: Client) -> Result<Updates, String> {
         let status = client.status();
+        let generation = client.generation();
         let (tx, lines) = channel();
         let (wake, signal) = UnixStream::pair().map_err(|e| format!("the update wake: {e}"))?;
         wake.set_nonblocking(true)
@@ -97,7 +96,7 @@ impl Updates {
             wake,
             signal,
             note: None,
-            generation: None,
+            generation,
         })
     }
 
@@ -152,7 +151,7 @@ impl Updates {
     /// First pixel: the selection that booted is good (LLP 1026 D11).
     pub fn boot_succeeded(&mut self) {
         let mut c = lock(&self.client);
-        if let Err(e) = c.boot_succeeded() {
+        if let Err(e) = c.boot_succeeded(&self.generation) {
             self.note = Some(format!("exact update: {e}"));
         }
         *lock(&self.status) = c.status();
@@ -208,19 +207,30 @@ impl Updates {
         self.lines.try_recv().ok()
     }
 
-    /// The staged plan's bytes and its assets directory, for an activation
-    /// now; `None` when nothing is staged. A concurrent download cannot
-    /// suppress activation: this lock covers local store operations only.
-    pub fn activate(&self) -> Option<(Vec<u8>, PathBuf)> {
+    /// Pin a staged candidate without changing live state.
+    pub fn prepare_activation(&self) -> Result<Option<PreparedSelection>, String> {
+        lock(&self.client).prepare_activation()
+    }
+
+    /// The presenter accepted this exact generation; commit it atomically.
+    pub fn commit_activation(&mut self, generation: &Generation) -> Result<(), String> {
         let mut c = lock(&self.client);
-        let taken = c.activate()?;
+        c.commit_activation(generation)?;
+        self.generation = generation.clone();
         *lock(&self.status) = c.status();
-        Some(taken)
+        Ok(())
     }
 
     /// What the store has to say, into a runner's delivery facts (LLP 1030
     /// D7): the stream, the running and embedded `seq`, whether an entry is
     /// staged, the sunset; the binary's own three are left as they were.
+    pub(crate) fn staged_stream_into(&self, delivery: &mut Delivery) {
+        let client = lock(&self.client);
+        let embedded = client.embedded();
+        delivery.stream = format!("{}/{}", embedded.channel, embedded.compatibility_id);
+    }
+
+    /// Copy the last completed store operation into the running delivery facts.
     pub fn status_into(&self, delivery: &mut Delivery) {
         let s = lock(&self.status);
         delivery.stream = s.stream.clone();
@@ -385,8 +395,10 @@ mod tests {
             let (responsive_tx, responsive_rx) = std::sync::mpsc::channel();
             let foreground = std::thread::spawn(move || {
                 assert!(!updates.dir().as_os_str().is_empty());
-                let (bytes, _) = updates.activate().unwrap();
-                assert!(updates.activate().is_none());
+                let candidate = updates.prepare_activation().unwrap().unwrap();
+                let bytes = candidate.plan.to_vec();
+                updates.commit_activation(&candidate.generation).unwrap();
+                assert!(updates.prepare_activation().unwrap().is_none());
                 let prepared = updates.prepare_selected().unwrap();
                 assert_eq!(prepared.plan.as_ref(), bytes);
                 let (session, _) = exact_linux::Host::boot(
@@ -463,7 +475,10 @@ mod tests {
             wake,
             signal,
             note: None,
-            generation: None,
+            generation: Generation {
+                entry: None,
+                seq: 0,
+            },
         };
 
         updates.entry_refused("stale-entry", "plan refused");

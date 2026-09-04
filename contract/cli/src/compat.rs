@@ -189,14 +189,14 @@ impl Manifest {
     }
 
     /// `deploy.store.<platform>`: `"A"` (an update store) or `"0"` (none);
-    /// `"A"` when unsaid (LLP 1030.000 D4).
+    /// Native defaults to `"A"`; the web host links no updater (LLP 1030 D4).
     fn store(&self, platform: &str) -> String {
         self.json
             .get("deploy")
             .and_then(|d| d.get("store"))
             .and_then(|s| s.get(platform))
             .and_then(|v| v.as_str())
-            .unwrap_or("A")
+            .unwrap_or(if platform == "web" { "0" } else { "A" })
             .to_string()
     }
 }
@@ -298,11 +298,19 @@ fn compatibility_with_trust(
     if !matches!(trust, "production" | "development") {
         return Err("EXACT_UPDATE_TRUST must be production or development".into());
     }
+    if platform == "web"
+        && manifest
+            .json
+            .pointer("/deploy/store/web")
+            .is_some_and(|value| value.as_str() != Some("0"))
+    {
+        return Err("the web host links no updater; deploy.store.web must be \"0\"".into());
+    }
     let store = manifest.store(platform);
     if !matches!(store.as_str(), "0" | "A") {
         return Err(format!("deploy.store.{platform} must be \"0\" or \"A\""));
     }
-    let binary_only = platform != "web" && store == "0";
+    let binary_only = store == "0";
     let keys = if binary_only {
         Value::Null
     } else {
@@ -684,7 +692,7 @@ mod tests {
         ] {
             assert!(i.get(key).is_some(), "missing {key}: {i}");
         }
-        assert_eq!(i["abi"]["c"], 3);
+        assert_eq!(i["abi"]["c"], super::abi_version().unwrap());
         assert_eq!(i["executors"], serde_json::json!(["native"]));
         assert_eq!(i["arch"], "aarch64");
         assert_eq!(i["minimumOS"], "17.0");
@@ -722,16 +730,40 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
     #[test]
-    fn web_without_a_store_or_origin_does_not_require_updater_keys() {
+    fn web_receipts_name_the_linked_composition_and_refuse_an_unlinked_store() {
         let dir = app("web-zero");
         let mut manifest = Manifest::read(&dir).unwrap();
-        manifest.json["deploy"] = serde_json::json!({"store":{"web":"0"}});
-        let plain = compatibility_with_trust(&dir, "web", "wasm32", &manifest, None, "production");
-        assert!(plain.is_ok(), "{plain:?}");
+        manifest.json["deploy"] = serde_json::json!({});
         manifest.json["app"]["origin"] = serde_json::json!("https://updates.example");
-        assert!(
-            compatibility_with_trust(&dir, "web", "wasm32", &manifest, None, "production").is_err()
-        );
+        for setting in [None, Some(serde_json::json!("0"))] {
+            if let Some(setting) = setting {
+                manifest.json["deploy"]["store"] = serde_json::json!({"web":setting});
+            }
+            let plain =
+                compatibility_with_trust(&dir, "web", "wasm32", &manifest, None, "production")
+                    .unwrap();
+            assert_eq!(plain.inputs["store"]["L"], "0");
+            assert_eq!(
+                plain.inputs["store"]["acceptedKinds"],
+                serde_json::json!([])
+            );
+            assert!(plain.inputs["keys"].is_null());
+            assert!(plain.inputs["trust"].is_null());
+            assert!(plain.inputs["abi"]["storeCodec"].is_null());
+            assert_eq!(plain.origin, None);
+            assert_eq!(plain.channel, "");
+        }
+        for setting in [
+            serde_json::json!("A"),
+            serde_json::json!(null),
+            serde_json::json!(0),
+        ] {
+            manifest.json["deploy"]["store"]["web"] = setting;
+            let error =
+                compatibility_with_trust(&dir, "web", "wasm32", &manifest, None, "production")
+                    .unwrap_err();
+            assert!(error.contains("web host links no updater"), "{error}");
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

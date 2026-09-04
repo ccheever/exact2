@@ -98,13 +98,23 @@ final class TextEngine {
     /// Where a declared face's relative source resolves: the app's resolver
     /// (LLP 1031 D1 — an override that arrived by digest, else the root).
     let resolve: (String) -> URL?
+    let read: (String) -> Data?
+    private var pendingFonts: [URL] = []
     /// How many times the kernel asked, how many were answered from cache, and
     /// how long the misses took, since this session started.
     var measureCount = 0
     var measureHits = 0
     var measureSeconds = 0.0
 
-    init(resolve: @escaping (String) -> URL?) { self.resolve = resolve }
+    init(resolve: @escaping (String) -> URL?, read: ((String) -> Data?)? = nil) {
+        self.resolve = resolve
+        self.read = read ?? { name in resolve(name).flatMap { try? Data(contentsOf: $0) } }
+    }
+
+    func commitFonts() {
+        for url in pendingFonts { _ = FontRegistry.register(url) }
+        pendingFonts = []
+    }
 
     /// This engine as the context the C callbacks hand back.
     var opaque: UnsafeMutableRawPointer { Unmanaged.passUnretained(self).toOpaque() }
@@ -113,17 +123,20 @@ final class TextEngine {
     /// Dictionary copies retain the already-shaped paragraphs and fonts;
     /// candidate `removeAll` calls detach through copy-on-write.
     final class Checkpoint {
+        private let pendingFonts: [URL]
         private let fonts: [String: PlatformFont]
         private let paragraphs: [Int: Paragraph]
         private let catalog: [Int: [RegisteredFace]]
 
         fileprivate init(_ engine: TextEngine) {
+            pendingFonts = engine.pendingFonts
             fonts = engine.fonts
             paragraphs = engine.paragraphs
             catalog = engine.catalog
         }
 
         fileprivate func restore(into engine: TextEngine) {
+            engine.pendingFonts = pendingFonts
             engine.fonts = fonts
             engine.paragraphs = paragraphs
             engine.catalog = catalog
@@ -147,18 +160,14 @@ final class TextEngine {
             let stack = Int(row.stack)
             guard let sourceBytes = row.source else { failed.insert(stack); continue }
             let source = String(decoding: UnsafeBufferPointer(start: sourceBytes, count: row.source_len), as: UTF8.self)
-            guard let url = fontURL(source),
-                  let descriptors = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor],
+            guard URL(string: source)?.scheme == nil, !source.hasPrefix("/"),
+                  let bytes = read(source),
+                  let descriptors = CTFontManagerCreateFontDescriptorsFromData(bytes as CFData) as? [CTFontDescriptor],
                   let descriptor = descriptors.first else {
                 failed.insert(stack)
                 continue
             }
-            // The descriptor above is the catalog's identity. Process
-            // registration only helps UIKit text fields consume it; a
-            // PostScript-name collision must never discard these URL bytes.
-            if !FontRegistry.register(url) {
-                fputs("[Fonts] font.registration.best-effort-failed: stack=\(stack)\n", stderr)
-            }
+            if let url = fontURL(source) { pendingFonts.append(url) }
             staged[stack, default: []].append(RegisteredFace(
                 weight: Int(row.weight), italic: row.italic != 0, descriptor: descriptor))
         }

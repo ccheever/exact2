@@ -45,6 +45,7 @@ final class ScrollView: UIScrollView {
 
 final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     let id: UInt32
+    let firstDraw: () -> Void
     let kind: String
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
@@ -191,8 +192,10 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             return
         }
         let id = self.id
+        let pinned = presenter?.session?.app.resolver.isComplete == true && url.isFileURL
+            ? presenter?.session?.app.assetBytes(source) : nil
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let loaded = (try? Data(contentsOf: url)).flatMap(NodeView.decode)
+            let loaded = (pinned ?? (try? Data(contentsOf: url))).flatMap(NodeView.decode)
             DispatchQueue.main.async {
                 guard let self, self.loadGeneration == generation, let presenter = self.presenter, presenter.views[id] === self else { return }
                 if let (cg, size) = loaded {
@@ -227,6 +230,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
 
     init(id: UInt32, kind: String, presenter: Presenter) {
         self.id = id
+        firstDraw = presenter.session?.drawReceipt() ?? {}
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
@@ -533,7 +537,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         // The first pixel is on its way: the GPU module may load now (LLP
         // 1009 D4), on the next turn (LLP 1014's readback fixture found a
         // batch's own attempt too early).
-        presenter?.session?.firstDrawn()
+        if presenter?.views[id] === self { firstDraw() }
         let radius = number("border_radius", number("border_radius_top_left"))
         let path = UIBezierPath(roundedRect: bounds, cornerRadius: radius)
         let bg = color("background_color", .clear)

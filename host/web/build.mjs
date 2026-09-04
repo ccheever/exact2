@@ -5,11 +5,10 @@
 // Developer builds bake development trust; EXACT_UPDATE_TRUST=production
 // requires signing keys, and the deploy verb always selects production.
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { bakeOutput, readBake, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { bakeOutput, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
@@ -85,13 +84,8 @@ const compatLen = exports.exact_compat();
 const embeddedCompat = Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), compatLen)).toString('utf8');
 const bakedReceipt = readBake(app, 'web', 'wasm32-unknown-unknown', buildEnv.EXACT_BAKE_OUTPUT);
 if (JSON.stringify(JSON.parse(embeddedCompat)) !== JSON.stringify(bakedReceipt)) throw new Error('the emitted receipt differs from the wasm receipt');
-const embedded = bakedReceipt.embedded;
 const copiedAssets = listAssets(stage);
-if (embedded.plan?.sha256 !== createHash('sha256').update(planBytes).digest('hex') || embedded.plan?.bytes !== planBytes.length
-    || copiedAssets.length !== embedded.assets.length
-    || copiedAssets.some((asset, i) => ['name', 'sha256', 'bytes'].some((key) => asset[key] !== embedded.assets[i][key]))) {
-  throw new Error('the built plan/static files differ from the binary bake receipt');
-}
+verifyBakeFiles(bakedReceipt, planBytes, copiedAssets);
 writeFileSync(resolve(stage, 'bake.json'), embeddedCompat);
 writeFileSync(resolve(stage, 'exact.json'), JSON.stringify(webEnvelope(app, planBytes, copiedAssets)) + '\n');
 // The web app manifest (LLP 1030 D2/D10; 1030.000 D7): the W3C keys of

@@ -1,4 +1,4 @@
-// The Swift face of the C ABI (host/apple/include/exact.h, v2): one
+// The Swift face of the C ABI (host/apple/include/exact.h, v4): one
 // `Runtime` per handle — created by `exact_create`, freed by
 // `exact_destroy` — and one typed batch per call. Every export takes the
 // handle (LLP 1031 D2), so a session that owns a runtime owns everything
@@ -69,6 +69,13 @@ final class Runtime {
         let n = write(bytes)
         return read(exact_boot_plan(rt, n, Float(width), Float(height)))
     }
+    func preparePlan(_ bytes: Data, width: CGFloat, height: CGFloat, token: UInt64 = 0) -> Batch {
+        let n = write(bytes)
+        return read(exact_prepare_plan(rt, token, n, Float(width), Float(height)))
+    }
+    func commitPlan() -> Batch { read(exact_commit_plan(rt)) }
+    func discardPlan() { exact_discard_plan(rt) }
+
     /// Every queued reply into the runner: the batch of their commits.
     func pump(now: Double) -> Batch { read(exact_pump(rt, now)) }
     func press(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 0, 0, now)) }

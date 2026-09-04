@@ -57,10 +57,10 @@ static GENERATION: AtomicU32 = AtomicU32::new(0);
 /// shader that does not validate carries naga's line and column; one whose
 /// interface differs carries both digests — and leaves the registry as it
 /// was.
-pub fn set_shader(name: &str, text: String, expected: Option<u64>) -> Result<(), String> {
+pub fn validate_shader(name: &str, text: &str, expected: Option<u64>) -> Result<u64, String> {
     #[cfg(not(target_arch = "wasm32"))]
     let digest = {
-        let digest = interface_digest(&text)
+        let digest = interface_digest(text)
             .map_err(|e| format!("shader `{name}` does not validate: {e}"))?;
         if let Some(expected) = expected {
             if expected != digest {
@@ -73,11 +73,27 @@ pub fn set_shader(name: &str, text: String, expected: Option<u64>) -> Result<(),
     };
     // The web: the bake's check stands in (see the module docs).
     #[cfg(target_arch = "wasm32")]
-    let digest = expected.unwrap_or(0);
+    let digest = {
+        let _ = (name, text);
+        expected.unwrap_or(0)
+    };
+    Ok(digest)
+}
+
+/// Register one shader after validating its source and interface.
+pub fn set_shader(name: &str, text: String, expected: Option<u64>) -> Result<(), String> {
+    let digest = validate_shader(name, &text, expected)?;
     let mut map = SHADERS.write().unwrap_or_else(|e| e.into_inner());
     map.insert(name.to_string(), Entry { text, digest });
     GENERATION.fetch_add(1, Ordering::SeqCst);
     Ok(())
+}
+
+/// Replace a complete namespace: omitted shaders must not survive a bundle.
+/// The host validates all replacement sources before invoking this commit.
+pub fn clear_shaders() {
+    SHADERS.write().unwrap_or_else(|e| e.into_inner()).clear();
+    GENERATION.fetch_add(1, Ordering::SeqCst);
 }
 
 /// The registered text of shader `name`, if any.
