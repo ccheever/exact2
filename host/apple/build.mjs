@@ -22,7 +22,7 @@ import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolveApp } from '../../scripts/app.mjs';
-import { copyStaticTree } from '../web/serve.mjs';
+import { copyStaticTreeIfPresent } from '../web/serve.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => { const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', ...opts }); if (r.status !== 0) process.exit(r.status ?? 1); return r; };
@@ -70,8 +70,7 @@ export const macHostBinary = productPath('ExactHostMac');
  * app-relative source (notably `gpu/shaders`) to its bundle-visible name. */
 export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets'], ['deck', 'deck'], ['shaders', 'shaders']]) {
   for (const [from, to] of trees) {
-    const tree = resolve(source, from);
-    if (existsSync(tree)) copyStaticTree(tree, resolve(target, to));
+    copyStaticTreeIfPresent(resolve(source, from), resolve(target, to));
   }
 }
 

@@ -821,8 +821,14 @@ for (const [name, html, files, expectCode, expect] of [
   let hostRefused = false;
   try { copyAppleStaticTrees(bundle, join(dir, 'refused-host')); }
   catch (error) { hostRefused = error.message.includes('cannot be symlinks'); }
+  rmSync(join(source, 'assets', 'linked'));
+  const missingRoot = join(dir, 'missing-deck');
+  symlinkSync(missingRoot, join(source, 'deck'));
+  let danglingRootRefused = false;
+  try { copyAppleStaticTrees(source, join(dir, 'refused-root'), appTrees); }
+  catch (error) { danglingRootRefused = error.message.includes('must be a real directory'); }
   rmSync(dir, { recursive: true, force: true });
-  result('Apple app and sample-host packages reject linked static files', copied && appRefused && hostRefused);
+  result('Apple packages reject linked static files and roots', copied && appRefused && hostRefused && danglingRootRefused);
 }
 
 console.log(`\n${total - failed}/${total} passed`);
