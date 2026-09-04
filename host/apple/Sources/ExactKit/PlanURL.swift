@@ -1,9 +1,9 @@
 // The network form of the dev plan (LLP 1023 D1–D3, Stage 1): given the app
 // URL — the same one a browser opens — resolve the envelope (negotiated
 // directly, or through index.html's rel=alternate link), fetch and verify
-// the plan, hand the bytes to the app (which applies them to every session
-// through the restart-with-carry path), and subscribe to the server's
-// events so an edit re-fetches. Transactional: a candidate replaces the
+// the complete plan and asset manifest, hand the verified generation to
+// the app for all-session acceptance, and subscribe to the server's events
+// so an edit re-fetches. Transactional: a candidate replaces the
 // running app only after its bytes hash clean and boot runs; every failure
 // keeps the last good app on screen. `{rebuilt}` is session-terminal — the
 // wasm-side program changed, so a new plan against this binary's data crate
@@ -120,57 +120,67 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     static let pageLimit = 64 * 1024
     static let envelopeLimit = 64 * 1024
     static let planLimit = 64 * 1024 * 1024
+    static let assetLimit = 64 * 1024 * 1024
     static let eventLimit = 64 * 1024
+    static let generationLimit = 256 * 1024 * 1024
 
-    /// The env locator accepts a path or a URL; this decides which.
+    struct Generation {
+        let identity: String
+        let plan: Data
+        let assets: [String: Data]
+    }
+    private struct Revision: Equatable {
+        let epoch: String
+        let seq: Int
+        let identity: String
+        let program: String?
+    }
+    private struct FileCard {
+        let name: String
+        let url: URL
+        let sha: String
+        let count: Int
+        var canonical: String {
+            let named = name.isEmpty ? "" : ",\"name\":" + PlanURL.quote(name)
+            return "{\"bytes\":\(count)\(named),\"sha256\":\(PlanURL.quote(sha))}"
+        }
+    }
+
     static func isURL(_ value: String) -> Bool {
         value.hasPrefix("http://") || value.hasPrefix("https://")
     }
 
-    /// URL.origin for the two schemes the loader admits. Foundation's
-    /// `host` omits the port, so compare all three origin fields explicitly.
+    /// URL.origin, including the scheme's default port.
     static func sameOrigin(_ a: URL, _ b: URL) -> Bool {
-        guard let aScheme = a.scheme?.lowercased(),
-              let bScheme = b.scheme?.lowercased(),
-              let aHost = a.host?.lowercased(),
-              let bHost = b.host?.lowercased(),
-              let aDefault = defaultPort(aScheme),
-              let bDefault = defaultPort(bScheme) else { return false }
-        return aScheme == bScheme && aHost == bHost
-            && (a.port ?? aDefault) == (b.port ?? bDefault)
+        guard let aScheme = a.scheme?.lowercased(), let bScheme = b.scheme?.lowercased(),
+              let aHost = a.host?.lowercased(), let bHost = b.host?.lowercased(),
+              let aDefault = defaultPort(aScheme), let bDefault = defaultPort(bScheme) else { return false }
+        return aScheme == bScheme && aHost == bHost && (a.port ?? aDefault) == (b.port ?? bDefault)
     }
-
     private static func defaultPort(_ scheme: String) -> Int? {
-        switch scheme {
-        case "http": return 80
-        case "https": return 443
-        default: return nil
-        }
+        switch scheme { case "http": return 80; case "https": return 443; default: return nil }
     }
 
-    /// Connect to `page` — the app URL. `apply` boots verified plan bytes
-    /// into the app's sessions and returns true only when the candidate
-    /// became the running app; the digest is committed with that success,
-    /// never merely with a good hash. `asset` takes a changed asset's
-    /// verified bytes by name (the asset row, LLP 1030 D10).
-    static func open(_ page: String, apply: @escaping (Data, String) -> Bool, asset: @escaping (String, String, Data) -> Void) -> PlanURL? {
-        guard let u = URL(string: page), u.host != nil else {
-            print("exact url: not a URL: \(page)")
+    /// The app owns the identity: replacing a connection must not restart an
+    /// already current app, while another kind of apply invalidates the identity.
+    static func open(_ page: String, current: @escaping () -> String?, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
+        guard let u = URL(string: page), u.host != nil, sameOrigin(u, u) else {
+            print("exact url: not an HTTP app URL: \(page)")
             return nil
         }
-        let s = PlanURL(u, apply: apply, asset: asset)
-        s.resolveAndBoot(thenSubscribe: true)
-        return s
+        let connection = PlanURL(u, current: current, apply: apply)
+        connection.resolveAndBoot()
+        return connection
     }
 
     let page: URL
-    private let applyPlan: (Data, String) -> Bool
-    private let assetArrived: (String, String, Data) -> Void
-    static let assetLimit = 64 * 1024 * 1024
-    /// "rebuild the native host" once `{rebuilt}` arrives; Reload clears it.
+    private let currentGeneration: () -> String?
+    private let applyGeneration: (Generation, String) -> Bool
+    private var programIdentity: String?
     var terminal: String?
-    private var bootedDigest = ""
-    private var eventsURL: URL?
+    private var observed: Revision?
+    private var retiredEpochs = Set<String>()
+    private var pending: Revision?
     private var stream: URLSessionDataTask?
     private var buffer = Data()
     private var retrySeconds = 1.0
@@ -178,134 +188,99 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private var resolution: UInt64 = 0
     private var fetches: [UUID: BoundedFetch] = [:]
     private lazy var session: URLSession = {
-        let c = URLSessionConfiguration.ephemeral
-        c.requestCachePolicy = .reloadIgnoringLocalCacheData
-        // The first local-network request can stall while iOS resolves the
-        // permission prompt; wait rather than fail it (LLP 1023 §6).
-        c.waitsForConnectivity = true
-        c.timeoutIntervalForResource = 3600 * 24 // the SSE stream is long-lived
-        return URLSession(configuration: c, delegate: self, delegateQueue: .main)
+        let config = URLSessionConfiguration.ephemeral
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.waitsForConnectivity = true
+        config.timeoutIntervalForResource = 3600 * 24
+        return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
 
-    private init(_ u: URL, apply: @escaping (Data, String) -> Bool, asset: @escaping (String, String, Data) -> Void) {
-        page = u
-        applyPlan = apply
-        assetArrived = asset
+    private init(_ page: URL, current: @escaping () -> String?, apply: @escaping (Generation, String) -> Bool) {
+        self.page = page
+        currentGeneration = current
+        applyGeneration = apply
     }
 
-    /// A changed asset (the dev push names it with its digest and size):
-    /// fetched by name beside the page, bounded by its declared size,
-    /// verified by digest, then handed to the app — or refused with the
-    /// numbers named and nothing changed.
-    private func fetchAsset(_ row: [String: Any], generation: UInt64) {
-        guard let name = row["name"] as? String, let sha = (row["sha256"] as? String)?.lowercased(), let count = row["bytes"] as? Int,
-              count >= 0, count <= PlanURL.assetLimit, !name.contains(".."), !name.hasPrefix("/"),
-              let u = URL(string: name, relativeTo: page)?.absoluteURL, PlanURL.sameOrigin(u, page) else { return }
-        var request = URLRequest(url: u)
-        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        fetch(request, limit: max(count, 1), generation: generation) { [weak self] result in
-            guard let self else { return }
-            guard case let .success((data, response)) = result, response.statusCode == 200 else {
-                self.status("cannot fetch the asset \(name); keeping the one shown")
-                return
-            }
-            guard data.count == count else {
-                self.status("asset \(name) is \(data.count) bytes, the push said \(count); keeping the one shown")
-                return
-            }
-            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-            guard digest == sha else {
-                self.status("asset \(name) sha256 mismatch; keeping the one shown")
-                return
-            }
-            self.assetArrived(name, digest, data)
-            self.status("asset \(name) (\(count) bytes) arrived")
-        }
+    @discardableResult
+    private func beginResolution() -> UInt64 {
+        resolution &+= 1
+        pending = nil
+        Array(fetches.values).forEach { $0.cancel() }
+        fetches.removeAll()
+        return resolution
     }
 
     func close() {
         closed = true
-        resolution &+= 1
-        Array(fetches.values).forEach { $0.cancel() }
-        fetches.removeAll()
+        beginResolution()
         stream?.cancel()
+        stream = nil
         session.invalidateAndCancel()
     }
 
-    /// The menu's Reload: start over — clears a `{rebuilt}` stop.
     func reload() {
         terminal = nil
+        resolveAndBoot()
+    }
+
+    // MARK: discovery and immutable generation fetches (LLP 1023 D1–D3)
+
+    private func resolveAndBoot() {
+        guard !closed, terminal == nil else { return }
         stream?.cancel()
         stream = nil
-        resolveAndBoot(thenSubscribe: true)
-    }
-
-    // MARK: the two rungs (D1)
-
-    private func resolveAndBoot(thenSubscribe: Bool) {
-        resolution &+= 1
-        let generation = resolution
-        Array(fetches.values).forEach { $0.cancel() }
-        fetches.removeAll()
-        var req = URLRequest(url: page)
-        req.setValue("\(PlanURL.envelopeType), text/html;q=0.9", forHTTPHeaderField: "Accept")
-        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        fetch(req, limit: PlanURL.pageLimit, generation: generation) { [weak self] result in
+        let generation = beginResolution()
+        var request = URLRequest(url: page)
+        request.setValue("\(PlanURL.envelopeType), text/html;q=0.9", forHTTPHeaderField: "Accept")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        fetch(request, limit: PlanURL.pageLimit, generation: generation) { [weak self] result in
             guard let self else { return }
             guard case let .success((data, http)) = result, http.statusCode == 200 else {
-                let reason = if case let .failure(error) = result { error.message } else { "HTTP response refused" }
-                self.status("cannot reach \(self.page): \(reason)")
+                self.failed("cannot reach \(self.page)", generation: generation)
                 return
             }
-            let base = http.url ?? self.page // final URL after redirects: the resolution base (D2)
+            let base = http.url ?? self.page
             let type = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
             if type.contains("json") || data.first == UInt8(ascii: "{") {
-                self.takeEnvelope(data, base: base, thenSubscribe: thenSubscribe, generation: generation)
-            } else if let href = PlanURL.envelopeLink(in: data), let u = URL(string: href, relativeTo: base) {
-                guard PlanURL.sameOrigin(u.absoluteURL, self.page) else {
-                    self.status("refused: \(u.absoluteURL) is not same-origin with \(self.page)")
-                    return
-                }
-                self.fetchEnvelope(u.absoluteURL, thenSubscribe: thenSubscribe, generation: generation)
+                self.takeEnvelope(data, base: base, subscribe: true, generation: generation, expected: nil)
+            } else if let href = PlanURL.envelopeLink(in: data),
+                      let url = URL(string: href, relativeTo: base)?.absoluteURL,
+                      PlanURL.sameOrigin(url, self.page) {
+                self.fetchEnvelope(url, subscribe: true, generation: generation, expected: nil)
             } else {
-                self.status("\(base) is not an Exact app: no envelope and no rel=alternate link in the page")
+                self.failed("\(base) has no same-origin Exact envelope", generation: generation)
             }
         }
     }
 
-    private func fetchEnvelope(_ u: URL, thenSubscribe: Bool, generation: UInt64) {
-        var req = URLRequest(url: u)
-        req.setValue(PlanURL.envelopeType, forHTTPHeaderField: "Accept")
-        fetch(req, limit: PlanURL.envelopeLimit, generation: generation) { [weak self] result in
+    private func fetchEnvelope(_ url: URL, subscribe: Bool, generation: UInt64, expected: Revision?) {
+        var request = URLRequest(url: url)
+        request.setValue(PlanURL.envelopeType, forHTTPHeaderField: "Accept")
+        fetch(request, limit: PlanURL.envelopeLimit, generation: generation) { [weak self] result in
             guard let self else { return }
             guard case let .success((data, response)) = result, response.statusCode == 200 else {
-                self.status("cannot fetch the envelope at \(u)")
+                // Immutable snapshots are bounded on the server. Discovery
+                // supplies the latest snapshot if this URL has expired.
+                self.failed("cannot fetch the envelope at \(url)", generation: generation)
                 return
             }
-            self.takeEnvelope(data, base: response.url ?? u, thenSubscribe: thenSubscribe, generation: generation)
+            self.takeEnvelope(data, base: response.url ?? url, subscribe: subscribe, generation: generation, expected: expected)
         }
     }
 
-    private func fetch(
-        _ request: URLRequest,
-        limit: Int,
-        generation: UInt64,
-        completion: @escaping (Result<(Data, HTTPURLResponse), BoundedFetch.Failure>) -> Void
-    ) {
+    private func fetch(_ request: URLRequest, limit: Int, generation: UInt64,
+                       completion: @escaping (Result<(Data, HTTPURLResponse), BoundedFetch.Failure>) -> Void) {
         let id = UUID()
         let fetch = BoundedFetch(origin: page, limit: limit) { [weak self] result in
             guard let self else { return }
             self.fetches.removeValue(forKey: id)
-            guard !self.closed, generation == self.resolution else { return }
+            guard !self.closed, self.terminal == nil, generation == self.resolution else { return }
             completion(result)
         }
         fetches[id] = fetch
         fetch.start(request)
     }
 
-    /// The link rung: a bounded, parser-free scan of the page's first 16 KB
-    /// (exact1 LLP 0268's rule — native never runs an HTML parser, and
-    /// never executes the page).
     static func envelopeLink(in html: Data) -> String? {
         let text = String(decoding: html.prefix(16384), as: UTF8.self)
         guard let type = text.range(of: envelopeType) else { return nil }
@@ -313,121 +288,205 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
               let close = text.range(of: ">", range: type.upperBound..<text.endIndex) else { return nil }
         let tag = text[open.lowerBound..<close.upperBound]
         for quote in ["\"", "'"] {
-            if let h = tag.range(of: "href=" + quote), let end = tag.range(of: quote, range: h.upperBound..<tag.endIndex) {
-                return String(tag[h.upperBound..<end.lowerBound]).replacingOccurrences(of: "&amp;", with: "&")
+            if let start = tag.range(of: "href=" + quote), let end = tag.range(of: quote, range: start.upperBound..<tag.endIndex) {
+                return String(tag[start.upperBound..<end.lowerBound]).replacingOccurrences(of: "&amp;", with: "&")
             }
         }
         return nil
     }
 
-    // MARK: the envelope and the plan (D2)
-
-    private func takeEnvelope(_ data: Data, base: URL, thenSubscribe: Bool, generation: UInt64) {
-        guard data.count <= PlanURL.envelopeLimit, PlanURL.sameOrigin(base, page) else {
-            status("refused an oversized or cross-origin envelope at \(base)")
-            return
-        }
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            self.status("the envelope at \(base) is not JSON")
-            return
-        }
-        guard let major = json["exact"] as? Int else {
-            self.status("\(base): no \"exact\" version — not an envelope")
-            return
-        }
-        guard major == 1 else {
-            self.status("envelope version \(major) is newer than this host — rebuild the native host")
-            return
-        }
-        guard let plan = json["plan"] as? [String: Any],
-              let path = plan["url"] as? String,
-              let sha = plan["sha256"] as? String,
-              let count = plan["bytes"] as? Int,
-              let planURL = URL(string: path, relativeTo: base)?.absoluteURL else {
-            self.status("\(base): the envelope names no plan")
-            return
-        }
-        guard count >= 0, count <= PlanURL.planLimit else {
-            self.status("refused: plan byte count \(count) exceeds the \(PlanURL.planLimit)-byte limit")
-            return
-        }
-        // Same-origin only in v1 (D2): everything lives beside the page.
-        guard PlanURL.sameOrigin(planURL, page) else {
-            self.status("refused: \(planURL) is not same-origin with \(page)")
-            return
-        }
-        let events = (json["events"] as? String).flatMap { URL(string: $0, relativeTo: base)?.absoluteURL }
-        if let events, !PlanURL.sameOrigin(events, page) {
-            self.status("refused: \(events) is not same-origin with \(page)")
-            return
-        }
-        fetchPlan(planURL, sha256: sha.lowercased(), count: count, generation: generation)
-        if thenSubscribe, let events {
-            eventsURL = events
-            subscribe(events)
-        }
+    private static func count(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        let n = number.doubleValue
+        guard n >= 0, n <= 9_007_199_254_740_991, n.rounded(.down) == n else { return nil }
+        return Int(n)
+    }
+    private static func digest(_ value: Any?) -> String? {
+        guard let text = value as? String, text.utf8.count == 64,
+              text.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { return nil }
+        return text
+    }
+    private static func safeName(_ name: String) -> Bool {
+        !name.isEmpty && !name.contains(":") && !name.contains("\\") && !name.contains("\0") &&
+            name.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    }
+    private func card(_ row: [String: Any], name: String, base: URL) -> FileCard? {
+        guard let path = row["url"] as? String, let url = URL(string: path, relativeTo: base)?.absoluteURL,
+              PlanURL.sameOrigin(url, page), let sha = PlanURL.digest(row["sha256"]),
+              let count = PlanURL.count(row["bytes"]), count <= (name.isEmpty ? PlanURL.planLimit : PlanURL.assetLimit) else { return nil }
+        return FileCard(name: name, url: url, sha: sha, count: count)
+    }
+    private static func revision(_ row: [String: Any]) -> Revision? {
+        guard let epoch = row["epoch"] as? String, !epoch.isEmpty, epoch.utf8.count <= 128,
+              let seq = count(row["seq"]), let identity = digest(row["generation"]) else { return nil }
+        return Revision(epoch: epoch, seq: seq, identity: identity, program: digest(row["program"]))
     }
 
-    private func fetchPlan(_ u: URL, sha256: String, count: Int, generation: UInt64) {
-        var request = URLRequest(url: u)
-        request.setValue("application/vnd.exact.plan", forHTTPHeaderField: "Accept")
-        fetch(request, limit: count, generation: generation) { [weak self] result in
-            guard let self, self.terminal == nil else { return }
-            guard case let .success((data, response)) = result, response.statusCode == 200 else {
-                self.status("cannot fetch the plan at \(u); keeping the running app")
-                return
+    /// A new epoch resets ordering; an already retired epoch cannot return.
+    /// All fetch completions also carry a local resolution, so a response
+    /// started before a newer announcement cannot commit afterward.
+    private func observe(_ revision: Revision) -> Bool {
+        guard programIdentity == nil || revision.program != nil else { return false }
+        if let program = revision.program {
+            if let old = programIdentity, old != program {
+                terminal = "the dev server rebuilt the app's native code — rebuild and relaunch this host (the last good plan is still running)"
+                status(terminal!)
+                beginResolution()
+                stream?.cancel()
+                return false
             }
-            guard data.count == count else {
-                self.status("plan is \(data.count) bytes, envelope said \(count); keeping the running app")
-                return
-            }
-            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-            guard digest == sha256 else {
-                self.status("plan sha256 mismatch at \(u); keeping the running app")
-                return
-            }
-            guard digest != self.bootedDigest else { return }
-            if self.applyPlan(data, u.lastPathComponent + " ← " + (self.page.host ?? "")) {
-                self.bootedDigest = digest
+            programIdentity = program
+        }
+        if let old = observed {
+            if old.epoch == revision.epoch {
+                guard revision.seq >= old.seq, revision.seq != old.seq || revision.identity == old.identity else { return false }
+            } else {
+                guard !retiredEpochs.contains(revision.epoch) else { return false }
+                retiredEpochs.insert(old.epoch)
             }
         }
+        observed = revision
+        return true
     }
 
-    // MARK: the events stream (D3)
+    private func takeEnvelope(_ data: Data, base: URL, subscribe shouldSubscribe: Bool, generation: UInt64, expected: Revision?) {
+        guard data.count <= PlanURL.envelopeLimit, PlanURL.sameOrigin(base, page),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], PlanURL.count(json["exact"]) == 1,
+              let planRow = json["plan"] as? [String: Any], let plan = card(planRow, name: "", base: base),
+              let assetRows = json["assets"] as? [[String: Any]] else {
+            failed("invalid or unsupported envelope at \(base)", generation: generation)
+            return
+        }
+        var assets: [FileCard] = []
+        var names = Set<String>()
+        var total = plan.count
+        for row in assetRows {
+            guard let name = row["name"] as? String, PlanURL.safeName(name), names.insert(name).inserted,
+                  let asset = card(row, name: name, base: base), asset.count <= PlanURL.generationLimit - total else {
+                failed("invalid, duplicate, or oversized asset manifest at \(base)", generation: generation)
+                return
+            }
+            total += asset.count
+            assets.append(asset)
+        }
+        assets.sort { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
+        let canonical = "{\"assets\":[" + assets.map(\.canonical).joined(separator: ",") + "],\"plan\":" + plan.canonical + "}"
+        let identity = PlanURL.hash(Data(canonical.utf8))
+        if let dev = json["dev"] as? [String: Any] {
+            guard let revision = PlanURL.revision(dev), revision.identity == identity,
+                  expected == nil || revision == expected,
+                  let path = dev["events"] as? String, let events = URL(string: path, relativeTo: base)?.absoluteURL,
+                  PlanURL.sameOrigin(events, page), observe(revision) else {
+                failed("invalid or obsolete dev generation at \(base)", generation: generation)
+                return
+            }
+            pending = revision
+            if shouldSubscribe { subscribe(events) }
+        } else if json["dev"] != nil || expected != nil {
+            failed("missing dev generation identity at \(base)", generation: generation)
+            return
+        }
+        // Subscribe before payloads finish: hello repairs an edit between
+        // discovery and the stream opening, including an asset-only edit.
+        guard currentGeneration() != identity else { pending = nil; return }
+        fetchGeneration(plan: plan, assets: assets, identity: identity, generation: generation)
+    }
 
-    private func subscribe(_ u: URL) {
+    /// Serial fetching bounds concurrent buffers as well as total bytes. The
+    /// resolver is handed over only after every file verifies; no partial
+    /// asset callbacks, and an empty roster means every old asset is absent.
+    private func fetchGeneration(plan: FileCard, assets: [FileCard], identity: String, generation: UInt64) {
+        var planBytes = Data()
+        var assetBytes: [String: Data] = [:]
+        let cards = [plan] + assets
+        func next(_ index: Int) {
+            guard !closed, terminal == nil, generation == resolution else { return }
+            guard index < cards.count else {
+                pending = nil
+                if currentGeneration() != identity {
+                    let candidate = Generation(identity: identity, plan: planBytes, assets: assetBytes)
+                    if !applyGeneration(candidate, "generation ← " + (page.host ?? "")) {
+                        status("the host refused the generation; keeping the running app")
+                    }
+                }
+                return
+            }
+            let card = cards[index]
+            var request = URLRequest(url: card.url)
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            fetch(request, limit: card.count, generation: generation) { [weak self] result in
+                guard let self else { return }
+                guard case let .success((data, response)) = result, response.statusCode == 200,
+                      data.count == card.count, PlanURL.hash(data) == card.sha else {
+                    self.failed("cannot verify \(card.url); keeping the running app", generation: generation)
+                    return
+                }
+                if index == 0 { planBytes = data } else { assetBytes[card.name] = data }
+                next(index + 1)
+            }
+        }
+        next(0)
+    }
+
+    private static func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
+    /// JSON.stringify escaping, without Foundation's optional slash escaping.
+    /// Names sort by UTF-8 bytes, matching the server's canonical manifest.
+    private static func quote(_ value: String) -> String {
+        var result = "\""
+        for scalar in value.unicodeScalars {
+            switch scalar.value {
+            case 34: result += "\\\""
+            case 92: result += "\\\\"
+            case 8: result += "\\b"
+            case 9: result += "\\t"
+            case 10: result += "\\n"
+            case 12: result += "\\f"
+            case 13: result += "\\r"
+            case 0..<32: result += String(format: "\\u%04x", scalar.value)
+            default: result.unicodeScalars.append(scalar)
+            }
+        }
+        return result + "\""
+    }
+
+    // MARK: reconnect and ordering (LLP 1023 D3)
+
+    private func subscribe(_ url: URL) {
+        stream?.cancel()
         buffer.removeAll()
-        var req = URLRequest(url: u)
-        req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        let t = session.dataTask(with: req)
-        stream = t
-        t.resume()
+        var request = URLRequest(url: url)
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        let task = session.dataTask(with: request)
+        stream = task
+        task.resume()
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard dataTask === stream, let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let url = http.url, PlanURL.sameOrigin(url, page),
+              (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("text/event-stream") else {
+            completionHandler(.cancel)
+            failed("invalid events response", generation: resolution)
+            return
+        }
+        completionHandler(.allow)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard dataTask === stream else { return }
         guard data.count <= PlanURL.eventLimit - buffer.count else {
-            status("events response exceeded the \(PlanURL.eventLimit)-byte frame limit")
-            buffer.removeAll()
             stream?.cancel()
+            failed("events exceeded the \(PlanURL.eventLimit)-byte frame limit", generation: resolution)
             return
         }
         buffer.append(data)
-        while let frame = nextFrame() {
-            handle(frame)
-        }
+        while let frame = nextFrame() { handle(frame) }
     }
 
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        guard task === stream else { completionHandler(nil); return }
-        guard let next = request.url, PlanURL.sameOrigin(next, page) else {
-            status("refused cross-origin events redirect to \(request.url?.absoluteString ?? "an invalid URL")")
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        guard task === stream, let next = request.url, PlanURL.sameOrigin(next, page) else {
             completionHandler(nil)
             return
         }
@@ -437,56 +496,51 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard task === stream, !closed, terminal == nil else { return }
         if (error as? URLError)?.code == .cancelled { return }
-        // Reconnect; the server's hello re-syncs whatever was missed.
+        failed("events disconnected; resolving the current generation", generation: resolution)
+    }
+
+    private func failed(_ message: String, generation: UInt64) {
+        status(message)
+        pending = nil
         let delay = retrySeconds
         retrySeconds = min(retrySeconds * 2, 5)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, !self.closed, self.terminal == nil else { return }
-            self.resolveAndBoot(thenSubscribe: true)
+            guard let self, !self.closed, self.terminal == nil, self.resolution == generation else { return }
+            self.resolveAndBoot()
         }
     }
 
     private func nextFrame() -> [String: Any]? {
-        let sep = Data("\n\n".utf8)
-        guard let r = buffer.range(of: sep) else { return nil }
-        let chunk = buffer.subdata(in: buffer.startIndex..<r.lowerBound)
-        buffer.removeSubrange(buffer.startIndex..<r.upperBound)
+        guard let range = buffer.range(of: Data("\n\n".utf8)) else { return nil }
+        let chunk = buffer.subdata(in: buffer.startIndex..<range.lowerBound)
+        buffer.removeSubrange(buffer.startIndex..<range.upperBound)
         guard let text = String(data: chunk, encoding: .utf8) else { return [:] }
         for line in text.split(separator: "\n") where line.hasPrefix("data: ") {
-            if let json = try? JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8)) as? [String: Any] {
-                return json
-            }
+            if let json = try? JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8)) as? [String: Any] { return json }
         }
-        return [:] // a comment frame (the stream's opening ":")
+        return [:]
     }
 
     private func handle(_ frame: [String: Any]) {
         retrySeconds = 1
         if frame["rebuilt"] != nil {
-            // Session-terminal (D3): the program changed; a new plan against
-            // this binary's data crate cannot be trusted to boot.
             terminal = "the dev server rebuilt the app's native code — rebuild and relaunch this host (the last good plan is still running)"
             status(terminal!)
+            beginResolution()
             stream?.cancel()
             return
         }
-        if let e = frame["error"] as? String {
-            status("dev: \(e)")
-            return
-        }
-        // The asset row: a `{seq}` that names changed assets fetches each
-        // by name; the plan itself is unchanged and is left alone.
-        if let assets = frame["assets"] as? [[String: Any]], terminal == nil {
-            for row in assets where row["removed"] as? Bool != true { fetchAsset(row, generation: resolution) }
-            return
-        }
-        // hello and {seq}: both name the current revision; boot on mismatch.
-        if let digest = frame["digest"] as? String, digest != bootedDigest, terminal == nil {
-            resolveAndBoot(thenSubscribe: false)
-        }
+        if let error = frame["error"] as? String { status("dev: \(error)"); return }
+        if frame["ready"] as? Bool == false { return }
+        guard let revision = PlanURL.revision(frame), terminal == nil, observe(revision) else { return }
+        if currentGeneration() == revision.identity { beginResolution(); return }
+        guard pending != revision,
+              let path = frame["envelope"] as? String, let url = URL(string: path, relativeTo: page)?.absoluteURL,
+              PlanURL.sameOrigin(url, page) else { return }
+        let generation = beginResolution()
+        pending = revision
+        fetchEnvelope(url, subscribe: false, generation: generation, expected: revision)
     }
 
-    private func status(_ message: String) {
-        print("exact url: \(message)")
-    }
+    private func status(_ message: String) { print("exact url: \(message)") }
 }
