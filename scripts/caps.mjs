@@ -63,8 +63,8 @@ export function runCaps(root = process.cwd()) {
 
   const rulesAbs = resolve(root, RULES_PATH);
   if (!existsSync(rulesAbs)) {
-    fail('rules:missing', `${RULES_PATH} does not exist.`,
-      'Every other budget is declared there. Without it caps has nothing to enforce and must not pass.');
+    fail('rules:missing', `${RULES_PATH} does not exist under ${root}.`,
+      'caps gates the checkout carrying rules/RULES.md — run it there. Without that file caps has nothing to enforce and must not pass.');
     return { problems, counted };
   }
   const rules = readFileSync(rulesAbs, 'utf8');
