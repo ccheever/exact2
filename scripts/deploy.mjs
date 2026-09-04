@@ -48,8 +48,8 @@
 // Flags: `--slow-ms <n>` holds a stream's lock for n ms between reading the
 // head and writing the next one — a test flag for racing two publishers.
 import { spawnSync } from 'node:child_process';
-import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, userInfo } from 'node:os';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -179,14 +179,25 @@ function snapshotOf(app, opts) {
   return { commit, dirty: status.length > 0, changes: status, repo: top.stdout.trim() };
 }
 
-/** `r-<UTC ISO date-time, basic form>-<7 hex of the snapshot>` — a name safe in a path and a URL (no colons). */
-const defaultRelease = (commit) => `r-${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')}-${commit.slice(0, 7)}`;
+/** A human correlation id with millisecond UTC time, snapshot prefix, and a
+ * random run nonce. Two publishers of the same commit in one clock tick do
+ * not share the receipt namespace. */
+export function defaultRelease(commit, now = new Date(), nonce = randomBytes(8).toString('hex')) {
+  return `r-${now.toISOString().replace(/[-:]/g, '')}-${commit.slice(0, 7)}-${nonce}`;
+}
+
+/** A private bake directory independent of the correlation id. Explicitly
+ * reusing `--release` can never make one process remove another's stage. */
+export function deployRun(target, release) {
+  const root = resolve(target, 'deploy');
+  mkdirSync(root, { recursive: true });
+  return mkdtempSync(resolve(root, `${release}-`));
+}
 
 // ------------------------------------------------------------------ the bake
 
 /** Bake the web app into `<run>/web` (`host/web/build.mjs` with `EXACT_WEB_DIST`): its output goes to stderr so stdout stays the table. Returns the directory. */
 function bake(app, run) {
-  rmSync(run, { recursive: true, force: true });
   mkdirSync(run, { recursive: true });
   const web = resolve(run, 'web');
   const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], {
@@ -509,7 +520,7 @@ async function deploy(opts) {
 
   const snapshot = snapshotOf(app, opts);
   const release = opts.release ?? defaultRelease(snapshot.commit);
-  const run = resolve(app.target, 'deploy', release);
+  const run = deployRun(app.target, release);
   log(`snapshot ${snapshot.commit}${snapshot.dirty ? ' + uncommitted changes (--dirty)' : ''}; baking into ${run}`);
   const web = bake(app, run);
   const bundle = readBundle(web);

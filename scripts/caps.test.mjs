@@ -16,7 +16,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appManifestDigest, builtAppMatches, listPublicFiles, publicFileCards, staticFile, webEnvelope } from '../host/web/serve.mjs';
 import { deviceLaunchArgs } from '../host/apple/build.mjs';
-import { classify, streamHead } from './deploy.mjs';
+import { classify, defaultRelease, deployRun, streamHead } from './deploy.mjs';
 import { DirectoryOrigin, HttpsOrigin, OriginUnavailable } from './origin.mjs';
 
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
@@ -342,6 +342,21 @@ for (const [name, html, files, expectCode, expect] of [
     && losers[0].stderr.includes('a signing key is never overwritten') && matches,
   attempts.map((attempt) => `exit ${attempt.code}: ${attempt.stdout}${attempt.stderr}`).join('\n'));
   rmSync(dir, { recursive: true, force: true });
+}
+
+// A release remains recognizable to a person without being the bake's lock
+// or directory identity. Even an explicitly reused correlation id gets a
+// separate stage, and generated ids in the same clock tick do not collide.
+{
+  const target = mkdtempSync(join(tmpdir(), 'exact-deploy-run-'));
+  const now = new Date('2026-09-04T12:34:56.789Z');
+  const ids = new Set(Array.from({ length: 32 }, () => defaultRelease('a'.repeat(40), now)));
+  const first = deployRun(target, 'same-release');
+  writeFileSync(join(first, 'still-here'), 'first');
+  const second = deployRun(target, 'same-release');
+  result('deploy ids and private stages do not collide in one clock tick', ids.size === 32
+    && first !== second && readFileSync(join(first, 'still-here'), 'utf8') === 'first');
+  rmSync(target, { recursive: true, force: true });
 }
 
 // A phone gets the caller's LAN dev URL through devicectl, never a path on
