@@ -75,29 +75,22 @@ sits on that list carries the trade it would take.
   and stage 0's phone afternoon (the iOS Pulley host builds; the phone was not
   connected).
 
-- **Delivery, unified** — LLP 1030 r2 (Draft RFC, 2026-09-03: every layer's artifact,
-  identity, and carrier in dev and production; the per-platform compatibility id and its
-  streams; the classifier per platform and stream with dependency computed from the graph;
-  the two axes — an update store or not, the executors linked; propagation at its real
-  strength; the GPU sub-layers with shaders binary-coupled until packaged; the runtime
-  upgrade — freeze only, the store-carry test; assets hot in dev, icons per platform) and
-  LLP 1030.000 r2 (the bundle slice: `dev.mjs` classifies on every edit and never
-  publishes, `exact deploy` in its own process — snapshot, bake, classify, dry-run table,
-  conditional-put publish per stream; the policy table; the binary lanes, landing, reach,
-  brownfield deferred to a later number). Both folded a two-round grok 4.6 xhigh + codex
-  sol ultra panel (`llp/reviews/1030-delivery-unified.{grok,sol}.md`). Ruled 2026-09-03:
-  continuous everywhere (`release: automatic`, phased by the store); the update economy
-  off NOT-DOING in its static form. Every §5 question ruled 2026-09-03 (shader packaging in stage 1; the conditional put required). Landed: stage 1 (the asset row, 2026-09-04), stage 2 (the manifest, 2026-09-03), and of stages 3 and 4 the compatibility id, the `delivery` resource with `state.delivery`, the update store as a crate, and the macOS and Linux hosts opening it (2026-09-04: selection inside the boot, the boot marks, the check after first pixel on the host's own thread, `deliveryCheck`/`deliveryActivate`, the drive of 1026 §9 item 2 green on both). Owed: the artifact graph and the dry-run table (`exact deploy --dry-run`), the origin adapter and the publish, bake writing the update bundle (the stream card, the signature) beside the archive, the dev policy folded onto the store, the Linux asset row, iOS driven for the asset row, `state.delivery`, and the store.
-
-- **The update store is wired** (`update/`, `exact-update`, built 2026-09-03; the macOS and
-  Linux hosts open it 2026-09-04 — LLP 1030.000 §4 stage 4 has the landing). Owed (the publisher, `exact deploy`, landed the same day — `scripts/deploy.mjs`): bake
-  writing the update bundle beside the archive; the dev
-  policy folded onto the same store (1026 D12), which is what retires `EXACT_DEV_PLAN`'s
-  file poll and the two URL loaders; iOS driven (`ExactKit` is shared, undriven there);
-  `BGAppRefreshTask` and a desktop timer beyond the one check after first pixel; Linux
-  overrides for fonts and deck pages from an entry (images only today); a sunset card
-  shown by the app, not just answered; the web host, which has no store (`L = A` in its
-  `compat.json` is a lie until it does, or the manifest says `0` for it).
+- **Delivery, unified** — LLP 1030 r2 and LLP 1030.000 r2. Landed: stage 1 (the
+  asset row), stage 2 (the manifest), the compatibility id, the `delivery`
+  resource, the update store, `exact deploy` (snapshot/bake/classify/publish
+  through `scripts/origin.mjs`), and the macOS and Linux hosts opening the
+  store. **2026-09-04 review** (LLP 1030.001): the landing is real and the
+  signature seam holds; four structural properties the RFCs paid for are not
+  what the code does — filesystem issues `issues/20260904-*.md` (anti-rollback
+  floor is 0, stream files overwritten before the head, Linux next-launch
+  ignores entry assets, snapshot is a git-status of the app dir, activation
+  cannot represent two pinned session generations, and the remaining P1–P3
+  findings, most on the dev loop). Owed as before: bake writing the update bundle beside the archive;
+  the dev policy folded onto the store (1026 D12); iOS driven; `BGAppRefreshTask`;
+  Linux font and deck overrides from an entry; the sunset card shown by the
+  app; the web host, which has no store (`L = A` in its `compat.json` is a lie
+  until it does, or the manifest says `0` for it); `--watch`; the object-store
+  adapter; the binary lanes.
 
 - **LLP 1031 owed after the 2026-09-03 landing** (the handle, `ExactKit`, the macOS
   sample host, the manifest stage; the iOS sample host landed 2026-09-04 — each pane its
