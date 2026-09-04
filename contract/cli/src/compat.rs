@@ -294,7 +294,10 @@ fn compatibility_with_trust(
     } else {
         manifest.channel()
     };
-    if trust == "production" && !binary_only && keys.as_object().is_none_or(|keys| keys.is_empty())
+    if trust == "production"
+        && (store != "0" || origin.is_some())
+        && !binary_only
+        && keys.as_object().is_none_or(|keys| keys.is_empty())
     {
         return Err("production updater requires deploy.signing.keys with at least one verification key; use EXACT_UPDATE_TRUST=development only for a development artifact".into());
     }
@@ -697,6 +700,20 @@ mod tests {
         assert!(m.name.starts_with("Exact-compat-fields-"), "{}", m.name);
         let _ = std::fs::remove_dir_all(&dir);
     }
+    #[test]
+    fn web_without_a_store_or_origin_does_not_require_updater_keys() {
+        let dir = app("web-zero");
+        let mut manifest = Manifest::read(&dir).unwrap();
+        manifest.json["deploy"] = serde_json::json!({"store":{"web":"0"}});
+        let plain = compatibility_with_trust(&dir, "web", "wasm32", &manifest, None, "production");
+        assert!(plain.is_ok(), "{plain:?}");
+        manifest.json["app"]["origin"] = serde_json::json!("https://updates.example");
+        assert!(
+            compatibility_with_trust(&dir, "web", "wasm32", &manifest, None, "production").is_err()
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn production_trust_requires_keys_and_has_a_distinct_cohort() {
         let dir = app("trust");

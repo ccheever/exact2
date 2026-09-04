@@ -12,12 +12,6 @@ sits on that list carries the trade it would take.
 
 - **Principles follow-up (2026-09-04, Charlie):** remove Castle policy from
   shared hosts (LLP 1020 §9; `issues/20260904-castle-policy-in-shared-hosts.md`).
-- **Explicit time and randomness:** LLP 1027.000 (Draft) and
-  `issues/20260904-data-sources-read-ambient-time.md`; settle the API before landing it.
-- **Optional updater:** the existing `issues/20260904-level-zero-hosts-still-link-update-store.md`
-  now includes composition and artifact-proof requirements.
-- **Measure before optimizing:** `issues/20260904-measure-runner-update-scaling.md`
-  and `issues/20260904-boot-count-misses-in-module-growth.md` use existing tooling.
 
 1. **Linux host follow-ups** (LLP 1015 landed 2026-08-29; r2 the same day: vello on
    the GPU is the main painter, tiny-skia the fallback and pixel oracle; green on
@@ -312,7 +306,8 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   (bake: Rolldown → hermesc → bake under the VM, `app.d.ts`, `dev.mjs`) built against
   its first consumer, stage 5 (Weird Castle in TypeScript), then stage 4 (web), stage 6
   (delivery), stage 7 (the engine crate + Linux); owed from stage 3: the pure tier from
-  ibex2 (URL, TextEncoder, base64), a `Date.now` shadow onto the runner's clock. The
+  ibex2 (URL, TextEncoder, base64). LLP 1027.000 landed 2026-09-04: time and seeds
+  are explicit inputs; ambient Date/Intl time and Math.random calls refuse. The
   boot question was ruled the same day ("ok let's do that"): **the kept answer** — the
   runner persists a store-reading resource's last answer beside the secrets, boots
   from it when the source is not ready, falls back to the bake's empty-store placeholder

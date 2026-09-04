@@ -264,6 +264,12 @@ pub fn boot_presenter<D: DataSource + Default>(
 /// Run the app: the process's exit code. `compat` is the binary's
 /// `compat.json` (LLP 1030 D3a), which the `delivery` resource answers from.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
+    if exact_runner::Delivery::default().with_compat(compat).store != '0' {
+        eprintln!(
+            "exact: the baked store level requires the delivery adapter; regenerate the app entry"
+        );
+        return 1;
+    }
     let started = Instant::now();
     let mut config = Config::from_env(baked, compat);
     run_config::<D>(&mut config, started)
@@ -409,6 +415,13 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_core_only_entry_refuses_an_update_capable_compatibility_record() {
+        assert_eq!(
+            run::<caltrain_data::Caltrain>(b"not read", r#"{"inputs":{"store":{"L":"A"}}}"#),
+            1
+        );
+    }
     #[test]
     fn a_dev_plan_locator_stands_a_persisted_selection_aside() {
         assert!(has_explicit_locator(None, Some("not-produced-yet.plan")));

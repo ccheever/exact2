@@ -32,6 +32,7 @@ pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
     Layout(String),
+    Delivery(String),
 }
 
 impl std::fmt::Display for HostError {
@@ -160,6 +161,12 @@ impl<D: DataSource> Host<D> {
         delivery: Option<&'static crate::delivery::Hooks>,
         prepare: impl FnOnce(&Plan),
     ) -> Result<(Host<D>, String), HostError> {
+        if let Some(json) = compat {
+            let expected = exact_runner::Delivery::default().with_compat(json).store != '0';
+            if expected != delivery.is_some() {
+                return Err(HostError::Delivery("the baked store level does not match the linked delivery adapter; regenerate the app entry".into()));
+            }
+        }
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         let kernel = Kernel::new(measurer);
         let runner = match carried {

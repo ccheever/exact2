@@ -20,7 +20,10 @@ enum Updates {
         let assets: String
     }
 
-    private static func read(_ len: UInt32) -> Data { Data(bytes: api!.pointee.output(), count: Int(len)) }
+    private static func read(_ len: UInt32) -> Data {
+        guard len > 0, let api, let bytes = api.pointee.output() else { return Data() }
+        return Data(bytes: bytes, count: Int(len))
+    }
 
     private static func write(_ text: String) -> Int {
         let data = Data(text.utf8)

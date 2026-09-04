@@ -817,7 +817,7 @@ mod handles {
     /// The archive's `compat.json` (LLP 1030 D3a) as this fixture's binary
     /// would carry it: the exports hand it to the runner at every boot.
     pub const COMPAT: &str =
-        r#"{"id":"fixture00000000","inputs":{"executors":["native"],"store":{"L":"A"}}}"#;
+        r#"{"id":"fixture00000000","inputs":{"executors":["native"],"store":{"L":"0"}}}"#;
 
     exact_apple::host!(Fixture, baked(), COMPAT);
 }
@@ -913,4 +913,36 @@ fn a_setter_on_a_runtime_takes_effect_at_its_boot() {
     let f = frame_of(&batch, id);
     assert!((f.3 - 20.0).abs() <= 0.5, "{f:?}");
     handles::exact_destroy(rt);
+}
+
+#[test]
+fn a_core_only_archive_refuses_compatibility_facts_that_require_an_adapter() {
+    let plan = caltrain::build().unwrap().encode();
+    let mut bridge = Bridge::new();
+    bridge.set_compat(r#"{"inputs":{"store":{"L":"A"}}}"#);
+    let n = bridge.boot(
+        &plan,
+        caltrain_data::Caltrain,
+        exact_apple::abi::Hooks::none(),
+        390.0,
+        844.0,
+    );
+    let refused = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(
+        refused.contains("does not match the linked delivery adapter"),
+        "{refused}"
+    );
+    bridge.set_compat(r#"{"inputs":{"store":{"L":"0"}}}"#);
+    let n = bridge.boot(
+        &plan,
+        caltrain_data::Caltrain,
+        exact_apple::abi::Hooks::none(),
+        390.0,
+        844.0,
+    );
+    let booted = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(
+        booted.contains("\"error\":null"),
+        "a matching core composition must boot"
+    );
 }
