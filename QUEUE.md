@@ -87,7 +87,7 @@ sits on that list carries the trade it would take.
   brownfield deferred to a later number). Both folded a two-round grok 4.6 xhigh + codex
   sol ultra panel (`llp/reviews/1030-delivery-unified.{grok,sol}.md`). Ruled 2026-09-03:
   continuous everywhere (`release: automatic`, phased by the store); the update economy
-  off NOT-DOING in its static form. Every §5 question ruled 2026-09-03 (shader packaging in stage 1; the conditional put required). Landed: stage 1 (the asset row, 2026-09-04), stage 2 (the manifest, 2026-09-03), and of stages 3 and 4 the compatibility id, the `delivery` resource with `state.delivery`, and the update store as a crate. Owed: the artifact graph and the dry-run table (`exact deploy --dry-run`), the origin adapter and the publish, bake writing the stream card and signature into `exact.json`, the hosts opening the store and checking after first pixel, the dev policy folded onto the store, the Linux asset row, iOS driven for the asset row and `state.delivery`.
+  off NOT-DOING in its static form. Every §5 question ruled 2026-09-03 (shader packaging in stage 1; the conditional put required). Landed: stage 1 (the asset row, 2026-09-04), stage 2 (the manifest, 2026-09-03), and of stages 3 and 4 the compatibility id, the `delivery` resource with `state.delivery`, the update store as a crate, and — 2026-09-04 — `exact deploy` (`scripts/deploy.mjs`: snapshot, bake into `target/deploy/<release>`, the per-platform, per-stream table with the origin row as the default dry run, `--yes` through the directory origin adapter `scripts/origin.mjs` with the lock-file conditional put, blobs read back, the signed head, the release record; `keygen`; `node scripts/smoke.mjs deploy` drives it; `update/tests/publisher.rs` is the cross-language proof over a head it wrote). Owed: `--watch`; an object-store adapter (https is read-only); the artifact graph with dependency computed from it and the icon roster refusal (the classifier compares digests against heads and treats an unchanged compatibility id as the cohort check); `dev.mjs` importing the classifier for its table; `Store::check` fetching `.exact/<compatibilityId>/` while the origin is laid out `.exact/<channel>/<compatibilityId>/` (the store should take the channel from `compat.json`'s `delivery.channel`); `host/web/serve.mjs` serving `.exact/` (it refuses every dot path but `.well-known`); bake writing the stream card and signature into the embedded `exact.json`; the hosts opening the store and checking after first pixel; the dev policy folded onto the store; the Linux asset row; iOS driven for the asset row and `state.delivery`; a client driven to show the sunset card.
 
 - **The update store is built** (`update/`, `exact-update`, 2026-09-03) — LLP 1026 D9–D12
   and LLP 1030 D3a/D9 as store logic alone, no host wiring: the envelope with its stream
@@ -97,7 +97,9 @@ sits on that list carries the trade it would take.
   files reused from another entry by digest, and `staged`/`activate`/`status` for LLP 1030
   D7's two acts. Twenty tests over a temp directory and an in-memory origin. Owed before
   it delivers anything: bake writing `stream`, `release`, `signature`, and the embedded
-  bundle's own digest into `exact.json` (1030.000 stage 4's publisher half); a host
+  bundle's own digest into `exact.json` (the stream heads on the origin carry all three
+  since `exact deploy` landed 2026-09-04 — `update/tests/publisher.rs` reads one; the
+  bake's own embedded `exact.json` still carries none); a host
   calling `open` and the two boot marks and running `check` after first pixel on its own
   executor, on Apple, Linux, and the web; the `delivery` resource and commands with
   `state.delivery` beside them; and the dev policy folded onto the same store (1026 D12),
