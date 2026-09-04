@@ -27,7 +27,10 @@
 //! the Promise resolves to a `Response` with `status`, `ok`, `headers`,
 //! `text()`, `json()`, `arrayBuffer()`. `store` is `{get, set, forget}` over
 //! the runner's [`Store`]: reads counted, writes grant-checked, in Rust.
-//! `console` reaches the runner's logs. There are no timers and no clock.
+//! `console` reaches the runner's logs. Time and random seeds are ordinary
+//! source arguments (LLP 1027.000): ambient Date/Math.random reads refuse,
+//! including at module initialization and after await. Explicit-value Date
+//! construction and UTC arithmetic remain available. There are no timers.
 
 #![deny(missing_docs)]
 

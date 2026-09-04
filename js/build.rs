@@ -94,7 +94,7 @@ fn main() {
         );
     };
     compile(&manifest.join("src/prelude.js"), &out.join("prelude.hbc"));
-    for name in ["caltrain", "castle"] {
+    for name in ["caltrain", "castle", "inputs", "ambient-init"] {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());
         let script = out.join(format!("{name}.js"));

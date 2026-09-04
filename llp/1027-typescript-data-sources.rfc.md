@@ -7,10 +7,12 @@
 **Date:** 2026-09-03
 **Related:** LLP 1004 D4 (app computation is a Rust data crate — the costing this document reverses, and the seam it keeps: "expressions call the roster; data comes from a data source; nothing else crosses"; its alternative (i), LLP 0517's TypeScript provider seam, rejected 2026-08-28 "on that fork, not on `RULES.md`'s first-pixel rule"), LLP 1005 §3 (canonical value bytes; `Value::conforms`, the shape check at the seam — value.rs:88), LLP 1006 §2 (what Contract is, scoped — §2 here says what it cannot do, by design), LLP 1016 D1/D2/D6 (the runner never does I/O; a request is a value the host runs; grants — the properties that make a module with no globals safe), LLP 1017.000 P5 ("the first `fn` that wants a loop is evidence for the data crate" — this document is where that evidence goes), LLP 1018 D4/D5 (bake sees an empty store; the token stays below the seam — both kept, in TypeScript), LLP 1023 D5 (`app_id` in the plan header), LLP 1024 D3 (one app artifact after the paint gate — the placement rule D4 copies), LLP 1026 D2/D3/D4/D10/D12 (the executor slot, the bytes-only ABI, pairing, digest identity, Level A/B — this is the second executor in that slot; §7's "A JS engine" refusal is withdrawn here; §10 Q6 and Q7 are answered by construction), LLP 1007 §6 (what a reload carries), the 2026-08-29 ibex2 decision (`QUEUE.md` §Later: `ibex2::host` at the first out-of-process resource — landed, LLP 1016/1018; "the engine only at a measured call site, after v1, as another `DataSource` loaded on demand after first pixel … on the web the browser is the executor, so one module runs under two loaders; design that first" — this is that design), `rules/RULES.md` §Scope (no app JS before first pixel; the boot path executes and compiles nothing; modules ship as bytecode — every one kept, D4/D5) and §Agents, `rules/NOT-DOING.md` §Authoring models (one authoring model for the UI — kept; a second language *below* the seam is the trade §8 names) and §Runtime ("HBC compilation" — moved for the bake, §8), ibex LLP 0057 §5.2 (Exact 2 "only where the plan and Rust are not sufficient" — this names where), LLP 0068 (`ibex2::host`, the no-engine standard library exact2's hosts already link — host/apple/Cargo.toml:27, host/linux/Cargo.toml:30), ibex2 `src/bytecode.rs` (bytecode is version-coupled to the engine; the compiler's identity is in the cache key), `metrics/ibex2-speed.jsonl` (the engine's floor and the 45 ns synchronous host call). External: Hermes (`facebook/hermes` 260318099.0.0-stable, the vanilla build in `~/projects/ibex/ios/Frameworks-vanilla/`, receipt `hermes-input-receipt.json`; `hermesvmlean` is the bytecode-only VM), the App Store's interpreted-code clause (the one Expo Updates lives under; a JIT is impossible on iOS and Hermes has none). Predecessor, research never authority: exact1 LLP 0517 (the wasm host interface and its TypeScript provider seam: `callSync`, one argument envelope, "a provider adapter MUST NOT construct/evaluate source text per call" — the same shape, reached from the other side), LLP 0508 §9 (`resource` in Contract), exact1's `data.ts` (202 lines — what LLP 1004 §4 rewrote into Rust; §3 here says why it can come back).
 
-**Follow-up proposal (2026-09-04):** [LLP 1027.000](1027.000-explicit-time-and-randomness.rfc.md)
+**Accepted amendment (2026-09-04):** [LLP 1027.000](1027.000-explicit-time-and-randomness.rfc.md)
 addresses the stage-3 clock gap and implicit randomness, including bake and
-cache semantics. It is Draft; its explicit-input recommendation has not
-replaced D1a's accepted, unimplemented clock-shadow direction.
+cache semantics. Charlie requested the described fixes on 2026-09-04:
+explicit time/seed arguments and refusal of ambient reads replace D1a's
+unimplemented clock shadow. The macOS executor implementation and actual
+verification are recorded in the child; the browser executor remains unbuilt.
 
 ## Summary
 
@@ -276,9 +278,11 @@ because the host already owns the request machinery:
   queue; ibex2's `fetch.js` binding and task pump are this, written);
   a re-request while an answer is in flight lets the old Promise run
   out and drops its result by ticket, as a stale reply is dropped today.
-- **What stays out:** timers, and any clock — a prelude shadows
-  `Date.now` to the runner's clock passed per call, so an answer is a
-  pure function of `clock` (LLP 1012). `AbortSignal` has its trigger.
+- **What stays out:** timers, and an ambient clock or random generator.
+  LLP 1027.000 (accepted and implemented 2026-09-04) replaces the proposed
+  `Date.now` shadow with explicit time/seed arguments and clear refusal of
+  ambient reads before module initialization and after asynchronous work.
+  `AbortSignal` has its trigger.
 - **Bake** treats a constant resource whose `answer` returns a Promise
   as it treats a store-reading one: no compiled value, answered on the
   device after first pixel (D4).
@@ -307,7 +311,8 @@ value in `Answer::Now`. `query` (the bake's path) has no store — reads
 are empty, writes refused — and a fetching answer is `Unavailable`
 there, exactly as `Later` at boot is refused today. Owed: the pure tier
 as ibex2 bindings (D10; `URL`, `TextEncoder`, base64, `Headers` from
-Rust), a `Date.now` shadow onto the runner's clock, and `AbortSignal`.
+Rust), and `AbortSignal`. The clock gap was closed by LLP 1027.000 on
+2026-09-04 with explicit time/seed arguments and ambient-read refusal.
 
 ### D2 — Marshaling is shape-directed, both ways, from the plan's own tables
 
@@ -388,10 +393,11 @@ the linked, dead-stripped engine is 1.81 MB against the full VM's
 2.79 MB of text. A runtime that cannot compile cannot be handed source
 by anyone, which closes the door exact1's Hermes path left open.
 
-**Determinism.** The same bytecode gives the same bytes on every host
-— the probe's twenty cases are the fixture — and the agent API's
-`clock` still owns time: the module has no clock global; `now` is an
-argument, as it is for the Rust crate (`board(id, dir, nowMs)`).
+**Determinism.** Time and seed inputs are arguments, as for the Rust crate
+(`board(id, dir, nowMs)`); LLP 1027.000 enforces that boundary in the existing
+macOS executor. Repeated inputs and supplied external outcomes reproduce
+answers in the fixture. This does not claim cross-host locale/timezone
+parity or execution on the future browser/iOS/Linux TypeScript loaders.
 
 ### D4 — After first pixel, on every host, and one frame of `pending`
 
@@ -494,6 +500,11 @@ D4 classifies it: a restart with carry (LLP 1007 §6), resources
 restarted. 20 ms of build inside the 100 ms edit-to-present budget.
 
 ### D6 — The web: the browser is the executor; one wasm import; the same module under two loaders
+
+**Implementation status (2026-09-04):** this section is the accepted design
+for a future executor, not an as-built claim. No `exact-js-web` loader is
+present yet. Its guarded module environment must satisfy LLP 1027.000
+without changing host-page or iframe-guest Date/Math globals.
 
 The 2026-08-29 note asked for this design first: "on the web the
 browser is the executor, so one module runs under two loaders."
@@ -930,7 +941,8 @@ grants are read at boot, runner.rs:440 and :466).
    as host-door ops, `js/tests/castle.rs` (login, a failed fetch, a
    two-fetch chain, refusals before and after a fetch, an answer pending
    on nothing, and the same through a compiled Contract and the runner).
-   Owed from it: the pure tier from ibex2, the clock shadow.
+   Owed from it: the pure tier from ibex2. The clock shadow was superseded
+   and the ambient-input gap fixed by LLP 1027.000 on 2026-09-04.
 4. **The web** (D6): the one import, `app.js` after first paint, the
    not-yet ticket, restart with carry. Verified: `smoke.mjs web` green
    on the twin; `boot.mjs` unchanged at one module; parity of every

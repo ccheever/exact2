@@ -15,6 +15,30 @@
   var host = global.__exact_host;
   delete global.__exact_host;
 
+  // LLP 1027.000: time and seeds are source arguments, so bake and cache
+  // see them. This VM belongs to one module; no page/guest globals change.
+  // Install before the app can capture an alias, including Date's prototype
+  // constructor. Keep explicit-value Date construction and UTC arithmetic.
+  function refuseAmbient(api) {
+    throw new Error(api + " is unavailable in data sources; pass time or a random seed as an argument");
+  }
+  function fixed(object, name, value) {
+    Object.defineProperty(object, name, { value: value, writable: false, configurable: false });
+  }
+  var NativeDate = global.Date;
+  var construct = Reflect.construct;
+  var InputDate = new Proxy(NativeDate, {
+    apply: function () { return refuseAmbient("Date()"); },
+    construct: function (target, args, newTarget) {
+      if (!args.length) return refuseAmbient("new Date()");
+      return construct(target, args, newTarget);
+    },
+  });
+  fixed(NativeDate, "now", function () { return refuseAmbient("Date.now()"); });
+  fixed(NativeDate.prototype, "constructor", InputDate);
+  fixed(global, "Date", InputDate);
+  fixed(global.Math, "random", function () { return refuseAmbient("Math.random()"); });
+
   // --- base64, for a response body's bytes (Hermes has no atob) -----------
   var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   var B64V = {};
