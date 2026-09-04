@@ -14,7 +14,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFi
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { appManifestDigest, builtAppMatches, listPublicFiles, publicFileCards, staticFile, webEnvelope } from '../host/web/serve.mjs';
+import { appManifestDigest, builtAppMatches, copyStaticTree, installStaticCandidate, listPublicFiles, publicFileCards, staticFile, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
 import { deviceLaunchArgs } from '../host/apple/build.mjs';
 import { canonicalBytes, classify, defaultRelease, deployRun, inspectHead, publishStream, streamHead } from './deploy.mjs';
@@ -180,6 +180,47 @@ for (const [name, html, files, expectCode, expect] of [
     && staticFile(dist, '/assets/linked-dir/secret') === null;
   rmSync(dir, { recursive: true, force: true });
   result('web serving rejects stale, dot, and symlink paths', ok);
+}
+
+// Static bakes and live edits share one source policy. A rejected link or
+// validator leaves the served file alone; a source removed after its bytes
+// were captured cannot turn the committed candidate into partial output.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-static-copy-'));
+  const source = join(dir, 'source');
+  const target = join(dir, 'target');
+  const outside = join(dir, 'outside');
+  mkdirSync(source); mkdirSync(target);
+  writeFileSync(outside, 'private');
+  writeFileSync(join(source, 'ok.txt'), 'good');
+  copyStaticTree(source, target);
+  symlinkSync(outside, join(source, 'linked.txt'));
+  let treeRefused = false;
+  try { copyStaticTree(source, join(dir, 'other')); }
+  catch (error) { treeRefused = error.message.includes('cannot be symlinks'); }
+  rmSync(join(source, 'linked.txt'));
+
+  writeFileSync(join(target, 'live.txt'), 'last good');
+  writeFileSync(join(source, 'live.txt'), 'invalid');
+  let invalidRefused = false;
+  try { installStaticCandidate(source, 'live.txt', join(target, 'live.txt'), () => { throw new Error('invalid shader'); }); }
+  catch (error) { invalidRefused = error.message === 'invalid shader'; }
+  rmSync(join(source, 'live.txt'));
+  symlinkSync(outside, join(source, 'live.txt'));
+  let linkRefused = false;
+  try { installStaticCandidate(source, 'live.txt', join(target, 'live.txt')); }
+  catch (error) { linkRefused = error.message.includes('cannot be symlinks'); }
+  rmSync(join(source, 'live.txt'));
+  let missingRefused = false;
+  try { installStaticCandidate(source, 'live.txt', join(target, 'live.txt')); }
+  catch (error) { missingRefused = error.code === 'ENOENT'; }
+  writeFileSync(join(source, 'live.txt'), 'next good');
+  const installed = installStaticCandidate(source, 'live.txt', join(target, 'live.txt'), () => rmSync(join(source, 'live.txt')));
+
+  result('static candidates reject links and preserve last-good bytes', treeRefused && invalidRefused
+    && linkRefused && missingRefused && readFileSync(join(target, 'ok.txt'), 'utf8') === 'good'
+    && installed.toString() === 'next good' && readFileSync(join(target, 'live.txt'), 'utf8') === 'next good');
+  rmSync(dir, { recursive: true, force: true });
 }
 
 {

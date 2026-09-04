@@ -4,10 +4,10 @@
 // EXACT_LOOPBACK=1) binds 127.0.0.1 only.
 // Usage: node host/web/serve.mjs [port=8765] [--loopback]
 import { createServer } from 'node:http';
-import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, realpathSync, statSync, readFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
-import { extname, resolve } from 'node:path';
+import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PUBLIC_FILES = new Set([
@@ -24,6 +24,84 @@ const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', '
 // one dot path a client fetches. Inside it every other dot name (the
 // stream's `.lock`) stays private.
 const UPDATE_TREE = '/.exact/';
+
+function staticRelative(name) {
+  if (typeof name !== 'string' || !name || name.startsWith('/') || name.includes('\\') || name.includes('\0')) throw new Error(`not a relative static-file path: ${JSON.stringify(name)}`);
+  if (name.split('/').some((part) => !part || part === '.' || part === '..')) throw new Error(`not a relative static-file path: ${JSON.stringify(name)}`);
+  return name;
+}
+
+/** Every regular file under a static source tree, sorted and refused when
+ * the root or any entry is a symlink or another special filesystem object. */
+export function listStaticFiles(source) {
+  const root = resolve(source);
+  const rootInfo = lstatSync(root);
+  if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) throw new Error(`static app tree must be a real directory: ${root}`);
+  const out = [];
+  const walk = (dir, prefix) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const name = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const path = resolve(root, name);
+      const info = lstatSync(path);
+      if (info.isSymbolicLink()) throw new Error(`static app files cannot be symlinks: ${path}`);
+      if (info.isDirectory()) walk(path, name);
+      else if (info.isFile()) out.push(name);
+      else throw new Error(`static app files must be regular files or directories: ${path}`);
+    }
+  };
+  walk(root, '');
+  return out.sort();
+}
+
+/** Read one candidate through a no-follow fd and prove it is the same
+ * regular inode the source tree walk inspected. */
+export function readStaticCandidate(source, name) {
+  const root = resolve(source);
+  const rootInfo = lstatSync(root);
+  if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) throw new Error(`static app tree must be a real directory: ${root}`);
+  let path = root;
+  let expected = rootInfo;
+  const parts = staticRelative(name).split('/');
+  for (let i = 0; i < parts.length; i++) {
+    path = resolve(path, parts[i]);
+    expected = lstatSync(path);
+    if (expected.isSymbolicLink()) throw new Error(`static app files cannot be symlinks: ${path}`);
+    if (i + 1 < parts.length && !expected.isDirectory()) throw new Error(`static app path is not a directory: ${path}`);
+  }
+  if (!expected.isFile()) throw new Error(`static app file is not regular: ${path}`);
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino) throw new Error(`static app file changed while opening: ${path}`);
+    return readFileSync(fd);
+  } finally { closeSync(fd); }
+}
+
+/** Read a source candidate once, write it privately beside `target`, run an
+ * optional validator over those exact bytes, then atomically replace the
+ * served file. Any refusal leaves the last-good target untouched. */
+export function installStaticCandidate(source, name, target, validate = null) {
+  const bytes = readStaticCandidate(source, name);
+  mkdirSync(dirname(target), { recursive: true });
+  const candidate = resolve(dirname(target), `.candidate-${process.pid}-${randomBytes(4).toString('hex')}`);
+  try {
+    writeFileSync(candidate, bytes, { flag: 'wx' });
+    if (validate) validate(candidate, bytes);
+    renameSync(candidate, target);
+    return bytes;
+  } catch (error) {
+    rmSync(candidate, { force: true });
+    throw error;
+  }
+}
+
+/** Copy one complete static source tree under the same no-symlink policy
+ * used by the live candidate path. Intended for private build stages. */
+export function copyStaticTree(source, target) {
+  const names = listStaticFiles(source);
+  mkdirSync(target, { recursive: true });
+  for (const name of names) installStaticCandidate(source, name, resolve(target, name));
+}
 
 /** Resolve one URL path to the current build, or to the stable previous tree
  * while build.mjs has renamed the current one aside. Generated top-level

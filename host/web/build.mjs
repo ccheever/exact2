@@ -3,11 +3,11 @@
 // when binaryen is on PATH, then `dist/` = index.html + glue.js + app.wasm.
 // Usage: node host/web/build.mjs [crate=caltrain-web]
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { resolveApp } from '../../scripts/app.mjs';
-import { appManifestDigest, listAssets, publicFileCards, webEnvelope } from './serve.mjs';
+import { appManifestDigest, copyStaticTree, listAssets, publicFileCards, webEnvelope } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
 const crate = app.crate('web');
@@ -46,21 +46,14 @@ else optNote = 'wasm-opt -Oz';
 // optional `deck/` iframe guest (@ref LLP 1020 M1). Replaced whole, so a
 // deleted file does not linger in dist.
 const assets = resolve(app.dir, 'assets');
-const copyStatic = (source, target) => cpSync(source, target, {
-  recursive: true,
-  filter(path) {
-    if (lstatSync(path).isSymbolicLink()) throw new Error(`static app files cannot be symlinks: ${path}`);
-    return true;
-  },
-});
-if (existsSync(assets)) copyStatic(assets, resolve(stage, 'assets'));
+if (existsSync(assets)) copyStaticTree(assets, resolve(stage, 'assets'));
 const deck = resolve(app.dir, 'deck');
-if (existsSync(deck)) copyStatic(deck, resolve(stage, 'deck'));
+if (existsSync(deck)) copyStaticTree(deck, resolve(stage, 'deck'));
 // The GPU crate's shaders (LLP 1030 D8): `shaders/<name>.wgsl` beside the
 // page, fetched and registered by the GPU glue before a surface is created
 // — never a string in the wasm.
 const shaders = resolve(app.dir, 'gpu', 'shaders');
-if (existsSync(shaders)) copyStatic(shaders, resolve(stage, 'shaders'));
+if (existsSync(shaders)) copyStaticTree(shaders, resolve(stage, 'shaders'));
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
 copyFileSync(resolve(root, 'host/web/glue.js'), resolve(stage, 'glue.js'));
 

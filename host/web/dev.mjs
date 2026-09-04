@@ -24,11 +24,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, watch } from 'node:fs';
+import { existsSync, readFileSync, rmSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
-import { dirname, relative, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { resolveApp } from '../../scripts/app.mjs';
-import { builtAppMatches, listAssets, readStaticFile, webContentType, webEnvelope } from './serve.mjs';
+import { builtAppMatches, installStaticCandidate, listAssets, listStaticFiles, readStaticFile, webContentType, webEnvelope } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -120,20 +120,17 @@ function interfaceDigests(files) {
   for (const line of (r.stdout ?? '').trim().split('\n')) { const [name, digest, ...rest] = line.split(' '); if (name) out.set(name, digest === 'error' ? `error ${rest.join(' ')}` : digest); }
   return out;
 }
-for (const [from, to] of assetTrees) if (to === 'shaders') for (const [n, d] of interfaceDigests(readdirRecursive(from).filter((f) => f.endsWith('.wgsl')))) shaderDigests.set(n, d);
-function readdirRecursive(dir) {
-  const out = [];
-  const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = resolve(d, e.name); if (e.isDirectory()) walk(p); else if (e.isFile()) out.push(p); } };
-  if (existsSync(dir)) walk(dir);
-  return out;
+for (const [from, to] of assetTrees) if (to === 'shaders') {
+  const files = listStaticFiles(from).filter((name) => name.endsWith('.wgsl')).map((name) => resolve(from, name));
+  for (const [n, d] of interfaceDigests(files)) shaderDigests.set(n, d);
 }
-let assetChanges = new Map(); // dist-relative name -> source path (or null when removed)
+let assetChanges = new Map(); // dist-relative name -> { root, relative }
 let assetTimer = null;
 for (const [from, to] of assetTrees) {
   try {
     watch(from, { recursive: true }, (_event, name) => {
       if (!name || skipped.test(name) || /(^|\/)\./.test(name)) return;
-      assetChanges.set(`${to}/${name}`, resolve(from, name));
+      assetChanges.set(`${to}/${name}`, { root: from, relative: name });
       clearTimeout(assetTimer);
       assetTimer = setTimeout(pushAssets, 100);
     });
@@ -146,17 +143,31 @@ function pushAssets() {
   let needsRebuild = false;
   for (const [name, source] of edits) {
     const target = resolve(dist, name);
-    if (!existsSync(source) || !statSync(source).isFile()) { rmSync(target, { force: true }); rows.push({ name, removed: true }); carriers.push(`asset ${name} removed`); continue; }
-    mkdirSync(dirname(target), { recursive: true });
-    copyFileSync(source, target);
-    const bytes = readFileSync(target);
+    const shader = name.startsWith('shaders/') && name.endsWith('.wgsl');
+    let digest = null;
+    let bytes;
+    try {
+      bytes = installStaticCandidate(source.root, source.relative, target, shader ? (candidate) => {
+        digest = interfaceDigests([candidate]).values().next().value ?? 'error unreadable';
+        if (digest.startsWith('error')) throw new Error(digest.slice(6));
+      } : null);
+    } catch (error) {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
+        rmSync(target, { force: true });
+        rows.push({ name, removed: true });
+        carriers.push(`asset ${name} removed`);
+      } else {
+        const reason = error.message || String(error);
+        carriers.push(`asset ${name}: rejected — ${reason}; keeping the last good bytes`);
+        push({ error: `${name}: ${reason}` });
+      }
+      continue;
+    }
     const row = { name, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length };
-    if (name.startsWith('shaders/') && name.endsWith('.wgsl')) {
+    if (shader) {
       const stem = name.slice('shaders/'.length, -'.wgsl'.length);
-      const digest = interfaceDigests([source]).get(stem) ?? 'error unreadable';
       const before = shaderDigests.get(stem);
       shaderDigests.set(stem, digest);
-      if (digest.startsWith('error')) { carriers.push(`shader ${name}: does not validate — ${digest.slice(6)}`); push({ error: `${name}: ${digest.slice(6)}` }); continue; }
       row.interface = digest;
       if (before === digest) carriers.push(`asset ${name} → live on the web, macOS, iOS (the client validates it); production: bundle`);
       else { needsRebuild = true; carriers.push(`shader ${name}: interface ${before ?? '?'} → ${digest} — rebuild the native host; production: binary (the wasm rebuilds now)`); }
@@ -181,15 +192,14 @@ const skipped = /(^|\/)(target|dist(?:\.previous)?|\.build|node_modules)(\/|$)/;
 // edited or restored while the server was down would otherwise be served
 // stale, and the shader digests above are the sources' — what the wasm binds.
 for (const [from, to] of assetTrees) {
-  const have = new Set(readdirRecursive(resolve(dist, to)).map((p) => relative(resolve(dist, to), p)));
-  for (const p of readdirRecursive(from)) {
-    const name = relative(from, p);
+  const targetRoot = resolve(dist, to);
+  const have = new Set(existsSync(targetRoot) ? listStaticFiles(targetRoot) : []);
+  for (const name of listStaticFiles(from)) {
     if (skipped.test(name) || /(^|\/)\./.test(name)) continue;
     have.delete(name);
-    const target = resolve(dist, to, name);
-    if (!existsSync(target) || !readFileSync(target).equals(readFileSync(p))) { mkdirSync(dirname(target), { recursive: true }); copyFileSync(p, target); }
+    installStaticCandidate(from, name, resolve(targetRoot, name));
   }
-  for (const name of have) rmSync(resolve(dist, to, name), { force: true });
+  for (const name of have) rmSync(resolve(targetRoot, name), { force: true });
 }
 let changed = new Set();
 let timer = null;
