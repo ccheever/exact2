@@ -7,7 +7,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameS
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { resolveApp } from '../../scripts/app.mjs';
-import { appManifestDigest, copyStaticTree, listAssets, publicFileCards, webEnvelope } from './serve.mjs';
+import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
 const crate = app.crate('web');
@@ -46,14 +46,14 @@ else optNote = 'wasm-opt -Oz';
 // optional `deck/` iframe guest (@ref LLP 1020 M1). Replaced whole, so a
 // deleted file does not linger in dist.
 const assets = resolve(app.dir, 'assets');
-if (existsSync(assets)) copyStaticTree(assets, resolve(stage, 'assets'));
+copyStaticTreeIfPresent(assets, resolve(stage, 'assets'));
 const deck = resolve(app.dir, 'deck');
-if (existsSync(deck)) copyStaticTree(deck, resolve(stage, 'deck'));
+copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 // The GPU crate's shaders (LLP 1030 D8): `shaders/<name>.wgsl` beside the
 // page, fetched and registered by the GPU glue before a surface is created
 // — never a string in the wasm.
 const shaders = resolve(app.dir, 'gpu', 'shaders');
-if (existsSync(shaders)) copyStaticTree(shaders, resolve(stage, 'shaders'));
+copyStaticTreeIfPresent(shaders, resolve(stage, 'shaders'));
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
 copyFileSync(resolve(root, 'host/web/glue.js'), resolve(stage, 'glue.js'));
 

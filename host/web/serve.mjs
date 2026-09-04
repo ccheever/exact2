@@ -103,6 +103,62 @@ export function copyStaticTree(source, target) {
   for (const name of names) installStaticCandidate(source, name, resolve(target, name));
 }
 
+function optionalInfo(path) {
+  try { return lstatSync(path); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+
+/** Copy a tree when it is genuinely absent, while still sending a dangling
+ * root link through the static-tree refusal. `existsSync` cannot make that
+ * distinction and must not guard an app-visible copy. */
+export function copyStaticTreeIfPresent(source, target) {
+  if (!optionalInfo(resolve(source))) return false;
+  copyStaticTree(source, target);
+  return true;
+}
+
+/** Mirror one complete source tree into a live dist at startup. A missing
+ * source removes the formerly served tree. A present tree is first copied
+ * into a private sibling and only then replaces the target, so a refused
+ * link or read race preserves the last-good tree. */
+export function syncStaticTree(source, target) {
+  const sourcePath = resolve(source);
+  const targetPath = resolve(target);
+  if (!optionalInfo(sourcePath)) {
+    rmSync(targetPath, { recursive: true, force: true });
+    return false;
+  }
+  const parent = dirname(targetPath);
+  mkdirSync(parent, { recursive: true });
+  const candidate = resolve(parent, `.candidate-tree-${process.pid}-${randomBytes(4).toString('hex')}`);
+  const previous = resolve(parent, `.previous-tree-${process.pid}-${randomBytes(4).toString('hex')}`);
+  try {
+    copyStaticTree(sourcePath, candidate);
+    if (optionalInfo(targetPath)) renameSync(targetPath, previous);
+    try { renameSync(candidate, targetPath); }
+    catch (error) {
+      if (optionalInfo(previous)) renameSync(previous, targetPath);
+      throw error;
+    }
+    rmSync(previous, { recursive: true, force: true });
+    return true;
+  } catch (error) {
+    rmSync(candidate, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/** Apply one recursive-watch candidate. A missing leaf or directory removes
+ * its complete served counterpart; every other refusal leaves it intact. */
+export function applyStaticChange(source, name, target, validate = null) {
+  try { return { bytes: installStaticCandidate(source, name, target, validate), removed: false }; }
+  catch (error) {
+    if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+    rmSync(target, { recursive: true, force: true });
+    return { bytes: null, removed: true };
+  }
+}
+
 /** Resolve one URL path to the current build, or to the stable previous tree
  * while build.mjs has renamed the current one aside. Generated top-level
  * files are explicit; app assets live only under the replaced trees, and an

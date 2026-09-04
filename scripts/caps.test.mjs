@@ -14,7 +14,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFi
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { appManifestDigest, builtAppMatches, copyStaticTree, installStaticCandidate, listPublicFiles, publicFileCards, staticFile, webEnvelope } from '../host/web/serve.mjs';
+import { applyStaticChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listPublicFiles, publicFileCards, staticFile, syncStaticTree, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
 import { copyAppleStaticTrees, deviceLaunchArgs } from '../host/apple/build.mjs';
 import { canonicalBytes, classify, defaultRelease, deployRun, inspectHead, publishStream, streamHead } from './deploy.mjs';
@@ -217,9 +217,38 @@ for (const [name, html, files, expectCode, expect] of [
   writeFileSync(join(source, 'live.txt'), 'next good');
   const installed = installStaticCandidate(source, 'live.txt', join(target, 'live.txt'), () => rmSync(join(source, 'live.txt')));
 
+  mkdirSync(join(source, 'gone', 'inside'), { recursive: true });
+  writeFileSync(join(source, 'gone', 'inside', 'one.txt'), 'one');
+  mkdirSync(join(target, 'gone', 'inside'), { recursive: true });
+  writeFileSync(join(target, 'gone', 'inside', 'one.txt'), 'old one');
+  rmSync(join(source, 'gone'), { recursive: true });
+  const removedDirectory = applyStaticChange(source, 'gone', join(target, 'gone'));
+
+  const startupSource = join(dir, 'startup-source');
+  const startupTarget = join(dir, 'startup-target');
+  mkdirSync(startupSource); writeFileSync(join(startupSource, 'fresh.txt'), 'fresh');
+  const startupPresent = syncStaticTree(startupSource, startupTarget)
+    && readFileSync(join(startupTarget, 'fresh.txt'), 'utf8') === 'fresh';
+  rmSync(startupSource, { recursive: true });
+  const startupRemoved = !syncStaticTree(startupSource, startupTarget) && !existsSync(startupTarget);
+  mkdirSync(startupTarget); writeFileSync(join(startupTarget, 'last-good.txt'), 'last good');
+  symlinkSync(join(dir, 'does-not-exist'), startupSource);
+  let brokenRootRefused = false;
+  try { syncStaticTree(startupSource, startupTarget); }
+  catch (error) { brokenRootRefused = error.message.includes('must be a real directory'); }
+  const lastGoodRoot = readFileSync(join(startupTarget, 'last-good.txt'), 'utf8') === 'last good';
+  rmSync(startupSource);
+  const absentCopySkipped = copyStaticTreeIfPresent(startupSource, join(dir, 'absent-copy')) === false;
+  symlinkSync(join(dir, 'still-does-not-exist'), startupSource);
+  let brokenCopyRefused = false;
+  try { copyStaticTreeIfPresent(startupSource, join(dir, 'broken-copy')); }
+  catch (error) { brokenCopyRefused = error.message.includes('must be a real directory'); }
+
   result('static candidates reject links and preserve last-good bytes', treeRefused && invalidRefused
     && linkRefused && missingRefused && readFileSync(join(target, 'ok.txt'), 'utf8') === 'good'
-    && installed.toString() === 'next good' && readFileSync(join(target, 'live.txt'), 'utf8') === 'next good');
+    && installed.toString() === 'next good' && readFileSync(join(target, 'live.txt'), 'utf8') === 'next good'
+    && removedDirectory.removed && !existsSync(join(target, 'gone')) && startupPresent && startupRemoved
+    && brokenRootRefused && lastGoodRoot && absentCopySkipped && brokenCopyRefused);
   rmSync(dir, { recursive: true, force: true });
 }
 

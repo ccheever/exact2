@@ -24,11 +24,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, rmSync, watch } from 'node:fs';
+import { existsSync, readFileSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { resolveApp } from '../../scripts/app.mjs';
-import { builtAppMatches, installStaticCandidate, listAssets, listStaticFiles, readStaticFile, webContentType, webEnvelope } from './serve.mjs';
+import { applyStaticChange, builtAppMatches, listAssets, listStaticFiles, readStaticFile, syncStaticTree, webContentType, webEnvelope } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -50,6 +50,12 @@ const builtDigest = () => {
   catch { return ''; }
 };
 let bakedDigest = builtDigest();
+
+const assetTrees = [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']].map(([from, to]) => [resolve(app.dir, from), to]);
+// A completed build may predate a source-tree deletion or restoration. Mirror
+// every declared tree before any compiler/server process starts. A truly
+// absent root removes stale output; a dangling root link is a refusal.
+const presentAssetTrees = assetTrees.filter(([from, to]) => syncStaticTree(from, resolve(dist, to)));
 
 const clients = new Set();
 let seq = 0;
@@ -109,7 +115,6 @@ const stop = () => { killCompiler(); process.exit(0); };
 // classified by its interface digest (1030 D8): unchanged, it is an asset
 // the client validates and swaps in; changed, it is a rebuild of the native
 // host — and the wasm here, since the surfaces' Rust binds the new layout.
-const assetTrees = [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']].map(([from, to]) => [resolve(app.dir, from), to]).filter(([from]) => existsSync(from));
 const shaderDigests = new Map();
 const reflectBin = resolve(root, 'target/debug/exact-gpu-reflect');
 function interfaceDigests(files) {
@@ -120,13 +125,13 @@ function interfaceDigests(files) {
   for (const line of (r.stdout ?? '').trim().split('\n')) { const [name, digest, ...rest] = line.split(' '); if (name) out.set(name, digest === 'error' ? `error ${rest.join(' ')}` : digest); }
   return out;
 }
-for (const [from, to] of assetTrees) if (to === 'shaders') {
+for (const [from, to] of presentAssetTrees) if (to === 'shaders') {
   const files = listStaticFiles(from).filter((name) => name.endsWith('.wgsl')).map((name) => resolve(from, name));
   for (const [n, d] of interfaceDigests(files)) shaderDigests.set(n, d);
 }
 let assetChanges = new Map(); // dist-relative name -> { root, relative }
 let assetTimer = null;
-for (const [from, to] of assetTrees) {
+for (const [from, to] of presentAssetTrees) {
   try {
     watch(from, { recursive: true }, (_event, name) => {
       if (!name || skipped.test(name) || /(^|\/)\./.test(name)) return;
@@ -147,20 +152,24 @@ function pushAssets() {
     let digest = null;
     let bytes;
     try {
-      bytes = installStaticCandidate(source.root, source.relative, target, shader ? (candidate) => {
+      const change = applyStaticChange(source.root, source.relative, target, shader ? (candidate) => {
         digest = interfaceDigests([candidate]).values().next().value ?? 'error unreadable';
         if (digest.startsWith('error')) throw new Error(digest.slice(6));
       } : null);
-    } catch (error) {
-      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
-        rmSync(target, { force: true });
+      bytes = change.bytes;
+      if (change.removed) {
+        if (shader) {
+          shaderDigests.delete(name.slice('shaders/'.length, -'.wgsl'.length));
+          needsRebuild = true;
+        }
         rows.push({ name, removed: true });
         carriers.push(`asset ${name} removed`);
-      } else {
-        const reason = error.message || String(error);
-        carriers.push(`asset ${name}: rejected — ${reason}; keeping the last good bytes`);
-        push({ error: `${name}: ${reason}` });
+        continue;
       }
+    } catch (error) {
+      const reason = error.message || String(error);
+      carriers.push(`asset ${name}: rejected — ${reason}; keeping the last good bytes`);
+      push({ error: `${name}: ${reason}` });
       continue;
     }
     const row = { name, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length };
@@ -188,19 +197,6 @@ function pushAssets() {
 const watched = [...['kernel', 'plan', 'motion', 'runner', 'host/web', 'gpu', 'vendor/taffy'].map((d) => resolve(root, d)), ...['data', 'web', 'gpu'].map((d) => resolve(app.dir, d))].filter(existsSync);
 const wanted = /\.(rs|toml|json|js|html)$/;
 const skipped = /(^|\/)(target|dist(?:\.previous)?|\.build|node_modules)(\/|$)/;
-// dist mirrors the asset trees at startup. A build wrote dist once; an asset
-// edited or restored while the server was down would otherwise be served
-// stale, and the shader digests above are the sources' — what the wasm binds.
-for (const [from, to] of assetTrees) {
-  const targetRoot = resolve(dist, to);
-  const have = new Set(existsSync(targetRoot) ? listStaticFiles(targetRoot) : []);
-  for (const name of listStaticFiles(from)) {
-    if (skipped.test(name) || /(^|\/)\./.test(name)) continue;
-    have.delete(name);
-    installStaticCandidate(from, name, resolve(targetRoot, name));
-  }
-  for (const name of have) rmSync(resolve(targetRoot, name), { force: true });
-}
 let changed = new Set();
 let timer = null;
 let building = false;
