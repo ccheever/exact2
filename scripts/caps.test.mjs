@@ -15,7 +15,7 @@ import { hostname, tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
-import { applyStaticChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listPublicFiles, publicFileCards, staticFile, syncStaticTree, webEnvelope } from '../host/web/serve.mjs';
+import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listPublicFiles, publicFileCards, shaderInterfaceDigests, staticFile, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
 import { copyAppleStaticTrees, deviceLaunchArgs } from '../host/apple/build.mjs';
 import { canonicalBytes, classify, defaultRelease, deployRun, inspectHead, publishStream, streamHead } from './deploy.mjs';
@@ -245,12 +245,66 @@ for (const [name, html, files, expectCode, expect] of [
   try { copyStaticTreeIfPresent(startupSource, join(dir, 'broken-copy')); }
   catch (error) { brokenCopyRefused = error.message.includes('must be a real directory'); }
 
+  const shaderSource = join(dir, 'shader-source');
+  const shaderTarget = join(dir, 'shader-target');
+  const reflector = resolve(dirname(fileURLToPath(import.meta.url)), '../target/debug/exact-gpu-reflect');
+  if (!existsSync(reflector)) spawnSync('cargo', ['build', '-q', '-p', 'exact-gpu-reflect'], { cwd: resolve(dirname(fileURLToPath(import.meta.url)), '..') });
+  mkdirSync(shaderSource);
+  writeFileSync(join(shaderSource, 'surface.wgsl'), '@compute @workgroup_size(1) fn main() {}\n');
+  const validateShaders = (candidate) => shaderInterfaceDigests(candidate, reflector);
+  syncStaticTree(shaderSource, shaderTarget, validateShaders);
+  writeFileSync(join(shaderSource, 'surface.wgsl'), 'not wgsl');
+  let startupShaderRefused = false;
+  try { syncStaticTree(shaderSource, shaderTarget, validateShaders); }
+  catch (error) { startupShaderRefused = error.message.includes('expected global item'); }
+  const startupShaderPreserved = readFileSync(join(shaderTarget, 'surface.wgsl'), 'utf8').startsWith('@compute');
+
   result('static candidates reject links and preserve last-good bytes', treeRefused && invalidRefused
     && linkRefused && missingRefused && readFileSync(join(target, 'ok.txt'), 'utf8') === 'good'
     && installed.toString() === 'next good' && readFileSync(join(target, 'live.txt'), 'utf8') === 'next good'
     && removedDirectory.removed && removedDirectory.removedFiles.join(',') === 'inside/one.txt'
     && !existsSync(join(target, 'gone')) && startupPresent && startupRemoved
-    && brokenRootRefused && lastGoodRoot && absentCopySkipped && brokenCopyRefused);
+    && brokenRootRefused && lastGoodRoot && absentCopySkipped && brokenCopyRefused
+    && startupShaderRefused && startupShaderPreserved);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// The watcher is rooted at the stable app directory, not at whichever asset
+// trees happened to exist at startup. Drive an absent tree through creation,
+// whole-root deletion, and recreation; every phase reaches the served tree.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-static-watch-'));
+  const appDir = join(dir, 'app');
+  const source = join(appDir, 'assets');
+  const dist = join(dir, 'dist');
+  mkdirSync(appDir);
+  const errors = [];
+  const watcher = watchStaticTrees(appDir, [[source, 'assets']], (change) => {
+    try {
+      if (change.tree) applyStaticTreeChange(change.root, join(dist, change.targetRoot));
+      else applyStaticChange(change.root, change.relative, join(dist, change.name));
+    } catch (error) { errors.push(error.message); }
+  });
+  const until = async (predicate) => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (predicate()) return true;
+      await new Promise((done) => setTimeout(done, 20));
+    }
+    return false;
+  };
+  await new Promise((done) => setTimeout(done, 50));
+  mkdirSync(source); writeFileSync(join(source, 'live.txt'), 'first');
+  const created = await until(() => existsSync(join(dist, 'assets', 'live.txt')));
+  rmSync(source, { recursive: true });
+  const deleted = await until(() => !existsSync(join(dist, 'assets')));
+  mkdirSync(source); writeFileSync(join(source, 'live.txt'), 'second');
+  const recreated = await until(() => {
+    try { return readFileSync(join(dist, 'assets', 'live.txt'), 'utf8') === 'second'; }
+    catch { return false; }
+  });
+  watcher.close();
+  result('static watcher follows absent root creation, deletion, and recreation', created && deleted && recreated && errors.length === 0,
+    JSON.stringify({ created, deleted, recreated, errors }));
   rmSync(dir, { recursive: true, force: true });
 }
 

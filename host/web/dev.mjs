@@ -28,7 +28,7 @@ import { existsSync, readFileSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { resolveApp } from '../../scripts/app.mjs';
-import { applyStaticChange, builtAppMatches, listAssets, listStaticFiles, readStaticFile, syncStaticTree, webContentType, webEnvelope } from './serve.mjs';
+import { applyStaticChange, applyStaticTreeChange, builtAppMatches, listAssets, readStaticFile, reflectShaderFiles, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -52,10 +52,25 @@ const builtDigest = () => {
 let bakedDigest = builtDigest();
 
 const assetTrees = [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']].map(([from, to]) => [resolve(app.dir, from), to]);
+const skipped = /(^|\/)(target|dist(?:\.previous)?|\.build|node_modules)(\/|$)/;
+const shaderDigests = new Map();
+const reflectBin = resolve(root, 'target/debug/exact-gpu-reflect');
+function reflectShaders(tree) {
+  if (!existsSync(reflectBin)) {
+    const built = spawnSync('cargo', ['build', '-q', '-p', 'exact-gpu-reflect'], { cwd: root, stdio: 'inherit' });
+    if (built.status !== 0) throw new Error(`exact-gpu-reflect did not build (exit ${built.status ?? built.signal})`);
+  }
+  return shaderInterfaceDigests(tree, reflectBin);
+}
 // A completed build may predate a source-tree deletion or restoration. Mirror
 // every declared tree before any compiler/server process starts. A truly
-// absent root removes stale output; a dangling root link is a refusal.
-const presentAssetTrees = assetTrees.filter(([from, to]) => syncStaticTree(from, resolve(dist, to)));
+// absent root removes stale output; a dangling root link is a refusal. The
+// complete shader candidate reflects before the old served tree is replaced.
+for (const [from, to] of assetTrees) {
+  let reflected = new Map();
+  const present = syncStaticTree(from, resolve(dist, to), to === 'shaders' ? (candidate) => { reflected = reflectShaders(candidate); } : null);
+  if (present && to === 'shaders') for (const [name, digest] of reflected) shaderDigests.set(name, digest);
+}
 
 const clients = new Set();
 let seq = 0;
@@ -115,32 +130,19 @@ const stop = () => { killCompiler(); process.exit(0); };
 // classified by its interface digest (1030 D8): unchanged, it is an asset
 // the client validates and swaps in; changed, it is a rebuild of the native
 // host — and the wasm here, since the surfaces' Rust binds the new layout.
-const shaderDigests = new Map();
-const reflectBin = resolve(root, 'target/debug/exact-gpu-reflect');
-function interfaceDigests(files) {
-  if (!files.length) return new Map();
-  if (!existsSync(reflectBin)) spawnSync('cargo', ['build', '-q', '-p', 'exact-gpu-reflect'], { cwd: root, stdio: 'ignore' });
-  const r = spawnSync(reflectBin, ['digest', ...files], { encoding: 'utf8' });
-  const out = new Map();
-  for (const line of (r.stdout ?? '').trim().split('\n')) { const [name, digest, ...rest] = line.split(' '); if (name) out.set(name, digest === 'error' ? `error ${rest.join(' ')}` : digest); }
-  return out;
-}
-for (const [from, to] of presentAssetTrees) if (to === 'shaders') {
-  const files = listStaticFiles(from).filter((name) => name.endsWith('.wgsl')).map((name) => resolve(from, name));
-  for (const [n, d] of interfaceDigests(files)) shaderDigests.set(n, d);
-}
 let assetChanges = new Map(); // dist-relative name -> { root, relative }
 let assetTimer = null;
-for (const [from, to] of presentAssetTrees) {
-  try {
-    watch(from, { recursive: true }, (_event, name) => {
-      if (!name || skipped.test(name) || /(^|\/)\./.test(name)) return;
-      assetChanges.set(`${to}/${name}`, { root: from, relative: name });
-      clearTimeout(assetTimer);
-      assetTimer = setTimeout(pushAssets, 100);
-    });
-  } catch (e) { console.error(`cannot watch ${from}: ${e.message}`); }
-}
+try {
+  watchStaticTrees(app.dir, assetTrees, (change) => {
+    if (skipped.test(change.relative) || /(^|\/)\./.test(change.relative)) return;
+    if (change.tree) {
+      for (const name of assetChanges.keys()) if (name === change.targetRoot || name.startsWith(`${change.targetRoot}/`)) assetChanges.delete(name);
+      assetChanges.set(change.targetRoot, change);
+    } else if (!assetChanges.has(change.targetRoot)) assetChanges.set(change.name, change);
+    clearTimeout(assetTimer);
+    assetTimer = setTimeout(pushAssets, 100);
+  });
+} catch (e) { console.error(`cannot watch static trees under ${app.dir}: ${e.message}`); }
 function pushAssets() {
   const edits = [...assetChanges]; assetChanges = new Map();
   const rows = [];
@@ -148,13 +150,49 @@ function pushAssets() {
   let needsRebuild = false;
   for (const [name, source] of edits) {
     const target = resolve(dist, name);
+    if (source.tree) {
+      let nextDigests = new Map();
+      try {
+        const change = applyStaticTreeChange(source.root, target,
+          source.targetRoot === 'shaders' ? (candidate) => { nextDigests = reflectShaders(candidate); } : null);
+        for (const file of change.files) {
+          const changedName = `${source.targetRoot}/${file.name}`;
+          const shader = changedName.startsWith('shaders/') && changedName.endsWith('.wgsl');
+          const stem = shader ? changedName.slice('shaders/'.length, -'.wgsl'.length) : null;
+          if (file.removed) {
+            if (shader && shaderDigests.has(stem)) needsRebuild = true;
+            rows.push({ name: changedName, removed: true });
+            carriers.push(`asset ${changedName} removed`);
+            continue;
+          }
+          const row = { name: changedName, sha256: createHash('sha256').update(file.bytes).digest('hex'), bytes: file.bytes.length };
+          if (shader) {
+            const digest = nextDigests.get(stem);
+            const before = shaderDigests.get(stem);
+            row.interface = digest;
+            if (before === digest) carriers.push(`asset ${changedName} → live on the web, macOS, iOS (the client validates it); production: bundle`);
+            else { needsRebuild = true; carriers.push(`shader ${changedName}: interface ${before ?? '?'} → ${digest} — rebuild the native host; production: binary (the wasm rebuilds now)`); }
+          } else carriers.push(`asset ${changedName} → live on the web, macOS, iOS; production: bundle`);
+          rows.push(row);
+        }
+        if (source.targetRoot === 'shaders') {
+          shaderDigests.clear();
+          for (const [stem, digest] of nextDigests) shaderDigests.set(stem, digest);
+        }
+      } catch (error) {
+        const reason = error.message || String(error);
+        carriers.push(`asset ${name}: rejected — ${reason}; keeping the last good bytes`);
+        push({ error: `${name}: ${reason}` });
+      }
+      continue;
+    }
     const shader = name.startsWith('shaders/') && name.endsWith('.wgsl');
     let digest = null;
     let bytes;
     try {
       const change = applyStaticChange(source.root, source.relative, target, shader ? (candidate) => {
-        digest = interfaceDigests([candidate]).values().next().value ?? 'error unreadable';
-        if (digest.startsWith('error')) throw new Error(digest.slice(6));
+        if (!existsSync(reflectBin)) reflectShaders(resolve(app.dir, 'gpu/shaders'));
+        digest = reflectShaderFiles([candidate], reflectBin).values().next().value;
       } : null);
       bytes = change.bytes;
       if (change.removed) {
@@ -199,7 +237,6 @@ function pushAssets() {
 // The Rust watch: the crates the wasm is built from.
 const watched = [...['kernel', 'plan', 'motion', 'runner', 'host/web', 'gpu', 'vendor/taffy'].map((d) => resolve(root, d)), ...['data', 'web', 'gpu'].map((d) => resolve(app.dir, d))].filter(existsSync);
 const wanted = /\.(rs|toml|json|js|html)$/;
-const skipped = /(^|\/)(target|dist(?:\.previous)?|\.build|node_modules)(\/|$)/;
 let changed = new Set();
 let timer = null;
 let building = false;

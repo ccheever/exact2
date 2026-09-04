@@ -5,9 +5,10 @@
 // Usage: node host/web/serve.mjs [port=8765] [--loopback]
 import { createServer } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
-import { dirname, extname, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PUBLIC_FILES = new Set([
@@ -121,7 +122,7 @@ export function copyStaticTreeIfPresent(source, target) {
  * source removes the formerly served tree. A present tree is first copied
  * into a private sibling and only then replaces the target, so a refused
  * link or read race preserves the last-good tree. */
-export function syncStaticTree(source, target) {
+export function syncStaticTree(source, target, validate = null) {
   const sourcePath = resolve(source);
   const targetPath = resolve(target);
   if (!optionalInfo(sourcePath)) {
@@ -134,6 +135,7 @@ export function syncStaticTree(source, target) {
   const previous = resolve(parent, `.previous-tree-${process.pid}-${randomBytes(4).toString('hex')}`);
   try {
     copyStaticTree(sourcePath, candidate);
+    if (validate) validate(candidate);
     if (optionalInfo(targetPath)) renameSync(targetPath, previous);
     try { renameSync(candidate, targetPath); }
     catch (error) {
@@ -146,6 +148,88 @@ export function syncStaticTree(source, target) {
     rmSync(candidate, { recursive: true, force: true });
     throw error;
   }
+}
+
+function staticTreeSnapshot(root) {
+  if (!optionalInfo(resolve(root))) return new Map();
+  return new Map(listStaticFiles(root).map((name) => [name, readStaticCandidate(root, name)]));
+}
+
+/** Atomically reconcile a watched whole-tree creation/deletion and return
+ * only changed leaf rows. Root events are common when Darwin removes a
+ * watched directory, and are also how a previously absent tree first appears. */
+export function applyStaticTreeChange(source, target, validate = null) {
+  const before = staticTreeSnapshot(target);
+  const present = syncStaticTree(source, target, validate);
+  const after = staticTreeSnapshot(target);
+  const names = [...new Set([...before.keys(), ...after.keys()])].sort();
+  const files = [];
+  for (const name of names) {
+    const had = before.get(name), has = after.get(name);
+    if (!has) files.push({ name, bytes: null, removed: true });
+    else if (!had?.equals(has)) files.push({ name, bytes: has, removed: false });
+  }
+  return { present, files };
+}
+
+/** Reflect exact shader files through the dev loop's executable. */
+export function reflectShaderFiles(files, reflectBin) {
+  if (!files.length) return new Map();
+  const result = spawnSync(reflectBin, ['digest', ...files], { encoding: 'utf8' });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error((result.stderr || result.stdout || `shader reflection exited ${result.status}`).trim());
+  const out = new Map();
+  for (const line of (result.stdout ?? '').trim().split('\n')) {
+    const [name, digest, ...rest] = line.split(' ');
+    if (!name) continue;
+    if (digest === 'error') throw new Error(rest.join(' ') || `${name}: shader reflection failed`);
+    out.set(name, digest);
+  }
+  if (out.size !== files.length) throw new Error(`shader reflection returned ${out.size} result${out.size === 1 ? '' : 's'} for ${files.length} files`);
+  return out;
+}
+
+/** Reflect a complete shader tree. Any invalid or missing result rejects the
+ * candidate before its tree swap. */
+export function shaderInterfaceDigests(source, reflectBin) {
+  const names = listStaticFiles(source).filter((name) => name.endsWith('.wgsl'));
+  const reflected = reflectShaderFiles(names.map((name) => resolve(source, name)), reflectBin);
+  const out = new Map();
+  for (const name of names) {
+    const stem = name.slice(0, -'.wgsl'.length);
+    const key = basename(stem);
+    const digest = reflected.get(key);
+    if (!digest || out.has(stem)) throw new Error(`shader reflection did not identify ${name} uniquely`);
+    out.set(stem, digest);
+  }
+  return out;
+}
+
+/** Map one recursive watch event, relative to a stable app root, onto the
+ * configured static tree. A root event has an empty `relative` path; a null
+ * filename conservatively reconciles every tree. */
+export function staticWatchChanges(watchRoot, trees, filename) {
+  if (filename === null || filename === undefined || filename === '') return trees.map(([root, targetRoot]) => ({ root: resolve(root), targetRoot, relative: '', name: targetRoot, tree: true }));
+  const path = resolve(watchRoot, String(filename));
+  const changes = [];
+  for (const [tree, targetRoot] of trees) {
+    const root = resolve(tree);
+    const rel = relative(root, path);
+    if (rel === '') changes.push({ root, targetRoot, relative: '', name: targetRoot, tree: true });
+    else if (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) {
+      const portable = rel.split(sep).join('/');
+      changes.push({ root, targetRoot, relative: portable, name: `${targetRoot}/${portable}`, tree: false });
+    }
+  }
+  return changes;
+}
+
+/** Watch the stable app directory rather than only roots present at startup.
+ * This observes first creation, whole-root deletion, and recreation. */
+export function watchStaticTrees(watchRoot, trees, onChange) {
+  return watch(watchRoot, { recursive: true }, (event, filename) => {
+    for (const change of staticWatchChanges(watchRoot, trees, filename)) onChange(change, event);
+  });
 }
 
 /** Apply one recursive-watch candidate. A missing leaf or directory removes
