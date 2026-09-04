@@ -404,7 +404,8 @@ for (const [name, html, files, expectCode, expect] of [
     mkdirSync(join(root, 'assets'), { recursive: true });
     mkdirSync(join(root, '.well-known'), { recursive: true });
     for (const name of ['app.plan', 'app.wasm', 'glue.js', 'assets/live.txt', 'assets/space #?.txt']) writeFileSync(join(root, name), generation);
-    writeFileSync(join(root, 'index.html'), '<!doctype html><meta charset="utf-8"><script src="./glue.js"></script>');
+    writeFileSync(join(root, 'index.html'), '<!doctype html><meta charset="utf-8"><link rel="manifest" href="./manifest.json"><script src="./glue.js"></script>');
+    writeFileSync(join(root, 'manifest.json'), JSON.stringify({ name: 'Test', start_url: './', scope: './', ...(generation === 'new' ? { id: './identity' } : {}), icons: [{ src: './assets/live.txt' }], shortcuts: [{ name: 'Go', url: './go' }] }));
     if (generation === 'old') {
       writeFileSync(join(root, 'assets/removed.txt'), 'removed');
       writeFileSync(join(root, '.well-known/apple-app-site-association'), 'association');
@@ -452,6 +453,10 @@ for (const [name, html, files, expectCode, expect] of [
     whole &&= readStaticFile(root, `/${webReleasePath(old.pointer.id)}/assets/removed.txt`).body.toString() === 'removed';
   }
   const root = seed('concurrent'), origin = new DirectoryOrigin(root);
+  const native = `.exact/web/${'a'.repeat(64)}`;
+  mkdirSync(join(root, native, 'releases'), { recursive: true });
+  writeFileSync(join(root, native, 'exact.json'), 'mutable native head');
+  writeFileSync(join(root, native, 'releases/r1.json'), 'immutable native receipt');
   const app = { id: 'test', displayName: 'Test', dir: newWeb, manifest: {} };
   const table = await classify({ app, opts: {}, origin, channel: 'prod', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, release: 'test', web: newWeb,
     bundle: {}, compat: {}, platforms: [], wantOrigin: true });
@@ -464,7 +469,7 @@ for (const [name, html, files, expectCode, expect] of [
     const index = await fetch(url);
     const html = await index.text(), base = /<base href="([^"]+)"/.exec(html)?.[1];
     if (!base || index.headers.get('cache-control') !== 'no-store') return false;
-    const id = base.split('/')[3], expected = id === old.pointer.id ? 'old' : id === next.pointer.id ? 'new' : null;
+    const id = base.split('/').at(-2), expected = id === old.pointer.id ? 'old' : id === next.pointer.id ? 'new' : null;
     const payload = await Promise.all(['glue.js', 'app.wasm', 'assets/live.txt'].map(async (name) => {
       const response = await fetch(url + base + name);
       return response.ok && response.headers.get('cache-control') === 'public, max-age=31536000, immutable' && await response.text() === expected;
@@ -473,13 +478,16 @@ for (const [name, html, files, expectCode, expect] of [
     const envelope = await envelopeResponse.json();
     for (const card of [envelope.plan, ...envelope.assets]) {
       const response = await fetch(url + card.url), bytes = Buffer.from(await response.arrayBuffer());
-      payload.push(response.ok && card.url.startsWith('/.exact/web/') && sha256(bytes) === card.sha256 && bytes.length === card.bytes);
+      payload.push(response.ok && card.url.startsWith('/.exact/root/web/releases/') && sha256(bytes) === card.sha256 && bytes.length === card.bytes);
     }
     rounds++;
     return expected && payload.every(Boolean) && envelopeResponse.headers.get('vary') === 'Accept';
   };
   try {
     whole &&= await readGraph();
+    const nativeHead = await fetch(`${url}/${native}/exact.json`), nativeReceipt = await fetch(`${url}/${native}/releases/r1.json`);
+    whole &&= nativeHead.ok && nativeHead.headers.get('cache-control') === 'no-store' && await nativeHead.text() === 'mutable native head';
+    whole &&= nativeReceipt.ok && nativeReceipt.headers.get('cache-control') === 'public, max-age=31536000, immutable';
     const original = origin.put.bind(origin);
     origin.put = async (...args) => { const value = await original(...args); whole &&= await readGraph(); return value; };
     const reader = (async () => { for (let i = 0; i < 12; i++) whole &&= await readGraph(); })();
@@ -492,6 +500,11 @@ for (const [name, html, files, expectCode, expect] of [
     }
     const oldAssociation = await fetch(`${url}/${webReleasePath(old.pointer.id)}/.well-known/apple-app-site-association`);
     whole &&= oldAssociation.ok && await oldAssociation.text() === 'association';
+    for (const release of [old, next]) {
+      const manifest = await (await fetch(`${url}/${webReleasePath(release.pointer.id)}/manifest.json`)).json();
+      whole &&= manifest.start_url === '/' && manifest.scope === '/' && (manifest.id === undefined || manifest.id === '/identity')
+        && manifest.icons[0].src === `/${webReleasePath(release.pointer.id)}/assets/live.txt` && manifest.shortcuts[0].url === '/go';
+    }
     const pointer = await fetch(`${url}/${webRootPath}`);
     whole &&= pointer.headers.get('cache-control') === 'no-store';
   } finally { await new Promise((done) => server.close(done)); rmSync(dir, { recursive: true, force: true }); }

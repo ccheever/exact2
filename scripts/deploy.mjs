@@ -1074,6 +1074,34 @@ export function webRelease(web) {
       if (/<base\b/i.test(html)) refuse('the baked index already defines a base URL');
       file.body = Buffer.from(html.replace(/(<meta charset="utf-8">)/i, `$1\n<base href="${prefix}">`));
       if (!file.body.toString('utf8').includes('<base ')) file.body = Buffer.from(`<base href="${prefix}">\n${html}`);
+    } else if (file.name === 'manifest.json') {
+      const manifest = JSON.parse(file.body.toString('utf8'));
+      // Manifest navigation remains canonical after moving the manifest
+      // itself. W3C appmanifest resolves id against the start URL's origin;
+      // other navigation members resolve against the manifest URL.
+      const origin = 'https://exact.invalid';
+      const canonical = (value) => {
+        if (typeof value !== 'string' || !value) return value;
+        const url = new URL(value, origin + '/manifest.json');
+        return url.origin === origin ? url.pathname + url.search + url.hash : value;
+      };
+      for (const key of ['start_url', 'scope', 'id']) if (key in manifest) manifest[key] = canonical(manifest[key]);
+      manifest.start_url ||= '/';
+      const asset = (row) => {
+        if (typeof row?.src !== 'string') return;
+        const url = new URL(row.src, origin + '/manifest.json');
+        const name = decodeURIComponent(url.pathname.slice(1));
+        if (url.origin === origin && files.some((f) => f.name === name)) row.src = prefix + name.split('/').map(encodeURIComponent).join('/') + url.search + url.hash;
+      };
+      for (const row of [...(manifest.icons ?? []), ...(manifest.screenshots ?? [])]) asset(row);
+      for (const shortcut of manifest.shortcuts ?? []) {
+        shortcut.url = canonical(shortcut.url);
+        for (const icon of shortcut.icons ?? []) asset(icon);
+      }
+      if (manifest.share_target?.action) manifest.share_target.action = canonical(manifest.share_target.action);
+      for (const row of manifest.protocol_handlers ?? []) row.url = canonical(row.url);
+      for (const row of manifest.file_handlers ?? []) row.action = canonical(row.action);
+      file.body = Buffer.from(JSON.stringify(manifest));
     } else if (file.name === 'exact.json') {
       const envelope = JSON.parse(file.body.toString('utf8'));
       for (const card of [envelope.plan, ...(envelope.assets ?? [])]) {

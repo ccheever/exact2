@@ -38,7 +38,7 @@ export const blobPath = (digest) => `.exact/blobs/${digest}`;
 // It uses the same OS lock and conditional write as native stream heads.
 export const webRootStream = { channel: 'root', compatibilityId: 'web' };
 export const webRootPath = `${streamPath(webRootStream)}/exact.json`;
-export const webReleasePath = (id) => `.exact/web/${id}`;
+export const webReleasePath = (id) => `.exact/root/web/releases/${id}`;
 export function parseWebRoot(bytes) {
   const root = JSON.parse(bytes.toString('utf8'));
   if (root.webRoot !== 1 || !/^[0-9a-f]{64}$/.test(root.id ?? '') || !Array.isArray(root.files)) throw new Error('invalid web root pointer');

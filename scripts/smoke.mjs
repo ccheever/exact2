@@ -214,12 +214,12 @@ if (host === 'deploy') {
           await sleep(25);
         }
         const frame = byTestId(await browser.tree(), 'deck-frame');
-        check(frame?.url?.includes('/.exact/web/') && state.slots.deckLoaded && state.slots.deckMessage === 'deck-ready', 'the published deck loaded from its immutable release');
-        await browser.tap('deck-frame');
+        check(frame?.url?.includes('/.exact/root/web/releases/') && state.slots.deckLoaded && state.slots.deckMessage === 'deck-ready', 'the published deck loaded from its immutable release');
+        await browser.tap('deck-frame', { selector: '#deck-title' });
         for (let i = 0; i < 20; i++) { state = await browser.state(); if (state.slots.deckMessage === 'deck-tapped') break; await sleep(25); }
         check(state.slots.deckMessage === 'deck-tapped', 'the published immutable deck answered its guest tap');
       }
-      check(requests.some((p) => /^\/\.exact\/web\/[0-9a-f]{64}\/app\.wasm$/.test(p))
+      check(requests.some((p) => /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/app\.wasm$/.test(p))
         && !requests.some((p) => /^\/(assets|deck|shaders)\//.test(p)), `the browser used immutable local resources: ${requests.join(', ')}`);
       const logs = await browser.logs();
       check(!logs.host.some((line) => /exception:|console.error: exact:/.test(line)), `published browser diagnostics: ${logs.host.join(' | ')}`);

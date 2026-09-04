@@ -258,7 +258,7 @@ function publishedFile(dist, pathname) {
   catch { return null; }
   // Immutable generation URLs never consult the current pointer: readers
   // that already opened an older index keep all of that generation's files.
-  const release = /^\/\.exact\/web\/([0-9a-f]{64})\/(.*)$/.exec(route);
+  const release = /^\/\.exact\/root\/web\/releases\/([0-9a-f]{64})\/(.*)$/.exec(route);
   if (release) {
     const name = release[2] || 'index.html';
     if (!PUBLIC_FILES.has('/' + name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;

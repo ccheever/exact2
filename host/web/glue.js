@@ -64,7 +64,7 @@ function writeIn(text) {
 // paths (including Caltrain's /deck) need the same binding as relative ones;
 // ordinary network/data URLs retain their authored meaning.
 function localAssetURL(source) {
-  if (/^\/\.exact\/web\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname)
+  if (/^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname)
     && /^\/(assets|deck|shaders)\//.test(source)) return new URL('.' + source, document.baseURI).href;
   return source;
 }
