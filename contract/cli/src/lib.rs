@@ -459,6 +459,7 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
     // into the header here so a served plan says whose it is; boot's gate
     // matches it against the booting binary's own crate.
     plan.app_id = data.app_id().to_string();
+    delivery_shape(&plan)?;
     let mut runner = Runner::boot(plan.clone(), data, Kernel::with_monospace())?;
     lint(&mut runner)?;
     let mut b = PlanBuilder::from_plan(plan);
@@ -484,6 +485,43 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
     }
     b.finish()
         .map_err(|e| BakeError::Runner(RunnerError::Plan(e)))
+}
+
+/// The delivery shape (LLP 1030 D7): `exactDelivery` is answered by the
+/// runner, not by the data crate, so the fields it can fill are a closed
+/// set — a declared field it does not know would refuse every boot on every
+/// device, which is a build-time refusal here instead, naming the field.
+fn delivery_shape(plan: &Plan) -> Result<(), BakeError> {
+    use exact_runner::delivery::{FIELDS, SOURCE};
+    for row in plan.resources.iter() {
+        if plan.str(row.source) != SOURCE {
+            continue;
+        }
+        let name = plan.str(row.name);
+        let ty = plan.type_(row.ty);
+        if ty.kind != exact_plan::TypeKind::Record {
+            return Err(BakeError::Lint {
+                id: "bake-delivery-field",
+                message: format!(
+                    "`resource {name} = {SOURCE}()` must be `as shape` a record of {}",
+                    FIELDS.join(", ")
+                ),
+            });
+        }
+        for f in ty.fields.iter() {
+            let field = plan.str(plan.field(f).name);
+            if !FIELDS.contains(&field) {
+                return Err(BakeError::Lint {
+                    id: "bake-delivery-field",
+                    message: format!(
+                        "`{name}` declares `{field}`, which {SOURCE} does not answer; it answers {}",
+                        FIELDS.join(", ")
+                    ),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The layout lint (LLP 1017 P1d): the compiler cannot see layout, bake can.

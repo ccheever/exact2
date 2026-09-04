@@ -1,0 +1,35 @@
+// Accept fixture: what an app may read and do about its own delivery
+// (LLP 1030 D7). `exactDelivery` is the one source the runner answers
+// itself — no data crate is asked, and none could answer — and the record
+// is filled by field name from this shape, so an app that wants only the
+// stream declares only `stream`. The two commands are ordinary commands:
+// they reach the host through `take_commands`, exactly as `setScheme` does.
+shape DeliveryState
+  stream: string
+  seq: number
+  embeddedSeq: number
+  staged: bool
+  sunset: string
+  interpreted: list<string>
+  compatibilityId: string
+
+component App
+  resource delivery = exactDelivery() as shape DeliveryState
+
+  action check
+    deliveryCheck()
+  action activate
+    deliveryActivate()
+
+  view
+    column testId="delivery" padding=16 gap=8
+      text delivery.stream testId="delivery-stream"
+      text `${delivery.seq}` testId="delivery-seq"
+      when delivery.staged
+        text "staged" testId="delivery-staged"
+      else
+        text "current" testId="delivery-staged"
+      button press=check aria-label="Check for an update" testId="delivery-check"
+        text "Check"
+      button press=activate aria-label="Activate the staged update" testId="delivery-activate"
+        text "Activate"

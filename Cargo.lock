@@ -649,6 +649,7 @@ dependencies = [
 name = "exact-runner"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-kernel",
  "exact-plan",
 ]

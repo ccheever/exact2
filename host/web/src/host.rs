@@ -87,7 +87,7 @@ impl<D: DataSource> Host<D> {
     /// Boot from plan bytes: decode (a validation pass), boot the runner, and
     /// produce the first batch, which creates the whole tree.
     pub fn boot(plan_bytes: &[u8], data: D) -> Result<(Host<D>, String), HostError> {
-        Host::boot_inner(plan_bytes, data, None, Vec::new())
+        Host::boot_delivered(plan_bytes, data, None, Vec::new(), None)
     }
 
     /// Boot with the page's snapshot of the app's kept secrets (LLP 1018
@@ -98,7 +98,7 @@ impl<D: DataSource> Host<D> {
         data: D,
         snapshot: Vec<(String, String)>,
     ) -> Result<(Host<D>, String), HostError> {
-        Host::boot_inner(plan_bytes, data, None, snapshot)
+        Host::boot_delivered(plan_bytes, data, None, snapshot, None)
     }
 
     /// Boot carrying an earlier host's state (the dev loop's reload, LLP
@@ -110,14 +110,18 @@ impl<D: DataSource> Host<D> {
         data: D,
         carried: Option<&Carried>,
     ) -> Result<(Host<D>, String), HostError> {
-        Host::boot_inner(plan_bytes, data, carried, Vec::new())
+        Host::boot_delivered(plan_bytes, data, carried, Vec::new(), None)
     }
 
-    fn boot_inner(
+    /// Boot knowing what this wasm was built as (LLP 1030 D7): `compat` is
+    /// the archive's `compat.json`, which the `delivery` resource answers
+    /// from. The other three boots are this one with nothing to say.
+    pub fn boot_delivered(
         plan_bytes: &[u8],
         data: D,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
+        compat: Option<&str>,
     ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         let font_names = font_names(&plan);
@@ -139,6 +143,13 @@ impl<D: DataSource> Host<D> {
             font_names,
             font_catalog,
         };
+        // The binary's delivery facts before the first frame (LLP 1030 D7):
+        // the batch below creates the whole tree from the kernel as it then
+        // stands, so a `delivery` resource re-answered here needs no ops of
+        // its own.
+        if let Some(json) = compat {
+            host.set_delivery_from_compat(json)?;
+        }
         let mut batch = Batch::new();
         // Everything live is new to the page.
         let roots = host.runner.roots();
@@ -187,6 +198,17 @@ impl<D: DataSource> Host<D> {
     /// The runner, mutably — for tests that drive it past the host.
     pub fn runner_mut(&mut self) -> &mut Runner<D> {
         &mut self.runner
+    }
+
+    /// Tell the runner what this binary knows about its delivery (LLP 1030
+    /// D7), from the archive's `compat.json`. Called by a boot, before the
+    /// first batch — the commit a re-answered `delivery` resource makes is
+    /// the boot's own.
+    pub(crate) fn set_delivery_from_compat(&mut self, json: &str) -> Result<(), HostError> {
+        self.runner
+            .set_delivery_from_compat(json)
+            .map(|_| ())
+            .map_err(HostError::Runner)
     }
 
     /// The current plan's declared face catalog for the host-owned web

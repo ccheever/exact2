@@ -55,11 +55,15 @@ pub struct Config {
     pub card: String,
     /// Serve the screen over VNC at this address (`1` is `0.0.0.0:5900`).
     pub vnc: Option<String>,
+    /// The archive's `compat.json` (LLP 1030 D3a) as the binary carries it:
+    /// what the `delivery` resource and `state.delivery` answer from.
+    pub compat: String,
 }
 
 impl Config {
-    /// Read the environment; `baked` is the plan compiled into the binary.
-    pub fn from_env(baked: &[u8]) -> Config {
+    /// Read the environment; `baked` is the plan compiled into the binary
+    /// and `compat` its `compat.json` (LLP 1030 D3a).
+    pub fn from_env(baked: &[u8], compat: &str) -> Config {
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let from_url = [env("EXACT_PLAN"), env("EXACT_DEV_PLAN")]
             .into_iter()
@@ -114,6 +118,7 @@ impl Config {
                 .map(PathBuf::from),
             card: env("EXACT_DRM").unwrap_or_else(|| "/dev/dri/card0".to_string()),
             vnc: env("EXACT_VNC"),
+            compat: compat.to_string(),
         }
     }
 
@@ -134,13 +139,23 @@ pub(crate) fn boot_presenter<D: DataSource + Default>(
     config: &Config,
     viewport: (f32, f32),
 ) -> Result<(Presenter<D>, Option<String>), String> {
+    let delivered = |mut booted: (Presenter<D>, Option<String>)| {
+        // The binary's delivery facts, before anything reads a frame (LLP
+        // 1030 D7). The kernel is the display list here, so the commit a
+        // re-answered `delivery` resource makes needs nothing from boot.
+        let e = booted.0.set_delivery_from_compat(&config.compat);
+        booted.1 = booted.1.or(e);
+        booted
+    };
     match Presenter::boot(
         &config.plan,
         D::default(),
         viewport,
         config.scale,
         config.assets.clone(),
-    ) {
+    )
+    .map(delivered)
+    {
         Ok(value) => Ok(value),
         Err(fetched_error) => {
             let Some(baked) = config.fallback_plan.as_deref() else {
@@ -156,6 +171,7 @@ pub(crate) fn boot_presenter<D: DataSource + Default>(
                 config.scale,
                 config.assets.clone(),
             )
+            .map(delivered)
             .map_err(|baked_error| {
                 format!("fetched plan refused: {fetched_error}; baked plan refused: {baked_error}")
             })
@@ -163,10 +179,11 @@ pub(crate) fn boot_presenter<D: DataSource + Default>(
     }
 }
 
-/// Run the app: the process's exit code.
-pub fn run<D: DataSource + Default>(baked: &[u8]) -> i32 {
+/// Run the app: the process's exit code. `compat` is the binary's
+/// `compat.json` (LLP 1030 D3a), which the `delivery` resource answers from.
+pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
     let started = Instant::now();
-    let config = Config::from_env(baked);
+    let config = Config::from_env(baked, compat);
     if config.headless() {
         return headless::<D>(&config, started);
     }
@@ -330,9 +347,12 @@ mod tests {
             dev_plan: None,
             card: String::new(),
             vnc: None,
+            compat: r#"{"id":"fixture00000000","inputs":{"store":{"L":"0"}}}"#.into(),
         };
         let (presenter, error) = boot_presenter::<Named>(&config, config.size).unwrap();
         assert!(error.is_none(), "{error:?}");
         assert_eq!(presenter.node_count(), 1);
+        // The binary's facts reached the runner past the fallback (LLP 1030 D7).
+        assert_eq!(presenter.host().runner().delivery().store, '0');
     }
 }

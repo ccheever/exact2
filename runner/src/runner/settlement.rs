@@ -3,6 +3,7 @@
 use super::{DataError, DataSource, ResourceState, Runner, RunnerError, Target};
 use crate::request::{Answer, Request};
 use crate::vm::{self, Env, Trap};
+use exact_kernel::CommitReceipt;
 use exact_plan::Value;
 
 #[derive(Clone)]
@@ -17,6 +18,44 @@ enum RequestEffect {
 }
 
 impl<D: DataSource> Runner<D> {
+    /// Ask `which` resources again in one commit — what `data_ready` does
+    /// when a TypeScript module finally loads (LLP 1027 D4) and what
+    /// `set_delivery` does when a host hands the runner its delivery facts
+    /// (LLP 1030 D7). Nothing survives a refusal: the store, the slots, and
+    /// every settled resource go back as they were. `None` when the list
+    /// is empty — there was nothing to ask.
+    pub(super) fn recommit(
+        &mut self,
+        which: Vec<usize>,
+        what: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        if which.is_empty() {
+            return Ok(None);
+        }
+        let what = format!("{what} ({} asked again)", which.len());
+        let was_poisoned = self.poisoned;
+        let kept = self.store.checkpoint();
+        let since = kept.writes;
+        let saved_slots = self.slots.clone();
+        let saved_resources = self.resources.clone();
+        self.refresh_next.extend(which);
+        let result = if self.poisoned {
+            Err(RunnerError::Poisoned)
+        } else {
+            self.settle(false).and_then(|_| self.update())
+        };
+        match &result {
+            Ok(_) => self.log_store_writes(since),
+            Err(_) => {
+                self.store.restore(kept);
+                self.slots = saved_slots;
+                self.resources = saved_resources;
+            }
+        }
+        self.log_outcome(&what, &result, was_poisoned);
+        result.map(Some)
+    }
+
     pub(super) fn check_shape(&self, i: usize, value: &Value) -> Result<(), RunnerError> {
         let row = &self.plan.resources[i];
         if value.conforms(&self.plan, row.ty) {

@@ -65,6 +65,10 @@ pub struct Bridge<D: DataSource> {
     executor: Option<crate::executor::Executor>,
     fonts: Option<FontsFn>,
     fonts_ctx: *mut c_void,
+    /// The archive's `compat.json` (LLP 1030 D3a), from the `host!`
+    /// invocation: what the runner's `delivery` resource says about this
+    /// binary's cohort, its update store, and its executors.
+    compat: Option<&'static str>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -81,6 +85,7 @@ impl<D: DataSource> Bridge<D> {
             executor: None,
             fonts: None,
             fonts_ctx: std::ptr::null_mut(),
+            compat: None,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -116,6 +121,14 @@ impl<D: DataSource> Bridge<D> {
     pub fn set_fonts(&mut self, fonts: Option<FontsFn>, ctx: *mut c_void) {
         self.fonts = fonts;
         self.fonts_ctx = ctx;
+    }
+
+    /// This binary's `compat.json` (LLP 1030 D3a), for the delivery facts
+    /// every subsequent boot hands the runner before its first frame. The
+    /// `host!` macro passes the app's `COMPAT` const; nothing crosses the C
+    /// ABI for it.
+    pub fn set_compat(&mut self, json: &'static str) {
+        self.compat = Some(json);
     }
 
     fn emit(&mut self, s: String) -> u32 {
@@ -173,6 +186,7 @@ impl<D: DataSource> Bridge<D> {
             None,
             snapshot,
             secrets,
+            self.compat,
             move |decoded| {
                 if let Some(callback) = fonts {
                     install_fonts(decoded, callback, fonts_ctx);
@@ -220,6 +234,7 @@ impl<D: DataSource> Bridge<D> {
             carried.as_ref(),
             Vec::new(),
             secrets,
+            self.compat,
             move |decoded| {
                 if let Some(callback) = fonts {
                     install_fonts(decoded, callback, fonts_ctx);
@@ -508,7 +523,7 @@ pub fn with_entry<D: DataSource>(
 /// runtime handle `exact_create` returned (LLP 1031 D2).
 #[macro_export]
 macro_rules! host {
-    ($data:ty, $plan:expr) => {
+    ($data:ty, $plan:expr, $compat:expr) => {
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
@@ -583,6 +598,7 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_boot(rt: u32, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
+                b.set_compat($compat);
                 b.boot($plan, <$data as ::std::default::Default>::default(), hooks, width, height)
             }, |n| n)
         }
@@ -598,6 +614,7 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_boot_plan(rt: u32, len: usize, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
+                b.set_compat($compat);
                 b.boot_plan(len, <$data as ::std::default::Default>::default(), hooks, width, height)
             }, |n| n)
         }

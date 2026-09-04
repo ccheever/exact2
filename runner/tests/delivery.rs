@@ -1,0 +1,157 @@
+//! The `delivery` resource and its two commands (LLP 1030 D7), end to end
+//! over `contract/corpus/delivery.contract`: the embedded answer a baked
+//! plan carries, a host's facts arriving in one commit, `state.delivery` as
+//! the agent's mirror, the commands reaching `take_commands` by name, and
+//! the bake refusing a field the runner cannot fill.
+
+use exact_kernel::{Kernel, PropId};
+use exact_runner::{agent, DataError, DataSource, Delivery, Runner, Value};
+use std::path::Path;
+
+/// A data source with nothing in it: `exactDelivery` never reaches here.
+struct NoData;
+
+impl DataSource for NoData {
+    fn query(&mut self, source: &str, _args: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.to_string()))
+    }
+}
+
+fn corpus() -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../contract/corpus/delivery.contract");
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+fn boot(src: &str) -> Runner<NoData> {
+    let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
+    let baked = contract::bake(plan, NoData).unwrap_or_else(|e| panic!("{e}"));
+    Runner::boot(baked, NoData, Kernel::with_monospace()).unwrap()
+}
+
+fn text_of(r: &Runner<NoData>, test_id: &str) -> Option<String> {
+    let k = r.kernel();
+    let key = k.find_by_test_id(test_id).into_iter().next()?;
+    k.node_by_key(key)?
+        .props
+        .str(PropId::Text)
+        .map(str::to_string)
+}
+
+/// The state reply's `delivery` object, as text — the last one, since the
+/// fixture's resource is called `delivery` too and appears under
+/// `resources` first (which is the mirror being a mirror).
+fn mirror(r: &Runner<NoData>) -> String {
+    let state = agent::state(r);
+    let key = "\"delivery\":";
+    let at = state.rfind(key).expect("state has no delivery");
+    state[at + key.len()..].trim_end_matches('}').to_string() + "}"
+}
+
+#[test]
+fn a_baked_plan_shows_the_embedded_answer_with_no_host_in_sight() {
+    let r = boot(&corpus());
+    assert_eq!(text_of(&r, "delivery-stream").as_deref(), Some("embedded"));
+    assert_eq!(text_of(&r, "delivery-seq").as_deref(), Some("0"));
+    assert_eq!(text_of(&r, "delivery-staged").as_deref(), Some("current"));
+    assert_eq!(r.delivery(), &Delivery::default());
+    assert_eq!(
+        mirror(&r),
+        "{\"stream\":\"embedded\",\"seq\":0,\"embeddedSeq\":0,\"staged\":false,\
+         \"sunset\":\"\",\"interpreted\":[],\"compatibilityId\":\"\",\"L\":\"A\",\
+         \"E\":[\"native\"]}"
+    );
+}
+
+#[test]
+fn a_hosts_facts_re_answer_the_resource_in_one_commit_and_the_agent_sees_them() {
+    let mut r = boot(&corpus());
+    let receipt = r
+        .set_delivery(Delivery {
+            stream: "prod/abc".into(),
+            seq: 44,
+            embedded_seq: 7,
+            staged: true,
+            sunset: Some("This build stops receiving updates in March".into()),
+            interpreted: vec!["profile".into()],
+            compatibility_id: "9f1c0a2b".into(),
+            store: 'A',
+            executors: vec!["hermes".into(), "native".into()],
+        })
+        .unwrap()
+        .expect("the resource is declared, so its answer changed");
+    // One commit: the two texts changed, and the `when` arm swapped one
+    // text node for the other.
+    assert!(
+        !receipt.touched.is_empty() || !receipt.created.is_empty(),
+        "the commit moved nothing"
+    );
+    assert_eq!(text_of(&r, "delivery-stream").as_deref(), Some("prod/abc"));
+    assert_eq!(text_of(&r, "delivery-seq").as_deref(), Some("44"));
+    assert_eq!(text_of(&r, "delivery-staged").as_deref(), Some("staged"));
+    assert_eq!(
+        mirror(&r),
+        "{\"stream\":\"prod/abc\",\"seq\":44,\"embeddedSeq\":7,\"staged\":true,\
+         \"sunset\":\"This build stops receiving updates in March\",\
+         \"interpreted\":[\"profile\"],\"compatibilityId\":\"9f1c0a2b\",\"L\":\"A\",\
+         \"E\":[\"hermes\",\"native\"]}"
+    );
+    // The same facts again are no commit at all.
+    let same = r.delivery().clone();
+    assert!(r.set_delivery(same).unwrap().is_none());
+}
+
+#[test]
+fn a_compat_file_names_the_cohort_and_leaves_the_stream_alone() {
+    let mut r = boot(&corpus());
+    let compat = concat!(
+        r#"{"id":"1a2b3c4d5e6f70819a2b3c4d5e6f7081","inputs":{"app":"io.exact.fixture","#,
+        r#""executors":["hermes","native"],"store":{"L":"0","acceptedKinds":["plan"]}}}"#,
+        "\n"
+    );
+    assert!(r.set_delivery_from_compat(compat).unwrap().is_some());
+    assert_eq!(
+        r.delivery().compatibility_id,
+        "1a2b3c4d5e6f70819a2b3c4d5e6f7081"
+    );
+    assert_eq!(r.delivery().store, '0');
+    assert_eq!(r.delivery().executors, ["hermes", "native"]);
+    // An L = 0 client still answers its embedded entry and nothing staged.
+    assert_eq!(text_of(&r, "delivery-stream").as_deref(), Some("embedded"));
+    assert_eq!(text_of(&r, "delivery-staged").as_deref(), Some("current"));
+    assert!(mirror(&r).contains("\"L\":\"0\""));
+    assert!(mirror(&r).contains("\"compatibilityId\":\"1a2b3c4d5e6f70819a2b3c4d5e6f7081\""));
+}
+
+#[test]
+fn the_two_commands_reach_the_host_by_name() {
+    let mut r = boot(&corpus());
+    let check = r.kernel().find_by_test_id("delivery-check")[0];
+    let activate = r.kernel().find_by_test_id("delivery-activate")[0];
+    let (check, activate) = (
+        r.kernel().node_by_key(check).unwrap().id,
+        r.kernel().node_by_key(activate).unwrap().id,
+    );
+    r.dispatch(check, exact_runner::Event::Press).unwrap();
+    r.dispatch(activate, exact_runner::Event::Press).unwrap();
+    let commands: Vec<String> = r.take_commands().into_iter().map(|c| c.name).collect();
+    assert_eq!(commands, ["deliveryCheck", "deliveryActivate"]);
+    // The same two by name, which is what an agent or a test drives.
+    r.act("check", Vec::new()).unwrap();
+    r.act("activate", Vec::new()).unwrap();
+    let commands: Vec<String> = r.take_commands().into_iter().map(|c| c.name).collect();
+    assert_eq!(commands, ["deliveryCheck", "deliveryActivate"]);
+}
+
+#[test]
+fn a_field_the_runner_cannot_fill_is_refused_at_bake_by_name() {
+    let src = corpus().replace("  stream: string\n", "  stream: string\n  foo: string\n");
+    let plan = contract::compile(&src).unwrap();
+    let error = contract::bake(plan, NoData).unwrap_err();
+    let message = error.to_string();
+    assert!(
+        message.starts_with("[bake-delivery-field]")
+            && message.contains('`')
+            && message.contains("foo"),
+        "{message}"
+    );
+}

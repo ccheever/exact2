@@ -133,6 +133,7 @@ impl<D: DataSource> Host<D> {
             carried,
             snapshot,
             secrets,
+            None,
             |_| {},
         )
     }
@@ -150,6 +151,7 @@ impl<D: DataSource> Host<D> {
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         secrets: Option<Secrets>,
+        compat: Option<&str>,
         prepare: impl FnOnce(&Plan),
     ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
@@ -173,6 +175,14 @@ impl<D: DataSource> Host<D> {
             now_ms: 0.0,
             secrets,
         };
+        // The binary's delivery facts before the first frame (LLP 1030 D7):
+        // the batch below creates the whole tree from the kernel as it then
+        // stands, so a `delivery` resource re-answered here needs no ops of
+        // its own, and the presenter is never told about a commit it will
+        // see in that first batch anyway.
+        if let Some(json) = compat {
+            host.set_delivery_from_compat(json)?;
+        }
         let mut batch = Batch::new();
         let order = host.preorder();
         for id in &order {
@@ -232,6 +242,18 @@ impl<D: DataSource> Host<D> {
     /// The motion engine: presentation values as the presenter shows them.
     pub fn engine(&self) -> &Engine {
         &self.engine
+    }
+
+    /// Tell the runner what this binary knows about its delivery (LLP 1030
+    /// D7), from the archive's `compat.json`: the compatibility id, whether
+    /// an update store is linked, and the executors. Called by a boot,
+    /// before the first batch — the commit a re-answered `delivery`
+    /// resource makes is the boot's own.
+    pub(crate) fn set_delivery_from_compat(&mut self, json: &str) -> Result<(), HostError> {
+        self.runner
+            .set_delivery_from_compat(json)
+            .map(|_| ())
+            .map_err(HostError::Runner)
     }
 
     /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.

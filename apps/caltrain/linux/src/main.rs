@@ -7,12 +7,10 @@
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 
 /// The compatibility id and its inputs (LLP 1030 D3a), written by
-/// `build.rs` beside the plan; read by the `delivery` resource once the
-/// host answers it (1030.000 stage 3), embedded now so the binary knows
-/// its cohort.
-#[allow(dead_code)]
+/// `build.rs` beside the plan; the runner answers the `delivery` resource
+/// and `state.delivery` from it (LLP 1030 D7).
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 
 fn main() {
-    std::process::exit(exact_linux::run::<caltrain_data::Caltrain>(PLAN));
+    std::process::exit(exact_linux::run::<caltrain_data::Caltrain>(PLAN, COMPAT));
 }
