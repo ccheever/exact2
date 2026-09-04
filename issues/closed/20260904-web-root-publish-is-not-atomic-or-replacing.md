@@ -1,6 +1,7 @@
 # The web-root publish is neither atomic nor replacing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Publish a complete immutable web release and atomically switch its guarded inventory pointer; the supported origin server binds browser/native graphs to release URLs, suppresses removed canonical paths including AASA, and enforces immutable/no-store caching. Failure injection at every write, concurrent HTTP graph readers, and a deployed Caltrain browser/deck drive pass.
 **Systems:** Delivery, exact deploy, Web host
 **Severity:** P1
 **Author:** Codex (GPT-5) for Charlie Cheever

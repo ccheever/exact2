@@ -11,6 +11,7 @@ import { networkInterfaces } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { filesystem } from '../../scripts/filesystem.mjs';
+import { parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
 const PUBLIC_FILES = new Set([
   '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/gpu-glue.js',
@@ -251,7 +252,40 @@ export function staticFile(dist, pathname) {
 /** Resolve and read together, retrying when a build rename moved the path
  * between those operations. The opened response is wholly old or wholly
  * new; a request never observes the rename window as a synthetic 404. */
+function publishedFile(dist, pathname) {
+  let route;
+  try { route = decodeURIComponent(pathname === '/' ? '/index.html' : pathname); }
+  catch { return null; }
+  // Immutable generation URLs never consult the current pointer: readers
+  // that already opened an older index keep all of that generation's files.
+  const release = /^\/\.exact\/web\/([0-9a-f]{64})\/(.*)$/.exec(route);
+  if (release) {
+    const name = release[2] || 'index.html';
+    if (!PUBLIC_FILES.has('/' + name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
+    staticRelative(name);
+    const rel = `${webReleasePath(release[1])}/${name}`;
+    const body = filesystem({ op: 'get', root: resolve(dist), path: rel });
+    return body === null ? null : { path: resolve(dist, rel), route: '/' + name, body: Buffer.from(body, 'base64'), immutable: true };
+  }
+  if (route.startsWith('/.exact/')) return undefined; // native heads/blobs and the web pointer
+  const raw = filesystem({ op: 'get', root: resolve(dist), path: webRootPath });
+  if (raw === null) return undefined; // a local build, not a deployed root
+  const root = parseWebRoot(Buffer.from(raw, 'base64'));
+  const card = root.files.find((file) => '/' + file.name === route);
+  if (!card || !PUBLIC_FILES.has(route) && !PUBLIC_TREES.some((tree) => route.startsWith(tree))) return null;
+  const rel = `${webReleasePath(root.id)}/${card.name}`;
+  const value = filesystem({ op: 'get', root: resolve(dist), path: rel });
+  if (value === null) return null;
+  const body = Buffer.from(value, 'base64');
+  if (body.length !== card.bytes || sha256(body) !== card.sha256) return null;
+  return { path: resolve(dist, rel), route, body, immutable: false };
+}
+
 export function readStaticFile(dist, pathname) {
+  try {
+    const published = publishedFile(dist, pathname);
+    if (published !== undefined) return published;
+  } catch { return null; } // a malformed pointer or unsafe path never falls back to stale files
   for (let attempt = 0; attempt < 4; attempt++) {
     const found = staticFile(dist, pathname);
     if (!found) continue;
@@ -385,30 +419,45 @@ export function webContentType(route) {
   }[extname(route).toLowerCase()] ?? 'application/octet-stream';
 }
 
+/** Cache policy is enforced by the supported origin server, not metadata
+ * dropped on the floor by a directory copy. Canonical names always revalidate. */
+export function webCacheControl(found) {
+  return found.immutable || /^\/\.exact\/blobs\/[0-9a-f]{64}$/.test(found.route)
+    || /^\/\.exact\/[^/.]+\/[^/.]+\/releases\/[^/.]+\.json$/.test(found.route)
+    ? 'public, max-age=31536000, immutable' : 'no-store';
+}
+
+/** The production directory origin and diagnostic server share actual HTTP
+ * handling, including no-store deletions and the native envelope rung. */
+export function serveStatic(dist, req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { 'cache-control': 'no-store' }); res.end(); return; }
+  let route = new URL(req.url, 'http://exact.invalid').pathname;
+  const index = route === '/' || route.endsWith('/index.html');
+  if (index && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json')) route = route === '/' ? '/exact.json' : route.slice(0, -10) + 'exact.json';
+  const found = readStaticFile(dist, route);
+  if (!found) { res.writeHead(404, { 'cache-control': 'no-store', ...(index ? { vary: 'Accept' } : {}) }); res.end(); return; }
+  res.writeHead(200, { 'content-type': webContentType(found.route), 'cache-control': webCacheControl(found), ...(index ? { vary: 'Accept' } : {}) });
+  res.end(req.method === 'HEAD' ? undefined : found.body);
+}
+
 function main() {
-  const dist = resolve(new URL('./dist', import.meta.url).pathname);
-  if (!staticFile(dist, '/app.wasm')) { console.error('run node host/web/build.mjs first'); return 2; }
   const argv = process.argv.slice(2);
+  const at = argv.indexOf('--origin');
+  if (at >= 0 && (!argv[at + 1] || argv[at + 1].startsWith('--'))) throw new Error('--origin needs a directory');
+  const dist = at >= 0 ? resolve(argv.splice(at, 2)[1]) : resolve(process.env.EXACT_WEB_DIST ?? new URL('./dist', import.meta.url).pathname);
+  if (!readStaticFile(dist, '/app.wasm')) { console.error('run node host/web/build.mjs first, or serve a published --origin <dir>'); return 2; }
   const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
   const port = Number(argv.find((a) => !a.startsWith('--')) ?? 8765);
   const host = loopback ? '127.0.0.1' : '0.0.0.0';
-  createServer((req, res) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
-    const found = readStaticFile(dist, new URL(req.url, 'http://exact.invalid').pathname);
-    if (!found) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
-    res.end(req.method === 'HEAD' ? undefined : found.body);
-  }).listen(port, host, () => {
+  createServer((req, res) => serveStatic(dist, req, res)).listen(port, host, () => {
     const urls = [`http://127.0.0.1:${port}/`];
     if (!loopback) {
       const priv = (a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
       urls.push(...Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal && a.family === 'IPv4').map((a) => a.address).sort((a, b) => priv(b) - priv(a)).map((a) => `http://${a}:${port}/`));
     }
-    console.log(urls.join('\n') + '\n  (serving host/web/dist; ctrl-c to stop)');
+    console.log(urls.join('\n') + `\n  (serving ${dist}; ctrl-c to stop)`);
   });
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = main();
-}
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main();

@@ -24,7 +24,7 @@
 // then an immutable release record and the signed head as a conditional put
 // with `seq` read under the stream's lock — never from a local file. The head
 // points directly at the blobs, so no live payload path is overwritten; the
-// web root's hashed files come first and `index.html` last. A failed step
+// web root's immutable release comes first and its one pointer last. A failed step
 // leaves the previous head and every URL it names.
 //
 // The **bundle** for a platform is `app.plan` plus every asset the bake
@@ -55,8 +55,8 @@ import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveApp } from './app.mjs';
-import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath } from './origin.mjs';
-import { listPublicFiles } from '../host/web/serve.mjs';
+import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
+import { listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const PLATFORMS = ['web', 'ios', 'macos', 'linux'];
@@ -831,19 +831,30 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
   const rows = [];
 
   if (wantOrigin) {
-    const files = { new: [], changed: [], current: [] };
+    const files = { new: [], changed: [], current: [], removed: [] };
     let unavailable = null;
-    for (const rel of listPublicFiles(web)) {
-      const bytes = readFileSync(resolve(web, rel));
-      let have;
-      try { have = await origin.get(rel); }
-      catch (error) { if (!(error instanceof OriginUnavailable)) throw error; unavailable = error.message; break; }
-      if (!have) files.new.push(rel);
-      else if (!have.equals(bytes)) files.changed.push(rel);
-      else files.current.push(rel);
-    }
+    try {
+      const before = await origin.get(webRootPath);
+      const previous = before ? parseWebRoot(before) : null;
+      const names = listPublicFiles(web);
+      const oldNames = previous ? previous.files.map((f) => f.name)
+        : origin.dir && existsSync(origin.dir) ? listPublicFiles(origin.dir) : [];
+      for (const rel of names) {
+        const bytes = readStaticCandidate(web, rel);
+        const card = previous?.files.find((f) => f.name === rel);
+        const have = await origin.get(previous ? `${webReleasePath(previous.id)}/${rel}` : rel);
+        if (!have || previous && !card) files.new.push(rel);
+        else if (previous ? card.sourceSha256 !== sha256(bytes) || card.sha256 !== sha256(have) || card.bytes !== have.length : !have.equals(bytes)) files.changed.push(rel);
+        else files.current.push(rel);
+      }
+      files.removed = oldNames.filter((name) => !names.includes(name));
+      // A fixed-file root is never a completed release, even when bytes match.
+      if (!previous && !files.new.length && !files.changed.length && names.length) {
+        files.changed.push(files.current.shift());
+      }
+    } catch (error) { if (!(error instanceof OriginUnavailable)) throw error; unavailable = error.message; }
     rows.push({ kind: 'origin', compatibilityId: compat.web?.id ?? null,
-      action: unavailable ? 'unavailable' : files.new.length + files.changed.length ? 'publish' : 'current', files,
+      action: unavailable ? 'unavailable' : files.new.length + files.changed.length + files.removed.length ? 'publish' : 'current', files,
       ...(unavailable ? { reason: unavailable } : {}) });
   }
 
@@ -960,9 +971,9 @@ export function renderTable(table) {
     if (row.kind === 'origin') {
       const f = row.files;
       if (row.action === 'unavailable') { out.push(line('origin', `web app: ${row.reason}`, 'unavailable')); continue; }
-      const summary = [f.new.length ? `${f.new.length} new` : '', f.changed.length ? `${f.changed.length} changed` : '', f.current.length ? `${f.current.length} current` : ''].filter(Boolean).join(', ');
-      const named = [...f.changed, ...f.new].filter((n) => !n.startsWith('assets/') && !n.startsWith('deck/') && !n.startsWith('shaders/')).slice(0, 6);
-      out.push(line('origin', `web app${row.compatibilityId ? ` (cohort ${row.compatibilityId.slice(0, 8)})` : ''}: ${summary}${named.length ? ` — ${named.join(', ')}` : ''}`, row.action === 'publish' ? 'publish (index.html last)' : 'current'));
+      const summary = [f.new.length ? `${f.new.length} new` : '', f.changed.length ? `${f.changed.length} changed` : '', f.current.length ? `${f.current.length} current` : '', f.removed?.length ? `${f.removed.length} removed` : ''].filter(Boolean).join(', ');
+      const named = [...f.changed, ...f.new, ...(f.removed ?? [])].filter((n) => !n.startsWith('assets/') && !n.startsWith('deck/') && !n.startsWith('shaders/')).slice(0, 6);
+      out.push(line('origin', `web app${row.compatibilityId ? ` (cohort ${row.compatibilityId.slice(0, 8)})` : ''}: ${summary}${named.length ? ` — ${named.join(', ')}` : ''}`, row.action === 'publish' ? 'publish (atomic web root)' : 'current'));
       continue;
     }
     if (row.kind === 'binary') {
@@ -1049,12 +1060,64 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
   });
 }
 
-/** Publish the web root: every new or changed file, hashed files first, `index.html` last. */
-async function publishRoot({ origin, row, web, log }) {
-  const files = [...row.files.new, ...row.files.changed].sort((a, b) => (a === 'index.html') - (b === 'index.html') || (a < b ? -1 : 1));
-  for (const rel of files) await origin.put(rel, readFileSync(resolve(web, rel)));
-  log(`  origin: ${files.length} files written${files.includes('index.html') ? ', index.html last' : ''}`);
-  return { ...row, action: 'published', written: files };
+/** Capture one complete web graph. The identity binds every original byte
+ * and this encoding version; generated links all name that immutable tree. */
+export function webRelease(web) {
+  const files = listPublicFiles(web).map((name) => ({ name, body: readStaticCandidate(web, name) }));
+  const source = files.map(({ name, body }) => ({ name, sha256: sha256(body) }));
+  const id = sha256(canonicalBytes({ webRoot: 1, source }));
+  const prefix = `/${webReleasePath(id)}/`;
+  for (const file of files) {
+    file.sourceSha256 = sha256(file.body);
+    if (file.name === 'index.html') {
+      const html = file.body.toString('utf8');
+      if (/<base\b/i.test(html)) refuse('the baked index already defines a base URL');
+      file.body = Buffer.from(html.replace(/(<meta charset="utf-8">)/i, `$1\n<base href="${prefix}">`));
+      if (!file.body.toString('utf8').includes('<base ')) file.body = Buffer.from(`<base href="${prefix}">\n${html}`);
+    } else if (file.name === 'exact.json') {
+      const envelope = JSON.parse(file.body.toString('utf8'));
+      for (const card of [envelope.plan, ...(envelope.assets ?? [])]) {
+        const name = card === envelope.plan ? 'app.plan' : card.name;
+        const captured = files.find((f) => f.name === name);
+        if (!captured || card.sha256 !== sha256(captured.body) || card.bytes !== captured.body.length) refuse(`web envelope does not bind ${name}`);
+        card.url = prefix + name.split('/').map(encodeURIComponent).join('/');
+      }
+      file.body = canonicalBytes(envelope);
+    }
+  }
+  const pointer = { webRoot: 1, id, files: files.map(({ name, body, sourceSha256 }) => ({ name, sourceSha256, sha256: sha256(body), bytes: body.length })) };
+  return { pointer, files };
+}
+
+/** Every payload lands immutably and is read back before the only mutable
+ * pointer moves. A failed or concurrent publish cannot damage the prior graph. */
+export async function publishRoot({ origin, row, web, log = () => {} }) {
+  const { pointer, files } = webRelease(web);
+  return origin.withLock(webRootStream, async () => {
+    const before = await origin.get(webRootPath);
+    if (before && parseWebRoot(before).id === pointer.id) {
+      const complete = await Promise.all(pointer.files.map(async (card) => {
+        const have = await origin.get(`${webReleasePath(pointer.id)}/${card.name}`);
+        return have && sha256(have) === card.sha256 && have.length === card.bytes;
+      }));
+      if (complete.every(Boolean)) return { ...row, action: 'current', root: pointer.id };
+    }
+    for (const file of files) {
+      const path = `${webReleasePath(pointer.id)}/${file.name}`;
+      await origin.put(path, file.body, { immutable: true });
+      const have = await origin.get(path);
+      if (!have?.equals(file.body)) refuse(`web release readback failed: ${path}`);
+    }
+    const bytes = canonicalBytes(pointer);
+    try { await origin.putHead(webRootStream, bytes, { previousDigest: before ? sha256(before) : null }); }
+    catch (error) {
+      // A transport failure after commit is success only when exact readback
+      // proves this pointer won; otherwise preserve the original refusal.
+      if (!(await origin.get(webRootPath))?.equals(bytes)) throw error;
+    }
+    log(`  origin: ${files.length} immutable files verified; atomic web root ${pointer.id.slice(0, 12)}`);
+    return { ...row, action: 'published', root: pointer.id, written: files.map((f) => f.name) };
+  });
 }
 
 // -------------------------------------------------------------------- deploy

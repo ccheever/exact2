@@ -7,7 +7,7 @@
 // the immutable blob tree; no mutable payload copy lives under a stream.
 //
 // Two adapters. A **directory** is v1's writable origin: any directory a
-// static host serves. Every file lands whole or absent (a temp file beside
+// supported serve.mjs origin handler serves. Every file lands whole or absent (a temp file beside
 // it, then a rename), blobs are immutable and skipped when present by
 // digest, and the head is a **conditional put**: one writer per stream at a
 // time through an OS lock on a permanent `.lock` inode (never stolen on
@@ -34,6 +34,24 @@ export const streamPath = ({ channel, compatibilityId }) => `.exact/${channel}/$
 /** The blob's path on the origin: content-addressed, immutable. */
 export const blobPath = (digest) => `.exact/blobs/${digest}`;
 
+// The web release has one complete public inventory and one guarded pointer.
+// It uses the same OS lock and conditional write as native stream heads.
+export const webRootStream = { channel: 'root', compatibilityId: 'web' };
+export const webRootPath = `${streamPath(webRootStream)}/exact.json`;
+export const webReleasePath = (id) => `.exact/web/${id}`;
+export function parseWebRoot(bytes) {
+  const root = JSON.parse(bytes.toString('utf8'));
+  if (root.webRoot !== 1 || !/^[0-9a-f]{64}$/.test(root.id ?? '') || !Array.isArray(root.files)) throw new Error('invalid web root pointer');
+  const names = new Set();
+  for (const file of root.files) {
+    safeRelative(file.name);
+    if (names.has(file.name) || !/^[0-9a-f]{64}$/.test(file.sha256 ?? '')
+      || !/^[0-9a-f]{64}$/.test(file.sourceSha256 ?? '') || !Number.isSafeInteger(file.bytes) || file.bytes < 0) throw new Error('invalid web root inventory');
+    names.add(file.name);
+  }
+  return root;
+}
+
 /** A relative origin path is segments with no `..`, no empty segment, no backslash, no drive. */
 export function safeRelative(rel) {
   if (typeof rel !== 'string' || rel === '' || rel.startsWith('/') || rel.includes('\\') || rel.includes('\0')) throw new Error(`not a relative origin path: ${JSON.stringify(rel)}`);
@@ -47,7 +65,7 @@ export function openOrigin(spec) {
   return new DirectoryOrigin(spec);
 }
 
-/** A directory an https static host serves: the one writable origin in v1, one publisher per stream at a time. */
+/** A directory served by host/web/serve.mjs --origin: the one writable origin in v1, one publisher per stream at a time. */
 export class DirectoryOrigin {
   constructor(dir) {
     this.dir = resolve(dir);

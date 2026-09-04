@@ -40,7 +40,7 @@ import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { appBundle, bundleId, hostBundle, install, macBinary, macHostBinary, simulator } from '../host/apple/build.mjs';
-import { builtAppMatches, staticFile, webContentType } from '../host/web/serve.mjs';
+import { builtAppMatches, serveStatic } from '../host/web/serve.mjs';
 import { resolveApp } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -113,11 +113,7 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
     if (req.url.startsWith('/__gpu')) { gpuMs = Number(new URL(req.url, 'http://x').searchParams.get('ms')); res.writeHead(204); res.end(); return; }
     if (req.url === '/__plan' && plan) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(readFileSync(plan)); return; }
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
-    const route = req.url.split('?')[0];
-    const found = staticFile(dist, route);
-    if (!found) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
-    res.end(readFileSync(found.path));
+    serveStatic(dist, req, res);
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const port = server.address().port;

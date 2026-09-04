@@ -342,3 +342,11 @@ store answers on the first frame. A `{"op":"store","tier":"secret","name":…,
 key. Agent mode (`?agent=1`) reads and writes nothing: a drive starts from
 nothing and leaves nothing. A dev reload carries the running store
 (`Carried::store`) rather than re-reading the page's.
+
+The production directory origin uses `serve.mjs --origin <dir>` (LLP 1030.000 D3):
+one atomic inventory pointer selects immutable release files. The index binds
+its base URL to that release, the native envelope names immutable payload URLs,
+and Exact's local absolute image/font/deck URLs bind to the same base. Native
+stream blobs and web release paths receive immutable cache headers; canonical
+aliases, pointers, and removals are no-store. Local build/dev serving retains
+its unversioned paths. The agent's HTTP carrier calls the same static handler.

@@ -104,7 +104,7 @@ await gpu.gpu_load();
 // created. One that is missing or refused is reported, and the module then
 // refuses to create surfaces, by name.
 for (const name of JSON.parse(gpu.gpu_shader_names())) {
-  const r = await fetch(`./shaders/${name}.wgsl`, { cache: "no-store" });
+  const r = await fetch(new URL(`./shaders/${name}.wgsl`, import.meta.url));
   if (!r.ok) { console.error("exact gpu:", `shaders/${name}.wgsl: HTTP ${r.status}`); continue; }
   if (!gpu.gpu_shader(name, await r.text())) console.error("exact gpu:", gpu.gpu_error());
 }

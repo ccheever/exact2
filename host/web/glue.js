@@ -60,6 +60,15 @@ function writeIn(text) {
   return bytes.length;
 }
 
+// A deployed page owns one immutable local namespace. Absolute app asset
+// paths (including Caltrain's /deck) need the same binding as relative ones;
+// ordinary network/data URLs retain their authored meaning.
+function localAssetURL(source) {
+  if (/^\/\.exact\/web\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname)
+    && /^\/(assets|deck|shaders)\//.test(source)) return new URL('.' + source, document.baseURI).href;
+  return source;
+}
+
 function applyProps(el, set, clear) {
   let sandboxChanged = false;
   for (const name of clear || []) {
@@ -82,7 +91,7 @@ function applyProps(el, set, clear) {
       if (value === "true") el.setAttribute("disabled", ""); else el.removeAttribute("disabled");
     } else {
       if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
-      el.setAttribute(name, value);
+      el.setAttribute(name, (name === "src" || name === "href") ? localAssetURL(value) : value);
     }
   }
   if (el instanceof HTMLIFrameElement && sandboxChanged) {
@@ -401,7 +410,7 @@ async function installFonts(faces) {
   const pending = rows.map(async (row) => {
     const { face } = row;
     try {
-      const url = new URL(face.source, document.baseURI).href;
+      const url = new URL(localAssetURL(face.source), document.baseURI).href;
       row.loaded = await new FontFace(face.family, `url(${JSON.stringify(url)})`, {
         weight: String(face.weight),
         style: face.style,

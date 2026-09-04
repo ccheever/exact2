@@ -11,15 +11,16 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, renameSync, writeFileSync, rmSync, symlinkSync, utimesSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { hostname, tmpdir } from 'node:os';
 import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
-import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listPublicFiles, publicFileCards, shaderInterfaceDigests, staticFile, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
+import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listPublicFiles, publicFileCards, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
 import { copyAppleStaticTrees, deviceLaunchArgs } from '../host/apple/build.mjs';
-import { canonicalBytes, classify, defaultRelease, deployRun, inspectHead, materializeSnapshot, publishStream, renderTable, snapshotOf, streamHead } from './deploy.mjs';
-import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable } from './origin.mjs';
+import { canonicalBytes, classify, defaultRelease, deployRun, inspectHead, materializeSnapshot, publishStream, publishRoot, webRelease, renderTable, snapshotOf, streamHead } from './deploy.mjs';
+import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, webRootPath, webReleasePath, sha256 } from './origin.mjs';
 
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
 const BOOT = join(dirname(fileURLToPath(import.meta.url)), 'boot.mjs');
@@ -391,6 +392,110 @@ for (const [name, html, files, expectCode, expect] of [
   result('deploy publishes only the shared public web inventory', listPublicFiles(dir).join(',') === 'index.html'
     && published.join(',') === 'index.html' && !published.includes('.exact-build.json'), JSON.stringify(published));
   rmSync(dir, { recursive: true, force: true });
+}
+
+// A complete prior graph survives a failure before/after every individual
+// payload write and pointer write. Readers follow the exact index/envelope
+// they received while another publish runs, including removal of AASA.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-web-release-'));
+  const makeWeb = (generation) => {
+    const root = join(dir, generation);
+    mkdirSync(join(root, 'assets'), { recursive: true });
+    mkdirSync(join(root, '.well-known'), { recursive: true });
+    for (const name of ['app.plan', 'app.wasm', 'glue.js', 'assets/live.txt', 'assets/space #?.txt']) writeFileSync(join(root, name), generation);
+    writeFileSync(join(root, 'index.html'), '<!doctype html><meta charset="utf-8"><script src="./glue.js"></script>');
+    if (generation === 'old') {
+      writeFileSync(join(root, 'assets/removed.txt'), 'removed');
+      writeFileSync(join(root, '.well-known/apple-app-site-association'), 'association');
+    }
+    const card = (name) => { const body = readFileSync(join(root, name)); return { name, url: './' + name, sha256: sha256(body), bytes: body.length }; };
+    writeFileSync(join(root, 'exact.json'), JSON.stringify({ exact: 1, plan: card('app.plan'), assets: listPublicFiles(root).filter((n) => n.startsWith('assets/')).map(card) }));
+    return root;
+  };
+  const oldWeb = makeWeb('old'), newWeb = makeWeb('new');
+  const old = webRelease(oldWeb), next = webRelease(newWeb);
+  const seed = (name) => {
+    const root = join(dir, name);
+    for (const file of old.files) {
+      const path = join(root, webReleasePath(old.pointer.id), file.name);
+      mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, file.body);
+    }
+    mkdirSync(dirname(join(root, webRootPath)), { recursive: true });
+    writeFileSync(join(root, webRootPath), JSON.stringify(old.pointer));
+    // Legacy fixed files must never resurrect an omitted canonical path.
+    mkdirSync(join(root, '.well-known'), { recursive: true });
+    mkdirSync(join(root, 'assets'), { recursive: true });
+    writeFileSync(join(root, '.well-known/apple-app-site-association'), 'stale');
+    writeFileSync(join(root, 'assets/removed.txt'), 'stale');
+    return root;
+  };
+  let whole = true;
+  for (const moment of ['before', 'after']) for (let stop = 1; stop <= next.files.length + 1; stop++) {
+    const root = seed(`failure-${moment}-${stop}`), origin = new DirectoryOrigin(root);
+    let writes = 0;
+    const wrap = (operation) => async (...args) => {
+      const at = ++writes;
+      if (moment === 'before' && at === stop) throw new Error('injected before write');
+      const value = await operation(...args);
+      if (moment === 'after' && at === stop) throw new Error('injected after write');
+      return value;
+    };
+    origin.put = wrap(origin.put.bind(origin)); origin.putHead = wrap(origin.putHead.bind(origin));
+    try { await publishRoot({ origin, row: {}, web: newWeb }); } catch (error) { whole &&= error.message.startsWith('injected'); }
+    const selected = JSON.parse(readFileSync(join(root, webRootPath)));
+    const committed = moment === 'after' && stop === next.files.length + 1;
+    whole &&= selected.id === (committed ? next.pointer.id : old.pointer.id);
+    for (const card of selected.files) whole &&= sha256(readStaticFile(root, `/${webReleasePath(selected.id)}/${card.name}`).body) === card.sha256;
+    whole &&= !!readStaticFile(root, '/.well-known/apple-app-site-association') === !committed;
+    whole &&= !!readStaticFile(root, '/assets/removed.txt') === !committed;
+    whole &&= readStaticFile(root, `/${webReleasePath(old.pointer.id)}/assets/removed.txt`).body.toString() === 'removed';
+  }
+  const root = seed('concurrent'), origin = new DirectoryOrigin(root);
+  const app = { id: 'test', displayName: 'Test', dir: newWeb, manifest: {} };
+  const table = await classify({ app, opts: {}, origin, channel: 'prod', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, release: 'test', web: newWeb,
+    bundle: {}, compat: {}, platforms: [], wantOrigin: true });
+  whole &&= table.rows[0].files.removed.join(',') === '.well-known/apple-app-site-association,assets/removed.txt';
+  const server = createServer((req, res) => serveStatic(root, req, res));
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  let rounds = 0;
+  const readGraph = async () => {
+    const index = await fetch(url);
+    const html = await index.text(), base = /<base href="([^"]+)"/.exec(html)?.[1];
+    if (!base || index.headers.get('cache-control') !== 'no-store') return false;
+    const id = base.split('/')[3], expected = id === old.pointer.id ? 'old' : id === next.pointer.id ? 'new' : null;
+    const payload = await Promise.all(['glue.js', 'app.wasm', 'assets/live.txt'].map(async (name) => {
+      const response = await fetch(url + base + name);
+      return response.ok && response.headers.get('cache-control') === 'public, max-age=31536000, immutable' && await response.text() === expected;
+    }));
+    const envelopeResponse = await fetch(url, { headers: { accept: 'application/vnd.exact.envelope+json' } });
+    const envelope = await envelopeResponse.json();
+    for (const card of [envelope.plan, ...envelope.assets]) {
+      const response = await fetch(url + card.url), bytes = Buffer.from(await response.arrayBuffer());
+      payload.push(response.ok && card.url.startsWith('/.exact/web/') && sha256(bytes) === card.sha256 && bytes.length === card.bytes);
+    }
+    rounds++;
+    return expected && payload.every(Boolean) && envelopeResponse.headers.get('vary') === 'Accept';
+  };
+  try {
+    whole &&= await readGraph();
+    const original = origin.put.bind(origin);
+    origin.put = async (...args) => { const value = await original(...args); whole &&= await readGraph(); return value; };
+    const reader = (async () => { for (let i = 0; i < 12; i++) whole &&= await readGraph(); })();
+    await publishRoot({ origin, row: table.rows[0], web: newWeb });
+    await reader;
+    whole &&= await readGraph();
+    for (const path of ['/.well-known/apple-app-site-association', '/assets/removed.txt']) {
+      const response = await fetch(url + path);
+      whole &&= response.status === 404 && response.headers.get('cache-control') === 'no-store';
+    }
+    const oldAssociation = await fetch(`${url}/${webReleasePath(old.pointer.id)}/.well-known/apple-app-site-association`);
+    whole &&= oldAssociation.ok && await oldAssociation.text() === 'association';
+    const pointer = await fetch(`${url}/${webRootPath}`);
+    whole &&= pointer.headers.get('cache-control') === 'no-store';
+  } finally { await new Promise((done) => server.close(done)); rmSync(dir, { recursive: true, force: true }); }
+  result('web root switches a complete immutable graph; every write failure, concurrent readers, removals and HTTP caches', whole && rounds >= 20, `reader rounds: ${rounds}`);
 }
 
 {

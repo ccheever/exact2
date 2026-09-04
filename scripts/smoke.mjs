@@ -9,11 +9,13 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, verify } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
 import { resolveApp } from './app.mjs';
-import { DirectoryOrigin } from './origin.mjs';
+import { DirectoryOrigin, webRootPath } from './origin.mjs';
+import { readStaticFile, serveStatic } from '../host/web/serve.mjs';
 import { canonicalBytes, publicKeyFromRaw } from './deploy.mjs';
 import { crop, decodePng, diff, encodePng } from './png.mjs';
 
@@ -194,7 +196,34 @@ if (host === 'deploy') {
     const pub1 = table('--yes', '--dirty');
     const ids = streams(pub1).map((r) => r.compatibilityId);
     check(ids.length >= 1 && pub1.published.filter((p) => p.kind === 'stream' && p.action === 'published').length === ids.length && pub1.failed.length === 0, `publish: ${JSON.stringify({ published: pub1.published.map((p) => [p.kind, p.action, p.seq]), failed: pub1.failed })}`);
-    check(existsSync(resolve(origin, 'index.html')) && existsSync(resolve(origin, 'exact.json')) && existsSync(resolve(origin, 'app.plan')), 'the web root was published');
+    check(existsSync(resolve(origin, webRootPath)) && readStaticFile(origin, '/index.html') && readStaticFile(origin, '/exact.json') && readStaticFile(origin, '/app.plan'), 'the atomic web root was published');
+    const requests = [];
+    const webServer = createServer((req, res) => { requests.push(new URL(req.url, 'http://exact.invalid').pathname); serveStatic(origin, req, res); });
+    await new Promise((done) => webServer.listen(0, '127.0.0.1', done));
+    let browser;
+    try {
+      browser = await open({ host: 'web', url: `http://127.0.0.1:${webServer.address().port}/` });
+      let tree = await browser.tree();
+      check(tree.roots?.length > 0 && tree.nodes.length > 0, 'the published web release booted in Chrome');
+      if (byTestId(tree, 'open-deck')) {
+        await browser.tap('open-deck'); await browser.clock('settle');
+        let state;
+        for (let i = 0; i < 40; i++) {
+          state = await browser.state();
+          if (state.slots.deckLoaded && state.slots.deckMessage === 'deck-ready') break;
+          await sleep(25);
+        }
+        const frame = byTestId(await browser.tree(), 'deck-frame');
+        check(frame?.url?.includes('/.exact/web/') && state.slots.deckLoaded && state.slots.deckMessage === 'deck-ready', 'the published deck loaded from its immutable release');
+        await browser.tap('deck-frame');
+        for (let i = 0; i < 20; i++) { state = await browser.state(); if (state.slots.deckMessage === 'deck-tapped') break; await sleep(25); }
+        check(state.slots.deckMessage === 'deck-tapped', 'the published immutable deck answered its guest tap');
+      }
+      check(requests.some((p) => /^\/\.exact\/web\/[0-9a-f]{64}\/app\.wasm$/.test(p))
+        && !requests.some((p) => /^\/(assets|deck|shaders)\//.test(p)), `the browser used immutable local resources: ${requests.join(', ')}`);
+      const logs = await browser.logs();
+      check(!logs.host.some((line) => /exception:|console.error: exact:/.test(line)), `published browser diagnostics: ${logs.host.join(' | ')}`);
+    } finally { if (browser) await browser.close(); await new Promise((done) => webServer.close(done)); }
     const blobs1 = readdirSync(resolve(origin, '.exact/blobs')).length;
     check(blobs1 >= 1, 'blobs were written');
     for (const id of ids) {
