@@ -1,6 +1,7 @@
 # DirectoryOrigin follows symlinks outside its root
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** LLP 1030.002 routes every origin verb through no-follow directory handles; atomically exchanged symlink race tests keep outside bytes private and untouched.
 **Systems:** Delivery, exact deploy, Security
 **Severity:** P1
 **Author:** Codex (GPT-5) for Charlie Cheever

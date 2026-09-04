@@ -575,6 +575,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-filesystem"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "libc",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "exact-gpu"
 version = "0.1.0"
 dependencies = [

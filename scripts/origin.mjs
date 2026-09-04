@@ -10,22 +10,18 @@
 // static host serves. Every file lands whole or absent (a temp file beside
 // it, then a rename), blobs are immutable and skipped when present by
 // digest, and the head is a **conditional put**: one writer per stream at a
-// time through a lock file (`.lock` in the stream directory, created
-// `O_EXCL`, the pid and time recorded, stale after 60 s or when the pid is
-// gone), and the current head's digest compared with the one the publisher
+// time through an OS lock on a permanent `.lock` inode (never stolen on
+// elapsed time or a host's interpretation of another host's pid), and the current head's digest compared with the one the publisher
 // read before the new head is renamed into place. An **https** origin is
 // read-only here — enough for the classifier to read live heads and root
 // files; an object-store adapter (`If-Match` on the ETag, which S3, GCS, R2,
 // and Azure all have) is owed, and `--yes` against https refuses by name.
-import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
+import { filesystem, filesystemLock } from './filesystem.mjs';
 
 /** SHA-256, lowercase hex — the digest every card and blob name carries (LLP 1023 D2). */
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
-
-/** A lock older than this is a dead publisher's and is removed (with its pid checked first). */
-export const LOCK_STALE_MS = 60_000;
 
 /** A transport or filesystem availability failure. Classifiers turn only
  * this typed failure into an `unavailable` row; malformed heads and broken
@@ -69,54 +65,28 @@ export class DirectoryOrigin {
     return abs;
   }
 
-  /** The bytes at `rel`, or null when there is no such file. */
+  async operation(input) {
+    try { return this.locked ? await this.locked(input) : filesystem({ root: this.dir, ...input }); }
+    catch (error) {
+      if (['EACCES', 'EPERM', 'EIO', 'EMFILE', 'ENFILE'].includes(error.code)) throw new OriginUnavailable(`${this.dir}: ${error.code}`);
+      throw error;
+    }
+  }
+
+  /** Read through owned directory handles; only a genuinely absent file is null. */
   async get(rel) {
-    try { return readFileSync(this.path(rel)); } catch (e) {
-      if (e.code === 'ENOENT' || e.code === 'EISDIR' || e.code === 'ENOTDIR') return null;
-      if (['EACCES', 'EPERM', 'EIO', 'EMFILE', 'ENFILE'].includes(e.code)) throw new OriginUnavailable(`${this.path(rel)}: ${e.code}`);
-      throw e;
-    }
+    const value = await this.operation({ op: 'get', path: safeRelative(rel) });
+    return value === null ? null : Buffer.from(value, 'base64');
   }
 
-  /** The names under the directory `rel` (files and directories), or null when it does not exist. */
   async list(rel, { includeHidden = false } = {}) {
-    try { return readdirSync(this.path(rel)).filter((n) => includeHidden || !n.startsWith('.')).sort(); } catch (e) {
-      if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return null;
-      if (['EACCES', 'EPERM', 'EIO', 'EMFILE', 'ENFILE'].includes(e.code)) throw new OriginUnavailable(`${this.path(rel)}: ${e.code}`);
-      throw e;
-    }
+    const value = await this.operation({ op: 'list', path: safeRelative(rel) });
+    return value?.filter((name) => includeHidden || !name.startsWith('.')) ?? null;
   }
 
-  /** Write `bytes` at `rel`, whole or absent (a temp file beside it, renamed into place). An `immutable` file is content-addressed or an audit record: present with the same bytes, it is skipped (`'present'`); present with other bytes, refused. Returns `'written'` or `'present'`. */
+  /** A complete sibling-temp rename, or an exclusive immutable link. */
   async put(rel, bytes, { immutable = false } = {}) {
-    const abs = this.path(rel);
-    const existing = immutable ? await this.get(rel) : null;
-    if (existing) {
-      const have = existing;
-      if (have.equals(bytes)) return 'present';
-      throw new Error(`the immutable file ${rel} is on the origin with other bytes (${sha256(have)} on the origin, ${sha256(bytes)} here): it never changes under its name`);
-    }
-    mkdirSync(dirname(abs), { recursive: true });
-    const temp = resolve(dirname(abs), `.tmp-${process.pid}-${randomBytes(4).toString('hex')}`);
-    try {
-      writeFileSync(temp, bytes, { flag: 'wx' });
-      if (immutable) {
-        try { linkSync(temp, abs); }
-        catch (error) {
-          if (error.code !== 'EEXIST') throw error;
-          const have = await this.get(rel);
-          if (have?.equals(bytes)) { rmSync(temp, { force: true }); return 'present'; }
-          throw new Error(`the immutable file ${rel} appeared with other bytes while it was being published: it never changes under its name`);
-        }
-        rmSync(temp, { force: true });
-      } else {
-        renameSync(temp, abs);
-      }
-    } catch (e) {
-      rmSync(temp, { force: true });
-      throw e;
-    }
-    return 'written';
+    return this.operation({ op: 'put', path: safeRelative(rel), bytes: Buffer.from(bytes).toString('base64'), immutable });
   }
 
   /** The stream's current head: `{bytes, sha256, json}`, or null when the stream has none. A head that is not JSON is an error naming the path — a corrupt head is not a missing one. */
@@ -129,50 +99,27 @@ export class DirectoryOrigin {
     return { bytes, sha256: sha256(bytes), json };
   }
 
-  /** Hold the stream's lock for the duration of `fn`. Refuses, naming the lock file and the pid, when another live publisher holds it; a lock whose pid is gone or that is older than `LOCK_STALE_MS` is a dead publisher's and is removed first. */
+  /** Hold an OS lock on a permanent, no-follow inode. Age, PID and host
+   * identity never authorize stealing it; closing the helper releases it. */
   async withLock(stream, fn) {
-    const lock = this.path(`${streamPath(stream)}/.lock`);
-    mkdirSync(dirname(lock), { recursive: true });
-    const note = JSON.stringify({ pid: process.pid, at: new Date().toISOString(), host: process.env.HOSTNAME ?? null });
-    for (let attempt = 0; ; attempt++) {
-      try {
-        const fd = openSync(lock, 'wx', 0o644);
-        writeFileSync(fd, note);
-        closeSync(fd);
-        break;
-      } catch (e) {
-        if (e.code !== 'EEXIST') throw e;
-        const holder = lockHolder(lock);
-        if (attempt === 0 && holder.stale) { rmSync(lock, { force: true }); continue; }
-        throw new Error(`the stream ${streamPath(stream)} is locked by ${holder.who} (${lock}): another publisher is on it; a lock older than ${LOCK_STALE_MS / 1000} s or whose process is gone is removed automatically`);
-      }
-    }
-    try { return await fn(); } finally { rmSync(lock, { force: true }); }
+    if (this.lockPending) throw new Error('this origin already holds or is acquiring a stream lock');
+    const path = safeRelative(`${streamPath(stream)}/.lock`);
+    this.lockPending = true;
+    try {
+      return await filesystemLock(this.dir, path, async (send) => {
+        this.locked = send;
+        try { return await fn(); } finally { this.locked = null; }
+      });
+    } finally { this.lockPending = false; }
   }
 
-  /** The conditional put of the head (LLP 1030.000 D3 item 5): the current head's digest must be `previousDigest` (null: no head), or the put refuses and nothing changes. Called under `withLock`; the compare is the check that holds even when it is not. */
+  /** The digest check and head rename run inside the same lock-owning
+   * helper. A standalone call acquires that stream lock too. */
   async putHead(stream, bytes, { previousDigest = null } = {}) {
-    const current = await this.head(stream);
-    const found = current?.sha256 ?? null;
-    if (found !== previousDigest) {
-      throw new Error(`the head of ${streamPath(stream)} changed underneath: expected ${previousDigest ?? 'no head'}, found ${found ?? 'no head'}; classify again`);
-    }
-    return this.put(`${streamPath(stream)}/exact.json`, bytes);
+    if (!this.locked) return this.withLock(stream, () => this.putHead(stream, bytes, { previousDigest }));
+    return this.operation({ op: 'head', path: safeRelative(`${streamPath(stream)}/exact.json`),
+      bytes: Buffer.from(bytes).toString('base64'), previousDigest });
   }
-}
-
-/** Who holds a lock file and whether it is stale: its pid gone, or its mtime older than `LOCK_STALE_MS`. */
-function lockHolder(lock) {
-  let pid = null;
-  let at = null;
-  try { ({ pid = null, at = null } = JSON.parse(readFileSync(lock, 'utf8'))); } catch { /* an unreadable note is still a lock */ }
-  let age = 0;
-  try { age = Date.now() - statSync(lock).mtimeMs; } catch { return { who: 'nobody', stale: true }; }
-  let alive = true;
-  if (typeof pid === 'number' && pid > 0) {
-    try { process.kill(pid, 0); } catch (e) { if (e.code === 'ESRCH') alive = false; }
-  }
-  return { who: `pid ${pid ?? '?'}${at ? ` since ${at}` : ''}${alive ? '' : ' (gone)'}`, stale: !alive || age > LOCK_STALE_MS };
 }
 
 /** An https origin: what a client sees. Reads heads and root files for the classifier; every write refuses — an object-store adapter is owed. */

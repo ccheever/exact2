@@ -1,0 +1,13 @@
+# Tooling only: owned-directory reads, writes and publish locks. LLP 1030.002.
+[package]
+name = "exact-filesystem"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+libc = "0.2"
+serde_json = "1.0"
+sha2 = "0.10"
+base64 = "0.22"

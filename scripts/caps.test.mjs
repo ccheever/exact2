@@ -1125,6 +1125,80 @@ for (const [name, html, files, expectCode, expect] of [
       && refused);
 }
 
+// All origin verbs reject links at the root, intermediate, and leaf boundary.
+// Locks are permanent OS ownership, independent of age or claimed host/PID.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-origin-handles-'));
+  const originDir = join(dir, 'origin');
+  const outside = join(dir, 'outside');
+  mkdirSync(originDir); mkdirSync(outside);
+  writeFileSync(join(outside, 'secret'), 'private');
+  const origin = new DirectoryOrigin(originDir);
+  const stream = { channel: 'prod', compatibilityId: 'test' };
+  const refusals = [];
+  const refuse = async (fn) => { try { await fn(); return false; } catch { return true; } };
+  symlinkSync(outside, join(originDir, 'escape'));
+  symlinkSync(join(outside, 'secret'), join(originDir, 'linked'));
+  symlinkSync(join(outside, 'absent'), join(originDir, 'dangling'));
+  refusals.push(await refuse(() => origin.get('escape/secret')),
+    await refuse(() => origin.list('escape')), await refuse(() => origin.get('linked')),
+    await refuse(() => origin.list('linked')), await refuse(() => origin.put('linked', Buffer.from('public'))),
+    await refuse(() => origin.put('dangling', Buffer.from('public'))),
+    await refuse(() => origin.put('escape/new/deep/file', Buffer.from('public'))));
+  symlinkSync(outside, join(originDir, '.exact'));
+  refusals.push(await refuse(() => origin.putHead(stream, Buffer.from('{}'))),
+    await refuse(() => origin.withLock(stream, async () => false)));
+  rmSync(join(originDir, '.exact'));
+  await origin.withLock(stream, async () => true);
+  const lockPath = join(originDir, '.exact/prod/test/.lock');
+  rmSync(lockPath);
+  symlinkSync(join(outside, 'secret'), lockPath);
+  refusals.push(await refuse(() => origin.withLock(stream, async () => false)));
+  rmSync(lockPath);
+  const headPath = join(originDir, '.exact/prod/test/exact.json');
+  symlinkSync(join(outside, 'secret'), headPath);
+  refusals.push(await refuse(() => origin.putHead(stream, Buffer.from('{}'))));
+  rmSync(headPath);
+  refusals.push(await refuse(() => copyStaticTreeIfPresent(join(originDir, 'escape/missing'), join(dir, 'static-candidate'))));
+  const rootLink = join(dir, 'root-link'); symlinkSync(originDir, rootLink);
+  refusals.push(await refuse(() => new DirectoryOrigin(rootLink).get('linked')),
+    await refuse(() => new DirectoryOrigin(rootLink).put('new', Buffer.from('public'))));
+  let agedHeld = false, otherHostHeld = false, replacedRefused = false, successorHeld = false;
+  const priorHost = process.env.HOSTNAME;
+  try {
+    process.env.HOSTNAME = 'publisher-a';
+    await origin.withLock(stream, async () => {
+      utimesSync(lockPath, new Date(0), new Date(0));
+      agedHeld = await refuse(() => new DirectoryOrigin(originDir).withLock(stream, async () => false));
+      process.env.HOSTNAME = 'publisher-b';
+      otherHostHeld = await refuse(() => new DirectoryOrigin(originDir).withLock(stream, async () => false));
+      renameSync(lockPath, join(dir, 'retired-lock'));
+      let entered;
+      const ready = new Promise((resolve) => { entered = resolve; });
+      let release;
+      const pending = new Promise((resolve) => { release = resolve; });
+      const successor = new DirectoryOrigin(originDir);
+      // Keep the successor held until the old owner's finally has run.
+      const held = successor.withLock(stream, async () => { entered(); await pending; });
+      await ready;
+      replacedRefused = await refuse(() => origin.putHead(stream, Buffer.from('{}')));
+      origin.successor = { held, release };
+    });
+    successorHeld = await refuse(() => new DirectoryOrigin(originDir).withLock(stream, async () => false));
+    origin.successor.release(); await origin.successor.held;
+  } finally {
+    if (priorHost === undefined) delete process.env.HOSTNAME; else process.env.HOSTNAME = priorHost;
+  }
+  const reusable = await origin.withLock(stream, async () => true);
+  await origin.putHead(stream, Buffer.from('{"seq":1}'));
+  const conditional = await refuse(() => origin.putHead(stream, Buffer.from('{"seq":2}')));
+  result('origin handles reject every linked boundary and retain exclusive lock ownership',
+    refusals.every(Boolean) && agedHeld && otherHostHeld && replacedRefused && successorHeld && reusable && conditional
+    && readFileSync(join(outside, 'secret'), 'utf8') === 'private' && !existsSync(join(outside, 'new')),
+    JSON.stringify({ refusals, agedHeld, otherHostHeld, replacedRefused, successorHeld, reusable, conditional }));
+  rmSync(dir, { recursive: true, force: true });
+}
+
 // Apple packages the standalone app and then the sample host through the
 // same static-file gate as web. A link introduced at either source boundary
 // is refused instead of being followed into a signed bundle.

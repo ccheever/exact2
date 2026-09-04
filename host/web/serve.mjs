@@ -6,10 +6,11 @@
 import { createServer } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { filesystem } from '../../scripts/filesystem.mjs';
 
 const PUBLIC_FILES = new Set([
   '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/gpu-glue.js',
@@ -35,47 +36,15 @@ function staticRelative(name) {
 /** Every regular file under a static source tree, sorted and refused when
  * the root or any entry is a symlink or another special filesystem object. */
 export function listStaticFiles(source) {
-  const root = resolve(source);
-  const rootInfo = lstatSync(root);
-  if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) throw new Error(`static app tree must be a real directory: ${root}`);
-  const out = [];
-  const walk = (dir, prefix) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const name = prefix ? `${prefix}/${entry.name}` : entry.name;
-      const path = resolve(root, name);
-      const info = lstatSync(path);
-      if (info.isSymbolicLink()) throw new Error(`static app files cannot be symlinks: ${path}`);
-      if (info.isDirectory()) walk(path, name);
-      else if (info.isFile()) out.push(name);
-      else throw new Error(`static app files must be regular files or directories: ${path}`);
-    }
-  };
-  walk(root, '');
-  return out.sort();
+  return Object.keys(filesystem({ op: 'names', root: resolve(source) }));
 }
 
-/** Read one candidate through a no-follow fd and prove it is the same
- * regular inode the source tree walk inspected. */
+/** Open every component from owned directory handles; there is no path
+ * validation/open gap for an intermediate-directory replacement to exploit. */
 export function readStaticCandidate(source, name) {
-  const root = resolve(source);
-  const rootInfo = lstatSync(root);
-  if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) throw new Error(`static app tree must be a real directory: ${root}`);
-  let path = root;
-  let expected = rootInfo;
-  const parts = staticRelative(name).split('/');
-  for (let i = 0; i < parts.length; i++) {
-    path = resolve(path, parts[i]);
-    expected = lstatSync(path);
-    if (expected.isSymbolicLink()) throw new Error(`static app files cannot be symlinks: ${path}`);
-    if (i + 1 < parts.length && !expected.isDirectory()) throw new Error(`static app path is not a directory: ${path}`);
-  }
-  if (!expected.isFile()) throw new Error(`static app file is not regular: ${path}`);
-  const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-  try {
-    const opened = fstatSync(fd);
-    if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino) throw new Error(`static app file changed while opening: ${path}`);
-    return readFileSync(fd);
-  } finally { closeSync(fd); }
+  const bytes = filesystem({ op: 'get', root: resolve(source), path: staticRelative(name) });
+  if (bytes === null) { const error = new Error(`static app file disappeared: ${name}`); error.code = 'ENOENT'; throw error; }
+  return Buffer.from(bytes, 'base64');
 }
 
 /** Read a source candidate once, write it privately beside `target`, run an
@@ -99,9 +68,9 @@ export function installStaticCandidate(source, name, target, validate = null) {
 /** Copy one complete static source tree under the same no-symlink policy
  * used by the live candidate path. Intended for private build stages. */
 export function copyStaticTree(source, target) {
-  const names = listStaticFiles(source);
-  mkdirSync(target, { recursive: true });
-  for (const name of names) installStaticCandidate(source, name, resolve(target, name));
+  // Capture the whole source through one root handle before exposing bytes
+  // to the private candidate. A link/race fails before the caller commits it.
+  filesystem({ op: 'copy', root: resolve(source), target: resolve(target) });
 }
 
 function optionalInfo(path) {
@@ -113,9 +82,7 @@ function optionalInfo(path) {
  * root link through the static-tree refusal. `existsSync` cannot make that
  * distinction and must not guard an app-visible copy. */
 export function copyStaticTreeIfPresent(source, target) {
-  if (!optionalInfo(resolve(source))) return false;
-  copyStaticTree(source, target);
-  return true;
+  return filesystem({ op: 'copy', root: resolve(source), target: resolve(target), optionalRoot: true }) === true;
 }
 
 /** Mirror one complete source tree into a live dist at startup. A missing
@@ -125,16 +92,15 @@ export function copyStaticTreeIfPresent(source, target) {
 export function syncStaticTree(source, target, validate = null) {
   const sourcePath = resolve(source);
   const targetPath = resolve(target);
-  if (!optionalInfo(sourcePath)) {
-    rmSync(targetPath, { recursive: true, force: true });
-    return false;
-  }
   const parent = dirname(targetPath);
   mkdirSync(parent, { recursive: true });
   const candidate = resolve(parent, `.candidate-tree-${process.pid}-${randomBytes(4).toString('hex')}`);
   const previous = resolve(parent, `.previous-tree-${process.pid}-${randomBytes(4).toString('hex')}`);
   try {
-    copyStaticTree(sourcePath, candidate);
+    if (!copyStaticTreeIfPresent(sourcePath, candidate)) {
+      rmSync(targetPath, { recursive: true, force: true });
+      return false;
+    }
     if (validate) validate(candidate);
     if (optionalInfo(targetPath)) renameSync(targetPath, previous);
     try { renameSync(candidate, targetPath); }
@@ -151,8 +117,7 @@ export function syncStaticTree(source, target, validate = null) {
 }
 
 function staticTreeSnapshot(root) {
-  if (!optionalInfo(resolve(root))) return new Map();
-  return new Map(listStaticFiles(root).map((name) => [name, readStaticCandidate(root, name)]));
+  return new Map(Object.entries(filesystem({ op: 'tree', root: resolve(root), optionalRoot: true }) ?? {}).map(([name, bytes]) => [name, Buffer.from(bytes, 'base64')]));
 }
 
 /** Atomically reconcile a watched whole-tree creation/deletion and return
@@ -290,7 +255,10 @@ export function readStaticFile(dist, pathname) {
   for (let attempt = 0; attempt < 4; attempt++) {
     const found = staticFile(dist, pathname);
     if (!found) continue;
-    try { return { ...found, body: readFileSync(found.path) }; }
+    try {
+      const bytes = filesystem({ op: 'get', root: dirname(found.path), path: basename(found.path) });
+      if (bytes !== null) return { ...found, body: Buffer.from(bytes, 'base64') };
+    }
     catch { /* retry against dist or dist.previous */ }
   }
   return null;

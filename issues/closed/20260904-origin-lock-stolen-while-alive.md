@@ -1,6 +1,7 @@
 # A live publisher's stream lock can be stolen after 60 seconds
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Permanent OS locks replace age/PID leases; token and inode checks guard staged conditional heads, old holders never unlink successors, and standalone head writes acquire the stream lock. Direct writers bypassing the adapter remain outside its serialized contract.
 **Systems:** exact deploy
 **Severity:** P2
 **Author:** Grok 4.6 for Charlie Cheever

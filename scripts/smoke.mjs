@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
 import { resolveApp } from './app.mjs';
+import { DirectoryOrigin } from './origin.mjs';
 import { canonicalBytes, publicKeyFromRaw } from './deploy.mjs';
 import { crop, decodePng, diff, encodePng } from './png.mjs';
 
@@ -167,7 +168,7 @@ if (host === 'deploy') {
   const table = (...args) => { const r = deploy([app.name, '--origin', origin, '--json', ...args]); try { return JSON.parse(r.stdout); } catch { check(false, `deploy --json printed no object: ${r.stdout.slice(0, 200)}`); return { rows: [] }; } };
   const streams = (t) => t.rows.filter((r) => r.kind === 'stream');
   const headOf = (id) => { const p = resolve(origin, '.exact', channel, id, 'exact.json'); return existsSync(p) ? readFileSync(p) : null; };
-  const mtimes = () => { const out = []; const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = resolve(d, e.name); if (e.isDirectory()) walk(p); else out.push(`${statSync(p).mtimeMs} ${p}`); } }; walk(origin); return out.sort().join('\n'); };
+  const mtimes = () => { const out = []; const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = resolve(d, e.name); if (e.isDirectory()) walk(p); else if (e.name !== '.lock') out.push(`${statSync(p).mtimeMs} ${p}`); } }; walk(origin); return out.sort().join('\n'); };
   try {
     if (!check(!!keyId, `${app.name}/app.json names no deploy.signing.key`)) throw new Error('no key');
     // 1. A throwaway key, and the dry run before the manifest is touched (the table, nothing written).
@@ -237,10 +238,10 @@ if (host === 'deploy') {
       const [a, b] = await Promise.all([race('r-race-a'), race('r-race-b')]);
       const winner = a.code === 0 ? a : b;
       const loser = a.code === 0 ? b : a;
-      check(winner.code === 0 && loser.code === 1 && /locked by pid \d+/.test(loser.text), `the race: exits ${a.code}/${b.code}; loser said ${loser.text.split('\n').filter((l) => /locked|failed/.test(l)).join(' | ').slice(0, 300)}`);
+      check(winner.code === 0 && loser.code === 1 && /locked by another publisher/.test(loser.text), `the race: exits ${a.code}/${b.code}; loser said ${loser.text.split('\n').filter((l) => /locked|failed/.test(l)).join(' | ').slice(0, 300)}`);
       const seqNow = JSON.parse(headOf(ids[0]).toString('utf8')).stream.seq;
       check(seqNow === 3, `after the race the head is seq ${seqNow}, not 3`);
-      check(!existsSync(resolve(origin, '.exact', channel, ids[0], '.lock')), 'a lock was left behind');
+      check(await new DirectoryOrigin(origin).withLock({ channel, compatibilityId: ids[0] }, async () => true), 'the permanent lock was not released');
     }
     // 6. A retired cohort's stream on the origin: binary in the table; --only bundle refuses it, the others go on.
     const dead = 'deadbeefdeadbeefdeadbeefdeadbeef';
