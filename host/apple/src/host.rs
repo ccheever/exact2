@@ -64,6 +64,7 @@ pub struct Host<D: DataSource> {
     /// The update store's last line this host journaled, so a sync after
     /// a check writes it once.
     update_line: Option<String>,
+    delivery: Option<&'static crate::delivery::Hooks>,
 }
 
 impl<D: DataSource> Host<D> {
@@ -137,6 +138,7 @@ impl<D: DataSource> Host<D> {
             snapshot,
             secrets,
             None,
+            None,
             |_| {},
         )
     }
@@ -155,6 +157,7 @@ impl<D: DataSource> Host<D> {
         snapshot: Vec<(String, String)>,
         secrets: Option<Secrets>,
         compat: Option<&str>,
+        delivery: Option<&'static crate::delivery::Hooks>,
         prepare: impl FnOnce(&Plan),
     ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
@@ -178,6 +181,7 @@ impl<D: DataSource> Host<D> {
             now_ms: 0.0,
             secrets,
             update_line: None,
+            delivery,
         };
         // The binary's delivery facts before the first frame (LLP 1030 D7)
         // — its `compat.json` and what the update store has to say: the
@@ -252,15 +256,17 @@ impl<D: DataSource> Host<D> {
     /// Tell the runner what this binary knows about its delivery (LLP 1030
     /// D7): the compatibility id, whether an update store is linked, and
     /// the executors from the archive's `compat.json`, and the stream, the
-    /// `seq`s, and what is staged from the update store (`crate::update`).
+    /// `seq`s, and what is staged from the linked delivery adapter.
     /// Called by a boot, before the first batch — the commit a re-answered
     /// `delivery` resource makes is the boot's own. A boot note the store
     /// left (the selected entry refused, entry zero booted) is journaled.
     pub(crate) fn set_delivery_from_compat(&mut self, json: &str) -> Result<(), HostError> {
         let mut delivery = self.runner.delivery().with_compat(json);
-        crate::update::status_into(&mut delivery);
-        if let Some(note) = crate::update::take_note() {
-            self.runner.log(note);
+        if let Some(hooks) = self.delivery {
+            (hooks.status_into)(&mut delivery);
+            if let Some(note) = (hooks.take_note)() {
+                self.runner.log(note);
+            }
         }
         self.runner
             .set_delivery(delivery)
@@ -275,8 +281,10 @@ impl<D: DataSource> Host<D> {
     /// app's own.
     pub fn sync_delivery(&mut self) -> String {
         let mut delivery = self.runner.delivery().clone();
-        crate::update::status_into(&mut delivery);
-        let line = crate::update::last_line();
+        if let Some(hooks) = self.delivery {
+            (hooks.status_into)(&mut delivery);
+        }
+        let line = self.delivery.and_then(|h| (h.last_line)());
         if line.is_some() && line != self.update_line {
             self.update_line = line.clone();
             self.runner.log(line.unwrap_or_default());

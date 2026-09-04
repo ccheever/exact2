@@ -11,6 +11,4 @@ const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 /// and `state.delivery` from it (LLP 1030 D7).
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 
-fn main() {
-    std::process::exit(exact_linux::run::<caltrain_data::Caltrain>(PLAN, COMPAT));
-}
+include!(concat!(env!("OUT_DIR"), "/entry.rs"));

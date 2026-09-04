@@ -315,6 +315,26 @@ carries nothing. None of these is a failure of the mechanism; each is
 a choice the manifest and the composition record and the classifier
 reports.
 
+**Implemented 2026-09-04 (Codex, Charlie's principles-audit fix request):**
+`exact-apple` and `exact-linux` no longer depend on the updater. The higher
+`exact-apple-update` / `exact-linux-update` crates compose store ownership,
+selection, verification and transport over the hosts' narrow delivery and
+asset-resolver interfaces. The app bake generates its entry from this
+platform's `store.L`: the core entry for `0`, the adapter for `A`. There are
+no Cargo features on a core crate. Cargo may compile a declared but unused
+adapter dependency; L=0's final artifact must omit it, which is established
+by artifact inspection, not the dependency declaration alone.
+
+Apple C ABI 3 exposes a nullable delivery function table: L=0 returns null,
+so ExactKit does not open a store. The runner's delivery value and the debug
+dev connection remain available. Linux takes an optional adapter; its
+selected-asset resolver preserves complete-roster tombstones and boot-time
+integrity fallback without a dependency on the store. L=0 compatibility
+metadata contains no verification keys, trust epoch, store codec or accepted
+bundle kinds, and no update origin. The publisher emits a binary row for it
+before reading a stream. Binary publication remains the separate unbuilt
+verb described in 1030.000 §6.
+
 ### D5 — Propagation: what reaches whom, when, and the aids that need no service
 
 An update does not reach every client at once, and some clients it

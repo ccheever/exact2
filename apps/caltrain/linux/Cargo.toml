@@ -18,6 +18,8 @@ path = "src/main.rs"
 caltrain-data = { path = "../data" }
 exact-linux = { path = "../../../host/linux" }
 
+exact-linux-update = { path = "../../../host/linux-update" }
+
 [build-dependencies]
 caltrain-data = { path = "../data" }
 contract = { path = "../../../contract/cli" }

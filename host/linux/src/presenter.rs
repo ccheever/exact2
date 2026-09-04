@@ -14,6 +14,7 @@
 
 use crate::gpu::Gpu;
 use crate::host::{Host, HostError};
+use crate::image::AssetResolver;
 use crate::image::{Assets, Images};
 use crate::paint::{
     content_size, effective_overflow, Backend, Frame, PaintedBox, Painter, Rect4, Scene,
@@ -24,7 +25,6 @@ use exact_kernel::{NodeType, Overflow, PropId, ViewId};
 use exact_plan::{EventKind, Plan};
 use exact_runner::agent::{num, quote};
 use exact_runner::{DataSource, Event};
-use exact_update::AssetSet;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -59,7 +59,7 @@ pub struct Presenter<D: DataSource> {
     /// The executor for a request that leaves the process (LLP 1016 D2).
     executor: crate::executor::Executor,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
-    updates: Option<crate::update::Updates>,
+    updates: Option<Box<dyn crate::delivery::Store>>,
     /// The commands the last commits' actions asked for, for the loop that
     /// runs them (`run_commands`).
     commands: Vec<exact_runner::Command>,
@@ -194,7 +194,7 @@ impl<D: DataSource> Presenter<D> {
         viewport: (f32, f32),
         scale: f32,
         root: PathBuf,
-        selected: Option<AssetSet>,
+        selected: Option<AssetResolver>,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let assets = match selected {
             Some(set) => Assets::selected(root, set),
@@ -270,7 +270,7 @@ impl<D: DataSource> Presenter<D> {
     /// Attach the update store (LLP 1026 D9): what it has to say reaches
     /// the runner now (`state.delivery`, the `delivery` resource) and after
     /// every check; a boot note it left goes to the journal.
-    pub fn set_updates(&mut self, updates: Option<crate::update::Updates>) {
+    pub fn set_updates(&mut self, updates: Option<Box<dyn crate::delivery::Store>>) {
         self.updates = updates;
         if let Some(note) = self.updates.as_mut().and_then(|u| u.take_note()) {
             self.host.log(note);

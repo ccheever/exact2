@@ -427,7 +427,7 @@ mod tests {
             let foreground = std::thread::spawn(move || {
                 assert!(select() > 0);
                 let (_, bytes) = selected_plan().unwrap();
-                let (_session, batch) = crate::Host::boot(
+                let (_session, batch) = exact_apple::Host::boot(
                     &bytes,
                     caltrain_data::Caltrain,
                     Box::<exact_kernel::MonospaceMeasurer>::default(),

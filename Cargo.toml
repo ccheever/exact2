@@ -1,5 +1,5 @@
 [workspace]
-members = ["kernel", "motion", "plan", "runner", "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli", "apps/caltrain", "apps/caltrain/data", "host/web", "apps/caltrain/web", "host/apple", "apps/caltrain/apple", "host/linux", "apps/caltrain/linux", "gpu", "gpu/reflect", "apps/caltrain/gpu", "js", "update"]
+members = ["kernel", "motion", "plan", "runner", "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli", "apps/caltrain", "apps/caltrain/data", "host/web", "apps/caltrain/web", "host/apple", "host/apple-update", "apps/caltrain/apple", "host/linux", "host/linux-update", "apps/caltrain/linux", "gpu", "gpu/reflect", "apps/caltrain/gpu", "js", "update"]
 resolver = "2"
 
 [workspace.package]

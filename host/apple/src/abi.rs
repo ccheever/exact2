@@ -69,6 +69,7 @@ pub struct Bridge<D: DataSource> {
     /// invocation: what the runner's `delivery` resource says about this
     /// binary's cohort, its update store, and its executors.
     compat: Option<&'static str>,
+    delivery: Option<&'static crate::delivery::Hooks>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -86,6 +87,7 @@ impl<D: DataSource> Bridge<D> {
             fonts: None,
             fonts_ctx: std::ptr::null_mut(),
             compat: None,
+            delivery: None,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -129,6 +131,11 @@ impl<D: DataSource> Bridge<D> {
     /// ABI for it.
     pub fn set_compat(&mut self, json: &'static str) {
         self.compat = Some(json);
+    }
+
+    /// Select the linked delivery adapter, or none for a binary-only app.
+    pub fn set_delivery(&mut self, hooks: Option<&'static crate::delivery::Hooks>) {
+        self.delivery = hooks;
     }
 
     fn emit(&mut self, s: String) -> u32 {
@@ -187,12 +194,15 @@ impl<D: DataSource> Bridge<D> {
         width: f32,
         height: f32,
     ) -> u32 {
-        let selected = crate::update::selected_plan();
-        crate::update::boot_started();
+        let Some(delivery) = self.delivery else {
+            return self.boot(embedded, data(), hooks, width, height);
+        };
+        let selected = (delivery.selected_plan)();
+        (delivery.boot_started)();
         if let Some((entry, bytes)) = selected {
             match self.boot_fresh(&bytes, data(), hooks, width, height) {
                 Ok(batch) => return self.emit(batch),
-                Err(e) => crate::update::entry_refused(&entry, &e),
+                Err(e) => (delivery.entry_refused)(&entry, &e),
             }
         }
         self.boot(embedded, data(), hooks, width, height)
@@ -230,6 +240,7 @@ impl<D: DataSource> Bridge<D> {
             snapshot,
             secrets,
             self.compat,
+            self.delivery,
             move |decoded| {
                 if let Some(callback) = fonts {
                     install_fonts(decoded, callback, fonts_ctx);
@@ -286,6 +297,7 @@ impl<D: DataSource> Bridge<D> {
             Vec::new(),
             secrets,
             self.compat,
+            self.delivery,
             move |decoded| {
                 if let Some(callback) = fonts {
                     install_fonts(decoded, callback, fonts_ctx);
@@ -575,6 +587,9 @@ pub fn with_entry<D: DataSource>(
 #[macro_export]
 macro_rules! host {
     ($data:ty, $plan:expr, $compat:expr) => {
+        $crate::host!($data, $plan, $compat, None, ::std::ptr::null());
+    };
+    ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr) => {
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
@@ -652,62 +667,18 @@ macro_rules! host {
         pub extern "C" fn exact_boot(rt: u32, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
                 b.set_compat($compat);
+                b.set_delivery($delivery);
                 b.boot_selected($plan, || <$data as ::std::default::Default>::default(), hooks, width, height)
             }, |n| n)
         }
 
-        /// The update store's input buffer (a path payload); its address.
+        /// The linked delivery adapter, null in a binary-only app.
         #[no_mangle]
-        pub extern "C" fn exact_update_in(len: usize) -> *mut u8 {
-            $crate::update::input(len)
-        }
+        pub extern "C" fn exact_delivery_api() -> *const $crate::delivery::Api { $api }
 
-        /// The update store's output buffer: the last update call's answer.
+        /// Refresh this session's delivery facts; the batch's length.
         #[no_mangle]
-        pub extern "C" fn exact_update_out() -> *const u8 {
-            $crate::update::output_ptr()
-        }
-
-        /// Open the update store (LLP 1026 D9) for this binary: the input
-        /// buffer's first `len` bytes are `{"base":…,"assets":…}`. 0, or the
-        /// refusal's length.
-        #[no_mangle]
-        pub extern "C" fn exact_update_open(len: usize) -> u32 {
-            $crate::update::open(len, $compat, $plan)
-        }
-
-        /// The selection, one JSON line; its length.
-        #[no_mangle]
-        pub extern "C" fn exact_update_select() -> u32 {
-            $crate::update::select()
-        }
-
-        /// First pixel: the selection that booted is good (LLP 1026 D11).
-        #[no_mangle]
-        pub extern "C" fn exact_update_boot_succeeded() {
-            $crate::update::boot_succeeded()
-        }
-
-        /// Check the stream's head on a thread of the library's own (LLP
-        /// 1026 D11): 0 started, 1 already checking, 2 no store.
-        #[no_mangle]
-        pub extern "C" fn exact_update_check(
-            done: ::std::option::Option<$crate::update::DoneFn>,
-            ctx: *mut ::std::ffi::c_void,
-        ) -> u32 {
-            $crate::update::check(done, ctx)
-        }
-
-        /// The staged plan's bytes (LLP 1030 D7 `deliveryActivate`); its
-        /// length, 0 when nothing is staged.
-        #[no_mangle]
-        pub extern "C" fn exact_update_activate() -> u32 {
-            $crate::update::activate()
-        }
-
-        /// What the store has to say, into this runtime's runner; the batch's length.
-        #[no_mangle]
-        pub extern "C" fn exact_update_sync(rt: u32) -> u32 {
+        pub extern "C" fn exact_delivery_sync(rt: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.sync_delivery(), |n| n)
         }
 
@@ -723,6 +694,7 @@ macro_rules! host {
         pub extern "C" fn exact_boot_plan(rt: u32, len: usize, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
                 b.set_compat($compat);
+                b.set_delivery($delivery);
                 b.boot_plan(len, <$data as ::std::default::Default>::default(), hooks, width, height)
             }, |n| n)
         }

@@ -160,6 +160,7 @@ dependencies = [
  "caltrain-data",
  "contract",
  "exact-apple",
+ "exact-apple-update",
 ]
 
 [[package]]
@@ -187,6 +188,7 @@ dependencies = [
  "caltrain-data",
  "contract",
  "exact-linux",
+ "exact-linux-update",
 ]
 
 [[package]]
@@ -556,6 +558,18 @@ dependencies = [
  "exact-motion",
  "exact-plan",
  "exact-runner",
+ "ibex2",
+]
+
+[[package]]
+name = "exact-apple-update"
+version = "0.1.0"
+dependencies = [
+ "caltrain",
+ "caltrain-data",
+ "exact-apple",
+ "exact-kernel",
+ "exact-runner",
  "exact-update",
  "ibex2",
 ]
@@ -620,7 +634,6 @@ dependencies = [
  "exact-motion",
  "exact-plan",
  "exact-runner",
- "exact-update",
  "ibex2",
  "libc",
  "png",
@@ -630,6 +643,21 @@ dependencies = [
  "tiny-skia",
  "vello",
  "wgpu 29.0.4",
+]
+
+[[package]]
+name = "exact-linux-update"
+version = "0.1.0"
+dependencies = [
+ "caltrain",
+ "caltrain-data",
+ "contract",
+ "exact-kernel",
+ "exact-linux",
+ "exact-runner",
+ "exact-update",
+ "ibex2",
+ "serde_json",
 ]
 
 [[package]]

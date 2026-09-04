@@ -98,7 +98,7 @@ final class Runtime {
     func intrinsic(_ view: UInt32, width: CGFloat, height: CGFloat) -> Batch { read(exact_intrinsic(rt, view, Float(width), Float(height))) }
     /// What the update store has to say, into this runtime's runner (LLP
     /// 1030 D7): the batch of the `delivery` resource's re-answer.
-    func updateSync() -> Batch { read(exact_update_sync(rt)) }
+    func updateSync() -> Batch { read(exact_delivery_sync(rt)) }
     /// The agent API (LLP 1012): a request in, its reply out — JSON, not a batch.
     func agent(_ request: String) -> String {
         let n = write(request)

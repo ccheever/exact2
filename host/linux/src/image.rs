@@ -11,7 +11,6 @@
 //! has loaded, as a browser keeps showing the old `src`.
 
 use exact_kernel::{Kernel, NodeType, PropId, ViewId};
-use exact_update::AssetSet;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -19,6 +18,10 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tiny_skia::{IntSize, Pixmap};
+
+/// Immutable named asset bytes supplied by an optional app adapter.
+/// `Ok(None)` is a tombstone; an error refuses the current boot transaction.
+pub type AssetResolver = Arc<dyn Fn(&str) -> Result<Option<Arc<[u8]>>, String> + Send + Sync>;
 
 struct Loaded {
     view: ViewId,
@@ -35,13 +38,13 @@ enum ImageInput {
 }
 
 /// One generation's asset resolver. Entry zero reads beneath the binary's
-/// root; a selected update reads through its complete, verified [`AssetSet`].
+/// root; a selected update reads through its complete, verified asset resolver.
 /// An absent selected name is a tombstone and never falls through to the
 /// embedded root.
 #[derive(Clone)]
 pub struct Assets {
     root: PathBuf,
-    selected: Option<AssetSet>,
+    selected: Option<AssetResolver>,
     refusal: Arc<Mutex<Option<String>>>,
 }
 
@@ -56,7 +59,7 @@ impl Assets {
     }
 
     /// Resolve the selected generation through its complete signed roster.
-    pub fn selected(root: PathBuf, selected: AssetSet) -> Assets {
+    pub fn selected(root: PathBuf, selected: AssetResolver) -> Assets {
         Assets {
             root,
             selected: Some(selected),
@@ -94,7 +97,7 @@ impl Assets {
             return None;
         }
         if let Some(selected) = &self.selected {
-            return match selected.resolve(name) {
+            return match selected(name) {
                 Ok(Some(bytes)) => Some(ImageInput::Bytes(bytes)),
                 Ok(None) => None,
                 Err(reason) => {

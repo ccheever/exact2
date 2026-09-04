@@ -1,0 +1,18 @@
+# Optional delivery adapter, above the Apple host (LLP 1030 D4).
+[package]
+name = "exact-apple-update"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+exact-apple = { path = "../apple" }
+exact-runner = { path = "../../runner" }
+exact-update = { path = "../../update" }
+ibex2 = { path = "../../../ibex/crates/ibex2", default-features = false }
+
+[dev-dependencies]
+caltrain = { path = "../../apps/caltrain" }
+caltrain-data = { path = "../../apps/caltrain/data" }
+exact-kernel = { path = "../../kernel" }

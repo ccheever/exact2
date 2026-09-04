@@ -82,7 +82,7 @@ public final class ExactApp {
         let fallback = FileManager.default.currentDirectoryPath
         #endif
         assetRoot = URL(fileURLWithPath: ExactEnv.environment["EXACT_ASSETS"] ?? fallback, isDirectory: true)
-        storeOpen = Updates.open(assets: assetRoot)
+        if Updates.linked { storeOpen = Updates.open(assets: assetRoot) }
         if storeOpen { useAssets(Updates.selection().assets) }
     }
 

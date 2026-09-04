@@ -11,4 +11,4 @@ pub const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 /// it at boot and answers the `delivery` resource from it (LLP 1030 D7).
 pub const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 
-exact_apple::host!(caltrain_data::Caltrain, PLAN, COMPAT);
+include!(concat!(env!("OUT_DIR"), "/entry.rs"));

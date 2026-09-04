@@ -34,10 +34,10 @@
 //! store's selection (LLP 1026 D9): the selected entry's plan, else the
 //! baked one; an entry refused at boot boots the baked plan in the same run.
 
+use crate::delivery::Store;
+use crate::image::AssetResolver;
 use crate::presenter::Presenter;
-use crate::update::Updates;
 use exact_runner::DataSource;
-use exact_update::{AssetSet, Generation};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -51,7 +51,7 @@ pub struct Config {
     pub plan: Vec<u8>,
     /// The binary's plan, only when `plan` came from a URL. A hash-valid
     /// network payload can still fail the format/schema/app gates at boot.
-    pub(crate) fallback_plan: Option<Vec<u8>>,
+    pub fallback_plan: Option<Vec<u8>>,
     /// The asset root.
     pub assets: PathBuf,
     /// Device pixels per point.
@@ -75,17 +75,14 @@ pub struct Config {
     pub compat: String,
     /// Whether the environment named the plan (a URL, `EXACT_PLAN`): the
     /// update store's selection then stands aside.
-    pub(crate) explicit: bool,
+    pub explicit: bool,
     /// The update store's entry whose plan `plan` is, when one is selected.
-    pub(crate) entry: Option<String>,
-    /// The immutable update generation whose plan and asset roster are
-    /// pinned to this launch.
-    pub(crate) generation: Option<Generation>,
+    pub entry: Option<String>,
     /// The selected generation's complete, lazily verified asset roster.
-    pub(crate) selected_assets: Option<AssetSet>,
+    pub selected_assets: Option<AssetResolver>,
     /// The update store, opened before the boot it selects (`run`); the
     /// presenter takes it at boot.
-    pub(crate) updates: Option<Updates>,
+    pub updates: Option<Box<dyn Store>>,
 }
 
 impl Config {
@@ -168,31 +165,19 @@ impl Config {
             compat: compat.to_string(),
             explicit,
             entry: None,
-            generation: None,
             selected_assets: None,
             updates: None,
         }
     }
 
-    /// Open the update store (LLP 1026 D9) and, unless the environment named
-    /// the plan, take its selection as what boots: the selected entry's plan
-    /// with the baked one to fall back on, counting the boot (D11). A
-    /// binary that links no store, or a directory that cannot be made, is
-    /// one stderr line and the baked plan.
-    pub fn select_update(&mut self, baked: &[u8]) {
-        match Updates::open(&self.compat, baked, &self.assets) {
-            Ok(updates) => self.use_updates(updates, baked),
-            Err(e) => eprintln!("exact update: {e}"),
-        }
-    }
-
-    fn use_updates(&mut self, mut updates: Updates, baked: &[u8]) {
+    /// Attach an app-supplied delivery adapter and pin its selection unless
+    /// a dev locator explicitly selected the plan (LLP 1030 D4).
+    pub fn use_updates(&mut self, mut updates: Box<dyn Store>, baked: &[u8]) {
         if !self.explicit {
             if let Some(prepared) = updates.prepare_selected() {
                 self.plan = prepared.plan.to_vec();
                 self.fallback_plan = Some(baked.to_vec());
-                self.entry = prepared.generation.entry.clone();
-                self.generation = Some(prepared.generation);
+                self.entry = prepared.entry;
                 self.selected_assets = Some(prepared.assets);
             }
             updates.boot_started();
@@ -216,13 +201,14 @@ impl Config {
 /// belong to the same gate — for an entry, the refusal stands in the store's
 /// record and entry zero boots (LLP 1026 D11). The presenter takes the
 /// update store here, so its facts are in the first frame.
-pub(crate) fn boot_presenter<D: DataSource + Default>(
+pub fn boot_presenter<D: DataSource + Default>(
     config: &mut Config,
     viewport: (f32, f32),
 ) -> Result<(Presenter<D>, Option<String>), String> {
     let mut updates = config.updates.take();
     let compat = config.compat.clone();
-    let delivered = |mut booted: (Presenter<D>, Option<String>), updates: Option<Updates>| {
+    let delivered = |mut booted: (Presenter<D>, Option<String>),
+                     updates: Option<Box<dyn Store>>| {
         // The binary's delivery facts, before anything reads a frame (LLP
         // 1030 D7). The kernel is the display list here, so the commit a
         // re-answered `delivery` resource makes needs nothing from boot.
@@ -244,13 +230,13 @@ pub(crate) fn boot_presenter<D: DataSource + Default>(
             let Some(baked) = config.fallback_plan.as_deref() else {
                 return Err(fetched_error.to_string());
             };
-            match (&config.entry, &config.generation, updates.as_mut()) {
-                (Some(_), Some(generation), Some(u))
+            match (&config.entry, updates.as_mut()) {
+                (Some(_), Some(u))
                     if matches!(&fetched_error, crate::host::HostError::Asset(_)) =>
                 {
-                    u.selection_corrupt(generation, &fetched_error.to_string())
+                    u.selection_corrupt(&fetched_error.to_string())
                 }
-                (Some(entry), _, Some(u)) => {
+                (Some(entry), Some(u)) => {
                     u.entry_refused(entry, &fetched_error.to_string())
                 }
                 _ => eprintln!(
@@ -258,7 +244,6 @@ pub(crate) fn boot_presenter<D: DataSource + Default>(
                 ),
             }
             config.entry = None;
-            config.generation = None;
             config.selected_assets = None;
             Presenter::boot_selected(
                 baked,
@@ -281,13 +266,17 @@ pub(crate) fn boot_presenter<D: DataSource + Default>(
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
     let started = Instant::now();
     let mut config = Config::from_env(baked, compat);
-    config.select_update(baked);
+    run_config::<D>(&mut config, started)
+}
+
+/// Run a configured app, optionally composed with a delivery adapter.
+pub fn run_config<D: DataSource + Default>(config: &mut Config, started: Instant) -> i32 {
     if config.headless() {
-        return headless::<D>(&mut config, started);
+        return headless::<D>(config, started);
     }
     #[cfg(target_os = "linux")]
     {
-        crate::display::run::<D>(&mut config, started)
+        crate::display::run::<D>(config, started)
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -420,352 +409,10 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
 #[cfg(test)]
 mod tests {
     use super::*;
-    use exact_runner::{DataError, Value};
-    use exact_update::{sha256_hex, Client, Outcome};
-    use std::path::Path;
-
-    const UPDATE_COMPAT: &str = r#"{"id":"fixture00000000","inputs":{"app":"com.exact.fixture","keys":null,"trust":"development","store":{"L":"A"}},"delivery":{"channel":"prod","origin":"https://updates.example"}}"#;
-
-    #[derive(Default)]
-    struct Named;
-
-    impl DataSource for Named {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(source.into()))
-        }
-
-        fn app_id(&self) -> &str {
-            "com.exact.fixture"
-        }
-    }
-
-    fn stage(dir: &Path, baked: &[u8], plan: &[u8], assets: &[(&str, Vec<u8>)]) -> Client {
-        let mut client = Client::open(dir, dir, UPDATE_COMPAT, baked).unwrap();
-        let head_url = client.head_url().unwrap().to_string();
-        let plan_url = head_url.replace("exact.json", "app.plan");
-        let cards: Vec<_> = assets
-            .iter()
-            .map(|(name, bytes)| {
-                serde_json::json!({
-                    "name": name,
-                    "url": format!("./{name}"),
-                    "sha256": sha256_hex(bytes),
-                    "bytes": bytes.len()
-                })
-            })
-            .collect();
-        let head = serde_json::to_vec(&serde_json::json!({
-            "exact": 1,
-            "app": { "id": "com.exact.fixture", "name": "Fixture" },
-            "plan": { "url": "./app.plan", "sha256": sha256_hex(plan), "bytes": plan.len() },
-            "assets": cards,
-            "stream": { "app": "com.exact.fixture", "channel": "prod", "compatibilityId": "fixture00000000", "seq": 1 }
-        }))
-        .unwrap();
-        let mut fetch = |url: &str| {
-            if url == head_url {
-                Ok(head.clone())
-            } else if url == plan_url {
-                Ok(plan.to_vec())
-            } else if let Some((_, bytes)) = assets
-                .iter()
-                .find(|(name, _)| url.ends_with(&format!("/{name}")))
-            {
-                Ok(bytes.clone())
-            } else {
-                Err(format!("unexpected fetch {url}"))
-            }
-        };
-        assert!(matches!(
-            client.check(&mut fetch),
-            Outcome::Staged { seq: 1, .. }
-        ));
-        drop(client);
-        Client::open(dir, dir, UPDATE_COMPAT, baked).unwrap()
-    }
-
-    fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
-        let mut config = Config {
-            plan: baked.to_vec(),
-            fallback_plan: None,
-            assets: dir.to_path_buf(),
-            scale: 1.0,
-            size: (390.0, 844.0),
-            agent: false,
-            smoke: false,
-            shot: None,
-            dev_plan: None,
-            card: String::new(),
-            vnc: None,
-            compat: UPDATE_COMPAT.into(),
-            explicit: false,
-            entry: None,
-            generation: None,
-            selected_assets: None,
-            updates: None,
-        };
-        config.use_updates(Updates::from_client(client).unwrap(), baked);
-        config
-    }
-
-    #[test]
-    fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
-        let source = "component App\n  view\n    text \"ok\"\n";
-        let mut foreign = contract::compile(source).unwrap();
-        foreign.app_id = "com.exact.foreign".into();
-        let baked = contract::compile(source).unwrap().encode();
-        let mut config = Config {
-            plan: foreign.encode(),
-            fallback_plan: Some(baked),
-            assets: std::env::current_dir().unwrap(),
-            scale: 1.0,
-            size: (390.0, 844.0),
-            agent: false,
-            smoke: false,
-            shot: None,
-            dev_plan: None,
-            card: String::new(),
-            vnc: None,
-            compat: r#"{"id":"fixture00000000","inputs":{"store":{"L":"0"}}}"#.into(),
-            explicit: true,
-            entry: None,
-            generation: None,
-            selected_assets: None,
-            updates: None,
-        };
-        let size = config.size;
-        let (presenter, error) = boot_presenter::<Named>(&mut config, size).unwrap();
-        assert!(error.is_none(), "{error:?}");
-        assert_eq!(presenter.node_count(), 1);
-        // The binary's facts reached the runner past the fallback (LLP 1030 D7).
-        assert_eq!(presenter.host().runner().delivery().store, '0');
-    }
-
     #[test]
     fn a_dev_plan_locator_stands_a_persisted_selection_aside() {
         assert!(has_explicit_locator(None, Some("not-produced-yet.plan")));
         assert!(has_explicit_locator(None, Some("http://dev.example/")));
         assert!(!has_explicit_locator(None, None));
-    }
-
-    #[test]
-    fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
-        let source = "component App\n  view\n    text \"baked\"\n";
-        let baked = contract::compile(source).unwrap().encode();
-        let update = contract::compile("component App\n  view\n    text \"selected\"\n")
-            .unwrap()
-            .encode();
-        let dir =
-            std::env::temp_dir().join(format!("exact-linux-dev-precedence-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let compat = UPDATE_COMPAT;
-        let mut client = Client::open(&dir, Path::new("."), compat, &baked).unwrap();
-        let head_url = client.head_url().unwrap().to_string();
-        let plan_url = head_url.replace("exact.json", "app.plan");
-        let head = serde_json::to_vec(&serde_json::json!({
-            "exact": 1,
-            "app": { "id": "com.exact.fixture", "name": "Fixture" },
-            "plan": { "url": "./app.plan", "sha256": sha256_hex(&update), "bytes": update.len() },
-            "assets": [],
-            "stream": { "app": "com.exact.fixture", "channel": "prod", "compatibilityId": "fixture00000000", "seq": 1 }
-        }))
-        .unwrap();
-        let mut fetch = |url: &str| {
-            if url == head_url {
-                Ok(head.clone())
-            } else if url == plan_url {
-                Ok(update.clone())
-            } else {
-                Err(format!("unexpected fetch {url}"))
-            }
-        };
-        assert!(matches!(
-            client.check(&mut fetch),
-            Outcome::Staged { seq: 1, .. }
-        ));
-        let record = client.dir().join("record.json");
-        let updates = Updates::from_client(client).unwrap();
-        let mut config = Config {
-            plan: b"EXPL".to_vec(), // the compiler was interrupted mid-write
-            fallback_plan: Some(baked.clone()),
-            assets: PathBuf::from("."),
-            scale: 1.0,
-            size: (390.0, 844.0),
-            agent: false,
-            smoke: false,
-            shot: None,
-            dev_plan: Some(PathBuf::from("app.plan")),
-            card: String::new(),
-            vnc: None,
-            compat: compat.into(),
-            explicit: true,
-            entry: None,
-            generation: None,
-            selected_assets: None,
-            updates: None,
-        };
-        config.use_updates(updates, &baked);
-        assert_eq!(config.plan, b"EXPL");
-        assert!(config.entry.is_none(), "the selected entry did not win");
-        let (presenter, _) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
-        assert_eq!(presenter.node_count(), 1, "the baked plan booted");
-        let saved = std::fs::read_to_string(record).unwrap();
-        assert!(
-            saved.contains("\"failures\":0"),
-            "the store boot was not counted: {saved}"
-        );
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn a_selected_image_loads_from_its_verified_generation() {
-        let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
-            .unwrap()
-            .encode();
-        let selected =
-            contract::compile("component App\n  view\n    image \"assets/mark.png\" width=96\n")
-                .unwrap()
-                .encode();
-        let png = std::fs::read(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../apps/caltrain/assets/caltrain.png"
-        ))
-        .unwrap();
-        let dir =
-            std::env::temp_dir().join(format!("exact-linux-selected-asset-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let client = stage(&dir, &baked, &selected, &[("assets/mark.png", png)]);
-        let mut config = selected_config(&dir, &baked, client);
-
-        let (mut presenter, error) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
-        assert!(error.is_none(), "{error:?}");
-        presenter.wait_images(Duration::from_secs(2));
-        assert_eq!(
-            presenter.images().loaded,
-            vec![("assets/mark.png".to_string(), (320, 120))]
-        );
-        assert_eq!(
-            presenter.host().runner().delivery().stream,
-            "prod/fixture00000000"
-        );
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn a_selected_font_loads_from_its_verified_generation() {
-        let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
-            .unwrap()
-            .encode();
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/fixtures/fonts");
-        let selected = contract::compile_path_source(
-            &fixture.join("app.contract"),
-            "font \"Body\" = \"assets/DejaVuSans.ttf\"\ncomponent App\n  view\n    text \"selected\" font-family=\"Body\"\n",
-        )
-        .unwrap()
-        .encode();
-        let font = std::fs::read(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts/fixtures/fonts/assets/DejaVuSans.ttf"
-        ))
-        .unwrap();
-        let dir =
-            std::env::temp_dir().join(format!("exact-linux-selected-font-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let client = stage(&dir, &baked, &selected, &[("assets/DejaVuSans.ttf", font)]);
-        let mut config = selected_config(&dir, &baked, client);
-
-        let (presenter, error) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
-        assert!(error.is_none(), "{error:?}");
-        let text = presenter.text().clone();
-        let mut text = text.borrow_mut();
-        let declared = text
-            .declared_face_id(8, 400, false)
-            .expect("the selected face bytes were registered");
-        assert_eq!(text.resolved_face_id(8, 400, false), Some(declared));
-        assert_eq!(
-            presenter.host().runner().delivery().stream,
-            "prod/fixture00000000"
-        );
-        drop(text);
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn an_absent_selected_asset_tombstones_the_embedded_file() {
-        let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
-            .unwrap()
-            .encode();
-        let selected = contract::compile(
-            "component App\n  view\n    image \"assets/caltrain.png\" width=96\n",
-        )
-        .unwrap()
-        .encode();
-        let dir = std::env::temp_dir().join(format!(
-            "exact-linux-selected-tombstone-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let client = stage(&dir, &baked, &selected, &[]);
-        let mut config = selected_config(
-            Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
-            &baked,
-            client,
-        );
-
-        let (mut presenter, error) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
-        assert!(error.is_none(), "{error:?}");
-        presenter.wait_images(Duration::from_millis(50));
-        assert!(presenter.images().loaded.is_empty());
-        assert_eq!(
-            presenter.host().runner().delivery().stream,
-            "prod/fixture00000000"
-        );
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn a_corrupt_selected_asset_falls_back_before_first_pixel() {
-        let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
-            .unwrap()
-            .encode();
-        let selected =
-            contract::compile("component App\n  view\n    image \"assets/mark.png\" width=96\n")
-                .unwrap()
-                .encode();
-        let dir = std::env::temp_dir().join(format!(
-            "exact-linux-corrupt-selected-asset-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let client = stage(
-            &dir,
-            &baked,
-            &selected,
-            &[("assets/mark.png", b"signed asset".to_vec())],
-        );
-        let asset = client
-            .selection()
-            .assets_dir
-            .unwrap()
-            .join("assets/mark.png");
-        std::fs::write(asset, b"corrupt").unwrap();
-        let record = client.dir().join("record.json");
-        let mut config = selected_config(&dir, &baked, client);
-
-        let (presenter, error) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
-        assert!(error.is_none(), "{error:?}");
-        assert_eq!(presenter.node_count(), 1, "entry zero booted");
-        assert_eq!(presenter.host().runner().delivery().stream, "embedded");
-        assert!(config.generation.is_none());
-        assert!(config.selected_assets.is_none());
-        let saved = std::fs::read_to_string(record).unwrap();
-        assert!(saved.contains("\"selected\":null"), "{saved}");
-        assert!(saved.contains("\"failures\":0"), "{saved}");
-        let _ = std::fs::remove_dir_all(dir);
     }
 }

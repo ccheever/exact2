@@ -626,8 +626,8 @@ function channelOf(manifest) {
   return names.length === 1 ? names[0] : 'prod';
 }
 
-/** The platforms with a stream: those `deploy.store` and `deploy.binaries` name (an `off` binary still has its cohort), `STREAM_PLATFORMS` when neither does; the web is the origin row. */
-function streamPlatforms(manifest) {
+/** Native deployment targets, including binary-only L=0. Classification decides the carrier before touching a stream. */
+export function nativePlatforms(manifest) {
   const deploy = manifest.deploy ?? {};
   const named = [...new Set([...Object.keys(deploy.store ?? {}), ...Object.keys(deploy.binaries ?? {})])].filter((p) => p !== 'web');
   const unknown = named.filter((p) => !PLATFORMS.includes(p));
@@ -849,6 +849,13 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
 
   const own = platforms.map((platform) => ({ platform, compatibilityId: compat[platform].id }));
   for (const { platform, compatibilityId } of own) {
+    const inputs = compat[platform].inputs ?? {};
+    if (inputs.store?.L === '0') {
+      rows.push({ kind: 'binary', platform, compatibilityId,
+        cohort: { L: '0', E: inputs.executors ?? [] }, action: 'binary',
+        reason: 'this app links no update store (L=0); deliver changes in the platform binary' });
+      continue;
+    }
     const stream = { channel, compatibilityId };
     let head;
     try { head = await origin.head(stream); }
@@ -861,7 +868,6 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
     }
     const admission = head ? inspectHead(head, app, stream) : null;
     if (admission && !admission.usable) notes.push(`the head of ${streamPath(stream)} (seq ${admission.seq ?? '?'}) is unusable: ${admission.problem}; this deploy will repair it`);
-    const inputs = compat[platform].inputs ?? {};
     const changes = admission?.usable
       ? changesAgainst(bundle, admission.head)
       : head ? [{ name: 'exact.json', change: 'repair', note: admission.problem }] : changesAgainst(bundle, null);
@@ -959,6 +965,10 @@ export function renderTable(table) {
       out.push(line('origin', `web app${row.compatibilityId ? ` (cohort ${row.compatibilityId.slice(0, 8)})` : ''}: ${summary}${named.length ? ` — ${named.join(', ')}` : ''}`, row.action === 'publish' ? 'publish (index.html last)' : 'current'));
       continue;
     }
+    if (row.kind === 'binary') {
+      out.push(line(row.platform, row.reason, 'binary'));
+      continue;
+    }
     const cohort = row.cohort ? ` (L=${row.cohort.L}, E={${row.cohort.E.join(',')}})` : '';
     const head = row.head ? ` — head seq ${row.head.seq}${row.head.release ? ` (${row.head.release})` : ''}` : ' — no head';
     out.push(`${(row.platform ?? '?').padEnd(8)} stream ${row.compatibilityId.slice(0, 8)}${cohort}${head}`);
@@ -971,7 +981,7 @@ export function renderTable(table) {
       : row.changes.map((c) => `${c.name} ${c.change}${c.note ? ` (${c.note})` : ''}`).join(', ');
     out.push(line('', detail, `bundle seq ${row.seq}`));
   }
-  const binaries = table.rows.filter((r) => r.kind === 'stream' && r.action === 'binary');
+  const binaries = table.rows.filter((r) => r.action === 'binary');
   if (binaries.length) out.push(`binary needed: ${binaries.map((r) => `${r.platform ?? '?'} ${r.compatibilityId.slice(0, 8)}`).join(', ')} — a later verb (LLP 1030.000 §6); this run publishes nothing to those streams`);
   return out.join('\n');
 }
@@ -1082,7 +1092,7 @@ async function deployCaptured(opts, capsule) {
   if (!originSpec) refuse(`no origin for the channel ${channel}: pass --origin <dir|url> or name deploy.channels.${channel} in app.json`);
   const origin = openOrigin(originSpec);
   const wantOrigin = opts.only !== 'bundle' && (!opts.platform.length || opts.platform.includes('web'));
-  const platforms = opts.only === 'origin' ? [] : streamPlatforms(app.manifest).filter((p) => !opts.platform.length || opts.platform.includes(p));
+  const platforms = opts.only === 'origin' ? [] : nativePlatforms(app.manifest).filter((p) => !opts.platform.length || opts.platform.includes(p));
   if (!wantOrigin && !platforms.length) refuse(`nothing to classify: ${opts.only ? `--only ${opts.only}` : ''} ${opts.platform.length ? `--platform ${opts.platform.join(',')}` : ''} leaves no row`);
   const log = (text) => process.stderr.write(`${text}\n`);
 
@@ -1119,7 +1129,7 @@ async function deployCaptured(opts, capsule) {
       try { published.push(await publishRoot({ origin, row, web, log })); } catch (e) { failed.push({ kind: 'origin', error: e.message }); log(`  origin: failed — ${e.message}`); }
       continue;
     }
-    const name = `${row.platform ?? '?'} stream ${row.compatibilityId.slice(0, 8)}`;
+    const name = `${row.platform ?? '?'} ${row.kind} ${row.compatibilityId.slice(0, 8)}`;
     if (row.action === 'unavailable') { failed.push({ platform: row.platform, compatibilityId: row.compatibilityId, error: row.reason }); log(`  ${name}: unavailable — ${row.reason}`); continue; }
     if (row.action === 'binary') { refused.push({ platform: row.platform, compatibilityId: row.compatibilityId, reason: row.reason }); log(`  ${name}: refused — ${row.reason}`); continue; }
     try {

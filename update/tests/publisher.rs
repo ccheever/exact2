@@ -282,3 +282,40 @@ fn the_published_stream_is_staged_whole_by_a_client() {
         Ok(Check::Current { sunset: None })
     ));
 }
+
+#[test]
+fn a_level_zero_deploy_never_reads_or_offers_a_bundle_stream() {
+    let script = r#"
+import assert from 'node:assert/strict';
+import { classify, nativePlatforms, renderTable } from './scripts/deploy.mjs';
+const manifest = { deploy: { store: { linux: '0' }, binaries: { linux: 'manual' }, streams: [] } };
+assert.deepEqual(nativePlatforms(manifest), ['linux']);
+let reads = 0;
+const origin = { kind: 'directory', describe: () => 'unused', head: async () => { reads++; throw Error('L=0 read a stream'); } };
+const result = await classify({
+ app: { id: 'example', manifest }, opts: { only: 'bundle' }, origin, channel: 'prod',
+ snapshot: { id: 'fixture', commit: 'fixture', dirty: false }, release: 'fixture',
+ web: '.', bundle: {}, platforms: ['linux'], wantOrigin: false,
+ compat: { linux: { id: '00000000000000000000000000000000', inputs: { store: { L: '0' }, executors: [] } } }
+});
+assert.equal(reads, 0);
+assert.equal(result.rows.length, 1);
+assert.equal(result.rows[0].kind, 'binary');
+assert.equal(result.rows[0].action, 'binary');
+assert.match(renderTable(result), /links no update store/);
+assert.doesNotMatch(renderTable(result), /linux\s+stream/);
+console.log('level-zero deploy: binary only, zero stream reads');
+"#;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let result = std::process::Command::new("node")
+        .args(["--input-type=module", "-e", script])
+        .current_dir(root)
+        .output()
+        .expect("Node runs the existing publisher");
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+}

@@ -31,4 +31,14 @@ fn main() {
     let compat = contract::compatibility_id(&app_dir, platform, &target, &manifest, Some(grants))
         .unwrap_or_else(|e| panic!("compatibility id: {e}"));
     std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
+    let host = if compat.inputs["store"]["L"] == "0" {
+        "exact_apple"
+    } else {
+        "exact_apple_update"
+    };
+    std::fs::write(
+        out_dir.join("entry.rs"),
+        format!("{host}::host!(caltrain_data::Caltrain, PLAN, COMPAT);\n"),
+    )
+    .unwrap();
 }

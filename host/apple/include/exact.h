@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 2
+#define EXACT_ABI_VERSION 3
 
 #ifdef __cplusplus
 extern "C" {
@@ -145,38 +145,21 @@ uint32_t exact_intrinsic(ExactRuntime rt, uint32_t view, float width, float heig
  * buffer — JSON, not a batch. */
 uint32_t exact_agent(ExactRuntime rt, size_t len);
 
-/* The update store (LLP 1026 D9/D11; LLP 1030 D7): one per process — the
- * app's container holds it and every runtime boots from the same selection
- * — so these take no handle, except exact_update_sync. The same buffer
- * discipline, with the store's own pair: exact_update_in(len) is where a
- * payload goes, each call answers with a length, exact_update_out() is the
- * answer's address. Order at launch: open, then select (the entry's assets
- * directory, for the host's asset overrides), then exact_boot, which boots
- * the selected plan itself — the entry's or the baked one — and counts the
- * boot; exact_update_boot_succeeded at first pixel. The check runs on a
- * thread of the library's own over its transport and reports through done,
- * called on that thread with ctx and one UTF-8 line ("current" / "staged
- * seq N" / "refused: …") alive for the call; the host hops to its main
- * thread and calls exact_update_sync per runtime so the app's delivery
- * resource follows. A binary that links no store (L = 0) refuses open and
- * answers the embedded facts. */
+/* Optional delivery composition (LLP 1030 D4). L=0 returns NULL: no store,
+ * keys, selection, check or networking implementation is linked. The higher
+ * update adapter supplies these calls only when the app chooses L=A. */
 typedef void (*ExactUpdateDoneFn)(void *ctx, const uint8_t *line, size_t len);
-uint8_t *exact_update_in(size_t len);
-const uint8_t *exact_update_out(void);
-/* The payload: {"base":"<data directory>","assets":"<asset root>"}; the store
- * is <base>/exact/<app id>/update. 0, or the refusal's length. */
-uint32_t exact_update_open(size_t len);
-/* {"entry":"<sha256>"|null,"seq":N,"plan":"<path>","assets":"<dir>"}, the
- * paths empty for entry zero. */
-uint32_t exact_update_select(void);
-void exact_update_boot_succeeded(void);
-/* 0 started, 1 a check is already running, 2 no store is open. */
-uint32_t exact_update_check(ExactUpdateDoneFn done, void *ctx);
-/* The staged plan's bytes (the app's deliveryActivate); 0 when none. The
- * host applies them to every session with carry (exact_boot_plan) and takes
- * the entry's assets from exact_update_select. */
-uint32_t exact_update_activate(void);
-uint32_t exact_update_sync(ExactRuntime rt);
+typedef struct {
+    uint8_t *(*input)(size_t len);
+    const uint8_t *(*output)(void);
+    uint32_t (*open)(size_t len);
+    uint32_t (*select)(void);
+    void (*boot_succeeded)(void);
+    uint32_t (*check)(ExactUpdateDoneFn done, void *ctx);
+    uint32_t (*activate)(void);
+} ExactDeliveryApi;
+const ExactDeliveryApi *exact_delivery_api(void);
+uint32_t exact_delivery_sync(ExactRuntime rt);
 
 #ifdef __cplusplus
 }

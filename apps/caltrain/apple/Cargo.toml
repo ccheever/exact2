@@ -18,6 +18,8 @@ crate-type = ["staticlib", "rlib"]
 caltrain-data = { path = "../data" }
 exact-apple = { path = "../../../host/apple" }
 
+exact-apple-update = { path = "../../../host/apple-update" }
+
 [build-dependencies]
 caltrain-data = { path = "../data" }
 contract = { path = "../../../contract/cli" }

@@ -43,6 +43,7 @@ pub struct Updates {
     signal: UnixStream,
     /// A boot's note — the selected entry refused at boot — taken once.
     note: Option<String>,
+    generation: Option<Generation>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -61,6 +62,15 @@ fn data_dir() -> PathBuf {
 }
 
 impl Updates {
+    pub(crate) fn pin(&mut self, generation: Generation) {
+        self.generation = Some(generation);
+    }
+    pub(crate) fn refuse_pinned(&mut self, why: &str) {
+        if let Some(generation) = self.generation.take() {
+            self.selection_corrupt(&generation, why);
+        }
+    }
+
     /// Open the store for the binary whose `compat.json` and baked plan are
     /// given, with `assets` as what it embeds by name. Refused when the
     /// binary links no store, or the directory cannot be made.
@@ -87,6 +97,7 @@ impl Updates {
             wake,
             signal,
             note: None,
+            generation: None,
         })
     }
 
@@ -378,7 +389,7 @@ mod tests {
                 assert!(updates.activate().is_none());
                 let prepared = updates.prepare_selected().unwrap();
                 assert_eq!(prepared.plan.as_ref(), bytes);
-                let (session, _) = crate::host::Host::boot(
+                let (session, _) = exact_linux::Host::boot(
                     &bytes,
                     caltrain_data::Caltrain,
                     Box::<exact_kernel::MonospaceMeasurer>::default(),
@@ -452,6 +463,7 @@ mod tests {
             wake,
             signal,
             note: None,
+            generation: None,
         };
 
         updates.entry_refused("stale-entry", "plan refused");

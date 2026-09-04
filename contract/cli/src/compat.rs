@@ -279,11 +279,22 @@ fn compatibility_with_trust(
     if !matches!(trust, "production" | "development") {
         return Err("EXACT_UPDATE_TRUST must be production or development".into());
     }
-    let keys = manifest.keys()?;
-    let (channel, origin) = manifest.channel();
-    if trust == "production"
-        && (manifest.store(platform) != "0" || origin.is_some())
-        && keys.as_object().is_none_or(|keys| keys.is_empty())
+    let store = manifest.store(platform);
+    if !matches!(store.as_str(), "0" | "A") {
+        return Err(format!("deploy.store.{platform} must be \"0\" or \"A\""));
+    }
+    let binary_only = platform != "web" && store == "0";
+    let keys = if binary_only {
+        Value::Null
+    } else {
+        manifest.keys()?
+    };
+    let (channel, origin) = if binary_only {
+        (String::new(), None)
+    } else {
+        manifest.channel()
+    };
+    if trust == "production" && !binary_only && keys.as_object().is_none_or(|keys| keys.is_empty())
     {
         return Err("production updater requires deploy.signing.keys with at least one verification key; use EXACT_UPDATE_TRUST=development only for a development artifact".into());
     }
@@ -327,7 +338,7 @@ fn compatibility_with_trust(
         "kernelSchema": format!("{:016x}", exact_kernel::SCHEMA_DIGEST),
         "formatVersion": exact_plan::FORMAT_VERSION,
         "formatDigest": format!("{:016x}", exact_plan::FORMAT_DIGEST),
-        "abi": { "c": abi_version()?, "gpuModule": GPU_MODULE_ABI, "storeCodec": STORE_CODEC },
+        "abi": { "c": abi_version()?, "gpuModule": GPU_MODULE_ABI, "storeCodec": if binary_only { Value::Null } else { json!(STORE_CODEC) } },
         "executors": executors,
         "dataCrate": data_crate(app_dir)?,
         // Each shader's reflected interface digest (LLP 1030 D8) — entry
@@ -346,12 +357,12 @@ fn compatibility_with_trust(
         // The verification keys the binary carries (LLP 1026 D11), by id: a
         // rotation is a new cohort (1030 D3a).
         "keys": keys,
-        "trust": trust,
+        "trust": if binary_only { Value::Null } else { json!(trust) },
         "grantCeiling": grants.map_or(Value::Null, |g| Value::String(g.to_string())),
         "platform": platform,
         "arch": target.split('-').next().unwrap_or(target),
         "minimumOS": host.get("minimumOS").and_then(|v| v.as_str()).map_or(Value::Null, |s| Value::String(s.to_string())),
-        "store": { "L": manifest.store(platform), "acceptedKinds": kinds },
+        "store": { "L": store, "acceptedKinds": if binary_only { vec![] } else { kinds } },
         "app": manifest.id,
     });
     let mut canon = String::new();
@@ -649,7 +660,7 @@ mod tests {
         ] {
             assert!(i.get(key).is_some(), "missing {key}: {i}");
         }
-        assert_eq!(i["abi"]["c"], 2);
+        assert_eq!(i["abi"]["c"], 3);
         assert_eq!(i["executors"], serde_json::json!(["native"]));
         assert_eq!(i["arch"], "aarch64");
         assert_eq!(i["minimumOS"], "17.0");
@@ -725,10 +736,24 @@ mod tests {
                 .is_ok()
         );
         manifest.json["app"]["origin"] = serde_json::json!("https://updates.example");
-        assert!(
+        let zero =
             compatibility_with_trust(&dir, "linux", "aarch64", &manifest, None, "production")
-                .is_err()
+                .unwrap();
+        assert!(zero.inputs["keys"].is_null());
+        assert!(zero.inputs["trust"].is_null());
+        assert!(zero.inputs["abi"]["storeCodec"].is_null());
+        assert_eq!(zero.inputs["store"]["acceptedKinds"], serde_json::json!([]));
+        assert!(zero.origin.is_none());
+        manifest.json["deploy"]["signing"]["keys"] =
+            serde_json::json!({"ignored":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="});
+        let changed =
+            compatibility_with_trust(&dir, "linux", "aarch64", &manifest, None, "development")
+                .unwrap();
+        assert_eq!(
+            zero.id, changed.id,
+            "a missing updater has no key or trust epoch"
         );
+        manifest.json["deploy"]["store"] = serde_json::json!({"linux":"A"});
         manifest.json["deploy"]["signing"]["keys"] =
             serde_json::json!({"k":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="});
         let production =
