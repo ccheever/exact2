@@ -50,9 +50,9 @@
 // head and writing the next one — a test flag for racing two publishers.
 import { spawnSync } from 'node:child_process';
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir, hostname, userInfo } from 'node:os';
-import { relative, resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir, hostname, tmpdir, userInfo } from 'node:os';
+import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveApp } from './app.mjs';
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath } from './origin.mjs';
@@ -224,17 +224,336 @@ function keygen(opts) {
 
 // -------------------------------------------------------------- the snapshot
 
-/** The snapshot (LLP 1030.000 D3 item 1): `HEAD` of the repository holding the app, with the app's tree clean unless `--dirty`. */
-function snapshotOf(app, opts) {
-  const git = (...args) => spawnSync('git', args, { cwd: app.dir, encoding: 'utf8' });
-  const top = git('rev-parse', '--show-toplevel');
-  if (top.status !== 0) refuse(`${app.dir} is not in a git repository: exact deploy publishes a snapshot, never a mutable tree (LLP 1030.000 D3)`);
-  const commit = git('rev-parse', 'HEAD').stdout.trim();
-  if (!/^[0-9a-f]{40}$/.test(commit)) refuse(`${app.dir}: git has no HEAD commit to snapshot`);
-  const status = git('status', '--porcelain', '--', '.').stdout.split('\n').filter(Boolean);
-  if (status.length && !opts.dirty) refuse(`the app tree under ${app.dir} has uncommitted changes:\n  ${status.join('\n  ')}\ncommit them, or pass --dirty to publish the working tree as it is (the table says so loudly)`);
-  if (opts.snapshot && !commit.startsWith(opts.snapshot.toLowerCase())) refuse(`HEAD is ${commit}, not --snapshot ${opts.snapshot}: the dry run and its --yes are the same snapshot or the second refuses (LLP 1030.000 D3)`);
-  return { commit, dirty: status.length > 0, changes: status, repo: top.stdout.trim() };
+const snapshotCaptures = new WeakMap();
+const inside = (root, path) => {
+  const rel = relative(root, path);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+};
+const unixPath = (path) => path.split(sep).join('/');
+function canonicalPath(path) {
+  const absolute = resolve(path);
+  try { return realpathSync.native(absolute); } catch {
+    const parent = dirname(absolute);
+    return parent === absolute ? absolute : resolve(canonicalPath(parent), basename(absolute));
+  }
+}
+
+/** Only actual build outputs are absent from a source snapshot. These are
+ * explicit root paths, not recursive basename patterns: `assets/dist/a.png`
+ * and `fixtures/target/input.rs` remain inputs when the app carries them. */
+function sourcePathspec(repo, app, exactRoot) {
+  const workspace = canonicalPath(app.workspace ?? app.dir);
+  const outputs = [resolve(repo, 'target'), resolve(repo, 'node_modules'),
+    resolve(repo, '.agent-skill-sources'), resolve(repo, '.agent-skill-backups'), resolve(repo, '.llp/ship-runs'),
+    canonicalPath(app.target ?? resolve(workspace, 'target')), resolve(workspace, 'target'), resolve(workspace, 'node_modules'),
+    resolve(exactRoot, 'target'), resolve(exactRoot, 'node_modules'), resolve(exactRoot, 'host/web/dist'),
+    resolve(exactRoot, 'host/web/dist.previous'), resolve(exactRoot, 'host/apple/.build'),
+    resolve(exactRoot, 'host/apple/macos/.build'), resolve(exactRoot, '.claude/worktrees')];
+  // Keep the lexical path as well as its canonical alias. In particular,
+  // `target -> /shared/cache` is still the declared in-repo output root; if
+  // we realpath it first, the symlink itself re-enters the source inventory.
+  const candidates = outputs.flatMap((path) => [resolve(path), canonicalPath(path)]);
+  const excluded = [...new Set(candidates.filter((path) => path !== repo && inside(repo, path))
+    .map((path) => unixPath(relative(repo, path))))];
+  return ['.', ...excluded.flatMap((path) => [`:(exclude,top,literal)${path}`, `:(exclude,top,glob)${path}/**`])];
+}
+
+const SOURCE_MAX_BUFFER = 512 * 1024 * 1024;
+function gitResult(repo, args, what, options = {}) {
+  const result = spawnSync('git', args, { cwd: repo, maxBuffer: SOURCE_MAX_BUFFER, ...options });
+  if (result.status !== 0) refuse(`${repo}: ${what}: ${String(result.stderr ?? result.error?.message ?? '').trim()}`);
+  return result;
+}
+
+function gitText(repo, args, what, options = {}) {
+  return gitResult(repo, args, what, { encoding: 'utf8', ...options }).stdout;
+}
+
+function repoTop(cwd, what = 'source') {
+  const top = gitText(cwd, ['rev-parse', '--show-toplevel'], `${what} is not in a git repository`).trim();
+  if (!top) refuse(`${cwd}: ${what} is not in a git repository`);
+  return canonicalPath(top);
+}
+
+/** Local Cargo packages outside the app and Exact repositories are source
+ * inputs too. A package can inherit fields or read inputs from its workspace
+ * root, so the immutable unit is its whole repository, not just its crate. */
+function cargoDependencyRoots(app, exactRoot) {
+  const workspace = canonicalPath(app.workspace ?? app.dir);
+  if (!existsSync(resolve(workspace, 'Cargo.toml'))) return [];
+  const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--locked'], {
+    cwd: workspace, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.status !== 0) refuse(`${workspace}: cargo cannot resolve the locked local source graph: ${result.stderr.trim()}`);
+  let metadata;
+  try { metadata = JSON.parse(result.stdout); }
+  catch (error) { refuse(`${workspace}: cargo metadata was not JSON: ${error.message}`); }
+  const owned = new Set([repoTop(app.dir, 'app source'), repoTop(exactRoot, 'Exact source')]);
+  const repos = new Set();
+  for (const pkg of metadata.packages ?? []) {
+    if (pkg.source !== null || typeof pkg.manifest_path !== 'string') continue;
+    const packageDir = canonicalPath(dirname(pkg.manifest_path));
+    const repo = repoTop(packageDir, 'local Cargo dependency');
+    if (owned.has(repo)) continue;
+    repos.add(repo);
+  }
+  return [...repos].sort().map((cwd) => ({ role: 'cargo', cwd }));
+}
+
+function parseTreeEntries(repo, env, tree) {
+  const listed = gitText(repo, ['ls-tree', '-rz', '-l', '--full-tree', tree], `could not inventory captured tree ${tree}`, { env });
+  return listed.split('\0').filter(Boolean).map((line) => {
+    const match = /^(\d{6}) ([a-z]+) ([0-9a-f]+)\s+(\d+|-)\t([\s\S]+)$/.exec(line);
+    if (!match) refuse(`${repo}: malformed entry in captured tree ${tree}`);
+    return { mode: match[1], type: match[2], oid: match[3], bytes: match[4] === '-' ? null : Number(match[4]), name: match[5] };
+  });
+}
+
+/** Refuse captured objects that could lead checkout outside the private
+ * source root. Regular files are materialized by checkout-index below so Git
+ * clean/smudge filters (including LFS-style pointers) keep their worktree form. */
+function validateCapturedTree(source, sources, env, tree) {
+  const entries = parseTreeEntries(source.repo, env, tree);
+  const absoluteLinks = [];
+  for (const entry of entries.filter((item) => item.type === 'commit')) {
+    const nested = canonicalPath(resolve(source.repo, entry.name));
+    if (!sources.some((candidate) => candidate.repo === nested)) {
+      refuse(`${source.repo}: ${entry.name} is a Git submodule whose repository is not in the captured Cargo source graph`);
+    }
+  }
+  for (const entry of entries.filter((item) => item.type === 'blob')) {
+    if (entry.mode === '100644' || entry.mode === '100755') continue;
+    if (entry.mode !== '120000') refuse(`${source.repo}: captured source ${entry.name} has unsupported Git mode ${entry.mode}`);
+    const content = gitResult(source.repo, ['cat-file', 'blob', entry.oid], `could not read captured symlink ${entry.name}`, { env }).stdout;
+    const target = content.toString('utf8');
+    if (!Buffer.from(target).equals(content) || !target || target.includes('\0')) refuse(`${source.repo}: captured symlink ${entry.name} has a non-text target`);
+    // Resolve against the captured repository layout only. realpath here
+    // would traverse a live sibling link after the tree was frozen and could
+    // redirect an otherwise immutable absolute-link relocation.
+    const originalTarget = resolve(source.repo, dirname(entry.name), target);
+    if (!sources.some((candidate) => inside(candidate.repo, originalTarget))) {
+      refuse(`${source.repo}: captured symlink ${entry.name}${isAbsolute(target) ? ' has an absolute target that' : ''} escapes the captured source repositories`);
+    }
+    if (isAbsolute(target)) absoluteLinks.push({ name: entry.name, originalTarget });
+  }
+  return absoluteLinks;
+}
+
+function addCapturedPaths(repo, env, paths, force, what) {
+  if (!paths.length) return;
+  gitResult(repo, ['--literal-pathspecs', 'add', ...(force ? ['--force'] : []), '--all',
+    '--pathspec-from-file=-', '--pathspec-file-nul'], what,
+  { env, input: Buffer.from(`${[...new Set(paths)].sort().join('\0')}\0`) });
+}
+
+function captureRepository(source, sources, captureRoot, stagedRoot, common, app, exactRoot) {
+  const scratch = mkdtempSync(resolve(captureRoot, '.git-index-'));
+  const objects = resolve(scratch, 'objects');
+  mkdirSync(objects);
+  const originalObjects = canonicalPath(resolve(source.repo,
+    gitText(source.repo, ['rev-parse', '--git-path', 'objects'], 'could not locate Git objects').trim()));
+  const env = { ...process.env };
+  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY']) delete env[name];
+  env.GIT_INDEX_FILE = resolve(scratch, 'index');
+  env.GIT_OBJECT_DIRECTORY = objects;
+  env.GIT_ALTERNATE_OBJECT_DIRECTORIES = [originalObjects, process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES].filter(Boolean).join(delimiter);
+  try {
+    const pathspec = sourcePathspec(source.repo, app, exactRoot);
+    const excluded = pathspec.slice(1).filter((path) => path.startsWith(':(exclude,top,literal)'))
+      .map((path) => path.slice(':(exclude,top,literal)'.length));
+    gitResult(source.repo, ['read-tree', source.commit], 'could not start the captured Git tree', { env });
+    if (excluded.length) gitResult(source.repo, ['--literal-pathspecs', 'rm', '-r', '-f', '--cached', '--ignore-unmatch', '--', ...excluded],
+      'could not remove generated outputs from the captured tree', { env });
+    const allowed = (path) => !excluded.some((root) => path === root || path.startsWith(`${root}/`));
+    const committed = gitText(source.repo, ['ls-tree', '-rz', '--name-only', source.commit],
+      'could not inventory committed source').split('\0').filter((path) => path && allowed(path));
+    const ordinary = gitText(source.repo, ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...pathspec],
+      'could not inventory tracked and untracked source').split('\0').filter((path) => path && allowed(path));
+    // The temporary index starts empty, so a tracked file beneath a newly
+    // ignored parent looks ignored to `git add`; force only this inventoried set.
+    addCapturedPaths(source.repo, env, [...committed, ...ordinary], true, 'could not capture tracked and untracked source');
+    // Gitignore is not a source/output declaration: build.rs or another
+    // committed tool can read beneath an ignored directory. Capture every
+    // ignored file except the precise generated roots in sourcePathspec.
+    const ignored = gitText(source.repo, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--',
+      ...pathspec], 'could not inventory ignored source inputs').split('\0').filter((path) => path && allowed(path));
+    addCapturedPaths(source.repo, env, ignored, true, 'could not capture ignored source inputs');
+    const tree = gitText(source.repo, ['write-tree'], 'could not freeze the captured source tree', { env }).trim();
+    const status = gitText(source.repo,
+      ['diff-tree', '-r', '--no-commit-id', '--name-status', '-z', '--no-renames', source.commit, tree, '--', ...pathspec],
+      'could not inventory captured changes', { env }).split('\0').filter(Boolean);
+    if (status.length % 2 !== 0) refuse(`${source.repo}: malformed captured change inventory`);
+    const changes = [];
+    for (let index = 0; index < status.length; index += 2) changes.push(`${status[index].padEnd(2)} ${status[index + 1]}`);
+    const destination = resolve(stagedRoot, relative(common, source.repo));
+    if (!inside(stagedRoot, destination)) refuse(`${source.repo}: cannot be placed under the private source root`);
+    mkdirSync(destination, { recursive: true });
+    const absoluteLinks = validateCapturedTree(source, sources, env, tree);
+    gitResult(source.repo, ['checkout-index', '--all', '--force', `--prefix=${destination}${sep}`],
+      'could not materialize the captured source tree', { env });
+    // An absolute link into a captured repository has safe source semantics,
+    // but its literal checkout would point back at the live tree. Relocate it
+    // to the corresponding captured path before any bake can observe it.
+    for (const link of absoluteLinks) {
+      const path = resolve(destination, link.name);
+      const target = resolve(stagedRoot, relative(common, link.originalTarget));
+      if (!inside(destination, path) || !inside(stagedRoot, target)) refuse(`${source.repo}: captured symlink ${link.name} cannot be relocated safely`);
+      rmSync(path);
+      symlinkSync(relative(dirname(path), target) || '.', path);
+    }
+    return { ...source, tree, pathspec,
+      workingSha256: sha256(Buffer.from(`exact2 working source tree v3\n${tree}\n`)), changes };
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+}
+
+/** The snapshot (LLP 1030.000 D3 item 1): capture every repository and every
+ * dirty source byte the bake can read. Ignored files are source too unless
+ * they are under a precise generated-output root. */
+export function snapshotOf(app, opts, exactRoot = ROOT) {
+  const sourceRoots = [
+    { role: 'app', cwd: canonicalPath(app.dir) },
+    { role: 'exact2', cwd: canonicalPath(exactRoot) },
+    ...cargoDependencyRoots(app, exactRoot),
+  ];
+  const repos = new Map();
+  for (const { role, cwd } of sourceRoots) {
+    const repo = repoTop(cwd, `source for ${role}`);
+    const existing = repos.get(repo);
+    if (existing) { existing.roles.add(role); continue; }
+    const commit = gitText(repo, ['rev-parse', 'HEAD'], 'git has no HEAD commit to snapshot').trim();
+    if (!/^[0-9a-f]{40}$/.test(commit)) refuse(`${repo}: git has no HEAD commit to snapshot`);
+    repos.set(repo, { repo, roles: new Set([role]), commit });
+  }
+  const sourceList = [...repos.values()].map((source) => ({ ...source,
+    roles: [...source.roles].sort() }));
+  const common = commonParent(sourceList.map((source) => source.repo));
+  // Keep even the pre-run capture outside every live repository. Cargo walks
+  // ancestor directories for configuration, so a stage beneath `target/`
+  // would still let a mutable checkout influence the supposedly frozen bake.
+  const captureRoot = privateCaptureRoot(sourceList);
+  const stagedSourceRoot = resolve(captureRoot, 'source');
+  mkdirSync(stagedSourceRoot);
+  try {
+    const captured = sourceList.map((source) => captureRepository(source, sourceList, captureRoot,
+      stagedSourceRoot, common, app, exactRoot));
+    const changes = captured.flatMap((source) => source.changes.map((change) => `${source.roles.join('+')} ${change}`));
+    if (changes.length && !opts.dirty) refuse(`the source repository${captured.length === 1 ? '' : 'ies'} this bake reads ${captured.length === 1 ? 'has' : 'have'} uncommitted or ignored source files:\n  ${changes.join('\n  ')}\ncommit them, or pass --dirty to publish those captured bytes (the table says so loudly)`);
+    const id = captured.length === 1 && changes.length === 0 ? captured[0].commit
+      : sha256(Buffer.from(`exact2 source snapshot v3\n${captured.map((source) => `${source.roles.join('+')} ${source.commit} ${source.workingSha256}`).join('\n')}\n`)).slice(0, 40);
+    if (opts.snapshot && !id.startsWith(opts.snapshot.toLowerCase())) refuse(`the source snapshot is ${id}, not --snapshot ${opts.snapshot}: the dry run and its --yes must name the same complete source set (LLP 1030.000 D3)`);
+    const sources = captured.map(({ repo, roles, commit, workingSha256, changes: sourceChanges }) => ({ repo, roles, commit, workingSha256, changes: sourceChanges }));
+    const snapshot = { id, commit: sources[0].commit, dirty: changes.length > 0, changes, repo: sources[0].repo, sources };
+    snapshotCaptures.set(snapshot, { sources: captured, common, captureRoot, stagedSourceRoot,
+      appDir: canonicalPath(app.dir), appWorkspace: canonicalPath(app.workspace ?? app.dir), exactRoot: canonicalPath(exactRoot) });
+    return snapshot;
+  } catch (error) {
+    rmSync(captureRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function commonParent(paths) {
+  let common = dirname(paths[0]);
+  while (!paths.every((path) => inside(common, path))) {
+    const parent = dirname(common);
+    if (parent === common) refuse(`source repositories on unrelated filesystem roots cannot share one materialized bake: ${paths.join(', ')}`);
+    common = parent;
+  }
+  return common;
+}
+
+/** Allocate a private capture that is proved not to sit beneath any mutable
+ * source checkout. TMPDIR is caller-controlled and commonly points at a
+ * project-local target directory, so it is only a candidate, never trust. */
+function privateCaptureRoot(sources) {
+  let problem = '';
+  for (const base of [...new Set([tmpdir(), resolve(sep, 'tmp')])]) {
+    let candidate;
+    try { candidate = canonicalPath(mkdtempSync(resolve(base, 'exact-source-capture-'))); }
+    catch (error) { problem = `${base}: ${error.message}`; continue; }
+    if (!sources.some((source) => inside(source.repo, candidate))) return candidate;
+    problem = `${candidate} is inside a captured source repository`;
+    rmSync(candidate, { recursive: true, force: true });
+  }
+  refuse(`could not allocate a source capture outside the live repositories${problem ? `: ${problem}` : ''}`);
+}
+
+/** Child tools may ask Git about their source directory. Keep discovery and
+ * explicit Git process state inside the private snapshot boundary. */
+function sealedSourceEnv(sourceRoot, extra = {}) {
+  const env = { ...process.env, ...extra };
+  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE',
+    'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[name];
+  env.GIT_CEILING_DIRECTORIES = sourceRoot;
+  env.GIT_DISCOVERY_ACROSS_FILESYSTEM = '0';
+  return env;
+}
+
+/** Prove Cargo will consume only the captured tree. Cargo canonicalizes path
+ * dependencies in its own graph, so this catches absolute paths and symlink
+ * aliases that would otherwise lead a staged build back into a live checkout. */
+function assertMaterializedCargoClosure(workspaces, sourceRoot, target) {
+  const capturedRoot = canonicalPath(sourceRoot);
+  for (const workspace of [...new Set(workspaces)]) {
+    if (!existsSync(resolve(workspace, 'Cargo.toml'))) continue;
+    const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--locked'], {
+      cwd: workspace, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: target }), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    });
+    if (result.status !== 0) refuse(`${workspace}: materialized Cargo graph does not resolve: ${result.stderr.trim()}`);
+    let metadata;
+    try { metadata = JSON.parse(result.stdout); }
+    catch (error) { refuse(`${workspace}: materialized cargo metadata was not JSON: ${error.message}`); }
+    for (const pkg of metadata.packages ?? []) {
+      if (pkg.source !== null) continue;
+      const inputs = [['manifest', pkg.manifest_path],
+        ...(pkg.targets ?? []).map((target) => [`target ${target.name ?? '(unnamed)'}`, target.src_path])];
+      for (const [kind, input] of inputs) {
+        if (typeof input !== 'string') refuse(`${workspace}: materialized Cargo package ${pkg.name ?? '(unnamed)'} has no ${kind} path`);
+        const path = canonicalPath(input);
+        if (!inside(capturedRoot, path)) {
+          refuse(`${workspace}: materialized Cargo package ${pkg.name ?? '(unnamed)'} ${kind} resolves outside the captured source root at ${path}`);
+        }
+      }
+    }
+  }
+}
+
+/** Bind the already-materialized capture to this run. Source stays in its
+ * private temporary root so Cargo cannot discover live ancestor config. */
+export function materializeSnapshot(snapshot, run, app) {
+  const capture = snapshotCaptures.get(snapshot);
+  if (!capture) refuse('the source snapshot was not captured by this deploy process and cannot be materialized');
+  const sourceRoot = capture.stagedSourceRoot;
+  // An invalid gitfile is a hard discovery boundary for a child that clears
+  // the Git ceiling; an empty .git directory is skipped when an outer repo exists.
+  writeFileSync(resolve(sourceRoot, '.git'), 'exact deploy source boundary\n', { flag: 'wx' });
+  const destinations = new Map();
+  for (const source of capture.sources) {
+    const destination = resolve(sourceRoot, relative(capture.common, source.repo));
+    if (!inside(sourceRoot, destination)) refuse(`source repository ${source.repo} cannot be placed under the private run`);
+    destinations.set(source.repo, destination);
+  }
+  const stagedPath = (path) => {
+    const source = capture.sources.filter((candidate) => inside(candidate.repo, path)).sort((a, b) => b.repo.length - a.repo.length)[0];
+    if (!source) refuse(`${path} is not in the captured source repositories`);
+    return resolve(destinations.get(source.repo), relative(source.repo, path));
+  };
+  const dir = stagedPath(capture.appDir);
+  const workspace = stagedPath(capture.appWorkspace);
+  const exactRoot = stagedPath(capture.exactRoot);
+  // An explicitly supplied Cargo target is already the caller's chosen
+  // isolation boundary (the deploy smoke uses one private cache for all of
+  // its runs). Otherwise keep absolute source paths out of the live target by
+  // giving this materialized generation its own cache.
+  const target = process.env.CARGO_TARGET_DIR ? canonicalPath(process.env.CARGO_TARGET_DIR) : resolve(run, 'cargo-target');
+  assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target);
+  return {
+    exactRoot, sourceRoot,
+    // Identity and policy are deliberately not copied from the launcher's
+    // already-loaded module graph. The captured deploy process resolves them.
+    app: { name: app.name, dir, workspace, target,
+      crate: (kind) => `${app.name}-${kind}` },
+  };
 }
 
 /** A human correlation id with millisecond UTC time, snapshot prefix, and a
@@ -255,11 +574,14 @@ export function deployRun(target, release) {
 // ------------------------------------------------------------------ the bake
 
 /** Bake the web app into `<run>/web` (`host/web/build.mjs` with `EXACT_WEB_DIST`): its output goes to stderr so stdout stays the table. Returns the directory. */
-function bake(app, run) {
+function bake(app, run, exactRoot, sourceRoot) {
   mkdirSync(run, { recursive: true });
   const web = resolve(run, 'web');
-  const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], {
-    cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: web }, stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  const env = sealedSourceEnv(sourceRoot, { EXACT_WEB_DIST: web, CARGO_TARGET_DIR: app.target });
+  if (app.workspace === exactRoot) delete env.EXACT_APP_DIR;
+  else env.EXACT_APP_DIR = app.dir;
+  const r = spawnSync(process.execPath, [resolve(exactRoot, 'host/web/build.mjs'), app.crate('web')], {
+    cwd: exactRoot, env, stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   });
   if (r.stdout) process.stderr.write(r.stdout);
   if (r.status !== 0) refuse(`the bake failed: host/web/build.mjs ${app.crate('web')} exited ${r.status ?? r.signal}`);
@@ -268,8 +590,11 @@ function bake(app, run) {
 }
 
 /** The bundle the bake produced (LLP 1023 D2's cards with their bytes): the plan and every asset `exact.json` lists — the same bytes for every platform in v1. */
-function readBundle(web) {
+function readBundle(web, app) {
   const envelope = JSON.parse(readFileSync(resolve(web, 'exact.json'), 'utf8'));
+  if (envelope.app?.id !== app.id || envelope.app?.name !== app.displayName) {
+    refuse(`${web}/exact.json names ${JSON.stringify(envelope.app ?? null)}, not the captured app ${JSON.stringify({ id: app.id, name: app.displayName })}`);
+  }
   const plan = readFileSync(resolve(web, 'app.plan'));
   if (sha256(plan) !== envelope.plan.sha256) refuse(`${web}/app.plan is not the plan exact.json names`);
   const assets = (envelope.assets ?? []).map((card) => {
@@ -281,8 +606,10 @@ function readBundle(web) {
 }
 
 /** The compatibility id and its inputs for `platform` (LLP 1030 D3a), from `contract compat` with the platform's default target. */
-function compatOf(app, platform) {
-  const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'compat', app.dir, '--platform', platform, '--json'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 });
+function compatOf(app, platform, exactRoot, sourceRoot) {
+  const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'compat', app.dir, '--platform', platform, '--json'], {
+    cwd: exactRoot, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target }), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024,
+  });
   if (r.status !== 0) refuse(`contract compat --platform ${platform} failed:\n${r.stderr}`);
   const compat = JSON.parse(r.stdout);
   if (!/^[0-9a-f]{32}$/.test(compat.id ?? '')) refuse(`contract compat --platform ${platform} printed no id`);
@@ -496,7 +823,11 @@ const inputsDiff = (a, b) => Object.keys({ ...a, ...b }).filter((k) => canonical
 /** The table (LLP 1030 D3; 1030.000 D3 item 3): the origin row, a row per stream, a binary row per stream whose cohort this snapshot is not. Nothing is written. */
 export async function classify({ app, opts, origin, channel, snapshot, release, web, bundle, compat, platforms, wantOrigin }) {
   const notes = [];
-  if (snapshot.dirty) notes.push(`UNCOMMITTED CHANGES under ${relative(snapshot.repo, app.dir) || '.'} are in this snapshot (--dirty): ${snapshot.changes.join(', ')}`);
+  if (snapshot.dirty) {
+    const shown = snapshot.changes.slice(0, 20);
+    const remainder = snapshot.changes.length - shown.length;
+    notes.push(`UNCOMMITTED CHANGES under ${relative(snapshot.repo, app.dir) || '.'} are in this snapshot (--dirty): ${shown.join(', ')}${remainder ? `, … and ${remainder} more (all are in --json)` : ''}`);
+  }
   const rows = [];
 
   if (wantOrigin) {
@@ -607,15 +938,17 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
     });
   }
 
-  return { release, snapshot: { commit: snapshot.commit, dirty: snapshot.dirty, changes: snapshot.changes }, app: { id: app.id, name: app.displayName }, channel, origin: { kind: origin.kind, location: origin.describe() }, dryRun: !opts.yes, notes, rows };
+  return { release, snapshot: { id: snapshot.id ?? snapshot.commit, commit: snapshot.commit, dirty: snapshot.dirty, changes: snapshot.changes,
+    ...(snapshot.sources ? { sources: snapshot.sources.map(({ roles, commit, workingSha256 }) => ({ roles, commit, workingSha256 })) } : {}) },
+  app: { id: app.id, name: app.displayName }, channel, origin: { kind: origin.kind, location: origin.describe() }, dryRun: !opts.yes, notes, rows };
 }
 
 // ------------------------------------------------------------------ printing
 
 /** The table in D3's shape: the release line, one row per line with its carrier on the right. */
-function renderTable(table) {
+export function renderTable(table) {
   const line = (label, detail, action) => `${label.padEnd(8)} ${detail.padEnd(60)} → ${action}`;
-  const out = [`release ${table.release} · snapshot ${table.snapshot.commit.slice(0, 12)}${table.snapshot.dirty ? ' (DIRTY)' : ''} · channel ${table.channel} · origin ${table.origin.location}${table.origin.kind === 'https' ? ' (read-only)' : ''}`];
+  const out = [`release ${table.release} · snapshot ${(table.snapshot.id ?? table.snapshot.commit).slice(0, 12)}${table.snapshot.dirty ? ' (DIRTY)' : ''} · channel ${table.channel} · origin ${table.origin.location}${table.origin.kind === 'https' ? ' (read-only)' : ''}`];
   for (const note of table.notes) out.push(`!! ${note}`);
   for (const row of table.rows) {
     if (row.kind === 'origin') {
@@ -716,8 +1049,33 @@ async function publishRoot({ origin, row, web, log }) {
 
 // -------------------------------------------------------------------- deploy
 
-async function deploy(opts) {
+async function deployCaptured(opts, capsule) {
+  if (capsule?.version !== 1 || typeof capsule.run !== 'string'
+    || typeof capsule.sourceRoot !== 'string' || typeof capsule.exactRoot !== 'string'
+    || typeof capsule.release !== 'string' || !capsule.snapshot || !capsule.app
+    || !Array.isArray(capsule.snapshot.sources)
+    || capsule.snapshot.sources.some((source) => typeof source?.repo !== 'string')) {
+    refuse('the private deploy capsule is malformed');
+  }
+  const run = canonicalPath(capsule.run);
+  const sourceRoot = canonicalPath(capsule.sourceRoot);
+  const exactRoot = canonicalPath(capsule.exactRoot);
+  const liveRepos = capsule.snapshot.sources.map((source) => canonicalPath(source.repo));
+  if (basename(sourceRoot) !== 'source' || !basename(dirname(sourceRoot)).startsWith('exact-source-capture-')
+    || liveRepos.some((repo) => inside(repo, sourceRoot)) || !inside(sourceRoot, exactRoot)
+    || inside(run, sourceRoot) || inside(sourceRoot, run) || exactRoot !== canonicalPath(ROOT)) {
+    refuse('the private deploy capsule does not name this captured source tree');
+  }
+  process.env.CARGO_TARGET_DIR = canonicalPath(capsule.app.target);
+  if (capsule.app.external) process.env.EXACT_APP_DIR = canonicalPath(capsule.app.dir);
+  else delete process.env.EXACT_APP_DIR;
   const app = resolveApp(opts._[0]);
+  if (canonicalPath(app.dir) !== canonicalPath(capsule.app.dir)
+    || canonicalPath(app.workspace) !== canonicalPath(capsule.app.workspace)) {
+    refuse('the captured app resolver does not select the app and workspace frozen by the launcher');
+  }
+  const snapshot = capsule.snapshot;
+  const release = capsule.release;
   const channel = opts.channel ?? channelOf(app.manifest);
   if (channel === 'blobs' || !/^[A-Za-z0-9._-]+$/.test(channel)) refuse(`the channel ${JSON.stringify(channel)} cannot name a directory under .exact/`);
   const originSpec = opts.origin ?? app.manifest.deploy?.channels?.[channel] ?? app.origin;
@@ -733,14 +1091,11 @@ async function deploy(opts) {
   const signer = opts.yes && platforms.length ? loadSigner(app, opts.keys) : null;
   if (signer) log(`signing as ${signer.keyId} (${signer.path})`);
 
-  const snapshot = snapshotOf(app, opts);
-  const release = opts.release ?? defaultRelease(snapshot.commit);
-  const run = deployRun(app.target, release);
-  log(`snapshot ${snapshot.commit}${snapshot.dirty ? ' + uncommitted changes (--dirty)' : ''}; baking into ${run}`);
-  const web = bake(app, run);
-  const bundle = readBundle(web);
+  log(`snapshot ${snapshot.id}${snapshot.sources.length > 1 ? ` (${snapshot.sources.map((source) => `${source.roles.join('+')} ${source.commit.slice(0, 7)}`).join(', ')})` : ''}${snapshot.dirty ? ' + uncommitted changes (--dirty)' : ''}; baking into ${run}`);
+  const web = bake(app, run, exactRoot, sourceRoot);
+  const bundle = readBundle(web, app);
   const compat = {};
-  for (const platform of ['web', ...platforms]) compat[platform] = compatOf(app, platform);
+  for (const platform of ['web', ...platforms]) compat[platform] = compatOf(app, platform, exactRoot, sourceRoot);
   log(`compatibility ids: ${Object.entries(compat).map(([p, c]) => `${p} ${c.id}`).join(', ')}`);
 
   const table = await classify({ app, opts, origin, channel, snapshot, release, web, bundle, compat, platforms, wantOrigin });
@@ -785,14 +1140,63 @@ async function deploy(opts) {
   return failed.length ? 1 : 0;
 }
 
+/** The live module graph is only a launcher: freeze and relocate all source,
+ * then execute the publisher itself from that captured Exact tree. This keeps
+ * app resolution, bake, classification, signing, and publication on one
+ * immutable implementation even when the checkout changes during the run. */
+async function deploy(opts) {
+  const locatedApp = resolveApp(opts._[0]);
+  const snapshot = snapshotOf(locatedApp, opts);
+  const capture = snapshotCaptures.get(snapshot);
+  try {
+    const release = opts.release ?? defaultRelease(snapshot.id);
+    const run = deployRun(locatedApp.target, release);
+    const materialized = materializeSnapshot(snapshot, run, locatedApp);
+    const capsule = {
+      version: 1, snapshot, release, run, sourceRoot: materialized.sourceRoot,
+      exactRoot: materialized.exactRoot,
+      app: {
+        name: locatedApp.name, dir: materialized.app.dir,
+        workspace: materialized.app.workspace, target: materialized.app.target,
+        external: canonicalPath(locatedApp.workspace) !== canonicalPath(ROOT),
+      },
+    };
+    const capsulePath = resolve(materialized.sourceRoot, '.deploy-capsule.json');
+    writeFileSync(capsulePath, `${JSON.stringify(capsule)}\n`, { flag: 'wx', mode: 0o600 });
+    const env = sealedSourceEnv(materialized.sourceRoot, {
+      CARGO_TARGET_DIR: materialized.app.target,
+      EXACT_DEPLOY_CAPSULE: capsulePath,
+    });
+    const child = spawnSync(process.execPath,
+      [canonicalPath(resolve(materialized.exactRoot, 'scripts/deploy.mjs')), ...process.argv.slice(2)],
+      { cwd: process.cwd(), env, stdio: 'inherit' });
+    const consumed = !existsSync(capsulePath);
+    if (child.error) refuse(`could not execute the captured deploy publisher: ${child.error.message}`);
+    if (child.status === null) refuse(`the captured deploy publisher ended on signal ${child.signal ?? 'unknown'}`);
+    if (!consumed) refuse('the captured deploy publisher exited without consuming its private capsule');
+    return child.status;
+  } finally {
+    if (capture) rmSync(capture.captureRoot, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help || !opts._.length) { console.log(USAGE); return opts.help ? 0 : 2; }
   if (opts._[0] === 'keygen') return keygen(opts);
+  const capsulePath = process.env.EXACT_DEPLOY_CAPSULE;
+  if (capsulePath) {
+    delete process.env.EXACT_DEPLOY_CAPSULE;
+    let capsule;
+    try { capsule = JSON.parse(readFileSync(capsulePath, 'utf8')); }
+    catch (error) { refuse(`could not read the private deploy capsule: ${error.message}`); }
+    rmSync(capsulePath, { force: true });
+    return deployCaptured(opts, capsule);
+  }
   return deploy(opts);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url))) {
   main().then((code) => { process.exitCode = code; }, (e) => {
     if (e instanceof Refusal) { console.error(`exact deploy: ${e.message}`); process.exitCode = 1; }
     else { console.error(e); process.exitCode = 1; }

@@ -10,15 +10,15 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync, rmSync, symlinkSync, utimesSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, renameSync, writeFileSync, rmSync, symlinkSync, utimesSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
-import { join, dirname, resolve } from 'node:path';
+import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listPublicFiles, publicFileCards, shaderInterfaceDigests, staticFile, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
 import { copyAppleStaticTrees, deviceLaunchArgs } from '../host/apple/build.mjs';
-import { canonicalBytes, classify, defaultRelease, deployRun, inspectHead, publishStream, streamHead } from './deploy.mjs';
+import { canonicalBytes, classify, defaultRelease, deployRun, inspectHead, materializeSnapshot, publishStream, renderTable, snapshotOf, streamHead } from './deploy.mjs';
 import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable } from './origin.mjs';
 
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
@@ -708,6 +708,285 @@ for (const [name, html, files, expectCode, expect] of [
 // A release remains recognizable to a person without being the bake's lock
 // or directory identity. Even an explicitly reused correlation id gets a
 // separate stage, and generated ids in the same clock tick do not collide.
+{
+  const fixture = mkdtempSync(join(tmpdir(), 'exact-source-snapshot-'));
+  const init = (repo, files) => {
+    mkdirSync(repo, { recursive: true });
+    spawnSync('git', ['init', '-q'], { cwd: repo });
+    for (const [name, bytes] of Object.entries(files)) {
+      mkdirSync(dirname(join(repo, name)), { recursive: true });
+      writeFileSync(join(repo, name), bytes);
+    }
+    spawnSync('git', ['add', '-A'], { cwd: repo });
+    return spawnSync('git', ['-c', 'user.name=Exact Test', '-c', 'user.email=exact@example.invalid', 'commit', '-qm', 'fixture'], { cwd: repo }).status === 0;
+  };
+  const internal = join(fixture, 'internal');
+  const external = join(fixture, 'external');
+  const exact = join(fixture, 'exact2');
+  const cargoDep = join(fixture, 'cargo-dep');
+  const linked = join(fixture, 'linked');
+  const filtered = join(fixture, 'filtered');
+  const outsideLink = join(fixture, 'outside-link.rs');
+  const outsideTarget = join(fixture, 'outside-main.rs');
+  let initialized = init(internal, { '.gitignore': '/apps/test/assets/ignored.txt\n/generated/\n/target/\n',
+    'apps/test/app.contract': 'app Test\n', 'apps/test/assets/dist/published.txt': 'nested old\n',
+    'host/runtime.rs': 'old\n', 'removed.txt': 'remove me\n' })
+    && init(cargoDep, { '.gitignore': '/crates/fixture-dep/ignored.rs\n/generated/\n/target/\n',
+      'Cargo.toml': '[workspace]\nmembers=["crates/fixture-dep"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\n',
+      'shared.txt': '1\n',
+      'generated/value.txt': 'ignored repository input\n',
+      'crates/fixture-dep/Cargo.toml': '[package]\nname="fixture-dep"\nversion.workspace=true\nedition.workspace=true\n',
+      'crates/fixture-dep/src/lib.rs': 'pub fn value() -> &\'static str { include_str!("../../../shared.txt").trim() }\n' })
+    && init(external, { 'app.contract': 'app External\n',
+      'Cargo.toml': '[package]\nname="external"\nversion="0.1.0"\nedition="2021"\n[dependencies]\nfixture-dep={path="../cargo-dep/crates/fixture-dep"}\n',
+      'src/lib.rs': 'pub fn value() -> &\'static str { fixture_dep::value() }\n',
+      'src/main.rs': 'fn main() { println!("{}:{}", fixture_dep::value(), option_env!("RACE_VALUE").unwrap_or("sealed")); }\n' })
+    && init(exact, { 'host/runtime.rs': 'old\n' })
+    && init(linked, { 'app.contract': 'app Linked\n', 'src/main.rs': 'local\n' })
+    && init(filtered, { 'app.contract': 'app Filtered\n', 'source.txt': 'WORKING SOURCE BYTES\n',
+      'target-one.txt': 'ONE\n', 'target-two.txt': 'TWO\n' });
+  if (initialized) {
+    writeFileSync(outsideLink, 'external mutable bytes\n');
+    writeFileSync(outsideTarget, 'fn main() { println!("live"); }\n');
+    rmSync(join(linked, 'src/main.rs'));
+    symlinkSync(outsideLink, join(linked, 'src/main.rs'));
+    spawnSync('git', ['add', 'src/main.rs'], { cwd: linked });
+    initialized = spawnSync('git', ['-c', 'user.name=Exact Test', '-c', 'user.email=exact@example.invalid',
+      'commit', '-qm', 'link'], { cwd: linked }).status === 0;
+  }
+  if (initialized) {
+    spawnSync('git', ['config', 'filter.worktree.clean', 'sed s/WORKING/STORED/g'], { cwd: filtered });
+    spawnSync('git', ['config', 'filter.worktree.smudge', 'sed s/STORED/WORKING/g'], { cwd: filtered });
+    spawnSync('git', ['config', 'filter.worktree.required', 'true'], { cwd: filtered });
+    writeFileSync(join(filtered, '.gitattributes'), 'source.txt filter=worktree\n');
+    spawnSync('git', ['add', '--renormalize', '.'], { cwd: filtered });
+    spawnSync('git', ['add', '.gitattributes'], { cwd: filtered });
+    initialized = spawnSync('git', ['-c', 'user.name=Exact Test', '-c', 'user.email=exact@example.invalid',
+      'commit', '-qm', 'filter'], { cwd: filtered }).status === 0;
+  }
+  if (initialized) {
+    symlinkSync('target-one.txt', join(filtered, 'alias.txt'));
+    symlinkSync(join(realpathSync(filtered), 'alias.txt'), join(filtered, 'inside.txt'));
+    spawnSync('git', ['add', 'alias.txt', 'inside.txt'], { cwd: filtered });
+    initialized = spawnSync('git', ['-c', 'user.name=Exact Test', '-c', 'user.email=exact@example.invalid',
+      'commit', '-qm', 'internal absolute link'], { cwd: filtered }).status === 0;
+  }
+  if (initialized) {
+    initialized = spawnSync('cargo', ['generate-lockfile'], { cwd: external, stdio: 'ignore' }).status === 0;
+    spawnSync('git', ['add', 'Cargo.lock'], { cwd: external });
+    initialized = initialized && spawnSync('git', ['-c', 'user.name=Exact Test', '-c', 'user.email=exact@example.invalid',
+      'commit', '-qm', 'lock'], { cwd: external }).status === 0;
+  }
+  const fixtureApp = (name, dir, workspace) => ({ name, dir, workspace, target: join(workspace, 'target'),
+    crate: (kind) => `${name}-${kind}`, manifest: { app: { id: `com.exact.${name}`, name }, host: {}, deploy: {} },
+    id: `com.exact.${name}`, displayName: name, origin: null, declared: false });
+  const internalApp = fixtureApp('test', join(internal, 'apps/test'), internal);
+  const externalApp = fixtureApp('external', external, external);
+  const linkedApp = fixtureApp('linked', linked, linked);
+  const filteredApp = fixtureApp('filtered', filtered, filtered);
+  let escapingSymlinkRefused = false;
+  try { snapshotOf(linkedApp, {}, linked); }
+  catch (error) { escapingSymlinkRefused = error.message.includes('symlink src/main.rs') && error.message.includes('absolute'); }
+  const linkRaceBin = join(fixture, 'link-race-bin');
+  const linkRaceDone = join(fixture, 'link-race-done');
+  mkdirSync(linkRaceBin);
+  const linkRaceGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+  writeFileSync(join(linkRaceBin, 'git'), `#!/bin/sh\n"${linkRaceGit}" "$@"\ncode=$?\ncase " $* " in\n  *" write-tree "*)\n    if [ ! -e "$EXACT_LINK_RACE_DONE" ]; then\n      ln -shf target-two.txt "$EXACT_LINK_RACE_ALIAS"\n      : > "$EXACT_LINK_RACE_DONE"\n    fi\n    ;;\nesac\nexit "$code"\n`);
+  chmodSync(join(linkRaceBin, 'git'), 0o755);
+  const linkRacePath = process.env.PATH;
+  process.env.PATH = `${linkRaceBin}:${linkRacePath}`;
+  process.env.EXACT_LINK_RACE_DONE = linkRaceDone;
+  process.env.EXACT_LINK_RACE_ALIAS = join(filtered, 'alias.txt');
+  let filteredSnapshot;
+  try { filteredSnapshot = snapshotOf(filteredApp, {}, filtered); }
+  finally {
+    process.env.PATH = linkRacePath;
+    delete process.env.EXACT_LINK_RACE_DONE;
+    delete process.env.EXACT_LINK_RACE_ALIAS;
+    rmSync(join(filtered, 'alias.txt'));
+    symlinkSync('target-one.txt', join(filtered, 'alias.txt'));
+  }
+  const filteredMaterialized = materializeSnapshot(filteredSnapshot, deployRun(filteredApp.target, 'filtered'), filteredApp);
+  const checkoutFilterPreserved = filteredSnapshot.id === filteredSnapshot.commit
+    && readFileSync(join(filteredMaterialized.app.dir, 'source.txt'), 'utf8') === 'WORKING SOURCE BYTES\n'
+    && !isAbsolute(readlinkSync(join(filteredMaterialized.app.dir, 'inside.txt')))
+    && readFileSync(join(filteredMaterialized.app.dir, 'inside.txt'), 'utf8') === 'ONE\n';
+  const linkedTarget = join(fixture, 'shared-target');
+  mkdirSync(linkedTarget);
+  symlinkSync(linkedTarget, join(internal, 'target'));
+  const projectTmp = join(internal, 'project-tmp');
+  mkdirSync(projectTmp);
+  const priorTmp = process.env.TMPDIR;
+  process.env.TMPDIR = projectTmp;
+  let internalSnapshot;
+  try { internalSnapshot = snapshotOf(internalApp, {}, internal); }
+  finally {
+    if (priorTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = priorTmp;
+  }
+  rmSync(join(internal, 'target'));
+  rmSync(projectTmp, { recursive: true });
+
+  // This is the race a before/after fingerprint cannot see: a transient edit
+  // exists while the bake is being prepared, then the checkout is restored.
+  writeFileSync(join(internal, 'host/runtime.rs'), 'transient during bake\n');
+  const cleanRun = deployRun(internalApp.target, 'clean-race');
+  const cleanMaterialized = materializeSnapshot(internalSnapshot, cleanRun, internalApp);
+  const cleanRaceBytes = readFileSync(join(cleanMaterialized.exactRoot, 'host/runtime.rs'), 'utf8');
+  const projectTmpRejected = relative(internal, cleanMaterialized.sourceRoot).startsWith('..');
+  writeFileSync(join(internal, 'host/runtime.rs'), 'old\n');
+
+  // Restore the live file immediately after the capture freezes its tree. A
+  // later live status read must not relabel those already-captured bytes as a
+  // clean HEAD snapshot.
+  const raceBin = join(fixture, 'race-bin');
+  const raceDone = join(fixture, 'race-done');
+  mkdirSync(raceBin);
+  const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+  writeFileSync(join(raceBin, 'git'), `#!/bin/sh\n"${realGit}" "$@"\ncode=$?\ncase " $* " in\n  *" write-tree "*|*" --binary "*)\n    if [ ! -e "$EXACT_CAPTURE_RACE_DONE" ]; then\n      printf 'old\\n' > "$EXACT_CAPTURE_RACE_FILE"\n      : > "$EXACT_CAPTURE_RACE_DONE"\n    fi\n    ;;\nesac\nexit "$code"\n`);
+  chmodSync(join(raceBin, 'git'), 0o755);
+  writeFileSync(join(internal, 'host/runtime.rs'), 'transient during capture\n');
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${raceBin}:${oldPath}`;
+  process.env.EXACT_CAPTURE_RACE_FILE = join(internal, 'host/runtime.rs');
+  process.env.EXACT_CAPTURE_RACE_DONE = raceDone;
+  let racedSnapshot;
+  try { racedSnapshot = snapshotOf(internalApp, { dirty: true }, internal); }
+  finally {
+    process.env.PATH = oldPath;
+    delete process.env.EXACT_CAPTURE_RACE_FILE;
+    delete process.env.EXACT_CAPTURE_RACE_DONE;
+  }
+  const racedMaterialized = materializeSnapshot(racedSnapshot, deployRun(internalApp.target, 'atomic-race'), internalApp);
+  const atomicRaceCaptured = racedSnapshot.dirty && racedSnapshot.id !== racedSnapshot.commit
+    && racedSnapshot.changes.some((change) => change.endsWith('host/runtime.rs'))
+    && readFileSync(join(racedMaterialized.exactRoot, 'host/runtime.rs'), 'utf8') === 'transient during capture\n'
+    && readFileSync(join(internal, 'host/runtime.rs'), 'utf8') === 'old\n';
+
+  writeFileSync(join(internal, 'host/runtime.rs'), 'edited\n');
+  writeFileSync(join(internal, 'apps/test/assets/dist/published.txt'), 'nested edited\n');
+  writeFileSync(join(internal, 'apps/test/assets/ignored.txt'), 'ignored captured\n');
+  rmSync(join(internal, 'removed.txt'));
+  mkdirSync(join(internal, 'target'), { recursive: true });
+  writeFileSync(join(internal, 'target/generated.bin'), 'not source\n');
+  mkdirSync(join(internal, 'generated'));
+  writeFileSync(join(internal, 'generated/output.bin'), 'ignored input root\n');
+  let siblingRefused = false;
+  try { snapshotOf(internalApp, {}, internal); }
+  catch (error) { siblingRefused = error.message.includes('exact2') && error.message.includes('host/runtime.rs')
+    && error.message.includes('assets/ignored.txt') && !error.message.includes('target/generated.bin'); }
+  const dirtySnapshot = snapshotOf(internalApp, { dirty: true }, internal);
+  writeFileSync(join(internal, 'host/runtime.rs'), 'transient replacement\n');
+  writeFileSync(join(internal, 'apps/test/assets/dist/published.txt'), 'transient nested replacement\n');
+  writeFileSync(join(internal, 'apps/test/assets/ignored.txt'), 'transient ignored replacement\n');
+  const dirtyRun = deployRun(internalApp.target, 'dirty-race');
+  const dirtyMaterialized = materializeSnapshot(dirtySnapshot, dirtyRun, internalApp);
+  writeFileSync(join(internal, 'host/runtime.rs'), 'edited\n');
+  writeFileSync(join(internal, 'apps/test/assets/dist/published.txt'), 'nested edited\n');
+  writeFileSync(join(internal, 'apps/test/assets/ignored.txt'), 'ignored captured\n');
+  const capturedDirtyBytes = readFileSync(join(dirtyMaterialized.exactRoot, 'host/runtime.rs'), 'utf8') === 'edited\n'
+    && readFileSync(join(dirtyMaterialized.app.dir, 'assets/dist/published.txt'), 'utf8') === 'nested edited\n'
+    && readFileSync(join(dirtyMaterialized.app.dir, 'assets/ignored.txt'), 'utf8') === 'ignored captured\n'
+    && !existsSync(join(dirtyMaterialized.exactRoot, 'removed.txt'))
+    && readFileSync(join(dirtyMaterialized.exactRoot, 'generated/output.bin'), 'utf8') === 'ignored input root\n';
+  writeFileSync(join(internal, 'apps/test/assets/ignored.txt'), 'ignored changed\n');
+  const dirtyAgain = snapshotOf(internalApp, { dirty: true }, internal);
+  let changedSnapshotRefused = false;
+  try { snapshotOf(internalApp, { dirty: true, snapshot: dirtySnapshot.id }, internal); }
+  catch (error) { changedSnapshotRefused = error.message.includes('same complete source set'); }
+
+  let ignoredRootRefused = false;
+  try { snapshotOf(externalApp, {}, exact); }
+  catch (error) { ignoredRootRefused = error.message.includes('cargo') && error.message.includes('generated/value.txt'); }
+  const externalSnapshot = snapshotOf(externalApp, { dirty: true }, exact);
+  let partialPinRefused = false;
+  try { snapshotOf(externalApp, { dirty: true, snapshot: externalSnapshot.commit }, exact); }
+  catch (error) { partialPinRefused = error.message.includes('complete source set'); }
+  const pinned = snapshotOf(externalApp, { dirty: true, snapshot: externalSnapshot.id.slice(0, 12) }, exact);
+  const externalRun = deployRun(externalApp.target, 'external');
+  const externalMaterialized = materializeSnapshot(externalSnapshot, externalRun, externalApp);
+  const stagedGitProbe = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+    cwd: externalMaterialized.exactRoot, encoding: 'utf8',
+  });
+  const stagedGitSealed = stagedGitProbe.status !== 0 && stagedGitProbe.stdout.trim() === '';
+  const ignoredRootCaptured = readFileSync(join(dirname(externalMaterialized.app.dir), 'cargo-dep/generated/value.txt'), 'utf8')
+    === 'ignored repository input\n';
+  writeFileSync(join(cargoDep, 'shared.txt'), '2\n');
+  mkdirSync(join(external, '.cargo'));
+  writeFileSync(join(external, '.cargo/config.toml'), '[env]\nRACE_VALUE="live ancestor"\n');
+  const stagedRun = spawnSync('cargo', ['run', '--quiet', '--locked'], { cwd: externalMaterialized.app.workspace,
+    env: { ...process.env, CARGO_TARGET_DIR: join(fixture, 'cargo-target') }, encoding: 'utf8' });
+  const stagedDependencyStayedCaptured = stagedRun.status === 0 && stagedRun.stdout.trim() === '1:sealed';
+  rmSync(join(external, '.cargo'), { recursive: true });
+  writeFileSync(join(cargoDep, 'shared.txt'), '1\n');
+
+  // Cargo accepts absolute path dependencies, but an immutable deploy cannot:
+  // the staged manifest would otherwise reach back into the mutable checkout.
+  const relativeManifest = readFileSync(join(external, 'Cargo.toml'), 'utf8');
+  writeFileSync(join(external, 'Cargo.toml'), relativeManifest.replace('../cargo-dep/crates/fixture-dep', join(cargoDep, 'crates/fixture-dep')));
+  const absoluteSnapshot = snapshotOf(externalApp, { dirty: true }, exact);
+  writeFileSync(join(cargoDep, 'shared.txt'), '2\n');
+  let absoluteDependencyRefused = false;
+  try { materializeSnapshot(absoluteSnapshot, deployRun(externalApp.target, 'absolute-dependency'), externalApp); }
+  catch (error) { absoluteDependencyRefused = error.message.includes('resolves outside the captured source root'); }
+  writeFileSync(join(cargoDep, 'shared.txt'), '1\n');
+  writeFileSync(join(external, 'Cargo.toml'), relativeManifest);
+
+  writeFileSync(join(external, 'Cargo.toml'), `${relativeManifest}\n[[bin]]\nname="outside"\npath=${JSON.stringify(outsideTarget)}\n`);
+  const absoluteTargetSnapshot = snapshotOf(externalApp, { dirty: true }, exact);
+  let absoluteTargetRefused = false;
+  try { materializeSnapshot(absoluteTargetSnapshot, deployRun(externalApp.target, 'absolute-target'), externalApp); }
+  catch (error) { absoluteTargetRefused = error.message.includes('target outside') && error.message.includes('resolves outside'); }
+  writeFileSync(join(external, 'Cargo.toml'), relativeManifest);
+
+  writeFileSync(join(cargoDep, 'crates/fixture-dep/ignored.rs'), 'pub const CAPTURED: bool = true;\n');
+  let ignoredDependencyRefused = false;
+  try { snapshotOf(externalApp, {}, exact); }
+  catch (error) { ignoredDependencyRefused = error.message.includes('cargo') && error.message.includes('crates/fixture-dep/ignored.rs'); }
+  const dependencyDirty = snapshotOf(externalApp, { dirty: true }, exact);
+  const dependencyRun = deployRun(externalApp.target, 'external-dependency');
+  const dependencyMaterialized = materializeSnapshot(dependencyDirty, dependencyRun, externalApp);
+  const capturedDependency = readFileSync(join(dirname(dependencyMaterialized.app.dir), 'cargo-dep/crates/fixture-dep/ignored.rs'), 'utf8')
+    === 'pub const CAPTURED: bool = true;\n';
+  rmSync(join(cargoDep, 'crates/fixture-dep/ignored.rs'));
+  const rendered = renderTable({ release: 'test', snapshot: externalSnapshot, channel: 'prod',
+    origin: { kind: 'directory', location: '/origin' }, notes: [], rows: [] });
+  writeFileSync(join(exact, 'host/runtime.rs'), 'edited\n');
+  let dependencyRefused = false;
+  try { snapshotOf(externalApp, {}, exact); }
+  catch (error) { dependencyRefused = error.message.includes('exact2') && error.message.includes('host/runtime.rs'); }
+  result('deploy snapshots every source repository the bake reads', initialized
+    && internalSnapshot.id === internalSnapshot.commit && internalSnapshot.sources.length === 1
+    && internalSnapshot.sources[0].roles.join(',') === 'app,exact2'
+    && cleanRaceBytes === 'old\n' && projectTmpRejected && checkoutFilterPreserved && atomicRaceCaptured
+    && siblingRefused && dirtySnapshot.dirty && dirtySnapshot.id !== dirtyAgain.id
+    && capturedDirtyBytes && changedSnapshotRefused
+    && dirtySnapshot.changes.some((change) => change.endsWith('host/runtime.rs'))
+    && dirtySnapshot.changes.some((change) => change.endsWith('apps/test/assets/dist/published.txt'))
+    && dirtySnapshot.changes.some((change) => change.endsWith('apps/test/assets/ignored.txt'))
+    && dirtySnapshot.changes.some((change) => change.endsWith('removed.txt'))
+    && !dirtySnapshot.changes.some((change) => change.includes('target/generated.bin'))
+    && dirtySnapshot.changes.some((change) => change.includes('generated/output.bin'))
+    && /^[0-9a-f]{40}$/.test(externalSnapshot.id) && externalSnapshot.id !== externalSnapshot.commit
+    && externalSnapshot.sources.length === 3 && partialPinRefused && pinned.id === externalSnapshot.id
+    && relative(externalMaterialized.app.dir, externalMaterialized.exactRoot) === '../exact2'
+    && stagedDependencyStayedCaptured && absoluteDependencyRefused && absoluteTargetRefused
+    && stagedGitSealed && escapingSymlinkRefused
+    && ignoredRootRefused && ignoredRootCaptured
+    && ignoredDependencyRefused && capturedDependency
+    && rendered.includes(`snapshot ${externalSnapshot.id.slice(0, 12)}`)
+    && dependencyRefused,
+  JSON.stringify({ initialized, internalSnapshot, cleanRaceBytes, projectTmpRejected, checkoutFilterPreserved, atomicRaceCaptured,
+    siblingRefused, dirtySnapshot, dirtyAgain: dirtyAgain.id,
+    capturedDirtyBytes, changedSnapshotRefused, externalSnapshot, partialPinRefused, pinned: pinned.id,
+    externalLayout: relative(externalMaterialized.app.dir, externalMaterialized.exactRoot),
+    stagedDependencyStayedCaptured, absoluteDependencyRefused, absoluteTargetRefused,
+    stagedGitSealed, escapingSymlinkRefused,
+    ignoredRootRefused, ignoredRootCaptured,
+    ignoredDependencyRefused, capturedDependency, dependencyRefused }));
+  rmSync(fixture, { recursive: true, force: true });
+}
+
 {
   const target = mkdtempSync(join(tmpdir(), 'exact-deploy-run-'));
   const now = new Date('2026-09-04T12:34:56.789Z');

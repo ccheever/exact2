@@ -56,8 +56,9 @@ const box = (l, id) => l.nodes.find((n) => n.testId === id);
 // Copy the tracked working tree into a disposable directory. This includes
 // edits to tracked files under review but never copies generated target/ or
 // reaches back into the source checkout while the fixture is driven.
-function copyTrackedCheckout(source, target) {
-  const listed = spawnSync('git', ['ls-files', '-z'], { cwd: source, maxBuffer: 64 * 1024 * 1024 });
+function copyTrackedCheckout(source, target, paths = []) {
+  const args = ['ls-files', '-z', ...(paths.length ? ['--', ...paths] : [])];
+  const listed = spawnSync('git', args, { cwd: source, maxBuffer: 64 * 1024 * 1024 });
   if (listed.status !== 0) throw new Error(`git ls-files failed: ${listed.stderr?.toString() ?? ''}`);
   mkdirSync(target, { recursive: true });
   for (const name of listed.stdout.toString('utf8').split('\0').filter(Boolean)) {
@@ -123,11 +124,19 @@ if (host === 'deploy') {
   const keys = resolve(dir, 'keys');
   const sourceState = treeFingerprint(app.dir);
   copyTrackedCheckout(ROOT, fixtureRoot);
-  // This workspace deliberately consumes ibex from a sibling checkout. Keep
-  // that read-only dependency edge while every Exact/app file under test is
-  // the disposable copy.
+  // This workspace deliberately consumes ibex2 from a sibling checkout. Give
+  // the smoke its own minimal tracked sibling too: the deploy must discover,
+  // capture, and materialize that repository rather than following a live
+  // symlink back into the developer's checkout.
   const ibex = resolve(ROOT, '..', 'ibex');
-  if (existsSync(ibex)) symlinkSync(realpathSync(ibex), resolve(dir, 'ibex'), 'dir');
+  const fixtureIbex = resolve(dir, 'ibex');
+  if (existsSync(ibex)) {
+    copyTrackedCheckout(ibex, fixtureIbex, ['crates/ibex2']);
+    for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['-c', 'user.name=Exact smoke', '-c', 'user.email=smoke@exact.invalid', 'commit', '-qm', 'fixture']]) {
+      const initialized = spawnSync('git', args, { cwd: fixtureIbex, encoding: 'utf8' });
+      if (initialized.status !== 0) throw new Error(`ibex git ${args[0]} failed: ${initialized.stderr}`);
+    }
+  }
   for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['-c', 'user.name=Exact smoke', '-c', 'user.email=smoke@exact.invalid', 'commit', '-qm', 'fixture']]) {
     const initialized = spawnSync('git', args, { cwd: fixtureRoot, encoding: 'utf8' });
     if (initialized.status !== 0) throw new Error(`git ${args[0]} failed: ${initialized.stderr}`);
