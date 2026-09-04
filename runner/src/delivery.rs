@@ -52,7 +52,7 @@ pub struct Delivery {
     /// The stream this client belongs to: `"embedded"` until a host knows
     /// better, else `"<channel>/<compatibilityId>"`.
     pub stream: String,
-    /// The entry running now. Zero is the embedded one.
+    /// The sequence running now, including the binary's baked sequence.
     pub seq: u64,
     /// The entry this binary shipped with.
     pub embedded_seq: u64,
@@ -99,38 +99,86 @@ impl Delivery {
         })
     }
 
-    /// The same facts with the binary's own three taken from an archive's
-    /// `compat.json` — the id, `store.L`, and the executor set, as
+    /// The binary's id, `store.L`, executor set, and embedded sequence from
+    /// its archive's `compat.json`, as
     /// `contract::Compat::to_json` writes them. Everything the store has to
     /// say is left as it was; a field the text does not carry is left as it
     /// was too, so a truncated or foreign file degrades to the embedded
     /// answer rather than refusing a boot.
     pub fn with_compat(&self, json: &str) -> Delivery {
         let mut out = self.clone();
-        if let Some(id) = after_key(json, "id").and_then(|rest| string_at(rest).map(|(s, _)| s)) {
+        if let Some(id) = member(json, "id").and_then(|rest| string_at(rest).map(|(s, _)| s)) {
             out.compatibility_id = id;
         }
-        if let Some(l) = after_key(json, "store")
-            .and_then(|rest| after_key(rest, "L"))
+        if let Some(l) = member(json, "inputs")
+            .and_then(|inputs| member(inputs, "store"))
+            .and_then(|rest| member(rest, "L"))
             .and_then(|rest| string_at(rest).map(|(s, _)| s))
             .and_then(|s| s.chars().next())
         {
             out.store = l;
         }
-        if let Some(executors) = after_key(json, "executors").and_then(strings_at) {
+        if let Some(executors) = member(json, "inputs")
+            .and_then(|inputs| member(inputs, "executors"))
+            .and_then(strings_at)
+        {
             out.executors = executors;
+        }
+        if let Some(seq) = member(json, "embedded")
+            .and_then(|embedded| member(embedded, "seq"))
+            .and_then(|seq| seq.trim().parse::<u64>().ok())
+        {
+            out.embedded_seq = seq;
+            if out.stream == "embedded" {
+                out.seq = seq;
+            }
         }
         out
     }
 }
 
-/// The text just past `"key":`, or `None`. The compat file is canonical —
-/// sorted keys, no whitespace — and every value that could hold a `"` has
-/// it escaped, so the first literal match is the key's.
-fn after_key<'a>(json: &'a str, key: &str) -> Option<&'a str> {
-    let needle = format!("\"{key}\":");
-    let at = json.find(&needle)? + needle.len();
-    Some(&json[at..])
+/// One immediate JSON object member, bounded to its value. Nested publisher
+/// receipts and asset objects cannot supply the binary's own sequence.
+fn member<'a>(json: &'a str, key: &str) -> Option<&'a str> {
+    let mut rest = json.trim().strip_prefix('{')?;
+    loop {
+        rest = rest.trim_start();
+        let (name, used) = string_at(rest)?;
+        rest = rest[used..].trim_start().strip_prefix(':')?.trim_start();
+        let mut depth = 0u32;
+        let mut quoted = false;
+        let mut escaped = false;
+        let mut end = rest.len();
+        for (i, byte) in rest.bytes().enumerate() {
+            if quoted {
+                if escaped {
+                    escaped = false;
+                } else if byte == b'\\' {
+                    escaped = true;
+                } else if byte == b'"' {
+                    quoted = false;
+                }
+                continue;
+            }
+            match byte {
+                b'"' => quoted = true,
+                b'{' | b'[' => depth += 1,
+                b'}' | b']' if depth > 0 => depth -= 1,
+                b',' | b'}' if depth == 0 => {
+                    end = i;
+                    break;
+                }
+                _ => {}
+            }
+        }
+        if quoted || depth != 0 || end == rest.len() {
+            return None;
+        }
+        if name == key {
+            return Some(rest[..end].trim_end());
+        }
+        rest = rest[end..].strip_prefix(',')?;
+    }
 }
 
 /// One JSON string at the head of `s`: its value, and how many bytes it took.
@@ -224,6 +272,24 @@ mod tests {
         assert_eq!(d.store, '0');
         assert_eq!(d.executors, ["hermes", "native"]);
         assert_eq!(d.compatibility_id, "abc");
+    }
+
+    #[test]
+    fn the_baked_sequence_is_visible_without_a_store_and_preserves_a_selection() {
+        let json = r#"{"id":"abc","inputs":{"store":{"L":"0"},"executors":[]},"embedded":{"assets":[{"seq":999}],"seq":41},"artifacts":[{"embedded":{"seq":888}}]}"#;
+        let baked = Delivery::default().with_compat(json);
+        assert_eq!((baked.seq, baked.embedded_seq, baked.store), (41, 41, '0'));
+        let selected = Delivery {
+            stream: "prod/abc".into(),
+            seq: 73,
+            ..Delivery::default()
+        }
+        .with_compat(json);
+        assert_eq!((selected.seq, selected.embedded_seq), (73, 41));
+        for bad in ["null", "-1", "41.5", "18446744073709551616"] {
+            let invalid = format!(r#"{{"embedded":{{"seq":{bad}}},"artifacts":[{{"seq":999}}]}}"#);
+            assert_eq!(selected.with_compat(&invalid), selected);
+        }
     }
 
     #[test]

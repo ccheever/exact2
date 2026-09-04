@@ -843,6 +843,7 @@ fn two_runtimes_live_apart_in_one_thread_and_a_dead_handle_is_refused() {
         a != 0 && b != 0 && a != b,
         "handles are distinct and never 0"
     );
+    assert_eq!(out(a, handles::exact_baked_compat(a)), handles::COMPAT);
     // Each boots its own plan: the baked fixture, and a second plan from bytes.
     let first = out(a, handles::exact_boot(a, 390.0, 844.0));
     assert!(first.contains("\"text\":\"baked\""), "{first}");

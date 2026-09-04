@@ -255,6 +255,7 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-runner",
+ "exact-update",
  "serde_json",
  "sha2",
 ]

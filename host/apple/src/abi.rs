@@ -118,6 +118,13 @@ impl<D: DataSource> Bridge<D> {
         &self.output[..len.min(self.output.len())]
     }
 
+    /// Copy the immutable binary bake receipt to the output buffer.
+    pub fn baked_compat(&mut self, compat: &str) -> u32 {
+        self.output.clear();
+        self.output.extend_from_slice(compat.as_bytes());
+        self.output.len() as u32
+    }
+
     /// Register the synchronous plan-font hook used by subsequent boots,
     /// with the context it is handed back.
     pub fn set_fonts(&mut self, fonts: Option<FontsFn>, ctx: *mut c_void) {
@@ -658,6 +665,12 @@ macro_rules! host {
                 Some(p) => p,
                 None => $crate::abi::refusal_ptr(),
             }
+        }
+
+        /// The immutable compatibility and bundle receipt baked into this archive.
+        #[no_mangle]
+        pub extern "C" fn exact_baked_compat(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.baked_compat($compat), |n| n)
         }
 
         /// Boot the selected plan — the update store's entry when one is

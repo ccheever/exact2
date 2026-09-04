@@ -264,6 +264,9 @@ pub fn boot_presenter<D: DataSource + Default>(
 /// Run the app: the process's exit code. `compat` is the binary's
 /// `compat.json` (LLP 1030 D3a), which the `delivery` resource answers from.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
+    if print_baked_receipt(compat) {
+        return 0;
+    }
     if exact_runner::Delivery::default().with_compat(compat).store != '0' {
         eprintln!(
             "exact: the baked store level requires the delivery adapter; regenerate the app entry"
@@ -273,6 +276,16 @@ pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
     let started = Instant::now();
     let mut config = Config::from_env(baked, compat);
     run_config::<D>(&mut config, started)
+}
+
+/// Answer the tooling receipt request before boot or opening an update store.
+pub fn print_baked_receipt(compat: &str) -> bool {
+    if std::env::args().any(|arg| arg == "--exact-receipt") {
+        print!("{compat}");
+        true
+    } else {
+        false
+    }
 }
 
 /// Run a configured app, optionally composed with a delivery adapter.

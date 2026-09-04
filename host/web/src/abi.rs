@@ -268,6 +268,12 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().baked_plan($plan))
         }
 
+        /// Copy the exact compatibility receipt embedded in this wasm.
+        #[no_mangle]
+        pub extern "C" fn exact_compat() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().baked_plan($compat.as_bytes()))
+        }
+
         /// The page's snapshot of the app's kept secrets (LLP 1018 D6), from
         /// the input buffer's first `len` bytes (`name NUL value NUL …`),
         /// for the next `exact_boot`.

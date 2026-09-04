@@ -155,3 +155,35 @@ fn a_field_the_runner_cannot_fill_is_refused_at_bake_by_name() {
         "{message}"
     );
 }
+
+#[test]
+fn manifest_identity_survives_an_unnamed_data_standin_and_conflicts_fail() {
+    let directory =
+        std::env::temp_dir().join(format!("exact-manifest-plan-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(
+        directory.join("app.json"),
+        r#"{"app":{"id":"com.exact.standin","name":"Stand-in"}}"#,
+    )
+    .unwrap();
+    let path = directory.join("app.contract");
+    std::fs::write(&path, corpus()).unwrap();
+    let compiled = contract::compile_path(&path).unwrap();
+    let baked = contract::bake(compiled.clone(), NoData).unwrap();
+    assert_eq!(baked.app_id, "com.exact.standin");
+    assert_eq!(
+        exact_plan::Plan::decode(&baked.encode()).unwrap().app_id,
+        "com.exact.standin"
+    );
+    struct Conflict;
+    impl DataSource for Conflict {
+        fn app_id(&self) -> &str {
+            "com.exact.conflict"
+        }
+        fn query(&mut self, source: &str, _args: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+    }
+    assert!(contract::bake(compiled, Conflict).is_err());
+    std::fs::remove_dir_all(directory).unwrap();
+}

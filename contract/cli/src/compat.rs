@@ -216,6 +216,10 @@ pub struct Compat {
     /// When a staged bundle applies (`deploy.activate`): `next-launch` or
     /// `app-decides` — policy the binary's store follows (LLP 1030.000 D4).
     pub activate: String,
+    /// The exact target the binary-producing Cargo bake received.
+    pub target: String,
+    /// Embedded bundle provenance and its complete static roster.
+    pub embedded: serde_json::Value,
 }
 
 impl Compat {
@@ -238,6 +242,10 @@ impl Compat {
             }),
             &mut s,
         );
+        s.push_str(",\"target\":");
+        canonical(&serde_json::json!(self.target), &mut s);
+        s.push_str(",\"embedded\":");
+        canonical(&self.embedded, &mut s);
         s.push_str("}\n");
         s
     }
@@ -264,7 +272,18 @@ pub fn compatibility_id(
         Err(std::env::VarError::NotPresent) => "production".into(),
         Err(_) => return Err("EXACT_UPDATE_TRUST is not UTF-8".into()),
     };
-    compatibility_with_trust(app_dir, platform, target, manifest, grants, &trust)
+    let mut compat = compatibility_with_trust(app_dir, platform, target, manifest, grants, &trust)?;
+    if let Some(out) = std::env::var_os("OUT_DIR") {
+        crate::receipt::emit(
+            &mut compat,
+            app_dir,
+            platform,
+            target,
+            manifest,
+            Path::new(&out),
+        )?;
+    }
+    Ok(compat)
 }
 
 fn compatibility_with_trust(
@@ -381,6 +400,8 @@ fn compatibility_with_trust(
         channel,
         origin,
         activate: manifest.activate(),
+        target: target.into(),
+        embedded: serde_json::Value::Null,
     })
 }
 
@@ -682,8 +703,8 @@ mod tests {
         // Policy rides beside the id (LLP 1030.000 D4): the channel, its
         // origin, and when a staged bundle applies — `next-launch` unsaid.
         assert!(
-            c.to_json().ends_with(
-                ",\"delivery\":{\"activate\":\"next-launch\",\"channel\":\"prod\",\"origin\":null}}\n"
+            c.to_json().contains(
+                "\"delivery\":{\"activate\":\"next-launch\",\"channel\":\"prod\",\"origin\":null}"
             ),
             "{}",
             c.to_json()

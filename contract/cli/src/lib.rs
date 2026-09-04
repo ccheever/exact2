@@ -13,6 +13,7 @@
 #![deny(missing_docs)]
 
 pub mod compat;
+mod receipt;
 
 pub use compat::{compatibility_id, Compat, Manifest};
 /// The data seam, re-exported for an app's build script: the bake asks the
@@ -163,7 +164,28 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
     });
     let mut seen = vec![root_key];
     let file = load_source(path, src, &app_root, &mut seen)?;
-    compile_file(file, Some(&app_root))
+    let mut plan = compile_file(file, Some(&app_root))?;
+    if app_root.join("app.json").is_file() {
+        let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
+            pass: "app",
+            id: "app-manifest".into(),
+            message,
+            span: (0, 0),
+        })?;
+        if !plan.app_id.is_empty() && plan.app_id != manifest.id {
+            return Err(CompileError {
+                pass: "app",
+                id: "app-identity".into(),
+                message: format!(
+                    "the plan names app {}, but app.json names {}",
+                    plan.app_id, manifest.id
+                ),
+                span: (0, 0),
+            });
+        }
+        plan.app_id = manifest.id;
+    }
+    Ok(plan)
 }
 
 /// The `test` blocks of a file (LLP 1017 P7) — normally `app.test.contract`
@@ -455,10 +477,11 @@ fn merge(into: &mut File, from: File, u: &UseDecl) -> Result<(), CompileError> {
 /// into the plan as compiled data. The result still validates and its bytes
 /// are a pure function of (source, data).
 pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
-    // The identity (LLP 1023 D5): the data crate's one declaration, written
-    // into the header here so a served plan says whose it is; boot's gate
-    // matches it against the booting binary's own crate.
-    plan.app_id = data.app_id().to_string();
+    // The manifest names the app. An unnamed stand-in source preserves it;
+    // Runner::boot refuses a nonempty source identity that disagrees.
+    if plan.app_id.is_empty() {
+        plan.app_id = data.app_id().to_string();
+    }
     delivery_shape(&plan)?;
     let mut runner = Runner::boot(plan.clone(), data, Kernel::with_monospace())?;
     lint(&mut runner)?;

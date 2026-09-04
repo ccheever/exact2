@@ -23,6 +23,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 
+import { createHash } from 'node:crypto';
+
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
 /** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
@@ -106,4 +108,18 @@ export function validate(value, node, at, root) {
 /** Developer entrypoints explicitly bake unsigned-update permission. Direct Cargo/contract bakes default to production; release callers can select it here too. */
 export function developmentBuildEnv() {
   return { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' };
+}
+
+/** The private directory receiving documents emitted by actual app build scripts. */
+export function bakeOutput(app, env = process.env) {
+  return env.EXACT_BAKE_OUTPUT ?? resolve(app.target, 'bake', app.id, env.EXACT_UPDATE_TRUST ?? 'production');
+}
+
+/** Read and validate the receipt emitted by the app's actual target/grants bake. */
+export function readBake(app, platform, target, directory = bakeOutput(app)) {
+  const receipt = JSON.parse(readFileSync(resolve(directory, `${platform}-${target}.json`), 'utf8'));
+  const canonical = (v) => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ? `[${v.map(canonical).join(',')}]` : `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
+  const id = createHash('sha256').update('exact2 compatibility id v1\n').update(canonical(receipt.inputs)).digest('hex').slice(0, 32);
+  if (receipt.id !== id || receipt.inputs.app !== app.id || receipt.inputs.platform !== platform || receipt.target !== target || !receipt.embedded || !Array.isArray(receipt.embedded.assets)) throw new Error(`invalid baked receipt for ${app.id} ${platform} ${target}`);
+  return receipt;
 }

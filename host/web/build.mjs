@@ -5,10 +5,11 @@
 // Developer builds bake development trust; EXACT_UPDATE_TRUST=production
 // requires signing keys, and the deploy verb always selects production.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { bakeOutput, readBake, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
@@ -24,7 +25,9 @@ const previous = `${dist}.previous`;
 // serve.mjs/dev.mjs also fall back to it during the live rename window.
 if (!existsSync(dist) && existsSync(previous)) renameSync(previous, dist);
 else if (existsSync(dist) && existsSync(previous)) rmSync(previous, { recursive: true, force: true });
-const r = spawnSync('cargo', ['build', '-p', crate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown'], { cwd: app.workspace, stdio: 'inherit', env: developmentBuildEnv() });
+const buildEnv = developmentBuildEnv();
+buildEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, buildEnv);
+const r = spawnSync('cargo', ['build', '-p', crate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown'], { cwd: app.workspace, stdio: 'inherit', env: buildEnv });
 if (r.status !== 0) process.exit(r.status ?? 1);
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 // Build one app into its own staging directory. Only a complete build replaces
@@ -77,7 +80,20 @@ const planPtr = exports.exact_out();
 const planBytes = Buffer.from(new Uint8Array(exports.memory.buffer, planPtr, planLen));
 if (planBytes.length < 36 || planBytes.subarray(0, 4).toString() !== 'EXPL') throw new Error('the web wasm returned an invalid baked plan');
 writeFileSync(planOut, planBytes);
-writeFileSync(resolve(stage, 'exact.json'), JSON.stringify(webEnvelope(app, planBytes, listAssets(stage))) + '\n');
+if (typeof exports.exact_compat !== 'function') throw new Error('the web wasm exposes no baked receipt');
+const compatLen = exports.exact_compat();
+const embeddedCompat = Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), compatLen)).toString('utf8');
+const bakedReceipt = readBake(app, 'web', 'wasm32-unknown-unknown', buildEnv.EXACT_BAKE_OUTPUT);
+if (JSON.stringify(JSON.parse(embeddedCompat)) !== JSON.stringify(bakedReceipt)) throw new Error('the emitted receipt differs from the wasm receipt');
+const embedded = bakedReceipt.embedded;
+const copiedAssets = listAssets(stage);
+if (embedded.plan?.sha256 !== createHash('sha256').update(planBytes).digest('hex') || embedded.plan?.bytes !== planBytes.length
+    || copiedAssets.length !== embedded.assets.length
+    || copiedAssets.some((asset, i) => ['name', 'sha256', 'bytes'].some((key) => asset[key] !== embedded.assets[i][key]))) {
+  throw new Error('the built plan/static files differ from the binary bake receipt');
+}
+writeFileSync(resolve(stage, 'bake.json'), embeddedCompat);
+writeFileSync(resolve(stage, 'exact.json'), JSON.stringify(webEnvelope(app, planBytes, copiedAssets)) + '\n');
 // The web app manifest (LLP 1030 D2/D10; 1030.000 D7): the W3C keys of
 // `app.json`, copied out as `manifest.json`; the page links it, takes its
 // name as the title, and its first icon as the favicon. An installed PWA's
@@ -111,7 +127,7 @@ if (ios.associatedDomains && ios.team) {
 const gpuCrate = crate.replace(/-web$/, '-gpu');
 let gpuNote = 'no GPU crate';
 if (existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'))) {
-  const g = spawnSync('cargo', ['build', '-p', gpuCrate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown', '--config', 'profile.web.strip=false'], { cwd: app.workspace, stdio: 'inherit', env: developmentBuildEnv() });
+  const g = spawnSync('cargo', ['build', '-p', gpuCrate, '--lib', '--profile', 'web', '--target', 'wasm32-unknown-unknown', '--config', 'profile.web.strip=false'], { cwd: app.workspace, stdio: 'inherit', env: buildEnv });
   if (g.status !== 0) process.exit(g.status ?? 1);
   const gpuWasm = resolve(app.target, 'wasm32-unknown-unknown/web', gpuCrate.replace(/-/g, '_') + '.wasm');
   const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', stage, '--out-name', 'gpu', gpuWasm], { stdio: 'inherit' });
