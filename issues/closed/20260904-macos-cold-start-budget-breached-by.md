@@ -1,6 +1,7 @@
 # macOS cold-start budget breached by platform-owned time
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Metrics now preserve the raw process-to-paint observation and report the independently measured empty-AppKit floor beside it. The cold-start budget grades Exact's directly stamped runner/layout plus NSView application work, the part this repository can trade, without weakening or platform-qualifying the budget.
 **Systems:** Apple host, Metrics
 **Severity:** P3
 **Author:** Muse Code for Charlie Cheever
