@@ -544,7 +544,8 @@ app does, or it is not Exact. The primitives:
   invalidates it. Older fetch completions cannot commit after newer ones.
   A changed server program digest or `{rebuilt}` is terminal until the native
   binary is rebuilt; a process restart with the same program resets only the
-  revision ordering. The optional production updater uses the same core
+  revision ordering. The app owns the program pin for its lifetime; public
+  disconnect/connect cannot clear it. The optional production updater uses the same core
   acceptance primitive and owns its separate store policy.
 - The adapters keep `EXACT_DEV_PLAN`, `EXACT_PLAN`, Open Project…, ⌘R,
   the four-finger tap, and the dev menu. The SDK installs none of them;

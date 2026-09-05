@@ -75,6 +75,7 @@ public final class ExactApp {
     /// The complete generation last accepted by every live session. A new
     /// connection can recognize it without restarting carried app state.
     private var devGeneration: String?
+    private var devProgram: String?
     /// The plan last applied across the app, also used by newly created sessions.
     private(set) var lastPlan: Data?
     private(set) var resolver: AssetResolver!
@@ -151,7 +152,12 @@ public final class ExactApp {
     /// connection.
     public func connect(_ url: String) {
         connection?.close()
-        connection = PlanURL.open(url, current: { [weak self] in self?.devGeneration }, apply: { [weak self] candidate, label in
+        connection = PlanURL.open(url, acceptProgram: { [weak self] program in
+            guard let self else { return false }
+            if let old = self.devProgram { return old == program }
+            self.devProgram = program
+            return true
+        }, current: { [weak self] in self?.devGeneration }, apply: { [weak self] candidate, label in
             guard let self else { return false }
             let resolver = AssetResolver(root: self.assetRoot, names: Array(candidate.assets.keys), read: { candidate.assets[$0] })
             return self.applyTogether(candidate.plan, label: label, resolver: resolver, token: 0, identity: candidate.identity, commit: { true })

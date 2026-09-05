@@ -121,12 +121,19 @@ async function fetchGeneration(message, signal) {
 
 // Fetches may finish in any order. Only the latest request can enter the
 // host's acceptance/commit operation; a failed candidate keeps the live one.
-function generationClient({ fetchGeneration, apply, applied = () => {}, failed = () => {} }) {
+function generationClient({ fetchGeneration, apply, applied = () => {}, failed = () => {}, programChanged = () => {} }) {
   let epoch = null, queued = -1, committed = null, attempt = 0, inFlight = null, controller = null;
   const retired = new Set();
+  let program = null, stopped = false;
+  const stop = () => { stopped = true; attempt++; controller?.abort(); inFlight = null; programChanged(); };
   return {
     receive(message) {
+      if (stopped) return Promise.resolve(false);
+      if (message?.rebuilt) { stop(); return Promise.resolve(false); }
       if (!validIdentity(message) || retired.has(message.epoch)) return Promise.resolve(false);
+      if (message.program !== undefined && !/^[0-9a-f]{64}$/.test(message.program)) return Promise.resolve(false);
+      if (program && program !== message.program) { stop(); return Promise.resolve(false); }
+      if (message.program) program = message.program;
       if (epoch !== message.epoch) { if (epoch !== null) retired.add(epoch); epoch = message.epoch; queued = -1; attempt++; }
       if (message.seq < queued || message.seq === queued && inFlight) return Promise.resolve(false);
       queued = message.seq;
@@ -159,7 +166,7 @@ function generationClient({ fetchGeneration, apply, applied = () => {}, failed =
 if (!es) globalThis.exactDevProtocol = { digest, generationClient, validIdentity };
 if (es) {
   let retry = null;
-  const client = generationClient({ fetchGeneration,
+  const client = generationClient({ fetchGeneration, programChanged: () => { clearTimeout(retry); location.reload(); },
     apply: async (candidate, current) => {
       if (!current()) return false;
       const t = performance.now();
@@ -184,17 +191,11 @@ if (es) {
       retry = setTimeout(discover, 250);
     },
   });
-  let program = null;
   es.onmessage = (event) => {
     let message;
     try { message = JSON.parse(event.data); } catch { show("the dev stream sent invalid JSON"); return; }
     if (message.error) { show(message.error); console.error("exact dev:", message.error); return; }
-    if (message.rebuilt) { location.reload(); return; }
     if (message.ready === false) return;
-    if (message.program) {
-      if (program && program !== message.program) { location.reload(); return; }
-      program = message.program;
-    }
     client.receive(message);
   };
 }

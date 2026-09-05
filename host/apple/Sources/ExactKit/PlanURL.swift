@@ -163,12 +163,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     /// The app owns the identity: replacing a connection must not restart an
     /// already current app, while another kind of apply invalidates the identity.
-    static func open(_ page: String, current: @escaping () -> String?, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
+    static func open(_ page: String, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
         guard let u = URL(string: page), u.host != nil, sameOrigin(u, u) else {
             print("exact url: not an HTTP app URL: \(page)")
             return nil
         }
-        let connection = PlanURL(u, current: current, apply: apply)
+        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, apply: apply)
         connection.resolveAndBoot()
         return connection
     }
@@ -176,7 +176,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     let page: URL
     private let currentGeneration: () -> String?
     private let applyGeneration: (Generation, String) -> Bool
-    private var programIdentity: String?
+    private let acceptProgram: (String?) -> Bool
     var terminal: String?
     private var observed: Revision?
     private var retiredEpochs = Set<String>()
@@ -195,8 +195,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
 
-    private init(_ page: URL, current: @escaping () -> String?, apply: @escaping (Generation, String) -> Bool) {
+    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, apply: @escaping (Generation, String) -> Bool) {
         self.page = page
+        self.acceptProgram = acceptProgram
         currentGeneration = current
         applyGeneration = apply
     }
@@ -326,16 +327,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     /// All fetch completions also carry a local resolution, so a response
     /// started before a newer announcement cannot commit afterward.
     private func observe(_ revision: Revision) -> Bool {
-        guard programIdentity == nil || revision.program != nil else { return false }
-        if let program = revision.program {
-            if let old = programIdentity, old != program {
-                terminal = "the dev server rebuilt the app's native code — rebuild and relaunch this host (the last good plan is still running)"
-                status(terminal!)
-                beginResolution()
-                stream?.cancel()
-                return false
-            }
-            programIdentity = program
+        guard acceptProgram(revision.program) else {
+            terminal = "the dev server rebuilt the app's native code — rebuild and relaunch this host (the last good plan is still running)"
+            status(terminal!)
+            beginResolution()
+            stream?.cancel()
+            return false
         }
         if let old = observed {
             if old.epoch == revision.epoch {

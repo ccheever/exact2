@@ -170,7 +170,9 @@ The browser uses the same generation protocol:
   first compile it says `ready:false`. A new process epoch resets ordering;
   retired epochs and completions of superseded fetches cannot commit. Failed
   fetches retain the highest observed revision and retry discovery. Reconnecting
-  with the same content does not apply it twice.
+  with the same content does not apply it twice. Every discovered or announced
+  revision passes the same program gate; a changed program cancels pending
+  host acceptance before the browser reloads.
 - **The manifest digest is reproducible.** Hash UTF-8 canonical JSON with object
   keys sorted by UTF-8 bytes and no whitespace or newline:
   `{"assets":[{"bytes":N,"name":"assets/x","sha256":"…"}],"plan":{"bytes":N,"sha256":"…"}}`.
@@ -183,7 +185,9 @@ The browser uses the same generation protocol:
   together. Native acceptance covers every session owned by the app (1031).
   Browser font loading leaves the old page running until synchronous host
   acceptance. Omitted names have no embedded or previous-generation fallback.
-  Failure preserves the old page, resources, and current generation.
+  Failure preserves the old page, resources, and current generation. An
+  unavailable optional GPU does not block core generation acceptance; a
+  loaded GPU still validates shaders before accepting the candidate.
 - **Payload URLs never change bytes.** `/__dev/generation/<epoch>/<seq>/…`
   serves captured bytes; the latest four revisions remain available. Expired
   revisions return 404, causing discovery of the current envelope. Restarting

@@ -9,9 +9,8 @@ const exact = globalThis.exact;
 const surfaces = new Map(); // view id -> { el, name, values, id, wants }
 let loaded = false;
 let raf = null;
-let finishReady, failReady;
-const ready = new Promise((resolve, reject) => { finishReady = resolve; failReady = reject; });
-ready.catch(() => {});
+let finishReady;
+const ready = new Promise((resolve) => { finishReady = resolve; });
 
 function size(el) {
   const r = el.getBoundingClientRect();
@@ -97,7 +96,7 @@ exact.gpu = {
   // Registration is checked before the host commits. Replacement then runs
   // synchronously in the same turn, including clearing omitted names.
   async prepareShaders(assets) {
-    await ready;
+    if (!await ready) return () => {}; // An unavailable optional device cannot block core plans.
     const rows = shaderRows(assets);
     for (const [name, text] of rows) if (!await gpu.gpu_shader_check(name, text)) throw new Error(gpu.gpu_error());
     return () => replaceShaders(rows);
@@ -120,6 +119,7 @@ const t0 = performance.now();
 try {
   await init();
   await gpu.gpu_load();
+  loaded = true;
   const rows = [];
   if (exact.devAssets === null) for (const name of JSON.parse(gpu.gpu_shader_names())) {
     const r = await fetch(new URL(`./shaders/${name}.wgsl`, import.meta.url));
@@ -129,12 +129,11 @@ try {
   // A generation may have committed while the module or baked shaders
   // downloaded. Its pinned complete namespace wins before any surface exists.
   replaceShaders(exact.devAssets === null ? rows : shaderRows(exact.devAssets));
-  loaded = true;
-  finishReady();
-} catch (error) { failReady(error); throw error; }
-exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
+} catch (error) { console.error("exact gpu:", error); }
+finally { finishReady(loaded); }
+if (loaded) exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
 // A smoke run asks (`?smoke=1`) to be told when the module is up.
-if (new URLSearchParams(location.search).get("smoke") === "1") navigator.sendBeacon(`/__gpu?ms=${exact.root.dataset.gpuMs}`);
+if (loaded && new URLSearchParams(location.search).get("smoke") === "1") navigator.sendBeacon(`/__gpu?ms=${exact.root.dataset.gpuMs}`);
 for (const s of exact.pendingSurfaces ?? []) if (s.generation === exact.generation) exact.gpu.surface(s.id, s.name, s.values);
 exact.pendingSurfaces = [];
 for (const entry of surfaces.values()) ensure(entry);

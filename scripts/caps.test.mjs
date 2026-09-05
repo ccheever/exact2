@@ -349,6 +349,26 @@ for (const [name, html, files, expectCode, expect] of [
   const refused = [];
   const refusing = generationClient({ fetchGeneration: async (m) => m, apply: async () => false, failed: (e) => refused.push(e.message) });
   await refusing.receive(c1);
+  let programReloads = 0, finishApply, beganApply;
+  const applyingStarted = new Promise((resolve) => { beganApply = resolve; });
+  const programApplies = [];
+  const programClient = generationClient({
+    fetchGeneration: async (m) => m,
+    apply: async (m, current) => {
+      await new Promise((resolve) => { finishApply = resolve; beganApply(); });
+      if (!current()) return false;
+      programApplies.push(m.generation); return true;
+    },
+    programChanged: () => { programReloads++; },
+  });
+  const applying = programClient.receive({ ...a1, program: 'a'.repeat(64) });
+  await applyingStarted;
+  // Mutable discovery and SSE use this same gate. A rebuilt program cancels
+  // even a candidate already awaiting host-side font or shader acceptance.
+  await programClient.receive({ ...b1, program: 'b'.repeat(64) });
+  finishApply(); await applying;
+  await programClient.receive({ ...b1, seq: 2, program: 'b'.repeat(64) });
+  result('every dev revision gates program identity and cancels pending acceptance', programReloads === 1 && programApplies.length === 0);
   result('complete dev generations heal reconnects, restart epochs, removals and reversed fetches',
     hashes && replaced && preserved && before === 3 && applied.length === 4 && failures.length === 2 && keptBarrier && refused.length === 1 && live.get('assets/image.png') === 'restored');
 }
