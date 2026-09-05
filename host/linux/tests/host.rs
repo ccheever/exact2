@@ -60,6 +60,23 @@ impl DataSource for NoData {
     }
 }
 
+#[test]
+fn an_analysis_core_entry_refuses_before_constructing_app_data() {
+    struct MustNotBoot;
+    impl Default for MustNotBoot {
+        fn default() -> Self {
+            panic!("analysis must never construct the app")
+        }
+    }
+    impl DataSource for MustNotBoot {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            unreachable!()
+        }
+    }
+    let compat = r#"{"inputs":{"store":{"L":"0"}},"embedded":{"analysis":true,"seq":null}}"#;
+    assert_eq!(exact_linux::run::<MustNotBoot>(b"EXPL", compat), 1);
+}
+
 fn fixture(name: &str) -> Presenter<NoData> {
     pin_font();
     let src = std::fs::read_to_string(format!(

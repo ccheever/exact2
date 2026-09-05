@@ -166,6 +166,8 @@ impl<D: DataSource> Host<D> {
         prepare: impl FnOnce(&Plan),
     ) -> Result<(Host<D>, String), HostError> {
         if let Some(json) = compat {
+            exact_runner::delivery::refuse_analysis(json)
+                .map_err(|why| HostError::Delivery(why.into()))?;
             let expected = exact_runner::Delivery::default().with_compat(json).store != '0';
             if expected != delivery.is_some() {
                 return Err(HostError::Delivery("the baked store level does not match the linked delivery adapter; regenerate the app entry".into()));

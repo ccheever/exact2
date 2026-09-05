@@ -25,6 +25,18 @@ use exact_plan::Value;
 /// the commands are `deliveryCheck` and `deliveryActivate`.
 pub const SOURCE: &str = "exactDelivery";
 
+/// Refuse a bake produced only for compatibility analysis (LLP 1030 D3a).
+/// Its receipt remains readable by tooling, but no host may launch it.
+/// Only the binary's immediate `embedded.analysis: true` marks this policy;
+/// a nested publisher receipt or ordinary release metadata does not.
+pub fn refuse_analysis(json: &str) -> Result<(), &'static str> {
+    if member(json, "embedded").and_then(|embedded| member(embedded, "analysis")) == Some("true") {
+        Err("this is a compatibility analysis artifact; publish and rebake before launch")
+    } else {
+        Ok(())
+    }
+}
+
 /// Every field the runner can fill, by the name a declared shape gives it.
 /// A shape that names anything else is refused at bake (`bake-delivery-field`).
 pub const FIELDS: [&str; 7] = [
@@ -230,6 +242,23 @@ fn strings_at(s: &str) -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_binary_analysis_marker_refuses_launch() {
+        assert!(refuse_analysis(r#"{"embedded":{"seq":null,"analysis":true}}"#).is_err());
+        for json in [
+            r#"{"embedded":{"seq":41}}"#,
+            r#"{"embedded":{"seq":0,"genesis":true,"analysis":false}}"#,
+            r#"{"embedded":{"analysis":"true"}}"#,
+            r#"{"embedded":{"assets":[{"analysis":true}],"seq":41}}"#,
+            r#"{"receipt":{"embedded":{"analysis":true}},"embedded":{"seq":41}}"#,
+            r#"{"analysis":true,"embedded":{"seq":41}}"#,
+            r#"{"embedded":{},"analysis":true}"#,
+            "{}",
+        ] {
+            assert_eq!(refuse_analysis(json), Ok(()), "{json}");
+        }
+    }
 
     /// A real `compat.json` line, shortened: the id first, then the sorted
     /// inputs with the executor set and the store's `L` among them.

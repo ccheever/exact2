@@ -776,14 +776,62 @@ fn the_insets_re_send_the_styles_that_read_them_and_move_what_they_pad() {
 /// own plan and clock; a destroyed or invented handle refused by name.
 mod handles {
     use exact_runner::{DataError, DataSource, Value};
+    use std::cell::Cell;
     use std::sync::OnceLock;
 
-    #[derive(Default)]
+    thread_local! {
+        pub static ANALYSIS: Cell<bool> = const { Cell::new(false) };
+        // constructor, grants, selection, started, candidate facts, fonts,
+        // delivery expression. Thread-local so other ABI tests stay independent.
+        pub static CALLS: Cell<[usize; 7]> = const { Cell::new([0; 7]) };
+    }
+    fn count(index: usize) {
+        CALLS.with(|calls| {
+            let mut next = calls.get();
+            next[index] += 1;
+            calls.set(next);
+        });
+    }
     pub struct Fixture;
+    impl Default for Fixture {
+        fn default() -> Self {
+            count(0);
+            Self
+        }
+    }
     impl DataSource for Fixture {
         fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
             Err(DataError::UnknownSource(s.into()))
         }
+        fn grants(&self) -> &'static str {
+            count(1);
+            ""
+        }
+    }
+    pub extern "C" fn fonts(
+        _: *mut std::ffi::c_void,
+        _: *const exact_apple::measure::CFontCatalog,
+    ) {
+        count(5);
+    }
+    pub static DELIVERY: exact_apple::delivery::Hooks = exact_apple::delivery::Hooks {
+        selected_plan: || {
+            count(2);
+            Some(("selected".into(), baked().to_vec()))
+        },
+        candidate_delivery: |_, _| {
+            count(4);
+            Some(exact_runner::Delivery::default())
+        },
+        boot_started: || count(3),
+        entry_refused: |_, _| {},
+        status_into: |_| {},
+        take_note: || None,
+        last_line: || None,
+    };
+    fn delivery() -> Option<&'static exact_apple::delivery::Hooks> {
+        count(6);
+        ANALYSIS.with(|analysis| analysis.get().then_some(&DELIVERY))
     }
 
     pub fn baked() -> &'static [u8] {
@@ -799,8 +847,18 @@ mod handles {
     /// would carry it: the exports hand it to the runner at every boot.
     pub const COMPAT: &str =
         r#"{"id":"fixture00000000","inputs":{"executors":["native"],"store":{"L":"0"}}}"#;
+    pub const ANALYSIS_COMPAT: &str = r#"{"inputs":{"store":{"L":"A"},"trust":"production"},"embedded":{"analysis":true,"seq":null}}"#;
+    fn compat() -> &'static str {
+        ANALYSIS.with(|analysis| {
+            if analysis.get() {
+                ANALYSIS_COMPAT
+            } else {
+                COMPAT
+            }
+        })
+    }
 
-    exact_apple::host!(Fixture, baked(), COMPAT);
+    exact_apple::host!(Fixture, baked(), compat(), delivery(), std::ptr::null());
 }
 
 fn out(rt: u32, len: u32) -> String {
@@ -814,6 +872,60 @@ fn put(rt: u32, bytes: &[u8]) -> usize {
     assert!(!p.is_null(), "runtime {rt} has no input buffer");
     unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len()) };
     bytes.len()
+}
+
+#[test]
+fn analysis_exports_and_direct_bridges_refuse_before_app_or_adapter_calls() {
+    handles::ANALYSIS.set(true);
+    handles::CALLS.set([0; 7]);
+    let rt = handles::exact_create();
+    handles::exact_set_fonts(rt, Some(handles::fonts), std::ptr::null_mut());
+    let plan = handles::baked();
+    for operation in 0..3 {
+        let len = put(rt, plan);
+        let n = match operation {
+            0 => handles::exact_boot(rt, 390.0, 844.0),
+            1 => handles::exact_boot_plan(rt, len, 390.0, 844.0),
+            _ => handles::exact_prepare_plan(rt, 41, len, 390.0, 844.0),
+        };
+        let refusal = out(rt, n);
+        assert!(
+            refusal.contains("compatibility analysis artifact"),
+            "{refusal}"
+        );
+        assert!(refusal.contains("\"ops\":[]"), "{refusal}");
+        assert_eq!(handles::CALLS.get(), [0; 7], "export {operation}");
+    }
+    assert_eq!(
+        out(rt, handles::exact_baked_compat(rt)),
+        handles::ANALYSIS_COMPAT
+    );
+    assert_eq!(handles::CALLS.get(), [0; 7]);
+
+    let mut bridge = Bridge::new();
+    bridge.set_compat(handles::ANALYSIS_COMPAT);
+    bridge.set_delivery(Some(&handles::DELIVERY));
+    bridge.set_fonts(Some(handles::fonts), std::ptr::null_mut());
+    let hooks = exact_apple::abi::Hooks::none();
+    let n = bridge.boot_selected(plan, handles::Fixture::default, hooks, 390.0, 844.0);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(n as usize))
+        .contains("compatibility analysis artifact"));
+    let n = bridge.boot(plan, handles::Fixture, hooks, 390.0, 844.0);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(n as usize))
+        .contains("compatibility analysis artifact"));
+    bridge.input_write(plan);
+    let n = bridge.prepare_plan(plan.len(), handles::Fixture, hooks, 390.0, 844.0);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(n as usize))
+        .contains("compatibility analysis artifact"));
+    assert_eq!(handles::CALLS.get(), [0; 7], "direct Bridge calls");
+
+    // Prove the same instrumented export runs the ordinary release path.
+    handles::ANALYSIS.set(false);
+    let booted = out(rt, handles::exact_boot(rt, 390.0, 844.0));
+    assert!(booted.contains("\"error\":null"), "{booted}");
+    let calls = handles::CALLS.get();
+    assert!(calls[0] > 0 && calls[1] > 0 && calls[5] > 0 && calls[6] > 0);
+    handles::exact_destroy(rt);
 }
 
 #[test]
@@ -927,4 +1039,38 @@ fn a_core_only_archive_refuses_compatibility_facts_that_require_an_adapter() {
         booted.contains("\"error\":null"),
         "a matching core composition must boot"
     );
+}
+
+#[test]
+fn an_analysis_archive_refuses_both_boot_and_prepare_but_exposes_its_receipt() {
+    let plan = contract::compile("component App\n  view\n    text \"analysis\"\n")
+        .unwrap()
+        .encode();
+    for compat in [
+        r#"{"inputs":{"store":{"L":"0"}},"embedded":{"analysis":true,"seq":null}}"#,
+        r#"{"inputs":{"store":{"L":"A"}},"embedded":{"analysis":true,"seq":null}}"#,
+    ] {
+        let mut bridge = Bridge::new();
+        bridge.set_compat(compat);
+        let n = bridge.baked_compat(compat);
+        assert_eq!(bridge.output_bytes(n as usize), compat.as_bytes());
+        let hooks = exact_apple::abi::Hooks::none();
+        let n = bridge.boot(&plan, NoData, hooks, 390.0, 844.0);
+        let refusal = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        assert!(
+            refusal.contains("compatibility analysis artifact"),
+            "{refusal}"
+        );
+        assert!(refusal.contains("\"ops\":[]"), "{refusal}");
+        bridge.input_write(&plan);
+        let n = bridge.prepare_plan(plan.len(), NoData, hooks, 390.0, 844.0);
+        let refusal = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        assert!(
+            refusal.contains("compatibility analysis artifact"),
+            "{refusal}"
+        );
+        let n = bridge.commit_plan();
+        let refusal = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        assert!(refusal.contains("no prepared plan"), "{refusal}");
+    }
 }

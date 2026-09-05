@@ -24,17 +24,17 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
-import { canonicalBytes } from '../../scripts/deploy.mjs';
+import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
-import { developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { applyStaticChange, applyStaticTreeChange, builtAppMatches, readDevGeneration, readStaticFile, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
-const buildEnv = developmentBuildEnv();
+const buildEnv = {...developmentBuildEnv(),EXACT_UPDATE_TRUST:'development'};
 const app = resolveApp(arg('--app', undefined));
 const port = Number(arg('--port', 8765));
 const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
@@ -43,8 +43,10 @@ const root = resolve(new URL('../..', import.meta.url).pathname);
 const dist = resolve(root, 'host/web/dist');
 const source = resolve(app.dir, 'app.contract');
 const plan = resolve(dist, 'app.plan');
-if (!builtAppMatches(dist, app)) {
-  const b = spawnSync('node', [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, stdio: 'inherit' });
+const graphPath = resolve(dist, 'bake.json');
+buildEnv.EXACT_DEV_BAKE = graphPath;
+if (!builtAppMatches(dist, app) || !existsSync(graphPath) || JSON.parse(readFileSync(graphPath,'utf8')).version!==1 || JSON.parse(readFileSync(graphPath,'utf8')).trust!=='development') {
+  const b = spawnSync('node', [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: 'inherit' });
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
 const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
@@ -129,7 +131,9 @@ function captureGeneration() {
   files.set('exact.json', envelopeBytes);
   retainDevGeneration(generationCache, epoch, seq, files);
   const revision = { epoch, seq, generation, envelope, files, prefix, url: prefix + 'exact.json' };
+  const classification=classifyGeneration(planBytes,assets);
   current = revision;
+  console.log(classification.map(line=>`  ${line}`).join('\n'));
 }
 
 // The resident compiler — started, and started again after a Rust rebuild.
@@ -157,7 +161,7 @@ function startCompiler() {
         // The first ready plan completes discovery. Every subscriber reconciles
         // its full generation; only later saves contribute edit timings.
         if (first) { first = false; for (const res of clients) res.write(`data: ${hello()}\n\n`); if (!announced) { announced = true; console.log(`plan ready: ${bytes} bytes (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) — edit ${source.replace(root + '/', '')} and watch`); } continue; }
-        console.log(`edit → plan ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms, ${bytes} bytes) · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  contract → restart with carry on every host; production: bundle`);
+        console.log(`edit → plan ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms, ${bytes} bytes) · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  contract → candidate plan ready`);
         push({ ...announcement(), bytes });
       } else if (kind === 'error') {
         console.log(`error: ${rest.join(' ')}`);
@@ -283,62 +287,71 @@ function pushAssets() {
   if (assetsNeedRebuild) return;
   seq += 1;
   try { captureGeneration(); } catch (error) { push({ error: `generation refused: ${error.message}` }); return; }
-  console.log(`edit → assets ${rows.map((r) => r.name).join(', ')} · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  ${carriers.join('\n  ')}`);
+  console.log(`edit → assets ${rows.map((r) => r.name).join(', ')} · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  ${carriers.filter(c=>c.includes('rejected')).join('\n  ')}`);
   push({ ...announcement(), changes: rows });
 }
 
-// The Rust watch: the crates the wasm is built from.
-const watched = [...['kernel', 'plan', 'motion', 'runner', 'host/web', 'gpu', 'vendor/taffy'].map((d) => resolve(root, d)), ...['data', 'web', 'gpu'].map((d) => resolve(app.dir, d))].filter(existsSync);
-const wanted = /\.(rs|toml|json|js|html)$/;
-let changed = new Set();
-let timer = null;
-let building = false;
-let again = false;
-let builds = 0;
-for (const dir of watched) {
-  try {
-    watch(dir, { recursive: true }, (_event, name) => {
-      if (!name || !wanted.test(name) || skipped.test(name) || name.endsWith('dev.js')) return;
-      changed.add(`${dir.replace(root + '/', '')}/${name}`);
-      // The conservative classifier (LLP 1030 D3): a Rust edit is a new
-      // program on every host.
-      console.log(`edit ${dir.replace(root + '/', '')}/${name} → rebuild the native host (production: binary); the web rebuilds now`);
-      clearTimeout(timer);
-      timer = setTimeout(rebuild, 200);
-    });
-  } catch (e) { console.error(`cannot watch ${dir}: ${e.message}`); }
-}
-// The exact classifier, after a rebuild (LLP 1030 D3; 1030.000 D5): the
-// conservative line at edit time says "binary"; once the producers finish,
-// the compatibility id per platform (`contract compat`, LLP 1030 D3a) says
-// whether the cohort actually moved — a data-crate edit does, an edit to the
-// web host's own Rust does not — and which inputs moved it.
-const contractBin = resolve(app.target, 'debug/contract');
-const platforms = ['web', 'macos', 'ios', 'linux'];
-function cohorts() {
-  if (!existsSync(contractBin)) spawnSync('cargo', ['build', '-q', '-p', 'contract'], { cwd: root, env: toolingEnv, stdio: 'ignore' });
-  const out = {};
-  for (const platform of platforms) {
-    const r = spawnSync(contractBin, ['compat', app.dir, '--platform', platform, '--json'], { env: buildEnv, encoding: 'utf8' });
-    if (r.status === 0) { try { out[platform] = JSON.parse(r.stdout); } catch { /* an unreadable id is no id */ } }
+// Classification follows the actual producers. Native builds remain frozen
+// until rebuilt; changed compiler inputs are reported as pending, never as
+// a guessed target or compatibility id. @ref LLP 1030 D3; 1030.000 D5.
+let builtReceipts=readBuilds(app,buildEnv);
+const nativePending=new Map();
+function refreshNativePending(){nativePending.clear();for(const r of builtReceipts)if(r.compat.inputs.platform!=='web')nativePending.set(r.compat.target+'/'+r.compat.inputs.platform,pendingBuildInputs(r));}
+refreshNativePending();
+let previousWeb=cohortReceipt(JSON.parse(readFileSync(graphPath,'utf8')));
+function classifyGeneration(planBytes, assets) {
+  const web=JSON.parse(readFileSync(graphPath,'utf8'));
+  const candidate=developmentCandidate(web,{sha256:createHash('sha256').update(planBytes).digest('hex'),bytes:planBytes.length},assets,shaderDigests);
+  const lines=[];
+  for(const platform of ['web','macos','ios','linux']) {
+    const receipts=platform==='web'?[web]:builtReceipts.filter(r=>r.compat.inputs.platform===platform);
+    if(!receipts.length){lines.push(`${platform}: unbuilt; no actual target/grants receipt`);continue;}
+    for(const build of receipts) {
+      const cohort=platform==='web'?previousWeb:cohortReceipt(build);
+      const changes=platform==='web'?[]:nativePending.get(build.compat.target+'/'+platform)??[];
+      const checked=classifyArtifacts({...candidate,binary:build.binary,pendingInputs:changes},cohort);
+      if(platform==='web')lines.push(`web: origin; ${checked.binary?'new program, reload':'plan/assets, restart with carry'}`);
+      else lines.push(`${platform} ${build.compat.target} ${build.compat.id.slice(0,8)}: ${checked.bundle?'bundle candidate':checked.missing.join('; ')}${changes.length?`; binary inputs changed (${changes.slice(0,3).join(', ')}); rebuild to complete classification`:''}`);
+      lines.push(...checked.warnings);
+    }
   }
-  return out;
-}
-let cohortsBefore = cohorts();
-function classifyRebuild() {
-  const after = cohorts();
-  const lines = [];
-  for (const platform of platforms) {
-    const was = cohortsBefore[platform], now = after[platform];
-    if (!was || !now) { lines.push(`${platform}: no compatibility id (contract compat failed)`); continue; }
-    if (platform === 'web') { lines.push(`web: the origin — the page reloads now${was.id === now.id ? '' : ' (the cohort moved too)'}`); continue; }
-    if (was.id === now.id) { lines.push(`${platform}: cohort ${now.id.slice(0, 8)} unchanged — nothing to ship natively for this edit`); continue; }
-    const moved = Object.keys(now.inputs).filter((k) => JSON.stringify(was.inputs[k]) !== JSON.stringify(now.inputs[k]));
-    lines.push(`${platform}: cohort ${was.id.slice(0, 8)} → ${now.id.slice(0, 8)} (${moved.join(', ') || 'inputs'}) — binary`);
-  }
-  cohortsBefore = after;
   return lines;
 }
+function classifyRebuild() {
+  builtReceipts=readBuilds(app,buildEnv);
+  refreshNativePending();
+  const web=JSON.parse(readFileSync(graphPath,'utf8'));
+  const check=classifyArtifacts(web,previousWeb);
+  previousWeb=cohortReceipt(web);
+  watchCompilerInputs();
+  return [`web: actual binary inputs ${check.binary?'changed':'unchanged'}; cohort ${web.compat.id}`, ...builtReceipts.filter(r=>r.compat.inputs.platform!=='web').map(r=>`${r.compat.inputs.platform}: ${nativePending.get(r.compat.target+'/'+r.compat.inputs.platform)?.length?'binary inputs changed; rebuild the actual target':'loaded inputs unchanged'} (${r.compat.target})`)];
+}
+let changed = new Set(), timer=null, building=false, again=false, builds=0;
+const watched=new Map();
+function watchCompilerInputs() {
+  // Watching source directories also catches newly added modules after their
+  // declaring file changes. Generated output and third-party caches never
+  // cause build loops; their source declarations remain in the receipt.
+  const files=new Set(builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)).filter(p=>!skipped.test(p)&&!p.includes('/.cargo/')));
+  files.add(resolve(app.dir,'app.json'));
+  const directories=new Set([...files].map(path=>resolve(path,'..')));
+  for(const receipt of builtReceipts) {
+    for(const {path} of receipt.binary.directories)directories.add(path);
+    for(const missing of receipt.binary.missing) {
+      let dir=resolve(missing,'..');while(!existsSync(dir)&&resolve(dir,'..')!==dir)dir=resolve(dir,'..');
+      directories.add(dir);
+    }
+  }
+  for(const dir of directories) {
+    if(skipped.test(dir)||dir.includes('/.cargo/')||watched.has(dir)||!existsSync(dir))continue;
+    try {watched.set(dir,watch(dir,(_event,name)=>{
+      if(!name||skipped.test(name)||name.endsWith('dev.js')||assetTrees.some(([tree])=>resolve(dir,name).startsWith(tree+'/'))||resolve(dir,name)===source)return;
+      changed.add(resolve(dir,name));console.log(`edit ${resolve(dir,name)} → build pending; classification follows its receipt`);
+      clearTimeout(timer);timer=setTimeout(rebuild,200);
+    }));}catch(error){console.error(`cannot watch ${dir}: ${error.message}`);}
+  }
+}
+watchCompilerInputs();
 
 function rebuild() {
   if (building) { again = true; return; }
@@ -346,7 +359,7 @@ function rebuild() {
   const files = [...changed]; changed = new Set();
   const t = Date.now();
   console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the wasm`);
-  const b = spawn('node', [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  const b = spawn('node', [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   b.stdout.on('data', (d) => { out += d; });
   b.stderr.on('data', (d) => { out += d; });

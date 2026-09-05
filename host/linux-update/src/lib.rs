@@ -12,6 +12,10 @@ pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
     if exact_linux::app::print_baked_receipt(compat) {
         return 0;
     }
+    if let Err(why) = exact_runner::delivery::refuse_analysis(compat) {
+        eprintln!("exact: {why}");
+        return 1;
+    }
     if Delivery::default().with_compat(compat).store == '0' {
         eprintln!(
             "exact: this binary-only app must use the core host entry; regenerate the app entry"

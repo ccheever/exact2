@@ -103,6 +103,7 @@ impl Session {
         let baked = contract::bake(plan, D::default()).map_err(|e| format!("bake: {e:?}"))?;
         let bake_ms = t.elapsed().as_secs_f64() * 1000.0;
         let bytes = baked.encode();
+        contract::write_development_artifacts(&baked)?;
         // Atomic, and per process: the page never fetches a half-written
         // plan, and two drivers on one file cannot trip over one tmp.
         let tmp = self

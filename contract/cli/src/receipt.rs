@@ -22,6 +22,7 @@ pub(crate) fn emit(
         "EXACT_UPDATE_RECEIPT",
         "EXACT_UPDATE_GENESIS",
         "EXACT_BAKE_OUTPUT",
+        "EXACT_BAKE_ANALYSIS",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
     }
@@ -42,6 +43,8 @@ pub(crate) fn emit(
     }
     let plan_card = json!({"sha256": hash(&plan_bytes), "bytes": plan_bytes.len()});
     let assets = asset_cards(app)?;
+    let graph = artifact_graph(&plan, &compat.inputs, &assets)?;
+    std::fs::write(out.join("artifacts.json"), graph.to_string()).map_err(|e| e.to_string())?;
     compat.target = target.into();
     compat.embedded =
         json!({"seq":0,"plan":plan_card,"assets":assets,"entryDigest":null,"genesis":true});
@@ -51,6 +54,13 @@ pub(crate) fn emit(
     if development || compat.inputs["store"]["L"] == "0" {
         // Explicit development artifacts and updater-free hosts have a
         // local genesis; neither inherits a production stream receipt.
+    } else if std::env::var("EXACT_BAKE_ANALYSIS").as_deref() == Ok("1") {
+        // Classification compiles the real target before publication has a
+        // sequence. This artifact cannot launch: Baked requires a u64 seq.
+        // Only a later authenticated receipt bake may produce a release.
+        compat.embedded["analysis"] = json!(true);
+        compat.embedded["seq"] = Value::Null;
+        compat.embedded["genesis"] = json!(false);
     } else if let Some(path) = std::env::var_os("EXACT_UPDATE_RECEIPT") {
         let path = PathBuf::from(path);
         println!("cargo:rerun-if-changed={}", path.display());
@@ -74,6 +84,11 @@ pub(crate) fn emit(
             .map_err(|e| e.to_string())?;
         std::fs::write(destination.join(format!("{stem}.plan")), &plan_bytes)
             .map_err(|e| e.to_string())?;
+        std::fs::write(
+            destination.join(format!("{stem}.artifacts.json")),
+            graph.to_string(),
+        )
+        .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -115,6 +130,131 @@ fn asset_cards(app: &Path) -> Result<Vec<Value>, String> {
         ));
     }
     serde_json::from_slice(&output.stdout).map_err(|e| format!("bake asset inventory: {e}"))
+}
+
+// Shapes use semantic names and field order, never plan-local row numbers.
+// The same source signature survives unrelated declarations being inserted.
+fn shape(plan: &exact_plan::Plan, ty: exact_plan::TypesId, depth: usize) -> Result<Value, String> {
+    use exact_plan::TypeKind;
+    if depth > 128 {
+        return Err("artifact source shape exceeds 128 levels".into());
+    }
+    let row = plan.type_(ty);
+    Ok(match row.kind {
+        TypeKind::Option | TypeKind::List => {
+            json!({"kind":format!("{:?}", row.kind),"item":shape(plan, row.elem.ok_or("container type has no item")?, depth + 1)?})
+        }
+        TypeKind::Record => {
+            let fields = row.fields.iter().map(|id| {
+                let field = plan.field(id);
+                Ok(json!({"name":plan.str(field.name),"type":shape(plan, field.ty, depth + 1)?}))
+            }).collect::<Result<Vec<Value>, String>>()?;
+            json!({"kind":"Record","fields":fields})
+        }
+        _ => json!(format!("{:?}", row.kind)),
+    })
+}
+
+fn artifact_graph(
+    plan: &exact_plan::Plan,
+    inputs: &Value,
+    assets: &[Value],
+) -> Result<Value, String> {
+    let mut sources = serde_json::Map::new();
+    for row in &plan.sources {
+        let params = row
+            .params
+            .iter()
+            .map(|id| shape(plan, plan.source_param(id).ty, 0))
+            .collect::<Result<Vec<_>, _>>()?;
+        sources.insert(
+            plan.str(row.name).into(),
+            json!({"params":params,"result":shape(plan, row.ty, 0)?}),
+        );
+    }
+    // Every surface row includes deferred templates and branches. This is
+    // prior plan demand, not a claim to enumerate the native module's exports.
+    let mut calls = serde_json::Map::new();
+    for row in &plan.surfaces {
+        let name = plan.str(row.name);
+        let arities = calls.entry(name).or_insert_with(|| json!([]));
+        let arity = json!(row.args.len);
+        let values = arities
+            .as_array_mut()
+            .ok_or("surface arities are not an array")?;
+        if !values.contains(&arity) {
+            values.push(arity);
+            values.sort_by_key(|v| v.as_u64());
+        }
+    }
+    let mut requires = serde_json::Map::new();
+    requires.insert("surfaceCalls".into(), Value::Object(calls.clone()));
+    for key in ["app", "kernelSchema", "formatVersion", "formatDigest"] {
+        requires.insert(key.into(), inputs[key].clone());
+    }
+    // The plan's source table covers resource calls and sends, including
+    // branches not mounted during bake. Installed cohorts retain their own
+    // implementations of matching names/shapes (1030 D3's stated caveat).
+    requires.insert("sources".into(), Value::Object(sources.clone()));
+    if sources
+        .keys()
+        .any(|name| name != exact_runner::delivery::SOURCE)
+    {
+        requires.insert("executors".into(), inputs["executors"].clone());
+        requires.insert("grantCeiling".into(), inputs["grantCeiling"].clone());
+    }
+    let plan_bytes = plan.encode();
+    let mut artifacts = vec![
+        json!({"name":"app.plan","kind":"bundle","sha256":hash(&plan_bytes),"bytes":plan_bytes.len(),"requires":requires}),
+    ];
+    for asset in assets {
+        let mut requires = serde_json::Map::new();
+        if let Some(stem) = asset["name"]
+            .as_str()
+            .and_then(|n| n.strip_prefix("shaders/"))
+            .and_then(|n| n.strip_suffix(".wgsl"))
+        {
+            let interface = inputs["gpuSurfaces"]
+                .as_array()
+                .and_then(|rows| rows.iter().find(|row| row["name"] == stem))
+                .ok_or_else(|| format!("shader {stem} has no baked surface interface"))?;
+            requires.insert("gpuSurfaces".into(), json!([interface]));
+        }
+        artifacts.push(json!({"name":asset["name"],"kind":"bundle","sha256":asset["sha256"],"bytes":asset["bytes"],"requires":requires}));
+    }
+    Ok(json!({"version":1,"sources":sources,"surfaceCalls":calls,"artifacts":artifacts}))
+}
+
+/// Refresh the resident compiler's candidate graph beside its plan. The
+/// actual binary's compatibility, provided sources and input receipt stay
+/// frozen until the binary-producing build runs again.
+pub fn write_development_artifacts(plan: &exact_plan::Plan) -> Result<(), String> {
+    let Some(path) = std::env::var_os("EXACT_DEV_BAKE") else {
+        return Ok(());
+    };
+    let path = PathBuf::from(path);
+    let mut receipt: Value =
+        serde_json::from_slice(&std::fs::read(&path).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    if receipt["trust"] != "development"
+        || receipt["compat"]["inputs"]["app"] != plan.app_id
+        || receipt["compat"]["inputs"]["platform"] != "web"
+    {
+        return Err("resident compiler needs its app's actual development web bake receipt".into());
+    }
+    let graph = artifact_graph(plan, &receipt["compat"]["inputs"], &[])?;
+    let rows = receipt["graph"]["artifacts"]
+        .as_array_mut()
+        .ok_or("bake receipt has no artifacts")?;
+    let node = rows
+        .iter_mut()
+        .find(|row| row["name"] == "app.plan")
+        .ok_or("bake receipt has no plan node")?;
+    *node = graph["artifacts"][0].clone();
+    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+    std::fs::write(&temporary, receipt.to_string())
+        .and_then(|_| std::fs::rename(&temporary, &path))
+        .map_err(|e| e.to_string())
 }
 
 fn apply_release(compat: &mut Compat, bytes: &[u8], plan: &[u8]) -> Result<(), String> {

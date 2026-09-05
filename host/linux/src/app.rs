@@ -204,6 +204,7 @@ pub fn boot_presenter<D: DataSource + Default>(
     config: &mut Config,
     viewport: (f32, f32),
 ) -> Result<(Presenter<D>, Option<String>), String> {
+    exact_runner::delivery::refuse_analysis(&config.compat).map_err(str::to_string)?;
     let mut updates = config.updates.take();
     let compat = config.compat.clone();
     let facts = |updates: &Option<Box<dyn Store>>| {
@@ -280,6 +281,10 @@ pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
     if print_baked_receipt(compat) {
         return 0;
     }
+    if let Err(why) = exact_runner::delivery::refuse_analysis(compat) {
+        eprintln!("exact: {why}");
+        return 1;
+    }
     if exact_runner::Delivery::default().with_compat(compat).store != '0' {
         eprintln!(
             "exact: the baked store level requires the delivery adapter; regenerate the app entry"
@@ -303,6 +308,10 @@ pub fn print_baked_receipt(compat: &str) -> bool {
 
 /// Run a configured app, optionally composed with a delivery adapter.
 pub fn run_config<D: DataSource + Default>(config: &mut Config, started: Instant) -> i32 {
+    if let Err(why) = exact_runner::delivery::refuse_analysis(&config.compat) {
+        eprintln!("exact: {why}");
+        return 1;
+    }
     if config.headless() {
         return headless::<D>(config, started);
     }

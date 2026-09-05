@@ -154,6 +154,14 @@ impl<D: DataSource> Bridge<D> {
         self.delivery = hooks;
     }
 
+    /// Refuse an analysis bake before constructing app data or invoking hooks.
+    /// The exported entrypoints call this before evaluating their app arguments;
+    /// direct Bridge calls repeat it before bindings or selection are consulted.
+    pub fn refuse_analysis(&mut self) -> Option<u32> {
+        let why = exact_runner::delivery::refuse_analysis(self.compat?).err()?;
+        Some(self.refuse_preparation(why))
+    }
+
     fn emit(&mut self, s: String) -> u32 {
         // Whatever the last call asked the host to run goes to the executor
         // with the batch (LLP 1016 D2); the presenter never sees a request.
@@ -186,6 +194,9 @@ impl<D: DataSource> Bridge<D> {
     /// the monospace reference measurer when none is given) under a
     /// viewport; the output is the first batch.
     pub fn boot(&mut self, plan: &[u8], data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
+        if let Some(refusal) = self.refuse_analysis() {
+            return refusal;
+        }
         match self.boot_fresh(plan, data, hooks, width, height) {
             Ok(batch) => self.emit(batch),
             Err(e) => self.emit(format!(
@@ -210,6 +221,9 @@ impl<D: DataSource> Bridge<D> {
         width: f32,
         height: f32,
     ) -> u32 {
+        if let Some(refusal) = self.refuse_analysis() {
+            return refusal;
+        }
         let Some(delivery) = self.delivery else {
             return self.boot(embedded, data(), hooks, width, height);
         };
@@ -234,6 +248,9 @@ impl<D: DataSource> Bridge<D> {
         width: f32,
         height: f32,
     ) -> Result<String, String> {
+        if let Some(compat) = self.compat {
+            exact_runner::delivery::refuse_analysis(compat).map_err(str::to_string)?;
+        }
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
             None => Box::new(MonospaceMeasurer::default()),
@@ -313,6 +330,9 @@ impl<D: DataSource> Bridge<D> {
         height: f32,
         delivery: Option<exact_runner::Delivery>,
     ) -> u32 {
+        if let Some(refusal) = self.refuse_analysis() {
+            return refusal;
+        }
         self.prepared = None;
         let plan = self.input[..len.min(self.input.len())].to_vec();
         // Build the candidate beside the live host. A decode, app-identity,
@@ -762,6 +782,7 @@ macro_rules! host {
         pub extern "C" fn exact_boot(rt: u32, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
                 b.set_compat($compat);
+                if let Some(refusal) = b.refuse_analysis() { return refusal; }
                 b.set_delivery($delivery);
                 b.boot_selected($plan, || <$data as ::std::default::Default>::default(), hooks, width, height)
             }, |n| n)
@@ -790,6 +811,7 @@ macro_rules! host {
         pub extern "C" fn exact_boot_plan(rt: u32, len: usize, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
                 b.set_compat($compat);
+                if let Some(refusal) = b.refuse_analysis() { return refusal; }
                 b.set_delivery($delivery);
                 b.boot_plan(len, <$data as ::std::default::Default>::default(), hooks, width, height)
             }, |n| n)
@@ -800,6 +822,7 @@ macro_rules! host {
         pub extern "C" fn exact_prepare_plan(rt: u32, token: u64, len: usize, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
                 b.set_compat($compat);
+                if let Some(refusal) = b.refuse_analysis() { return refusal; }
                 b.set_delivery($delivery);
                 let delivery: ::std::option::Option<&'static $crate::delivery::Hooks> = $delivery;
                 let facts = delivery.and_then(|h| (h.candidate_delivery)(token, $compat));

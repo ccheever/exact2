@@ -108,6 +108,34 @@ fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
 }
 
 #[test]
+fn an_analysis_boot_refuses_before_touching_an_attached_selection() {
+    let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
+        .unwrap()
+        .encode();
+    let candidate = contract::compile("component App\n  view\n    text \"selected\"\n")
+        .unwrap()
+        .encode();
+    let dir = std::env::temp_dir().join(format!("exact-linux-analysis-{}", std::process::id()));
+    let client = stage(&dir, &baked, &candidate, &[]);
+    let record = client.dir().join("record.json");
+    let before = std::fs::read(&record).unwrap();
+    let mut config = selected_config(&dir, &baked, client);
+    config.compat =
+        r#"{"inputs":{"store":{"L":"A"}},"embedded":{"analysis":true,"seq":null}}"#.into();
+    let error = boot_presenter::<Named>(&mut config, (390.0, 844.0))
+        .err()
+        .expect("analysis cannot boot either selected or fallback bytes");
+    assert!(error.contains("compatibility analysis artifact"), "{error}");
+    assert!(
+        config.updates.is_some(),
+        "refusal precedes taking the store"
+    );
+    assert_eq!(std::fs::read(record).unwrap(), before);
+    drop(config);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
     let source = "component App\n  view\n    text \"ok\"\n";
     let mut foreign = contract::compile(source).unwrap();

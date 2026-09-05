@@ -18,11 +18,14 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
-import { resolveApp, verifyBakeFiles, withAppFixture } from './app.mjs';
+import { resolveApp, verifyBakeFiles, withAppFixture, pendingBuildInputs } from './app.mjs';
 import { copyAppleStaticTrees, deviceLaunchArgs } from '../host/apple/build.mjs';
-import { canonicalBytes, classify, defaultRelease, deployRun, inspectHead, materializeSnapshot, publishStream, publishRoot, webRelease, renderTable, snapshotOf, streamHead } from './deploy.mjs';
+import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, publishStream, publishRoot, webRelease, renderTable, snapshotOf, streamHead } from './deploy.mjs';
 import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, webRootPath, webReleasePath, sha256 } from './origin.mjs';
-
+// Minimal compiler receipts for origin protocol fixtures below; capability
+// behavior is tested independently with declared requirements.
+const fixtureBuild = (id, bundle) => ({version:1,compat:{id,inputs:{store:{L:'A'},executors:[]},target:'fixture'},
+  graph:{version:1,sources:{},artifacts:[{name:'app.plan',requires:{},sha256:bundle.plan.sha256,bytes:bundle.plan.bytes?.length??0}]},binary:{sha256:'0'.repeat(64)}});
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
 const BOOT = join(dirname(fileURLToPath(import.meta.url)), 'boot.mjs');
 const DEPLOY = join(dirname(fileURLToPath(import.meta.url)), 'deploy.mjs');
@@ -136,7 +139,6 @@ function result(name, ok, detail = '') {
   if (ok) console.log(`ok    ${name}`);
   else { failed += 1; console.log(`FAIL  ${name}`); if (detail) console.log(detail); }
 }
-
 // The boot check's parser must see every valid spelling that can execute.
 const BOOT_RULES = GOOD_RULES.replace('| Cold start to interactive | 100ms |', '| Cold start to interactive | 100ms |\n| App JS executed before first pixel | none |');
 function boot(html, files = {}) {
@@ -158,7 +160,6 @@ for (const [name, html, files, expectCode, expect] of [
   const r = boot(html, files);
   result(name, r.code === expectCode && r.out.includes(expect), r.out);
 }
-
 // The exact resolver used by serve/dev/agent/metrics: only current public
 // build outputs, no dot paths or symlink traversal.
 {
@@ -184,7 +185,6 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir, { recursive: true, force: true });
   result('web serving rejects stale, dot, and symlink paths', ok);
 }
-
 // Retained namespaces outlive the current process's discovery head. Quota
 // refusal, malformed routes and interrupted writes never damage a live deck.
 {
@@ -217,7 +217,6 @@ for (const [name, html, files, expectCode, expect] of [
     && readDevGeneration(cache, prefix + 'deck/nested/page.html') === null && readFileSync(secret, 'utf8') === 'outside');
   rmSync(dir, { recursive: true, force: true });
 }
-
 // Static bakes and live edits share one source policy. A rejected link or
 // validator leaves the served file alone; a source removed after its bytes
 // were captured cannot turn the committed candidate into partial output.
@@ -235,7 +234,6 @@ for (const [name, html, files, expectCode, expect] of [
   try { copyStaticTree(source, join(dir, 'other')); }
   catch (error) { treeRefused = error.message.includes('cannot be symlinks'); }
   rmSync(join(source, 'linked.txt'));
-
   writeFileSync(join(target, 'live.txt'), 'last good');
   writeFileSync(join(source, 'live.txt'), 'invalid');
   let invalidRefused = false;
@@ -252,14 +250,12 @@ for (const [name, html, files, expectCode, expect] of [
   catch (error) { missingRefused = error.code === 'ENOENT'; }
   writeFileSync(join(source, 'live.txt'), 'next good');
   const installed = installStaticCandidate(source, 'live.txt', join(target, 'live.txt'), () => rmSync(join(source, 'live.txt')));
-
   mkdirSync(join(source, 'gone', 'inside'), { recursive: true });
   writeFileSync(join(source, 'gone', 'inside', 'one.txt'), 'one');
   mkdirSync(join(target, 'gone', 'inside'), { recursive: true });
   writeFileSync(join(target, 'gone', 'inside', 'one.txt'), 'old one');
   rmSync(join(source, 'gone'), { recursive: true });
   const removedDirectory = applyStaticChange(source, 'gone', join(target, 'gone'));
-
   const startupSource = join(dir, 'startup-source');
   const startupTarget = join(dir, 'startup-target');
   mkdirSync(startupSource); writeFileSync(join(startupSource, 'fresh.txt'), 'fresh');
@@ -279,7 +275,6 @@ for (const [name, html, files, expectCode, expect] of [
   let brokenCopyRefused = false;
   try { copyStaticTreeIfPresent(startupSource, join(dir, 'broken-copy')); }
   catch (error) { brokenCopyRefused = error.message.includes('must be a real directory'); }
-
   const shaderSource = join(dir, 'shader-source');
   const shaderTarget = join(dir, 'shader-target');
   const reflector = resolve(dirname(fileURLToPath(import.meta.url)), '../target/debug/exact-gpu-reflect');
@@ -293,7 +288,6 @@ for (const [name, html, files, expectCode, expect] of [
   try { syncStaticTree(shaderSource, shaderTarget, validateShaders); }
   catch (error) { startupShaderRefused = error.message.includes('expected global item'); }
   const startupShaderPreserved = readFileSync(join(shaderTarget, 'surface.wgsl'), 'utf8').startsWith('@compute');
-
   result('static candidates reject links and preserve last-good bytes', treeRefused && invalidRefused
     && linkRefused && missingRefused && readFileSync(join(target, 'ok.txt'), 'utf8') === 'good'
     && installed.toString() === 'next good' && readFileSync(join(target, 'live.txt'), 'utf8') === 'next good'
@@ -303,7 +297,6 @@ for (const [name, html, files, expectCode, expect] of [
     && startupShaderRefused && startupShaderPreserved);
   rmSync(dir, { recursive: true, force: true });
 }
-
 // The watcher is rooted at the stable app directory, not at whichever asset
 // trees happened to exist at startup. Drive an absent tree through creation,
 // whole-root deletion, and recreation; every phase reaches the served tree.
@@ -342,7 +335,6 @@ for (const [name, html, files, expectCode, expect] of [
     JSON.stringify({ created, deleted, recreated, errors }));
   rmSync(dir, { recursive: true, force: true });
 }
-
 // The protocol reconciles complete namespaces and rejects out-of-order
 // completions. Its LAN hash path must match SHA-256 at block boundaries.
 {
@@ -446,7 +438,6 @@ for (const [name, html, files, expectCode, expect] of [
     && unnamedPlanRefused && !builtAppMatches(dir, app));
   rmSync(dir, { recursive: true, force: true });
 }
-
 // The completion marker is build-private. The exact same public inventory
 // drives deploy classification, so it cannot leak to an origin even though it
 // lives beside public artifacts in the completed stage.
@@ -465,7 +456,6 @@ for (const [name, html, files, expectCode, expect] of [
     && published.join(',') === 'index.html' && !published.includes('.exact-build.json'), JSON.stringify(published));
   rmSync(dir, { recursive: true, force: true });
 }
-
 // A complete prior graph survives a failure before/after every individual
 // payload write and pointer write. Readers follow the exact index/envelope
 // they received while another publish runs, including removal of AASA.
@@ -606,7 +596,6 @@ for (const [name, html, files, expectCode, expect] of [
     && app.manifest.name !== app.displayName && web.app.name === app.displayName
     && stream.app.name === web.app.name && mismatchedPlanRefused);
 }
-
 // "Current" means the production client admits the complete authenticated
 // head. An unusable head contributes no rollback floor: repair advances from
 // the largest immutable record whose embedded envelope verifies, or refuses
@@ -630,6 +619,7 @@ for (const [name, html, files, expectCode, expect] of [
   const signer = { keyId: 'test', sign: (head) => ({ keyId: 'test', ed25519: cryptoSign(null, canonicalBytes(head), privateKey).toString('base64') }) };
   const signed = (edit = () => {}) => {
     const head = streamHead({ app, bundle, stream, seq: 7, release: 'old' });
+    head.cohort = cohortReceipt(fixtureBuild(compatibilityId,bundle));
     edit(head);
     head.signature = signer.sign(head);
     return head;
@@ -652,7 +642,7 @@ for (const [name, html, files, expectCode, expect] of [
       list: async (name) => withHistory && name.endsWith('/releases') ? ['old.json'] : [],
     },
     channel: stream.channel, snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
-    release: 'next', web: dir, bundle, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
+    release: 'next', web: dir, bundle, builds:{linux:fixtureBuild(compatibilityId,bundle)}, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
     platforms: ['linux'], wantOrigin: false });
   const missingSignature = signed(); delete missingSignature.signature;
   const badSignature = signed(); badSignature.signature.ed25519 = Buffer.alloc(64).toString('base64');
@@ -680,7 +670,7 @@ for (const [name, html, files, expectCode, expect] of [
     signed((head) => { delete head.plan.bytes; }),
   ];
   const validTable = await tableFor(valid);
-  const reordered = { signature: valid.signature, stream: valid.stream, release: valid.release,
+  const reordered = { cohort: valid.cohort, signature: valid.signature, stream: valid.stream, release: valid.release,
     plan: valid.plan, exact: valid.exact, assets: valid.assets, app: valid.app };
   const prettyBytes = Buffer.from(JSON.stringify(reordered, null, 2) + '\n');
   const pretty = { json: reordered, bytes: prettyBytes, sha256: createHash('sha256').update(prettyBytes).digest('hex') };
@@ -701,12 +691,11 @@ for (const [name, html, files, expectCode, expect] of [
       head: async () => null, list: async () => null,
     },
     channel: stream.channel, snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
-    release: 'next', web: dir, bundle, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
+    release: 'next', web: dir, bundle, builds:{linux:fixtureBuild(compatibilityId,bundle)}, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
     platforms: ['linux'], wantOrigin: false });
   let noHistoryRefused = false;
   try { await tableFor(badSignature, false); }
   catch (error) { noHistoryRefused = error.message.includes('release history has no authenticated sequence floor'); }
-
   let unknownHistoryRefused = false;
   let unknownHistoryWrote = false;
   const unknownOrigin = {
@@ -722,7 +711,6 @@ for (const [name, html, files, expectCode, expect] of [
       bundle, compat: { id: compatibilityId, inputs: {} }, app, signer, release: 'unknown-history',
       snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, opts: {}, log: () => {} });
   } catch (error) { unknownHistoryRefused = error.message.includes('cannot enumerate its authenticated release history'); }
-
   const badHistoryOrigin = (bytes) => ({
     kind: 'directory', describe: () => 'bad-history-origin',
     get: async (name) => name.endsWith('/releases/broken.json') ? bytes : null,
@@ -735,7 +723,7 @@ for (const [name, html, files, expectCode, expect] of [
     try {
       await classify({ app, opts: { platform: [] }, origin: badHistoryOrigin(bytes),
         channel: stream.channel, snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
-        release: 'next', web: dir, bundle, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
+        release: 'next', web: dir, bundle, builds:{linux:fixtureBuild(compatibilityId,bundle)}, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
         platforms: ['linux'], wantOrigin: false });
       badHistoryClassifyRefused.push(false);
     } catch (error) { badHistoryClassifyRefused.push(error.message.includes('nonempty release history has no authenticated sequence floor')); }
@@ -752,11 +740,10 @@ for (const [name, html, files, expectCode, expect] of [
   } catch (error) { corruptHistoryPublishRefused = error.message.includes('nonempty release history has no authenticated sequence floor'); }
   const vanishedTable = await classify({ app, opts: { platform: [] }, origin: badHistoryOrigin(null),
     channel: stream.channel, snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
-    release: 'next', web: dir, bundle, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
+    release: 'next', web: dir, bundle, builds:{linux:fixtureBuild(compatibilityId,bundle)}, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
     platforms: ['linux'], wantOrigin: false });
   const vanishedHistoryUnavailable = vanishedTable.rows[0].action === 'unavailable'
     && vanishedTable.rows[0].reason.includes('disappeared while establishing');
-
   const origin = new DirectoryOrigin(dir);
   mkdirSync(join(dir, '.exact', stream.channel, compatibilityId), { recursive: true });
   writeFileSync(join(dir, '.exact', stream.channel, compatibilityId, 'exact.json'), found(forgedHuge).bytes);
@@ -778,7 +765,7 @@ for (const [name, html, files, expectCode, expect] of [
   await hiddenOrigin.put(`.exact/${stream.channel}/${compatibilityId}/releases/.old.json`, history, { immutable: true });
   const hiddenTable = await classify({ app, opts: { platform: [] }, origin: hiddenOrigin,
     channel: stream.channel, snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
-    release: 'after-hidden', web: dir, bundle, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
+    release: 'after-hidden', web: dir, bundle, builds:{linux:fixtureBuild(compatibilityId,bundle)}, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
     platforms: ['linux'], wantOrigin: false });
   const hiddenPublished = await publishStream({ origin: hiddenOrigin,
     row: { kind: 'stream', platform: 'linux', channel: stream.channel, compatibilityId, action: 'bundle', changes: [] },
@@ -826,13 +813,12 @@ for (const [name, html, files, expectCode, expect] of [
   const table = await classify({ app: { id: 'com.exact.test', displayName: 'Test', dir, manifest: {} }, opts: { platform: [] },
     origin, channel: 'prod', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
     release: 'test', web: dir, bundle: { plan: { sha256: '0'.repeat(64) }, assets: [] },
-    compat: { linux: { id: cohort, inputs: { store: { L: 'A' }, executors: [] } } }, platforms: ['linux'], wantOrigin: false });
-  result('stream discovery outage retains the classified cohort row', table.rows.length === 1
+    builds:{linux:fixtureBuild(cohort,{plan:{sha256:'0'.repeat(64)}})}, compat: { linux: { id: cohort, inputs: { store: { L: 'A' }, executors: [] } } }, platforms: ['linux'], wantOrigin: false });
+  result('stream discovery outage retains the classified cohort row', table.rows.filter(r=>r.kind==='stream').length === 1
     && table.rows[0].action === 'bundle' && table.notes.some((note) => note.includes('stream discovery unavailable')),
   JSON.stringify(table));
   rmSync(dir, { recursive: true, force: true });
 }
-
 // A dry-run renders network availability per row, including declared retired
 // streams. A corrupt response remains a hard refusal rather than masquerading
 // as a transient network problem.
@@ -873,7 +859,38 @@ for (const [name, html, files, expectCode, expect] of [
   result('deploy does not hide a malformed head as unavailable', message.includes('is not JSON'), message);
   rmSync(dir, { recursive: true, force: true });
 }
+// One comparison drives dev and deploy; neither id equality nor a binary
+// edit is a proxy for a bundle dependency.
+{
+  const candidate=fixtureBuild('a'.repeat(32),{plan:{sha256:'0'.repeat(64)}});
+  candidate.compat.inputs={app:'test',store:{L:'A'},executors:['native'],grantCeiling:'net.fetch https://x/',gpuSurfaces:[{name:'map',interface:'v1'}],dataCrate:{tree:'old'}};
+  candidate.graph.sources={station:{params:['String'],result:'String'}};
+  candidate.graph.artifacts[0].requires={sources:candidate.graph.sources,executors:['native'],grantCeiling:'net.fetch https://x/'};
+  const installed=cohortReceipt(candidate);
+  const host=structuredClone(candidate);host.binary.sha256='1'.repeat(64);
+  const same=classifyArtifacts(host,installed);
+  const moved=structuredClone(host);moved.compat.id='b'.repeat(32);moved.compat.inputs.dataCrate.tree='new';
+  const old=classifyArtifacts(moved,installed);
+  const needs=structuredClone(moved);needs.graph.artifacts[0].requires.sources={camera:{params:[],result:'String'}};
+  const absent=classifyArtifacts(needs,installed);
+  const shader=structuredClone(moved);shader.graph.artifacts.push({name:'shaders/map.wgsl',requires:{gpuSurfaces:[{name:'map',interface:'v2'}]}});
+  const unsupported=classifyArtifacts(shader,installed);
+  const grants=structuredClone(moved);grants.graph.artifacts[0].requires.grantCeiling='net.fetch https://new/';
+  const refused=classifyArtifacts(grants,installed);
+  result('artifact graph separates binary changes, compatible older cohorts, and named missing dependencies',
+    same.binary&&same.bundle&&old.binary&&old.bundle&&old.warnings[0].includes('will run the old code')
+    &&!absent.bundle&&absent.missing[0].includes('sources.camera')&&!unsupported.bundle&&unsupported.missing[0].includes('gpuSurfaces.map')
+    &&!refused.bundle&&refused.missing[0].includes('https://new/')&&!classifyArtifacts(moved,null).bundle,
+    JSON.stringify({same,old,absent,unsupported,refused}));
+}
 
+{
+  const dir=mkdtempSync(join(tmpdir(),'exact-input-staleness-')),file=join(dir,'declared');
+  writeFileSync(file,'replaced a watched directory');
+  const pending=pendingBuildInputs({binary:{inputs:[{name:'source',path:dir,sha256:'0'.repeat(64)}],missing:[],directories:[{path:file,names:['old.h']}]}});
+  result('dev reports replaced compiler input types as pending without terminating',pending.includes('source')&&pending.includes(file),JSON.stringify(pending));
+  rmSync(dir,{recursive:true,force:true});
+}
 // Signing-key creation is one exclusive filesystem operation. Two publishers
 // racing for an id cannot both report a public half and silently replace the
 // private half behind the first one's result.
@@ -1042,7 +1059,6 @@ for (const [name, html, files, expectCode, expect] of [
   }
   rmSync(join(internal, 'target'));
   rmSync(projectTmp, { recursive: true });
-
   // This is the race a before/after fingerprint cannot see: a transient edit
   // exists while the bake is being prepared, then the checkout is restored.
   writeFileSync(join(internal, 'host/runtime.rs'), 'transient during bake\n');
@@ -1051,7 +1067,6 @@ for (const [name, html, files, expectCode, expect] of [
   const cleanRaceBytes = readFileSync(join(cleanMaterialized.exactRoot, 'host/runtime.rs'), 'utf8');
   const projectTmpRejected = relative(internal, cleanMaterialized.sourceRoot).startsWith('..');
   writeFileSync(join(internal, 'host/runtime.rs'), 'old\n');
-
   // Restore the live file immediately after the capture freezes its tree. A
   // later live status read must not relabel those already-captured bytes as a
   // clean HEAD snapshot.
@@ -1078,7 +1093,6 @@ for (const [name, html, files, expectCode, expect] of [
     && racedSnapshot.changes.some((change) => change.endsWith('host/runtime.rs'))
     && readFileSync(join(racedMaterialized.exactRoot, 'host/runtime.rs'), 'utf8') === 'transient during capture\n'
     && readFileSync(join(internal, 'host/runtime.rs'), 'utf8') === 'old\n';
-
   writeFileSync(join(internal, 'host/runtime.rs'), 'edited\n');
   writeFileSync(join(internal, 'apps/test/assets/dist/published.txt'), 'nested edited\n');
   writeFileSync(join(internal, 'apps/test/assets/ignored.txt'), 'ignored captured\n');
@@ -1110,7 +1124,6 @@ for (const [name, html, files, expectCode, expect] of [
   let changedSnapshotRefused = false;
   try { snapshotOf(internalApp, { dirty: true, snapshot: dirtySnapshot.id }, internal); }
   catch (error) { changedSnapshotRefused = error.message.includes('same complete source set'); }
-
   let ignoredRootRefused = false;
   try { snapshotOf(externalApp, {}, exact); }
   catch (error) { ignoredRootRefused = error.message.includes('cargo') && error.message.includes('generated/value.txt'); }
@@ -1135,7 +1148,6 @@ for (const [name, html, files, expectCode, expect] of [
   const stagedDependencyStayedCaptured = stagedRun.status === 0 && stagedRun.stdout.trim() === '1:sealed';
   rmSync(join(external, '.cargo'), { recursive: true });
   writeFileSync(join(cargoDep, 'shared.txt'), '1\n');
-
   // Cargo accepts absolute path dependencies, but an immutable deploy cannot:
   // the staged manifest would otherwise reach back into the mutable checkout.
   const relativeManifest = readFileSync(join(external, 'Cargo.toml'), 'utf8');
@@ -1147,14 +1159,12 @@ for (const [name, html, files, expectCode, expect] of [
   catch (error) { absoluteDependencyRefused = error.message.includes('resolves outside the captured source root'); }
   writeFileSync(join(cargoDep, 'shared.txt'), '1\n');
   writeFileSync(join(external, 'Cargo.toml'), relativeManifest);
-
   writeFileSync(join(external, 'Cargo.toml'), `${relativeManifest}\n[[bin]]\nname="outside"\npath=${JSON.stringify(outsideTarget)}\n`);
   const absoluteTargetSnapshot = snapshotOf(externalApp, { dirty: true }, exact);
   let absoluteTargetRefused = false;
   try { materializeSnapshot(absoluteTargetSnapshot, deployRun(externalApp.target, 'absolute-target'), externalApp); }
   catch (error) { absoluteTargetRefused = error.message.includes('target outside') && error.message.includes('resolves outside'); }
   writeFileSync(join(external, 'Cargo.toml'), relativeManifest);
-
   writeFileSync(join(cargoDep, 'crates/fixture-dep/ignored.rs'), 'pub const CAPTURED: bool = true;\n');
   let ignoredDependencyRefused = false;
   try { snapshotOf(externalApp, {}, exact); }
@@ -1214,7 +1224,6 @@ for (const [name, html, files, expectCode, expect] of [
     && first !== second && readFileSync(join(first, 'still-here'), 'utf8') === 'first');
   rmSync(target, { recursive: true, force: true });
 }
-
 // Stream heads point only at immutable blobs. Their immutable audit record is
 // prepared before the conditional head swap; a failed record cannot expose a
 // head, and a failed head leaves the preceding one and every named blob whole.
@@ -1259,7 +1268,6 @@ for (const [name, html, files, expectCode, expect] of [
   const names = await origin.list(base);
   const blobCards = [head.json.plan, ...head.json.assets];
   const recordBeforeHead = order.indexOf(`put ${recordPath}`) < order.indexOf('put head');
-
   const interrupted = [];
   for (const moment of ['before', 'after']) for (let stop = 1; stop <= 4; stop++) {
     const failedDir = mkdtempSync(join(tmpdir(), `exact-stream-failure-${moment}-${stop}-`));
@@ -1301,7 +1309,6 @@ for (const [name, html, files, expectCode, expect] of [
       && (await failed.get(blobPath(oldBundle.plan.sha256))).equals(oldPlan));
     rmSync(failedDir, { recursive: true, force: true });
   }
-
   result('stream publication commits immutable blobs and receipt before its head', recordBeforeHead
     && names.join(',') === 'exact.json,releases' && blobCards.every((card) => card.url === `../../blobs/${card.sha256}`)
     && blobCards.every((card) => existsSync(join(dir, '.exact', 'blobs', card.sha256)))
@@ -1310,7 +1317,6 @@ for (const [name, html, files, expectCode, expect] of [
     && interrupted.every(Boolean));
   rmSync(dir, { recursive: true, force: true });
 }
-
 // A matching hand-written exact.json is not build identity. The agent must
 // consume the complete private marker verifier before it drives a dist.
 {
@@ -1324,7 +1330,6 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir, { recursive: true, force: true });
   result('web agent refuses an unauthenticated matching envelope', refused);
 }
-
 // A phone gets the caller's LAN dev URL through devicectl, never a path on
 // this Mac. With no locator it remains a normal baked launch.
 {
@@ -1340,7 +1345,6 @@ for (const [name, html, files, expectCode, expect] of [
       && !baked.includes('--environment-variables')
       && refused);
 }
-
 // All origin verbs reject links at the root, intermediate, and leaf boundary.
 // Locks are permanent OS ownership, independent of age or claimed host/PID.
 {
@@ -1414,7 +1418,6 @@ for (const [name, html, files, expectCode, expect] of [
     JSON.stringify({ refusals, agedHeld, otherHostHeld, replacedRefused, successorHeld, reusable, conditional }));
   rmSync(dir, { recursive: true, force: true });
 }
-
 // Apple packages the standalone app and then the sample host through the
 // same static-file gate as web. A link introduced at either source boundary
 // is refused instead of being followed into a signed bundle.

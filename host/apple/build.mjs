@@ -23,7 +23,7 @@ import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { developmentBuildEnv, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { buildBake, bakeTarget, developmentBuildEnv, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -290,9 +290,8 @@ function main(args) {
   const webBuildDir = mkdtempSync(resolve(tmpdir(), 'exact-webarm-'));
   const webBuilt = resolve(webBuildDir, webLoadName);
   const t0 = Date.now();
-  const target = device ? 'aarch64-apple-ios' : iosTarget;
-  const targetArgs = ios ? ['--target', target] : [];
-  const libDir = resolve(app.target, ios ? target : '', 'release');
+  const target = ios ? (device ? 'aarch64-apple-ios' : iosTarget) : bakeTarget('macos');
+  const libDir = resolve(app.target, target, 'release');
   const sdkName = ios ? (device ? 'iphoneos' : 'iphonesimulator') : 'macosx';
   const sdk = read('xcrun', ['--sdk', sdkName, '--show-sdk-path']).stdout.trim();
   const cargoEnv = {
@@ -300,20 +299,15 @@ function main(args) {
     SDKROOT: sdk,
     ...(ios ? { IPHONEOS_DEPLOYMENT_TARGET: '17.0' } : { MACOSX_DEPLOYMENT_TARGET: '14.0' }),
   };
-  const cargo = runApple('cargo', ['build', '--release', '-p', crate, ...targetArgs, '--message-format=json-render-diagnostics'], { cwd: app.workspace, env: cargoEnv, cargoMessages: true });
-  const messages = cargo.stdout.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
-  const artifact = messages.find((m) => m.reason === 'compiler-artifact' && m.target.name === crate.replace(/-/g, '_') && m.target.kind.includes('staticlib'));
-  const bake = messages.find((m) => m.reason === 'build-script-executed' && m.package_id === artifact?.package_id);
-  if (!bake) throw new Error(`host/apple: cargo did not report the app's bake output for ${crate}`);
-  const bakedCompat = JSON.parse(readFileSync(resolve(bake.out_dir, 'compat.json'), 'utf8'));
-  const bakedPlan = readFileSync(resolve(bake.out_dir, 'app.plan'));
+  const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, {env:cargoEnv});
+  const bakedCompat = buildReceipt.compat;
+  const bakedPlan = readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT ?? resolve(app.target, 'bake', app.id, cargoEnv.EXACT_UPDATE_TRUST), `${ios ? 'ios' : 'macos'}-${target}.plan`));
   const level = bakedCompat.inputs?.store?.L;
   if (!['0', 'A'].includes(level)) throw new Error(`host/apple: unsupported baked store level ${level}`);
   const composition = level === '0' ? 'embedded' : 'updating';
   console.log(`host/apple: baked L=${level}; Swift ${composition} composition`);
   // The app's GPU module (LLP 1009 D2): a dylib beside the executable (in
   // the bundle's Frameworks on iOS), loaded on demand by the presenter.
-  if (hasGpu) runApple('cargo', ['build', '--release', '-p', gpuCrate, ...targetArgs], { cwd: app.workspace, env: cargoEnv });
   const gpuNote = hasGpu ? dylib : 'no GPU crate';
   // --embed (LLP 1031 D10, the developer-facing promise): what a consumer
   // without a Rust toolchain links — the archive, the C header, the GPU
@@ -333,7 +327,7 @@ function main(args) {
     copyAppleStaticTrees(app.dir, embed, [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]);
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(embed));
     writeFileSync(resolve(embed, 'compat.json'), JSON.stringify(bakedCompat, null, 2) + '\n');
-    writeFileSync(resolve(embed, 'receipt.json'), receipt(app, { platform, target: ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), sdk, archive, gpu: hasGpu ? loadName : null, package: pkg, composition }));
+    writeFileSync(resolve(embed, 'receipt.json'), receipt(app, { platform, target: ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), sdk, archive, gpu: hasGpu ? loadName : null, package: pkg, composition, compatibilityId:bakedCompat.id, build:buildReceipt }));
     const bytes = statSync(resolve(embed, archive)).size;
     console.log(`host/apple: ${embed.replace(root + '/', '')} — ${archive} ${(bytes / 1048576).toFixed(2)} MB, include/exact.h${hasGpu ? `, ${loadName}` : ''}, shaders, assets, compat.json; link it with ExactKit${composition === 'updating' ? ' + ExactUpdates' : ''} from the package at ${pkg.replace(root + '/', '')}`);
     if (!args.includes('--run') && !args.includes('--host')) return;
@@ -435,7 +429,7 @@ function main(args) {
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', app.id, bin], { stdio: 'ignore' });
     for (const p of products.slice(1)) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', `${app.id}.${p.toLowerCase()}`, resolve(binDir, p)], { stdio: 'ignore' });
     // The receipt beside it (LLP 1030 D2).
-    writeFileSync(resolve(binDir, 'receipt.json'), receipt(app, { composition, platform: 'macos', target: process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin', sdk, identity: sha1 ?? 'ad-hoc', profile: null, entitlements: null, gpu: hasGpu ? dylib : null }));
+    writeFileSync(resolve(binDir, 'receipt.json'), receipt(app, { compatibilityId:bakedCompat.id, build:buildReceipt, composition, platform: 'macos', target: process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin', sdk, identity: sha1 ?? 'ad-hoc', profile: null, entitlements: null, gpu: hasGpu ? dylib : null }));
     rmSync(webBuildDir, { recursive: true, force: true });
     console.log(`host/apple: ${bin.replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${webLoadName}`);
     // --run: the app, with the dev loop's plan watched when host/web/dev.mjs is
@@ -472,7 +466,7 @@ function main(args) {
     if (hasGpu) run('codesign', ['--force', '--sign', sha1, '--timestamp=none', resolve(bundle, 'Frameworks', loadName)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', sha1, '--timestamp=none', resolve(bundle, 'Frameworks', webLoadName)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', sha1, '--timestamp=none', '--entitlements', ent, bundle], { stdio: 'ignore' });
-    writeFileSync(resolve(bundle, '..', 'receipt.json'), receipt(app, { composition, platform: 'ios', target, sdk, identity: sha1, profile: { name: prof.name, team: prof.team, expires: prof.expires }, entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null }));
+    writeFileSync(resolve(bundle, '..', 'receipt.json'), receipt(app, { compatibilityId:bakedCompat.id, build:buildReceipt, composition, platform: 'ios', target, sdk, identity: sha1, profile: { name: prof.name, team: prof.team, expires: prof.expires }, entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null }));
     rmSync(webBuildDir, { recursive: true, force: true });
     console.log(`host/apple: ${bundle.replace(root + '/', '')} for ${ph.name} (${ph.model}, iOS ${ph.os}) — signed as ${prof.name} (${prof.team}) (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s); GPU: ${gpuNote}; web arm: ${webLoadName}`);
     if (!ph.reachable) { console.error(`${ph.name} is not connected: plug it in (or have it on this network), unlock it, and trust this Mac; then run this again`); process.exit(1); }
@@ -492,7 +486,7 @@ function main(args) {
   if (hasGpu) run('codesign', ['--force', '--sign', '-', resolve(appBundle, 'Frameworks', loadName)], { stdio: 'ignore' });
   run('codesign', ['--force', '--sign', '-', resolve(appBundle, 'Frameworks', webLoadName)], { stdio: 'ignore' });
   run('codesign', ['--force', '--sign', '-', appBundle], { stdio: 'ignore' });
-  writeFileSync(resolve(appBundle, '..', 'receipt.json'), receipt(app, { composition, platform: 'ios-simulator', target, sdk, identity: 'ad-hoc', profile: null, entitlements: null, gpu: hasGpu ? dylib : null }));
+  writeFileSync(resolve(appBundle, '..', 'receipt.json'), receipt(app, { compatibilityId:bakedCompat.id, build:buildReceipt, composition, platform: 'ios-simulator', target, sdk, identity: 'ad-hoc', profile: null, entitlements: null, gpu: hasGpu ? dylib : null }));
   rmSync(webBuildDir, { recursive: true, force: true });
   const dev = simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined);
   install(dev);

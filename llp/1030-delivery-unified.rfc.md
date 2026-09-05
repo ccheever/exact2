@@ -273,6 +273,36 @@ Two things the panel settled that r1 had wrong:
   digest form runs after producers finish, since digests exist only
   once artifacts do.
 
+**Implementation (2026-09-05).** The actual app build writes `compat.json`
+and `artifacts.json` beside its plan. `scripts/app.mjs` completes an outer
+receipt after Cargo succeeds, using selected compiler units' dep-info,
+loaded/generated files, declared build-script inputs and environment,
+native link inputs, and the Swift package's selected source composition.
+Binary input identity excludes the replaceable plan/receipt/static bytes;
+compiled product hashes are packaging evidence, not a source-delta proxy.
+Dev and deploy call the same `classifyArtifacts` comparison. Unbuilt native
+targets are reported as unbuilt; neither caller reconstructs targets or
+grants through `contract compat`.
+
+The signed stream envelope retains its cohort's actual compatibility
+inputs, binary input digest, source parameter/result shapes, and canvas
+call names/arities. The latter two are the complete baked plan's prior
+demand, including deferred templates and branches; they are **not** a new
+registry or a claim to enumerate every unused export in native code. A
+candidate demand absent from that receipt is conservatively refused by
+name. Matching demands retain that cohort's old implementation. Shader
+assets additionally require their reflected interfaces, and publication
+requires a signing key that the frozen cohort carries. Existing streams
+without authenticated capability evidence require a binary decision; an
+unsigned audit wrapper cannot grant capabilities.
+
+An update-capable production classification build precedes publication's assigned sequence.
+It explicitly marks `embedded.analysis: true`, with no embedded sequence,
+and all native initial-boot/preparation gates refuse it. Receipt inspection
+remains available. Release packaging still uses the authenticated publisher
+receipt (or the existing explicit genesis path); classification artifacts
+cannot silently fall back to an updater-free running app.
+
 In dev the table reduces to what a connected client is told: "restart
 with carry," "module change," "asset," or "rebuild the native host" —
 and a dev client that did not opt into `Swappable` is told the last of
