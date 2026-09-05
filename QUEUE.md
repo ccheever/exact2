@@ -10,6 +10,10 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **Embedded asset-root configuration** (2026-09-04): changing public
+  `ExactApp.assetRoot` after initialization leaves its embedded resolver at the
+  original root. Make the configuration consistent; no current caller mutates it.
+
 - **Sample-host no-op input delay** (2026-09-04): `smoke.mjs host` passed but its
   final repeated light-scheme tap after destroying session a waited 74–131 seconds.
   Trace and GPU drawable samples are in the filesystem run; reduce the carrier/frame acknowledgement path.
