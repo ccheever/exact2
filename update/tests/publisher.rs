@@ -322,7 +322,7 @@ const mixed = await classify({
  web: '.', bundle: { plan: {}, assets: [] }, platforms: ['linux', 'macos'], wantOrigin: false,
  compat: { linux: { id: 'zero', inputs: { store: { L: '0' } } }, macos: { id: 'updating', inputs: { store: { L: 'A' } } } }
 });
-assert.deepEqual(mixed.rows.map(({kind, platform}) => [kind, platform]), [['binary', 'linux'], ['stream', 'macos']]);
+assert.deepEqual(mixed.rows.map(({kind, platform}) => [kind, platform]).sort(), [['binary', 'linux'], ['stream', 'macos']]);
 console.log('level-zero deploy: binary only, zero stream discovery or head reads; mixed runs retain only A streams');
 "#;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();

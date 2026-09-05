@@ -826,7 +826,8 @@ async function latestRecord(origin, app, stream) {
     const bytes = await origin.get(`${streamPath(stream)}/releases/${name}`);
     try {
       const record = JSON.parse(bytes.toString('utf8'));
-      const admission = inspectHead({bytes:Buffer.from(JSON.stringify(record.envelope))}, app, stream);
+      const recordApp = {...app, displayName:record.envelope?.app?.name};
+      const admission = inspectHead({bytes:Buffer.from(JSON.stringify(record.envelope))}, recordApp, stream);
       if(admission.usable && admission.authenticated) records.push(record);
     } catch { /* unauthenticated audit metadata has no capability authority */ }
   }
@@ -888,7 +889,7 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
   for(const item of [...own,...others.map(compatibilityId=>({platform:null,compatibilityId}))]) {
     let {platform,compatibilityId}=item;
     const stream={channel,compatibilityId};
-    if(platform && compat[platform].inputs?.store?.L==='0') {binary.set(platform,'store.L=0: deliver changes in the platform binary');continue;}
+    if(platform && compat[platform].inputs?.store?.L==='0') {binary.set(platform,'store.L=0: links no update store; deliver changes in the platform binary');continue;}
     let head,record;
     try { head=await origin.head(stream); record=await latestRecord(origin,app,stream); }
     catch(error) {

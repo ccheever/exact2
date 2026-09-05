@@ -397,7 +397,6 @@ for (const [name, html, files, expectCode, expect] of [
   result('complete dev generations heal reconnects, restart epochs, removals and reversed fetches',
     hashes && replaced && preserved && before === 3 && applied.length === 4 && failures.length === 2 && keptBarrier && refused.length === 1 && live.get('assets/image.png') === 'restored');
 }
-
 {
   const dir = mkdtempSync(join(tmpdir(), 'exact-built-app-'));
   const id = 'com.exact.one';
@@ -579,7 +578,6 @@ for (const [name, html, files, expectCode, expect] of [
   } finally { await new Promise((done) => server.close(done)); rmSync(dir, { recursive: true, force: true }); }
   result('web root switches a complete immutable graph; every write failure, concurrent readers, removals and HTTP caches', whole && rounds >= 20, `reader rounds: ${rounds}`);
 }
-
 {
   const id = 'com.exact.names';
   const bytes = Buffer.alloc(36 + Buffer.byteLength(id));
@@ -633,6 +631,21 @@ for (const [name, html, files, expectCode, expect] of [
     return { json: JSON.parse(text), bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
   };
   const valid = signed();
+  // A host display-name change repairs metadata without losing signed capabilities.
+  const renameDir=mkdtempSync(join(tmpdir(),'exact-renamed-cohort-')), renameOrigin=new DirectoryOrigin(renameDir);
+  await renameOrigin.putHead(stream,found(valid).bytes,{previousDigest:null});
+  await renameOrigin.put(`.exact/${stream.channel}/${compatibilityId}/releases/old.json`,Buffer.from(JSON.stringify({platform:'linux',envelope:valid})),{immutable:true});
+  const renamed={...app,displayName:'Renamed'}, build=fixtureBuild(compatibilityId,bundle);
+  const renameArgs={app:renamed,opts:{platform:['linux']},origin:renameOrigin,channel:stream.channel,snapshot:{commit:'rename',dirty:false,changes:[],repo:dir},release:'rename',bundle,compat:{linux:build.compat},builds:{linux:build},platforms:['linux'],wantOrigin:false};
+  const renameTable=await classify(renameArgs), renameRow=renameTable.rows.find(r=>r.kind==='stream');
+  const renamePublished=await publishStream({origin:renameOrigin,row:renameRow,bundle,compat:build.compat,app:renamed,signer,release:'rename',snapshot:renameArgs.snapshot,opts:{},log:()=>{},build});
+  const changed=structuredClone(build);changed.graph.artifacts[0].requires.sources={camera:{params:[],result:'String'}};
+  const afterRename=await classify({...renameArgs,release:'unsupported',builds:{linux:changed}});
+  const renamedHead=await renameOrigin.head(stream);
+  result('display-name repair preserves the authenticated cohort and still refuses new capabilities',renameRow.action==='bundle'&&renamePublished.seq===8
+    &&renamedHead.json.app.name==='Renamed'&&renamedHead.json.stream.seq===8&&inspectHead(renamedHead,renamed,stream).authenticated
+    &&afterRename.rows.find(r=>r.kind==='stream').reason.includes('sources.camera'));
+  rmSync(renameDir,{recursive:true,force:true});
   const history = Buffer.from(JSON.stringify({ envelope: valid }) + '\n');
   const tableFor = (candidate, withHistory = true) => classify({ app, opts: { platform: [] },
     origin: {
@@ -802,7 +815,6 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(missingDir, { recursive: true, force: true });
   rmSync(dir, { recursive: true, force: true });
 }
-
 {
   const dir = mkdtempSync(join(tmpdir(), 'exact-list-outage-'));
   const cohort = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -843,7 +855,6 @@ for (const [name, html, files, expectCode, expect] of [
   JSON.stringify(table.rows));
   rmSync(dir, { recursive: true, force: true });
 }
-
 {
   const dir = mkdtempSync(join(tmpdir(), 'exact-bad-head-'));
   const cohort = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -883,7 +894,6 @@ for (const [name, html, files, expectCode, expect] of [
     &&!refused.bundle&&refused.missing[0].includes('https://new/')&&!classifyArtifacts(moved,null).bundle,
     JSON.stringify({same,old,absent,unsupported,refused}));
 }
-
 {
   const dir=mkdtempSync(join(tmpdir(),'exact-input-staleness-')),file=join(dir,'declared');
   writeFileSync(file,'replaced a watched directory');
@@ -1212,7 +1222,6 @@ for (const [name, html, files, expectCode, expect] of [
     ignoredDependencyRefused, capturedDependency, dependencyRefused }));
   rmSync(fixture, { recursive: true, force: true });
 }
-
 {
   const target = mkdtempSync(join(tmpdir(), 'exact-deploy-run-'));
   const now = new Date('2026-09-04T12:34:56.789Z');
