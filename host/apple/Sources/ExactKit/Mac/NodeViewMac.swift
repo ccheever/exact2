@@ -54,6 +54,8 @@ final class ChainingScrollView: NSScrollView {
 }
 
 final class NodeView: NSView, NSTextFieldDelegate {
+    override func selectAll(_ sender: Any?) { presenter?.selection.selectAll() }
+
     let id: UInt32
     let firstDraw: () -> Void
     let kind: String
@@ -106,6 +108,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     override var acceptsFirstResponder: Bool {
         if disabled { return false }
         if field != nil { return false }
+        if isParagraph { return true }
         return handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
     }
     /// Sequential focus follows the web: a button is in the loop even when
@@ -132,6 +135,13 @@ final class NodeView: NSView, NSTextFieldDelegate {
     /// on a pressable fire `press`, as they do on a `<button>`.
     override func keyDown(with event: NSEvent) {
         guard !disabled else { return }
+        if isParagraph, event.modifierFlags.contains(.command) {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "a": presenter?.selection.selectAll(); return
+            case "c": presenter?.selection.copy(); return
+            default: break
+            }
+        }
         let name = NodeView.keyName(event)
         if handlers.contains("key") { presenter?.key(id, name) }
         if handlers.contains("press"), name == "Enter" || name == " " {
@@ -144,6 +154,13 @@ final class NodeView: NSView, NSTextFieldDelegate {
     /// usual path; this catches it when that item is disabled (a secure
     /// field) or when the event arrives at the window rather than the app.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if isParagraph, event.modifierFlags.contains(.command) {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "a": presenter?.selection.selectAll(); return true
+            case "c": presenter?.selection.copy(); return true
+            default: break
+            }
+        }
         if let f = field, NodeView.isCommandA(event),
            window?.firstResponder === f || window?.firstResponder === f.currentEditor() {
             NodeView.selectAll(in: f)
@@ -682,10 +699,14 @@ final class NodeView: NSView, NSTextFieldDelegate {
             img.draw(in: NSRect(origin: origin, size: size), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             NSGraphicsContext.current?.restoreGraphicsState()
         }
-        if kind == "text", let text = props["text"] {
+        if isParagraph {
             // The same paragraph the kernel measured at this width, painted.
-            let spec = textSpec(text)
-            if let ctx = NSGraphicsContext.current?.cgContext, let t = self.text { TextEngine.draw(t.paragraph(spec, width: bounds.width), spec: spec, in: bounds, context: ctx) }
+            let spec = paragraphSpec()
+            if let ctx = NSGraphicsContext.current?.cgContext, let t = self.text {
+                let paragraph = t.paragraph(spec, width: bounds.width)
+                presenter?.selection.draw(self, paragraph: paragraph, spec: spec)
+                TextEngine.draw(paragraph, spec: spec, in: bounds, context: ctx)
+            }
         }
         if Capture.capturing, let picture = Capture.web[id] {
             // Remote WebKit layers supply their own picture for this capture
@@ -694,16 +715,6 @@ final class NodeView: NSView, NSTextFieldDelegate {
         }
     }
 
-    /// The paragraph spec from this node's rows, with CSS's defaults for the
-    /// rows it does not set (the kernel's defaults are CSS's).
-    func textSpec(_ text: String) -> Spec {
-        let align: Int
-        switch style["text_align"] as? String { case "center": align = 1; case "right": align = 2; case "justify": align = 3; default: align = 0 }
-        let c = (style["text_color"] as? [Double]) ?? [0, 0, 0, 255]
-        return Spec(
-            runs: [Run(text: text, size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic", lineHeight: number("line_height"), letterSpacing: number("letter_spacing"))],
-            align: align, lineClamp: Int(number("line_clamp")), color: c)
-    }
 
     /// A click counts even when it is the one that activates the window —
     /// the web's rule (a click on an unfocused page still clicks). AppKit's
@@ -717,13 +728,31 @@ final class NodeView: NSView, NSTextFieldDelegate {
     // same (a click on the page's ground).
     override func mouseDown(with event: NSEvent) {
         guard !disabled else { pressed = false; return }
+        if isParagraph, !handlers.contains("press"), !hasPressableAncestor {
+            window?.makeFirstResponder(self)
+            presenter?.selection.begin(self, event: event)
+            return
+        }
         if acceptsFirstResponder { window?.makeFirstResponder(self) }
         if handlers.contains("press") {
             if !acceptsFirstResponder { window?.makeFirstResponder(nil) }
             pressed = true
         } else { super.mouseDown(with: event) }
     }
+    var hasPressableAncestor: Bool {
+        var next = superview
+        while let view = next {
+            if let node = view as? NodeView, node.handlers.contains("press") { return true }
+            next = view.superview
+        }
+        return false
+    }
+    override func mouseDragged(with event: NSEvent) {
+        if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
+        else { super.mouseDragged(with: event) }
+    }
     override func mouseUp(with event: NSEvent) {
+        if isParagraph && !hasPressableAncestor { presenter?.selection.end(self, event: event); return }
         guard !disabled else { pressed = false; return }
         guard pressed else { return super.mouseUp(with: event) }
         pressed = false

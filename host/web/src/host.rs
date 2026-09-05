@@ -553,6 +553,11 @@ fn host_css(node: &NodeRef<'_>, mut css: String) -> String {
 
 /// The element for a node: its type, refined by `semanticTag`.
 fn tag_for(node: &NodeRef<'_>) -> &'static str {
+    if node.props.str(PropId::Href).is_some()
+        && (node.is_inline_run() || node.node_type == NodeType::Pressable)
+    {
+        return "a";
+    }
     if let Some(t) = node.props.str(PropId::SemanticTag) {
         match t {
             "main" => return "main",
@@ -608,7 +613,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::Type => "type",
             PropId::InputMode => "inputmode",
             PropId::Value => "value",
-            PropId::Href => "data-href",
+            PropId::Href if text.is_empty() => continue,
+            PropId::Href => "href",
             PropId::Disabled => "disabled",
             PropId::Lang => "lang",
             PropId::ImageSource => "src",

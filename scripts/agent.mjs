@@ -259,7 +259,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session }) {
   const a = resolveApp(app);
   const linux = host === 'linux';
   const sample = host === 'host';
-  const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`)) : sample ? macHostBinary : macBinary;
+  const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`)) : sample ? macHostBinary : (process.env.EXACT_MAC_BIN ?? macBinary);
   if (!existsSync(bin)) throw new Error(linux ? `run cargo build --release -p ${a.crate('linux')} first` : sample ? 'run node host/apple/build.mjs --host first' : 'run node host/apple/build.mjs first');
   const env = { EXACT_ASSETS: a.dir, ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;

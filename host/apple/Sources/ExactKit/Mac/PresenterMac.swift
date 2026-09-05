@@ -40,6 +40,7 @@ final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     let viewport = PageScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    lazy var selection = TextSelection(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
@@ -289,6 +290,11 @@ final class Presenter {
     /// it, and itself for its own `children` op.
     func touched(_ id: UInt32, children: Bool = false) {
         guard let start = views[id] else { return }
+        var paragraph: NodeView? = start
+        while let node = paragraph, node.kind == "text" {
+            node.needsDisplay = true
+            paragraph = node.superview as? NodeView
+        }
         if children, start.overlay != nil { start.needsCapture = true }
         if let c = start.canvasAbove { c.needsCapture = true }
     }

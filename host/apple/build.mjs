@@ -257,6 +257,7 @@ export const macInfoPlist = (app) => plistFile({
   CFBundleShortVersionString: '0.1.0',
   LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0',
   NSHighResolutionCapable: true,
+  ...(app.manifest.host?.macos?.documentTypes?.length ? { CFBundleDocumentTypes: app.manifest.host.macos.documentTypes } : {}),
   ...(app.manifest.host?.macos?.urlSchemes?.length ? { CFBundleURLTypes: [{ CFBundleURLName: app.id, CFBundleURLSchemes: app.manifest.host.macos.urlSchemes }] } : {}),
 });
 

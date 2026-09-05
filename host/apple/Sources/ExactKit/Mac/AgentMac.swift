@@ -68,7 +68,7 @@ extension Agent {
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window.
         let clip = presenter.viewport.contentView
-        let p = clip.convert(NSPoint(x: b.midX + clip.bounds.origin.x, y: b.midY + clip.bounds.origin.y), to: nil)
+        let p = clip.convert(NSPoint(x: (req["x"] as? Double ?? b.midX) + clip.bounds.origin.x, y: (req["y"] as? Double ?? b.midY) + clip.bounds.origin.y), to: nil)
         let at = [Agent.r2(b.midX), Agent.r2(b.midY)]
         if req["hover"] as? Bool == true {
             // The pointer moved onto the target: the node with a hover
@@ -101,6 +101,11 @@ extension Agent {
               let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)
         else { return ["error": "no mouse event"] }
         win.sendEvent(down)
+        if let drag = req["drag"] as? [Double], drag.count == 2, drag.allSatisfy(\.isFinite) {
+            let point = clip.convert(NSPoint(x: drag[0] + clip.bounds.origin.x, y: drag[1] + clip.bounds.origin.y), to: nil)
+            if let move = NSEvent.mouseEvent(with: .leftMouseDragged, location: point, modifierFlags: [], timestamp: t + 0.01,
+                windowNumber: win.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1) { win.sendEvent(move) }
+        }
         win.sendEvent(up)
         return ["tapped": Int(v.id), "at": at]
     }
@@ -111,7 +116,15 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
-        if let key = req["key"] as? String {
+        if let chord = req["key"] as? String {
+            let parts = chord.split(separator: "+").map(String.init)
+            let key = parts.last ?? chord
+            var modifiers: NSEvent.ModifierFlags = []
+            for modifier in parts.dropLast() {
+                switch modifier { case "Meta": modifiers.insert(.command); case "Shift": modifiers.insert(.shift)
+                case "Control": modifiers.insert(.control); case "Alt": modifiers.insert(.option)
+                default: return ["error": "unknown key modifier \(modifier)"] }
+            }
             // A key down at the target through the window — the field
             // editor's commands, or a focused node's keyDown — by the web's
             // name, as AppKit would deliver the keyboard's.
@@ -127,6 +140,8 @@ extension Agent {
             } else { return ["error": "view \(v.id) takes no key"] }
             let (chars, code): (String, UInt16) = {
                 switch key {
+                case "c": return (key, 8)
+                case "o": return (key, 31)
                 case "Enter": return ("\r", 36)
                 case "Escape": return ("\u{1b}", 53)
                 case "Tab": return ("\t", 48)
@@ -139,9 +154,14 @@ extension Agent {
                 }
             }()
             let t = ProcessInfo.processInfo.systemUptime
-            guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code),
-                  let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)
+            guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code),
+                  let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)
             else { return ["error": "no key event"] }
+            // Accessory test windows may have a first responder before
+            // NSApp has a keyWindow. Deliver to the named responder first.
+            if modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
+                return ["typed": Int(v.id), "key": chord]
+            }
             win.sendEvent(down)
             win.sendEvent(up)
             return ["typed": Int(v.id), "key": key, "value": v.field?.stringValue ?? ""]

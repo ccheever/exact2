@@ -343,6 +343,11 @@ final class Presenter {
     /// it, and itself for its own `children` op.
     func touched(_ id: UInt32, children: Bool = false) {
         guard let start = views[id] else { return }
+        var paragraph: NodeView? = start
+        while let node = paragraph, node.kind == "text" {
+            node.setNeedsDisplay()
+            paragraph = node.superview as? NodeView
+        }
         if children, start.overlay != nil { start.needsCapture = true }
         if let c = start.canvasAbove { c.needsCapture = true }
     }

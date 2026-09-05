@@ -16,6 +16,8 @@ extension ExactSession {
 
 public final class ExactView: NSView {
     public let session: ExactSession
+    public override func selectAll(_ sender: Any?) { session.presenter.selection.selectAll() }
+    @objc public func copy(_ sender: Any?) { session.presenter.selection.copy() }
     private var lastSize = CGSize.zero
     /// The adapter's hook for the first root's `viewport-fit` (window chrome
     /// is the window's business, LLP 1008 §9); the insets themselves are

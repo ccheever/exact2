@@ -317,8 +317,18 @@ display link today); toggles; pointer coordinates and moves (a drag),
 text field beyond its editing commands (§5); scroll
 position and focus across a reload; accessibility beyond `testId` as the
 identifier and `accessibilityLabel`; justified text; per-corner radii
-(the first set radius rounds all four); text selection; scroll position
+(the first set radius rounds all four); iOS text selection; scroll position
 across a reload; a generated header (§4).
+
+**2026-09-05, LLP 1033:** Apple paints nested text runs with their own fonts,
+colors, and decoration, using the same CoreText paragraph as measurement.
+macOS supports drag selection across paragraphs, select-all and copy; inline
+link activation goes to the embedding session's `openURL` command delegate.
+Selection is presenter state. `ExactSession.change(testId:value:)` lets a native
+embedder deliver file data to an existing change handler without compiling UI.
+Changing an embedded `ExactApp.assetRoot` now updates its resolver; a complete
+signed generation retains its pinned resolver. The macOS Markdown viewer drives
+these paths; the iOS document interaction work remains in LLP 1033.
 
 ## 8. Checks that hold this
 

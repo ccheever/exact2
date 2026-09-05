@@ -71,7 +71,11 @@ public final class ExactApp {
     /// Where an image source, a declared font, or a deck page resolves:
     /// `EXACT_ASSETS`, else the bundle (iOS) or the working directory
     /// (macOS) — the way a page resolves against its URL.
-    public var assetRoot: URL
+    public var assetRoot: URL {
+        didSet {
+            if resolver != nil && !resolver.isComplete { resolver = AssetResolver(root: assetRoot) }
+        }
+    }
     /// The complete generation last accepted by every live session. A new
     /// connection can recognize it without restarting carried app state.
     private var devGeneration: String?
@@ -529,6 +533,16 @@ public final class ExactSession {
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
     /// The agent API's runner half (LLP 1012): `tree`, `state`, `logs`, `settle`.
     public func agent(_ request: String) -> String { runtime.agent(request) }
+    /// Deliver an embedder's value through a declared change handler. The
+    /// selector must name exactly one live node; file contents stay data.
+    @discardableResult public func change(testId: String, value: String) -> Bool {
+        guard state != .destroyed, booted else { return false }
+        let matches = presenter.views.values.filter { $0.props["testId"] == testId && $0.handlers.contains("change") }
+        guard matches.count == 1, let node = matches.first else { return false }
+        let batch = runtime.change(node.id, value, now: now())
+        apply(batch)
+        return batch.error == nil
+    }
     /// The number of live views the presenter holds (the smoke reads it).
     public var viewCount: Int { presenter.views.count }
     /// The first root's frame size (the smoke reads it).

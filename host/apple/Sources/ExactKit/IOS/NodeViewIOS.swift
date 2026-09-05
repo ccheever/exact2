@@ -603,9 +603,9 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             img.draw(in: CGRect(origin: origin, size: size))
             ctx.restoreGState()
         }
-        if kind == "text", let text = props["text"] {
+        if isParagraph {
             // The same paragraph the kernel measured at this width, painted.
-            let spec = textSpec(text)
+            let spec = paragraphSpec()
             if let t = self.text { TextEngine.draw(t.paragraph(spec, width: bounds.width), spec: spec, in: bounds, context: ctx) }
         }
         if Capture.capturing, let picture = Capture.web[id] {
@@ -615,16 +615,6 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         }
     }
 
-    /// The paragraph spec from this node's rows, with CSS's defaults for the
-    /// rows it does not set (the kernel's defaults are CSS's).
-    func textSpec(_ text: String) -> Spec {
-        let align: Int
-        switch style["text_align"] as? String { case "center": align = 1; case "right": align = 2; case "justify": align = 3; default: align = 0 }
-        let c = (style["text_color"] as? [Double]) ?? [0, 0, 0, 255]
-        return Spec(
-            runs: [Run(text: text, size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic", lineHeight: number("line_height"), letterSpacing: number("letter_spacing"))],
-            align: align, lineClamp: Int(number("line_clamp")), color: c)
-    }
 
     // Press: a touch down and up inside the bounds. A node without a
     // handler passes the touch up the responder chain (UIView's default),

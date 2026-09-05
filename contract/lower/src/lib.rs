@@ -859,7 +859,18 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 if t.node_type.is_text_leaf() {
-                    let run = |c: &Node| matches!(c, Node::Element { tag, .. } if tag == "text");
+                    // Regions have no node of their own: a dynamic Markdown
+                    // paragraph's each/when still produces only text runs.
+                    fn run(c: &Node) -> bool {
+                        match c {
+                            Node::Element { tag, .. } => tag == "text",
+                            Node::Each { body, .. } => body.iter().all(run),
+                            Node::When {
+                                then, otherwise, ..
+                            } => then.iter().chain(otherwise).all(run),
+                            _ => false,
+                        }
+                    }
                     if let Some(bad) = children.iter().find(|c| !run(c)) {
                         return err(
                             "lower-leaf-children",

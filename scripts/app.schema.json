@@ -151,6 +151,41 @@
               "items": {
                 "type": "string"
               }
+            },
+            "documentTypes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "CFBundleTypeName": {
+                    "type": "string"
+                  },
+                  "CFBundleTypeRole": {
+                    "type": "string",
+                    "enum": [
+                      "Viewer"
+                    ]
+                  },
+                  "LSItemContentTypes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "CFBundleTypeExtensions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "CFBundleTypeName",
+                  "CFBundleTypeRole",
+                  "LSItemContentTypes"
+                ],
+                "additionalProperties": false
+              }
             }
           },
           "additionalProperties": false

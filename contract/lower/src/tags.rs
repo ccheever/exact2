@@ -207,6 +207,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "popovertargetaction" => AttrTarget::Prop(p("popovertargetaction")),
         "aria-checked" => AttrTarget::Prop(p("accessibilityChecked")),
         // style rows, by their CSS property names
+        "white-space" => styles(&["white_space"]),
+        "text-decoration-line" => styles(&["text_decoration_line"]),
         "font-size" => styles(&["font_size"]),
         "font-weight" => styles(&["font_weight"]),
         "font-style" => styles(&["font_style"]),

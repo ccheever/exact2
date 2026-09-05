@@ -33,6 +33,9 @@ struct Run: Hashable {
     var italic: Bool
     var lineHeight: CGFloat
     var letterSpacing: CGFloat
+    var color: [Double]? = nil
+    var decoration: String = ""
+    var href: String = ""
 }
 
 /// A paragraph's specification: runs plus paragraph style.
@@ -264,8 +267,10 @@ final class TextEngine {
         let s = NSMutableAttributedString()
         let color = TextEngine.color(spec.color)
         for r in spec.runs {
-            var a: [NSAttributedString.Key: Any] = [.font: font(size: r.size, weight: r.weight, family: r.family, italic: r.italic), .foregroundColor: color]
+            var a: [NSAttributedString.Key: Any] = [.font: font(size: r.size, weight: r.weight, family: r.family, italic: r.italic), .foregroundColor: r.color.map(TextEngine.color) ?? color]
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
+            if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             s.append(NSAttributedString(string: r.text, attributes: a))
         }
         return s

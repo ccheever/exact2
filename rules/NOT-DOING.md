@@ -14,6 +14,11 @@ beside it**, which puts one bundled brand face in scope and nothing else about t
 Everything not required by those two does not exist. What the wordmark unblocks: a
 declared font, LLP 1019. Fonts were never on this list, so nothing comes off for them.
 
+**Expanded (Charlie, 2026-09-05):** the Markdown viewer (LLP 1033) is a third
+consumer: macOS file opening and comfortable reading first, shared with iOS and
+web. Take: native-module implementation (LLP 1024, awaiting a consumer) moves
+behind the reader. Blog/CMS and publishing remain out.
+
 ## Surfaces
 
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it

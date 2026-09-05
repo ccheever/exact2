@@ -17,10 +17,6 @@ sits on that list carries the trade it would take.
   300 ms to DOM acceptance (9 ms plan), above the 100 ms budget. Use the existing
   metrics drive to separate startup/preflight work from repeated edit latency.
 
-- **Embedded asset-root configuration** (2026-09-04): changing public
-  `ExactApp.assetRoot` after initialization leaves its embedded resolver at the
-  original root. Make the configuration consistent; no current caller mutates it.
-
 - **Sample-host no-op input delay** (2026-09-04): `smoke.mjs host` passed but its
   final repeated light-scheme tap after destroying session a waited 74–131 seconds.
   Trace and GPU drawable samples are in the filesystem run; reduce the carrier/frame acknowledgement path.
@@ -65,10 +61,11 @@ sits on that list carries the trade it would take.
    kernel rows are the web's `type` and `inputMode` (LLP 1017 P9's sweep spells them
    literally later), honored on web/macOS/iOS; `submit` is the seventh event, the web's
    implicit submission; a session across launches is LLP 1018 (another session's lane).
-4. **Text selection.** Free on the web (nothing sets `user-select: none`); none on
-   macOS (CoreText paints per node, LLP 1008 §7). The hard part is cross-node
-   selection, the browser's document model. Host state, like scroll offset, never plan
-   state. `Paragraph` keeps its `CTLine`s, so hit-to-index is available. After 6.
+4. **Markdown viewer follow-ups** (LLP 1033, macOS milestone 2026-09-05):
+   iOS selection and link gestures; iOS/web file-opening adapters; heading anchors,
+   tables, and syntax highlighting. macOS drag selection across paragraphs and copy
+   now use CoreText's existing lines. Keyboard selection extension and bidi selection
+   geometry still need dedicated fixtures.
 5. **View transitions** (LLP 1013, Draft RFC) — behind the webview/deck lane by
    LLP 1020 §6's decided take (Charlie, 2026-08-30): the trade that moved `webview`
    off NOT-DOING. Shared elements, heroes, and magic-move
