@@ -243,6 +243,9 @@ pub fn boot_presenter<D: DataSource + Default>(
                     u.selection_corrupt(&fetched_error.to_string())
                 }
                 (Some(entry), Some(u)) => {
+                    // Integrity was already checked. A real decode/runner
+                    // refusal must count toward next-open crash demotion.
+                    u.boot_started();
                     u.entry_refused(entry, &fetched_error.to_string())
                 }
                 _ => eprintln!(

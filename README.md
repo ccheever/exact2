@@ -37,12 +37,21 @@ make sense to do next.
 ## The five checks
 
 ```sh
+export EXACT_UPDATE_TRUST=development                                   # local development artifacts
 cargo build --workspace                                                 # build
 cargo test --workspace                                                  # test
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check   # lint
 node scripts/caps.mjs                                                   # caps
-# boot — counts the module graph reachable before first pixel; nothing to count until a host exists
+node scripts/boot.mjs                                                   # boot graph
 ```
+
+The shared build scripts select development trust explicitly too. Direct Cargo
+builds otherwise use production trust: an updating native artifact requires
+`EXACT_UPDATE_RECEIPT` pointing to the authenticated publisher receipt for its
+exact plan and complete asset roster. A new production stream instead requires
+`EXACT_UPDATE_GENESIS=1`; it starts at sequence zero. Existing streams retain the
+receipt's sequence and verification keys. Updater-free Level 0 artifacts require
+neither input.
 
 `kernel/tables/schema.json` is the one declaration authority for node types, props,
 style rows, enums, and opcodes; `kernel/build.rs` generates the Rust from it at build

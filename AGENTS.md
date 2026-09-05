@@ -24,6 +24,9 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - The five checks: `cargo build --workspace` · `cargo test --workspace` ·
   `cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check` ·
   `node scripts/caps.mjs` · `node scripts/boot.mjs`.
+- Set `EXACT_UPDATE_TRUST=development` for local Cargo validation, as the shared
+  build scripts do. Production native bakes require an authenticated
+  `EXACT_UPDATE_RECEIPT` or explicit new-stream `EXACT_UPDATE_GENESIS=1` (README).
 - An app outside this repo (weird-castle, `~/projects/weird-castle`) builds, runs, and is
   driven through these same scripts with `EXACT_APP_DIR` set — `scripts/app.mjs` is the
   one place that knows; its `exact.mjs` sets it. exact2 is consumed there by path.

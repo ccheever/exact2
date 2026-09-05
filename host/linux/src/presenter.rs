@@ -48,6 +48,8 @@ pub struct Presenter<D: DataSource> {
     pointer: Option<(f32, f32)>,
     boxes: Vec<PaintedBox>,
     dirty: bool,
+    /// A failed painter's blank fallback cannot bless an update generation.
+    last_frame_succeeded: bool,
     /// Which painter was asked for (`Auto` may change its mind after a
     /// failed frame).
     choice: PainterChoice,
@@ -252,6 +254,7 @@ impl<D: DataSource> Presenter<D> {
             pointer: None,
             boxes: Vec::new(),
             dirty: true,
+            last_frame_succeeded: false,
             choice,
             fonts_ms,
             painter,
@@ -285,6 +288,9 @@ impl<D: DataSource> Presenter<D> {
 
     /// First pixel (LLP 1026 D11): the selection that booted is good.
     pub fn first_pixel(&mut self) {
+        if self.dirty || !self.last_frame_succeeded {
+            return;
+        }
         if let Some(u) = self.updates.as_mut() {
             u.boot_succeeded();
         }
@@ -645,6 +651,7 @@ impl<D: DataSource> Presenter<D> {
                 painted = self.brush.paint(&scene, self.viewport);
             }
         }
+        self.last_frame_succeeded = painted.is_ok();
         let (pixmap, boxes) = match painted {
             Ok(Frame { pixmap, boxes }) => (pixmap, boxes),
             Err(e) => {

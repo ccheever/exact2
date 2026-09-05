@@ -401,10 +401,68 @@ fn activation_refuses_carried_layout_without_advancing_then_commits_after_repair
     assert!(saved["selected"].is_string());
     assert!(saved["pending"].is_null());
     assert_eq!(saved["failures"], 1, "only the accepted generation started");
-    let _ = presenter.frame();
+    // A stale pre-activation frame must not bless the new running entry.
     presenter.first_pixel();
     let saved: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    assert_eq!(saved["failures"], 1);
+    let shot = dir.join("activated.png");
+    let reply = exact_linux::agent::handle(
+        &mut presenter,
+        &serde_json::json!({"op":"screenshot", "path":shot}).to_string(),
+    );
+    assert!(!reply.contains("error"), "{reply}");
+    assert!(shot.is_file());
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
     assert_eq!(saved["failures"], 0, "its rendered frame blesses it");
+    assert_eq!(saved["lastGood"], saved["selected"]);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_verified_but_undecodable_selection_is_demoted_after_failed_launches() {
+    let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
+        .unwrap()
+        .encode();
+    let dir = std::env::temp_dir().join(format!("exact-linux-bad-launch-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let client = stage(&dir, &baked, b"EXPL", &[]);
+    let record = client.dir().join("record.json");
+    drop(client);
+    for expected in 1..=2 {
+        let client = Client::open(&dir, &dir, UPDATE_COMPAT, &baked).unwrap();
+        let mut config = selected_config(&dir, &baked, client);
+        assert!(config.entry.is_some());
+        let (mut presenter, error) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
+        assert!(error.is_none(), "{error:?}");
+        assert!(presenter
+            .host()
+            .agent("{\"op\":\"tree\"}")
+            .contains("baked"));
+        let _ = exact_linux::agent::handle(&mut presenter, "{\"op\":\"layout\"}");
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+        assert_eq!(
+            saved["failures"], expected,
+            "fallback pixels cannot bless the refused selection"
+        );
+        assert!(saved["lastGood"].is_null());
+        assert_eq!(
+            saved["stream"]["seq"], 1,
+            "the admitted sequence floor survives refusal"
+        );
+    }
+    let client = Client::open(&dir, &dir, UPDATE_COMPAT, &baked).unwrap();
+    let config = selected_config(&dir, &baked, client);
+    assert!(
+        config.entry.is_none(),
+        "the next open demotes the twice-refused entry"
+    );
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    assert!(saved["selected"].is_null());
+    assert_eq!(saved["bad"].as_array().unwrap().len(), 1);
+    assert_eq!(saved["stream"]["seq"], 1);
     let _ = std::fs::remove_dir_all(dir);
 }

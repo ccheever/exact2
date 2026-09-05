@@ -325,7 +325,7 @@ no Cargo features on a core crate. Cargo may compile a declared but unused
 adapter dependency; L=0's final artifact must omit it, which is established
 by artifact inspection, not the dependency declaration alone.
 
-Apple C ABI 3 exposes a nullable delivery function table: L=0 returns null.
+Apple C ABI 4 exposes a nullable delivery function table: L=0 returns null.
 `ExactKit` contains only generic lifecycle, presentation and asset-provider seams;
 `ExactUpdates` is a separate Swift target owning store selection, commands and
 after-paint checks. Two thin app compositions use the same renderer. The shared

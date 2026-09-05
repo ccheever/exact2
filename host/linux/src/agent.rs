@@ -65,6 +65,12 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
     p.run_commands(D::default);
     let reply = answer(p, line);
     p.run_commands(D::default);
+    // In the headless carrier a completed paint is presentation. A command
+    // may activate a generation after the initial boot's frame was counted.
+    if p.dirty() {
+        let _ = p.frame();
+    }
+    p.first_pixel();
     reply
 }
 

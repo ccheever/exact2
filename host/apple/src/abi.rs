@@ -215,11 +215,11 @@ impl<D: DataSource> Bridge<D> {
         };
         let selected = (delivery.selected_plan)();
         if let Some((entry, bytes)) = selected {
+            // Selection already verified the stored bytes. Count this attempt
+            // even when decoding or booting that verified plan refuses it.
+            (delivery.boot_started)();
             match self.boot_fresh(&bytes, data(), hooks, width, height) {
-                Ok(batch) => {
-                    (delivery.boot_started)();
-                    return self.emit(batch);
-                }
+                Ok(batch) => return self.emit(batch),
                 Err(e) => (delivery.entry_refused)(&entry, &e),
             }
         }
@@ -322,9 +322,15 @@ impl<D: DataSource> Bridge<D> {
             Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
             None => Box::new(MonospaceMeasurer::default()),
         };
-        // A reload carries the running store (`Carried::store`); the bindings
-        // are endowed afresh for the new executor.
+        // A reload carries the running store (`Carried::store`). A fresh
+        // session takes the granted platform snapshot before its first query,
+        // just like boot_fresh; neither path releases effects until commit.
         let bindings = endow(data.grants());
+        let snapshot = if carried.is_none() {
+            snapshot_of(bindings.as_ref())
+        } else {
+            Vec::new()
+        };
         let secrets = bindings.as_ref().map(|b| b.secrets.clone());
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
@@ -335,7 +341,7 @@ impl<D: DataSource> Bridge<D> {
             width,
             height,
             carried.as_ref(),
-            Vec::new(),
+            snapshot,
             secrets,
             self.compat,
             self.delivery,
@@ -856,4 +862,214 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.agent(len), |n| n)
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use exact_plan::builder::PlanBuilder;
+    use exact_plan::{TypeKind, Value};
+    use exact_runner::{Answer, DataError, Store};
+    use std::sync::{Arc, Mutex};
+
+    fn plan(resource: Option<&str>) -> Vec<u8> {
+        let mut builder = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        if let Some(name) = resource {
+            let string = builder.primitive(TypeKind::String);
+            builder.resource(name, "remember", &[], string, None);
+        }
+        builder.node(
+            exact_kernel::NodeType::View as u8,
+            None,
+            None,
+            0,
+            &[],
+            &[],
+            None,
+        );
+        builder.finish().unwrap().encode()
+    }
+
+    #[derive(Clone)]
+    struct Returning {
+        name: &'static str,
+        grants: &'static str,
+        seen: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl DataSource for Returning {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+
+        fn grants(&self) -> &'static str {
+            self.grants
+        }
+
+        fn answer(&mut self, store: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            let value = store.get(self.name).unwrap_or("missing").to_string();
+            self.seen.lock().unwrap().push(value.clone());
+            store.set(self.name, &format!("{value}-saved"))?;
+            Ok(Answer::Now(Value::str(&value)))
+        }
+    }
+
+    #[test]
+    fn fresh_preparation_reads_platform_secrets_and_defers_effects_until_commit() {
+        // Use ordinary platform bindings, isolated from an agent-mode parent
+        // and its process-global environment. Never touch an app's own names.
+        const CHILD: &str = "EXACT_PREPARE_SECRET_FIXTURE";
+        if std::env::var(CHILD).as_deref() != Ok("1") {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "abi::tests::fresh_preparation_reads_platform_secrets_and_defers_effects_until_commit"])
+                .env(CHILD, "1")
+                .env_remove("EXACT_AGENT")
+                .env_remove("EXACT_STORE")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let name =
+            Box::leak(format!("exact.prepare.{}.{nonce}", std::process::id()).into_boxed_str());
+        let grants = Box::leak(format!("secret.keep {name}\n").into_boxed_str());
+        let bindings = endow(grants).unwrap();
+        struct Cleanup(ibex2::host::Secrets, &'static str);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.0.forget(self.1).unwrap();
+            }
+        }
+        assert_eq!(bindings.secrets.get(name).unwrap(), None);
+        let _cleanup = Cleanup(bindings.secrets.clone(), name);
+        bindings.secrets.set(name, "returning").unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let data = Returning {
+            name,
+            grants,
+            seen: seen.clone(),
+        };
+        let initial = plan(Some("initial"));
+        let mut bridge = Bridge::new();
+        bridge.input_write(&initial);
+        let count = bridge.prepare_plan(initial.len(), data.clone(), Hooks::none(), 390.0, 844.0);
+        assert!(
+            bridge.prepared.is_some(),
+            "{}",
+            String::from_utf8_lossy(bridge.output_bytes(count as usize))
+        );
+        assert_eq!(*seen.lock().unwrap(), ["returning"]);
+        assert!(bridge.host.is_none() && bridge.executor.is_none());
+        assert_eq!(
+            bindings.secrets.get(name).unwrap().as_deref(),
+            Some("returning")
+        );
+        bridge.discard_plan();
+        assert!(bridge.prepared.is_none() && bridge.host.is_none() && bridge.executor.is_none());
+        assert_eq!(
+            bindings.secrets.get(name).unwrap().as_deref(),
+            Some("returning")
+        );
+
+        bridge.prepare_plan(initial.len(), data.clone(), Hooks::none(), 390.0, 844.0);
+        assert!(bridge.executor.is_none());
+        bridge.commit_plan();
+        assert!(bridge.executor.is_some());
+        assert_eq!(
+            bridge.host.as_ref().unwrap().runner().store().get(name),
+            Some("returning-saved")
+        );
+        assert_eq!(
+            bindings.secrets.get(name).unwrap().as_deref(),
+            Some("returning-saved")
+        );
+
+        // A peer's later platform write must not replace a running session's
+        // own snapshot on reload; a new resource forces an initial query.
+        bindings.secrets.set(name, "peer-change").unwrap();
+        let reload = plan(Some("reloaded"));
+        bridge.input_write(&reload);
+        bridge.prepare_plan(reload.len(), data, Hooks::none(), 390.0, 844.0);
+        assert_eq!(
+            seen.lock().unwrap().last().map(String::as_str),
+            Some("returning-saved")
+        );
+        assert_eq!(
+            bindings.secrets.get(name).unwrap().as_deref(),
+            Some("peer-change")
+        );
+        bridge.discard_plan();
+        assert_eq!(
+            bridge.host.as_ref().unwrap().runner().store().get(name),
+            Some("returning-saved")
+        );
+        assert_eq!(
+            bindings.secrets.get(name).unwrap().as_deref(),
+            Some("peer-change")
+        );
+    }
+
+    thread_local! {
+        static SELECTED: RefCell<Option<(String, Vec<u8>)>> = const { RefCell::new(None) };
+        static BOOTS: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
+    }
+    static DELIVERY: crate::delivery::Hooks = crate::delivery::Hooks {
+        selected_plan: || SELECTED.with(|value| value.borrow().clone()),
+        candidate_delivery: |_, _| None,
+        boot_started: || BOOTS.with(|events| events.borrow_mut().push("started")),
+        entry_refused: |entry, reason| {
+            assert_eq!(entry, "verified-selection");
+            assert!(!reason.is_empty());
+            BOOTS.with(|events| events.borrow_mut().push("refused"));
+        },
+        status_into: |_| {},
+        take_note: || None,
+        last_line: || None,
+    };
+
+    #[test]
+    fn a_verified_selected_boot_is_counted_before_plan_refusal() {
+        let embedded = plan(None);
+        for (selected, expected) in [
+            (
+                Some(b"verified bytes that are not a plan".to_vec()),
+                vec!["started", "refused"],
+            ),
+            (Some(embedded.clone()), vec!["started"]),
+            (None, vec![]),
+        ] {
+            SELECTED.with(|value| {
+                *value.borrow_mut() = selected.map(|bytes| ("verified-selection".into(), bytes))
+            });
+            BOOTS.with(|events| events.borrow_mut().clear());
+            let mut bridge = Bridge::new();
+            bridge.set_delivery(Some(&DELIVERY));
+            let count = bridge.boot_selected(
+                &embedded,
+                || Returning {
+                    name: "unused",
+                    grants: "",
+                    seen: Arc::default(),
+                },
+                Hooks::none(),
+                390.0,
+                844.0,
+            );
+            assert!(
+                bridge.host.is_some(),
+                "{}",
+                String::from_utf8_lossy(bridge.output_bytes(count as usize))
+            );
+            BOOTS.with(|events| assert_eq!(*events.borrow(), expected));
+        }
+    }
 }
