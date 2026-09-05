@@ -11,10 +11,19 @@ final class TextSelection {
     private var anchorIndex = 0
     private var focusIndex = 0
     private var dragged = false
+    private var ordered: [NodeView]?
+    private var indices: [UInt32: Int] = [:]
+    private var painted: [UInt32: NSRange] = [:]
+
+    func structureChanged() {
+        ordered = nil
+        indices.removeAll(keepingCapacity: true)
+    }
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
     var paragraphs: [NodeView] {
+        if let ordered { return ordered }
         guard let presenter else { return [] }
         var result: [NodeView] = []
         func walk(_ view: NSView) {
@@ -23,10 +32,20 @@ final class TextSelection {
             for child in view.subviews { walk(child) }
         }
         walk(presenter.root)
+        ordered = result
+        indices = Dictionary(uniqueKeysWithValues: result.enumerated().map { ($0.element.id, $0.offset) })
         return result
     }
 
-    private func invalidate() { for node in paragraphs { node.needsDisplay = true } }
+    private func invalidate() {
+        var next: [UInt32: NSRange] = [:]
+        for node in paragraphs {
+            let selected = range(node).flatMap { $0.length > 0 ? $0 : nil }
+            if let selected { next[node.id] = selected }
+            if selected != painted[node.id] { node.needsDisplay = true }
+        }
+        painted = next
+    }
 
     func begin(_ node: NodeView, event: NSEvent) {
         anchor = node; focus = node
@@ -90,9 +109,9 @@ final class TextSelection {
 
     func range(_ node: NodeView) -> NSRange? {
         guard anchor != nil && focus != nil else { return nil }
-        let nodes = paragraphs
-        guard let anchor, let focus, let a = nodes.firstIndex(of: anchor), let b = nodes.firstIndex(of: focus),
-              let n = nodes.firstIndex(of: node), n >= min(a, b), n <= max(a, b) else { return nil }
+        _ = paragraphs
+        guard let anchor, let focus, let a = indices[anchor.id], let b = indices[focus.id],
+              let n = indices[node.id], n >= min(a, b), n <= max(a, b) else { return nil }
         let forward = a < b || (a == b && anchorIndex <= focusIndex)
         let start = forward ? a : b, end = forward ? b : a
         let lo = n == start ? (forward ? anchorIndex : focusIndex) : 0
@@ -109,9 +128,8 @@ final class TextSelection {
     }
 
     private func line(_ node: NodeView, at point: NSPoint) -> (Paragraph, Spec, Int)? {
-        guard let engine = node.text else { return nil }
+        guard let paragraph = node.paragraphLayout() else { return nil }
         let spec = node.paragraphSpec()
-        let paragraph = engine.paragraph(spec, width: node.bounds.width)
         guard !paragraph.lines.isEmpty else { return nil }
         var i = paragraph.lines.count - 1
         var bottom: CGFloat = 0
@@ -151,7 +169,7 @@ final class TextSelection {
         return nil
     }
 
-    func draw(_ node: NodeView, paragraph: Paragraph, spec: Spec) {
+    func draw(_ node: NodeView, paragraph: Paragraph, spec: Spec, dirty: NSRect) {
         guard let selection = range(node), selection.length > 0 else { return }
         NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45).setFill()
         let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
@@ -161,6 +179,7 @@ final class TextSelection {
             guard hi > lo else { continue }
             var ascent: CGFloat = 0, descent: CGFloat = 0
             _ = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+            guard baseline + descent >= dirty.minY && baseline - ascent <= dirty.maxY else { continue }
             let flushX = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(node.bounds.width)))
             let x0 = CTLineGetOffsetForStringIndex(line, lo, nil)
             let x1 = CTLineGetOffsetForStringIndex(line, hi, nil)

@@ -94,7 +94,7 @@ extension Agent {
 
     func view(_ req: [String: Any]) -> NodeView? {
         guard let id = req["id"] as? Int else { return nil }
-        return presenter.views[UInt32(id)]
+        return presenter.views[UInt32(id)]?.paragraphOwner
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {

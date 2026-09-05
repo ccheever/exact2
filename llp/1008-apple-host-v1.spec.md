@@ -330,6 +330,18 @@ Changing an embedded `ExactApp.assetRoot` now updates its resolver; a complete
 signed generation retains its pinned resolver. The macOS Markdown viewer drives
 these paths; the iOS document interaction work remains in LLP 1033.
 
+**2026-09-05, long-document pass:** inline text identities stay in the presenter
+map as run data, but only paragraphs mount in the Apple view hierarchy. Text
+changes invalidate the owning paragraph; frame-only changes retain its spec and
+reuse its painted layout at the same width. CoreText typesetters are cached across
+widths; metric-only paragraph keys let painting reuse measurement's line breaks
+(clamped paragraphs still take the truncation path). Caches evict their coldest
+eighth at capacity instead of clearing everything. macOS paints text only inside
+the viewport, invalidates newly exposed regions when scrolling, and caches the
+selection's paragraph order. Capture still paints its requested region. The whole
+document remains laid out; this is not block-layout virtualization. LLP 1033
+records the long-document benchmark and remaining reflow cost.
+
 ## 8. Checks that hold this
 
 `host/apple/tests/host.rs`: the first batch creates, places, and sizes the

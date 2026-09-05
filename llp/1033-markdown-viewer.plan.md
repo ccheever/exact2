@@ -83,3 +83,44 @@ remain. The native panel's cancellation path and interactive desktop resize
 still need a dedicated drive; the iOS run exercises the narrow layout. Keyboard
 selection extension and bidi highlight geometry are follow-ups, not claimed here.
 The complete cross-platform plan therefore stays Draft.
+
+## Long documents, 2026-09-05
+
+Charlie reported choppy scrolling and resizing with the 16,399-word
+`0566-router-core-thread-home.decision.md`. Codex implemented run coalescing,
+unmounted inline text identities, bounded cache eviction, width-independent
+CoreText typesetter reuse, shared measurement/paint line breaks, cached paragraph
+specs and selection order, and viewport-limited text painting. Selection and
+copy still cover the complete document. No block-layout virtualization was added.
+
+An optimized Swift harness over the actual app archive and ExactKit drove 60
+updates per case, synchronously setting the AppKit scroll offset/window size,
+displaying the window, and flushing Core Animation. These are update costs on
+this Mac, not a display-link frame-rate trace. Before/after median milliseconds:
+
+| Operation | Before | After |
+| --- | ---: | ---: |
+| Scroll | 48.3 | 7.6 |
+| Scroll with all text selected | 58.9 | 7.6 |
+| Resize above the maximum reading width | 68.4 | 13.2 |
+| Resize through wrapping widths | 130.2 | 28.0 |
+| Resize height only | 18.8 | 5.1 |
+
+Logical nodes fall from 4,991 to 2,233; mounted native nodes fall to 676. Scroll
+p95 is 10.4 ms; wrapping resize p95 is 32.6 ms. Full reflow still exceeds a 60 Hz
+frame budget, so lazy block measurement with scroll anchoring remains a candidate;
+these results do not claim sustained 60/120 fps during arbitrary resizing.
+
+Driven checks: full-document copy includes the final block (106,361 characters),
+drag selection, deep scroll and return with window-server screenshots, local link
+opening a second document, and no runtime errors. The parser's four tests pass.
+A standalone CoreText check exercises cache eviction, geometry/color separation,
+Unicode, line clamping, and candidate-checkpoint restoration.
+The iOS and web previews build and render. The Caltrain macOS smoke passes on
+repeat (11.9 seconds); its first run reported one timer-transition step at width
+50 instead of 75. No motion code changed, and the cause of that intermittent
+failure is not established.
+All five repository checks pass. A focused native ownership check also passes:
+frame-only updates retain cached text, inline mutations invalidate the paragraph
+and its enclosing canvas, selection indexes only mounted paragraphs, and teardown
+releases the inline tree. The final macOS and iOS builds include that canvas fix.

@@ -41,6 +41,8 @@ final class Presenter {
     let viewport = PageScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
     lazy var selection = TextSelection(self)
+    private var scrollObserver: NSObjectProtocol?
+    private var visibleText: [UInt32: NSRect] = [:]
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
@@ -64,6 +66,29 @@ final class Presenter {
         viewport.contentInsets = NSEdgeInsetsZero
         viewport.drawsBackground = true
         viewport.backgroundColor = .white
+        viewport.contentView.postsBoundsChangedNotifications = true
+        scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+            object: viewport.contentView, queue: .main) { [weak self] _ in self?.refreshVisibleText() }
+    }
+
+    deinit { if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) } }
+
+    /// Layer-backed AppKit can ask an offscreen paragraph to repaint on resize.
+    /// Shape/paint only visible text; scrolling invalidates the newly exposed area.
+    func textVisibleRect(_ node: NodeView) -> NSRect {
+        node.convert(viewport.contentView.bounds, from: viewport.contentView)
+            .intersection(node.bounds).intersection(node.visibleRect)
+    }
+
+    func refreshVisibleText() {
+        var next: [UInt32: NSRect] = [:]
+        for node in selection.paragraphs {
+            let rect = textVisibleRect(node)
+            guard !rect.isEmpty else { continue }
+            next[node.id] = rect
+            if visibleText[node.id] != rect { node.setNeedsDisplay(rect) }
+        }
+        visibleText = next
     }
 
     /// The viewport's size in points: what the kernel lays out under.
@@ -86,6 +111,8 @@ final class Presenter {
         views.values.forEach { $0.forget() }
         root.subviews.forEach { $0.removeFromSuperview() }
         views.removeAll()
+        selection.structureChanged()
+        visibleText.removeAll()
         NodeView.imagesLoaded.removeAll()
     }
 
@@ -163,10 +190,12 @@ final class Presenter {
                 for (id, f) in q where views[id] != nil { f() }
             }
         }
+        let structureChanged = batch.ops.contains { ["children", "roots", "destroy", "create", "style"].contains($0["op"] as? String ?? "") }
+        if structureChanged { selection.structureChanged() }
         for op in batch.ops {
             guard let kind = op["op"] as? String else { continue }
             let id = UInt32(op["id"] as? Int ?? 0)
-            if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id) }
+            if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id, textChanged: kind == "props" || kind == "style" || kind == "destroy") }
             switch kind {
             case "create":
                 let v = NodeView(id: id, kind: op["kind"] as? String ?? "view", presenter: self)
@@ -181,9 +210,12 @@ final class Presenter {
             case "children":
                 guard let parent = views[id] else { continue }
                 let want = (op["ids"] as? [Int] ?? []).compactMap { views[UInt32($0)] }
+                if parent.kind == "text" { parent.setTextChildren(want); continue }
+                for child in want { child.textParent = nil }
                 let container = parent.container
                 for child in container.subviews where !(want as [NSView]).contains(child) && child is NodeView { child.removeFromSuperview() }
                 for (i, child) in want.enumerated() {
+                    if child.kind == "text" { child.wantsLayer = true }
                     if child.superview !== container { container.addSubview(child) }
                     if container.subviews.firstIndex(of: child) != i {
                         child.removeFromSuperview()
@@ -239,7 +271,9 @@ final class Presenter {
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.captureIfNeeded()
         menus.sync()
-        syncKeyViewLoop()
+        if structureChanged { selection.structureChanged() }
+        refreshVisibleText()
+        if structureChanged || batch.ops.contains(where: { $0["op"] as? String == "props" }) { syncKeyViewLoop() }
     }
 
     /// The view that takes Tab for this node: an input's field, else itself.
@@ -288,15 +322,16 @@ final class Presenter {
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
     /// through captures again at the end of the batch — the canvas above
     /// it, and itself for its own `children` op.
-    func touched(_ id: UInt32, children: Bool = false) {
+    func touched(_ id: UInt32, children: Bool = false, textChanged: Bool = false) {
         guard let start = views[id] else { return }
         var paragraph: NodeView? = start
         while let node = paragraph, node.kind == "text" {
+            if textChanged || children { node.invalidateText() }
             node.needsDisplay = true
-            paragraph = node.superview as? NodeView
+            paragraph = node.textParent ?? node.superview as? NodeView
         }
         if children, start.overlay != nil { start.needsCapture = true }
-        if let c = start.canvasAbove { c.needsCapture = true }
+        if let c = start.paragraphOwner.canvasAbove { c.needsCapture = true }
     }
 }
 

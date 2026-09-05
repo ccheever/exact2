@@ -253,7 +253,7 @@ final class Presenter {
         for op in batch.ops {
             guard let kind = op["op"] as? String else { continue }
             let id = UInt32(op["id"] as? Int ?? 0)
-            if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id) }
+            if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id, textChanged: kind == "props" || kind == "style" || kind == "destroy") }
             switch kind {
             case "create":
                 let v = NodeView(id: id, kind: op["kind"] as? String ?? "view", presenter: self)
@@ -268,6 +268,8 @@ final class Presenter {
             case "children":
                 guard let parent = views[id] else { continue }
                 let want = (op["ids"] as? [Int] ?? []).compactMap { views[UInt32($0)] }
+                if parent.kind == "text" { parent.setTextChildren(want); continue }
+                for child in want { child.textParent = nil }
                 let container = parent.container
                 for child in container.subviews where !(want as [UIView]).contains(child) && child is NodeView { child.removeFromSuperview() }
                 // In order, below anything else in the container (a scroll
@@ -341,15 +343,16 @@ final class Presenter {
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
     /// through captures again at the end of the batch — the canvas above
     /// it, and itself for its own `children` op.
-    func touched(_ id: UInt32, children: Bool = false) {
+    func touched(_ id: UInt32, children: Bool = false, textChanged: Bool = false) {
         guard let start = views[id] else { return }
         var paragraph: NodeView? = start
         while let node = paragraph, node.kind == "text" {
+            if textChanged || children { node.invalidateText() }
             node.setNeedsDisplay()
-            paragraph = node.superview as? NodeView
+            paragraph = node.textParent ?? node.superview as? NodeView
         }
         if children, start.overlay != nil { start.needsCapture = true }
-        if let c = start.canvasAbove { c.needsCapture = true }
+        if let c = start.paragraphOwner.canvasAbove { c.needsCapture = true }
     }
 }
 

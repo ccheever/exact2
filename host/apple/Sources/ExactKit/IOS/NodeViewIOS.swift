@@ -47,6 +47,10 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     let id: UInt32
     let firstDraw: () -> Void
     let kind: String
+    weak var textParent: NodeView?
+    var textChildren: [NodeView] = []
+    var cachedTextSpec: Spec?
+    var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
     var handlers: Set<String> = [] {
@@ -220,6 +224,10 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        textParent?.textChildren.removeAll { $0 === self }
+        textParent = nil
+        textChildren.removeAll()
+        invalidateText()
         loadGeneration += 1
         imageSource = nil
         image = nil
@@ -606,7 +614,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         if isParagraph {
             // The same paragraph the kernel measured at this width, painted.
             let spec = paragraphSpec()
-            if let t = self.text { TextEngine.draw(t.paragraph(spec, width: bounds.width), spec: spec, in: bounds, context: ctx) }
+            if let paragraph = paragraphLayout() { TextEngine.draw(paragraph, spec: spec, in: bounds, context: ctx, dirty: rect) }
         }
         if Capture.capturing, let picture = Capture.web[id] {
             // A capture that populated an arm snapshot draws that one WebKit

@@ -62,6 +62,48 @@ final class Paragraph {
     }
 }
 
+/// A bounded cache that evicts the coldest eighth, never all live paragraphs.
+/// Value semantics also preserve candidate-boot checkpoints.
+struct TextCache<Key: Hashable, Value> {
+    private var entries: [Key: (value: Value, used: UInt64)] = [:]
+    private var clock: UInt64 = 0
+    var count: Int { entries.count }
+    mutating func get(_ key: Key) -> Value? {
+        guard let entry = entries[key] else { return nil }
+        clock &+= 1
+        entries[key] = (entry.value, clock)
+        return entry.value
+    }
+    mutating func put(_ key: Key, _ value: Value) {
+        if entries.count >= 4096, entries[key] == nil {
+            let cold = entries.sorted { $0.value.used < $1.value.used }.prefix(512).map(\.key)
+            for key in cold { entries.removeValue(forKey: key) }
+        }
+        clock &+= 1
+        entries[key] = (value, clock)
+    }
+    mutating func removeAll(keepingCapacity: Bool) { entries.removeAll(keepingCapacity: keepingCapacity) }
+}
+
+struct ParagraphKey: Hashable {
+    let spec: Spec
+    let width: CGFloat
+}
+
+extension Spec {
+    /// Paint does not affect wrapping. Retain run boundaries and metric styles.
+    var geometry: Spec {
+        var value = self
+        value.color = [0, 0, 0, 255]
+        for i in value.runs.indices {
+            value.runs[i].color = nil
+            value.runs[i].decoration = ""
+            value.runs[i].href = ""
+        }
+        return value
+    }
+}
+
 private struct RegisteredFace {
     let weight: Int
     let italic: Bool
@@ -96,7 +138,9 @@ enum FontRegistry {
 
 final class TextEngine {
     var fonts: [String: PlatformFont] = [:]
-    var paragraphs: [Int: Paragraph] = [:]
+    var paragraphs = TextCache<ParagraphKey, Paragraph>()
+    private var minimums = TextCache<Spec, CGFloat>()
+    private var typesetters = TextCache<Spec, CTTypesetter>()
     private var catalog: [Int: [RegisteredFace]] = [:]
     /// Where a declared face's relative source resolves: the app's resolver
     /// (LLP 1031 D1 — the committed complete generation, else the root).
@@ -104,7 +148,7 @@ final class TextEngine {
     let read: (String) -> Data?
     private var pendingFonts: [URL] = []
     /// How many times the kernel asked, how many were answered from cache, and
-    /// how long the misses took, since this session started.
+    /// total measurement time, since this session started.
     var measureCount = 0
     var measureHits = 0
     var measureSeconds = 0.0
@@ -128,13 +172,17 @@ final class TextEngine {
     final class Checkpoint {
         private let pendingFonts: [URL]
         private let fonts: [String: PlatformFont]
-        private let paragraphs: [Int: Paragraph]
+        private let paragraphs: TextCache<ParagraphKey, Paragraph>
+        private let minimums: TextCache<Spec, CGFloat>
+        private let typesetters: TextCache<Spec, CTTypesetter>
         private let catalog: [Int: [RegisteredFace]]
 
         fileprivate init(_ engine: TextEngine) {
             pendingFonts = engine.pendingFonts
             fonts = engine.fonts
             paragraphs = engine.paragraphs
+            minimums = engine.minimums
+            typesetters = engine.typesetters
             catalog = engine.catalog
         }
 
@@ -142,6 +190,8 @@ final class TextEngine {
             engine.pendingFonts = pendingFonts
             engine.fonts = fonts
             engine.paragraphs = paragraphs
+            engine.minimums = minimums
+            engine.typesetters = typesetters
             engine.catalog = catalog
         }
     }
@@ -154,6 +204,8 @@ final class TextEngine {
     func install(_ pointer: UnsafePointer<ExactFontCatalog>?) {
         fonts.removeAll(keepingCapacity: true)
         paragraphs.removeAll(keepingCapacity: true)
+        minimums.removeAll(keepingCapacity: true)
+        typesetters.removeAll(keepingCapacity: true)
         catalog.removeAll(keepingCapacity: true)
         guard let value = pointer?.pointee else { return }
         let rows = UnsafeBufferPointer(start: value.faces, count: value.count)
@@ -278,21 +330,27 @@ final class TextEngine {
 
     /// Wrap `spec` at `width` (infinite = max-content). Cached.
     func paragraph(_ spec: Spec, width: CGFloat) -> Paragraph {
-        var h = Hasher()
-        h.combine(spec)
-        h.combine(width)
-        let key = h.finalize()
-        if let p = paragraphs[key] { return p }
-        if paragraphs.count > 4096 { paragraphs.removeAll(keepingCapacity: true) }
-        let p = layout(spec, width: width)
-        paragraphs[key] = p
+        let key = ParagraphKey(spec: spec, width: width)
+        if let p = paragraphs.get(key) { return p }
+        let geometry = spec.geometry
+        // The measurement's line breaks are also the painted paragraph's breaks.
+        // CoreText still creates colored lines, but never wraps them a second time.
+        let breaks = geometry == spec || spec.lineClamp > 0 ? nil : paragraph(geometry, width: width)
+        let p = layout(spec, width: width, breaks: breaks)
+        paragraphs.put(key, p)
         return p
     }
 
-    private func layout(_ spec: Spec, width: CGFloat) -> Paragraph {
-        let s = attributed(spec)
-        let typesetter = CTTypesetterCreateWithAttributedString(s)
-        let length = s.length
+    private func layout(_ spec: Spec, width: CGFloat, breaks: Paragraph? = nil) -> Paragraph {
+        // The shaped text is independent of width. Keep it while resizing;
+        // only line breaking and line placement depend on the offered width.
+        let typesetter: CTTypesetter
+        if let cached = typesetters.get(spec) { typesetter = cached }
+        else {
+            typesetter = CTTypesetterCreateWithAttributedString(attributed(spec))
+            typesetters.put(spec, typesetter)
+        }
+        let length = spec.runs.reduce(0) { $0 + ($1.text as NSString).length }
         let lineHeight = spec.runs.map(\.lineHeight).max() ?? 0
         var lines: [CTLine] = []
         var baselines: [CGFloat] = []
@@ -302,11 +360,16 @@ final class TextEngine {
         let limit = width.isFinite ? Double(width) : Double.greatestFiniteMagnitude
         while start < length {
             if spec.lineClamp > 0 && lines.count == spec.lineClamp { break }
-            var count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
+            var count: Int
+            if let breaks, lines.count < breaks.lines.count {
+                count = CTLineGetStringRange(breaks.lines[lines.count]).length
+            } else {
+                count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
+            }
             if count <= 0 { count = length - start }
             var line = CTTypesetterCreateLine(typesetter, CFRangeMake(start, count))
             if spec.lineClamp > 0 && lines.count + 1 == spec.lineClamp && start + count < length,
-               let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: s.attributes(at: start, effectiveRange: nil))) as CTLine?,
+               let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributed(spec).attributes(at: start, effectiveRange: nil))) as CTLine?,
                let truncated = CTLineCreateTruncatedLine(line, limit, .end, token) {
                 line = truncated
             }
@@ -336,6 +399,7 @@ final class TextEngine {
 
     /// As narrow as the content can be: the longest unbreakable piece.
     func minContentWidth(_ spec: Spec) -> CGFloat {
+        if let width = minimums.get(spec) { return width }
         var widest: CGFloat = 0
         for r in spec.runs {
             for word in r.text.split(whereSeparator: { $0.isWhitespace }) {
@@ -344,17 +408,24 @@ final class TextEngine {
                 widest = max(widest, paragraph(one, width: .infinity).width)
             }
         }
+        minimums.put(spec, widest)
         return widest
     }
 
     /// Paint a paragraph into a y-down context (a flipped NSView's, a
     /// UIView's): one CTLineDraw per line, baselines snapped to device
     /// pixels, flush by alignment.
-    static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext) {
+    static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext, dirty: CGRect? = nil) {
         ctx.saveGState()
         ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
         let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
         for (line, baseline) in zip(p.lines, p.baselines) {
+            if let dirty {
+                let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+                let rect = CGRect(x: bounds.minX + ink.minX, y: bounds.minY + baseline - ink.maxY,
+                                  width: max(bounds.width, ink.width), height: ink.height).insetBy(dx: -2, dy: -2)
+                if !rect.intersects(dirty) { continue }
+            }
             let x = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width)))
             ctx.textPosition = CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
             CTLineDraw(line, ctx)
@@ -370,15 +441,15 @@ final class TextEngine {
         let runs = UnsafeBufferPointer(start: request.runs, count: request.count).map { run in
             Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: CGFloat(run.line_height), letterSpacing: CGFloat(run.letter_spacing))
         }
-        // Color does not change metrics, but it remains in Spec's paragraph key:
-        // measurement uses black while presenters paint with the real color, so
-        // they shape separately. Removing color from that key remains owed.
+        // Metric-only keys match the geometry used by the colored presenter.
         let spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255])
         let started = CACurrentMediaTime()
         let width: CGFloat = request.width == EXACT_MIN_CONTENT ? minContentWidth(spec) : request.width < 0 ? .infinity : CGFloat(request.width)
-        let before = paragraphs.count
-        let p = paragraph(spec, width: width)
-        if paragraphs.count == before { measureHits += 1 } else { measureSeconds += CACurrentMediaTime() - started }
+        let key = ParagraphKey(spec: spec, width: width)
+        let p: Paragraph
+        if let cached = paragraphs.get(key) { measureHits += 1; p = cached }
+        else { p = paragraph(spec, width: width) }
+        measureSeconds += CACurrentMediaTime() - started
         return ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
     }
 

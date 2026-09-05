@@ -2,9 +2,36 @@
 import Foundation
 
 extension NodeView {
-    var isParagraph: Bool { kind == "text" && (superview as? NodeView)?.kind != "text" }
+    var isParagraph: Bool { kind == "text" && textParent == nil && (superview as? NodeView)?.kind != "text" }
+
+    /// Inline nodes retain identity in the presenter map, but only their paragraph
+    /// is mounted in the native hierarchy. Their styles and text are run data.
+    func setTextChildren(_ children: [NodeView]) {
+        for child in textChildren where child.textParent === self { child.textParent = nil }
+        textChildren = children
+        for child in children {
+            child.removeFromSuperview()
+            child.textParent = self
+        }
+        invalidateText()
+    }
+
+    var paragraphOwner: NodeView { textParent?.paragraphOwner ?? self }
+
+    func paragraphLayout() -> Paragraph? {
+        if let cached = cachedTextLayout, cached.width == bounds.width { return cached.paragraph }
+        guard let paragraph = text?.paragraph(paragraphSpec(), width: bounds.width) else { return nil }
+        cachedTextLayout = (bounds.width, paragraph)
+        return paragraph
+    }
+
+    func invalidateText() {
+        cachedTextSpec = nil
+        cachedTextLayout = nil
+    }
 
     func paragraphSpec() -> Spec {
+        if let spec = cachedTextSpec { return spec }
         let align: Int
         switch style["text_align"] as? String {
         case "center": align = 1
@@ -23,11 +50,13 @@ extension NodeView {
                     decoration: node.style["text_decoration_line"] as? String ?? "",
                     href: node.props["href"] ?? ""))
             } else {
-                for child in node.container.subviews.compactMap({ $0 as? NodeView }) where child.kind == "text" { collect(child) }
+                for child in node.textChildren where child.kind == "text" { collect(child) }
             }
         }
         collect(self)
-        return Spec(runs: runs, align: align, lineClamp: Int(number("line_clamp")),
-                    color: style["text_color"] as? [Double] ?? [0, 0, 0, 255])
+        let spec = Spec(runs: runs, align: align, lineClamp: Int(number("line_clamp")),
+                        color: style["text_color"] as? [Double] ?? [0, 0, 0, 255])
+        cachedTextSpec = spec
+        return spec
     }
 }

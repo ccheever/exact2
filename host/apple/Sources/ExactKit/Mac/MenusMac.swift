@@ -87,7 +87,7 @@ final class MenuHost: NSObject {
     }
 
     private func title(of v: NodeView) -> String {
-        if let t = v.props["text"], !t.isEmpty { return t }
+        if v.kind == "text" { return v.paragraphSpec().runs.map(\.text).joined() }
         return v.container.subviews
             .compactMap { ($0 as? NodeView).map(title(of:)) }
             .filter { !$0.isEmpty }

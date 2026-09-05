@@ -65,7 +65,11 @@ sits on that list carries the trade it would take.
    iOS selection and link gestures; iOS/web file-opening adapters; heading anchors,
    tables, and syntax highlighting. macOS drag selection across paragraphs and copy
    now use CoreText's existing lines. Keyboard selection extension and bidi selection
-   geometry still need dedicated fixtures.
+   geometry still need dedicated fixtures. The long-document pass brings scrolling
+   to ~8 ms, but narrow-width full reflow remains ~28 ms on LLP 0566; lazy block
+   measurement with stable scroll anchoring is the next performance candidate.
+   During verification the macOS timer-step smoke once read width 50 at t=1250
+   instead of 75, then passed on repeat; investigate the intermittent clock fixture.
 5. **View transitions** (LLP 1013, Draft RFC) — behind the webview/deck lane by
    LLP 1020 §6's decided take (Charlie, 2026-08-30): the trade that moved `webview`
    off NOT-DOING. Shared elements, heroes, and magic-move

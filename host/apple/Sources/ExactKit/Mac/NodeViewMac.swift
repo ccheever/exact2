@@ -1,4 +1,5 @@
-// One NSView per kernel node (the AppKit presenter's node, LLP 1008 §5):
+// One presenter identity per kernel node (LLP 1008 §5); inline text stays
+// unmounted as its paragraph's run data (LLP 1033). Mounted NSViews draw
 // backgrounds, borders, and text are drawn; frames come from the kernel's
 // layout; transforms and opacity from presentation values. Everything a
 // node reaches beyond itself — the text engine, the canvases, the web
@@ -59,6 +60,10 @@ final class NodeView: NSView, NSTextFieldDelegate {
     let id: UInt32
     let firstDraw: () -> Void
     let kind: String
+    weak var textParent: NodeView?
+    var textChildren: [NodeView] = []
+    var cachedTextSpec: Spec?
+    var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
     var handlers: Set<String> = []
@@ -308,6 +313,10 @@ final class NodeView: NSView, NSTextFieldDelegate {
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        textParent?.textChildren.removeAll { $0 === self }
+        textParent = nil
+        textChildren.removeAll()
+        invalidateText()
         loadGeneration += 1
         imageSource = nil
         image = nil
@@ -322,7 +331,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
-        wantsLayer = true
+        wantsLayer = kind != "text"
         // A frame change during live resize repaints at the new width
         // instead of stretching stale pixels.
         layerContentsRedrawPolicy = .duringViewResize
@@ -374,7 +383,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
         canvases?.scheduleCapture()
     }
 
-    @objc func clipScrolled() { repaintThrough() }
+    @objc func clipScrolled() { repaintThrough(); presenter?.refreshVisibleText() }
 
     /// The direct child of a canvas this node is under, when that child is
     /// placed by the surface: the node whose `placement` maps this subtree.
@@ -699,13 +708,13 @@ final class NodeView: NSView, NSTextFieldDelegate {
             img.draw(in: NSRect(origin: origin, size: size), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             NSGraphicsContext.current?.restoreGraphicsState()
         }
-        if isParagraph {
+        let textDirty = Capture.capturing || canvasAbove != nil ? rect : rect.intersection(presenter?.textVisibleRect(self) ?? visibleRect)
+        if isParagraph, !textDirty.isEmpty {
             // The same paragraph the kernel measured at this width, painted.
             let spec = paragraphSpec()
-            if let ctx = NSGraphicsContext.current?.cgContext, let t = self.text {
-                let paragraph = t.paragraph(spec, width: bounds.width)
-                presenter?.selection.draw(self, paragraph: paragraph, spec: spec)
-                TextEngine.draw(paragraph, spec: spec, in: bounds, context: ctx)
+            if let ctx = NSGraphicsContext.current?.cgContext, let paragraph = paragraphLayout() {
+                presenter?.selection.draw(self, paragraph: paragraph, spec: spec, dirty: textDirty)
+                TextEngine.draw(paragraph, spec: spec, in: bounds, context: ctx, dirty: textDirty)
             }
         }
         if Capture.capturing, let picture = Capture.web[id] {
