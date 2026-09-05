@@ -1072,4 +1072,65 @@ mod tests {
             BOOTS.with(|events| assert_eq!(*events.borrow(), expected));
         }
     }
+
+    #[test]
+    fn candidate_delivery_precedes_initial_and_carried_resource_queries() {
+        #[derive(Clone)]
+        struct Facts(Arc<Mutex<Vec<f64>>>);
+        impl DataSource for Facts {
+            fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+                Err(DataError::UnknownSource(source.into()))
+            }
+            fn answer(
+                &mut self,
+                _: &mut Store,
+                _: &str,
+                args: &[Value],
+            ) -> Result<Answer, DataError> {
+                let Value::Number(seq) = args[0] else {
+                    panic!("expected the candidate sequence")
+                };
+                self.0.lock().unwrap().push(seq);
+                Ok(Answer::Now(Value::record(vec![Value::Number(seq)])))
+            }
+        }
+        let source = "shape Delivery\n  seq: number\nshape Reply\n  value: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  resource reply = read(delivery.seq) as shape Reply\n  view\n    text `${reply.value}`\n";
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let data = Facts(seen.clone());
+        let bytes = contract::bake(contract::compile(source).unwrap(), data.clone())
+            .unwrap()
+            .encode();
+        seen.lock().unwrap().clear();
+        let mut bridge = Bridge::new();
+        bridge.input_write(&bytes);
+        for seq in [41, 42] {
+            let facts = exact_runner::Delivery {
+                seq,
+                ..Default::default()
+            };
+            let count = bridge.prepare_plan_with_delivery(
+                bytes.len(),
+                data.clone(),
+                Hooks::none(),
+                390.0,
+                844.0,
+                Some(facts),
+            );
+            assert!(
+                bridge.prepared.is_some(),
+                "{}",
+                String::from_utf8_lossy(bridge.output_bytes(count as usize))
+            );
+            if seq == 41 {
+                bridge.commit_plan();
+            } else {
+                bridge.discard_plan();
+            }
+        }
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [41.0, 42.0],
+            "neither baked nor carried delivery may leak into candidate queries"
+        );
+    }
 }

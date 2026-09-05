@@ -56,7 +56,7 @@ impl<D: DataSource> Host<D> {
         width: f32,
         height: f32,
     ) -> Result<(Host<D>, Option<String>), HostError> {
-        Host::boot_with(plan_bytes, data, measurer, width, height, None)
+        Host::boot_with(plan_bytes, data, measurer, width, height, None, None)
     }
 
     /// Boot carrying an earlier host's state (the dev reload, LLP 1007 §6).
@@ -67,13 +67,18 @@ impl<D: DataSource> Host<D> {
         width: f32,
         height: f32,
         carried: Option<&Carried>,
+        delivery: Option<exact_runner::Delivery>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         let kernel = Kernel::new(measurer);
-        let runner = match carried {
-            Some(c) => Runner::boot_carrying(plan, data, kernel, c),
-            None => Runner::boot(plan, data, kernel),
-        }
+        let runner = Runner::boot_with_delivery(
+            plan,
+            data,
+            kernel,
+            carried,
+            Vec::new(),
+            delivery.unwrap_or_default(),
+        )
         .map_err(HostError::Runner)?;
         let mut host = Host {
             runner,

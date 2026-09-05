@@ -10,6 +10,10 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **Sample-host no-op input delay** (2026-09-04): `smoke.mjs host` passed but its
+  final repeated light-scheme tap after destroying session a waited 74–131 seconds.
+  Trace and GPU drawable samples are in the filesystem run; reduce the carrier/frame acknowledgement path.
+
 - **macOS offscreen capture** (2026-09-04): a cover-window app can return a
   fully transparent default screenshot while its window capture is correct.
   Reduce to a generic canvas fixture; `issues/20260904-macos-offscreen-capture-can-be-transparent.md`.

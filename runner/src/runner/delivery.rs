@@ -11,12 +11,40 @@
 //! `deliveryActivate`) and the runner adds nothing for them: they reach the
 //! host through `take_commands` exactly as `setScheme` does.
 
-use super::{DataError, DataSource, Runner, RunnerError};
+use super::{Carried, DataError, DataSource, Runner, RunnerError};
 use crate::delivery::{Delivery, SOURCE};
-use exact_kernel::CommitReceipt;
-use exact_plan::{TypeKind, Value};
+use exact_kernel::{CommitReceipt, Kernel};
+use exact_plan::{Plan, TypeKind, Value};
 
 impl<D: DataSource> Runner<D> {
+    /// Boot with the host's snapshot of the app's kept secrets (LLP 1018
+    /// D1): what the platform's store holds under the names the data
+    /// crate's grants allow, read by the host before this call. A resource
+    /// with no compiled value — one that read the store at bake — answers
+    /// from it now, so the first frame is a returning user's.
+    pub fn boot_stored(
+        plan: Plan,
+        data: D,
+        kernel: Kernel,
+        snapshot: Vec<(String, String)>,
+    ) -> Result<Runner<D>, RunnerError> {
+        Runner::boot_inner(plan, data, kernel, None, snapshot, Delivery::default())
+    }
+
+    /// Boot with complete host delivery facts before any resource settles.
+    /// A carried runner's store takes precedence over the fresh snapshot.
+    pub fn boot_with_delivery(
+        plan: Plan,
+        data: D,
+        kernel: Kernel,
+        carried: Option<&Carried>,
+        snapshot: Vec<(String, String)>,
+        delivery: Delivery,
+    ) -> Result<Runner<D>, RunnerError> {
+        let snapshot = carried.map_or(snapshot, |value| value.store.clone());
+        Self::boot_inner(plan, data, kernel, carried, snapshot, delivery)
+    }
+
     /// What this runner believes about its delivery. Until a host says
     /// otherwise this is [`Delivery::default`] — the embedded answer.
     pub fn delivery(&self) -> &Delivery {

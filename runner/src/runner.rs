@@ -367,21 +367,7 @@ impl<D: DataSource> Runner<D> {
     /// initial state, settle resources (compiled data first, the source
     /// otherwise), realize the tree, and apply the first frame's ops.
     pub fn boot(plan: Plan, data: D, kernel: Kernel) -> Result<Runner<D>, RunnerError> {
-        Runner::boot_inner(plan, data, kernel, None, Vec::new())
-    }
-
-    /// Boot with the host's snapshot of the app's kept secrets (LLP 1018
-    /// D1): what the platform's store holds under the names the data
-    /// crate's grants allow, read by the host before this call. A resource
-    /// with no compiled value — one that read the store at bake — answers
-    /// from it now, so the first frame is a returning user's.
-    pub fn boot_stored(
-        plan: Plan,
-        data: D,
-        kernel: Kernel,
-        snapshot: Vec<(String, String)>,
-    ) -> Result<Runner<D>, RunnerError> {
-        Runner::boot_inner(plan, data, kernel, None, snapshot)
+        Runner::boot_inner(plan, data, kernel, None, Vec::new(), Default::default())
     }
 
     /// Boot a new plan with the state of an old runner (a dev reload that
@@ -396,7 +382,14 @@ impl<D: DataSource> Runner<D> {
         kernel: Kernel,
         carried: &Carried,
     ) -> Result<Runner<D>, RunnerError> {
-        Runner::boot_inner(plan, data, kernel, Some(carried), carried.store.clone())
+        Runner::boot_inner(
+            plan,
+            data,
+            kernel,
+            Some(carried),
+            carried.store.clone(),
+            Default::default(),
+        )
     }
 
     /// Everything a reload keeps.
@@ -444,6 +437,7 @@ impl<D: DataSource> Runner<D> {
         kernel: Kernel,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
+        delivery: crate::delivery::Delivery,
     ) -> Result<Runner<D>, RunnerError> {
         if let Some(carried) = carried {
             if !carried.now_ms.is_finite() {
@@ -497,6 +491,7 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .map(|resource| {
                 resource.reader
+                    || plan.str(resource.source) == crate::delivery::SOURCE
                     || carried.is_some_and(|carried| {
                         let name = plan.str(resource.name);
                         carried.store_readers.iter().any(|reader| reader == name)
@@ -528,7 +523,7 @@ impl<D: DataSource> Runner<D> {
             store_readers,
             stale: Vec::new(),
             keeps_answers: false,
-            delivery: crate::delivery::Delivery::default(),
+            delivery,
             poisoned: false,
             journal: std::collections::VecDeque::new(),
             journal_start: 0,

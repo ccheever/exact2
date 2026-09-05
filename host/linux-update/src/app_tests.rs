@@ -214,7 +214,7 @@ fn a_selected_image_loads_from_its_verified_generation() {
         .unwrap()
         .encode();
     let selected =
-        contract::compile("component App\n  view\n    image \"assets/mark.png\" width=96\n")
+        contract::compile("shape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  view\n    column\n      when delivery.seq > 0\n        image \"assets/mark.png\" width=96\n      else\n        text \"embedded\"\n")
             .unwrap()
             .encode();
     let png = std::fs::read(concat!(
@@ -322,7 +322,7 @@ fn a_corrupt_selected_asset_falls_back_before_first_pixel() {
         .unwrap()
         .encode();
     let selected =
-        contract::compile("component App\n  view\n    image \"assets/mark.png\" width=96\n")
+        contract::compile("shape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  view\n    column\n      when delivery.seq > 0\n        image \"assets/mark.png\" width=96\n      else\n        text \"embedded\"\n")
             .unwrap()
             .encode();
     let dir = std::env::temp_dir().join(format!(
@@ -557,7 +557,12 @@ fn a_refused_initial_layout_releases_no_network_requests() {
         fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
             Err(DataError::UnknownSource(source.into()))
         }
-        fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+        fn answer(&mut self, _: &mut Store, _: &str, args: &[Value]) -> Result<Answer, DataError> {
+            assert_eq!(
+                args,
+                &[Value::Number(1.0)],
+                "only the accepted delivery facts may reach the data source"
+            );
             Ok(Answer::Later(Request::post_json(
                 &ORIGIN.get().unwrap().0,
                 "{}",
@@ -601,7 +606,7 @@ fn a_refused_initial_layout_releases_no_network_requests() {
     let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
         .unwrap()
         .encode();
-    let source = "shape Reply\n  value: string\ncomponent App\n  resource reply = ping() as shape Reply\n  view\n    text \" \" font-size=SIZE\n";
+    let source = "shape Reply\n  value: string\nshape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  resource reply = ping(delivery.seq) as shape Reply\n  view\n    text \" \" font-size=SIZE\n";
     let dir = std::env::temp_dir().join(format!(
         "exact-linux-refused-network-{}",
         std::process::id()
@@ -621,10 +626,10 @@ fn a_refused_initial_layout_releases_no_network_requests() {
             // Preserve an ordinary baked store-reader placeholder while
             // constructing the signed but layout-invalid candidate.
             let mut plan = contract::compile(&source.replace("SIZE", size)).unwrap();
-            let initial = seed.bytes(seed.resources[0].initial);
-            plan.resources[0].initial.offset = plan.data.len() as u32;
-            plan.resources[0].initial.len = initial.len() as u32;
-            plan.resources[0].reader = seed.resources[0].reader;
+            let initial = seed.bytes(seed.resources[1].initial);
+            plan.resources[1].initial.offset = plan.data.len() as u32;
+            plan.resources[1].initial.len = initial.len() as u32;
+            plan.resources[1].reader = seed.resources[1].reader;
             plan.data.extend_from_slice(initial);
             let plan = plan.encode();
             let client = stage(&root, &baked, &plan, &[]);

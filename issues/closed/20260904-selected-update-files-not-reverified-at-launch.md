@@ -1,7 +1,7 @@
 # Selected update files are not reverified at launch
 
 **Status:** Closed
-**Resolution:** Fixed by mandatory verified plan reads and cached lazy signed-card asset reads; fresh native launches reject modified plans, modified assets and missing assets before counting or blessing, while clean selections boot.
+**Resolution:** Fixed by mandatory verified plan reads and cached lazy signed-card asset reads; fresh native launches reject modified plans, modified assets and missing assets before use or blessing, clear integrity-refused launch accounting, and boot clean selections.
 **Systems:** Update store, Delivery
 **Severity:** P2
 **Author:** Codex (GPT-5) for Charlie Cheever

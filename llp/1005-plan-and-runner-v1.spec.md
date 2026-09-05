@@ -110,6 +110,11 @@ not reorder); evaluates slot initializers in order and checks each against its
 declared type (`SlotType`); **settles** derives and resources; realizes the
 tree; applies the first frame as one batch.
 
+`Runner::boot_with_delivery` takes the host's complete delivery facts before
+that first settlement (LLP 1030 D7). The reserved delivery source ignores baked
+and carried answers; its dependents carry device-data provenance, so a request
+or conditional asset cannot first observe the bake's sequence.
+
 **Settlement** (`settle`): derives and resources may depend on each other in
 either direction, so plan order cannot order them. Each pass evaluates every
 unsettled derive and resource in plan order; one that reads something unsettled

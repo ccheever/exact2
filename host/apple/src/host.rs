@@ -173,11 +173,18 @@ impl<D: DataSource> Host<D> {
         }
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         let kernel = Kernel::new(measurer);
-        let runner = match carried {
-            Some(c) => Runner::boot_carrying(plan, data, kernel, c),
-            None => Runner::boot_stored(plan, data, kernel, snapshot),
-        }
-        .map_err(HostError::Runner)?;
+        let facts = candidate_delivery.unwrap_or_else(|| {
+            let mut facts = exact_runner::Delivery::default();
+            if let Some(json) = compat {
+                facts = facts.with_compat(json);
+                if let Some(hooks) = delivery {
+                    (hooks.status_into)(&mut facts);
+                }
+            }
+            facts
+        });
+        let runner = Runner::boot_with_delivery(plan, data, kernel, carried, snapshot, facts)
+            .map_err(HostError::Runner)?;
         // The candidate catalog is installed before first text measurement.
         // Platform registration is deferred until the app accepts it.
         prepare(runner.plan());
@@ -193,19 +200,6 @@ impl<D: DataSource> Host<D> {
             update_line: None,
             delivery,
         };
-        // The binary's delivery facts before the first frame (LLP 1030 D7)
-        // — its `compat.json` and what the update store has to say: the
-        // batch below creates the whole tree from the kernel as it then
-        // stands, so a `delivery` resource re-answered here needs no ops of
-        // its own, and the presenter is never told about a commit it will
-        // see in that first batch anyway.
-        if let Some(delivery) = candidate_delivery {
-            host.runner
-                .set_delivery(delivery)
-                .map_err(HostError::Runner)?;
-        } else if let Some(json) = compat {
-            host.set_delivery_from_compat(json)?;
-        }
         let mut batch = Batch::new();
         let order = host.preorder();
         for id in &order {
@@ -272,24 +266,6 @@ impl<D: DataSource> Host<D> {
     /// The motion engine: presentation values as the presenter shows them.
     pub fn engine(&self) -> &Engine {
         &self.engine
-    }
-
-    /// Tell the runner what this binary knows about its delivery (LLP 1030
-    /// D7): the compatibility id, whether an update store is linked, and
-    /// the executors from the archive's `compat.json`, and the stream, the
-    /// `seq`s, and what is staged from the linked delivery adapter.
-    /// Called by a boot, before the first batch — the commit a re-answered
-    /// `delivery` resource makes is the boot's own. A boot note the store
-    /// left (the selected entry refused, entry zero booted) is journaled.
-    pub(crate) fn set_delivery_from_compat(&mut self, json: &str) -> Result<(), HostError> {
-        let mut delivery = self.runner.delivery().with_compat(json);
-        if let Some(hooks) = self.delivery {
-            (hooks.status_into)(&mut delivery);
-        }
-        self.runner
-            .set_delivery(delivery)
-            .map(|_| ())
-            .map_err(HostError::Runner)
     }
 
     /// What the update store has to say, into the runner (LLP 1030 D7) —

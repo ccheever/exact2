@@ -206,14 +206,18 @@ pub fn boot_presenter<D: DataSource + Default>(
 ) -> Result<(Presenter<D>, Option<String>), String> {
     let mut updates = config.updates.take();
     let compat = config.compat.clone();
+    let facts = |updates: &Option<Box<dyn Store>>| {
+        let mut delivery = exact_runner::Delivery::default().with_compat(&compat);
+        if let Some(updates) = updates {
+            updates.status_into(&mut delivery);
+        }
+        delivery
+    };
     let delivered = |mut booted: (Presenter<D>, Option<String>),
                      updates: Option<Box<dyn Store>>| {
-        // The binary's delivery facts, before anything reads a frame (LLP
-        // 1030 D7). The kernel is the display list here, so the commit a
-        // re-answered `delivery` resource makes needs nothing from boot.
-        let e = booted.0.set_delivery_from_compat(&compat);
+        // The accepted runner already has the complete facts. Attaching the
+        // adapter must never reintroduce intermediate embedded answers.
         booted.0.set_updates(updates);
-        booted.1 = booted.1.or(e);
         booted
     };
     // The selected bytes passed verification. Record the attempt before
@@ -231,6 +235,7 @@ pub fn boot_presenter<D: DataSource + Default>(
         config.scale,
         config.assets.clone(),
         config.selected_assets.clone(),
+        (&compat, facts(&updates)),
     ) {
         Ok(value) => Ok(delivered(value, updates)),
         Err(fetched_error) => {
@@ -259,6 +264,7 @@ pub fn boot_presenter<D: DataSource + Default>(
                 config.scale,
                 config.assets.clone(),
                 None,
+                (&compat, facts(&updates)),
             )
             .map(|v| delivered(v, updates))
             .map_err(|baked_error| {

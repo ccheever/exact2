@@ -190,10 +190,13 @@ impl<D: DataSource> Runner<D> {
                     // A store-reading resource is reusable only at the exact
                     // store revision it observed. `answer` and `parse` both
                     // write through Store, so this is the one dirtying point.
+                    // Host facts always come from this candidate, never a baked
+                    // or carried delivery answer (LLP 1030 D7).
                     let reuse = states[i]
                         .as_ref()
                         .filter(|s| {
                             s.args == args
+                                && self.plan.str(row.source) != crate::delivery::SOURCE
                                 && !forced
                                 && (!self.store_readers[i]
                                     || s.store_revision == self.store.revision())
@@ -202,6 +205,7 @@ impl<D: DataSource> Runner<D> {
                     let value = match reuse {
                         Some(v) => v,
                         None if boot
+                            && self.plan.str(row.source) != crate::delivery::SOURCE
                             && row.initial.len > 0
                             && (!self.store_readers[i] || self.stale[i]) =>
                         {

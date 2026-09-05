@@ -185,6 +185,7 @@ impl<D: DataSource> Presenter<D> {
             scale,
             Assets::embedded(assets),
             choice,
+            None,
         )
     }
 
@@ -197,19 +198,23 @@ impl<D: DataSource> Presenter<D> {
         scale: f32,
         root: PathBuf,
         selected: Option<AssetResolver>,
+        (compat, delivery): (&str, exact_runner::Delivery),
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let assets = match selected {
             Some(set) => Assets::selected(root, set),
             None => Assets::embedded(root),
         };
-        Self::boot_with_assets(
+        let (mut presenter, error) = Self::boot_with_assets(
             plan,
             data,
             viewport,
             scale,
             assets,
             PainterChoice::from_env(),
-        )
+            Some(delivery),
+        )?;
+        presenter.compat = compat.to_string();
+        Ok((presenter, error))
     }
 
     fn boot_with_assets(
@@ -219,6 +224,7 @@ impl<D: DataSource> Presenter<D> {
         scale: f32,
         assets: Assets,
         choice: PainterChoice,
+        delivery: Option<exact_runner::Delivery>,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let t = std::time::Instant::now();
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
@@ -228,12 +234,14 @@ impl<D: DataSource> Presenter<D> {
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
         let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
-        let (mut host, error) = Host::boot(
+        let (mut host, error) = Host::boot_with(
             plan,
             data,
             Box::new(Measurer(text.clone())),
             viewport.0,
             viewport.1,
+            None,
+            delivery,
         )?;
         let mut images = Images::with_assets(assets.clone());
         if assets.is_selected() {
@@ -357,6 +365,11 @@ impl<D: DataSource> Presenter<D> {
         let assets = Assets::selected(self.assets.root().to_path_buf(), candidate.assets.clone());
         let decoded = Plan::decode(&candidate.plan).map_err(HostError::Plan)?;
         let text = TextEngine::shared_for_assets(&decoded, &assets);
+        let mut delivery = self.host.runner().delivery().with_compat(&self.compat);
+        updates.status_into(&mut delivery);
+        updates.staged_stream_into(&mut delivery);
+        delivery.seq = candidate.seq;
+        delivery.staged = false;
         let carried = self.host.carry();
         let (mut host, error) = Host::boot_with(
             &candidate.plan,
@@ -365,16 +378,9 @@ impl<D: DataSource> Presenter<D> {
             self.viewport.0,
             self.viewport.1,
             Some(&carried),
+            Some(delivery),
         )?;
         if let Some(error) = error {
-            return Err(HostError::Layout(error));
-        }
-        let mut delivery = host.runner().delivery().with_compat(&self.compat);
-        updates.status_into(&mut delivery);
-        updates.staged_stream_into(&mut delivery);
-        delivery.seq = candidate.seq;
-        delivery.staged = false;
-        if let Some(error) = host.set_delivery(delivery) {
             return Err(HostError::Layout(error));
         }
         let mut images = Images::with_assets(assets.clone());
@@ -472,24 +478,9 @@ impl<D: DataSource> Presenter<D> {
             self.viewport.0,
             self.viewport.1,
             Some(&carried),
+            Some(self.host.runner().delivery().clone()),
         )?;
         self.host = host;
-        // A fresh runner knows nothing of the binary's delivery facts (LLP
-        // 1030 D7): the compat file and the store's status again, before
-        // anything reads a frame — a reload is not a launch, and the facts
-        // must not read as the embedded answer after one.
-        if !self.compat.is_empty() {
-            if let Some(e) = self.host.set_delivery_from_compat(&self.compat) {
-                eprintln!("exact: {e}");
-            }
-        }
-        if let Some(u) = &self.updates {
-            let mut delivery = self.host.runner().delivery().clone();
-            u.status_into(&mut delivery);
-            if let Some(e) = self.host.set_delivery(delivery) {
-                eprintln!("exact: {e}");
-            }
-        }
         self.text = candidate_text.clone();
         self.brush.text = candidate_text;
         self.executor = crate::executor::Executor::start(&self.host.grants());
