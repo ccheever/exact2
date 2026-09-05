@@ -584,7 +584,7 @@ export function deployRun(target, release) {
 function bake(app, run, exactRoot, sourceRoot) {
   mkdirSync(run, { recursive: true });
   const web = resolve(run, 'web');
-  const env = sealedSourceEnv(sourceRoot, { EXACT_WEB_DIST: web, CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_BAKE_OUTPUT:resolve(app.target,'bake',app.id,'production') });
+  const env = sealedSourceEnv(sourceRoot, { EXACT_WEB_DIST: web, CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_BAKE_OUTPUT:resolve(run,'bake') });
   if (app.workspace === exactRoot) delete env.EXACT_APP_DIR;
   else env.EXACT_APP_DIR = app.dir;
   const r = spawnSync(process.execPath, [resolve(exactRoot, 'host/web/build.mjs'), app.crate('web')], {
@@ -615,9 +615,9 @@ function readBundle(web, app) {
 /** Compile the actual target/grants producer. Analysis artifacts have no
  * launchable production sequence; publication returns the receipt for a
  * subsequent strict release bake. */
-function buildFor(app, platform, sourceRoot) {
+function buildFor(app, platform, sourceRoot, run) {
   const target = bakeTarget(platform);
-  const env = sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_BAKE_OUTPUT:resolve(app.target,'bake',app.id,'production') });
+  const env = sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_BAKE_OUTPUT:resolve(run,'bake') });
   if (platform === 'ios' || platform === 'macos') {
     const sdk = spawnSync('xcrun', ['--sdk', platform === 'ios' ? 'iphoneos' : 'macosx', '--show-sdk-path'], {encoding:'utf8'});
     if (sdk.status !== 0) refuse(`the ${platform} SDK is unavailable: ${sdk.stderr}`);
@@ -1179,9 +1179,9 @@ async function deployCaptured(opts, capsule) {
   log(`snapshot ${snapshot.id}${snapshot.sources.length > 1 ? ` (${snapshot.sources.map((source) => `${source.roles.join('+')} ${source.commit.slice(0, 7)}`).join(', ')})` : ''}${snapshot.dirty ? ' + uncommitted changes (--dirty)' : ''}; baking into ${run}`);
   const web = bake(app, run, exactRoot, sourceRoot);
   const bundle = readBundle(web, app);
-  const builds = {web:readBuilds(app,{EXACT_UPDATE_TRUST:'production',EXACT_BAKE_OUTPUT:resolve(app.target,'bake',app.id,'production')}).find(r=>r.compat.inputs.platform==='web')};
+  const builds = {web:readBuilds(app,{EXACT_UPDATE_TRUST:'production',EXACT_BAKE_OUTPUT:resolve(run,'bake')}).find(r=>r.compat.inputs.platform==='web')};
   if(!builds.web)refuse('the web build emitted no completed graph receipt');
-  for(const platform of platforms)builds[platform]=buildFor(app,platform,sourceRoot);
+  for(const platform of platforms)builds[platform]=buildFor(app,platform,sourceRoot,run);
   const compat=Object.fromEntries(Object.entries(builds).map(([p,r])=>[p,r.compat]));
   for(const [platform,build] of Object.entries(builds)) {
     const cards=[{name:'app.plan',sha256:bundle.plan.sha256,bytes:bundle.plan.bytes.length},...bundle.assets.map(a=>({name:a.name,sha256:a.sha256,bytes:a.bytes.length}))];
