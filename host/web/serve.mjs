@@ -34,6 +34,45 @@ function staticRelative(name) {
   return name;
 }
 
+// A live iframe can navigate long after its generation left the dev head.
+// Keep those ordinary files outside rebuilt dist, without guessing client
+// liveness. Quota exhaustion refuses publication instead of deleting readers.
+export const DEV_GENERATION_CACHE_BYTES = 4 * 1024 * 1024 * 1024;
+export function retainDevGeneration(cache, epoch, seq, files, quota = DEV_GENERATION_CACHE_BYTES) {
+  if (!/^[0-9a-f]{32}$/.test(epoch) || !Number.isSafeInteger(seq) || seq < 0) throw new Error('invalid dev generation identity');
+  try {
+    filesystem({ op: 'retain', root: resolve(cache), path: `${epoch}/${seq}`, quota,
+      files: Object.fromEntries([...files].map(([name, bytes]) => [staticRelative(name), Buffer.from(bytes).toString('base64')])) });
+  } catch (error) {
+    if (error.message.includes('cache quota exceeded')) throw new Error(`dev generation cache is full: ${resolve(cache)}; close all pages and native dev connections before manually removing this cache, then restart the dev server`);
+    throw error;
+  }
+}
+
+/** The envelope is written last. An interrupted candidate has no public
+ * namespace, and undeclared files never become routes through this cache. */
+export function readDevGeneration(cache, pathname) {
+  try {
+    const match = /^\/__dev\/generation\/([0-9a-f]{32})\/([0-9]+)\/(.+)$/.exec(pathname);
+    if (!match) return null;
+    const name = staticRelative(decodeURIComponent(match[3]));
+    if (!['app.plan', 'exact.json'].includes(name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
+    const prefix = `${match[1]}/${match[2]}`;
+    const raw = filesystem({ op: 'get', root: resolve(cache), path: `${prefix}/exact.json` });
+    if (raw === null) return null;
+    const envelopeBytes = Buffer.from(raw, 'base64');
+    const envelope = JSON.parse(envelopeBytes.toString('utf8'));
+    if (envelope.dev?.epoch !== match[1] || String(envelope.dev?.seq) !== match[2]) return null;
+    if (name === 'exact.json') return { name, body: envelopeBytes };
+    const card = name === 'app.plan' ? envelope.plan : envelope.assets?.find((asset) => asset.name === name);
+    if (!card) return null;
+    const value = filesystem({ op: 'get', root: resolve(cache), path: `${prefix}/${name}` });
+    if (value === null) return null;
+    const body = Buffer.from(value, 'base64');
+    return body.length === card.bytes && sha256(body) === card.sha256 ? { name, body } : null;
+  } catch { return null; }
+}
+
 /** Every regular file under a static source tree, sorted and refused when
  * the root or any entry is a symlink or another special filesystem object. */
 export function listStaticFiles(source) {
@@ -412,7 +451,7 @@ export function webContentType(route) {
   if (route === '/manifest.json') return 'application/manifest+json';
   if (route === '/.well-known/apple-app-site-association') return 'application/json';
   return {
-    '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json',
+    '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.json': 'application/json',
     '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',

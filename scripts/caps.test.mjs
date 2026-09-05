@@ -16,7 +16,7 @@ import { hostname, tmpdir } from 'node:os';
 import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
-import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
+import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
 import { verifyBakeFiles } from './app.mjs';
 import { copyAppleStaticTrees, deviceLaunchArgs } from '../host/apple/build.mjs';
@@ -183,6 +183,39 @@ for (const [name, html, files, expectCode, expect] of [
     && staticFile(dist, '/assets/linked-dir/secret') === null;
   rmSync(dir, { recursive: true, force: true });
   result('web serving rejects stale, dot, and symlink paths', ok);
+}
+
+// Retained namespaces outlive the current process's discovery head. Quota
+// refusal, malformed routes and interrupted writes never damage a live deck.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-dev-retained-')), cache = join(dir, 'cache');
+  const epoch = 'a'.repeat(32), prefix = `/__dev/generation/${epoch}/1/`;
+  const files = (seq) => {
+    const plan = Buffer.from('plan'), page = Buffer.from(`guest ${seq}`);
+    const card = (body) => ({ bytes: body.length, sha256: sha256(body) });
+    return new Map([['app.plan', plan], ['deck/nested/page.html', page], ['exact.json', Buffer.from(JSON.stringify({
+      exact: 1, dev: { epoch, seq }, plan: card(plan), assets: [{ name: 'deck/nested/page.html', ...card(page) }],
+    }))]]);
+  };
+  const first = files(1); retainDevGeneration(cache, epoch, 1, first);
+  let full = false;
+  try { retainDevGeneration(cache, epoch, 2, files(2), 48 + [...first.values()].reduce((n, b) => n + b.length, 0)); }
+  catch (error) { full = error.message.includes(cache) && error.message.includes('close all pages'); }
+  const refusedWhole = readDevGeneration(cache, `/__dev/generation/${epoch}/2/exact.json`) === null;
+  for (let seq = 2; seq <= 7; seq++) retainDevGeneration(cache, epoch, seq, files(seq));
+  retainDevGeneration(cache, epoch, 1, first);
+  result('retained dev URLs survive later generations and quota refusal', full && refusedWhole
+    && readDevGeneration(cache, prefix + 'deck/nested/page.html')?.body.toString() === 'guest 1');
+  mkdirSync(join(cache, epoch, '8', 'deck'), { recursive: true });
+  writeFileSync(join(cache, epoch, '8', 'deck', 'partial.html'), 'partial');
+  const paths = ['../exact.json', '%2e%2e/exact.json', 'deck/%2e%2e/exact.json', 'deck%5csecret', 'deck/%00', '.retained/.lock', 'deck/unknown.html'];
+  const refused = paths.every((path) => readDevGeneration(cache, prefix + path) === null)
+    && readDevGeneration(cache, `/__dev/generation/${epoch}/8/deck/partial.html`) === null;
+  const secret = join(dir, 'secret'); writeFileSync(secret, 'outside');
+  const page = join(cache, epoch, '1', 'deck', 'nested', 'page.html'); rmSync(page); symlinkSync(secret, page);
+  result('retained dev routes reject links, traversal, undeclared and partial files', refused
+    && readDevGeneration(cache, prefix + 'deck/nested/page.html') === null && readFileSync(secret, 'utf8') === 'outside');
+  rmSync(dir, { recursive: true, force: true });
 }
 
 // Static bakes and live edits share one source policy. A rejected link or

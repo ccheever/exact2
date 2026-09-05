@@ -32,6 +32,70 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn retained_generation_quota_is_atomic_and_never_prunes() {
+    let fixture = Fixture::new();
+    let root = fixture.dir("cache");
+    let request = |seq, quota| {
+        json!({"op":"retain", "path":format!("{}/{seq}", "a".repeat(32)),
+        "quota":quota, "token":TOKEN,
+        "files":{"app.plan":STANDARD.encode("plan"), "deck/nested/page.html":STANDARD.encode("old guest"), "exact.json":STANDARD.encode("envelope")}})
+    };
+    let first = request(1, 1024);
+    let used = operate(&root, &first, None).unwrap().as_u64().unwrap();
+    assert_eq!(used, 48 + 4 + 9 + 8);
+    assert_eq!(operate(&root, &request(1, used), None).unwrap(), used);
+    assert!(operate(&root, &request(2, used + 1), None)
+        .unwrap_err()
+        .to_string()
+        .contains("quota exceeded"));
+    assert!(!fixture
+        .path(&format!("cache/{}/2", "a".repeat(32)))
+        .exists());
+    assert_eq!(
+        fs::read(fixture.path(&format!("cache/{}/1/deck/nested/page.html", "a".repeat(32))))
+            .unwrap(),
+        b"old guest"
+    );
+    let mut changed = first.clone();
+    changed["files"]["deck/nested/page.html"] = json!(STANDARD.encode("other"));
+    assert!(operate(&root, &changed, None).is_err());
+    let lock = Lock::acquire(&root, ".retained/.lock", TOKEN).unwrap();
+    assert!(operate(&root, &request(2, 1024), None).is_err());
+    drop(lock);
+    assert!(operate(&root, &request(2, 1024), None).is_ok());
+}
+
+#[test]
+fn retained_generations_cannot_bypass_heads_or_symlink_gate() {
+    let fixture = Fixture::new();
+    let root = fixture.dir("cache");
+    fixture.dir("outside");
+    let epoch = "a".repeat(32);
+    symlink(
+        fixture.path("outside"),
+        fixture.path(&format!("cache/{epoch}")),
+    )
+    .unwrap();
+    for path in [
+        format!("{epoch}/1"),
+        ".exact/prod/cohort".into(),
+        "../escape".into(),
+    ] {
+        assert!(operate(
+            &root,
+            &json!({"op":"retain", "path":path, "quota":4096, "token":TOKEN,
+            "files":{"exact.json":STANDARD.encode("head")}}),
+            None
+        )
+        .is_err());
+    }
+    assert!(fs::read_dir(fixture.path("outside"))
+        .unwrap()
+        .next()
+        .is_none());
+}
+
+#[test]
 fn held_parent_cannot_be_redirected_after_validation() {
     let fixture = Fixture::new();
     let root = fixture.dir("origin");

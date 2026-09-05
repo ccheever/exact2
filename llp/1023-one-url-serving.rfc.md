@@ -189,10 +189,16 @@ The browser uses the same generation protocol:
   unavailable optional GPU does not block core generation acceptance; a
   loaded GPU still validates shaders before accepting the candidate.
 - **Payload URLs never change bytes.** `/__dev/generation/<epoch>/<seq>/…`
-  serves captured bytes; the latest four revisions remain available. Expired
-  revisions return 404, causing discovery of the current envelope. Restarting
-  the compiler for a new wasm suspends old discovery and clears those revisions
-  before the page reload; stopped-compiler output cannot republish them.
+  serves captured files retained outside rebuilt `dist`, under the app-specific
+  `target/dev-generations` cache. Old deck URLs and relative resources survive
+  rejected successors, server restarts, and dist replacement. Publication holds
+  the filesystem lock, checks the 4 GiB cache quota, writes immutable files, and
+  commits the envelope last; incomplete or undeclared files are never served.
+  Nothing automatically deletes possibly live namespaces. A full cache refuses
+  new publication and names the cache to remove manually after closing its
+  pages and native connections. Missing URLs retry current discovery. A new
+  wasm suspends old discovery before reload; stopped-compiler output cannot
+  republish it. Retained bytes remain readable across that rebuild.
 - **Contract edits carry state.** Plan and asset changes use this same full
   replacement operation, without rebuilding the binary for a bundle-only edit.
 - **`{rebuilt}` is session-terminal on native.** It means the wasm — the

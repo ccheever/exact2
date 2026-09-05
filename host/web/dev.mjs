@@ -30,7 +30,7 @@ import { existsSync, readFileSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
-import { applyStaticChange, applyStaticTreeChange, builtAppMatches, readStaticFile, reflectShaderFiles, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope } from './serve.mjs';
+import { applyStaticChange, applyStaticTreeChange, builtAppMatches, readDevGeneration, readStaticFile, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -77,7 +77,7 @@ const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stri
 // A revision owns its plan and complete asset namespace. Its process epoch
 // makes a restarted server's seq=1 newer than the previous server's seq=N.
 const epoch = randomBytes(16).toString('hex');
-const generations = new Map();
+const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir })).digest('hex'));
 let current = null;
 let assetsNeedRebuild = false;
 // This names the actual programs already served, including optional GPU code.
@@ -126,11 +126,8 @@ function captureGeneration() {
   const envelopeBytes = Buffer.from(JSON.stringify(envelope) + '\n');
   if (envelopeBytes.length > 64 * 1024) throw new Error('generation envelope exceeds 64 KiB');
   files.set('exact.json', envelopeBytes);
+  retainDevGeneration(generationCache, epoch, seq, files);
   const revision = { epoch, seq, generation, envelope, files, prefix, url: prefix + 'exact.json' };
-  generations.set(prefix, revision);
-  // An obsolete slow reader retries the mutable discovery rung. Never serve
-  // replacement bytes under a retired generation URL.
-  while (generations.size > 4) generations.delete(generations.keys().next().value);
   current = revision;
 }
 
@@ -360,7 +357,7 @@ function rebuild() {
       // The compiler's plans must match the wasm's format: it is built again
       // too (cargo, warm), and its first plan reaches the reloaded page.
       killCompiler();
-      current = null; generations.clear(); assetsNeedRebuild = false;
+      current = null; assetsNeedRebuild = false;
       program = programIdentity();
       startCompiler();
       console.log(`rust: rebuilt in ${(ms / 1000).toFixed(1)} s · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading\n  ${classifyRebuild().join('\n  ')}`);
@@ -378,14 +375,10 @@ const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted';
   if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && devBeacon)) { res.writeHead(405); res.end(); return; }
-  const pinned = /^\/__dev\/generation\/([0-9a-f]{32})\/([0-9]+)\/(.+)$/.exec(url.pathname);
-  if (pinned) {
-    const prefix = `/__dev/generation/${pinned[1]}/${pinned[2]}/`;
-    let name;
-    try { name = decodeURIComponent(pinned[3]); } catch { name = ''; }
-    const revision = generations.get(prefix);
-    const body = revision?.files.get(name);
-    if (!body) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+  if (url.pathname.startsWith('/__dev/generation/')) {
+    const retained = readDevGeneration(generationCache, url.pathname);
+    if (!retained) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    const { name, body } = retained;
     res.writeHead(200, { 'content-type': name === 'exact.json' ? 'application/vnd.exact.envelope+json' : webContentType('/' + name), 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : body);
     return;

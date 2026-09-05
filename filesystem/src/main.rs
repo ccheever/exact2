@@ -48,11 +48,95 @@ fn tree(
     }
     Ok(())
 }
+
+// Retained dev generations are ordinary immutable files. Quota admission and
+// publication share one OS lock; exhaustion never evicts an existing reader.
+fn retained_bytes(dir: &Directory) -> io::Result<u64> {
+    let mut bytes = 0u64;
+    for leaf in dir.names()? {
+        let info = dir.kind(&leaf)?;
+        let size = match info.st_mode & libc::S_IFMT {
+            libc::S_IFDIR => retained_bytes(&dir.child(&leaf, false)?)?,
+            libc::S_IFREG => {
+                u64::try_from(info.st_size).map_err(|_| refuse("invalid file size"))?
+            }
+            _ => {
+                return Err(refuse(
+                    "retained files must be regular files or directories",
+                ))
+            }
+        };
+        bytes = bytes
+            .checked_add(size)
+            .ok_or_else(|| refuse("retained size overflow"))?;
+    }
+    Ok(bytes)
+}
+
+fn retain(root: &Directory, input: &Value) -> io::Result<Value> {
+    let token = field(input, "token")?;
+    let lock = Lock::acquire(root, ".retained/.lock", token)?;
+    let quota = input["quota"]
+        .as_u64()
+        .ok_or_else(|| refuse("missing quota"))?;
+    let prefix = field(input, "path")?;
+    let (epoch, seq) = prefix
+        .split_once('/')
+        .ok_or_else(|| refuse("invalid dev generation path"))?;
+    if epoch.len() != 32
+        || !epoch.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || seq.is_empty()
+        || !seq.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(refuse("invalid dev generation path"));
+    }
+    let files = input["files"]
+        .as_object()
+        .ok_or_else(|| refuse("missing files"))?;
+    if !files.contains_key("exact.json") {
+        return Err(refuse("retained generation needs an envelope"));
+    }
+    let mut total = retained_bytes(root)?;
+    let mut candidate = Vec::new();
+    for (name, encoded) in files {
+        let path = format!("{prefix}/{name}");
+        let body = STANDARD
+            .decode(encoded.as_str().ok_or_else(|| refuse("invalid bytes"))?)
+            .map_err(|_| refuse("invalid base64"))?;
+        let previous = root
+            .parent(&path, false)
+            .and_then(|(parent, leaf)| parent.read(&leaf));
+        match previous {
+            Ok(old) if old == body => continue,
+            Ok(_) => return Err(refuse("immutable retained file changed")),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        total = total
+            .checked_add(body.len() as u64)
+            .ok_or_else(|| refuse("retained size overflow"))?;
+        candidate.push((name == "exact.json", path, body));
+    }
+    if total > quota {
+        return Err(refuse("retained generation cache quota exceeded"));
+    }
+    // The envelope is the completion marker. A partial write is never served.
+    candidate.sort_by_key(|(envelope, _, _)| *envelope);
+    for (_, path, body) in candidate {
+        let (parent, leaf) = root.parent(&path, true)?;
+        parent.write_checked(&leaf, &body, true, token, || lock.verify(root))?;
+    }
+    Ok(json!(total))
+}
+
 fn operate(root: &Directory, input: &Value, locked: Option<&Lock>) -> io::Result<Value> {
     if let Some(lock) = locked {
         lock.verify(root)?;
     }
     let op = field(input, "op")?;
+    if op == "retain" {
+        return retain(root, input);
+    }
     if op == "tree" || op == "names" || op == "copy" {
         let mut entries = serde_json::Map::new();
         tree(root, "", &mut entries, op != "names")?;
@@ -193,7 +277,7 @@ fn main() -> io::Result<()> {
     let first: Value =
         serde_json::from_str(&lines.next().ok_or_else(|| refuse("missing request"))??)?;
     let session = first["op"] == "lock";
-    let write = session || first["op"] == "put";
+    let write = session || first["op"] == "put" || first["op"] == "retain";
     let root = match Directory::root(field(&first, "root")?, write) {
         Ok(root) => root,
         Err(error) => {
