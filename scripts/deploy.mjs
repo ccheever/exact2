@@ -556,6 +556,14 @@ export function materializeSnapshot(snapshot, run, app) {
   };
 }
 
+/** Release only the private capture owned by this process's snapshot. */
+export function disposeSnapshot(snapshot) {
+  const capture = snapshotCaptures.get(snapshot);
+  if (!capture) return;
+  rmSync(capture.captureRoot, { recursive: true, force: true });
+  snapshotCaptures.delete(snapshot);
+}
+
 /** A human correlation id with millisecond UTC time, snapshot prefix, and a
  * random run nonce. Two publishers of the same commit in one clock tick do
  * not share the receipt namespace. */

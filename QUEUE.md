@@ -10,6 +10,13 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **External wasm reproducibility** (2026-09-05): relocated source captures put
+  absolute Rust source paths in the app and GPU wasm, so unchanged sources can
+  republish different bytes. Keep closed snapshots; investigate stable build paths.
+- **External dev latency** (2026-09-05): Weird Castle's first captured edit took
+  300 ms to DOM acceptance (9 ms plan), above the 100 ms budget. Use the existing
+  metrics drive to separate startup/preflight work from repeated edit latency.
+
 - **Embedded asset-root configuration** (2026-09-04): changing public
   `ExactApp.assetRoot` after initialization leaves its embedded resolver at the
   original root. Make the configuration consistent; no current caller mutates it.

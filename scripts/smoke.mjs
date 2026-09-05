@@ -8,15 +8,15 @@
 // `cargo build --release -p caltrain-linux`.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, verify } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { dirname, relative, resolve, sep } from 'node:path';
+import { resolve } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
-import { resolveApp } from './app.mjs';
-import { DirectoryOrigin, webRootPath } from './origin.mjs';
+import { resolveApp, withAppFixture } from './app.mjs';
+import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './origin.mjs';
 import { readStaticFile, serveStatic } from '../host/web/serve.mjs';
-import { canonicalBytes, publicKeyFromRaw } from './deploy.mjs';
+import { canonicalBytes, publicKeyFromRaw, webRelease } from './deploy.mjs';
 import { crop, decodePng, diff, encodePng } from './png.mjs';
 
 const argv = process.argv.slice(2);
@@ -56,26 +56,6 @@ const t0 = Date.now();
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
 
-// Copy the tracked working tree into a disposable directory. This includes
-// edits to tracked files under review but never copies generated target/ or
-// reaches back into the source checkout while the fixture is driven.
-function copyTrackedCheckout(source, target, paths = []) {
-  const args = ['ls-files', '-z', ...(paths.length ? ['--', ...paths] : [])];
-  const listed = spawnSync('git', args, { cwd: source, maxBuffer: 64 * 1024 * 1024 });
-  if (listed.status !== 0) throw new Error(`git ls-files failed: ${listed.stderr?.toString() ?? ''}`);
-  mkdirSync(target, { recursive: true });
-  for (const name of listed.stdout.toString('utf8').split('\0').filter(Boolean)) {
-    const from = resolve(source, name);
-    const to = resolve(target, name);
-    let info;
-    try { info = lstatSync(from); }
-    catch (error) { if (error.code === 'ENOENT') continue; throw error; }
-    mkdirSync(dirname(to), { recursive: true });
-    if (info.isSymbolicLink()) symlinkSync(readlinkSync(from), to);
-    else if (info.isFile()) { copyFileSync(from, to); chmodSync(to, info.mode & 0o777); }
-  }
-}
-
 // A source-checkout invariant for destructive-looking smokes: names,
 // contents, modes, sizes, and mtimes are identical before and after, even
 // across the deliberately refused publisher calls.
@@ -87,11 +67,21 @@ function treeFingerprint(root) {
     if (info.isSymbolicLink()) rows.push(`${meta}\0link\0${readlinkSync(path)}`);
     else if (info.isDirectory()) {
       rows.push(`${meta}\0dir`);
-      for (const child of readdirSync(path).sort()) walk(resolve(path, child), name ? `${name}/${child}` : child);
+      for (const child of readdirSync(path).sort()) {
+        if (name === '' && child === '.git') continue;
+        walk(resolve(path, child), name ? `${name}/${child}` : child);
+      }
     } else if (info.isFile()) rows.push(`${meta}\0file\0${createHash('sha256').update(readFileSync(path)).digest('hex')}`);
     else rows.push(`${meta}\0other`);
   };
   walk(root, '');
+  // Read-only Git commands can refresh index cache metadata. The source
+  // invariant covers Git's meaning, not timestamps on those cache files.
+  for (const args of [['rev-parse', 'HEAD'], ['status', '--porcelain=v1', '--untracked-files=all', '--', '.']]) {
+    const state = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    if (state.status !== 0) throw new Error(`cannot fingerprint source Git state: ${state.stderr}`);
+    rows.push(`git ${args[0]}\0${state.stdout}`);
+  }
   return createHash('sha256').update(rows.join('\n')).digest('hex');
 }
 // The app's viewport (step 2): the safe area on a phone, which step 12's
@@ -108,50 +98,33 @@ check(!browserDiagnosticNoise('console.error: exact: failed'), 'page/runtime err
 // touch the developer's source tree. What it holds:
 // a dry run prints the table and writes nothing; `--yes` publishes the web
 // root, the blobs, and one signed head per stream, and the head verifies
-// with the key; a second run is current and rewrites nothing; an asset edit
+// with the key; repeated bundle bytes stay current, and the origin follows its
+// actual public cards (identical cards rewrite nothing); an asset edit
 // is `bundle seq 2` naming the asset, with the record's `previous` the old
 // head's digest and the old blob kept; two publishers racing on one stream
 // leave one head and one refusal naming the lock; a retired cohort's stream
 // is `binary` and `--only bundle` refuses it while the others publish; a
 // wrong `--snapshot` and a dirty tree without `--dirty` refuse.
 if (host === 'deploy') {
-  const repo = realpathSync(ROOT);
-  const selected = realpathSync(app.dir);
-  if (selected !== repo && !selected.startsWith(repo + sep)) {
-    console.error(`deploy smoke needs a disposable snapshot of an in-repo fixture; refusing to mutate external app ${app.dir}`);
-    process.exit(2);
-  }
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-deploy-'));
-  const fixtureRoot = resolve(dir, 'repo');
+  const sourceState = treeFingerprint(app.dir);
+  try { await withAppFixture(app, async (fixture) => {
+  const dir = fixture.run;
+  const fixtureRoot = fixture.exactRoot;
+  const fixtureApp = fixture.app.dir;
   const origin = resolve(dir, 'origin');
   const keys = resolve(dir, 'keys');
-  const sourceState = treeFingerprint(app.dir);
-  copyTrackedCheckout(ROOT, fixtureRoot);
-  // This workspace deliberately consumes ibex2 from a sibling checkout. Give
-  // the smoke its own minimal tracked sibling too: the deploy must discover,
-  // capture, and materialize that repository rather than following a live
-  // symlink back into the developer's checkout.
-  const ibex = resolve(ROOT, '..', 'ibex');
-  const fixtureIbex = resolve(dir, 'ibex');
-  if (existsSync(ibex)) {
-    copyTrackedCheckout(ibex, fixtureIbex, ['crates/ibex2']);
-    for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['-c', 'user.name=Exact smoke', '-c', 'user.email=smoke@exact.invalid', 'commit', '-qm', 'fixture']]) {
-      const initialized = spawnSync('git', args, { cwd: fixtureIbex, encoding: 'utf8' });
-      if (initialized.status !== 0) throw new Error(`ibex git ${args[0]} failed: ${initialized.stderr}`);
-    }
-  }
-  for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['-c', 'user.name=Exact smoke', '-c', 'user.email=smoke@exact.invalid', 'commit', '-qm', 'fixture']]) {
-    const initialized = spawnSync('git', args, { cwd: fixtureRoot, encoding: 'utf8' });
-    if (initialized.status !== 0) throw new Error(`git ${args[0]} failed: ${initialized.stderr}`);
-  }
-  // macOS exposes tmpdir through `/var` while process cwd/import URLs may
-  // resolve it through `/private/var`; use one canonical script name so a
-  // CLI's direct-execution guard cannot mistake this invocation for import.
   const deployScript = realpathSync(resolve(fixtureRoot, 'scripts/deploy.mjs'));
-  const fixtureApp = resolve(fixtureRoot, relative(repo, selected));
   const manifestPath = resolve(fixtureApp, 'app.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  const keyId = manifest.deploy?.signing?.key;
+  const keyId = manifest.deploy?.signing?.key ?? 'exact-smoke';
+  // Signing policy belongs only to the captured test app. A developer app
+  // without a publishing setup still exercises the same signed delivery.
+  manifest.deploy ??= {};
+  manifest.deploy.signing ??= { key: keyId, keys: {} };
+  manifest.deploy.signing.keys ??= {};
+  manifest.deploy.signing.keys[keyId] ??= Buffer.alloc(32).toString('base64');
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  fixture.git(['add', '-A']); fixture.git(['commit', '--allow-empty', '-qm', 'Diagnostic publishing policy']);
   const channel = manifest.deploy?.channel ?? 'prod';
   const assetName = existsSync(resolve(fixtureApp, 'assets')) ? readdirSync(resolve(fixtureApp, 'assets')).find((n) => statSync(resolve(fixtureApp, 'assets', n)).isFile()) : null;
   const assetPath = assetName ? resolve(fixtureApp, 'assets', assetName) : null;
@@ -160,8 +133,7 @@ if (host === 'deploy') {
   // Cargo build scripts record absolute source paths. Sharing Exact's target
   // with this throwaway checkout would poison the developer's next build
   // with paths that disappear at cleanup, so its build cache is private too.
-  const deployEnv = { ...process.env, EXACT_SIGNING_KEY_DIR: keys, CARGO_TARGET_DIR: resolve(dir, 'target') };
-  delete deployEnv.EXACT_APP_DIR;
+  const deployEnv = { ...fixture.env, EXACT_SIGNING_KEY_DIR: keys };
   const deploy = (args, expectExit = 0) => {
     const r = spawnSync(process.execPath, [deployScript, ...args], { cwd: fixtureRoot, encoding: 'utf8', env: deployEnv, maxBuffer: 64 * 1024 * 1024 });
     check(r.status === expectExit, `deploy ${args.filter((a) => !a.startsWith('/')).join(' ')} exited ${r.status}, not ${expectExit}: ${r.error?.message ?? ''}\n${(r.stderr + r.stdout).split('\n').slice(-12).join('\n')}`);
@@ -179,8 +151,7 @@ if (host === 'deploy') {
     try { publicKey = JSON.parse(kg.stdout).publicKey; }
     catch { throw new Error(`keygen printed no JSON: ${kg.error?.message ?? ''} ${kg.stderr}${kg.stdout}`); }
     check(Buffer.from(publicKey, 'base64').length === 32, `keygen printed ${publicKey}`);
-    const clean = spawnSync('git', ['status', '--porcelain', '--', '.'], { cwd: app.dir, encoding: 'utf8' }).stdout.trim() === '';
-    const dry = table(...(clean ? [] : ['--dirty']));
+    const dry = table();
     check(dry.dryRun === true && dry.rows[0]?.kind === 'origin' && dry.rows[0].action === 'publish', `the dry run's origin row is ${JSON.stringify(dry.rows[0])}`);
     check(streams(dry).length >= 1 && streams(dry).every((r) => r.action === 'bundle' && r.seq === 1 && r.head === null), `the dry run's stream rows are ${JSON.stringify(streams(dry).map((r) => [r.platform, r.action, r.seq]))}`);
     check(/^[0-9a-f]{40}$/.test(dry.snapshot?.commit ?? ''), `the snapshot is ${JSON.stringify(dry.snapshot)}`);
@@ -236,11 +207,40 @@ if (host === 'deploy') {
         && readdirSync(resolve(origin, '.exact', channel, id, 'releases')).length === 1,
       `the stream ${id.slice(0, 8)} points at immutable blobs and has one release record`);
     }
-    // 3. Again: everything current, nothing rewritten.
+    // 3. Bundle bytes stay current. Relocated external Rust packages can
+    // produce different wasm bytes; the origin must classify those actual
+    // public cards exactly and install only the resulting complete graph.
     const before = mtimes();
-    const again = table('--yes', '--dirty');
-    check(streams(again).every((r) => r.action === 'current' && r.seq === 1) && again.rows[0].action === 'current', `the second run's rows are ${JSON.stringify(again.rows.map((r) => [r.kind, r.action, r.seq]))}`);
-    check(mtimes() === before, 'the second run rewrote a file on the origin');
+    const oldPointer = parseWebRoot(readFileSync(resolve(origin, webRootPath)));
+    const oldHeads = ids.map(id => headOf(id));
+    const again = table('--yes', '--dirty', '--release', 'r-smoke-repeat');
+    const stages = readdirSync(resolve(fixture.app.target, 'deploy')).filter(name => name.startsWith('r-smoke-repeat-'));
+    if (stages.length !== 1) throw new Error(`the repeat invocation left ${stages.length} private bakes`);
+    const candidate = webRelease(resolve(fixture.app.target, 'deploy', stages[0], 'web'));
+    const oldCards = new Map(oldPointer.files.map(card => [card.name, card.sourceSha256]));
+    const newCards = new Map(candidate.pointer.files.map(card => [card.name, card.sourceSha256]));
+    const expected = { new: [], changed: [], current: [], removed: [] };
+    for (const [name, digest] of newCards) expected[!oldCards.has(name) ? 'new' : oldCards.get(name) === digest ? 'current' : 'changed'].push(name);
+    for (const name of oldCards.keys()) if (!newCards.has(name)) expected.removed.push(name);
+    for (const names of Object.values(expected)) names.sort();
+    const action = expected.new.length + expected.changed.length + expected.removed.length ? 'publish' : 'current';
+    const row = again.rows.find(r => r.kind === 'origin');
+    check(streams(again).every(r => r.action === 'current' && r.seq === 1)
+      && ids.every((id, i) => headOf(id).equals(oldHeads[i])), 'identical bundle bytes left every native stream current and unchanged');
+    check(row?.action === action && canonicalBytes(row.files).equals(canonicalBytes(expected)), `repeat origin classification: expected ${JSON.stringify({ action, files: expected })}, got ${JSON.stringify(row)}`);
+    const adapter = new DirectoryOrigin(origin);
+    check((await adapter.get(webRootPath))?.equals(canonicalBytes(candidate.pointer)), 'the published pointer names this invocation’s actual complete public graph');
+    for (const file of candidate.files) check((await adapter.get(`${webReleasePath(candidate.pointer.id)}/${file.name}`))?.equals(file.body), `repeat publication readback differs for ${file.name}`);
+    const after = mtimes();
+    if (action === 'current') check(after === before, 'a byte-identical public graph rewrote an origin file');
+    else {
+      const oldEntries = new Set(before.split('\n')), newEntries = new Set(after.split('\n'));
+      const pathOf = entry => entry.slice(entry.indexOf(' ') + 1);
+      const pointerPath = resolve(origin, webRootPath);
+      const allowed = new Set([pointerPath, ...candidate.files.map(file => resolve(origin, webReleasePath(candidate.pointer.id), file.name))]);
+      check([...oldEntries].every(entry => pathOf(entry) === pointerPath || newEntries.has(entry))
+        && [...newEntries].every(entry => oldEntries.has(entry) || allowed.has(pathOf(entry))), 'repeat publication rewrote or added files outside its new graph and pointer');
+    }
     // 4. An asset edit: bundle seq 2 naming it; the record's previous is the old head's digest; the old blob is kept.
     if (assetPath) {
       const first = ids[0];
@@ -285,10 +285,9 @@ if (host === 'deploy') {
     check(retired.notes.some((n) => n.includes(dead) && n.includes('does not verify')), 'the table names the retired stream\'s head as one no binary would take');
   } catch (e) {
     check(false, `the deploy smoke stopped: ${e.message}`);
-  } finally {
-    check(treeFingerprint(app.dir) === sourceState, 'the deploy smoke changed source app content, metadata, or tree shape');
-    rmSync(dir, { recursive: true, force: true });
   }
+  }); } catch (error) { check(false, `the deploy fixture stopped: ${error.message}`); }
+  finally { check(treeFingerprint(app.dir) === sourceState, 'the deploy smoke changed source app content, metadata, or tree shape'); }
   console.log(`deploy smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   if (failures.length) { for (const f of failures) console.error('  ' + f); process.exit(1); }
   process.exit(0);

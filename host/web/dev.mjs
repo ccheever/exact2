@@ -52,10 +52,11 @@ const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(r
 const assetTrees = [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']].map(([from, to]) => [resolve(app.dir, from), to]);
 const skipped = /(^|\/)(target|dist(?:\.previous)?|\.build|node_modules)(\/|$)/;
 const shaderDigests = new Map();
-const reflectBin = resolve(root, 'target/debug/exact-gpu-reflect');
+const toolingEnv = { ...buildEnv, CARGO_TARGET_DIR: app.target };
+const reflectBin = resolve(app.target, 'debug/exact-gpu-reflect');
 function reflectShaders(tree) {
   if (!existsSync(reflectBin)) {
-    const built = spawnSync('cargo', ['build', '-q', '-p', 'exact-gpu-reflect'], { cwd: root, stdio: 'inherit' });
+    const built = spawnSync('cargo', ['build', '-q', '-p', 'exact-gpu-reflect'], { cwd: root, env: toolingEnv, stdio: 'inherit' });
     if (built.status !== 0) throw new Error(`exact-gpu-reflect did not build (exit ${built.status ?? built.signal})`);
   }
   return shaderInterfaceDigests(tree, reflectBin);
@@ -312,10 +313,10 @@ for (const dir of watched) {
 // the compatibility id per platform (`contract compat`, LLP 1030 D3a) says
 // whether the cohort actually moved — a data-crate edit does, an edit to the
 // web host's own Rust does not — and which inputs moved it.
-const contractBin = resolve(root, 'target/debug/contract');
+const contractBin = resolve(app.target, 'debug/contract');
 const platforms = ['web', 'macos', 'ios', 'linux'];
 function cohorts() {
-  if (!existsSync(contractBin)) spawnSync('cargo', ['build', '-q', '-p', 'contract'], { cwd: root, stdio: 'ignore' });
+  if (!existsSync(contractBin)) spawnSync('cargo', ['build', '-q', '-p', 'contract'], { cwd: root, env: toolingEnv, stdio: 'ignore' });
   const out = {};
   for (const platform of platforms) {
     const r = spawnSync(contractBin, ['compat', app.dir, '--platform', platform, '--json'], { env: buildEnv, encoding: 'utf8' });

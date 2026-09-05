@@ -20,8 +20,10 @@
 // never identity). Validated here against `scripts/app.schema.json` with a
 // validator small enough to live beside the reader; an app without one gets
 // the derived defaults it had before the manifest existed.
-import { existsSync, readFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 
 import { createHash } from 'node:crypto';
 
@@ -137,5 +139,58 @@ export function verifyBakeFiles(receipt, plan, assets) {
   if (copied.length !== baked.length
       || copied.some((asset, i) => ['name', 'sha256', 'bytes'].some((key) => asset[key] !== baked[i][key]))) {
     throw new Error('the packaged static files differ from the binary bake receipt');
+  }
+}
+
+/** Diagnostics that edit inputs run on the deploy snapshot's closed source
+ * graph. Build outputs and child process state belong to this invocation. */
+export async function withAppFixture(app, use) {
+  const started = Date.now();
+  const { snapshotOf, materializeSnapshot, disposeSnapshot } = await import('./deploy.mjs');
+  const run = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-diagnostic-')));
+  let snapshot;
+  try {
+    snapshot = snapshotOf(app, { dirty: true }, ROOT);
+    // materializeSnapshot honors the caller's target override. Scope this
+    // synchronous call to the diagnostic's private target, then restore it.
+    const previousTarget = process.env.CARGO_TARGET_DIR;
+    let fixture;
+    try {
+      process.env.CARGO_TARGET_DIR = resolve(run, 'target');
+      fixture = materializeSnapshot(snapshot, run, app);
+    } finally {
+      if (previousTarget === undefined) delete process.env.CARGO_TARGET_DIR;
+      else process.env.CARGO_TARGET_DIR = previousTarget;
+    }
+    const env = { ...process.env, EXACT_APP_DIR: fixture.app.dir, EXACT2: fixture.exactRoot,
+      CARGO_TARGET_DIR: resolve(run, 'target'), EXACT_WEB_DIST: resolve(fixture.exactRoot, 'host/web/dist'),
+      EXACT_BAKE_OUTPUT: resolve(run, 'bake'), EXACT_UPDATE_DIR: resolve(run, 'update'),
+      EXACT_DIAGNOSTIC_ROOT: fixture.exactRoot, GIT_CEILING_DIRECTORIES: dirname(fixture.sourceRoot),
+      GIT_DISCOVERY_ACROSS_FILESYSTEM: '0', EXACT_DIAGNOSTIC_SOURCE: JSON.stringify({
+        app: { name: app.name, id: app.id, dir: app.dir }, snapshot: snapshot.id, started,
+        sources: snapshot.sources.map(({ repo, roles, commit, workingSha256 }) => ({ repo, roles, commit, workingSha256 })),
+      }) };
+    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE',
+      'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'EXACT_DEPLOY_CAPSULE',
+      'EXACT_UPDATE_RECEIPT', 'EXACT_UPDATE_GENESIS', 'EXACT_UPDATE_ORIGIN', 'EXACT_GPU_DYLIB',
+      'EXACT_DEV_PLAN', 'EXACT_PLAN', 'EXACT_ASSETS']) delete env[name];
+    const barrier = resolve(fixture.sourceRoot, '.git');
+    if (readFileSync(barrier, 'utf8') !== 'exact deploy source boundary\n') throw new Error('unexpected diagnostic Git boundary');
+    rmSync(barrier);
+    const git = (args) => {
+      const result = spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
+        '-c', 'user.name=Exact diagnostic', '-c', 'user.email=diagnostic@exact.invalid', ...args],
+      { cwd: fixture.sourceRoot, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      if (result.status !== 0) throw new Error(`diagnostic git ${args[0]}: ${result.stderr || result.error?.message}`);
+      return result.stdout;
+    };
+    for (const args of [['init', '-q', '-b', 'main'], ['add', '-f', '-A'], ['commit', '-qm', 'Captured diagnostic source']]) git(args);
+    const manifest = readManifest(fixture.app.dir, app.name);
+    return await use({ ...fixture, run, env, git, snapshot, app: { ...app, ...fixture.app,
+      target: env.CARGO_TARGET_DIR, manifest, id: manifest.app.id, displayName: manifest.app.name,
+      origin: manifest.app.origin ?? null } });
+  } finally {
+    try { if (snapshot) disposeSnapshot(snapshot); }
+    finally { rmSync(run, { recursive: true, force: true }); }
   }
 }

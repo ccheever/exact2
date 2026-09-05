@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp } from './agent.mjs';
-import { verifyBakeFiles } from './app.mjs';
+import { resolveApp, verifyBakeFiles, withAppFixture } from './app.mjs';
 import { copyAppleStaticTrees, deviceLaunchArgs } from '../host/apple/build.mjs';
 import { canonicalBytes, classify, defaultRelease, deployRun, inspectHead, materializeSnapshot, publishStream, publishRoot, webRelease, renderTable, snapshotOf, streamHead } from './deploy.mjs';
 import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, webRootPath, webReleasePath, sha256 } from './origin.mjs';
@@ -900,6 +900,25 @@ for (const [name, html, files, expectCode, expect] of [
     && losers[0].stderr.includes('a signing key is never overwritten') && matches,
   attempts.map((attempt) => `exit ${attempt.code}: ${attempt.stdout}${attempt.stderr}`).join('\n'));
   rmSync(dir, { recursive: true, force: true });
+}
+
+// Edit diagnostics own their captured inputs and outputs, including on callback failure.
+{
+  const app = resolveApp('caltrain'), previous = process.env.CARGO_TARGET_DIR;
+  let source, run, isolated = false, caught = false;
+  try {
+    await withAppFixture(app, async f => {
+      source = f.sourceRoot; run = f.run;
+      isolated = f.app.dir !== app.dir && f.env.EXACT_APP_DIR === f.app.dir
+        && f.env.CARGO_TARGET_DIR.startsWith(run + '/') && f.env.EXACT_WEB_DIST.startsWith(source + '/')
+        && spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: f.app.dir, env: f.env, encoding: 'utf8' }).stdout.trim() === source;
+      writeFileSync(join(f.app.dir, 'diagnostic-private.txt'), 'captured only');
+      throw new Error('expected diagnostic callback failure');
+    });
+  } catch (error) { caught = error.message === 'expected diagnostic callback failure'; }
+  result('diagnostic source and outputs are isolated and cleaned on failure', isolated && caught
+    && !existsSync(source ?? '/missing') && !existsSync(run ?? '/missing')
+    && !existsSync(join(app.dir, 'diagnostic-private.txt')) && process.env.CARGO_TARGET_DIR === previous);
 }
 
 // A release remains recognizable to a person without being the bake's lock

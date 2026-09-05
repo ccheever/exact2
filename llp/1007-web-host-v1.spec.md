@@ -248,7 +248,15 @@ where every script learns what an app is — `apps/<name>` here, or the director
 Taffy patch copied) and its own `target/`. `build.mjs`, `dev.mjs`, the Apple
 `build.mjs`, and `scripts/agent.mjs --app` resolve through it; `dist/` and the
 Swift products stay this repo's one slot per host, last build wins. The app's
-`exact.mjs` sets `EXACT_APP_DIR` and calls these scripts unchanged.
+`exact.mjs` sets `EXACT_APP_DIR` and calls these scripts unchanged. Diagnostics resolve the
+same app: `metrics --app` (including `--rebuild` and `--long`) and
+`smoke deploy --app` capture the complete working source graph through the
+existing deploy snapshot before editing anything. Their builds, web output,
+Git state, signing keys, and update state are private to the invocation and
+removed on success or failure. External app locks must already describe that
+graph; capture does not rewrite the live lock. Metrics report source identity,
+verify a changed visible text after dev DOM acceptance, and label `--scaling`
+as the fixed Caltrain runner workload, independent of app selection.
 
 `node host/web/build.mjs` — `cargo build --lib --profile web --target
 wasm32-unknown-unknown` for the app's crate (the `web` profile is release with
