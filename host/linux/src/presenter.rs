@@ -235,6 +235,31 @@ impl<D: DataSource> Presenter<D> {
             viewport.0,
             viewport.1,
         )?;
+        let mut images = Images::with_assets(assets.clone());
+        if assets.is_selected() {
+            if let Some(error) = error {
+                return Err(HostError::Layout(error));
+            }
+            let mut reports = images.sync(host.kernel(), &host.preorder());
+            reports.extend(images.wait(Duration::from_secs(1)));
+            let mut layout_error = None;
+            for (view, size) in reports {
+                layout_error = layout_error.or(host.set_intrinsic(view, size));
+            }
+            if let Some(reason) = assets.take_refusal() {
+                return Err(HostError::Asset(reason));
+            }
+            if images.pending() {
+                return Err(HostError::Layout(
+                    "selected images did not finish preparing".into(),
+                ));
+            }
+            if let Some(error) = layout_error {
+                return Err(HostError::Layout(error));
+            }
+        }
+        // Initial selected layout, assets and intrinsic sizes accepted.
+        // Only now may the app's queued requests reach its executor.
         let executor = crate::executor::Executor::start(&host.grants());
         if let Some(note) = executor.note() {
             host.log(note.to_string());
@@ -247,7 +272,7 @@ impl<D: DataSource> Presenter<D> {
             viewport,
             scroll: BTreeMap::new(),
             page: (0.0, 0.0),
-            images: Images::with_assets(assets.clone()),
+            images,
             assets,
             compat: String::new(),
             focus: None,
@@ -355,6 +380,11 @@ impl<D: DataSource> Presenter<D> {
         let mut images = Images::with_assets(assets.clone());
         let mut reports = images.sync(host.kernel(), &host.preorder());
         reports.extend(images.wait(Duration::from_secs(1)));
+        if images.pending() {
+            return Err(HostError::Layout(
+                "selected images did not finish preparing".into(),
+            ));
+        }
         for (view, size) in reports {
             if let Some(error) = host.set_intrinsic(view, size) {
                 return Err(HostError::Layout(error));

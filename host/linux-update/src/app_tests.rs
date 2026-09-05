@@ -421,48 +421,231 @@ fn activation_refuses_carried_layout_without_advancing_then_commits_after_repair
 }
 
 #[test]
-fn a_verified_but_undecodable_selection_is_demoted_after_failed_launches() {
+fn verified_launch_refusals_are_demoted_after_failed_launches() {
     let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
         .unwrap()
         .encode();
-    let dir = std::env::temp_dir().join(format!("exact-linux-bad-launch-{}", std::process::id()));
+    let bad_layout = contract::compile(
+        "component App\n  view\n    text \" \" font-size=300000000000000000000000000000000000000\n",
+    )
+    .unwrap()
+    .encode();
+    for (label, candidate) in [
+        ("decode", b"EXPL".as_slice()),
+        ("layout", bad_layout.as_slice()),
+    ] {
+        let dir = std::env::temp_dir().join(format!(
+            "exact-linux-bad-launch-{label}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let client = stage(&dir, &baked, candidate, &[]);
+        let record = client.dir().join("record.json");
+        drop(client);
+        for expected in 1..=2 {
+            let client = Client::open(&dir, &dir, UPDATE_COMPAT, &baked).unwrap();
+            let mut config = selected_config(&dir, &baked, client);
+            assert!(config.entry.is_some());
+            let (mut presenter, error) =
+                boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
+            assert!(error.is_none(), "{error:?}");
+            assert!(presenter
+                .host()
+                .agent("{\"op\":\"tree\"}")
+                .contains("baked"));
+            let _ = exact_linux::agent::handle(&mut presenter, "{\"op\":\"layout\"}");
+            let saved: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+            assert_eq!(
+                saved["failures"], expected,
+                "fallback pixels cannot bless the refused selection"
+            );
+            assert!(saved["lastGood"].is_null());
+            assert_eq!(
+                saved["stream"]["seq"], 1,
+                "the admitted sequence floor survives refusal"
+            );
+        }
+        let client = Client::open(&dir, &dir, UPDATE_COMPAT, &baked).unwrap();
+        let config = selected_config(&dir, &baked, client);
+        assert!(
+            config.entry.is_none(),
+            "the next open demotes the twice-refused entry"
+        );
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+        assert!(saved["selected"].is_null());
+        assert_eq!(saved["bad"].as_array().unwrap().len(), 1);
+        assert_eq!(saved["stream"]["seq"], 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[test]
+fn a_crash_during_selected_app_construction_is_counted_before_it_happens() {
+    struct Crashing;
+    impl Default for Crashing {
+        fn default() -> Self {
+            panic!("app construction crashed before the host returned")
+        }
+    }
+    impl DataSource for Crashing {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+    }
+    let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
+        .unwrap()
+        .encode();
+    let selected = contract::compile("component App\n  view\n    text \"selected\"\n")
+        .unwrap()
+        .encode();
+    let dir = std::env::temp_dir().join(format!(
+        "exact-linux-crash-before-return-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).unwrap();
-    let client = stage(&dir, &baked, b"EXPL", &[]);
+    let client = stage(&dir, &baked, &selected, &[]);
     let record = client.dir().join("record.json");
     drop(client);
     for expected in 1..=2 {
         let client = Client::open(&dir, &dir, UPDATE_COMPAT, &baked).unwrap();
         let mut config = selected_config(&dir, &baked, client);
         assert!(config.entry.is_some());
-        let (mut presenter, error) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
-        assert!(error.is_none(), "{error:?}");
-        assert!(presenter
-            .host()
-            .agent("{\"op\":\"tree\"}")
-            .contains("baked"));
-        let _ = exact_linux::agent::handle(&mut presenter, "{\"op\":\"layout\"}");
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            boot_presenter::<Crashing>(&mut config, (390.0, 844.0))
+        }))
+        .is_err());
         let saved: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
-        assert_eq!(
-            saved["failures"], expected,
-            "fallback pixels cannot bless the refused selection"
-        );
+        assert_eq!(saved["failures"], expected);
         assert!(saved["lastGood"].is_null());
-        assert_eq!(
-            saved["stream"]["seq"], 1,
-            "the admitted sequence floor survives refusal"
-        );
     }
     let client = Client::open(&dir, &dir, UPDATE_COMPAT, &baked).unwrap();
-    let config = selected_config(&dir, &baked, client);
-    assert!(
-        config.entry.is_none(),
-        "the next open demotes the twice-refused entry"
-    );
+    let mut config = selected_config(&dir, &baked, client);
+    assert!(config.entry.is_none());
+    let (mut presenter, error) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert!(exact_linux::agent::handle(&mut presenter, "{\"op\":\"tree\"}").contains("baked"));
     let saved: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
-    assert!(saved["selected"].is_null());
     assert_eq!(saved["bad"].as_array().unwrap().len(), 1);
     assert_eq!(saved["stream"]["seq"], 1);
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_refused_initial_layout_releases_no_network_requests() {
+    use exact_runner::{Answer, Request, Store};
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, OnceLock};
+    static ORIGIN: OnceLock<(String, String)> = OnceLock::new();
+    struct Seed;
+    impl DataSource for Seed {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::record(vec![Value::str("")]))
+        }
+        fn answer(&mut self, store: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            let _ = store.get("fixture.pending");
+            Ok(Answer::Now(Value::record(vec![Value::str("")])))
+        }
+    }
+    #[derive(Default)]
+    struct Later;
+    impl DataSource for Later {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            Ok(Answer::Later(Request::post_json(
+                &ORIGIN.get().unwrap().0,
+                "{}",
+            )))
+        }
+        fn grants(&self) -> &'static str {
+            &ORIGIN.get().unwrap().1
+        }
+        fn app_id(&self) -> &str {
+            "com.exact.fixture"
+        }
+    }
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    ORIGIN
+        .set((origin.clone(), format!("net.fetch {origin}\n")))
+        .unwrap();
+    let requests = Arc::new(AtomicUsize::new(0));
+    let stopped = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let requests = requests.clone();
+        let stopped = stopped.clone();
+        std::thread::spawn(move || {
+            while !stopped.load(Ordering::SeqCst) {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(1)))
+                        .unwrap();
+                    let _ = stream.read(&mut [0; 4096]);
+                    requests.fetch_add(1, Ordering::SeqCst);
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                    );
+                } else {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+        })
+    };
+    let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
+        .unwrap()
+        .encode();
+    let source = "shape Reply\n  value: string\ncomponent App\n  resource reply = ping() as shape Reply\n  view\n    text \" \" font-size=SIZE\n";
+    let dir = std::env::temp_dir().join(format!(
+        "exact-linux-refused-network-{}",
+        std::process::id()
+    ));
+    let result = std::panic::catch_unwind(|| {
+        let seed = contract::bake(
+            contract::compile(&source.replace("SIZE", "16")).unwrap(),
+            Seed,
+        )
+        .unwrap();
+        for (label, size, expected) in [
+            ("refused", "300000000000000000000000000000000000000", 0),
+            ("accepted", "16", 1),
+        ] {
+            let root = dir.join(label);
+            std::fs::create_dir_all(&root).unwrap();
+            // Preserve an ordinary baked store-reader placeholder while
+            // constructing the signed but layout-invalid candidate.
+            let mut plan = contract::compile(&source.replace("SIZE", size)).unwrap();
+            let initial = seed.bytes(seed.resources[0].initial);
+            plan.resources[0].initial.offset = plan.data.len() as u32;
+            plan.resources[0].initial.len = initial.len() as u32;
+            plan.resources[0].reader = seed.resources[0].reader;
+            plan.data.extend_from_slice(initial);
+            let plan = plan.encode();
+            let client = stage(&root, &baked, &plan, &[]);
+            let mut config = selected_config(&root, &baked, client);
+            let (presenter, error) = boot_presenter::<Later>(&mut config, (390.0, 844.0)).unwrap();
+            assert!(error.is_none(), "{error:?}");
+            let until = std::time::Instant::now()
+                + Duration::from_millis(if expected == 0 { 250 } else { 3000 });
+            while std::time::Instant::now() < until
+                && (expected == 0 || requests.load(Ordering::SeqCst) == 0)
+            {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert_eq!(requests.load(Ordering::SeqCst), expected, "{label}");
+            drop(presenter);
+        }
+    });
+    stopped.store(true, Ordering::SeqCst);
+    worker.join().unwrap();
+    let _ = std::fs::remove_dir_all(dir);
+    if let Err(error) = result {
+        std::panic::resume_unwind(error);
+    }
 }

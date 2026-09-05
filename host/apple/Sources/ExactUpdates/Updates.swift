@@ -79,8 +79,9 @@ enum Updates {
         }
     }
 
-    /// Only the generation which drew can bless the running selection.
+    /// Initial launch marks precede preparation; live marks follow acceptance.
     static func started(_ token: UInt64) { api!.pointee.started(token) }
+    /// Only the generation which drew can bless the running selection.
     static func bootSucceeded(_ token: UInt64) { api!.pointee.boot_succeeded(token) }
 
     /// Start the check on the library's thread; `ExactApp.updateChecked`

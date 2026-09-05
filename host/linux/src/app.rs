@@ -216,6 +216,14 @@ pub fn boot_presenter<D: DataSource + Default>(
         booted.1 = booted.1.or(e);
         booted
     };
+    // The selected bytes passed verification. Record the attempt before
+    // app construction or the painter can crash; a returned integrity
+    // refusal below durably discards the selection and clears its count.
+    if !config.explicit && config.entry.is_some() {
+        if let Some(updates) = updates.as_mut() {
+            updates.boot_started();
+        }
+    }
     match Presenter::boot_selected(
         &config.plan,
         D::default(),
@@ -224,14 +232,7 @@ pub fn boot_presenter<D: DataSource + Default>(
         config.assets.clone(),
         config.selected_assets.clone(),
     ) {
-        Ok(value) => {
-            if !config.explicit && config.entry.is_some() {
-                if let Some(updates) = updates.as_mut() {
-                    updates.boot_started();
-                }
-            }
-            Ok(delivered(value, updates))
-        }
+        Ok(value) => Ok(delivered(value, updates)),
         Err(fetched_error) => {
             let Some(baked) = config.fallback_plan.as_deref() else {
                 return Err(fetched_error.to_string());
@@ -243,9 +244,6 @@ pub fn boot_presenter<D: DataSource + Default>(
                     u.selection_corrupt(&fetched_error.to_string())
                 }
                 (Some(entry), Some(u)) => {
-                    // Integrity was already checked. A real decode/runner
-                    // refusal must count toward next-open crash demotion.
-                    u.boot_started();
                     u.entry_refused(entry, &fetched_error.to_string())
                 }
                 _ => eprintln!(

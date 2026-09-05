@@ -72,6 +72,10 @@ impl Assets {
         &self.root
     }
 
+    pub(crate) fn is_selected(&self) -> bool {
+        self.selected.is_some()
+    }
+
     fn relative(name: &str) -> bool {
         !name.is_empty()
             && !name.starts_with('/')

@@ -44,6 +44,8 @@ public extension ExactSessionDelegate {
 /// Optional app behavior supplied by a higher composition. Every callback
 /// identifies the generation that caused it; the core owns no store policy.
 public protocol ExactAppLifecycle: AnyObject {
+    /// An initial selected launch starts before preparation; live activation
+    /// starts after every session accepts. Repeated marks must be idempotent.
     func generationStarted(_ app: ExactApp, token: UInt64)
     func firstPixel(_ app: ExactApp, token: UInt64)
     func initialGenerationRefused(_ app: ExactApp, token: UInt64, reason: String)
@@ -381,6 +383,9 @@ public final class ExactSession {
     public func boot(size: CGSize) -> Batch {
         let t = CACurrentMediaTime()
         if let bytes = app.lastPlan {
+            // A selected launch can crash in runner/font/asset preparation.
+            // Record the attempt first; an integrity refusal clears it below.
+            if app.selectedToken != 0 { app.lifecycle?.generationStarted(app, token: app.selectedToken) }
             if let candidate = prepare(bytes, resolver: app.resolver, token: app.selectedToken, size: size) {
                 let batch = commit(candidate)
                 presentCommitted(batch, label: "selected")
