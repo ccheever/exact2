@@ -645,6 +645,11 @@ for (const [name, html, files, expectCode, expect] of [
   result('display-name repair preserves the authenticated cohort and still refuses new capabilities',renameRow.action==='bundle'&&renamePublished.seq===8
     &&renamedHead.json.app.name==='Renamed'&&renamedHead.json.stream.seq===8&&inspectHead(renamedHead,renamed,stream).authenticated
     &&afterRename.rows.find(r=>r.kind==='stream').reason.includes('sources.camera'));
+  const foreign='deadbeefdeadbeefdeadbeefdeadbeef', forged=structuredClone(renamedHead.json);forged.stream.compatibilityId=foreign;
+  await renameOrigin.putHead({...stream,compatibilityId:foreign},Buffer.from(JSON.stringify(forged)),{previousDigest:null});
+  const independent=await classify({...renameArgs,release:'unrelated'});
+  result('an unauthenticated unrelated stream cannot block a healthy cohort',independent.rows.some(r=>r.compatibilityId===compatibilityId&&r.action==='current')
+    &&independent.rows.some(r=>r.compatibilityId===foreign&&r.action==='binary')&&independent.notes.some(n=>n.includes(foreign)&&n.includes('does not verify')));
   rmSync(renameDir,{recursive:true,force:true});
   const history = Buffer.from(JSON.stringify({ envelope: valid }) + '\n');
   const tableFor = (candidate, withHistory = true) => classify({ app, opts: { platform: [] },

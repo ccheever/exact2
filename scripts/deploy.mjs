@@ -911,7 +911,7 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
     const inputs=installed?.compat.inputs ?? compat[platform]?.inputs;
     const changes=admission?.usable?changesAgainst(bundle,admission.head):head?[{name:'exact.json',change:'repair',note:admission.problem}]:changesAgainst(bundle,null);
     let seq=admission?.seq;
-    if(changes.length) {
+    if(changes.length && (check.bundle || item.platform)) {
       try {seq=await nextSeq(origin,app,stream,admission,`the head at ${origin.describe()}/${streamPath(stream)}/exact.json`);}
       catch(error) {
         if(!(error instanceof OriginUnavailable))throw error;
