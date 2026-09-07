@@ -33,8 +33,9 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 export function resolveApp(nameOrCrate) {
   const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
   const name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|linux|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
-  const dir = outside ?? resolve(ROOT, 'apps', name);
+  let dir = outside ?? resolve(ROOT, 'apps', name);
   if (!existsSync(resolve(dir, 'app.contract'))) throw new Error(`no app at ${dir} (no app.contract)${outside ? '' : '; set EXACT_APP_DIR for an app outside this repo'}`);
+  dir = realpathSync(dir);
   const workspace = outside ? dir : ROOT;
   const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(workspace, 'target');
   const manifest = readManifest(dir, name);
@@ -221,6 +222,11 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   const replaced = new Set(['app.plan','compat.json','artifacts.json'].map((n) => resolve(rootOutput,n)));
   const packages = [...graph.roles.keys()].map((id) => graph.packages.get(id));
   const locations = packages.map((p) => ({ path: dirname(p.manifest_path), name:`crate:${p.name}@${p.version}` })).sort((a,b) => b.path.length-a.path.length);
+  // contract-cli includes the canonical declaration as text without linking
+  // ibex2 into the compiler. It is therefore a compiler input even on targets
+  // whose Cargo graph correctly omits the native runtime crate. Its bytes are
+  // hashed below exactly like every other input; only this file is admitted.
+  const storageTypes = resolve(ROOT, '../ibex/crates/ibex2/src/bindings/storage.d.ts');
   const nameOf = (path) => {
     path = resolve(path);
     const made = generated.find((g) => under(g.path,path));
@@ -230,6 +236,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
     if (under(ROOT,path)) return `exact/${relative(ROOT,path)}`;
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;
+    if (path === storageTypes) return 'included:ibex2/src/bindings/storage.d.ts';
     throw new Error(`compiler input has no captured source identity: ${path}`);
   };
   const inputs = new Map(), absent = new Map(), directories = new Map();
@@ -291,7 +298,18 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
     }
     add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'build.mjs'));
   }
-  if(platform==='web') for(const path of ['host/web/glue.js','host/web/gpu-glue.js','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
+  if(platform==='web') {
+    for(const path of ['host/web/glue.js','host/web/gpu-glue.js','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
+    if (existsSync(resolve(app.dir, 'app.ts'))) {
+      // The TS producer is a build dependency, outside the runtime Cargo graph.
+      // Its canonical API declaration still determines the accepted app module.
+      add(storageTypes);
+      for (const path of ['host/web/module-glue.js', 'js/src/prelude.js',
+        'host/web/storage.js', 'host/web/storage-fs.js', 'host/web/storage-sqlite.js', 'host/web/storage-worker.js',
+        'package.json', 'package-lock.json', 'node_modules/@sqlite.org/sqlite-wasm/package.json',
+        'node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs', 'node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm']) add(resolve(ROOT, path));
+    }
+  }
   const metadata={app:app.manifest.app,host:app.manifest.host?.[platform]??{},icons:app.manifest.icons??[],delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
   const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null]))};
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);

@@ -115,6 +115,14 @@ fn storage_is_lazy_persistent_isolated_and_grant_checked() {
     assert_eq!(call(&mut m, &mut s, "add", "remember"), "remember");
     assert_eq!(call(&mut m, &mut s, "rollback", "discard"), "remember");
     assert_eq!(call(&mut m, &mut s, "refused", ""), "denied");
+    assert_eq!(
+        call(&mut m, &mut s, "types", ""),
+        "9223372036854775807/-9223372036854775808/1.25/0,255"
+    );
+    assert_eq!(
+        call(&mut m, &mut s, "sql-refusals", ""),
+        "Unavailable/Unavailable/Unavailable/Unavailable"
+    );
     assert!(!root.0.join("cache/no").exists());
     m.unload();
     m.activate().unwrap();

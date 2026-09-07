@@ -41,6 +41,19 @@ async function answer(_source:string, args:unknown[], store:Store, storage:Stora
       try { await db.transaction([{sql:"INSERT INTO notes VALUES (?)",params:[value]}, {sql:"INSERT INTO notes VALUES (?)",params:[value]}]); }
       catch (_) { /* verify the rolled-back value is absent below */ }
     }
+    if (op === "types") {
+      const rows = await db.query("SELECT ?, ?, ?, ?", [9223372036854775807n, -9223372036854775808n, 1.25, new Uint8Array([0,255])]);
+      const [max,min,real,blob]=rows.rows[0];
+      if(typeof max!=="bigint"||typeof min!=="bigint"||!(blob instanceof Uint8Array))throw new Error("SQL value types changed");
+      return {text:[max,min,real,Array.from(blob).join(",")].join("/")};
+    }
+    if (op === "sql-refusals") {
+      const kinds=[];
+      for(const sql of ["INSERT INTO notes VALUES ('write from query')", "ATTACH DATABASE '/tmp/escape' AS other", "PRAGMA writable_schema=ON", "SELECT 1; SELECT 2"]) {
+        try { await db.query(sql); kinds.push("allowed"); } catch(e:any) { kinds.push(e.kind); }
+      }
+      return {text:kinds.join("/")};
+    }
     const rows = await db.query("SELECT body FROM notes ORDER BY body");
     return {text: rows.rows.map(row=>String(row[0])).join(",")};
   } finally { await db.close(); }

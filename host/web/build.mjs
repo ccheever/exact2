@@ -9,7 +9,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameS
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
-import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope } from './serve.mjs';
+import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
 const crate = app.crate('web');
@@ -68,7 +68,7 @@ copyFileSync(resolve(root, 'host/web/glue.js'), resolve(stage, 'glue.js'));
 // encoder's fixed little-endian layout.
 const planOut = resolve(stage, 'app.plan');
 const wasm = readFileSync(out);
-const { instance } = await WebAssembly.instantiate(wasm, {});
+const { instance } = await WebAssembly.instantiate(wasm, { exact_js: { call: () => { throw new Error('app logic ran while extracting baked bytes'); } } });
 const exports = instance.exports;
 if (typeof exports.exact_plan !== 'function' || typeof exports.exact_out !== 'function' || !(exports.memory instanceof WebAssembly.Memory)) {
   throw new Error('the web wasm does not export exact_plan, exact_out, and memory');
@@ -78,6 +78,26 @@ const planPtr = exports.exact_out();
 const planBytes = Buffer.from(new Uint8Array(exports.memory.buffer, planPtr, planLen));
 if (planBytes.length < 36 || planBytes.subarray(0, 4).toString() !== 'EXPL') throw new Error('the web wasm returned an invalid baked plan');
 writeFileSync(planOut, planBytes);
+let pairedModule = null;
+// A module client's build script emits paired artifacts beside its receipt.
+// Extract the exact embedded receipt/JS/HBC rather than rebaking moving sources.
+if (typeof exports.exact_module_artifact === 'function') {
+  const files = new Map([['app.plan', planBytes]]);
+  for (const [index, name] of ['app.module.json', 'app.js', 'app.hbc'].entries()) {
+    const len = exports.exact_module_artifact(index);
+    const body = Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), len));
+    files.set(name, body); writeFileSync(resolve(stage, name), body);
+  }
+  pairedModule = Object.fromEntries(Object.entries(moduleCards(files, app.id)).map(([key, card]) => [key, { ...card, url: './' + MODULE_FILES[key] }]));
+  copyFileSync(resolve(root, 'host/web/module-glue.js'), resolve(stage, 'module-glue.js'));
+  copyFileSync(resolve(root, 'js/src/prelude.js'), resolve(stage, 'module-prelude.js'));
+  for (const name of ['storage.js','storage-fs.js','storage-sqlite.js','storage-worker.js']) {
+    copyFileSync(resolve(root, 'host/web', name), resolve(stage, name));
+  }
+  for (const [source, name] of [['index.mjs','sqlite3.mjs'],['sqlite3.wasm','sqlite3.wasm']]) {
+    copyFileSync(resolve(root, 'node_modules/@sqlite.org/sqlite-wasm/dist', source), resolve(stage, name));
+  }
+}
 if (typeof exports.exact_compat !== 'function') throw new Error('the web wasm exposes no baked receipt');
 const compatLen = exports.exact_compat();
 const embeddedCompat = Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), compatLen)).toString('utf8');
@@ -86,7 +106,7 @@ if (JSON.stringify(JSON.parse(embeddedCompat)) !== JSON.stringify(bakedReceipt))
 const copiedAssets = listAssets(stage);
 verifyBakeFiles(bakedReceipt, planBytes, copiedAssets);
 writeFileSync(resolve(stage, 'bake.json'), JSON.stringify(buildReceipt) + '\n');
-writeFileSync(resolve(stage, 'exact.json'), JSON.stringify(webEnvelope(app, planBytes, copiedAssets)) + '\n');
+writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({ ...webEnvelope(app, planBytes, copiedAssets), ...(pairedModule ? { module: pairedModule } : {}) }) + '\n');
 // The web app manifest (LLP 1030 D2/D10; 1030.000 D7): the W3C keys of
 // `app.json`, copied out as `manifest.json`; the page links it, takes its
 // name as the title, and its first icon as the favicon. An installed PWA's

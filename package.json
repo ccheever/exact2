@@ -1,8 +1,10 @@
 {
   "name": "exact2",
   "private": true,
-  "description": "The bake's TypeScript toolchain (LLP 1027 D5, ruled 2026-09-03): Rolldown bundles and strips an app's `app.ts` to one script for hermesc. Nothing here runs at runtime.",
+  "description": "The bake's TypeScript toolchain (LLP 1027 D5, ruled 2026-09-03): Rolldown bundles and strips an app's `app.ts` to one script for hermesc. SQLite WASM is shipped as a lazy browser storage artifact.",
   "devDependencies": {
-    "rolldown": "1.2.7"
+    "@sqlite.org/sqlite-wasm": "3.53.0-build1",
+    "rolldown": "1.2.7",
+    "typescript": "7.0.2"
   }
 }

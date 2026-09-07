@@ -10,9 +10,28 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
-- **iOS module device proof** (2026-09-07): lean device archive builds; simulator
-  async fetch and URL replacement run. Drive a physical phone, sweep its guard
-  corpus, and measure linked size/startup/per-call cost (1027 §10 Q7).
+- **Intermittent macOS GPU smoke stall** (2026-09-07): a TS Caltrain run sampled
+  in drawable acquisition, then passed in 2.1 s on rerun; final `host` smoke
+  exceeded 60 s and was stopped. Investigate window/display-dependent progress.
+
+- **iOS module follow-through** (2026-09-07): physical guard sweep and screenshot
+  pass twice; physical URL launch logs a successful generation load. Prove a live
+  edit with retained state, then measure size/startup/calls systematically. The
+  agent-only keep-awake fix is built/installed after repeated lock interruptions.
+- **Phone agent reliability** (2026-09-07): one state read stalled after all 27
+  requests settled; clean reruns passed. Live-URL proof also stalled on a tree read
+  after a logged generation load, with agent keep-awake enabled. Later devicectl
+  lock-state and xctrace device-readiness queries timed out. A subsequent URL run
+  reached an asserted phone/browser baseline (75 guards each, attempt 1, clock
+  12345) before the phone connection closed; no source edit had been sent. Further
+  runs stalled on `clock`, then on `state` while polling network completion instead
+  of settling. During this retry devicectl returned `passcodeRequired: false` in
+  under a second. Requests are bounded at 45 s; three attempts stopped without a
+  live-edit proof. Instrument request receipt/main-thread dispatch/runtime progress
+  to distinguish app/agent stalls from LAN transport; another unlock is not a fix.
+- **ibex host SDK during iOS bake** (2026-09-07): its host `darwin_http.mm`
+  compile inherits the iPhone SDK; target-specific macOS CXXFLAGS unblocked this run.
+  Fix SDK selection in the sibling build script rather than relying on that override.
 - **Module edit latency** (2026-09-07): async counter edit measured 410 ms
   save-to-DOM / 430 ms to a rendering opportunity; target is 100 ms p50.
 
@@ -353,6 +372,3 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   compilation" for the bake, 1026's wasm data module leaves its staging so a phone
   carries one interpreter) and §10's eight questions — 1.8 MB on iOS and the
   one-frame `pending` first. 1019's link (Accepted, landed) left `current/` for it.
-
-- **Browser app storage:** provide a browser backend for the typed `storage.fs` and
-  `storage.sqlite` capability; currently these explicitly return `Unavailable`.

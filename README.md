@@ -85,8 +85,18 @@ can use the same implementations through `ibex2::host`.
 Hosts configure app-specific directories after first pixel. Files and databases
 survive module reload; temporary storage is a directory under the app cache,
 without an automatic cleanup guarantee. Agent mode does not open disk storage.
-Bake and the browser currently reject storage calls with `Unavailable`; catch it
-when a resource needs an empty-store bake placeholder. SQLite integer results
+Bake rejects storage calls with `Unavailable`; catch it when a resource needs an
+empty-store bake placeholder. Browser storage uses app-scoped IndexedDB files
+and SQLite WASM in a dedicated worker, loaded on the first database operation.
+Use HTTPS or localhost for Web Locks. Data persists across reloads within the
+same browser origin, subject to browser storage retention and quota policies.
+An open database exclusively locks its file; conflicting opens or filesystem
+mutations return `Unavailable` with a busy message. Agent mode skips storage.
+
+This first browser implementation targets modest app stores: filesystem
+operations read the app's file records, and each SQLite mutation atomically
+saves the whole database file. Database files share the filesystem namespace,
+so closed databases can be copied or exported through `storage.fs`. SQLite integer results
 are `bigint`: convert them to a Contract-compatible value before returning.
 
 Build an app-local `app.ts` module and bake its Contract through the resulting
@@ -156,7 +166,26 @@ framework. Provision matching device/simulator builds under `target/hermes-ios`
 The normal Apple build captures the linked archives in its receipt. The iOS
 simulator executed an async module, fetched twice and followed a URL logic edit
 while retaining count 1 alongside the browser. The device-target archive also
-builds; physical-phone execution and performance have not been measured.
+builds. The simulator guard app passed all 25 forms at initialization, in direct
+calls and after fetch, explicit UTC/Intl inputs, interleaved async calls and an
+uncaught-initialization refusal (27 HTTP requests, no pending work).
+The physical iPhone 17 Pro Max / iOS 26.6.1 now passes the same guard sweep,
+including all 75 refusals, 27 HTTP requests, no pending work, and a copied,
+inspected screenshot. A repeat assertion run passed in 5.7 s (83.5 ms first
+frame, one sample rather than a startup budget result).
+
+The TypeScript Caltrain twin passed the complete app drive and all three
+Contract tests on web, macOS and iOS simulator, with its real assets, deck and
+GPU module. Production Caltrain remains Rust. `smoke.mjs --app-only` runs the
+selected app and its tests without unrelated bare-plan host fixtures, which a
+paired module client correctly refuses. The driver now supports
+`ios --device [--phone <name|udid>]`: the phone connects outward to a temporary
+Mac-side port with a per-launch token, because developer-console stdin closes
+immediately. Use a trusted LAN, allow local networking, and keep the app visible;
+`EXACT_AGENT_HOST` overrides the Mac IPv4 address. The carrier is not encrypted.
+One earlier post-settlement state read stalled; the clean reruns passed, and
+device requests now time out after 45 seconds. Physical live-URL replacement
+and systematic size/startup/per-call measurements remain to be proved.
 
 Remaining: Linux native TypeScript execution, npm dependency capture, signed
 module updates, downloadable custom clients, and the generic Go launcher.

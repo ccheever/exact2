@@ -551,8 +551,9 @@ A candidate that bakes at count 0 but throws at count 1 preserved both running
 apps. One browser producer-start-to-DOM sample was ~359 ms (producer 329 ms,
 fetch 26 ms, restart 3 ms), excluding watch debounce; timing now includes it.
 The 100 ms save-to-present p50 budget is not demonstrated. D6 records the
-subsequent async data parity and iOS simulator sweep; full TypeScript Caltrain
-UI driving, physical iOS and signed module delivery remain owed.
+subsequent async data parity, iOS simulator guard sweep and TypeScript Caltrain
+UI drive and physical iOS guard execution; physical live-URL replacement and
+signed module delivery remain owed.
 
 ### D6 — The web: the browser is the executor; one wasm import; the same module under two loaders
 
@@ -649,9 +650,54 @@ URL as the browser. Both retained count 1 and displayed
 `iOS live: 1: async fetched/200`, without rebuilding either binary. The browser
 sample was 410 ms save-to-DOM / 430 ms to a rendering opportunity (348 ms
 producer); it is not p50 and does not establish the 100 ms budget. The
-`aarch64-apple-ios` release archive also builds. Physical-device execution,
-iOS guard-corpus driving and linked size/startup/per-call measurements remain
-owed; Linux still has a refusing stub.
+`aarch64-apple-ios` release archive also builds.
+
+**Expanded execution sweep (Codex, 2026-09-07).** An external guard app uses
+the existing `js/tests/fixtures/inputs.ts` corpus, changing only its fetch
+origin to the dev server and exposing its dispatcher to a typed test wrapper.
+The iPhone 17 Pro / iOS 26.5 simulator passes 25 initialization refusals,
+25 direct refusals and 25 post-fetch refusals, plus explicit UTC/Intl values
+and interleaved async inputs. It completes 27 real HTTP requests with no
+pending work. A separate invalid HBC loaded by the test adapter at activation
+(after first pixel) refuses an uncaught initialization-time `Date.now()` on
+the iOS executor, not merely at macOS bake. The browser drives the same guard
+app successfully through wasm and the host transport.
+
+The larger browser drive exposed an unchanged-module reload bug:
+`Runner::carry` treated an in-flight placeholder as a settled resource. It now
+excludes pending resources, so the replacement re-asks them with their carried
+arguments. The stale host incarnation still drops old replies. A regression
+in `js/tests/inputs.rs` covers restart/re-request; the actual browser guard app
+now completes after its initial dev-generation handoff.
+
+A separate updater-free app assembles `js/tests/fixtures/caltrain.ts` with the
+real Caltrain Contract, tests, assets, deck and GPU crate. The existing smoke's
+complete app drive passes on web (12.2 s), iOS simulator (18.8 s), and macOS
+(2.1 s on the clean rerun), including all three `app.test.contract` tests.
+This drives station selection/search, timer/countdown updates, input events,
+scheme changes, layout/image sizing, iframe load/message/input/pixels, GPU
+loading and canvas children; screenshots were inspected. Production Caltrain
+remains Rust. `--app-only` omits unrelated **host-only bare-plan fixtures**,
+not the app drive or its tests: paired module clients correctly refuse those
+unpaired plans. One earlier macOS run stalled in GPU drawable acquisition;
+its rerun passed without changing the GPU implementation.
+
+**Physical execution (Codex, 2026-09-07):** after unlocking, the signed guard
+app installed on iPhone 17 Pro Max / iOS 26.6.1. Developer-console stdin was
+EOF, causing a deliberate exit(0), not a VM crash. The replacement carrier
+(1012) connects outward to a one-launch, token-checked Mac listener on a trusted
+LAN. It drives the same guard app: 25 initialization, 25 direct and 25 post-fetch
+refusals, explicit UTC/Intl and interleaved async inputs, 27 HTTP requests,
+no pending work, and the separate uncaught initialization refusal. State/log
+assertions pass and the copied screenshot was inspected. A second asserted run
+passed in 5.7 s and reported 83.5 ms first frame (one sample, not p50).
+One earlier state read stalled after settlement; cause remains unresolved,
+and device requests now have a 45 s deadline. The first local-network connection
+also refused before a relaunch connected. The newly included ibex host build
+needed target-specific macOS `CXXFLAGS_aarch64_apple_darwin=-isysroot <macOS SDK>`
+to avoid inheriting the iPhone SDK; this workaround does not fix that build script.
+Physical live-URL replacement and systematic linked size/startup/per-call
+measurements remain owed; Linux still has a refusing stub.
 
 Answering LLP 1026 §10 Q6 for this executor: the web loads the module
 separately, *because it must* (there is no wasm form of it), and a
@@ -776,12 +822,28 @@ Resources close on unload, and directory configuration survives replacement.
 
 Storage work runs in Ibex2's workers. A runner continuation carries readiness
 through the host executor; only the runtime owner delivers a completion and
-drains microtasks. It never invents an HTTP request. Bake refuses the capability,
-and the browser returns `Unavailable` until it has a provider. No filesystem
-work or app JS runs before first pixel. Tests exercise byte round trips,
-persistence/isolation, grant refusal, SQLite prepared statements and rollback,
-mixed fetch/storage answers, unload cancellation, and real browser/bake refusal.
-Snapback2 remains deferred.
+drains microtasks. It never invents an HTTP request. Bake refuses the capability.
+
+**Browser provider (Charlie authorized; Codex, 2026-09-07):** the same capability
+uses app-scoped IndexedDB files and pinned official SQLite WASM in a dedicated
+worker. Each file operation is transactional; SQLite holds a Web Lock on its
+file and shared ancestor locks until close, preventing another connection or a
+filesystem mutation from losing committed data. Same-tab filesystem mutations
+serialize; conflicts with other tabs or live databases return `Unavailable`.
+Database bytes are ordinary SQLite files in the same namespace. This initial
+implementation reads the app's file records per filesystem operation and writes
+a whole database snapshot after a SQLite mutation, suitable for modest stores.
+Quota/persistence failures reject and invalidate a divergent SQLite connection.
+Browser retention/eviction policy still applies; HTTPS/localhost supplies Web Locks.
+
+Only the owning answer's checkpoint delivers a browser storage completion, with
+its store context installed; no unsolicited microtask resumes app code. Worker
+and filesystem connections close with the realm. Agent mode rejects storage.
+The build captures the runtime sources and pinned npm artifacts in its receipt,
+and serves them lazily after first pixel. Browser/native fixtures cover grants,
+SQL restrictions, integer/blob types, transactions, fetch interleaving, and
+persistence across realm and page reloads. No filesystem work or app JS runs
+before first pixel. Snapback2 remains deferred.
 
 - **Language:** Hermes's — ES2015 and most of what followed; no
   `eval`/`Function` (closed at construction); the current lean build does

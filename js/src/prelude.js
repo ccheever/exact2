@@ -177,7 +177,7 @@
     }, function (error) {
       currentCall = call;
       call.storage--;
-      throw error;
+      throw error && error.kind ? error : storageError(error.message || String(error));
     });
   }
   function statement(raw) {

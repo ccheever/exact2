@@ -1,6 +1,7 @@
 // A private browser realm per data-module incarnation. @ref LLP 1027 D6;
 // LLP 1027.000 D3. Trusted app code, NOT a security sandbox. No page or
 // guest builtin is patched. Loaded only after the page's first pixel.
+import { createStorage } from './storage.js';
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const realms = new Map();
 const turns = new Map();
@@ -49,17 +50,19 @@ export async function prepare(payload, admitted, id = nextId++) {
   frame.setAttribute('aria-hidden', 'true'); document.body.append(frame);
   const win = frame.contentWindow;
   let context = null, initializationError = null, busy = false, disposed = false, tail = Promise.resolve();
+  let storage;
   win.addEventListener('error', event => { initializationError = event.message; event.preventDefault(); });
   win.__exact_host = (op, name, value) => {
     if (!context) throw new Error('host call outside an answer');
     if (op === 1) { context.requests.set(Number(name), JSON.parse(value)); return; }
     if (op === 2) { context.reads.push(name); return context.store.get(name); }
-    if (op === 5) return; // Storage capability check; this host has no provider.
+    if (op === 5) return; // Storage effects still require a live answer context.
     if (!context.grants.has(name) || name.startsWith('exact.kept.')) return `secret ${name} is not granted`;
     context.writes.push([name, op === 3 ? value : null]);
     if (op === 3) context.store.set(name, value); else context.store.delete(name);
   };
   try {
+    storage = createStorage(win, admitted, () => context.owner);
     // Disable accidental browser I/O before the module captures globals.
     for (const key of ['XMLHttpRequest', 'WebSocket', 'EventSource', 'setTimeout', 'setInterval', 'requestAnimationFrame']) {
       Object.defineProperty(win, key, { value: () => { throw new Error(`${key} is unavailable in data sources`); }, configurable: false });
@@ -67,6 +70,10 @@ export async function prepare(payload, admitted, id = nextId++) {
     for (const source of [before, decoder.decode(payload.script)]) {
       const script = win.document.createElement('script'); script.textContent = source; win.document.head.append(script);
       if (initializationError) throw new Error(initializationError);
+      if (source === before) {
+        win.__exact_storage = storage.capability;
+        win.__exact_install_storage();
+      }
     }
     if (win.exact?.abi !== 1 || win.exact.appId !== admitted.appId || win.exact.grants?.trim() !== admitted.grants.trim() || typeof win.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
     const pending = new Map();
@@ -77,19 +84,21 @@ export async function prepare(payload, admitted, id = nextId++) {
         result.request = context.requests.get(answer.ticket);
         if (!result.request) throw new Error('module awaits a fetch it never made');
         context.requests.delete(answer.ticket);
-        pending.set(key(request), {call:answer.call,ticket:answer.ticket,requests:context.requests});
+        pending.set(key(request), {call:answer.call,ticket:answer.ticket,requests:context.requests,owner:context.owner});
       }
+      if (answer.tag !== 1) storage.retire(context.owner);
       context = null; busy = false;
       return result;
     };
     const begin = request => {
       if (disposed) throw new Error('module environment disposed');
       busy = true;
-      context = {store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],requests:new Map()};
+      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],requests:new Map()};
       if (request.op === 'answer') return JSON.parse(win.__exact_call(request.source,JSON.stringify(request.args)));
       const parked = pending.get(key(request));
       if (!parked) throw new Error('reply for an answer not in flight');
       pending.delete(key(request));
+      context.owner = parked.owner;
       context.requests = parked.requests;
       win.__exact_fulfill(String(parked.ticket),JSON.stringify(request.outcome));
       return {tag:3,call:parked.call};
@@ -106,8 +115,16 @@ export async function prepare(payload, admitted, id = nextId++) {
               if (disposed) throw new Error('module environment disposed');
               answer = JSON.parse(win.__exact_settle(String(answer.call)));
             }
+            // Keep this answer's store context while its storage is pending.
+            // Other answers queue behind it; a fetch releases the turn normally.
+            while (answer.tag === 1 && answer.ticket === 0) {
+              await storage.deliver(context.owner);
+              await checkpoint();
+              if (disposed) throw new Error('module environment disposed');
+              answer = JSON.parse(win.__exact_settle(String(answer.call)));
+            }
             return finish(answer,request);
-          } catch (error) { context = null; busy = false; throw error; }
+          } catch (error) { storage.retire(context?.owner); context = null; busy = false; throw error; }
         });
         tail = run.catch(() => {}); return run;
       }});
@@ -119,15 +136,15 @@ export async function prepare(payload, admitted, id = nextId++) {
         try {
           const answer = begin(request);
           return answer.tag === 3 ? defer(request,answer) : finish(answer,request);
-        } catch (error) { const {reads,writes} = context || {}; context = null; busy = false; return {error:String(error),reads,writes}; }
+        } catch (error) { const {reads,writes} = context || {}; storage.retire(context?.owner); context = null; busy = false; return {error:String(error),reads,writes}; }
       },
       dispose() {
-        disposed = true; pending.clear(); realms.delete(id); frame.remove();
+        disposed = true; storage.dispose(); pending.clear(); realms.delete(id); frame.remove();
         for (const [token,turn] of turns) if (turn.id === id) turns.delete(token);
       },
     };
     realms.set(id, realm); return realm;
-  } catch (error) { frame.remove(); throw error; }
+  } catch (error) { storage?.dispose(); frame.remove(); throw error; }
 }
 export function call(request) {
   const realm = realms.get(request.id);

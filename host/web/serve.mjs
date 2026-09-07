@@ -14,6 +14,8 @@ import { filesystem } from '../../scripts/filesystem.mjs';
 import { parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
 const PUBLIC_FILES = new Set([
+  '/app.js', '/app.hbc', '/app.module.json', '/module-glue.js', '/module-prelude.js',
+  '/storage.js', '/storage-fs.js', '/storage-sqlite.js', '/storage-worker.js', '/sqlite3.mjs', '/sqlite3.wasm',
   '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/gpu-glue.js',
   '/gpu.js', '/gpu_bg.wasm', '/index.html', '/manifest.json',
   // The one dot path a static origin serves: the deep-link association
@@ -38,6 +40,26 @@ function staticRelative(name) {
 // Keep those ordinary files outside rebuilt dist, without guessing client
 // liveness. Quota exhaustion refuses publication instead of deleting readers.
 export const DEV_GENERATION_CACHE_BYTES = 4 * 1024 * 1024 * 1024;
+export const MODULE_FILES = { native: 'app.hbc', receipt: 'app.module.json', web: 'app.js' };
+/** Verify one producer result before it enters a served generation. The
+ * receipt is pairing metadata, never publisher authentication. */
+export function moduleCards(files, appId) {
+  const receipt = files.get(MODULE_FILES.receipt);
+  if (!receipt || receipt.length > 1024 * 1024) throw new Error('missing or oversized module receipt');
+  const meta = JSON.parse(receipt.toString('utf8'));
+  if (meta.version !== 1 || meta.abi !== 1 || meta.appId !== appId || typeof meta.grants !== 'string'
+      || !Number.isSafeInteger(meta.bytecodeVersion) || meta.bytecodeVersion <= 0) throw new Error('incompatible module receipt');
+  for (const [key, name] of [['plan', 'app.plan'], ['module', 'app.hbc'], ['web', 'app.js']]) {
+    const bytes = files.get(name), card = meta[key];
+    if (!bytes || bytes.length > 32 * 1024 * 1024 || card?.file !== name || card.bytes !== bytes.length || card.sha256 !== sha256(bytes)) throw new Error(`module receipt does not pair ${name}`);
+  }
+  const hbc = files.get('app.hbc');
+  if (hbc.length < 12 || hbc.readUInt32LE(8) !== meta.bytecodeVersion) throw new Error('incompatible module bytecode header');
+  return Object.fromEntries(Object.entries(MODULE_FILES).map(([key, name]) => {
+    const bytes = files.get(name);
+    return [key, { bytes: bytes.length, sha256: sha256(bytes) }];
+  }));
+}
 export function retainDevGeneration(cache, epoch, seq, files, quota = DEV_GENERATION_CACHE_BYTES) {
   if (!/^[0-9a-f]{32}$/.test(epoch) || !Number.isSafeInteger(seq) || seq < 0) throw new Error('invalid dev generation identity');
   try {
@@ -56,7 +78,7 @@ export function readDevGeneration(cache, pathname) {
     const match = /^\/__dev\/generation\/([0-9a-f]{32})\/([0-9]+)\/(.+)$/.exec(pathname);
     if (!match) return null;
     const name = staticRelative(decodeURIComponent(match[3]));
-    if (!['app.plan', 'exact.json'].includes(name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
+    if (!['app.plan', 'exact.json', ...Object.values(MODULE_FILES)].includes(name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
     const prefix = `${match[1]}/${match[2]}`;
     const raw = filesystem({ op: 'get', root: resolve(cache), path: `${prefix}/exact.json` });
     if (raw === null) return null;
@@ -64,7 +86,8 @@ export function readDevGeneration(cache, pathname) {
     const envelope = JSON.parse(envelopeBytes.toString('utf8'));
     if (envelope.dev?.epoch !== match[1] || String(envelope.dev?.seq) !== match[2]) return null;
     if (name === 'exact.json') return { name, body: envelopeBytes };
-    const card = name === 'app.plan' ? envelope.plan : envelope.assets?.find((asset) => asset.name === name);
+    const moduleKey = Object.keys(MODULE_FILES).find(key => MODULE_FILES[key] === name);
+    const card = name === 'app.plan' ? envelope.plan : moduleKey ? envelope.module?.[moduleKey] : envelope.assets?.find((asset) => asset.name === name);
     if (!card) return null;
     const value = filesystem({ op: 'get', root: resolve(cache), path: `${prefix}/${name}` });
     if (value === null) return null;
@@ -451,7 +474,7 @@ export function webContentType(route) {
   if (route === '/manifest.json') return 'application/manifest+json';
   if (route === '/.well-known/apple-app-site-association') return 'application/json';
   return {
-    '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.json': 'application/json',
+    '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
     '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',
