@@ -62,6 +62,7 @@ pub struct Host<D: DataSource> {
     /// Where the app's kept secrets go after a commit (LLP 1018 D6); `None`
     /// keeps them in the runner only (a test, or no grants).
     secrets: Option<Secrets>,
+    data_activated: bool,
     /// The update store's last line this host journaled, so a sync after
     /// a check writes it once.
     update_line: Option<String>,
@@ -198,6 +199,7 @@ impl<D: DataSource> Host<D> {
             engine: Engine::new(),
             viewport: (width, height),
             now_ms: 0.0,
+            data_activated: false,
             secrets,
             update_line: None,
             delivery,
@@ -295,9 +297,73 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    fn configure_storage(&mut self) -> Result<(), exact_runner::DataError> {
+        use exact_runner::DataError;
+        use std::path::PathBuf;
+        // Scripted drives must not read or write the developer's app files.
+        if std::env::var_os("EXACT_AGENT").is_some() {
+            return Ok(());
+        }
+        let app_id = self.runner.data().app_id().to_string();
+        if app_id.is_empty() {
+            return Ok(());
+        }
+        if matches!(app_id.as_str(), "." | "..")
+            || !app_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
+        {
+            return Err(DataError::Unavailable("unsafe app storage identity".into()));
+        }
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
+        let data = home
+            .join("Library/Application Support/exact")
+            .join(&app_id)
+            .join("data");
+        let cache = home.join("Library/Caches/exact").join(&app_id);
+        // Sibling roots keep app:/cache grants from implicitly reaching tmp.
+        // The user's cache base avoids a predictable shared /tmp directory.
+        let temporary = cache.join("temporary");
+        let cache = cache.join("cache");
+        self.runner.data().configure_storage(data, cache, temporary)
+    }
+
+    /// Transfer a source-owned operation to the native executor.
+    pub fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        self.runner.data().continuation(token)
+    }
+
     /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.
     pub fn grants(&mut self) -> String {
         self.runner.data().grants().to_string()
+    }
+
+    /// Load deferred app logic only after the presenter reports first pixel.
+    pub fn activate_data(&mut self) -> String {
+        if self.data_activated {
+            return self.commit(&[], None);
+        }
+        if let Err(error) = self
+            .configure_storage()
+            .and_then(|()| self.runner.data().activate())
+        {
+            return self.commit(&[], Some(format!("activate data: {error:?}")));
+        }
+        self.data_activated = true;
+        match self.runner.data_ready() {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => self.commit(&[], None),
+            Err(error) => self.commit(&[], Some(format!("data ready: {error:?}"))),
+        }
     }
 
     /// What the last commit kept or forgot, into the platform's store (LLP
@@ -738,4 +804,109 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         out.insert(id.name().to_string(), text);
     }
     out
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use super::*;
+    use exact_kernel::MonospaceMeasurer;
+    use exact_plan::{builder::PlanBuilder, Value};
+    use exact_runner::DataError;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct Seen {
+        paths: Option<[PathBuf; 3]>,
+        activations: usize,
+    }
+
+    struct Source(&'static str, Arc<Mutex<Seen>>);
+    impl DataSource for Source {
+        fn app_id(&self) -> &str {
+            self.0
+        }
+        fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(name.into()))
+        }
+        fn configure_storage(
+            &mut self,
+            data: PathBuf,
+            cache: PathBuf,
+            temporary: PathBuf,
+        ) -> Result<(), DataError> {
+            let mut seen = self.1.lock().unwrap();
+            assert_eq!(seen.activations, 0, "configuration precedes app activation");
+            seen.paths = Some([data, cache, temporary]);
+            Ok(())
+        }
+        fn activate(&mut self) -> Result<(), DataError> {
+            self.1.lock().unwrap().activations += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn storage_configuration_is_post_pixel_app_scoped_and_absent_in_agent_mode() {
+        const CHILD: &str = "EXACT_STORAGE_CONFIGURATION_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            for agent in [false, true] {
+                let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+                command.args(["--exact", "host::storage_tests::storage_configuration_is_post_pixel_app_scoped_and_absent_in_agent_mode"])
+                    .env(CHILD, "1").env_remove("EXACT_AGENT");
+                if agent {
+                    command.env("EXACT_AGENT", "1");
+                }
+                let output = command.output().unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}\n{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            return;
+        }
+        let mut builder = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        builder.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+        let plan = builder.finish().unwrap().encode();
+        let mut paths = Vec::new();
+        for app_id in ["test.exact.storage.a", "test.exact.storage.b"] {
+            let seen = Arc::new(Mutex::new(Seen::default()));
+            let (mut host, _) = Host::boot(
+                &plan,
+                Source(app_id, seen.clone()),
+                Box::new(MonospaceMeasurer::default()),
+                10.0,
+                10.0,
+            )
+            .unwrap();
+            assert_eq!(seen.lock().unwrap().activations, 0);
+            assert!(
+                seen.lock().unwrap().paths.is_none(),
+                "boot cannot configure storage"
+            );
+            host.activate_data();
+            host.activate_data();
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.activations, 1);
+            if std::env::var_os("EXACT_AGENT").is_some() {
+                assert!(seen.paths.is_none());
+            } else {
+                let app_paths = seen.paths.as_ref().unwrap();
+                assert!(app_paths.iter().all(|p| p.is_absolute()));
+                for (index, path) in app_paths.iter().enumerate() {
+                    assert!(path.components().any(|part| part.as_os_str() == app_id));
+                    assert!(app_paths
+                        .iter()
+                        .enumerate()
+                        .all(|(other, p)| other == index || !p.starts_with(path)));
+                }
+                paths.push(app_paths.clone());
+            }
+        }
+        if paths.len() == 2 {
+            assert!(paths[0].iter().zip(&paths[1]).all(|(a, b)| a != b));
+        }
+    }
 }

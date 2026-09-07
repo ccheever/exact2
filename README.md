@@ -34,6 +34,135 @@ never to block. Its design documents are imported under `llp/research/`.
 All four surfaces run the app; `QUEUE.md` is the ordered list of what would
 make sense to do next.
 
+## Open the same development URL on Apple hosts
+
+Start `node host/web/dev.mjs` and open a printed URL in your browser. Build
+and launch the app's native client with that same address:
+
+```sh
+node host/apple/build.mjs --run --url http://127.0.0.1:8765/
+node host/apple/build.mjs --ios --run --url http://127.0.0.1:8765/
+node host/apple/build.mjs --device --run --url http://192.168.1.20:8765/
+```
+
+For a phone, replace the example with the server's reachable LAN or HTTPS
+URL. Device builds require a connected, provisioned phone. `--url` overrides
+`EXACT_DEV_PLAN` for this launch; it does not change the app's production origin.
+An external app uses these commands with `EXACT_APP_DIR` set as usual.
+Plans and assets reload through the native URL loader. Admitted TypeScript
+module clients also reload logic on web/macOS/iOS; native Rust logic remains
+binary-bound. Once built, an agent can drive
+the same URL with `node scripts/agent.mjs macos --url http://127.0.0.1:8765/ tree state logs`
+(also `web`, `ios`, and `linux`; Linux fetches once at launch).
+The Go/custom-client sequence
+is in [LLP 1030.000 §7](llp/1030.000-dev-server-as-deployer.rfc.md#7-exact2-go-and-custom-development-clients--implementation-direction).
+
+## Generate TypeScript data-source types
+
+The compiler can derive the logic interface from a Contract's source signatures:
+
+```sh
+cargo run -q -p contract -- types path/to/app.contract -o path/to/app.contract.d.ts
+```
+
+In `app.ts`, use `import type { Sources, Answer } from './app.contract.d.ts'`.
+Annotate the provider map as `Sources`; each function takes `(args, store, storage)` and
+returns its declared result or a Promise of it. An `Answer` dispatcher can call
+`sources[source](args, store, storage)` without casts. `npm ci` installs the pinned `tsc`.
+Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
+Generated declarations are build artifacts, not files to commit.
+
+The dispatcher receives storage as its fourth argument:
+`answer(source, args, store, storage)`. `store` remains the grant-checked secrets
+interface. Native `storage.fs` provides byte-oriented files under `app:/data`,
+`app:/cache`, and `app:/tmp`; `storage.sqlite` provides databases, prepared
+statements, and batch transactions. Declare grants such as `fs.read app:/data`,
+`fs.write app:/data`, and `sqlite.open app:/data/notes.db` in `app.ts`’s exported
+`grants` string.
+Generated declarations export Ibex2's `Storage` and related types; Rust sources
+can use the same implementations through `ibex2::host`.
+
+Hosts configure app-specific directories after first pixel. Files and databases
+survive module reload; temporary storage is a directory under the app cache,
+without an automatic cleanup guarantee. Agent mode does not open disk storage.
+Bake and the browser currently reject storage calls with `Unavailable`; catch it
+when a resource needs an empty-store bake placeholder. SQLite integer results
+are `bigint`: convert them to a Contract-compatible value before returning.
+
+Build an app-local `app.ts` module and bake its Contract through the resulting
+Hermes bytecode (currently a macOS producer with the sibling ibex toolchain):
+
+```sh
+cargo run -q -p exact-js-bake -- path/to/app --out path/to/new-generation
+```
+
+The app exports `appId`, `grants`, and an `Answer`-typed `answer`. The producer
+captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
+bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
+types, and an `app.module.json` pairing receipt into a **new** directory; it
+never overwrites an existing generation. npm dependencies are not captured yet.
+`EXACT_TSC`, `EXACT_ROLLDOWN`, and `EXACT_HERMESC` override producer tools.
+
+Native module clients can supply a `Module` factory to `exact_apple::host!`
+(the sixth argument) and apply an `ExactGeneration` containing an `ExactModule`
+through `ExactApp.applyGeneration`. All sessions prepare before any commit;
+changed logic re-asks resources while preserving compatible slots and clock.
+Initial module loading happens after first pixel. The binary's app identity
+and grants must match; Rust-only clients refuse module replacement. Pairing
+hashes are not authentication: this API requires an admitted development origin,
+and does not accept signed-delivery generation tokens.
+
+For a module client's `build.rs`, depend on `exact-js-bake` and call
+`exact_js_bake::build(Path::new(".."), "web")` (or `"macos"` / `"ios"`). This writes the
+paired artifacts, `compat.json`, and `module.rs` constants (`APP`, `GRANTS`,
+`REVISION`) into `OUT_DIR`. Set the participating platforms' `deploy.store` entries to
+`"0"` in `app.json`: signed module delivery is not implemented.
+
+The web crate links `exact-js-web`, not Hermes. Include the generated constants
+and artifacts, then use the host macro's factory and paired-artifact arguments:
+
+```rust
+include!(concat!(env!("OUT_DIR"), "/module.rs"));
+exact_web::host!(exact_js_web::Module,
+    include_bytes!(concat!(env!("OUT_DIR"), "/app.plan")),
+    include_str!(concat!(env!("OUT_DIR"), "/compat.json")),
+    || exact_js_web::Module::new(APP, GRANTS, REVISION), [
+        include_bytes!(concat!(env!("OUT_DIR"), "/app.module.json")),
+        include_bytes!(concat!(env!("OUT_DIR"), "/app.js")),
+        include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc")),
+    ]);
+```
+
+Run the ordinary build scripts and `node host/web/dev.mjs --app <name>` with
+`EXACT_APP_DIR` set for an external app. The dev server watches local TypeScript
+imports and Contract, publishes complete immutable generations, and the same URL
+delivers plan/logic/assets to the browser and an admitted macOS/iOS client without
+rebuilding either binary. Browser code runs after first paint in a disposable
+private realm; page and guest globals are untouched. This is trusted app code,
+not a security sandbox. Corrupt, incompatible, or failing candidates preserve
+the running app.
+
+Browser providers support async answers and sequential/parallel `fetch` through
+the existing grant-checked host transport. Executor-local continuation tickets
+drain microtasks without re-entering wasm; stale incarnations cannot fulfill the
+replacement app. Real Chrome tests run all 20 Caltrain data cases and the same
+25 ambient-read probes at initialization, in answers, and after fetch as Hermes,
+plus store, errors, binary responses, interleaving and disposal cases.
+
+iOS uses lean bytecode-only Hermes archives, not the compiler-containing
+framework. Provision matching device/simulator builds under `target/hermes-ios`
+(override with `EXACT_HERMES_IOS_DIR`); the recipe and archive layout are in
+[LLP 1027 D6](llp/1027-typescript-data-sources.rfc.md#d6--the-web-the-browser-is-the-executor-one-wasm-import-the-same-module-under-two-loaders).
+The normal Apple build captures the linked archives in its receipt. The iOS
+simulator executed an async module, fetched twice and followed a URL logic edit
+while retaining count 1 alongside the browser. The device-target archive also
+builds; physical-phone execution and performance have not been measured.
+
+Remaining: Linux native TypeScript execution, npm dependency capture, signed
+module updates, downloadable custom clients, and the generic Go launcher.
+One async web/iOS edit measured 410 ms save-to-DOM / 430 ms to a rendering
+opportunity; the 100 ms save-to-present p50 target is not demonstrated.
+
 ## The five checks
 
 ```sh

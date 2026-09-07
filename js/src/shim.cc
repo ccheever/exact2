@@ -1,11 +1,12 @@
 // The executor's C++: a lean Hermes runtime (bytecode only — it cannot be
 // handed source), one module evaluated once, and calls into `exact.answer`
-// with strings. The one binding installed is `console` (LLP 1027 D10,
-// ruled 2026-09-03): it reaches nothing outside the process.
+// with strings. Storage uses Ibex2 bindings on this same runtime and the
+// caller owns every completion and microtask checkpoint (LLP 1027 D9/D10).
 //
 // @ref LLP 1027 D3 (the executor) / D10 (what the module can use)
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
+#include <ibex2_jsi.h>
 
 #include <cstdint>
 #include <cstdlib>
@@ -38,6 +39,8 @@ struct State {
   std::vector<std::string> log;
   HostFn host;
   void *ctx;
+  // Destroy the adapter (and its JSI roots) before the runtime.
+  std::unique_ptr<ibex2::jsi_adapter::Adapter> storage;
 };
 
 constexpr size_t kLogLines = 256;
@@ -126,7 +129,7 @@ void *exact_js_create(uint32_t max_heap_bytes, HostFn host, void *ctx) {
                       .build();
     auto rt = facebook::hermes::makeHermesRuntimeNoThrow(config);
     if (!rt) return nullptr;
-    auto *state = new State{std::move(rt), {}, host, ctx};
+    auto *state = new State{std::move(rt), {}, host, ctx, nullptr};
     install_console(state);
     install_host(state);
     return state;
@@ -140,6 +143,53 @@ int exact_js_load(void *h, const uint8_t *data, size_t len, char **out) {
   try {
     auto buffer = std::make_shared<OwnedBytes>(std::vector<uint8_t>(data, data + len));
     state->rt->evaluateJavaScript(buffer, "app.hbc");
+    return 0;
+  } catch (const jsi::JSError &e) {
+    return fail(out, e.getMessage(), 1);
+  } catch (const std::exception &e) {
+    return fail(out, e.what(), 2);
+  }
+}
+
+// Trusted initialization only: no application code or microtasks run here.
+int exact_js_install_storage(void *h, const void *queue, const void *grants,
+                             const uint8_t *sqlite, size_t sqlite_len,
+                             const uint8_t *harden, size_t harden_len, char **out) {
+  auto *state = static_cast<State *>(h);
+  auto &rt = *state->rt;
+  try {
+    if (state->storage) return fail(out, "storage is already installed", 1);
+    state->storage = std::make_unique<ibex2::jsi_adapter::Adapter>(rt, queue);
+    auto factory_bytes = std::make_shared<OwnedBytes>(
+        std::vector<uint8_t>(sqlite, sqlite + sqlite_len));
+    auto factory = rt.evaluateJavaScript(factory_bytes, "storage-sqlite.hbc")
+                       .getObject(rt).getFunction(rt);
+    rt.global().setProperty(rt, "__exact_storage", state->storage->storage(grants, factory));
+    rt.global().getPropertyAsFunction(rt, "__exact_install_storage").call(rt);
+    // The prelude captures storage in its closure; no capability-bearing
+    // temporary may remain when hardening locks global property descriptors.
+    auto reflect = rt.global().getPropertyAsObject(rt, "Reflect");
+    auto remove = reflect.getPropertyAsFunction(rt, "deleteProperty");
+    for (const char *name : {"__exact_storage", "__exact_install_storage"}) {
+      if (!remove.call(rt, rt.global(), jsi::String::createFromUtf8(rt, name)).getBool())
+        return fail(out, "storage initialization could not remove its temporary global", 1);
+    }
+    auto harden_bytes = std::make_shared<OwnedBytes>(
+        std::vector<uint8_t>(harden, harden + harden_len));
+    rt.evaluateJavaScript(harden_bytes, "storage-harden.hbc");
+    return 0;
+  } catch (const jsi::JSError &e) {
+    return fail(out, e.getMessage(), 1);
+  } catch (const std::exception &e) {
+    return fail(out, e.what(), 2);
+  }
+}
+
+// Settle one native storage promise; the caller decides when to checkpoint.
+int exact_js_deliver_storage_one(void *h, bool *delivered, char **out) {
+  auto *state = static_cast<State *>(h);
+  try {
+    *delivered = state->storage && state->storage->deliver_one();
     return 0;
   } catch (const jsi::JSError &e) {
     return fail(out, e.getMessage(), 1);

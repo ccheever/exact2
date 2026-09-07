@@ -29,6 +29,21 @@ mod real {
             c: *const c_char,
             out: *mut *mut c_char,
         ) -> i32;
+        fn exact_js_install_storage(
+            h: *mut c_void,
+            queue: *const c_void,
+            grants: *const c_void,
+            sqlite: *const u8,
+            sqlite_len: usize,
+            harden: *const u8,
+            harden_len: usize,
+            out: *mut *mut c_char,
+        ) -> i32;
+        fn exact_js_deliver_storage_one(
+            h: *mut c_void,
+            delivered: *mut bool,
+            out: *mut *mut c_char,
+        ) -> i32;
         fn exact_js_drain(h: *mut c_void, out: *mut *mut c_char) -> i32;
         fn exact_js_take_log(h: *mut c_void, out: *mut *mut c_char);
         fn exact_js_free(p: *mut c_char);
@@ -65,6 +80,51 @@ mod real {
                 return Err("the Hermes runtime could not be created".into());
             }
             Ok(Engine(h))
+        }
+
+        /// Install only during trusted initialization, after the prelude and
+        /// before app code. The caller keeps `context` alive until Engine drops.
+        pub fn install_storage(
+            &mut self,
+            context: &ibex2::bindings::Context,
+        ) -> Result<(), String> {
+            const SQLITE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage-sqlite.hbc"));
+            const HARDEN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage-harden.hbc"));
+            let mut out = std::ptr::null_mut();
+            // SAFETY: Module owns the context beyond this engine's lifetime;
+            // the shim retains bytecode buffers and borrows the Arc-backed state.
+            let status = unsafe {
+                exact_js_install_storage(
+                    self.0,
+                    context.state_ptr(),
+                    context.grants_ptr(),
+                    SQLITE.as_ptr(),
+                    SQLITE.len(),
+                    HARDEN.as_ptr(),
+                    HARDEN.len(),
+                    &mut out,
+                )
+            };
+            let text = take(out);
+            if status == 0 {
+                Ok(())
+            } else {
+                Err(text)
+            }
+        }
+
+        /// Deliver at most one completion without running any microtasks.
+        pub fn deliver_storage_one(&mut self) -> Result<bool, String> {
+            let mut delivered = false;
+            let mut out = std::ptr::null_mut();
+            // SAFETY: the engine is live; both output pointers outlive the call.
+            let status = unsafe { exact_js_deliver_storage_one(self.0, &mut delivered, &mut out) };
+            let text = take(out);
+            if status == 0 {
+                Ok(delivered)
+            } else {
+                Err(text)
+            }
         }
 
         pub fn load(&mut self, bytecode: &[u8]) -> Result<(), String> {
@@ -176,6 +236,15 @@ mod real {
             _host: HostFn,
             _ctx: *mut c_void,
         ) -> Result<Engine, String> {
+            Err(NONE.into())
+        }
+        pub fn install_storage(
+            &mut self,
+            _context: &ibex2::bindings::Context,
+        ) -> Result<(), String> {
+            Err(NONE.into())
+        }
+        pub fn deliver_storage_one(&mut self) -> Result<bool, String> {
             Err(NONE.into())
         }
         pub fn drain(&mut self) -> Result<(), String> {

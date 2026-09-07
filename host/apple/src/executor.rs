@@ -22,6 +22,7 @@ struct Job {
     ticket: u64,
     request: Request,
     forced: bool,
+    work: Option<Box<dyn FnOnce() -> Outcome + Send>>,
 }
 
 /// One worker thread and its two queues.
@@ -46,7 +47,7 @@ impl Executor {
             .name("exact-executor".into())
             .spawn(move || {
                 for job in job_rx {
-                    let outcome = run(bindings.as_ref(), job.request, job.forced);
+                    let outcome = run(bindings.as_ref(), job.request, job.forced, job.work);
                     if outcome_tx.send((job.ticket, outcome)).is_err() {
                         break;
                     }
@@ -60,11 +61,12 @@ impl Executor {
     }
 
     /// Hand a request to the worker.
-    pub fn run(&self, r: RequestOut) {
+    pub fn run(&self, r: RequestOut, work: Option<Box<dyn FnOnce() -> Outcome + Send>>) {
         let _ = self.jobs.send(Job {
             ticket: r.ticket,
             request: r.request,
             forced: r.forced,
+            work,
         });
     }
 
@@ -74,7 +76,21 @@ impl Executor {
     }
 }
 
-fn run(bindings: Option<&ibex2::host::Bindings>, request: Request, forced: bool) -> Outcome {
+fn run(
+    bindings: Option<&ibex2::host::Bindings>,
+    request: Request,
+    forced: bool,
+    work: Option<Box<dyn FnOnce() -> Outcome + Send>>,
+) -> Outcome {
+    if request.continuation.is_some() {
+        return work.map_or_else(
+            || Outcome::Failed {
+                kind: FailureKind::Unsupported,
+                message: "missing or consumed native continuation".into(),
+            },
+            |work| work(),
+        );
+    }
     let Some(b) = bindings else {
         return Outcome::Failed {
             kind: FailureKind::Refused,
@@ -106,5 +122,86 @@ fn run(bindings: Option<&ibex2::host::Bindings>, request: Request, forced: bool)
             kind: FailureKind::Network,
             message: e.to_string(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn continuations_run_on_worker_and_missing_tokens_refuse_without_network() {
+        let executor = Executor::start(None, None);
+        let renderer = std::thread::current().id();
+        let (entered, on_worker) = channel();
+        let (release, wait) = channel();
+        executor.run(
+            RequestOut {
+                ticket: 7,
+                target: "storage".into(),
+                request: Request::continuation(12),
+                forced: false,
+            },
+            Some(Box::new(move || {
+                entered.send(std::thread::current().id()).unwrap();
+                wait.recv_timeout(Duration::from_secs(5)).unwrap();
+                Outcome::Response(Response {
+                    status: 200,
+                    headers: vec![],
+                    body: b"done".to_vec(),
+                })
+            })),
+        );
+        let worker = on_worker.recv_timeout(Duration::from_secs(5));
+        // Always unblock the worker before assertions, including failed checks.
+        release.send(()).unwrap();
+        assert_ne!(renderer, worker.unwrap());
+        executor.run(
+            RequestOut {
+                ticket: 8,
+                target: "missing".into(),
+                request: Request::continuation(12),
+                forced: false,
+            },
+            None,
+        );
+        let first = executor
+            .outcomes
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(first.0, 7);
+        assert!(matches!(
+            first.1,
+            Outcome::Response(Response { status: 200, .. })
+        ));
+        let missing = executor
+            .outcomes
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(missing.0, 8);
+        assert!(matches!(
+            missing.1,
+            Outcome::Failed {
+                kind: FailureKind::Unsupported,
+                ..
+            }
+        ));
+        // An HTTP request still follows grant/transport handling, even if
+        // handed a stray continuation closure.
+        assert!(matches!(
+            run(
+                None,
+                Request::get("https://example.com"),
+                false,
+                Some(Box::new(|| panic!(
+                    "HTTP must not execute continuation work"
+                )))
+            ),
+            Outcome::Failed {
+                kind: FailureKind::Refused,
+                ..
+            }
+        ));
     }
 }

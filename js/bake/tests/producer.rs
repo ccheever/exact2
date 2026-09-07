@@ -1,0 +1,386 @@
+//! Actual tsc → Rolldown → HBC → bake, then replacement in the native host.
+use exact_apple::abi::{Bridge, Hooks};
+use exact_js::{Module, Paired};
+use exact_js_bake::{bake, Baked, Tools};
+use exact_kernel::Kernel;
+use exact_runner::{Runner, Value};
+use serde_json::Value as Json;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+const APP: &str = "test.exact.logic";
+const CONTRACT: &str = r#"
+component App
+  state count = 0
+  resource message = message(count) as shape string
+  action increment writes count
+    count = count + 1
+  view
+    column
+      text message testId="message"
+      button "Increment" press=increment testId="increment"
+"#;
+const SOURCE: &str = r#"
+import type { Sources, Answer } from './app.contract.d.ts';
+import { prefix } from './logic';
+export const appId = 'test.exact.logic';
+export const grants = '';
+const sources: Sources = {
+  message: ([count]) => { console.log('message called'); return prefix + count; },
+};
+export const answer: Answer = (source, args, store, storage) => sources[source](args, store, storage);
+"#;
+
+struct Fixture(PathBuf);
+impl Fixture {
+    fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "exact-producer-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let f = Self(path);
+        f.write("app.contract", CONTRACT);
+        f.write("app.ts", SOURCE);
+        f.write("logic.ts", "export const prefix = 'old: ';\n");
+        f
+    }
+    fn write(&self, name: &str, bytes: &str) {
+        std::fs::write(self.0.join(name), bytes).unwrap();
+    }
+    fn bake(&self) -> Baked {
+        bake(&self.0, &Tools::default()).unwrap()
+    }
+}
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).unwrap();
+    }
+}
+
+fn paired(baked: &Baked) -> Paired {
+    Paired::decode(&baked.receipt, &baked.plan, baked.bytecode.clone(), APP, "").unwrap()
+}
+
+#[test]
+fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidates() {
+    let f = Fixture::new();
+    if !exact_js::ENGINE_LINKED {
+        assert!(bake(&f.0, &Tools::default())
+            .err()
+            .unwrap()
+            .contains("requires the lean Hermes"));
+        return;
+    }
+    let first = f.bake();
+    let repeat = f.bake();
+    assert_eq!(first.plan, repeat.plan);
+    assert_eq!(first.bytecode, repeat.bytecode);
+    assert_eq!(first.script, repeat.script);
+    assert_eq!(first.receipt, repeat.receipt);
+    assert!(
+        !f.0.join("app.contract.d.ts").exists(),
+        "generated types stay in the snapshot"
+    );
+    assert_eq!(std::fs::read_to_string(f.0.join("app.ts")).unwrap(), SOURCE);
+    let candidate = paired(&first);
+    assert!(
+        !candidate.module.is_loaded(),
+        "admission and first frame need no engine"
+    );
+    let mut live =
+        Runner::boot(candidate.plan, candidate.module, Kernel::with_monospace()).unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("old: 0")));
+    assert!(
+        !live.data().is_loaded(),
+        "first frame comes entirely from baked values"
+    );
+    live.data().load().unwrap();
+    live.data_ready().unwrap();
+    live.act("increment", vec![]).unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("old: 1")));
+    let out = f.0.join("dist");
+    first.write_new(&out).unwrap();
+    served_pair(&out);
+    assert!(
+        first.write_new(&out).is_err(),
+        "no overwriting a published generation"
+    );
+    f.write("logic.ts", "export const prefix = 'new: ';\n");
+    let second = f.bake();
+    let mut next = paired(&second);
+    next.module.load().unwrap();
+    let carried = live.carry();
+    let mut changed =
+        Runner::boot_carrying(next.plan, next.module, Kernel::with_monospace(), &carried).unwrap();
+    assert_eq!(changed.slot("count"), Some(&Value::Number(1.0)));
+    assert_eq!(
+        changed.resource("message"),
+        Some(&Value::str("new: 1")),
+        "same arguments must not reuse old logic's answer"
+    );
+    assert_eq!(changed.data().take_logs(), ["message called"]);
+    let mut same = paired(&second);
+    same.module.load().unwrap();
+    let mut reloaded = Runner::boot_carrying(
+        same.plan,
+        same.module,
+        Kernel::with_monospace(),
+        &changed.carry(),
+    )
+    .unwrap();
+    assert!(
+        reloaded.data().take_logs().is_empty(),
+        "unchanged logic keeps matching resource answers"
+    );
+
+    for bad in [
+        SOURCE.replace("return prefix + count", "return 42"),
+        SOURCE.replace("return prefix + count", "return (42 as any)"),
+        SOURCE.replace(
+            "export const grants = ''",
+            "export const grants = Date.now().toString()",
+        ),
+    ] {
+        f.write("app.ts", &bad);
+        assert!(
+            bake(&f.0, &Tools::default()).is_err(),
+            "types, runtime shapes, and ambient reads all gate publication"
+        );
+        assert_eq!(std::fs::read(out.join("app.plan")).unwrap(), first.plan);
+        assert_eq!(
+            std::fs::read_to_string(out.join("app.module.json")).unwrap(),
+            first.receipt
+        );
+    }
+    let outside = Fixture::new();
+    f.write(
+        "app.ts",
+        &SOURCE.replace(
+            "'./logic'",
+            &format!("'{}'", outside.0.join("logic").display()),
+        ),
+    );
+    let error = bake(&f.0, &Tools::default())
+        .err()
+        .expect("an absolute import outside the snapshot must refuse");
+    assert!(error.contains("outside captured app"), "{error}");
+    let mut corrupt = second.bytecode.clone();
+    corrupt[20] ^= 1;
+    assert!(Paired::decode(&second.receipt, &second.plan, corrupt, APP, "").is_err());
+    assert!(Paired::decode(
+        &second.receipt,
+        &first.plan,
+        second.bytecode.clone(),
+        APP,
+        ""
+    )
+    .is_err());
+    assert!(Paired::decode(
+        &second.receipt,
+        &second.plan,
+        second.bytecode.clone(),
+        "test.other",
+        ""
+    )
+    .is_err());
+    assert!(Paired::decode(
+        &second.receipt,
+        &second.plan,
+        second.bytecode.clone(),
+        APP,
+        "net.fetch https://x"
+    )
+    .is_err());
+    let mut meta: Json = serde_json::from_str(&second.receipt).unwrap();
+    let mut wrong_version = second.bytecode.clone();
+    wrong_version[8] ^= 1;
+    {
+        use sha2::{Digest, Sha256};
+        meta["module"]["sha256"] = format!("{:x}", Sha256::digest(&wrong_version)).into();
+    }
+    assert!(
+        Paired::decode(&meta.to_string(), &second.plan, wrong_version, APP, "").is_err(),
+        "the actual HBC header must match, even when the receipt claims compatibility"
+    );
+    meta["bytecodeVersion"] = 0.into();
+    assert!(Paired::decode(
+        &meta.to_string(),
+        &second.plan,
+        second.bytecode.clone(),
+        APP,
+        ""
+    )
+    .is_err());
+}
+
+fn served_pair(out: &Path) {
+    // Exercise the actual retained HTTP namespace using real producer bytes.
+    let probe = r#"
+import assert from 'node:assert/strict';
+import {readFileSync,writeFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {moduleCards,retainDevGeneration,readDevGeneration} from './host/web/serve.mjs';
+import {sha256} from './scripts/origin.mjs';
+const dir=process.argv[1], epoch='b'.repeat(32), prefix=`/__dev/generation/${epoch}/1/`;
+const files=new Map(['app.plan','app.js','app.hbc','app.module.json'].map(name=>[name,readFileSync(resolve(dir,name))]));
+const module=moduleCards(files,'test.exact.logic');
+assert.deepEqual(Object.keys(module).sort(),['native','receipt','web']);
+assert.throws(()=>moduleCards(files,'another.app'));
+for(const name of files.keys()){
+  const corrupt=new Map(files);corrupt.set(name,Buffer.from('corrupt'));
+  assert.throws(()=>moduleCards(corrupt,'test.exact.logic'),name);
+}
+const plan=files.get('app.plan');
+files.set('exact.json',Buffer.from(JSON.stringify({dev:{epoch,seq:1},plan:{bytes:plan.length,sha256:sha256(plan)},module})));
+const cache=resolve(dir,'retained');retainDevGeneration(cache,epoch,1,files);
+for(const [name,body] of files)assert.deepEqual(readDevGeneration(cache,prefix+name)?.body,body,name);
+writeFileSync(resolve(cache,epoch,'1/app.js'),'corrupt');
+assert.equal(readDevGeneration(cache,prefix+'app.js'),null);
+assert.deepEqual(readDevGeneration(cache,prefix+'app.hbc')?.body,files.get('app.hbc'));
+assert.equal(readDevGeneration(cache,prefix+'private.js'),null);
+"#;
+    let result = std::process::Command::new("node")
+        .args(["--input-type=module", "-e", probe])
+        .arg(out)
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+fn output(bridge: &Bridge<Module>, len: u32) -> Json {
+    let value: Json = serde_json::from_slice(bridge.output_bytes(len as usize)).unwrap();
+    value
+}
+fn ask(bridge: &mut Bridge<Module>, op: &str) -> Json {
+    let len = bridge.input_write(format!("{{\"op\":\"{op}\"}}").as_bytes());
+    let size = bridge.agent(len);
+    output(bridge, size)
+}
+fn prepare(bridge: &mut Bridge<Module>, baked: &Baked) -> Result<(), String> {
+    let mut payload = baked.plan.clone();
+    payload.extend(baked.receipt.as_bytes());
+    payload.extend(&baked.bytecode);
+    bridge.input_write(&payload);
+    let count = bridge.prepare_module(
+        [baked.plan.len(), baked.receipt.len(), baked.bytecode.len()],
+        Module::new(Vec::new(), APP, ""),
+        Hooks::none(),
+        390.0,
+        844.0,
+    );
+    match output(bridge, count)["error"].as_str() {
+        Some(error) => Err(error.into()),
+        None => Ok(()),
+    }
+}
+
+#[test]
+fn native_host_sessions_prepare_together_and_keep_the_live_app_when_one_refuses() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    let first = f.bake();
+    let mut a = Bridge::<Module>::new();
+    let mut b = Bridge::<Module>::new();
+    for bridge in [&mut a, &mut b] {
+        prepare(bridge, &first).unwrap();
+        let count = bridge.commit_plan();
+        assert!(output(bridge, count)["error"].is_null());
+        let count = bridge.data_ready();
+        assert!(output(bridge, count)["error"].is_null());
+    }
+    let tree = ask(&mut b, "tree");
+    let button = tree["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["props"]["testId"] == "increment")
+        .unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    let count = b.dispatch(button as u32, 0, 0, 321.0);
+    assert!(output(&b, count)["error"].is_null());
+    let before_a = ask(&mut a, "state");
+    let before_b = ask(&mut b, "state");
+    f.write("logic.ts", "export const prefix = 'new: ';\n");
+    f.write(
+        "app.ts",
+        &SOURCE.replace(
+            "return prefix + count",
+            "if (count === 1) throw new Error('candidate refused'); return prefix + count",
+        ),
+    );
+    let bad = f.bake(); // count=0 bakes; session b's carried count=1 refuses.
+    prepare(&mut a, &bad).unwrap();
+    assert!(prepare(&mut b, &bad).is_err());
+    a.discard_plan();
+    b.discard_plan();
+    assert_eq!(ask(&mut a, "state"), before_a);
+    assert_eq!(ask(&mut b, "state"), before_b);
+    f.write("app.ts", SOURCE);
+    let good = f.bake();
+    prepare(&mut a, &good).unwrap();
+    prepare(&mut b, &good).unwrap();
+    assert_eq!(
+        ask(&mut a, "state"),
+        before_a,
+        "prepare never publishes a candidate"
+    );
+    assert_eq!(ask(&mut b, "state"), before_b);
+    a.commit_plan();
+    b.commit_plan();
+    assert_eq!(ask(&mut a, "state")["slots"]["count"], 0);
+    assert_eq!(ask(&mut b, "state")["slots"]["count"], 1);
+    assert!(ask(&mut a, "tree").to_string().contains("new: 0"));
+    assert!(ask(&mut b, "tree").to_string().contains("new: 1"));
+}
+
+#[test]
+fn cli_refuses_bad_arguments() {
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_exact-js-bake"))
+        .output()
+        .unwrap();
+    assert_eq!(status.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&status.stderr).contains("usage:"));
+    assert!(Path::new(env!("CARGO_MANIFEST_DIR")).is_dir());
+}
+
+#[test]
+fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    let source = SOURCE.replace(
+        "message: ([count]) => { console.log('message called'); return prefix + count; }",
+        "message: async ([count], store, storage) => { try { await storage.fs.readFile(storage.fs.directories.data + '/note'); return 'unexpected storage'; } catch (error) { return prefix + count; } }",
+    );
+    f.write("app.ts", &source);
+    let baked = f.bake();
+    assert!(baked.declarations.contains(include_str!(
+        "../../../../ibex/crates/ibex2/src/bindings/storage.d.ts"
+    )));
+    let candidate = paired(&baked);
+    let live = Runner::boot(candidate.plan, candidate.module, Kernel::with_monospace()).unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("old: 0")));
+    f.write(
+        "app.ts",
+        &source.replace(
+            "storage.fs.readFile(storage.fs.directories.data + '/note')",
+            "storage.fs.writeFile(storage.fs.directories.data + '/note', 'not bytes')",
+        ),
+    );
+    let error = bake(&f.0, &Tools::default())
+        .err()
+        .expect("wrong storage parameters must fail tsc");
+    assert!(error.contains("error TS"), "{error}");
+}

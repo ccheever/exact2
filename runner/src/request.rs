@@ -29,6 +29,9 @@ impl From<Value> for Answer {
 /// `Request` a plan runner decides — not its redirect mode, not the final URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
+    /// Executor-local continuation token, not an HTTP request. The browser
+    /// drains its module's microtasks; native hosts take source-owned worker work.
+    pub continuation: Option<u64>,
     /// `GET`, `POST`, …
     pub method: String,
     /// The URL.
@@ -43,6 +46,7 @@ impl Request {
     /// A `GET`.
     pub fn get(url: &str) -> Request {
         Request {
+            continuation: None,
             method: "GET".into(),
             url: url.into(),
             headers: Vec::new(),
@@ -53,6 +57,7 @@ impl Request {
     /// A `POST` of a JSON text.
     pub fn post_json(url: &str, json: &str) -> Request {
         Request {
+            continuation: None,
             method: "POST".into(),
             url: url.into(),
             headers: vec![("content-type".into(), "application/json".into())],
@@ -64,6 +69,14 @@ impl Request {
     pub fn header(mut self, name: &str, value: &str) -> Request {
         self.headers.push((name.into(), value.into()));
         self
+    }
+
+    /// Yield to a host-owned executor without inventing a network URL or grant.
+    pub fn continuation(token: u64) -> Self {
+        Self {
+            continuation: Some(token),
+            ..Self::get("")
+        }
     }
 }
 

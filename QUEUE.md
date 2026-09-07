@@ -10,6 +10,20 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **iOS module device proof** (2026-09-07): lean device archive builds; simulator
+  async fetch and URL replacement run. Drive a physical phone, sweep its guard
+  corpus, and measure linked size/startup/per-call cost (1027 §10 Q7).
+- **Module edit latency** (2026-09-07): async counter edit measured 410 ms
+  save-to-DOM / 430 ms to a rendering opportunity; target is 100 ms p50.
+
+- **Resource carry source identity** (2026-09-07): carry checks name, arguments,
+  value shape and module hash, but not a Contract edit redirecting that resource
+  to another source in unchanged logic. Include the source in compatibility.
+
+- **macOS cover viewport smoke** (2026-09-06): `smoke.mjs macos` reports
+  420×853 for the cover fixture versus Caltrain's 420×821, a 32-point
+  titlebar difference. Check the initial window sizing and fixture expectation.
+
 - **External wasm reproducibility** (2026-09-05): relocated source captures put
   absolute Rust source paths in the app and GPU wasm, so unchanged sources can
   republish different bytes. Keep closed snapshots; investigate stable build paths.
@@ -339,3 +353,6 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   compilation" for the bake, 1026's wasm data module leaves its staging so a phone
   carries one interpreter) and §10's eight questions — 1.8 MB on iOS and the
   one-frame `pending` first. 1019's link (Accepted, landed) left `current/` for it.
+
+- **Browser app storage:** provide a browser backend for the typed `storage.fs` and
+  `storage.sqlite` capability; currently these explicitly return `Unavailable`.

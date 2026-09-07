@@ -63,6 +63,7 @@ impl Hooks {
 pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
     prepared: Option<PreparedHost<D>>,
+    painted: bool,
     executor: Option<crate::executor::Executor>,
     fonts: Option<FontsFn>,
     fonts_ctx: *mut c_void,
@@ -92,6 +93,7 @@ impl<D: DataSource> Bridge<D> {
         Bridge {
             host: None,
             prepared: None,
+            painted: false,
             executor: None,
             fonts: None,
             fonts_ctx: std::ptr::null_mut(),
@@ -167,7 +169,11 @@ impl<D: DataSource> Bridge<D> {
         // with the batch (LLP 1016 D2); the presenter never sees a request.
         if let (Some(h), Some(x)) = (self.host.as_mut(), self.executor.as_ref()) {
             for r in h.take_requests() {
-                x.run(r);
+                let work = r
+                    .request
+                    .continuation
+                    .and_then(|token| h.continuation(token));
+                x.run(r, work);
             }
         }
         self.output = s.into_bytes();
@@ -305,6 +311,61 @@ impl<D: DataSource> Bridge<D> {
             .as_mut()
             .map_or_else(not_booted, |h| h.sync_delivery());
         self.emit(out)
+    }
+
+    /// The presenter has painted this session; deferred logic can now load.
+    pub fn data_ready(&mut self) -> u32 {
+        if self.host.is_none() {
+            return self.emit(not_booted());
+        }
+        self.painted = true;
+        let out = self.host.as_mut().expect("checked").activate_data();
+        self.emit(out)
+    }
+
+    /// Prepare plan + UTF-8 pairing receipt + bytecode from one input buffer.
+    /// This is a development-origin API, not an authenticated update channel.
+    pub fn prepare_module(
+        &mut self,
+        lengths: [usize; 3],
+        admitted: D,
+        hooks: Hooks,
+        width: f32,
+        height: f32,
+    ) -> u32 {
+        if let Some(refusal) = self.refuse_analysis() {
+            return refusal;
+        }
+        self.discard_plan();
+        let [plan_len, receipt_len, module_len] = lengths;
+        let total = plan_len
+            .checked_add(receipt_len)
+            .and_then(|n| n.checked_add(module_len));
+        if total != Some(self.input.len())
+            || plan_len > 32 * 1024 * 1024
+            || receipt_len > 1024 * 1024
+            || module_len > 32 * 1024 * 1024
+        {
+            return self.refuse_preparation("invalid module generation lengths");
+        }
+        let receipt = match std::str::from_utf8(&self.input[plan_len..plan_len + receipt_len]) {
+            Ok(text) => text,
+            Err(_) => return self.refuse_preparation("module receipt is not UTF-8"),
+        };
+        let mut data = match admitted.replacement(
+            &self.input[..plan_len],
+            receipt,
+            self.input[plan_len + receipt_len..].to_vec(),
+        ) {
+            Ok(data) => data,
+            Err(error) => return self.prepare_error(format!("module generation: {error:?}")),
+        };
+        if self.painted {
+            if let Err(error) = data.activate() {
+                return self.prepare_error(format!("candidate module: {error:?}"));
+            }
+        }
+        self.prepare_plan(plan_len, data, hooks, width, height)
     }
 
     /// Boot from the input buffer's first `len` bytes (a plan the app
@@ -689,7 +750,8 @@ pub fn with_entry<D: DataSource>(
 
 /// Instantiate the C exports for one app (see `include/exact.h`).
 ///
-/// `$data` is the app's `DataSource` type (constructed with `Default`);
+/// `$data` is the app's `DataSource` type (constructed with `Default`, or
+/// the sixth argument's factory for a deferred bytecode module);
 /// `$plan` a `&'static [u8]` of baked plan bytes. Every export takes the
 /// runtime handle `exact_create` returned (LLP 1031 D2).
 #[macro_export]
@@ -698,6 +760,9 @@ macro_rules! host {
         $crate::host!($data, $plan, $compat, None, ::std::ptr::null());
     };
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr) => {
+        $crate::host!($data, $plan, $compat, $delivery, $api, || <$data as ::std::default::Default>::default());
+    };
+    ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr) => {
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
@@ -784,7 +849,7 @@ macro_rules! host {
                 b.set_compat($compat);
                 if let Some(refusal) = b.refuse_analysis() { return refusal; }
                 b.set_delivery($delivery);
-                b.boot_selected($plan, || <$data as ::std::default::Default>::default(), hooks, width, height)
+                b.boot_selected($plan, $new, hooks, width, height)
             }, |n| n)
         }
 
@@ -813,7 +878,7 @@ macro_rules! host {
                 b.set_compat($compat);
                 if let Some(refusal) = b.refuse_analysis() { return refusal; }
                 b.set_delivery($delivery);
-                b.boot_plan(len, <$data as ::std::default::Default>::default(), hooks, width, height)
+                b.boot_plan(len, ($new)(), hooks, width, height)
             }, |n| n)
         }
 
@@ -827,7 +892,24 @@ macro_rules! host {
                 let delivery: ::std::option::Option<&'static $crate::delivery::Hooks> = $delivery;
                 let facts = delivery.and_then(|h| (h.candidate_delivery)(token, $compat));
                 if token != 0 && facts.is_none() { return b.refuse_preparation("unknown composition generation"); }
-                b.prepare_plan_with_delivery(len, <$data as ::std::default::Default>::default(), hooks, width, height, facts)
+                b.prepare_plan_with_delivery(len, ($new)(), hooks, width, height, facts)
+            }, |n| n)
+        }
+
+        /// First pixel has been presented; activate deferred app logic.
+        #[no_mangle]
+        pub extern "C" fn exact_data_ready(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.data_ready(), |n| n)
+        }
+
+        /// Prepare an admitted development module generation, with no delivery token.
+        #[no_mangle]
+        pub extern "C" fn exact_prepare_module(rt: u32, plan: usize, receipt: usize, module: usize, width: f32, height: f32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
+                b.set_compat($compat);
+                if let Some(refusal) = b.refuse_analysis() { return refusal; }
+                b.set_delivery($delivery);
+                b.prepare_module([plan, receipt, module], ($new)(), hooks, width, height)
             }, |n| n)
         }
 

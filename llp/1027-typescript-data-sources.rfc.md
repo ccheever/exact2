@@ -12,7 +12,8 @@ addresses the stage-3 clock gap and implicit randomness, including bake and
 cache semantics. Charlie requested the described fixes on 2026-09-04:
 explicit time/seed arguments and refusal of ambient reads replace D1a's
 unimplemented clock shadow. The macOS executor implementation and actual
-verification are recorded in the child; the browser executor remains unbuilt.
+verification are recorded in the child; browser parity and iOS execution are
+recorded in D6 (2026-09-07).
 
 ## Summary
 
@@ -395,9 +396,10 @@ by anyone, which closes the door exact1's Hermes path left open.
 
 **Determinism.** Time and seed inputs are arguments, as for the Rust crate
 (`board(id, dir, nowMs)`); LLP 1027.000 enforces that boundary in the existing
-macOS executor. Repeated inputs and supplied external outcomes reproduce
+macOS/browser executors. Repeated inputs and supplied external outcomes reproduce
 answers in the fixture. This does not claim cross-host locale/timezone
-parity or execution on the future browser/iOS/Linux TypeScript loaders.
+parity. The browser shares the guard corpus; iOS shares the prelude but has
+only the application execution proof below. Linux execution remains unbuilt.
 
 ### D4 — After first pixel, on every host, and one frame of `pending`
 
@@ -455,6 +457,46 @@ a change to this design (§10 Q3).
 
 ### D5 — Bake: TypeScript to bytecode and to JavaScript, constants through the same engine, types from the Contract
 
+**Producer substep (Codex, 2026-09-06):** `contract types <app.contract>`
+and `contract::typescript` now generate the source-to-argument/result map,
+per-source providers, generic dispatcher, and store interface from the plan.
+Use `-o app.contract.d.ts` beside `app.ts`: TypeScript resolves an adjacent
+`app.d.ts` import back to `app.ts`, even with the declaration extension written.
+The runner-owned `exactDelivery` source is excluded from app provider duties.
+The pinned TypeScript compiler runs in the existing Cargo test suite: real
+Caltrain signatures, sync/async providers and a cast-free dispatcher pass;
+wrong results/arguments/store usage refuse. Malformed plans refuse, and a
+Contract error leaves the CLI's last good output unchanged. These types
+check annotated providers, not arbitrary unannotated JavaScript.
+
+**Producer and native preparation (Codex, 2026-09-07):** `exact-js-bake`
+captures app-local `app.ts`/Contract sources, generates those declarations,
+runs the pinned TypeScript checker and Rolldown, compiles with `hermesc`, and
+bakes through that HBC with an empty store. Rolldown is already in this repo's
+toolchain; the Bun command below describes the original probe, not this producer.
+Imports outside the captured app refuse; npm dependency capture remains owed.
+New output directories contain plan, JS, HBC and a pairing receipt (hashes,
+lengths, ABI, bytecode version, identity, grants); no existing output is replaced.
+This receipt is not an authenticated deployment receipt or a native bake receipt.
+
+`Module` owns its admitted identity/grants and reports a bytecode hash to the
+runner. Resource carry requires unchanged logic as well as matching arguments;
+logic edits keep compatible slots, secrets and clock, but re-ask resources.
+Apple's `exact_prepare_module` and `ExactGeneration.module` feed the existing
+all-session prepare/commit path. A fresh session stays unloaded until its first
+pixel; live candidates load privately before preparation. Rust-only clients,
+mixed/corrupt bytes, changed grants/identity, and unsupported bytecode refuse.
+New sessions receive the last accepted module rather than the binary's old one.
+Module generations do not yet participate in signed update compositions.
+
+Actual toolchain tests prove reproducibility, typed/runtime refusals, old-output
+preservation, and two native Rust host sessions whose distinct carried state
+makes one reject a candidate: neither session changes. The Swift coordinator
+builds for macOS/iOS and both existing multi-session host smokes pass. A live
+reload also preserves kept-answer persistence, exercised by the login fixture.
+The URL/browser substep below proves a TypeScript UI edit on web/macOS;
+D6 adds browser async parity and iOS simulator execution/replacement.
+
 Bake gains three steps, all build-time, all reproducible:
 
 1. **Bundle and strip.** `app.ts` and what it imports → one script,
@@ -493,63 +535,129 @@ every source and every error path — twenty cases today. The Rust
 crate stays as the Rust seam's fixture; the twin is the TypeScript
 seam's; the test is one test.
 
-**The dev loop.** `dev.mjs` watches `app.ts` beside `app.contract`
-(dev.mjs:104's list gains the app's `.ts` files); a save runs steps
-1–3 and pushes `{rebuilt}` — a module change, classified as LLP 1026
-D4 classifies it: a restart with carry (LLP 1007 §6), resources
-restarted. 20 ms of build inside the 100 ms edit-to-present budget.
+**The dev loop (implemented 2026-09-07).** `dev.mjs` watches app-local
+TypeScript/Contract/JSON and runs the producer into a private output directory.
+Only a complete successful bake publishes a new immutable generation (1023
+D2/D3); a logic edit does not send program-terminal `{rebuilt}`. The generation
+binds plan, receipt, script, HBC and assets. Both clients restart with carry;
+changed logic invalidates resource answers. A newer edit supersedes an older
+in-flight bake; a refused bake leaves discovery unchanged. The ordinary Cargo
+build scripts can call `exact_js_bake::build` to embed the same paired artifacts
+and target receipt, currently for updater-free web/macOS/iOS compositions only.
+
+Actual external counter clients at one URL changed their displayed answer with
+count 1 retained on web/macOS, without rebuilding wasm or the native binary.
+A candidate that bakes at count 0 but throws at count 1 preserved both running
+apps. One browser producer-start-to-DOM sample was ~359 ms (producer 329 ms,
+fetch 26 ms, restart 3 ms), excluding watch debounce; timing now includes it.
+The 100 ms save-to-present p50 budget is not demonstrated. D6 records the
+subsequent async data parity and iOS simulator sweep; full TypeScript Caltrain
+UI driving, physical iOS and signed module delivery remain owed.
 
 ### D6 — The web: the browser is the executor; one wasm import; the same module under two loaders
 
-**Implementation status (2026-09-04):** this section is the accepted design
-for a future executor, not an as-built claim. No `exact-js-web` loader is
-present yet. Its guarded module environment must satisfy LLP 1027.000
-without changing host-page or iframe-guest Date/Math globals.
+**Implementation status (Codex, 2026-09-07):** `exact-js-web` and the private
+browser loader support synchronous and async providers, including fetch.
+Synchronous answers stay synchronous. A Promise becomes an executor-local
+continuation request on the runner's existing ticket/fulfillment seam (1016
+D1/D2); the browser drains microtasks at a MessageChannel task checkpoint,
+without recursively entering wasm. Turns serialize within a realm, retaining
+their original arguments and store context. Fetch describes an ordinary HTTP
+request, run by the existing host transport with its grants and CORS policy.
+Sequential requests and `Promise.all` work; multiple pending fetches use the
+seam serially rather than promising concurrent network transport. Both native
+and browser executors retain every outstanding request across settlements.
+`clock settle` includes continuation work. Disposal removes queued turns and
+refuses in-progress continuations; the host incarnation check drops stale
+fulfillment. Browser trusted-code execution does not implement Hermes's heap
+or interruption budgets; parity below is a tested data/guard surface, not a
+claim that an iframe is a VM security boundary.
 
 The 2026-08-29 note asked for this design first: "on the web the
 browser is the executor, so one module runs under two loaders."
 
-The web host's wasm is built with `host!(exact_js_web::Module, PLAN)`:
-a `DataSource` whose `answer`/`parse` call **one import** —
-`exact_js.call(name, a, b, c) -> (ptr, len)` — that `glue.js`
-supplies. glue.js loads `app.js` as a classic script after first paint
-(the `loadGpuIfNeeded` pattern, glue.js:816–821), and the import
-calls `globalThis.exact[name]` with the strings the wasm wrote into
-its input buffer (abi.rs:241 already owns that buffer). The wasm goes
-from zero imports (glue.js:827 instantiates it against `{}`) to one
-import module with one function; `boot.mjs` counts nothing new,
-because `app.js` is a script tag inserted after paint, exactly as the
-GPU module is.
+The web host macro takes the `exact_js_web::Module` type, plan, compatibility
+receipt, factory, and optional paired artifact slices (README). Its data source
+calls **one import**, `exact_js.call(op, ptr, len) -> len`: JSON input and a
+second call copying JSON output into owned wasm memory, without re-entering the
+borrowed host bridge. `exact-js-value` shares typed marshaling with native;
+no JavaScript engine is linked into wasm. Compatibility receipts name `browser`,
+not Hermes. `glue.js` waits for a rendering opportunity before loading
+`module-glue.js`, its prelude and `app.js`; `boot.mjs` still counts one module.
 
-Before `app.js` has loaded, the import answers "not yet": the runner
-treats it as `Answer::Later` with a ticket the page fulfills when the
-script arrives — LLP 1016 D2's machinery, one more kind of request the
-page runs — and D4's one frame of `pending` is the same on the web as
-on native. No engine is shipped: the browser's is the fastest one
-there is, and the JavaScript is the same source `hermesc` compiled,
-from step 1 of D5, never a second implementation.
+Before loading, `DataSource::ready` is false and baked values paint the first
+frame. The loader prepares a private realm, then `exact_data_ready` activates
+logic and re-asks unbaked resources. A replacement verifies the receipt and
+script, prepares a new realm, and boots the paired plan with compatible carry;
+refusal disposes the candidate, success disposes the old realm. The JavaScript
+is exactly the producer script `hermesc` compiled, never a second implementation.
 
-**The web's globals.** D1's "no I/O because no bindings" is the
-*engine's* guarantee on native and only a convention in a browser,
-where `globalThis.fetch`, `window`, and timers exist whether the
-module wants them or not. Two ways to close it, in order of cost. The
-bundle wraps the module in a function whose parameters shadow the
-reaching-out names (`fetch`, `XMLHttpRequest`, `setTimeout`,
-`setInterval`, `window`, `document`, `localStorage`, `WebSocket`), so a
-module cannot reach one by accident; a determined author still can
-through `globalThis`, and the native bake (D5) and the native smoke are
-the enforcement — the web is the dev loop, native is the sweep. The
-stronger form is a Worker with those globals deleted in its prelude,
-which makes every answer on the web a `Later` fulfilled on the next
-tick (the same machinery as the not-yet ticket), at one frame per
-answer — the guarantee, if it is ever worth the frame. Shadowing
-first; the Worker has its trigger.
+**The web's globals.** One hidden iframe provides a private realm per module
+incarnation. The shared prelude installs LLP 1027.000 guards before app code;
+page and guest Date/Math/Intl are untouched. Direct XHR, sockets, event streams
+and timers refuse; fetch goes through the prelude's host door and the runner's
+HTTP request path. This is an authoring contract for trusted code, **not
+a security sandbox**: it does not promise isolation against an app intentionally
+reaching another window or browser capability. Native bake remains the same
+module's narrower execution environment. Real Chrome regressions execute all
+20 Caltrain data cases against the Rust oracle and all 25 ambient-read forms
+at initialization, in answers and after fetch, with the shared native fixtures.
+They also exercise explicit UTC/Intl times, reverse-order interleaving,
+Promise-only settlement, store read/write/forget and grants, sequential and
+parallel fetch, binary bodies, four transport failures, typed argument/source
+errors, sync/async exceptions, stuck promises, corrupt/identity refusals and
+disposal during a draining turn. Page and guest builtins remain untouched.
+
+**iOS execution (Codex, 2026-09-07).** `js/build.rs` selects lean CMake archives
+for the actual Rust target: `ios-simulator` for `*-ios-sim`/x86 iOS, `ios` for
+devices. The host bake still uses the macOS VM/compiler; its shim explicitly
+selects the macOS SDK even when the parent build targets iOS. All three engine
+archives are copied into `OUT_DIR`, so normal bake receipts inventory the
+actual linked engine inputs. Missing target archives produce a named refusing
+stub, not an apparent working executor. Rust-only clients still link no VM.
+
+Provisioning used pristine Hermes commit
+`6badada762121682b5481b6124e6c3a991ae6046`, matching the sibling ibex vanilla
+headers/compiler receipt. Do not substitute the full iOS framework (it embeds
+a compiler). For each platform, configure the source with CMake/Ninja:
+
+```sh
+cmake -S <matching-hermes-source> -B <build-dir> -G Ninja \
+  -DHERMES_APPLE_TARGET_PLATFORM=iphonesimulator \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
+  -DHERMES_ENABLE_DEBUGGER=OFF -DHERMES_ENABLE_INTL=ON \
+  -DHERMES_ENABLE_TEST_SUITE=OFF -DHERMES_ENABLE_BITCODE=OFF \
+  -DHERMES_BUILD_APPLE_FRAMEWORK=OFF -DHERMES_BUILD_SHARED_JSI=OFF \
+  -DIMPORT_HOST_COMPILERS=<host-compiler-import.cmake> \
+  -DCMAKE_BUILD_TYPE=MinSizeRel
+cmake --build <build-dir> --target hermesvmlean_a jsi boost_context -j 8
+```
+
+For device use `iphoneos`. The import file defines an `IMPORTED` executable
+`imported-hermesc` with `IMPORTED_LOCATION` pointing to the matching macOS
+compiler. Preserve these output paths under each of
+`target/hermes-ios/{ios,ios-simulator}/`: `lib/libhermesvmlean_a.a`,
+`jsi/libjsi.a`, `external/boost/boost_1_86_0/libs/context/libboost_context.a`.
+`EXACT_HERMES_IOS_DIR` overrides that root; archive inputs must remain within
+the source roots captured by the normal build receipt. `EXACT_HERMES_DIR`
+continues to supply `hermes-headers` and `macos-static`.
+
+An external L=0 module client built with ordinary `host/apple/build.mjs --ios`
+ran on iPhone 17 Pro / iOS 26.5 simulator: async after `Promise.resolve()`, two
+real HTTP requests, typed answer, then a local-import edit received at the same
+URL as the browser. Both retained count 1 and displayed
+`iOS live: 1: async fetched/200`, without rebuilding either binary. The browser
+sample was 410 ms save-to-DOM / 430 ms to a rendering opportunity (348 ms
+producer); it is not p50 and does not establish the 100 ms budget. The
+`aarch64-apple-ios` release archive also builds. Physical-device execution,
+iOS guard-corpus driving and linked size/startup/per-call measurements remain
+owed; Linux still has a refusing stub.
 
 Answering LLP 1026 §10 Q6 for this executor: the web loads the module
 separately, *because it must* (there is no wasm form of it), and a
-`{rebuilt}` of `app.ts` is a restart with carry on the web too —
-`glue.js` re-inserts the script under a new URL and reboots the
-runner, as it does for a plan change today.
+generation of `app.ts` is a restart with carry on the web too, not a new wasm
+program. Deterministic host refusals wait for a new edit; transient fetch failures
+retain the existing discovery retry behavior.
 
 ### D7 — Delivery: the module card carries bytecode; the runtime version carries the bytecode version
 
@@ -648,7 +756,32 @@ chooses (3). What could migrate from (3) to the paved path is ibex2's
 ordinary TypeScript package a module bundles in (D1's rule: no
 reaching-out global), never linked (§10 Q6).
 
-### D10 — What the module can and cannot use; `console` as the one binding
+### D10 — What the module can and cannot use
+
+**Storage integration (Charlie authorized; Codex, 2026-09-07):** answers receive
+`(source, args, store, storage)`; generated source providers receive
+`(args, store, storage)`. The declarations reuse Ibex2's canonical storage types.
+The existing store is the secrets interface. `storage.fs` and `storage.sqlite`
+use the shipped engine-independent Ibex2 Context and JSI adapter with Exact's
+existing lean runtime, without a module loader or a second VM. The adapter and
+SQLite factory are installed before app bytecode; Ibex2's baked hardening locks
+its captured intrinsics. Storage objects are private capability arguments.
+
+Native hosts select per-app data/cache/temporary directories after first pixel;
+agent mode skips disk configuration. Apple uses Application Support and Caches;
+Linux uses absolute XDG roots or the HOME defaults. Temporary is an app-cache
+subdirectory, not an automatic cleanup promise. Grants come from the admitted
+app identity (`fs.read`, `fs.write`, `sqlite.open`), not from module globals.
+Resources close on unload, and directory configuration survives replacement.
+
+Storage work runs in Ibex2's workers. A runner continuation carries readiness
+through the host executor; only the runtime owner delivers a completion and
+drains microtasks. It never invents an HTTP request. Bake refuses the capability,
+and the browser returns `Unavailable` until it has a provider. No filesystem
+work or app JS runs before first pixel. Tests exercise byte round trips,
+persistence/isolation, grant refusal, SQLite prepared statements and rollback,
+mixed fetch/storage answers, unload cancellation, and real browser/bake refusal.
+Snapback2 remains deferred.
 
 - **Language:** Hermes's — ES2015 and most of what followed; no
   `eval`/`Function` (closed at construction); the current lean build does

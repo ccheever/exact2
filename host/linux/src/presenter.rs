@@ -327,6 +327,15 @@ impl<D: DataSource> Presenter<D> {
         if let Some(u) = self.updates.as_mut() {
             u.boot_succeeded();
         }
+        match self.host.activate_data() {
+            Ok(true) => {
+                if let Some(error) = self.after_commit() {
+                    self.host.log(error);
+                }
+            }
+            Err(error) => self.host.log(error),
+            Ok(false) => {}
+        }
         self.sync_delivery();
     }
 
@@ -558,7 +567,11 @@ impl<D: DataSource> Presenter<D> {
         // 1016 D2); the reply comes back through `pump`. Its commands wait
         // for the loop (`run_commands`).
         for r in self.host.take_requests() {
-            self.executor.run(r);
+            let work = r
+                .request
+                .continuation
+                .and_then(|token| self.host.continuation(token));
+            self.executor.run(r, work);
         }
         self.commands.extend(self.host.take_commands());
         let live = self.host.preorder();

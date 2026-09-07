@@ -44,6 +44,7 @@ pub struct Host<D: DataSource> {
     presented: BTreeMap<ViewId, Presented>,
     viewport: (f32, f32),
     now_ms: f64,
+    data_activated: bool,
 }
 
 impl<D: DataSource> Host<D> {
@@ -87,6 +88,7 @@ impl<D: DataSource> Host<D> {
             presented: BTreeMap::new(),
             viewport: (width, height),
             now_ms: 0.0,
+            data_activated: false,
         };
         // The engine hears the whole tree once: values, no transitions.
         let mut sync = MotionSync::default();
@@ -221,6 +223,79 @@ impl<D: DataSource> Host<D> {
     /// worth reading beside the app's own lines.
     pub fn log(&mut self, line: impl Into<String>) {
         self.runner.log(line);
+    }
+
+    fn configure_storage(&mut self) -> Result<(), exact_runner::DataError> {
+        use exact_runner::DataError;
+        use std::path::PathBuf;
+        // Scripted drives must not read or write the developer's app files.
+        if std::env::var_os("EXACT_AGENT").is_some() {
+            return Ok(());
+        }
+        let app_id = self.runner.data().app_id().to_string();
+        if app_id.is_empty() {
+            return Ok(());
+        }
+        if matches!(app_id.as_str(), "." | "..")
+            || !app_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
+        {
+            return Err(DataError::Unavailable("unsafe app storage identity".into()));
+        }
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
+        let base = |variable: &str, fallback: &str| {
+            std::env::var_os(variable)
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .unwrap_or_else(|| home.join(fallback))
+                .join("exact")
+                .join(&app_id)
+        };
+        let data = base("XDG_DATA_HOME", ".local/share").join("data");
+        let cache = base("XDG_CACHE_HOME", ".cache");
+        // Sibling roots keep app:/cache grants from implicitly reaching tmp.
+        // The user's cache base avoids a predictable shared /tmp directory.
+        let temporary = cache.join("temporary");
+        let cache = cache.join("cache");
+        self.runner.data().configure_storage(data, cache, temporary)
+    }
+
+    /// Activate deferred data only after the presenter has produced first pixel.
+    /// Returns whether a data-ready commit needs presenting and dispatching.
+    pub fn activate_data(&mut self) -> Result<bool, String> {
+        if self.data_activated {
+            return Ok(false);
+        }
+        if let Err(error) = self
+            .configure_storage()
+            .and_then(|()| self.runner.data().activate())
+        {
+            return Err(format!("activate data: {error:?}"));
+        }
+        self.data_activated = true;
+        match self.runner.data_ready() {
+            Ok(Some(receipt)) => match self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ) {
+                Some(error) => Err(error),
+                None => Ok(true),
+            },
+            Ok(None) => Ok(false),
+            Err(error) => Err(format!("data ready: {error:?}")),
+        }
+    }
+
+    /// Transfer a source-owned operation to the native executor.
+    pub fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        self.runner.data().continuation(token)
     }
 
     /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.

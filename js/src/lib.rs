@@ -36,21 +36,26 @@
 #![deny(missing_docs)]
 
 mod engine;
-mod marshal;
+mod paired;
+mod storage;
 
 pub use engine::ENGINE_LINKED;
-pub use marshal::{from_json, to_json, Shape};
+pub use exact_js_value::{from_json, to_json, Shape};
+pub use paired::Paired;
 
 use engine::{Engine, HostFn};
 use exact_plan::{Plan, Value};
 use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store};
 use serde_json::{json, Value as Json};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
 use std::time::Instant;
 
 /// The seam ABI this executor speaks; a module's `exact.abi` must equal it.
 pub const ABI: u32 = 1;
+/// Authoritative Ibex2 storage declarations included by the TypeScript bake.
+pub const STORAGE_TYPES: &str = ibex2::bindings::TYPESCRIPT;
 /// The per-call wall-clock budget a module is held to, unless the host says otherwise.
 pub const DEFAULT_BUDGET_MS: f64 = 100.0;
 /// The runtime's heap ceiling, unless the host says otherwise.
@@ -60,6 +65,14 @@ pub const DEFAULT_MAX_HEAP: u32 = 64 << 20;
 const PRELUDE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/prelude.hbc"));
 #[cfg(not(exact_js_engine))]
 const PRELUDE: &[u8] = &[];
+
+/// Bytecode version compiled into this executor's prelude, available without
+/// creating an engine. Zero means this build has no native executor.
+pub const BYTECODE_VERSION: u32 = if PRELUDE.len() >= 12 {
+    u32::from_le_bytes([PRELUDE[8], PRELUDE[9], PRELUDE[10], PRELUDE[11]])
+} else {
+    0
+};
 
 /// One source's signature, from the plan.
 struct Sig {
@@ -72,6 +85,7 @@ struct Sig {
 struct Parked {
     call: u64,
     ticket: u64,
+    work_taken: bool,
 }
 
 /// What the host door reaches during one call: the store the seam handed
@@ -88,9 +102,12 @@ struct HostState {
 /// engine that runs it once loaded.
 pub struct Module {
     bytecode: Vec<u8>,
-    app_id: &'static str,
-    grants: &'static str,
+    app_id: String,
+    grants: String,
+    revision: String,
     engine: Option<Engine>,
+    storage: Option<storage::Session>,
+    directories: Option<storage::Directories>,
     host: Box<HostState>,
     sigs: HashMap<String, Sig>,
     parked: Vec<((String, Vec<u8>), Parked)>,
@@ -153,6 +170,13 @@ unsafe extern "C" fn host_door(
                 .map_err(|e| format!("store.forget: {e:?}")),
             None => Err("store.forget: no store at bake".into()),
         },
+        5 => {
+            if state.store.is_some() {
+                Ok(None)
+            } else {
+                Err("storage is unavailable during bake".into())
+            }
+        }
         other => Err(format!("__exact_host: no op {other}")),
     };
     *out = std::ptr::null_mut();
@@ -202,6 +226,7 @@ fn request_from_json(text: &str) -> Result<Request, String> {
         }
     }
     Ok(Request {
+        continuation: None,
         method: field("method").ok_or("no method")?,
         url: field("url").ok_or("no url")?,
         headers,
@@ -259,12 +284,15 @@ impl Module {
     /// A module, unloaded: `app_id` and `grants` are what the bake wrote
     /// beside the bytecode, cross-checked against the module's own exports
     /// at [`Module::load`].
-    pub fn new(bytecode: Vec<u8>, app_id: &'static str, grants: &'static str) -> Module {
+    pub fn new(bytecode: Vec<u8>, app_id: impl Into<String>, grants: impl Into<String>) -> Module {
         Module {
+            revision: format!("{:x}", Sha256::digest(&bytecode)),
             bytecode,
-            app_id,
-            grants,
+            app_id: app_id.into(),
+            grants: grants.into(),
             engine: None,
+            storage: None,
+            directories: None,
             host: Box::default(),
             sigs: HashMap::new(),
             parked: Vec::new(),
@@ -279,8 +307,8 @@ impl Module {
     /// after its first pixel instead (LLP 1027 D4).
     pub fn loaded(
         bytecode: Vec<u8>,
-        app_id: &'static str,
-        grants: &'static str,
+        app_id: impl Into<String>,
+        grants: impl Into<String>,
     ) -> Result<Module, String> {
         let mut m = Module::new(bytecode, app_id, grants);
         m.load()?;
@@ -294,6 +322,37 @@ impl Module {
         if self.engine.is_some() {
             return Ok(());
         }
+        let engine = self.load_engine()?;
+        let app_id = engine.string("appId")?;
+        if app_id != self.app_id {
+            return Err(format!(
+                "exact-js: the module says it is `{app_id}`; the bake said `{}`",
+                self.app_id
+            ));
+        }
+        if engine.string("grants")?.trim() != self.grants.trim() {
+            return Err("exact-js: the module's grants differ from what the bake recorded".into());
+        }
+        self.engine = Some(engine);
+        Ok(())
+    }
+
+    /// Build-time inspection: evaluate bytecode in a private engine and read
+    /// its identity/grants. Hosts must use `new`/`loaded` with admitted metadata
+    /// instead; discovering a grant does not authorize it on a device.
+    pub fn inspect(bytecode: Vec<u8>) -> Result<Module, String> {
+        let mut module = Self::new(bytecode, "", "");
+        let engine = module.load_engine()?;
+        module.app_id = engine.string("appId")?;
+        module.grants = engine.string("grants")?;
+        if module.app_id.is_empty() {
+            return Err("exact-js: the module exports no appId".into());
+        }
+        module.engine = Some(engine);
+        Ok(module)
+    }
+
+    fn load_engine(&mut self) -> Result<Engine, String> {
         let ctx = &mut *self.host as *mut HostState as *mut c_void;
         let host: HostFn = host_door;
         let mut engine =
@@ -301,6 +360,12 @@ impl Module {
         engine
             .load(PRELUDE)
             .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
+        if let Some(paths) = &self.directories {
+            self.storage = Some(storage::Session::open(paths, &self.grants)?);
+            // Retain the borrowed queue even if adapter initialization fails;
+            // the local engine must be destroyed before its storage context.
+            engine.install_storage(&self.storage.as_ref().unwrap().context)?;
+        }
         engine
             .load(&self.bytecode)
             .map_err(|e| format!("exact-js: the module did not load: {e}"))?;
@@ -310,21 +375,7 @@ impl Module {
                 "exact-js: the module speaks ABI {abi:?}; this executor speaks {ABI}"
             ));
         }
-        let app_id = engine.string("appId")?;
-        if app_id != self.app_id {
-            return Err(format!(
-                "exact-js: the module says it is `{app_id}`; the bake said `{}`",
-                self.app_id
-            ));
-        }
-        let grants = engine.string("grants")?;
-        if grants.trim() != self.grants.trim() {
-            return Err(
-                "exact-js: the module's grants differ from what the bake recorded".to_string(),
-            );
-        }
-        self.engine = Some(engine);
-        Ok(())
+        Ok(engine)
     }
 
     /// Drop the runtime; answers are `Unavailable` until the next
@@ -333,6 +384,7 @@ impl Module {
         if let Some(mut engine) = self.engine.take() {
             self.logs.extend(engine.take_log());
         }
+        self.storage = None;
         self.parked.clear();
         self.host.requests.clear();
     }
@@ -502,13 +554,23 @@ impl Module {
         match Module::step(sig, source, &text) {
             Step::Done(r) => r.map(Answer::Now),
             Step::Pending { call, ticket } => {
-                let request = self.take_request(ticket).ok_or_else(|| {
-                    DataError::Unavailable(format!("`{source}` awaits a fetch it never made"))
-                })?;
-                self.host.requests.clear();
+                let request = if ticket == 0 {
+                    Request::continuation(call)
+                } else {
+                    self.take_request(ticket).ok_or_else(|| {
+                        DataError::Unavailable(format!("`{source}` awaits a fetch it never made"))
+                    })?
+                };
                 let key = Module::key(source, args);
                 self.parked.retain(|(k, _)| *k != key);
-                self.parked.push((key, Parked { call, ticket }));
+                self.parked.push((
+                    key,
+                    Parked {
+                        call,
+                        ticket,
+                        work_taken: false,
+                    },
+                ));
                 Ok(Answer::Later(request))
             }
         }
@@ -533,15 +595,30 @@ impl Module {
                 "`{source}`: a reply for an answer not in flight"
             )));
         };
-        let Parked { call, ticket } = self.parked.remove(pos).1;
+        let Parked { call, ticket, .. } = self.parked.remove(pos).1;
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
         let result: Result<String, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
-            engine
-                .call("__exact_fulfill", [&ticket.to_string(), &outcome_text, ""])
-                .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
+            if ticket == 0 {
+                if matches!(outcome, Outcome::Failed { .. }) {
+                    engine
+                        .call(
+                            "__exact_storage_failed",
+                            [&call.to_string(), &outcome_text, ""],
+                        )
+                        .map_err(DataError::Unavailable)?;
+                } else {
+                    engine
+                        .deliver_storage_one()
+                        .map_err(DataError::Unavailable)?;
+                }
+            } else {
+                engine
+                    .call("__exact_fulfill", [&ticket.to_string(), &outcome_text, ""])
+                    .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
+            }
             engine
                 .drain()
                 .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
@@ -565,11 +642,21 @@ impl Module {
         match Module::step(sig, source, &text) {
             Step::Done(r) => r.map(Answer::Now),
             Step::Pending { call, ticket } => {
-                let request = self.take_request(ticket).ok_or_else(|| {
-                    DataError::Unavailable(format!("`{source}` awaits a fetch it never made"))
-                })?;
-                self.host.requests.clear();
-                self.parked.push((key, Parked { call, ticket }));
+                let request = if ticket == 0 {
+                    Request::continuation(call)
+                } else {
+                    self.take_request(ticket).ok_or_else(|| {
+                        DataError::Unavailable(format!("`{source}` awaits a fetch it never made"))
+                    })?
+                };
+                self.parked.push((
+                    key,
+                    Parked {
+                        call,
+                        ticket,
+                        work_taken: false,
+                    },
+                ));
                 Ok(Answer::Later(request))
             }
         }
@@ -577,12 +664,59 @@ impl Module {
 }
 
 impl DataSource for Module {
-    fn app_id(&self) -> &str {
-        self.app_id
+    fn configure_storage(
+        &mut self,
+        data: std::path::PathBuf,
+        cache: std::path::PathBuf,
+        temporary: std::path::PathBuf,
+    ) -> Result<(), DataError> {
+        if self.is_loaded() {
+            return Err(DataError::Unavailable(
+                "configure storage before loading the module".into(),
+            ));
+        }
+        self.directories = Some(storage::Directories {
+            data,
+            cache,
+            temporary,
+        });
+        Ok(())
     }
 
-    fn grants(&self) -> &'static str {
-        self.grants
+    fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        let (_, parked) = self
+            .parked
+            .iter_mut()
+            .find(|(_, p)| p.call == token && p.ticket == 0 && !p.work_taken)?;
+        let work = self.storage.as_ref()?.continuation();
+        parked.work_taken = true;
+        Some(work)
+    }
+
+    fn activate(&mut self) -> Result<(), DataError> {
+        self.load().map_err(DataError::Unavailable)
+    }
+
+    fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError> {
+        Paired::decode(receipt, plan, module, self.app_id(), self.grants())
+            .map(|pair| {
+                let mut module = pair.module;
+                module.directories = self.directories.clone();
+                module
+            })
+            .map_err(DataError::Unavailable)
+    }
+
+    fn app_id(&self) -> &str {
+        &self.app_id
+    }
+
+    fn grants(&self) -> &str {
+        &self.grants
+    }
+
+    fn revision(&self) -> Option<&str> {
+        Some(&self.revision)
     }
 
     /// Not before the host loads it (LLP 1027 D4): the runner boots
@@ -645,5 +779,11 @@ impl DataSource for Module {
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         self.resume(store, source, args, outcome)
+    }
+}
+
+impl Drop for Module {
+    fn drop(&mut self) {
+        self.unload();
     }
 }
