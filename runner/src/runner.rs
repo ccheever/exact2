@@ -6,9 +6,13 @@
 //! sites, and applies one atomic kernel batch; hosts then lay out and paint.
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
 
+mod carry;
+mod source;
+pub use source::{DataError, DataSource};
 mod delivery;
 mod kept;
 mod settlement;
+pub use carry::Carried;
 
 use crate::instance::{Ids, InstanceError, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Outcome, Request, RequestOut};
@@ -17,93 +21,6 @@ use crate::vm::{self, Env, Frame, RowSlots, Trap};
 use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
 use exact_plan::{ActionsId, Code, EventKind, MutationsId, Plan, PlanError, Value};
 use std::fmt::Write as _;
-
-/// The app's data source: the one seam through which computation enters
-/// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
-pub trait DataSource {
-    /// Answer a resource's or a mutation's request now. `args` are the
-    /// resource's argument expressions evaluated against current state, or
-    /// a `send`'s arguments. Bake and every in-process source use this.
-    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError>;
-
-    /// The app identity, reverse-DNS (LLP 1023 D5) — the one declaration:
-    /// bake writes it into the plan header, and boot refuses a plan whose
-    /// header names a different app. Empty is unnamed — a fixture or a
-    /// stand-in — and unnamed matches anything.
-    fn app_id(&self) -> &str {
-        ""
-    }
-
-    /// Answer now, or hand back a request the host will run (LLP 1016 D1:
-    /// the runner never does I/O). The default answers `query` now; a source
-    /// that reaches outside the process overrides this and [`parse`]. The
-    /// [`Store`] is the app's durable state (LLP 1018 D1) — the host's
-    /// snapshot, read here synchronously; a write rides the commit out.
-    ///
-    /// [`parse`]: DataSource::parse
-    fn answer(
-        &mut self,
-        store: &mut Store,
-        source: &str,
-        args: &[Value],
-    ) -> Result<Answer, DataError> {
-        let _ = store;
-        self.query(source, args).map(Answer::Now)
-    }
-
-    /// The value of a resource or mutation from what the host brought back
-    /// for a request `answer` handed out, in the shape the declaration
-    /// names — or one more request (LLP 1027 D1a: a TypeScript `answer`
-    /// that awaits a second `fetch` is pending again, on the same target,
-    /// with the same arguments). No I/O, no host — the store is the one
-    /// thing it may write (a token from a reply, LLP 1018 D5). A failure on
-    /// the wire is an `Outcome` too — what the app sees is the source's to
-    /// decide (D4). A source that never answers later need not implement it.
-    fn parse(
-        &mut self,
-        store: &mut Store,
-        source: &str,
-        args: &[Value],
-        outcome: Outcome,
-    ) -> Result<Answer, DataError> {
-        let _ = (store, args, outcome);
-        Err(DataError::UnknownSource(source.to_string()))
-    }
-
-    /// What the app may reach and keep (LLP 1016 D6, LLP 1018 D3; ibex LLP
-    /// 0067): one grant per line — `net.fetch <url prefix>`, `secret.keep
-    /// <name>`. A request outside them fails as `Refused` on every host
-    /// before any executor sees it; a secret outside them reads as absent
-    /// and refuses a write. Empty: nothing.
-    fn grants(&self) -> &'static str {
-        ""
-    }
-
-    /// The plan this source answers for — once, at boot, after the identity
-    /// gate and before any answer (LLP 1027 D2). An executor that marshals
-    /// by the plan's declared shapes reads the `sources` table here; a Rust
-    /// crate has nothing to learn and ignores it.
-    fn bind(&mut self, plan: &Plan) {
-        let _ = plan;
-    }
-
-    /// Whether answers are available now. A TypeScript module before its
-    /// host loads it is not (LLP 1027 D4): the runner then boots every
-    /// store-reading resource from its kept answer or its compiled
-    /// empty-store placeholder, and asks again at [`Runner::data_ready`].
-    fn ready(&self) -> bool {
-        true
-    }
-}
-
-/// Why a data source could not answer.
-#[allow(missing_docs)]
-#[derive(Debug, Clone, PartialEq)]
-pub enum DataError {
-    UnknownSource(String),
-    BadArguments(String),
-    Unavailable(String),
-}
 
 /// A host-facing effect an action asked for; executed after commit, in order.
 #[derive(Debug, Clone, PartialEq)]
@@ -283,27 +200,6 @@ struct Timer {
     next_ms: f64,
 }
 
-/// What survives a reload: state by name, settled resources by name with
-/// the arguments they answered and their store dependency, and the clock. A new
-/// plan takes each slot
-/// whose name it still declares and whose carried value conforms to the
-/// slot's (possibly new) type; everything else starts from its initializer.
-/// Resources are reused only where their arguments still match, so a
-/// carried `stationId` gets its own board, never the baked one.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct Carried {
-    /// Slot name → value.
-    pub slots: Vec<(String, Value)>,
-    /// Resource name → (arguments, value).
-    pub resources: Vec<(String, Vec<Value>, Value)>,
-    /// Names of carried resources whose answer depends on the store.
-    pub store_readers: Vec<String>,
-    /// The clock, milliseconds.
-    pub now_ms: f64,
-    /// The store's kept values (LLP 1018): what the host has persisted.
-    pub store: Vec<(String, String)>,
-}
-
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
@@ -395,6 +291,8 @@ impl<D: DataSource> Runner<D> {
     /// Everything a reload keeps.
     pub fn carry(&self) -> Carried {
         Carried {
+            data_revision: self.data.revision().map(str::to_owned),
+            keeps_answers: self.keeps_answers,
             slots: self
                 .plan
                 .slots
@@ -408,7 +306,9 @@ impl<D: DataSource> Runner<D> {
                 .resources
                 .iter()
                 .zip(&self.resources)
-                .filter_map(|(r, s)| {
+                .enumerate()
+                .filter(|(i, _)| !self.pending_res[*i])
+                .filter_map(|(_, (r, s))| {
                     s.as_ref().map(|s| {
                         (
                             self.plan.str(r.name).to_string(),
@@ -484,6 +384,7 @@ impl<D: DataSource> Runner<D> {
         {
             return Err(RunnerError::RootRegion);
         }
+        let same_logic = carried.is_none_or(|c| c.data_revision.as_deref() == data.revision());
         data.bind(&plan);
         let store = Store::new(data.grants(), snapshot);
         let store_readers = plan
@@ -492,10 +393,11 @@ impl<D: DataSource> Runner<D> {
             .map(|resource| {
                 resource.reader
                     || plan.str(resource.source) == crate::delivery::SOURCE
-                    || carried.is_some_and(|carried| {
-                        let name = plan.str(resource.name);
-                        carried.store_readers.iter().any(|reader| reader == name)
-                    })
+                    || (same_logic
+                        && carried.is_some_and(|carried| {
+                            let name = plan.str(resource.name);
+                            carried.store_readers.iter().any(|reader| reader == name)
+                        }))
             })
             .collect();
         let mut runner = Runner {
@@ -561,6 +463,7 @@ impl<D: DataSource> Runner<D> {
             .map(|i| {
                 let name = runner.plan.str(runner.plan.resources[i].name);
                 carried
+                    .filter(|_| same_logic)
                     .and_then(|c| c.resources.iter().find(|(n, _, _)| n == name))
                     .filter(|(_, _, value)| runner.check_shape(i, value).is_ok())
                     .map(|(_, args, value)| ResourceState {
@@ -577,7 +480,7 @@ impl<D: DataSource> Runner<D> {
         // empty-store placeholder is the fallback (settlement); either way
         // the resource is asked again at `data_ready`.
         let ready = runner.data.ready();
-        runner.keeps_answers = !ready;
+        runner.keeps_answers = !ready || carried.is_some_and(|c| c.keeps_answers);
         runner.stale = vec![false; runner.plan.resources.len()];
         if !ready {
             for i in 0..runner.plan.resources.len() {
@@ -805,8 +708,9 @@ impl<D: DataSource> Runner<D> {
         &self.store
     }
 
-    /// Whether resource `name` consulted the store when it settled: bake
-    /// gives such a resource no compiled value (LLP 1018 D4).
+    /// Whether resource `name` observed device state (secrets, filesystem,
+    /// or SQLite). Bake marks its compiled value as a placeholder, refreshed
+    /// when the data source becomes ready (LLP 1018 D4 / LLP 1027 D4).
     pub fn resource_reads_store(&self, name: &str) -> bool {
         self.plan
             .resources
@@ -1351,10 +1255,13 @@ impl<D: DataSource> Runner<D> {
         let ticket = self.next_ticket;
         self.next_ticket += 1;
         let name = self.target_name(target);
-        self.log(format!(
-            "request {ticket} ({name}): {} {}",
-            request.method, request.url
-        ));
+        self.log(match request.continuation {
+            Some(token) => format!("continuation {ticket} ({name}): executor token {token}"),
+            None => format!(
+                "request {ticket} ({name}): {} {}",
+                request.method, request.url
+            ),
+        });
         self.pending.push(PendingReq {
             ticket,
             target,

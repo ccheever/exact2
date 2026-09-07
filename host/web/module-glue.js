@@ -56,7 +56,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     if (!context) throw new Error('host call outside an answer');
     if (op === 1) { context.requests.set(Number(name), JSON.parse(value)); return; }
     if (op === 2) { context.reads.push(name); return context.store.get(name); }
-    if (op === 5) return; // Storage effects still require a live answer context.
+    if (op === 5) { context.externalRead = true; return; }
     if (!context.grants.has(name) || name.startsWith('exact.kept.')) return `secret ${name} is not granted`;
     context.writes.push([name, op === 3 ? value : null]);
     if (op === 3) context.store.set(name, value); else context.store.delete(name);
@@ -79,7 +79,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     const pending = new Map();
     const key = r => JSON.stringify([r.source,r.args]);
     const finish = (answer, request) => {
-      const result = {...answer, reads:context.reads, writes:context.writes};
+      const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead};
       if (answer.tag === 1) {
         result.request = context.requests.get(answer.ticket);
         if (!result.request) throw new Error('module awaits a fetch it never made');
@@ -93,7 +93,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     const begin = request => {
       if (disposed) throw new Error('module environment disposed');
       busy = true;
-      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],requests:new Map()};
+      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,requests:new Map()};
       if (request.op === 'answer') return JSON.parse(win.__exact_call(request.source,JSON.stringify(request.args)));
       const parked = pending.get(key(request));
       if (!parked) throw new Error('reply for an answer not in flight');
@@ -136,7 +136,7 @@ export async function prepare(payload, admitted, id = nextId++) {
         try {
           const answer = begin(request);
           return answer.tag === 3 ? defer(request,answer) : finish(answer,request);
-        } catch (error) { const {reads,writes} = context || {}; storage.retire(context?.owner); context = null; busy = false; return {error:String(error),reads,writes}; }
+        } catch (error) { const {reads,writes,externalRead} = context || {}; storage.retire(context?.owner); context = null; busy = false; return {error:String(error),reads,writes,externalRead}; }
       },
       dispose() {
         disposed = true; storage.dispose(); pending.clear(); realms.delete(id); frame.remove();

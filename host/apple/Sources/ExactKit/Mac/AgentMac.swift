@@ -115,6 +115,7 @@ extension Agent {
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
         if let chord = req["key"] as? String {
             let parts = chord.split(separator: "+").map(String.init)
@@ -132,7 +133,9 @@ extension Agent {
             // First responder only if it is not held already: re-making an
             // editing field first responder ends its editing (a blur the
             // app would see) and begins it again with no focus.
-            if let f = v.field {
+            if let f = v.textArea {
+                if win.firstResponder !== f { win.makeFirstResponder(f) }
+            } else if let f = v.field {
                 let editing = f.currentEditor().map { win.firstResponder === $0 } ?? false
                 if !editing { win.makeFirstResponder(f) }
             } else if v.acceptsFirstResponder {
@@ -164,7 +167,14 @@ extension Agent {
             }
             win.sendEvent(down)
             win.sendEvent(up)
-            return ["typed": Int(v.id), "key": key, "value": v.field?.stringValue ?? ""]
+            return ["typed": Int(v.id), "key": key, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
+        }
+        if let f = v.textArea {
+            if !win.isKeyWindow { win.makeKey() }
+            win.makeFirstResponder(f)
+            f.selectAll(nil)
+            f.insertText(req["text"] as? String ?? "", replacementRange: f.selectedRange())
+            return ["typed": Int(v.id), "value": f.string]
         }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
         let text = req["text"] as? String ?? ""

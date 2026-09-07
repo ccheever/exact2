@@ -167,6 +167,7 @@ try {
     const storageCall=async(op,value='')=>{
       const result=await invoke(storage,'work',[op,value],[],['session']);
       if(result.tag!==0)throw new Error(`storage ${op}: ${JSON.stringify(result)}`);
+      if(result.externalRead!==true||result.reads.length!==0)throw new Error('storage dependency must not invent a secret read');
       return result.value.text;
     };
     if(await storageCall('file','hello')!=='hello')throw new Error('file bytes');

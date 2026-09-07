@@ -25,8 +25,8 @@ pub struct Store {
     writes: Vec<StoreWrite>,
     /// Monotonic within a transaction; restored with a refused transaction.
     revision: u64,
-    /// How many reads so far: bake tells a resource that consulted the
-    /// store by it (LLP 1018 D4).
+    /// Device-state observations: secrets and external storage both make
+    /// resources device-dependent at bake (LLP 1018 D4 / LLP 1027 D4).
     reads: std::cell::Cell<usize>,
 }
 
@@ -188,7 +188,15 @@ impl Store {
         std::mem::take(&mut self.writes)
     }
 
-    /// How many reads so far.
+    /// Observe app filesystem or database access without reading a secret.
+    /// The existing resource dependency marker also governs external storage:
+    /// bake emits a placeholder, then the host refreshes after first pixel.
+    /// This changes neither the store revision nor its persisted values.
+    pub fn observe_external_read(&self) {
+        self.reads.set(self.reads.get() + 1);
+    }
+
+    /// How many device-state observations so far, including secret reads.
     pub fn reads(&self) -> usize {
         self.reads.get()
     }

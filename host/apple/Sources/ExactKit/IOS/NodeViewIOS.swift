@@ -43,7 +43,7 @@ final class ScrollView: UIScrollView {
     }
 }
 
-final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
+final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollViewDelegate {
     let id: UInt32
     let firstDraw: () -> Void
     let kind: String
@@ -67,6 +67,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
     weak var presenter: Presenter?
+    var textArea: UITextView?
     var field: UITextField?
     var scroll: ScrollView?
     /// The platform view returned by the dlopened iframe arm (@ref LLP 1020 D3).
@@ -107,7 +108,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     /// A node with focus, blur, or key handlers takes the focus (an input's
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. Keys come from a hardware keyboard (`pressesBegan`).
-    override var canBecomeFirstResponder: Bool { !disabled && field == nil && !handlers.isDisjoint(with: ["focus", "blur", "key"]) }
+    override var canBecomeFirstResponder: Bool { !disabled && field == nil && textArea == nil && !handlers.isDisjoint(with: ["focus", "blur", "key"]) }
     override func becomeFirstResponder() -> Bool {
         guard !disabled else { return false }
         let ok = super.becomeFirstResponder()
@@ -149,6 +150,8 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     }
     /// A text field's Enter as a key (its characters are its `change`);
     /// the editing goes on, as on the web.
+    func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool { !disabled && props["editable"] != "false" }
+
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         guard !disabled else { return false }
         // Enter in an input with a `submit` handler is the web's implicit
@@ -256,6 +259,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             addSubview(o)
             overlay = o
         }
+        if kind == "textarea" { makeTextArea() }
         if kind == "input" {
             let f = UITextField(frame: .zero)
             f.borderStyle = .none
@@ -444,6 +448,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     func applyProps(set: [String: String], clear: [String]) {
         for k in clear { props.removeValue(forKey: k) }
         for (k, v) in set { props[k] = v }
+        applyTextArea()
         if let f = field {
             if let v = props["value"], f.text != v { f.text = v }
             applyPlaceholder(f)
@@ -502,6 +507,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         scroll?.showsVerticalScrollIndicator = oy == "scroll"
         fitScroll()
         clipsToBounds = ox == "hidden" || oy == "hidden"
+        styleTextArea()
         if let f = field, let t = text {
             f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic")
             f.textColor = color("text_color", .black)
@@ -531,6 +537,7 @@ final class NodeView: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layoutSubviews()
         if field != nil { field?.frame = fieldBox() }
+        layoutTextArea()
     }
 
     override func draw(_ rect: CGRect) {

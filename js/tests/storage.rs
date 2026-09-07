@@ -285,3 +285,62 @@ fn runner_settles_storage_actions_from_an_unloaded_first_frame() {
     );
     assert!(root.0.join("data/notes.db").is_file());
 }
+
+#[test]
+fn storage_resource_refreshes_after_first_pixel_and_keeps_its_last_answer() {
+    let source = contract::compile(
+        r#"
+shape Result
+  text: string
+component App
+  resource library = work("library", "") as shape Result
+  view
+    text library.text
+"#,
+    )
+    .unwrap();
+    let baked = contract::bake(source, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    let root = Root::new();
+    let mut runner = Runner::boot(baked.clone(), root.module(), Kernel::with_monospace()).unwrap();
+    assert!(runner.resource_reads_store("library"));
+    assert_eq!(text(runner.resource("library").unwrap().clone()), "empty");
+    assert!(!runner.data().is_loaded());
+    assert!(!root.0.exists());
+    assert!(runner.take_requests().is_empty());
+    std::fs::create_dir_all(root.0.join("data")).unwrap();
+    std::fs::write(root.0.join("data/note"), "saved on this device").unwrap();
+    runner.data().activate().unwrap();
+    assert!(runner.data_ready().unwrap().is_some());
+    for _ in 0..100 {
+        if !runner.has_pending() {
+            break;
+        }
+        for request in runner.take_requests() {
+            let work = runner
+                .data()
+                .continuation(request.request.continuation.unwrap())
+                .unwrap();
+            let outcome = std::thread::spawn(work).join().unwrap();
+            runner.fulfill(request.ticket, outcome).unwrap();
+        }
+    }
+    assert!(!runner.has_pending());
+    assert_eq!(
+        text(runner.resource("library").unwrap().clone()),
+        "saved on this device"
+    );
+    let snapshot = runner.store().snapshot();
+    assert!(snapshot
+        .iter()
+        .any(|(name, _)| name == "exact.kept.library"));
+    assert!(!snapshot.iter().any(|(name, _)| name == "session"));
+    drop(runner);
+    let mut next =
+        Runner::boot_stored(baked, root.module(), Kernel::with_monospace(), snapshot).unwrap();
+    assert!(!next.data().is_loaded());
+    assert!(next.take_requests().is_empty());
+    assert_eq!(
+        text(next.resource("library").unwrap().clone()),
+        "saved on this device"
+    );
+}

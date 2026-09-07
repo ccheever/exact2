@@ -11,6 +11,10 @@ async function answer(_source:string, args:unknown[], store:Store, storage:Stora
     const bytes = new Uint8Array(await storage.fs.readFile(path));
     return { text: String.fromCharCode(...bytes) };
   }
+  if (op === "library") {
+    try { return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))}; }
+    catch (_) { return {text:"empty"}; }
+  }
   if (op === "read") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))};
   if (op === "refused") {
     try { await storage.fs.writeFile("app:/cache/no", new Uint8Array([1])); }

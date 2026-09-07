@@ -14,12 +14,14 @@
 
 pub mod compat;
 mod receipt;
+mod typescript;
 
 pub use compat::{compatibility_id, Compat, Manifest};
 /// The data seam, re-exported for an app's build script: the bake asks the
 /// crate its grants for the compatibility id (`Caltrain.grants()`).
 pub use exact_runner::DataSource;
 pub use receipt::write_development_artifacts;
+pub use typescript::typescript;
 
 use contract_syntax::{Expr, File, Step, TestDecl, UseDecl};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
@@ -492,7 +494,7 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
             .plan()
             .str(runner.plan().resources[i].name)
             .to_string();
-        // A resource that consulted the store is the device's to answer,
+        // A resource that observed secrets or external storage is the device's to answer,
         // not the build's (LLP 1018 D4): the bake's store is empty by
         // construction, so what is compiled for it is the empty-store answer
         // — the fresh install's first frame, never a developer's session —

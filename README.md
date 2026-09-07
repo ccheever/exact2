@@ -24,6 +24,7 @@ never to block. Its design documents are imported under `llp/research/`.
 | `plan/` (`exact-plan`) | The plan format: tables, bytecode, and the validating decoder, generated from one JSON authority. Depends on nothing. | LLP 1005 |
 | `runner/` (`exact-runner`) | The plan runner: VM, keyed instances, kernel ops, events, timers under a seekable clock, the data seam. | LLP 1005 |
 | `contract/` | The Contract compiler in Rust: `syntax` → `types` → `analyze` → `lower`, the `contract` driver and CLI, and the corpus. | LLP 1004 (decision), LLP 1006 (spec) |
+| `apps/fieldnotes/` | Offline notes: Contract UI, TypeScript sources, SQLite persistence, and JSON file backup/restore. See its [README](apps/fieldnotes/README.md). | LLP 1027 |
 | `apps/caltrain/` | The v1 app: `app.contract`, its Rust data crate, and its wasm crate; the end-to-end fixture. | — |
 | `gpu/` (`exact-gpu`) | The GPU canvas: a `Surface` trait against wgpu, a per-app module loaded on demand (a dylib on macOS, a second wasm on the web) after the first pixel; the same Rust renders on Metal and on the browser's WebGPU. `apps/caltrain/gpu` is the line map and the aurora. `gpu/reflect` (`exact-gpu-reflect`, naga only) reflects every `.wgsl` in a GPU crate's `build.rs`: bindings, struct layouts, vertex inputs, and entry points generated as Rust, the WGSL as the one declaration authority. | LLP 1009 |
 | `host/apple/` (`exact-apple`) | The Apple host: runner + kernel as a static library with a C ABI, the kernel's layout with CoreText measurement through a callback, `exact-motion` as the executor, typed batches; `macos/` is the AppKit presenter and `ios/` the UIKit one (SwiftPM, sharing `swift/`). `node host/apple/build.mjs --run`; `node host/apple/build.mjs --ios --run` on a simulator. | LLP 1008 |
@@ -183,9 +184,15 @@ paired module client correctly refuses. The driver now supports
 Mac-side port with a per-launch token, because developer-console stdin closes
 immediately. Use a trusted LAN, allow local networking, and keep the app visible;
 `EXACT_AGENT_HOST` overrides the Mac IPv4 address. The carrier is not encrypted.
-One earlier post-settlement state read stalled; the clean reruns passed, and
-device requests now time out after 45 seconds. Physical live-URL replacement
-and systematic size/startup/per-call measurements remain to be proved.
+Physical URL replacement is now driven alongside the browser: TypeScript edits
+change the answer with counter 1 and clock 12345 retained, unchanged plan and
+native binary, and the same phone PID. A candidate that throws only at the carried
+counter preserves both clients; the next valid edit recovers. Each valid revision
+passes the async guard sweep. Earlier apparent stalls included a UIKit delayed-touch
+crash; the dev-menu recognizers no longer delay touch endings. The complete proof
+passes with the menu enabled and tracing removed. Agent deadlines include native
+diagnostics; a closed carrier rejects later requests immediately. Systematic
+size/startup/per-call measurements remain to be proved.
 
 Remaining: Linux native TypeScript execution, npm dependency capture, signed
 module updates, downloadable custom clients, and the generic Go launcher.

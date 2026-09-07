@@ -774,6 +774,11 @@ fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
 
 /// The presenter's kind for a node: its type, in the schema's names.
 fn kind_for(node: &NodeRef<'_>) -> &'static str {
+    if node.node_type == NodeType::TextInput
+        && node.props.str(PropId::SemanticTag) == Some("textarea")
+    {
+        return "textarea";
+    }
     match node.node_type {
         NodeType::View => "view",
         NodeType::List => "list",

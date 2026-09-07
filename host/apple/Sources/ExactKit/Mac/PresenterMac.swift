@@ -241,6 +241,7 @@ final class Presenter {
                 v.frame = NSRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
                 v.scroll?.frame = v.bounds
                 v.field?.frame = v.fieldBox()
+                v.layoutTextArea()
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
                 v.web?.frame = v.bounds
@@ -277,7 +278,7 @@ final class Presenter {
     }
 
     /// The view that takes Tab for this node: an input's field, else itself.
-    private func keyView(of v: NodeView) -> NSView { v.field ?? v }
+    private func keyView(of v: NodeView) -> NSView { v.textArea ?? v.field ?? v }
 
     /// Sequential focus after a batch: tree order, then `tabIndex` > 0, as
     /// HTML. `autorecalculatesKeyViewLoop` stays false so nothing is focused
@@ -313,7 +314,7 @@ final class Presenter {
         if v.props["disabled"] == "true" { return false }
         let index = tabIndex(v)
         if index < 0 { return false }
-        if v.field != nil { return true }
+        if v.field != nil || v.textArea != nil { return true }
         if v.kind == "button" || v.kind == "toggle" || v.handlers.contains("press") { return true }
         if v.acceptsFirstResponder { return true }
         return index > 0

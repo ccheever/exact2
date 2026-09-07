@@ -428,3 +428,74 @@ fn an_iframe_is_the_element_with_html_props_and_handlers() {
     );
     assert!(create.contains("width:300px;height:150px;"), "{create}");
 }
+
+#[test]
+fn textarea_preserves_multiline_values_through_the_change_seam() {
+    let plan = contract::compile(
+        r#"component App
+  state note = ""
+  action edit(value) writes note
+    note = value
+  view
+    textarea value=note change=edit testId="note" height=200
+"#,
+    )
+    .unwrap();
+    let (mut host, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    assert!(batch.contains("\"tag\":\"textarea\""), "{batch}");
+    assert!(batch.contains("white-space:pre-wrap"), "{batch}");
+    let id = view_with_test_id(&host, "note");
+    let batch = host.dispatch(id, Event::Change("First line\nSecond line\n".into()));
+    assert!(batch.contains("First line\\nSecond line\\n"), "{batch}");
+    assert_eq!(
+        host.runner()
+            .kernel()
+            .node(id)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Value),
+        Some("First line\nSecond line\n")
+    );
+}
+
+#[test]
+fn readonly_uses_existing_editable_prop_and_reacts_to_changes() {
+    let plan = contract::compile(
+        r#"component App
+  state locked = true
+  action unlock writes locked
+    locked = false
+  view
+    column
+      textarea value="Copy this" readonly=locked testId="output"
+      button press=unlock testId="unlock"
+        text "Unlock"
+"#,
+    )
+    .unwrap();
+    let (mut host, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    assert!(batch.contains("\"readonly\":\"true\""), "{batch}");
+    let id = view_with_test_id(&host, "output");
+    assert_eq!(
+        host.runner()
+            .kernel()
+            .node(id)
+            .unwrap()
+            .props
+            .bool(exact_kernel::PropId::Editable),
+        Some(false)
+    );
+    let button = view_with_test_id(&host, "unlock");
+    let batch = host.dispatch(button, Event::Press);
+    assert!(batch.contains("\"readonly\":\"false\""), "{batch}");
+    assert_eq!(
+        host.runner()
+            .kernel()
+            .node(id)
+            .unwrap()
+            .props
+            .bool(exact_kernel::PropId::Editable),
+        Some(true)
+    );
+    assert!(contract::compile("component App\n  view\n    textarea readonly=\"yes\"\n").is_err());
+}

@@ -13,6 +13,20 @@ const messageFrames = new Set(); // iframes whose node handles `message`
 let messageListening = false;
 let wasm = null;
 let memory = null;
+let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
+let resolveModuleReady;
+const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
+function moduleCall(op, ptr, len) {
+  if (op === 1) {
+    if (len !== moduleResponse.length) throw new Error('module response buffer mismatch');
+    new Uint8Array(memory.buffer, ptr, len).set(moduleResponse); return len;
+  }
+  try {
+    const request = JSON.parse(new TextDecoder().decode(new Uint8Array(memory.buffer, ptr, len)));
+    moduleResponse = new TextEncoder().encode(JSON.stringify(moduleLoader?.call(request) ?? { error: 'browser module not loaded' }));
+  } catch (error) { moduleResponse = new TextEncoder().encode(JSON.stringify({ error: String(error) })); }
+  return moduleResponse.length;
+}
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const t0 = performance.now();
@@ -109,8 +123,8 @@ function applyProps(el, set, clear) {
       if (el.value !== value) el.value = value;
     } else if (name === "checked") {
       el.checked = value === "true";
-    } else if (name === "disabled") {
-      if (value === "true") el.setAttribute("disabled", ""); else el.removeAttribute("disabled");
+    } else if (name === "disabled" || name === "readonly") {
+      if (value === "true") el.setAttribute(name, ""); else el.removeAttribute(name);
     } else {
       if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
       el.setAttribute(name, (name === "src" || name === "href") ? localAssetURL(value) : value);
@@ -191,11 +205,15 @@ function environment() {
 
 function attach(el, id, handlers) {
   el.dataset.view = String(id);
+  // Teardown can synchronously blur the old input after the new runner is
+  // live. Only the element currently owning this id may dispatch into it.
+  const on = (event, handle) => el.addEventListener(event, (e) => {
+    if (views.get(id) === el) handle(e);
+  });
   if (el instanceof HTMLIFrameElement) {
     if (!iframeLoading.has(el)) iframeLoading.set(el, true);
     const dispatchLoad = handlers.includes("load");
-    el.addEventListener("load", () => {
-      if (views.get(id) !== el) return;
+    on("load", () => {
       iframeLoading.set(el, false);
       if (dispatchLoad) send(wasm.exact_dispatch(id, 8, 0, now()));
     });
@@ -210,25 +228,25 @@ function attach(el, id, handlers) {
   if (handlers.some((k) => k === "focus" || k === "blur" || k === "key") && !(el instanceof HTMLInputElement || el instanceof HTMLButtonElement) && !el.hasAttribute("tabindex")) el.tabIndex = 0;
   for (const kind of handlers) {
     if (kind === "press") {
-      el.addEventListener("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch(id, 0, 0, now())); });
+      on("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch(id, 0, 0, now())); });
     } else if (kind === "change") {
-      el.addEventListener("input", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); });
+      on("input", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); });
     } else if (kind === "hover") {
       // pointerenter/pointerleave: the element's own, not a bubbling mouseover.
-      el.addEventListener("pointerenter", () => send(wasm.exact_dispatch(id, 2, 0, now())));
-      el.addEventListener("pointerleave", () => send(wasm.exact_dispatch(id, 3, 0, now())));
+      on("pointerenter", () => send(wasm.exact_dispatch(id, 2, 0, now())));
+      on("pointerleave", () => send(wasm.exact_dispatch(id, 3, 0, now())));
     } else if (kind === "focus") {
-      el.addEventListener("focus", () => send(wasm.exact_dispatch(id, 4, 0, now())));
+      on("focus", () => send(wasm.exact_dispatch(id, 4, 0, now())));
     } else if (kind === "blur") {
-      el.addEventListener("blur", () => send(wasm.exact_dispatch(id, 5, 0, now())));
+      on("blur", () => send(wasm.exact_dispatch(id, 5, 0, now())));
     } else if (kind === "key") {
       // keydown, the key's name as the web spells it (`e.key`).
-      el.addEventListener("keydown", (e) => { const n = writeIn(e.key); send(wasm.exact_dispatch(id, 6, n, now())); });
+      on("keydown", (e) => { const n = writeIn(e.key); send(wasm.exact_dispatch(id, 6, n, now())); });
     }
-    if (kind === "submit") {
+    if (kind === "submit" && el.tagName !== "TEXTAREA") {
       // The web's implicit submission: Enter in a text input submits — here
       // to the node's `submit` handler, no form needed (and no reload).
-      el.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); send(wasm.exact_dispatch(id, 7, 0, now())); } });
+      on("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); send(wasm.exact_dispatch(id, 7, 0, now())); } });
     }
   }
 }
@@ -330,6 +348,15 @@ function apply(batch) {
           if (op.value == null) localStorage.removeItem("exact.secret." + op.name);
           else localStorage.setItem("exact.secret." + op.name, op.value);
         } catch (e) { console.warn("exact: store", op.name, String(e)); }
+        break;
+      }
+      case "continue": {
+        const requestIncarnation = incarnation;
+        const p = Promise.resolve().then(() => moduleLoader.run(op.token))
+          .then(result => safelyFulfill(requestIncarnation, op.ticket, 0, 200, "", enc.encode(JSON.stringify(result))))
+          .catch(error => safelyFulfill(requestIncarnation, op.ticket, 3, 0, "", enc.encode(String(error))));
+        inflight.add(p);
+        p.finally(() => inflight.delete(p));
         break;
       }
       case "request": {
@@ -725,9 +752,9 @@ async function clock(request) {
 let ticker = null;
 
 // Boot the app — from the plan baked into the wasm, or from `bytes` (the
-// dev loop's restart, LLP 1004 D5: a reload is a restart from initial
-// state). Returns the milliseconds from call to first frame in the DOM.
-async function boot(bytes, assets = devAssets, current = () => true) {
+// dev loop's restart carrying compatible state, LLP 1007 §6).
+// Returns the milliseconds from call to first frame in the DOM.
+async function boot(bytes, assets = devAssets, current = () => true, module = null) {
   const t = performance.now(), request = ++bootAttempt;
   // Decode and load private font faces while the live page keeps running.
   // Carry state only at the synchronous host acceptance point below.
@@ -741,18 +768,25 @@ async function boot(bytes, assets = devAssets, current = () => true) {
   const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
   if (!current() || request !== bootAttempt) return null;
   let len;
-  if (bytes) {
+  if (module) {
+    const id = new TextEncoder().encode(JSON.stringify(module.realm.id));
+    const payload = new Uint8Array(plan.length + module.receipt.length + id.length);
+    payload.set(plan); payload.set(module.receipt, plan.length); payload.set(id, plan.length + module.receipt.length);
+    ptr = wasm.exact_in(payload.length); new Uint8Array(memory.buffer, ptr, payload.length).set(payload);
+    len = wasm.exact_boot_module(plan.length, module.receipt.length, id.length);
+  } else if (bytes) {
     ptr = wasm.exact_in(bytes.length);
     new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
     len = wasm.exact_boot_plan(bytes.length);
   } else len = wasm.exact_boot();
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
+  if (module) { activeModule?.realm.dispose(); activeModule = module; root.inert = false; }
   const oldAssets = devAssets;
   devAssets = assets;
   shaderCommit?.();
-  // The candidate is now the live Rust Host. Tear down the old page without
-  // yielding, so none of its event handlers can dispatch into the new Host.
+  // The candidate is now the live Rust Host. Tear down without yielding;
+  // attach's ownership guard refuses synchronous events from removed nodes.
   incarnation += 1;
   globalThis.exact.generation = incarnation;
   // A queued surface belongs to the plan that named it. The GPU device may
@@ -786,16 +820,24 @@ globalThis.exact = {
   // A dev-plan event can arrive while the wasm is still fetching. Queue it
   // behind the initial boot instead of acknowledging a reload that did not
   // happen.
-  reload: async (bytes) => { await ready; return boot(bytes); },
-  reloadGeneration: async (bytes, cards, current) => {
+  reload: async (bytes) => { await ready; if (logicInfo) throw new Error('module reload requires a paired generation'); return boot(bytes); },
+  reloadGeneration: async (bytes, cards, current, module = null) => {
     await ready;
+    await moduleReady;
+    if (module && !logicInfo) throw new Error('this web client has binary-bound logic; rebuild with the browser module executor');
+    if (!module && logicInfo) throw new Error('a module client requires a paired plan/module generation');
     const assets = assetNamespace(cards);
+    let candidate = null;
     try {
-      return await boot(bytes, assets, current) !== null;
-    } finally { if (devAssets !== assets) releaseAssets(assets); }
+      if (module) candidate = { ...module, realm: await moduleLoader.prepare(module, logicInfo) };
+      return await boot(bytes, assets, current, candidate) !== null;
+    } finally {
+      if (devAssets !== assets) releaseAssets(assets);
+      if (candidate && activeModule !== candidate) candidate.realm.dispose();
+    }
   },
   get devAssets() { return devAssets; },
-  get ready() { return ready; },
+  get ready() { return ready.then(async () => { if (logicInfo) { await moduleReady; if (root.inert) throw new Error(root.dataset.error || 'browser module not ready'); } }); },
   ...(agentMode ? { agent, now } : {}), views, root, generation: 0, pendingSurfaces: [],
 };
 
@@ -814,10 +856,12 @@ function loadGpuIfNeeded() {
 
 async function main() {
   const url = new URL("./app.wasm", import.meta.url);
-  const { instance } = await WebAssembly.instantiateStreaming(fetch(url), {});
+  const { instance } = await WebAssembly.instantiateStreaming(fetch(url), { exact_js: { call: moduleCall } });
   wasm = instance.exports;
   memory = wasm.memory;
   globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
+  logicInfo = wasm.exact_logic ? JSON.parse(readOut(wasm.exact_logic())) : null;
+  root.inert = !!logicInfo; // First pixel is baked; input needs the deferred executor.
   // The kept secrets, before boot (LLP 1018 D6): every `exact.secret.*` key,
   // handed to the runner, which keeps the granted names — so the first frame
   // is a returning user's. Agent mode starts from nothing.
@@ -839,7 +883,29 @@ async function main() {
   root.dataset.bootMs = (performance.now() - t0).toFixed(1);
   requestAnimationFrame(() => {
     root.dataset.frameCallbackMs = (performance.now() - t0).toFixed(1);
-    requestAnimationFrame(loadGpuIfNeeded);
+    requestAnimationFrame(async () => {
+      loadGpuIfNeeded();
+      try {
+        if (logicInfo) {
+          moduleLoader = await new Promise((resolve, reject) => {
+            const script = document.createElement('script'); script.type = 'module';
+            script.src = new URL('./module-glue.js', import.meta.url).href;
+            script.onload = () => resolve(globalThis.exact.moduleRuntime);
+            script.onerror = () => reject(new Error('browser module loader failed'));
+            document.head.append(script);
+          });
+          const payload = await moduleLoader.baked();
+          const realm = await moduleLoader.prepare(payload, logicInfo, 0);
+          activeModule = { ...payload, realm };
+          const batch = JSON.parse(readOut(wasm.exact_data_ready()));
+          if (batch.error) throw new Error(batch.error);
+          applyBatch(batch);
+          root.inert = false;
+          root.dataset.moduleReady = 'true';
+        }
+      } catch (error) { root.dataset.error = String(error); console.error(error); }
+      finally { resolveModuleReady(); }
+    });
   });
 }
 

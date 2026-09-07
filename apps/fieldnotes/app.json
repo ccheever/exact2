@@ -1,0 +1,17 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Fieldnotes",
+  "short_name": "Fieldnotes",
+  "id": "com.exact.fieldnotes",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#31554a",
+  "background_color": "#f6f3eb",
+  "app": { "id": "com.exact.fieldnotes", "name": "Fieldnotes" },
+  "host": {
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "macos": { "minimumOS": "14.0" },
+    "web": {}
+  },
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" } }
+}

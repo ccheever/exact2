@@ -19,6 +19,42 @@ extension Agent {
     /// `sessions` are what a request's `session` label routes among.
     public static func startSocket(ready: [String: Any], sessions: [(String, ExactSession)]) {
         routes = sessions
+        // Agent input does not reset UIKit's user-idle timer. Keep an explicitly
+        // driven test launch awake; normal launches never enter this carrier.
+        UIApplication.shared.isIdleTimerDisabled = true
+        // Physical devices have no readable stdin, even with devicectl --console.
+        // Connect outward to this launch's driver, after first pixel. No listener.
+        if let endpoint = ExactEnv.environment["EXACT_AGENT_CONNECT"],
+           let token = ExactEnv.environment["EXACT_AGENT_TOKEN"], !token.isEmpty {
+            let parts = endpoint.split(separator: ":")
+            guard parts.count == 2, let port = UInt16(parts[1]), port > 0 else { return }
+            var addr = sockaddr_in()
+            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = port.bigEndian
+            guard String(parts[0]).withCString({ inet_pton(AF_INET, $0, &addr.sin_addr) }) == 1 else { return }
+            var announcement = ready
+            announcement["container"] = NSHomeDirectory()
+            announcement["token"] = token
+            Thread {
+                let fd = socket(AF_INET, SOCK_STREAM, 0)
+                guard fd >= 0 else { return }
+                let connected = withUnsafePointer(to: &addr) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    }
+                }
+                guard connected == 0 else {
+                    FileHandle.standardError.write(Data("exact: agent connect: \(String(cString: strerror(errno)))\n".utf8))
+                    close(fd)
+                    return
+                }
+                out = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+                reply(announcement)
+                serve(fd: fd)
+            }.start()
+            return
+        }
         guard let path = ExactEnv.environment["EXACT_AGENT_SOCKET"] else {
             FileHandle.standardError.write(Data("exact: EXACT_AGENT=1 needs EXACT_AGENT_SOCKET=<path> on iOS\n".utf8))
             return
@@ -170,7 +206,20 @@ extension Agent {
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if v.props["editable"] == "false", req["key"] == nil || ["Enter", "Backspace"].contains(req["key"] as? String ?? "") { return ["error": "view \(v.id) is readonly"] }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
+        if let f = v.textArea {
+            f.becomeFirstResponder()
+            if let key = req["key"] as? String {
+                if key == "Enter" { f.insertText("\n") }
+                else if key == "Backspace" { f.deleteBackward() }
+                else { return ["error": "unsupported textarea key \(key)"] }
+            } else {
+                f.selectAll(nil)
+                f.insertText(req["text"] as? String ?? "")
+            }
+            return ["typed": Int(v.id), "value": f.text ?? ""]
+        }
         if let key = req["key"] as? String {
             // A key at the target: the field's (Enter, as its delegate would
             // hear it) or a focused node's, by the web's name — delivered as
@@ -219,6 +268,10 @@ extension Agent {
         hidden.forEach { $0.0.isHidden = true }
         #endif
         Capture.capturing = true
+        // drawHierarchy can reuse a clean backing layer without calling draw.
+        // Materialize this turn's web/GPU pictures before composing the hierarchy.
+        let captured = presenter.views.values.filter { Capture.web[$0.id] != nil || $0.kind == "canvas" }
+        for node in captured { node.setNeedsDisplay(); node.layer.displayIfNeeded() }
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
             vp.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
         }
@@ -227,6 +280,8 @@ extension Agent {
         hidden.forEach { $0.0.isHidden = $0.1 }
         #endif
         Capture.web = [:]
+        // Snapshot pixels belong to this capture, not the live backing layers.
+        for node in captured { node.setNeedsDisplay() }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(size.width), "h": Agent.r2(size.height), "scale": Agent.r2(scale)]
         if req["window"] as? Bool == true { r["window"] = true }

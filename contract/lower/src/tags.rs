@@ -22,6 +22,8 @@ pub enum AttrTarget {
     Styles(Vec<StyleId>),
     /// One prop.
     Prop(PropId),
+    /// A boolean prop with the inverse of the authored value.
+    InvertedBoolProp(PropId),
     /// A handler for the named event.
     Handler(&'static str),
     /// CSS `flex: <n>` — grow, shrink, and basis together.
@@ -97,6 +99,12 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: vec![(p("accessibilityRole"), "link")],
             positional: None,
         },
+        "textarea" => Tag {
+            node_type: NodeType::TextInput,
+            fixed_styles: vec![(s("white_space"), "pre-wrap")],
+            fixed_props: vec![(p("semanticTag"), "textarea")],
+            positional: None,
+        },
         "input" => Tag {
             node_type: NodeType::TextInput,
             fixed_styles: vec![],
@@ -147,7 +155,7 @@ pub enum PropTy {
 /// The type a prop attribute takes, by the kernel prop's name.
 pub fn prop_ty(prop: PropId) -> PropTy {
     match prop.name() {
-        "disabled" | "accessibilityChecked" => PropTy::Bool,
+        "disabled" | "editable" | "accessibilityChecked" => PropTy::Bool,
         "accessibilityHeadingLevel" => PropTy::Int,
         _ => PropTy::Str,
     }
@@ -192,6 +200,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "value" => AttrTarget::Prop(p("value")),
         "href" => AttrTarget::Prop(p("href")),
         "disabled" => AttrTarget::Prop(p("disabled")),
+        "readonly" => AttrTarget::InvertedBoolProp(p("editable")),
         "lang" => AttrTarget::Prop(p("lang")),
         "src" => AttrTarget::Prop(p("src")),
         "sandbox" => AttrTarget::Prop(p("sandbox")),

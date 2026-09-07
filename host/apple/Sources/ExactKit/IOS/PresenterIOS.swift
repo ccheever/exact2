@@ -298,6 +298,7 @@ final class Presenter {
                 v.frame = CGRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
                 v.scroll?.frame = v.bounds
                 v.field?.frame = v.fieldBox()
+                v.layoutTextArea()
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
                 v.web?.frame = v.bounds

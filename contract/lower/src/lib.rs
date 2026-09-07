@@ -1349,6 +1349,16 @@ impl<'a> Lowerer<'a> {
                     });
                 }
             }
+            tags::AttrTarget::InvertedBoolProp(prop) => {
+                self.check_prop_value(&a.name, &a.value, a.span, prop, scope)?;
+                let inverted = Expr::Unary(UnOp::Not, Box::new(a.value.clone()), a.span);
+                let code = self.expr_code(&inverted, scope, locals)?;
+                bindings.push(BindingsRow {
+                    kind: BindingKind::Prop,
+                    id: prop as u16,
+                    expr: code,
+                });
+            }
             tags::AttrTarget::Prop(prop) => {
                 self.check_prop_value(&a.name, &a.value, a.span, prop, scope)?;
                 let code = self.expr_code(&a.value, scope, locals)?;

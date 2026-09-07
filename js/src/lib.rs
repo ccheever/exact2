@@ -171,7 +171,8 @@ unsafe extern "C" fn host_door(
             None => Err("store.forget: no store at bake".into()),
         },
         5 => {
-            if state.store.is_some() {
+            if let Some(store) = state.store {
+                (*store).observe_external_read();
                 Ok(None)
             } else {
                 Err("storage is unavailable during bake".into())

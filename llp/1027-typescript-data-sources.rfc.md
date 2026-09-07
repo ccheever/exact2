@@ -448,6 +448,13 @@ shows the kept answer for one frame and is corrected. No JavaScript before
 first pixel, no bend in the rule, and the shape every native app already
 uses for cached login state. `js/tests/castle.rs` drives all three.
 
+**Storage readers (2026-09-07):** the same `resources.reader` marker covers
+filesystem and SQLite access. A storage call records an external read even when
+bake refuses it; it does not invent a secret read or key. Storage-backed resources
+therefore show their kept answer or baked placeholder on the first frame and
+refresh through `data_ready()` after activation. Fieldnotes exercises this path:
+a returning notebook opens its saved notes without a user action.
+
 The alternative — create the engine before boot, since it is 0.3 ms —
 was considered and not taken, not because the number is large but because the rule
 is a count, not a timer, and the reason it is a count is that the
@@ -552,8 +559,8 @@ apps. One browser producer-start-to-DOM sample was ~359 ms (producer 329 ms,
 fetch 26 ms, restart 3 ms), excluding watch debounce; timing now includes it.
 The 100 ms save-to-present p50 budget is not demonstrated. D6 records the
 subsequent async data parity, iOS simulator guard sweep and TypeScript Caltrain
-UI drive and physical iOS guard execution; physical live-URL replacement and
-signed module delivery remain owed.
+UI drive, physical iOS guard execution and physical live-URL replacement;
+signed module delivery remains owed.
 
 ### D6 — The web: the browser is the executor; one wasm import; the same module under two loaders
 
@@ -696,8 +703,31 @@ and device requests now have a 45 s deadline. The first local-network connection
 also refused before a relaunch connected. The newly included ibex host build
 needed target-specific macOS `CXXFLAGS_aarch64_apple_darwin=-isysroot <macOS SDK>`
 to avoid inheriting the iPhone SDK; this workaround does not fix that build script.
-Physical live-URL replacement and systematic linked size/startup/per-call
-measurements remain owed; Linux still has a refusing stub.
+**Physical URL replacement (Codex, 2026-09-07):** the phone and browser opened
+`http://192.168.1.4:8799/`. After pressing Run once and setting clock 12345,
+changing only the TypeScript revision from `guards v1` to `phone live v2`
+changed both displayed answers. Plan SHA-256 stayed
+`191c9a79d4c39bad6e325bbb1c47f0284afcffecb40e06e36ba709e49d4e975b`;
+HBC changed from `4198d6ee…` to `f64278d7…`. Phone PID 34089 and native binary
+SHA-256 `8774da42bf63708064564934da798d7aee7bd5412d7f5f16e602291efc9b96be`
+stayed unchanged throughout. Both retained attempt 1 and clock 12345 and reran
+all 75 guards plus explicit inputs/27 HTTP requests with no pending work.
+A candidate that bakes at attempt 0 but throws at carried attempt 1 was refused
+by both, preserving their complete state. Restoring the answer as `phone live v3`
+recovered both with the same PID, binary, state and successful sweep. Copied
+phone screenshots show the changed results. Artifacts for this local run:
+`/tmp/exact-phone-menu-proof.iYin4J/` (`proof.txt`, process snapshots, PNGs).
+
+The apparent agent stalls included native crashes: the 09:42 and 13:30 device
+reports both end in `UIGestureRecognizer._delayTouchesForEvent:inPhase:` trying
+to insert nil. Disabling the developer menu isolated the problem and passed
+the full proof once. Its recognizers now set `delaysTouchesEnded = false`;
+the full proof above passes with the menu enabled and temporary tracing removed.
+Two further default-menu launches pass `clock settle` after the guard sweep and
+ten repeated state reads each, including the operation that previously timed out.
+This is a verified mitigation, not a proof that every prior timeout had that cause;
+manual four-finger menu recognition itself was not driven. Systematic linked
+size/startup/per-call measurements remain owed; Linux still has a refusing stub.
 
 Answering LLP 1026 §10 Q6 for this executor: the web loads the module
 separately, *because it must* (there is no wasm form of it), and a
@@ -843,7 +873,10 @@ The build captures the runtime sources and pinned npm artifacts in its receipt,
 and serves them lazily after first pixel. Browser/native fixtures cover grants,
 SQL restrictions, integer/blob types, transactions, fetch interleaving, and
 persistence across realm and page reloads. No filesystem work or app JS runs
-before first pixel. Snapback2 remains deferred.
+before first pixel. `apps/fieldnotes` is the real consumer: a Contract editor with
+TypeScript sources, SQLite notes, and a validated JSON backup in its app-scoped
+filesystem. Native tests drive the baked artifact through save/search/pin,
+restart, backup, deletion, and transactional restore. Snapback2 remains deferred.
 
 - **Language:** Hermes's — ES2015 and most of what followed; no
   `eval`/`Function` (closed at construction); the current lean build does

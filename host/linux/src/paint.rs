@@ -422,8 +422,17 @@ impl Painter {
                     value
                 };
                 let spec = text_spec(s, shown);
-                let paragraph = self.text.borrow_mut().paragraph(&spec, None);
-                let oy = content.1 + ((content.3 - paragraph.height) / 2.0).max(0.0);
+                let multiline = node.props.str(PropId::SemanticTag) == Some("textarea");
+                let paragraph = self
+                    .text
+                    .borrow_mut()
+                    .paragraph(&spec, multiline.then_some(content.2));
+                let oy = content.1
+                    + if multiline {
+                        0.0
+                    } else {
+                        ((content.3 - paragraph.height) / 2.0).max(0.0)
+                    };
                 let ink = if placeholder {
                     [0x75, 0x75, 0x75, 0xff]
                 } else {

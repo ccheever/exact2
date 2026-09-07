@@ -54,7 +54,7 @@ final class ChainingScrollView: NSScrollView {
     }
 }
 
-final class NodeView: NSView, NSTextFieldDelegate {
+final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func selectAll(_ sender: Any?) { presenter?.selection.selectAll() }
 
     let id: UInt32
@@ -71,6 +71,8 @@ final class NodeView: NSView, NSTextFieldDelegate {
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
     weak var presenter: Presenter?
+    var textArea: NSTextView?
+    var textAreaScroll: NSScrollView?
     var field: NSTextField?
     var scroll: ChainingScrollView?
     /// The platform view returned by the dlopened iframe arm (@ref LLP 1020 D3).
@@ -112,7 +114,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     /// hears these. A pressable is in the tab order the way a `<button>` is.
     override var acceptsFirstResponder: Bool {
         if disabled { return false }
-        if field != nil { return false }
+        if field != nil || textArea != nil { return false }
         if isParagraph { return true }
         return handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
     }
@@ -344,6 +346,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
             addSubview(o)
             overlay = o
         }
+        if kind == "textarea" { makeTextArea() }
         if kind == "input" {
             let f = makeField(secure: false)
             addSubview(f)
@@ -538,6 +541,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
     func applyProps(set: [String: String], clear: [String]) {
         for k in clear { props.removeValue(forKey: k) }
         for (k, v) in set { props[k] = v }
+        applyTextArea()
         if let f = field {
             // `type` changed between password and text: a secure field is a
             // different class on AppKit, so the field is remade in place.
@@ -557,6 +561,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
             if let v = props["value"], f.stringValue != v { f.stringValue = v }
             applyPlaceholder(f)
             f.isEnabled = !disabled
+            f.isEditable = !disabled && props["editable"] != "false"
         }
         setAccessibilityEnabled(!disabled)
         setAccessibilityIdentifier(props["testId"])
@@ -602,6 +607,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
         scroll?.hasHorizontalScroller = ox == "scroll"
         scroll?.hasVerticalScroller = oy == "scroll"
         clipsToBounds = ox == "hidden" || oy == "hidden"
+        styleTextArea()
         if let f = field, let t = text {
             f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic")
             f.textColor = color("text_color", .black)
@@ -625,6 +631,7 @@ final class NodeView: NSView, NSTextFieldDelegate {
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layout()
         if field != nil { field?.frame = fieldBox() }
+        layoutTextArea()
     }
 
     override func draw(_ rect: NSRect) {

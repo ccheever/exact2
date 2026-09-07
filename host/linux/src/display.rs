@@ -335,7 +335,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                 InputEvent::Key(Key::Char(c)) => p.key(Some(c), false, wall()),
                 InputEvent::Key(Key::Backspace) => p.key(None, true, wall()),
                 InputEvent::Key(Key::Escape) => p.blur(),
-                InputEvent::Key(Key::Enter) => {}
+                InputEvent::Key(Key::Enter) => p.key(Some('\n'), false, wall()),
             }
         }
         let now = wall();

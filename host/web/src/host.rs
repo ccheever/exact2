@@ -276,6 +276,24 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&a.receipts, error.as_deref())
     }
 
+    /// Activate deferred logic after the page's first rendering opportunity.
+    pub fn data_ready(&mut self) -> String {
+        if let Err(error) = self.runner.data().activate() {
+            return self.batch_for(&[], Some(&format!("module: {error:?}")));
+        }
+        match self.runner.data_ready() {
+            Ok(Some(receipt)) => self.batch_for(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => self.batch_for(&[], None),
+            Err(error) => self.batch_for(&[], Some(&format!("data ready: {error:?}"))),
+        }
+    }
+
     fn batch_for(&mut self, receipts: &[Timed], error: Option<&str>) -> String {
         let mut batch = Batch::new();
         for t in receipts {
@@ -553,6 +571,11 @@ fn host_css(node: &NodeRef<'_>, mut css: String) -> String {
 
 /// The element for a node: its type, refined by `semanticTag`.
 fn tag_for(node: &NodeRef<'_>) -> &'static str {
+    if node.node_type == NodeType::TextInput
+        && node.props.str(PropId::SemanticTag) == Some("textarea")
+    {
+        return "textarea";
+    }
     if node.props.str(PropId::Href).is_some()
         && (node.is_inline_run() || node.node_type == NodeType::Pressable)
     {
@@ -593,6 +616,13 @@ fn tag_for(node: &NodeRef<'_>) -> &'static str {
 fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for (id, value) in node.props.iter() {
+        if id == PropId::Editable {
+            out.insert(
+                "readonly".into(),
+                (value == &PropValue::Bool(false)).to_string(),
+            );
+            continue;
+        }
         let text = match value {
             PropValue::Str(s) => s.clone(),
             PropValue::Bool(b) => b.to_string(),

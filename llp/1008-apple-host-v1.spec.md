@@ -183,7 +183,15 @@ target over `exact.h`; `EXACT_LIB_DIR`/`EXACT_LIB` name the archive), AppKit
 only. `NodeView` is one flipped, layer-backed `NSView` per node with
 `layerContentsRedrawPolicy = .duringViewResize`: it draws its background,
 per-side borders, and radius, and for a text node its `Paragraph`; an
-`input` node carries an `NSTextField`; a `scroll`/`list` node an
+`textarea` carries a plain-text `NSTextView` in an `NSScrollView` (a
+`UITextView` on iOS); its `change` preserves newlines, Enter inserts a
+newline without submitting, and its font, color, padding and border use
+the same rows as `input`. Contract lowers it to `TextInput` with the existing
+`semanticTag="textarea"`, emitted as a real `<textarea>` on the web. The
+HTML `readonly` lowers to the inverse of the existing `editable` prop,
+keeping the text selectable while refusing edits. The app gives this bounded
+editor its width and height; rich text and automatic
+height growth are outside this control. An `input` node carries an `NSTextField`; a `scroll`/`list` node an
 `NSScrollView` whose flipped document view holds the children and takes the
 `content` size. Frames are set from `frame` ops; `present` ops set an
 affine transform about the bounds' center (translate · rotate · scale) and

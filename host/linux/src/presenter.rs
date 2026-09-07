@@ -912,6 +912,9 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::Disabled) == Some(true) {
             return Err(format!("view {id} is disabled"));
         }
+        if node.props.bool(PropId::Editable) == Some(false) {
+            return Err(format!("view {id} is readonly"));
+        }
         self.focus = Some(id);
         let now = self.host.now();
         let error = self
@@ -941,6 +944,12 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         if node.props.bool(PropId::Disabled) == Some(true) {
+            return;
+        }
+        if node.props.bool(PropId::Editable) == Some(false) {
+            return;
+        }
+        if ch == Some('\n') && node.props.str(PropId::SemanticTag) != Some("textarea") {
             return;
         }
         let mut value = node.props.str(PropId::Value).unwrap_or("").to_string();

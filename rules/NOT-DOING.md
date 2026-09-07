@@ -19,6 +19,11 @@ consumer: macOS file opening and comfortable reading first, shared with iOS and
 web. Take: native-module implementation (LLP 1024, awaiting a consumer) moves
 behind the reader. Blog/CMS and publishing remain out.
 
+**Expanded (Charlie, 2026-09-07: "make a real app that uses them"):** Fieldnotes
+is the storage consumer: notes in SQLite, backups in app-scoped files, and a
+multiline editor on web and Apple. Take: further general-purpose API expansion
+waits behind proving these shipped bindings in the app; Snapback2 stays deferred.
+
 ## Surfaces
 
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it
