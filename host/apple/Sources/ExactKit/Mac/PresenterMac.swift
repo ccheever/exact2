@@ -131,6 +131,23 @@ final class Presenter {
     var onIntrinsic: ((UInt32, CGSize?) -> Void)?
     /// A capability an action called (LLP 1005 §3), after its commit.
     var onCommand: ((String, [Any]) -> Void)?
+
+    /// The action's focus(html-id), delivered only after the batch is mounted.
+    func focusElement(_ args: [Any]) {
+        guard args.count == 1, let name = args.first as? String,
+              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
+              let window = target.window, !target.disabled,
+              target.bounds.width > 0, target.bounds.height > 0 else { return }
+        var ancestor: NSView? = target
+        while let view = ancestor {
+            if view.isHidden || (view as? NodeView)?.props["inert"] == "true" { return }
+            ancestor = view.superview
+        }
+        if let field = target.field, window.firstResponder === field.currentEditor() { return }
+        let responder: NSView = target.textArea ?? target.field ?? target
+        if responder.acceptsFirstResponder { window.makeFirstResponder(responder) }
+    }
+
     /// The events beyond press and change (LLP 1005 §3).
     var onHover: ((UInt32, Bool) -> Void)?
     var onFocus: ((UInt32) -> Void)?

@@ -259,6 +259,8 @@ document.addEventListener("keydown", (event) => {
     const parts = chord.split("+");
     const key = parts.pop();
     const modifiers = new Set(parts);
+    if (key === "Escape" && !parts.length) return event.key === "Escape"
+      && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
     return key?.length === 1 && [...modifiers].every(m => ["Meta", "Control", "Alt", "Shift"].includes(m))
       && (modifiers.has("Meta") || modifiers.has("Control"))
       && event.metaKey === modifiers.has("Meta") && event.ctrlKey === modifiers.has("Control")
@@ -282,6 +284,7 @@ function viewFor(op, id) {
 }
 
 function apply(batch) {
+  const focusCommands = [];
   if (batch.error) console.error("exact:", batch.error);
   for (const op of batch.ops ?? []) {
     try {
@@ -418,6 +421,7 @@ function apply(batch) {
         // A capability an action called (LLP 1005 §3). `setScheme` is the
         // document's colour scheme — what `prefers-color-scheme` would be.
         if (op.name === "setScheme") document.documentElement.style.colorScheme = String(op.args[0] ?? "");
+        else if (op.name === "focus") focusCommands.push(op.args);
         else console.warn(`exact: unknown command ${op.name}`);
         break;
       }
@@ -446,6 +450,15 @@ function apply(batch) {
       // batch, so leaving the DOM at a prefix would be the worst outcome.
       console.error(`exact: ${String(op?.op ?? "unknown")} op failed`, e);
     }
+  }
+  // Focusing can dispatch an action; every node/value in this batch must be
+  // committed before its focus handler runs.
+  for (const args of focusCommands) {
+    if (args?.length !== 1 || typeof args[0] !== "string" || root.inert) continue;
+    const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
+    if (!el || !el.isConnected || el.matches(":disabled") || el.closest("[inert]")
+        || !el.getClientRects().length || getComputedStyle(el).visibility !== "visible") continue;
+    el.focus();
   }
   return batch.timers;
 }

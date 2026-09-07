@@ -7,7 +7,9 @@ private struct Shortcut {
     let modifiers: NSEvent.ModifierFlags
     init?(_ text: Substring) {
         var parts = text.split(separator: "+", omittingEmptySubsequences: false)
-        guard let last = parts.popLast(), last.count == 1 else { return nil }
+        guard let last = parts.popLast() else { return nil }
+        if last == "Escape", parts.isEmpty { key = "Escape"; modifiers = []; return }
+        guard last.count == 1 else { return nil }
         var mask: NSEvent.ModifierFlags = []
         for part in parts {
             switch part {
@@ -23,7 +25,7 @@ private struct Shortcut {
         modifiers = mask
     }
     func matches(_ event: NSEvent) -> Bool {
-        event.charactersIgnoringModifiers?.lowercased() == key
+        (key == "Escape" ? event.keyCode == 53 : event.charactersIgnoringModifiers?.lowercased() == key)
             && event.modifierFlags.intersection([.command, .control, .option, .shift]) == modifiers
     }
 }

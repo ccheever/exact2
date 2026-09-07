@@ -214,13 +214,23 @@ and Develop items left them unmatched (Weird Castle's login, 2026-08-31).
 App commands are declared on buttons with `aria-keyshortcuts`, for example
 `"Meta+S Control+S"`. Hosts bind a space-separated list of chords with one
 character key and explicit `Meta` or `Control`; `Alt` and `Shift` may also
-qualify a chord. Matching uses the exact modifier set and ignores key case.
+qualify a chord. Bare `Escape` is also supported, with no modifiers; other
+named unmodified keys are not bound. Matching uses the exact modifier set
+and ignores character-key case.
 The same mounted button and its `disabled` state govern clicks, keys, and
 native menu actions; disabled matches and held-key repeats are consumed
 without dispatch. macOS routes commands before text editing, scoped to the
 focused Exact view, and derives File menu labels and Command equivalents
 from those buttons (one menu entry per button; Control alternatives do not
 create duplicates). Menus revalidate the current mounted, enabled node.
+An action may issue `focus("html-id")` to move focus after its batch has
+mounted nodes and applied values. It resolves the existing HTML `id` within
+that session/root, never `testId`; missing, disabled, hidden, or inert targets
+are ignored. Native input/textarea focus uses the platform editor and the
+existing focus event; web uses the element's focus. The command takes one
+string, does not select text, and does not activate the target. macOS and iOS
+handle it inside the session before forwarding external delegate commands.
+
 The browser handles chords it receives, including while an input or textarea
 is focused; a browser-reserved chord such as Command-N may never reach the
 page. This binds the declaration explicitly; ARIA alone does not install a

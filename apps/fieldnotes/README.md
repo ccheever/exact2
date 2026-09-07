@@ -8,7 +8,10 @@ On macOS, Fieldnotes opens at 1100 × 760 and remembers its window frame. The
 notes list sits beside a full-height editor; each scrolls independently, while
 save controls stay visible. Use File → Save note (⌘S) or New note (⌘N). Shortcuts
 use the same draft and pending-work guards as the buttons. Backups opens a
-separate screen and Back to notes returns to the editor.
+separate screen and Back to notes returns to the editor. ⌘F opens search from
+either screen. Escape clears/closes search or returns from Backups. New note
+clears the search and focuses the title; selecting a saved note focuses its body.
+Drafts remain protected: New note stays disabled until saved or discarded.
 
 ```sh
 node host/web/dev.mjs --app fieldnotes

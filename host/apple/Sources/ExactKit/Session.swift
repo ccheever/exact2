@@ -512,6 +512,10 @@ public final class ExactSession {
             let queued = pendingCommands
             pendingCommands = []
             for (name, args) in queued {
+                if name == "focus" {
+                    app.deliver { [weak self] in self?.presenter.focusElement(args) }
+                    continue
+                }
                 if app.handleCommand(name) { continue }
                 app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, command: name, args: args) }
             }

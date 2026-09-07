@@ -372,3 +372,5 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   compilation" for the bake, 1026's wasm data module leaves its staging so a phone
   carries one interpreter) and §10's eight questions — 1.8 MB on iOS and the
   one-frame `pending` first. 1019's link (Accepted, landed) left `current/` for it.
+
+- macOS text controls: align focus/blur notifications with first-responder changes; AppKit editing-began delegates currently wait for the first edit, so a focus command can move the caret before a Contract focus handler runs.
