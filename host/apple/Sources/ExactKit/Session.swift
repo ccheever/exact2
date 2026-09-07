@@ -21,6 +21,16 @@ public enum ExactEnv {
     public static let environment = ProcessInfo.processInfo.environment
     public static let agentMode = environment["EXACT_AGENT"] == "1"
     public static let smoke = environment["EXACT_SMOKE"] == "1"
+    /// Baked host metadata: a bundle normally; the existing product sidecar in bare development builds.
+    nonisolated(unsafe) public static let appMetadata: [String: Any] = {
+        if let info = Bundle.main.infoDictionary, info["CFBundleIdentifier"] != nil { return info }
+        let executable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
+        let path = executable.deletingLastPathComponent().appendingPathComponent(executable.lastPathComponent + "-Info.plist")
+        guard let data = try? Data(contentsOf: path),
+              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return [:] }
+        return info
+    }()
+    public static let appName = appMetadata["CFBundleDisplayName"] as? String ?? appMetadata["CFBundleName"] as? String ?? "Exact"
     /// Milliseconds since the process's `main`: the wall clock for startup stamps.
     public static let t0 = CACurrentMediaTime()
     public static func wall() -> Double { (CACurrentMediaTime() - t0) * 1000 }

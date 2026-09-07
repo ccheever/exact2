@@ -636,6 +636,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             // alternative, shown when it does not load.
             PropId::AccessibilityLabel if node.node_type == NodeType::Image => "alt",
             PropId::AccessibilityLabel => "aria-label",
+            PropId::AccessibilityKeyShortcuts => "aria-keyshortcuts",
             PropId::AccessibilityRole => "role",
             PropId::AccessibilityHint => "aria-description",
             PropId::AccessibilityHeadingLevel => "aria-level",

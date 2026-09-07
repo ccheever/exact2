@@ -130,80 +130,82 @@ component Fieldnotes
     version = version + 1
 
   view
-    scroll testId="fieldnotes" width="100%" height="100%" box-sizing="border-box" background-color="#f6f3eb" color="#263f35" padding=24
-      column max-width=1080 margin-left="auto" margin-right="auto" gap=24
-        row justify-content="space-between" align-items="center" flex-wrap="wrap" gap=16
-          column gap=6
-            text "FIELDNOTES" font-size=12 font-weight=700 letter-spacing=3 color="#63766a"
-            text "A little room for your thoughts." font-family="serif" font-size=32 font-weight=400
-          button press=showBackups testId="backups" padding=12 border-width=1 border-color="#cbd3c8" border-radius=8 background-color="#f6f3eb"
-            text "Backups" font-size=14 color="#31554a"
-        row justify-content="space-between" align-items="center" gap=12 flex-wrap="wrap"
-          text `${library.total} notes · saved on this device` font-size=13 color="#63766a" testId="note-count"
-          when busy
-            text "Working…" font-size=13 color="#63766a" testId="working"
+    main testId="fieldnotes" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" overflow-y="scroll" background-color="#f6f3eb" color="#263f35" padding=16 gap=16
+      row justify-content="space-between" align-items="center" gap=12 flex-shrink=0
+        column gap=3
+          text "Fieldnotes" font-family="serif" font-size=26 font-weight=400
+          text "A little room for your thoughts." font-size=12 color="#63766a"
+        button press=showBackups testId="backups" padding=10 border-width=1 border-color="#cbd3c8" border-radius=8 background-color="#f6f3eb"
+          text (backups ? "Back to notes" : "Backups") font-size=13 color="#31554a"
+      row justify-content="space-between" align-items="center" gap=12 flex-wrap="wrap" flex-shrink=0
+        text `${library.total} ${library.total == 1 ? "note" : "notes"} · on this device` font-size=12 color="#63766a" testId="note-count"
+        when busy
+          text "Working…" font-size=12 color="#63766a" testId="working"
+        else
+          when dirty
+            text "Unsaved changes" font-size=12 color="#92622f" testId="unsaved"
           else
-            when dirty
-              text "Unsaved changes" font-size=13 color="#92622f" testId="unsaved"
-            else
-              when library.ready
-                text "All changes saved" font-size=13 color="#63766a" testId="saved-indicator"
-        when library.message != ""
-          text library.message font-size=14 color="#92622f" testId="library-message"
-        match status
-          case some(s)
-            text s.message font-size=14 color=(s.failed ? "#a34336" : "#31554a") testId="status-message"
-          case none
-            text "No account. No connection needed." font-size=13 color="#63766a"
-        when backups
-          column padding=20 gap=12 background-color="#e9eee4" border-radius=12 testId="backup-panel"
-            text "Keep a spare copy" font-family="serif" font-size=23
-            text "Save a backup on this device, or copy the backup text somewhere safe. Restoring replaces all current notes." font-size=14 color="#63766a"
-            row gap=10 flex-wrap="wrap"
-              button press=backup disabled=(busy or dirty) testId="save-backup" padding=12 background-color="#31554a" border-radius=7
-                text "Save backup" color="#ffffff"
-              button press=readBackup disabled=busy testId="read-backup" padding=12 background-color="#ffffff" border-radius=7
-                text "Show saved backup" color="#31554a"
-            when backupText != ""
-              textarea font-family="sans-serif" value=backupText readonly=true aria-label="Backup text to copy" testId="backup-text" height=130 width="100%" box-sizing="border-box" padding=12 font-size=12 background-color="#ffffff" border-width=1 border-color="#cbd3c8" border-radius=7
-            textarea font-family="sans-serif" value=importText change=changeImport aria-label="Paste a Fieldnotes backup" placeholder="Paste backup text here, or leave empty to restore this device's saved backup" testId="import-text" height=90 width="100%" box-sizing="border-box" padding=12 font-size=13 background-color="#ffffff" border-width=1 border-color="#cbd3c8" border-radius=7
-            when confirmRestore
-              row gap=12 align-items="center" flex-wrap="wrap"
-                text "Replace all notes with this backup?" font-size=14
-                button press=restore disabled=(busy or dirty) testId="confirm-restore" padding=10 background-color="#a34336" border-radius=7
-                  text "Replace notes" color="#ffffff"
-                button press=cancelRestore testId="cancel-restore" padding=10
-                  text "Cancel"
-            else
-              button press=askRestore disabled=(busy or dirty) testId="restore-backup" padding=10 align-self="flex-start"
-                text "Restore backup…" color="#a34336"
-        row gap=20 flex-wrap="wrap" align-items="flex-start"
-          column flex=1 min-width=240 gap=12
-            input value=query change=search placeholder="Search your notes" aria-label="Search notes" testId="search" width="100%" box-sizing="border-box" padding=14 border-width=1 border-color="#cbd3c8" border-radius=9 background-color="#ffffff" font-size=15
-            button press=newNote disabled=(dirty or busy) testId="new-note" padding=14 background-color="#31554a" border-radius=9
-              text "+  New note" color="#ffffff" font-weight=600
-            when length(library.notes) == 0
-              column padding=20 gap=8
-                text (query == "" ? "Your notebook starts here." : "No matching notes.") font-family="serif" font-size=22 testId="empty-notebook"
-                text (query == "" ? "Write a thought, a list, or something worth keeping." : "Try a different word.") font-size=14 color="#63766a"
-            each note in library.notes key=note.id
-              button press=edit(note.id, note.title, note.body, note.pinned) disabled=(dirty or busy) testId=`note-${note.id}` aria-label=note.title padding=16 border-width=1 border-color=(note.id == editingId ? "#31554a" : "#dedfd5") border-radius=9 background-color=(note.id == editingId ? "#e9eee4" : "#fcfbf7")
-                column gap=6 align-items="flex-start"
-                  when note.pinned
-                    text "PINNED" font-size=10 font-weight=700 letter-spacing=1 color="#7b7957"
-                  text note.title font-size=17 font-weight=600 text-align="left"
-                  text note.excerpt font-size=13 color="#63766a" text-align="left"
+            when library.ready
+              text "All changes saved" font-size=12 color="#63766a" testId="saved-indicator"
+      when library.message != ""
+        text library.message font-size=13 color="#92622f" testId="library-message" flex-shrink=0
+      match status
+        case some(s)
+          text s.message font-size=13 color=(s.failed ? "#a34336" : "#31554a") testId="status-message" flex-shrink=0
+        case none
+          text "Private, local, and yours." font-size=12 color="#63766a" flex-shrink=0
+      when backups
+        column padding=20 gap=12 background-color="#e9eee4" border-radius=12 testId="backup-panel"
+          text "Keep a spare copy" font-family="serif" font-size=23
+          text "Save a backup on this device, or copy the backup text somewhere safe. Restoring replaces all current notes." font-size=14 color="#63766a"
+          row gap=10 flex-wrap="wrap"
+            button press=backup disabled=(busy or dirty) testId="save-backup" padding=12 background-color="#31554a" border-radius=7
+              text "Save backup" color="#ffffff"
+            button press=readBackup disabled=busy testId="read-backup" padding=12 background-color="#ffffff" border-radius=7
+              text "Show saved backup" color="#31554a"
+          when backupText != ""
+            textarea font-family="sans-serif" value=backupText readonly=true aria-label="Backup text to copy" testId="backup-text" height=130 width="100%" box-sizing="border-box" padding=12 font-size=12 background-color="#ffffff" border-width=1 border-color="#cbd3c8" border-radius=7
+          textarea font-family="sans-serif" value=importText change=changeImport aria-label="Paste a Fieldnotes backup" placeholder="Paste backup text here, or leave empty to restore this device's saved backup" testId="import-text" height=90 width="100%" box-sizing="border-box" padding=12 font-size=13 background-color="#ffffff" border-width=1 border-color="#cbd3c8" border-radius=7
+          when confirmRestore
+            row gap=12 align-items="center" flex-wrap="wrap"
+              text "Replace all notes with this backup?" font-size=14
+              button press=restore disabled=(busy or dirty) testId="confirm-restore" padding=10 background-color="#a34336" border-radius=7
+                text "Replace notes" color="#ffffff"
+              button press=cancelRestore testId="cancel-restore" padding=10
+                text "Cancel"
+          else
+            button press=askRestore disabled=(busy or dirty) testId="restore-backup" padding=10 align-self="flex-start"
+              text "Restore backup…" color="#a34336"
+      else
+        row testId="workspace" flex=1 min-height=400 gap=16 flex-wrap="wrap" align-items="stretch"
+          column testId="sidebar" flex=1 min-width=220 min-height=400 gap=12
+            input value=query change=search placeholder="Search your notes" aria-label="Search notes" testId="search" width="100%" box-sizing="border-box" padding=12 border-width=1 border-color="#cbd3c8" border-radius=9 background-color="#ffffff" font-size=14 flex-shrink=0
+            button press=newNote disabled=(dirty or busy) testId="new-note" aria-label="New note" aria-keyshortcuts="Meta+N Control+N" padding=12 background-color="#31554a" border-radius=9 flex-shrink=0
+              text "+  New note" color="#ffffff" font-weight=600 font-size=14
+            scroll testId="note-list" flex=1 min-height=160
+              column gap=10
+                when length(library.notes) == 0
+                  column padding=20 gap=8
+                    text (query == "" ? "Your notebook starts here." : "No matching notes.") font-family="serif" font-size=22 testId="empty-notebook"
+                    text (query == "" ? "Write a thought, a list, or something worth keeping." : "Try a different word.") font-size=14 color="#63766a"
+                each note in library.notes key=note.id
+                  button press=edit(note.id, note.title, note.body, note.pinned) disabled=(dirty or busy) testId=`note-${note.id}` aria-label=note.title padding=16 border-width=1 border-color=(note.id == editingId ? "#31554a" : "#dedfd5") border-radius=9 background-color=(note.id == editingId ? "#e9eee4" : "#fcfbf7")
+                    column gap=6 align-items="flex-start"
+                      when note.pinned
+                        text "PINNED" font-size=10 font-weight=700 letter-spacing=1 color="#7b7957"
+                      text note.title font-size=17 font-weight=600 text-align="left"
+                      text note.excerpt font-size=13 color="#63766a" text-align="left"
             when dirty
               text "Save or discard your draft before opening another note." font-size=12 color="#92622f"
-          column flex=2 min-width=280 gap=16 padding=24 box-sizing="border-box" background-color="#fffefa" border-width=1 border-color="#dedfd5" border-radius=12
+          column testId="editor" flex=3 min-width=300 min-height=400 gap=14 padding=20 box-sizing="border-box" background-color="#fffefa" border-width=1 border-color="#dedfd5" border-radius=12
             row justify-content="space-between" align-items="center"
               text (editingId == "" ? "A NEW PAGE" : "YOUR NOTE") font-size=11 font-weight=700 letter-spacing=2 color="#63766a"
               button press=togglePin disabled=busy testId="pin-note" padding=8
                 text (pinned ? "Pinned" : "Pin note") font-size=13 color="#63766a"
             input value=title change=changeTitle placeholder="Untitled note" aria-label="Note title" testId="note-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=27 border-width=0 background-color="#fffefa"
-            textarea font-family="sans-serif" value=body change=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" height=330 box-sizing="border-box" padding=10 font-size=16 line-height=24 border-width=0 background-color="#fffefa"
-            row gap=10 align-items="center" flex-wrap="wrap"
-              button press=save disabled=(busy or not dirty or (title == "" and body == "")) testId="save-note" padding=12 background-color="#31554a" border-radius=7
+            textarea font-family="sans-serif" value=body change=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height=24 border-width=0 background-color="#fffefa"
+            row gap=10 align-items="center" flex-wrap="wrap" flex-shrink=0
+              button press=save disabled=(busy or not dirty or (title == "" and body == "")) testId="save-note" aria-keyshortcuts="Meta+S Control+S" padding=12 background-color="#31554a" border-radius=7
                 text "Save note" color="#ffffff" font-weight=600
               when dirty
                 button press=discard disabled=busy testId="discard" padding=12

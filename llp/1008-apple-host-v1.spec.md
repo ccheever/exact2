@@ -211,6 +211,22 @@ no meaning on a Mac keyboard. The menu bar always carries a standard Edit
 menu so the field editor hears ⌘A/X/C/V/Z — AppKit does not bind those keys
 itself (`StandardKeyBinding.dict` has no `selectAll`), and a bar of only app
 and Develop items left them unmatched (Weird Castle's login, 2026-08-31).
+App commands are declared on buttons with `aria-keyshortcuts`, for example
+`"Meta+S Control+S"`. Hosts bind a space-separated list of chords with one
+character key and explicit `Meta` or `Control`; `Alt` and `Shift` may also
+qualify a chord. Matching uses the exact modifier set and ignores key case.
+The same mounted button and its `disabled` state govern clicks, keys, and
+native menu actions; disabled matches and held-key repeats are consumed
+without dispatch. macOS routes commands before text editing, scoped to the
+focused Exact view, and derives File menu labels and Command equivalents
+from those buttons (one menu entry per button; Control alternatives do not
+create duplicates). Menus revalidate the current mounted, enabled node.
+The browser handles chords it receives, including while an input or textarea
+is focused; a browser-reserved chord such as Command-N may never reach the
+page. This binds the declaration explicitly; ARIA alone does not install a
+browser keyboard handler. Undeclared and unsupported chords keep the host's
+normal handling.
+
 **Declared deviation:** inside a text field, `key` sees only the editing commands the
 field editor reports (`insertNewline` → `Enter`, `cancelOperation` →
 `Escape`, `insertTab`, the arrows, `deleteBackward`); a typed character is

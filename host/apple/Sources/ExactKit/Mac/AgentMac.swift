@@ -160,6 +160,11 @@ extension Agent {
             guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code),
                   let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)
             else { return ["error": "no key event"] }
+            // This driver sends directly to NSWindow, bypassing NSApplication's
+            // local monitor. Use the same session command router first.
+            if presenter.shortcuts.perform(down) {
+                return ["typed": Int(v.id), "key": chord, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
+            }
             // Accessory test windows may have a first responder before
             // NSApp has a keyWindow. Deliver to the named responder first.
             if modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {

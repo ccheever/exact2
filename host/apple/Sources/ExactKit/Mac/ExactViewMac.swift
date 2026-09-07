@@ -19,6 +19,7 @@ public final class ExactView: NSView {
     public override func selectAll(_ sender: Any?) { session.presenter.selection.selectAll() }
     @objc public func copy(_ sender: Any?) { session.presenter.selection.copy() }
     private var lastSize = CGSize.zero
+    private var shortcutMonitor: Any?
     /// The adapter's hook for the first root's `viewport-fit` (window chrome
     /// is the window's business, LLP 1008 §9); the insets themselves are
     /// computed here.
@@ -37,6 +38,19 @@ public final class ExactView: NSView {
             self?.onViewportFit?()
         }
     }
+
+    private func ownsShortcutFocus() -> Bool {
+        let responder = window?.firstResponder as? NSView
+        let editorOwner = (responder as? NSTextView)?.delegate as? NSView
+        return responder?.isDescendant(of: self) == true || editorOwner?.isDescendant(of: self) == true
+    }
+
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if ownsShortcutFocus(), session.presenter.shortcuts.perform(event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    deinit { if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor) } }
 
     required init?(coder: NSCoder) { nil }
 
@@ -76,6 +90,15 @@ public final class ExactView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor); self.shortcutMonitor = nil }
+        if window != nil {
+            // Text editors can consume control chords before the responder chain.
+            // Route declared commands first, scoped to this session's focused view.
+            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, event.window === self.window, self.ownsShortcutFocus() else { return event }
+                return self.session.presenter.shortcuts.perform(event) ? nil : event
+            }
+        }
         // Mounted and visible participate in frame demand (D3): an unmounted
         // view wants no frames; a mounted one asks again.
         session.frames.run(window != nil && (session.frames.motion || session.canvases.wantsFrames))

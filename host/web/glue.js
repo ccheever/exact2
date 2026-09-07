@@ -251,6 +251,30 @@ function attach(el, id, handlers) {
   }
 }
 
+// App-declared ARIA shortcuts activate the same mounted buttons as a click.
+// Browsers may reserve a chord before it reaches the page (notably Meta+N).
+document.addEventListener("keydown", (event) => {
+  if (event.isComposing || !wasm || root.inert || event.defaultPrevented) return;
+  const matches = (chord) => {
+    const parts = chord.split("+");
+    const key = parts.pop();
+    const modifiers = new Set(parts);
+    return key?.length === 1 && [...modifiers].every(m => ["Meta", "Control", "Alt", "Shift"].includes(m))
+      && (modifiers.has("Meta") || modifiers.has("Control"))
+      && event.metaKey === modifiers.has("Meta") && event.ctrlKey === modifiers.has("Control")
+      && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
+      && event.key.toLowerCase() === key.toLowerCase();
+  };
+  for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
+    if (!el.isConnected || !el.getClientRects().length || el.closest("[inert]") || getComputedStyle(el).visibility !== "visible") continue;
+    if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!event.repeat && !el.disabled) el.click();
+    return;
+  }
+}, true);
+
 function viewFor(op, id) {
   const el = views.get(id);
   if (!el) console.error(`exact: ${op} names missing view ${id}`);

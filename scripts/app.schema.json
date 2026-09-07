@@ -186,6 +186,36 @@
                 ],
                 "additionalProperties": false
               }
+            },
+            "window": {
+              "type": "object",
+              "properties": {
+                "width": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 16384
+                },
+                "height": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 16384
+                },
+                "minWidth": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 16384
+                },
+                "minHeight": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 16384
+                }
+              },
+              "required": [
+                "width",
+                "height"
+              ],
+              "additionalProperties": false
             }
           },
           "additionalProperties": false

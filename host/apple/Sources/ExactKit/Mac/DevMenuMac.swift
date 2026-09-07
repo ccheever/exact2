@@ -57,9 +57,14 @@ public enum DevMenu {
         let bar = NSMenu()
         let appItem = NSMenuItem()
         bar.addItem(appItem)
-        let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Quit Exact", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let appMenu = NSMenu(title: ExactEnv.appName)
+        appMenu.addItem(withTitle: "Quit \(ExactEnv.appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
+        let fileItem = NSMenuItem()
+        bar.addItem(fileItem)
+        let file = NSMenu(title: "File")
+        fileItem.submenu = file
+        session.presenter.shortcuts.attach(file)
         // AppKit does not bind ⌘A itself (`StandardKeyBinding.dict` has no
         // `selectAll`); the Edit menu is how a field hears select-all, cut,
         // copy, paste, and undo.

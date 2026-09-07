@@ -187,3 +187,36 @@ fn manifest_identity_survives_an_unnamed_data_standin_and_conflicts_fail() {
     assert!(contract::bake(compiled, Conflict).is_err());
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn macos_window_metadata_is_validated_and_baked_from_the_manifest() {
+    let script = r#"
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { validate } from './scripts/app.mjs';
+import { macInfoPlist } from './host/apple/build.mjs';
+const schema = JSON.parse(readFileSync('./scripts/app.schema.json'));
+const app = {name:'Notebook',app:{id:'test.exact.notebook',name:'Notebook'},host:{macos:{window:{width:1100,height:760,minWidth:760,minHeight:560}}}};
+assert.deepEqual(validate(app,schema,'',schema),[]);
+const plist = macInfoPlist({id:app.app.id,displayName:app.app.name,manifest:app});
+for (const key of ['ExactWindow','width','height','minWidth','minHeight']) assert.ok(plist.includes(`<key>${key}</key>`));
+assert.ok(plist.includes('<string>Notebook</string>'));
+for (const bad of [0,-1,16385,'1100',null]) {
+  app.host.macos.window.width=bad;
+  assert.ok(validate(app,schema,'',schema).length,JSON.stringify(bad));
+}
+delete app.host.macos.window;
+assert.deepEqual(validate(app,schema,'',schema),[]);
+assert.ok(!macInfoPlist({id:app.app.id,displayName:app.app.name,manifest:app}).includes('ExactWindow'));
+"#;
+    let output = std::process::Command::new("node")
+        .args(["--input-type=module", "-e", script])
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

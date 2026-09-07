@@ -150,6 +150,14 @@ name (`build.mjs:48–49`) and the app's layout from `scripts/app.mjs:
 metadata (screenshots, descriptions, ratings, agreements) is not an
 artifact of the app and is not managed here (D6).
 
+**Desktop window consumer (2026-09-07):** `host.macos.window` optionally declares
+`width`, `height`, `minWidth`, and `minHeight` in points, baked into the existing
+Info.plist as `ExactWindow`. Fieldnotes uses 1100×760 with a 760×560 minimum.
+The standalone adapter reads its title from the baked display name and restores
+a configured app's frame under its bundle identity. Bare development executables
+read the existing adjacent Info.plist. Agent/smoke runs skip restoration and use
+the existing viewport unless `EXACT_WINDOW_WIDTH`/`EXACT_WINDOW_HEIGHT` overrides it.
+
 ### D3a — The compatibility id: the cohort a bundle is safe for
 
 LLP 1026 D9's runtime version — kernel schema, format, module ABI,

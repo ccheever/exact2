@@ -499,3 +499,26 @@ fn readonly_uses_existing_editable_prop_and_reacts_to_changes() {
     );
     assert!(contract::compile("component App\n  view\n    textarea readonly=\"yes\"\n").is_err());
 }
+
+#[test]
+fn declared_keyboard_shortcuts_are_standard_aria_attributes() {
+    let plan = contract::compile(
+        r#"component App
+  state saved = false
+  action save writes saved
+    saved = true
+  view
+    button press=save disabled=saved aria-keyshortcuts="Meta+S Control+S" testId="save"
+      text "Save"
+"#,
+    )
+    .unwrap();
+    let (mut host, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    assert!(
+        batch.contains("\"aria-keyshortcuts\":\"Meta+S Control+S\""),
+        "{batch}"
+    );
+    let id = view_with_test_id(&host, "save");
+    let batch = host.dispatch(id, Event::Press);
+    assert!(batch.contains("\"disabled\":\"true\""), "{batch}");
+}

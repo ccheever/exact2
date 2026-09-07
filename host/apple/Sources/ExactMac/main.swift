@@ -54,10 +54,22 @@ if agentMode { session.clock = 0 }
 let view = ExactView(session: session)
 ExactEnv.stamp("Presenter (NSScrollView)")
 
-let size = NSSize(width: 420, height: 860)
+let windowConfig = ExactEnv.appMetadata["ExactWindow"] as? [String: Any] ?? [:]
+func windowDimension(_ name: String, fallback: Double) -> CGFloat {
+    let override = ExactEnv.environment["EXACT_WINDOW_" + name.uppercased()].flatMap(Double.init)
+    let declared = agentMode || smoke ? nil : (windowConfig[name] as? NSNumber)?.doubleValue
+    let value = override ?? declared ?? fallback
+    return CGFloat(value.isFinite && value > 0 && value <= 16384 ? value : fallback)
+}
+let size = NSSize(width: windowDimension("width", fallback: 420), height: windowDimension("height", fallback: 860))
 let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
 ExactEnv.stamp("NSWindow")
-window.title = "Exact"
+window.title = ExactEnv.appName
+if !agentMode && !smoke && !windowConfig.isEmpty {
+    let minimum = NSSize(width: windowDimension("minWidth", fallback: 1), height: windowDimension("minHeight", fallback: 1))
+    window.contentMinSize = minimum
+    window.setContentSize(NSSize(width: max(size.width, minimum.width), height: max(size.height, minimum.height)))
+}
 window.contentView = view
 // Nothing is focused at launch — the web's rule (a page focuses no field on
 // load). AppKit would otherwise make the first key view the first responder
@@ -67,6 +79,12 @@ window.initialFirstResponder = view
 window.autorecalculatesKeyViewLoop = false
 ExactEnv.stamp("contentView")
 window.center()
+if !agentMode && !smoke && !windowConfig.isEmpty,
+   let identity = ExactEnv.appMetadata["CFBundleIdentifier"] as? String {
+    let frameName = identity + ".main"
+    window.setFrameUsingName(frameName)
+    window.setFrameAutosaveName(frameName)
+}
 // Agent-driven apps run side by side (every session's smoke launches one):
 // centred, each would cover the last and starve its Metal layer of drawables.
 // Spread them by pid so no window is fully hidden.

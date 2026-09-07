@@ -45,6 +45,7 @@ final class Presenter {
     private var visibleText: [UInt32: NSRect] = [:]
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
+    lazy var shortcuts = ShortcutHost(presenter: self)
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
     /// last batch; `onViewportFit` fires when it changes. macOS maps `cover`
     /// to a full-size-content window (the titlebar overlays the viewport;
@@ -272,6 +273,7 @@ final class Presenter {
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.captureIfNeeded()
         menus.sync()
+        shortcuts.sync()
         if structureChanged { selection.structureChanged() }
         refreshVisibleText()
         if structureChanged || batch.ops.contains(where: { $0["op"] as? String == "props" }) { syncKeyViewLoop() }

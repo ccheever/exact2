@@ -180,6 +180,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // props (HTML and ARIA attribute names; `testId` is Exact's)
         "testId" => AttrTarget::Prop(p("testId")),
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),
+        "aria-keyshortcuts" => AttrTarget::Prop(p("accessibilityKeyShortcuts")),
         "aria-description" => AttrTarget::Prop(p("accessibilityHint")),
         "aria-level" => AttrTarget::Prop(p("accessibilityHeadingLevel")),
         "role" => AttrTarget::Prop(p("accessibilityRole")),
