@@ -166,6 +166,11 @@ impl Cache {
                 self.final_layout_entry = Some(CacheEntry { known_dimensions, available_space, content: layout_output })
             }
             RunMode::ComputeSize => {
+                // Intrinsic block sizing performs child layouts to obtain its height.
+                // Those probes can overwrite descendant frames, so an earlier final
+                // layout no longer certifies the current subtree. Keep size caches,
+                // but force the next final pass to restore descendant geometry.
+                self.final_layout_entry = None;
                 self.is_empty = false;
                 let cache_slot = Self::compute_cache_slot(known_dimensions, available_space);
                 self.measure_entries[cache_slot] =

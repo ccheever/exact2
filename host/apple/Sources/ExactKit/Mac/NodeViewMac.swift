@@ -130,6 +130,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
+        if ok { presenter?.selection.clear() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
@@ -142,7 +143,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// on a pressable fire `press`, as they do on a `<button>`.
     override func keyDown(with event: NSEvent) {
         guard !disabled else { return }
-        if isParagraph, event.modifierFlags.contains(.command) {
+        if isParagraph, window?.firstResponder === self, event.modifierFlags.contains(.command) {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "a": presenter?.selection.selectAll(); return
             case "c": presenter?.selection.copy(); return
@@ -161,12 +162,16 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// usual path; this catches it when that item is disabled (a secure
     /// field) or when the event arrives at the window rather than the app.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if isParagraph, event.modifierFlags.contains(.command) {
+        if isParagraph, window?.firstResponder === self, event.modifierFlags.contains(.command) {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "a": presenter?.selection.selectAll(); return true
             case "c": presenter?.selection.copy(); return true
             default: break
             }
+        }
+        if let editor = textArea, NodeView.isCommandA(event), window?.firstResponder === editor {
+            editor.selectAll(nil)
+            return true
         }
         if let f = field, NodeView.isCommandA(event),
            window?.firstResponder === f || window?.firstResponder === f.currentEditor() {

@@ -442,3 +442,122 @@ fn incremental_relayout_is_result_equal_to_full_relayout() {
 fn long_run_single_seed() {
     run(0x5eed_c0de, 200);
 }
+
+#[test]
+fn block_intrinsic_probes_cannot_leave_cached_final_children_wrapped() {
+    // Fieldnotes: a padded block button in a wrapping row within a column.
+    // Mounting Discard triggers min-content probes on the retained Save button.
+    // Its outer box stays 99x43, but the probe used to leave its child at 41x38.
+    // These are the observed CoreText metrics, without a platform dependency.
+    use taffy::prelude::*;
+    let mut tree = TaffyTree::<bool>::new();
+    let label = tree.new_leaf_with_context(Style::default(), true).unwrap();
+    let button = tree
+        .new_with_children(
+            Style {
+                display: taffy::Display::Block,
+                padding: Rect {
+                    left: length(12.0_f32),
+                    right: length(12.0_f32),
+                    top: length(12.0_f32),
+                    bottom: length(12.0_f32),
+                },
+                ..Style::default()
+            },
+            &[label],
+        )
+        .unwrap();
+    let other_label = tree.new_leaf_with_context(Style::default(), false).unwrap();
+    let other_button = tree
+        .new_with_children(
+            Style {
+                display: taffy::Display::Block,
+                padding: Rect {
+                    left: length(12.0_f32),
+                    right: length(12.0_f32),
+                    top: length(12.0_f32),
+                    bottom: length(12.0_f32),
+                },
+                ..Style::default()
+            },
+            &[other_label],
+        )
+        .unwrap();
+    let row = tree
+        .new_with_children(
+            Style {
+                display: taffy::Display::Flex,
+                flex_wrap: FlexWrap::Wrap,
+                align_items: Some(taffy::AlignItems::Center),
+                gap: Size {
+                    width: length(10.0_f32),
+                    height: length(0.0_f32),
+                },
+                ..Style::default()
+            },
+            &[button],
+        )
+        .unwrap();
+    let root = tree
+        .new_with_children(
+            Style {
+                display: taffy::Display::Flex,
+                flex_direction: taffy::FlexDirection::Column,
+                ..Style::default()
+            },
+            &[row],
+        )
+        .unwrap();
+    let measure = |known: Size<Option<f32>>,
+                   space: Size<AvailableSpace>,
+                   _,
+                   context: Option<&mut bool>,
+                   _: &Style| {
+        let is_save = *context.unwrap();
+        let full = if is_save { 75.0 } else { 122.0 };
+        let narrow = if is_save { 41.0 } else { 65.0 };
+        let available = known.width.unwrap_or(match space.width {
+            AvailableSpace::MinContent => narrow,
+            AvailableSpace::MaxContent => full,
+            AvailableSpace::Definite(width) => width,
+        });
+        Size {
+            width: known
+                .width
+                .unwrap_or(if available < full { narrow } else { full }),
+            height: known
+                .height
+                .unwrap_or(if available < full { 38.0 } else { 19.0 }),
+        }
+    };
+    let offer = Size {
+        width: AvailableSpace::Definite(322.0),
+        height: AvailableSpace::MaxContent,
+    };
+    tree.compute_layout_with_measure(root, offer, measure)
+        .unwrap();
+    assert_eq!(
+        tree.layout(label).unwrap().size,
+        Size {
+            width: 75.0,
+            height: 19.0
+        }
+    );
+    tree.set_children(row, &[button, other_button]).unwrap();
+    tree.compute_layout_with_measure(root, offer, measure)
+        .unwrap();
+    assert_eq!(
+        tree.layout(button).unwrap().size,
+        Size {
+            width: 99.0,
+            height: 43.0
+        }
+    );
+    assert_eq!(
+        tree.layout(label).unwrap().size,
+        Size {
+            width: 75.0,
+            height: 19.0
+        }
+    );
+}

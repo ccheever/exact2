@@ -47,6 +47,13 @@ final class TextSelection {
         painted = next
     }
 
+    func clear() {
+        anchor = nil; focus = nil
+        anchorIndex = 0; focusIndex = 0
+        dragged = false
+        invalidate()
+    }
+
     func begin(_ node: NodeView, event: NSEvent) {
         anchor = node; focus = node
         anchorIndex = index(node, at: node.local(event.locationInWindow))
