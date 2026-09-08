@@ -4,6 +4,9 @@
 
 #![deny(missing_docs)]
 
+mod resident;
+pub use resident::Producer;
+
 use contract::DataSource;
 use exact_js::Module;
 use sha2::{Digest, Sha256};
@@ -48,6 +51,7 @@ pub fn build(app: &Path, platform: &str) -> Result<(), String> {
 }
 
 /// The tools on the producer machine, not on a client.
+#[derive(Clone)]
 pub struct Tools {
     /// The pinned TypeScript compiler (`EXACT_TSC` overrides the repo tool).
     pub tsc: PathBuf,
@@ -195,6 +199,17 @@ fn digest(bytes: &[u8]) -> String {
 /// types and supplies the executor ABI. No source or source-adjacent generated
 /// declaration is overwritten. This producer currently requires macOS Hermes.
 pub fn bake(app: &Path, tools: &Tools) -> Result<Baked, String> {
+    let stage = Scratch::new(&std::env::temp_dir())?;
+    bake_in(app, tools, &stage.0, &mut BTreeMap::new(), None)
+}
+
+fn bake_in(
+    app: &Path,
+    tools: &Tools,
+    stage: &Path,
+    previous: &mut BTreeMap<PathBuf, Vec<u8>>,
+    compiler: Option<&mut resident::Compiler>,
+) -> Result<Baked, String> {
     if !exact_js::ENGINE_LINKED {
         return Err("TypeScript bake requires the lean Hermes executor on this producer".into());
     }
@@ -205,24 +220,84 @@ pub fn bake(app: &Path, tools: &Tools) -> Result<Baked, String> {
     {
         return Err("TypeScript bake needs app.ts and app.contract".into());
     }
-    if captured.contains_key(Path::new("__exact_entry.ts")) {
-        return Err("__exact_entry.ts is reserved for the producer".into());
+    if captured.contains_key(Path::new("__exact_entry.ts"))
+        || captured.contains_key(Path::new("__exact_tsconfig.json"))
+    {
+        return Err(
+            "__exact_entry.ts and __exact_tsconfig.json are reserved for the producer".into(),
+        );
     }
-    let stage = Scratch::new(&std::env::temp_dir())?;
+    for name in previous.keys().filter(|name| !captured.contains_key(*name)) {
+        let path = stage.join(name);
+        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+        let mut parent = path.parent();
+        while let Some(directory) = parent.filter(|directory| *directory != stage) {
+            if std::fs::remove_dir(directory).is_err() {
+                break;
+            }
+            parent = directory.parent();
+        }
+    }
     for (name, bytes) in &captured {
-        let target = stage.0.join(name);
+        let target = stage.join(name);
         std::fs::create_dir_all(target.parent().unwrap()).map_err(|e| e.to_string())?;
-        std::fs::write(target, bytes).map_err(|e| e.to_string())?;
+        if previous.get(name) != Some(bytes) {
+            std::fs::write(target, bytes).map_err(|e| e.to_string())?;
+        }
     }
+    *previous = captured.clone();
     // A changed graph (including a newly added import) is a refused capture.
     if sources(&app)? != captured {
         return Err("app sources changed during capture; retry the build".into());
     }
-    let plan = contract::compile_path(&stage.0.join("app.contract")).map_err(|e| e.to_string())?;
+    let plan = contract::compile_path(&stage.join("app.contract")).map_err(|e| e.to_string())?;
     let declarations = contract::typescript(&plan)?;
-    std::fs::write(stage.0.join("app.contract.d.ts"), &declarations).map_err(|e| e.to_string())?;
+    write_changed(&stage.join("app.contract.d.ts"), declarations.as_bytes())?;
     let entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", exact_js::ABI);
-    std::fs::write(stage.0.join("__exact_entry.ts"), entry).map_err(|e| e.to_string())?;
+    write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
+    if let Some(compiler) = compiler {
+        compiler.compile(stage)?;
+    } else {
+        compile_once(stage, tools)?;
+    }
+    run(
+        &tools.hermesc,
+        &["-O", "-emit-binary", "-out", "app.hbc", "app.js"],
+        stage,
+    )?;
+    let script = std::fs::read(stage.join("app.js")).map_err(|e| e.to_string())?;
+    let bytecode = std::fs::read(stage.join("app.hbc")).map_err(|e| e.to_string())?;
+    let module = Module::inspect(bytecode.clone())?;
+    let app_id = module.app_id().to_owned();
+    let grants = module.grants().to_owned();
+    let plan = contract::bake(plan, module)
+        .map_err(|e| e.to_string())?
+        .encode();
+    let receipt = serde_json::json!({
+        "version": 1, "appId": app_id, "grants": grants, "abi": exact_js::ABI,
+        "bytecodeVersion": exact_js::BYTECODE_VERSION,
+        "plan": {"file": "app.plan", "sha256": digest(&plan), "bytes": plan.len()},
+        "module": {"file": "app.hbc", "sha256": digest(&bytecode), "bytes": bytecode.len()},
+        "web": {"file": "app.js", "sha256": digest(&script), "bytes": script.len()},
+    })
+    .to_string();
+    Ok(Baked {
+        plan,
+        script,
+        bytecode,
+        declarations,
+        receipt,
+    })
+}
+
+fn write_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if std::fs::read(path).ok().as_deref() != Some(bytes) {
+        std::fs::write(path, bytes).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     run(
         &tools.tsc,
         &[
@@ -240,12 +315,12 @@ pub fn bake(app: &Path, tools: &Tools) -> Result<Baked, String> {
             "false",
             "__exact_entry.ts",
         ],
-        &stage.0,
+        stage,
     )?;
     // No path alias, absolute import, or dependency may escape the captured
     // graph. This generated config is producer-owned, not app configuration.
     std::fs::write(
-        stage.0.join("__exact_bundle.mjs"),
+        stage.join("__exact_bundle.mjs"),
         r#"
 export default {
   input: '__exact_entry.ts',
@@ -274,36 +349,9 @@ export default {
             "--file",
             "app.js",
         ],
-        &stage.0,
+        stage,
     )?;
-    run(
-        &tools.hermesc,
-        &["-O", "-emit-binary", "-out", "app.hbc", "app.js"],
-        &stage.0,
-    )?;
-    let script = std::fs::read(stage.0.join("app.js")).map_err(|e| e.to_string())?;
-    let bytecode = std::fs::read(stage.0.join("app.hbc")).map_err(|e| e.to_string())?;
-    let module = Module::inspect(bytecode.clone())?;
-    let app_id = module.app_id().to_owned();
-    let grants = module.grants().to_owned();
-    let plan = contract::bake(plan, module)
-        .map_err(|e| e.to_string())?
-        .encode();
-    let receipt = serde_json::json!({
-        "version": 1, "appId": app_id, "grants": grants, "abi": exact_js::ABI,
-        "bytecodeVersion": exact_js::BYTECODE_VERSION,
-        "plan": {"file": "app.plan", "sha256": digest(&plan), "bytes": plan.len()},
-        "module": {"file": "app.hbc", "sha256": digest(&bytecode), "bytes": bytecode.len()},
-        "web": {"file": "app.js", "sha256": digest(&script), "bytes": script.len()},
-    })
-    .to_string();
-    Ok(Baked {
-        plan,
-        script,
-        bytecode,
-        declarations,
-        receipt,
-    })
+    Ok(())
 }
 
 impl Baked {

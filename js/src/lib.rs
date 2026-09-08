@@ -698,6 +698,15 @@ impl DataSource for Module {
         self.load().map_err(DataError::Unavailable)
     }
 
+    fn activate_for_validation(&mut self) -> Result<(), DataError> {
+        // A replacement may inherit directory paths from a direct consumer.
+        // Validation gets neither those capabilities nor an existing adapter;
+        // its disposable engine can only record ordinary host requests.
+        self.unload();
+        self.directories = None;
+        self.activate()
+    }
+
     fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError> {
         Paired::decode(receipt, plan, module, self.app_id(), self.grants())
             .map(|pair| {

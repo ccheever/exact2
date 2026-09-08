@@ -31,6 +31,14 @@ pub trait DataSource {
         Ok(())
     }
 
+    /// Activate a disposable post-pixel validation candidate. Replaceable
+    /// executors must withhold storage capabilities here: its runner may ask
+    /// answers to validate carried state before all sessions accept the pair.
+    /// Requests/effects stay with the uncommitted host and are discarded.
+    fn activate_for_validation(&mut self) -> Result<(), DataError> {
+        self.activate()
+    }
+
     /// Pair candidate logic with a plan, preserving this binary's admitted
     /// app identity and grants. Does not execute candidate code.
     fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError>

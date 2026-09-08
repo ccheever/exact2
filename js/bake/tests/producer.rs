@@ -384,3 +384,106 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
         .expect("wrong storage parameters must fail tsc");
     assert!(error.contains("error TS"), "{error}");
 }
+
+#[test]
+fn resident_producer_rechecks_changed_deleted_and_added_sources_and_recovers() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    let first = producer.bake(&f.0).unwrap();
+    let standalone = f.bake();
+    assert_eq!(first.script, standalone.script);
+    assert_eq!(first.bytecode, standalone.bytecode);
+    assert_eq!(first.plan, standalone.plan);
+    assert_eq!(first.receipt, standalone.receipt);
+    assert_eq!(first.receipt, producer.bake(&f.0).unwrap().receipt);
+
+    f.write("logic.ts", "export const prefix = 'new: ';\n");
+    assert_ne!(first.receipt, producer.bake(&f.0).unwrap().receipt);
+    f.write("logic.ts", "export const prefix: string = 42;\n");
+    assert!(producer.bake(&f.0).err().unwrap().contains("TS2322"));
+    assert!(
+        producer.bake(&f.0).is_err(),
+        "unchanged invalid input is never cached as success"
+    );
+    std::fs::remove_file(f.0.join("logic.ts")).unwrap();
+    assert!(
+        producer.bake(&f.0).is_err(),
+        "removed imports invalidate resolution"
+    );
+    f.write("logic.ts", "export { prefix } from './added';\n");
+    assert!(producer.bake(&f.0).is_err());
+    f.write("added.ts", "export const prefix = 'added: ';\n");
+    assert!(
+        producer.bake(&f.0).is_ok(),
+        "new imports recover without a restart"
+    );
+
+    f.write(
+        "app.contract",
+        &CONTRACT.replace("as shape string", "as shape number"),
+    );
+    assert!(
+        producer.bake(&f.0).is_err(),
+        "generated declarations participate in checking"
+    );
+    f.write("app.contract", CONTRACT);
+    assert!(producer.bake(&f.0).is_ok());
+
+    f.write("logic.ts", "export const prefix = 'typed: ';\ndeclare global { interface Array<T> { length: string; } }\n");
+    assert!(
+        producer.bake(&f.0).is_err(),
+        "global/library conflicts remain checked"
+    );
+    f.write("logic.ts", "export const prefix = 'final: ';\n");
+    let final_bake = producer.bake(&f.0).unwrap();
+    assert_eq!(final_bake.receipt, f.bake().receipt);
+
+    // Capture must reconcile directories as well as bytes, including a
+    // source-shaped directory changing into a source file and back again.
+    std::fs::create_dir(f.0.join("shape.ts")).unwrap();
+    f.write("shape.ts/inner.ts", "export const value = 1;");
+    producer.bake(&f.0).unwrap();
+    std::fs::remove_dir_all(f.0.join("shape.ts")).unwrap();
+    f.write("shape.ts", "export const value = 2;");
+    producer.bake(&f.0).unwrap();
+    std::fs::remove_file(f.0.join("shape.ts")).unwrap();
+    std::fs::create_dir(f.0.join("shape.ts")).unwrap();
+    f.write("shape.ts/inner.ts", "export const value = 3;");
+    producer.bake(&f.0).unwrap();
+
+    let outside = Fixture::new();
+    f.write(
+        "logic.ts",
+        &format!(
+            "export {{ prefix }} from {:?};",
+            outside.0.join("logic.ts").to_str().unwrap()
+        ),
+    );
+    assert!(
+        producer.bake(&f.0).is_err(),
+        "absolute imports cannot escape the captured app"
+    );
+    f.write("logic.ts", "export const prefix = 'final: ';\n");
+    assert_eq!(final_bake.receipt, producer.bake(&f.0).unwrap().receipt);
+}
+
+#[test]
+fn resident_producer_honors_compiler_overrides() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    let tools = Tools {
+        tsc: PathBuf::from("/usr/bin/false"),
+        ..Tools::default()
+    };
+    let mut producer = exact_js_bake::Producer::new(tools).unwrap();
+    assert!(producer
+        .bake(&f.0)
+        .err()
+        .unwrap()
+        .contains("/usr/bin/false refused"));
+}

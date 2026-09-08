@@ -491,7 +491,14 @@ runner. Resource carry requires unchanged logic as well as matching arguments;
 logic edits keep compatible slots, secrets and clock, but re-ask resources.
 Apple's `exact_prepare_module` and `ExactGeneration.module` feed the existing
 all-session prepare/commit path. A fresh session stays unloaded until its first
-pixel; live candidates load privately before preparation. Rust-only clients,
+pixel. Painted replacements validate carried-state answers and layout in a
+storage-free disposable engine, then prepare a fresh deferred engine seeded with
+validated settled answers and the live store. Only committed activation configures
+storage and refreshes external readers. This prevents both configuring an already
+loaded module and executing candidate storage effects before all-session acceptance.
+Normal Fieldnotes reload refreshes real SQLite data; agent mode creates no storage;
+a refused candidate preserves the live app. The additional validation host has no
+cold-boot cost. Rust-only clients,
 mixed/corrupt bytes, changed grants/identity, and unsupported bytecode refuse.
 New sessions receive the last accepted module rather than the binary's old one.
 Module generations do not yet participate in signed update compositions.
@@ -551,6 +558,16 @@ changed logic invalidates resource answers. A newer edit supersedes an older
 in-flight bake; a refused bake leaves discovery unchanged. The ordinary Cargo
 build scripts can call `exact_js_bake::build` to embed the same paired artifacts
 and target receipt, currently for updater-free web/macOS/iOS compositions only.
+
+The development producer now retains its TypeScript server and imported Rolldown
+across requests (`exact-js-bake <app> --serve`). Each request captures the current
+source graph, runs full strict diagnostics, bundles, compiles HBC and bakes; an
+invalid, deleted or superseded input cannot reuse a previous successful result.
+Compiler overrides keep the one-shot invocation contract. Ten changed-source
+producer samples improved from 202 ms to 91 ms median. Ten real Fieldnotes edits
+measured 211 ms save-to-DOM acceptance and 297 ms to refreshed SQLite-backed UI,
+versus 436 ms to refreshed UI before this change. Draft carry, type-error refusal
+and recovery passed. These local measurements remain above the 100 ms budget.
 
 Actual external counter clients at one URL changed their displayed answer with
 count 1 retained on web/macOS, without rebuilding wasm or the native binary.

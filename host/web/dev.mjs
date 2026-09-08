@@ -182,41 +182,63 @@ function startModuleCompiler() {
   if (built.status !== 0) throw new Error('the module producer did not build');
   const scratch = resolve(app.target, 'module-dev');
   mkdirSync(scratch, { recursive: true });
+  const child = dev = spawn(resolve(app.target, 'debug/exact-js-bake'), [app.dir, '--serve'], {
+    cwd: root, env: toolingEnv, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  console.log(`compiler pid ${child.pid}`);
+  let active = null, buffered = '', errors = '';
   const produce = () => {
     clearTimeout(moduleTimer);
-    if (dev) return;
-    const revision = moduleRun, started = Date.now(), saved = moduleSaved || started;
-    const stage = mkdtempSync(resolve(scratch, 'candidate-'));
+    if (dev !== child || active) return;
+    const started = Date.now(), stage = mkdtempSync(resolve(scratch, 'candidate-'));
     moduleStage = stage;
-    const output = resolve(stage, 'generation');
-    const child = dev = spawn(resolve(app.target, 'debug/exact-js-bake'), [app.dir, '--out', output], { cwd: root, env: toolingEnv, detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
-    let errors = '';
-    child.stderr.on('data', chunk => { errors = (errors + chunk).slice(-65536); });
-    child.on('exit', code => {
-      if (dev !== child) return;
-      dev = null;
+    active = { id: moduleRun, started, saved: moduleSaved || started, stage, output: resolve(stage, 'generation') };
+    child.stdin.write(JSON.stringify({ id: active.id, out: active.output }) + '\n');
+  };
+  child.stderr.on('data', chunk => { errors = (errors + chunk).slice(-65536); });
+  child.stdout.on('data', chunk => {
+    if (dev !== child) return;
+    buffered += chunk;
+    if (buffered.length > 1024 * 1024) {
+      console.error('module producer response exceeds 1 MiB');
+      killCompiler(); process.exit(1);
+    }
+    const lines = buffered.split('\n'); buffered = lines.pop();
+    for (const line of lines) {
+      const request = active;
       try {
-        if (revision !== moduleRun) return;
-        if (code !== 0) throw new Error(errors || `module producer exited ${code}`);
-        const candidate = new Map(['app.plan', ...Object.values(MODULE_FILES)].map(name => [name, readFileSync(resolve(output, name))]));
+        const reply = JSON.parse(line);
+        if (!request || reply.id !== request.id) throw new Error('unexpected module producer response');
+        // An edit arriving during compilation supersedes its entire candidate.
+        if (request.id !== moduleRun) continue;
+        if (!reply.ok) throw new Error(reply.error || 'module producer refused the candidate');
+        const candidate = new Map(['app.plan', ...Object.values(MODULE_FILES)].map(name => [name, readFileSync(resolve(request.output, name))]));
         moduleCards(candidate, app.id);
         const previous = currentModule;
         currentModule = candidate;
         seq++;
         try { captureGeneration(); } catch (error) { currentModule = previous; throw error; }
-        if (previous) pending.set(seq, { saved, ready: Date.now() });
-        console.log(`module generation ready in ${Date.now() - started} ms; restart with carry, no native rebuild`);
+        if (previous) pending.set(seq, { saved: request.saved, ready: Date.now() });
+        console.log(`module generation ready in ${Date.now() - request.started} ms; restart with carry, no native rebuild`);
         push(announcement());
       } catch (error) { console.error(error.message); push({ error: error.message }); }
       finally {
-        rmSync(stage, { recursive: true, force: true }); moduleStage = null;
-        if (revision !== moduleRun) produce();
+        if (request) rmSync(request.stage, { recursive: true, force: true });
+        active = null; moduleStage = null;
+        if (request && request.id !== moduleRun) produce();
       }
-    });
-  };
+    }
+  });
+  child.on('error', error => { console.error(`module producer: ${error.message}`); killCompiler(); process.exit(1); });
+  child.stdin.on('error', error => { if (dev === child) console.error(`module producer input: ${error.message}`); });
+  child.on('exit', code => {
+    if (dev !== child) return;
+    console.error(`module producer exited ${code}: ${errors}`);
+    killCompiler(); process.exit(code || 1);
+  });
   moduleWatch = watch(app.dir, { recursive: true }, (_event, name) => {
     if (!name || skipped.test(name) || /(^|\/)\./.test(name) || !/\.(ts|contract|json)$/.test(name) || assetTrees.some(([tree]) => resolve(app.dir, name).startsWith(tree + '/'))) return;
-    moduleRun++; moduleSaved = Date.now(); clearTimeout(moduleTimer); moduleTimer = setTimeout(produce, 30);
+    moduleRun++; moduleSaved = Date.now(); clearTimeout(moduleTimer); moduleTimer = setTimeout(produce, 10);
   });
   produce();
 }

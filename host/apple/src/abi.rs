@@ -352,28 +352,46 @@ impl<D: DataSource> Bridge<D> {
             Ok(text) => text,
             Err(_) => return self.refuse_preparation("module receipt is not UTF-8"),
         };
-        let mut data = match admitted.replacement(
-            &self.input[..plan_len],
-            receipt,
-            self.input[plan_len + receipt_len..].to_vec(),
-        ) {
+        let replacement = || {
+            admitted.replacement(
+                &self.input[..plan_len],
+                receipt,
+                self.input[plan_len + receipt_len..].to_vec(),
+            )
+        };
+        let data = match replacement() {
             Ok(data) => data,
             Err(error) => return self.prepare_error(format!("module generation: {error:?}")),
         };
+        let mut validated = None;
         if self.painted {
-            if let Err(error) = Host::activate_source(&mut data) {
+            let mut validation = match replacement() {
+                Ok(data) => data,
+                Err(error) => return self.prepare_error(format!("module generation: {error:?}")),
+            };
+            if let Err(error) = validation.activate_for_validation() {
                 return self.prepare_error(format!("candidate module: {error:?}"));
             }
-        }
-        let result = self.prepare_plan(plan_len, data, hooks, width, height);
-        if self.painted {
-            if let Some(prepared) = self.prepared.as_mut() {
-                // The candidate already booted with ready answers. Its first
-                // draw must not configure a loaded module or activate it twice.
-                prepared.host.mark_data_activated();
+            // Validate carried-state answers and layout, without endowing real
+            // storage or releasing candidate effects. A refusal keeps the live
+            // host. The accepted validation runner is disposable, too.
+            let length = self.prepare_plan(plan_len, validation, hooks, width, height);
+            if self.prepared.is_none() {
+                return length;
             }
+            let mut carried = self.prepared.as_ref().unwrap().host.carry();
+            // Only validated answers cross this boundary. Store effects belong
+            // to the committed session, never to the disposable validation pass.
+            if let Some(live) = &self.host {
+                carried.store = live.carry().store;
+            }
+            validated = Some(carried);
+            self.discard_plan();
         }
-        result
+        // The real candidate remains deferred through all-session acceptance.
+        // After commit, its paint receipt configures storage before activation
+        // and data_ready refreshes its baked/kept external-reading resources.
+        self.prepare_plan_carried(plan_len, data, hooks, width, height, None, validated)
     }
 
     /// Boot from the input buffer's first `len` bytes (a plan the app
@@ -399,6 +417,20 @@ impl<D: DataSource> Bridge<D> {
         height: f32,
         delivery: Option<exact_runner::Delivery>,
     ) -> u32 {
+        self.prepare_plan_carried(len, data, hooks, width, height, delivery, None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_plan_carried(
+        &mut self,
+        len: usize,
+        data: D,
+        hooks: Hooks,
+        width: f32,
+        height: f32,
+        delivery: Option<exact_runner::Delivery>,
+        carried: Option<exact_runner::Carried>,
+    ) -> u32 {
         if let Some(refusal) = self.refuse_analysis() {
             return refusal;
         }
@@ -406,7 +438,7 @@ impl<D: DataSource> Bridge<D> {
         let plan = self.input[..len.min(self.input.len())].to_vec();
         // Build the candidate beside the live host. A decode, app-identity,
         // or runner refusal must not turn a reload into an empty window.
-        let carried = self.host.as_ref().map(Host::carry);
+        let carried = carried.or_else(|| self.host.as_ref().map(Host::carry));
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx)),
             None => Box::new(MonospaceMeasurer::default()),
