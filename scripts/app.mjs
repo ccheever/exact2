@@ -204,13 +204,15 @@ function compilerPaths(text, workspace) {
   if (word) paths.push(resolve(workspace, word));
   return paths;
 }
-function unitDepInfo(message, app, named) {
+// rustc records relative inputs against Cargo's workspace root, even when
+// EXACT_APP_DIR makes the invoking directory a nested app in that workspace.
+function unitDepInfo(message, workspace, named) {
   if (named) return named;
   for (const file of message.filenames) {
     const stem = basename(file).replace(/\.[^.]+$/, '').replace(/^lib/, '');
     const candidate = resolve(dirname(file), stem + '.d');
     if (!existsSync(candidate)) continue;
-    if (compilerPaths(readFileSync(candidate, 'utf8'), app.workspace).includes(resolve(message.target.src_path))) return candidate;
+    if (compilerPaths(readFileSync(candidate, 'utf8'), workspace).includes(resolve(message.target.src_path))) return candidate;
   }
   throw new Error(`no matching rustc unit dep-info for ${message.target.name}; rebuild the stale Cargo unit or use a private target directory`);
 }
@@ -258,8 +260,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
     const role = roleOf(m.filenames[0]); if (!graph.roles.get(m.package_id).has(role)) continue;
     usedPackages.add(m.package_id);
     const selected = roots.find((r) => r.package === m.package_id && m.target.name === r.name);
-    const dep = readFileSync(unitDepInfo(m,app,selected?.dep), 'utf8');
-    for (const path of compilerPaths(dep,app.workspace)) add(path);
+    const dep = readFileSync(unitDepInfo(m,graph.metadata.workspace_root,selected?.dep), 'utf8');
+    for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path);
     const environment = dep.split('\n').filter((s) => s.startsWith('# env-dep:')).map((s) => { const pair=s.slice(10),at=pair.indexOf('=');return at<0?[pair,null]:[pair.slice(0,at),pair.slice(at+1)]; }).map(normalizeEnv);
     units.push({package:graph.packages.get(m.package_id).name,role,target:m.target.name,kind:m.target.kind,features:m.features,profile:m.profile,environment});
   }
