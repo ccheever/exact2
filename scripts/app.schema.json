@@ -63,6 +63,35 @@
         "additionalProperties": false
       }
     },
+    "file_handlers": {
+      "type": "array",
+      "description": "The W3C Web App Manifest's file handling declaration: what this app opens. The Apple bake derives `CFBundleDocumentTypes` from it (LLP 1033 D1), and a browser reads the same key.",
+      "items": {
+        "type": "object",
+        "required": [
+          "action",
+          "accept"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "accept": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "app": {
       "type": "object",
       "required": [
@@ -81,6 +110,11 @@
         "origin": {
           "type": "string",
           "pattern": "^https?://"
+        },
+        "command": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "The name this app answers to on the command line: `exact install <app>` writes a shim by this name (LLP 1033 D2). Default: the app directory's name."
         }
       },
       "additionalProperties": false
@@ -150,41 +184,6 @@
               "type": "array",
               "items": {
                 "type": "string"
-              }
-            },
-            "documentTypes": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "CFBundleTypeName": {
-                    "type": "string"
-                  },
-                  "CFBundleTypeRole": {
-                    "type": "string",
-                    "enum": [
-                      "Viewer"
-                    ]
-                  },
-                  "LSItemContentTypes": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "CFBundleTypeExtensions": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                },
-                "required": [
-                  "CFBundleTypeName",
-                  "CFBundleTypeRole",
-                  "LSItemContentTypes"
-                ],
-                "additionalProperties": false
               }
             },
             "window": {

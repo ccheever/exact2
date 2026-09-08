@@ -1,0 +1,17 @@
+# The Markdown reader's parser (LLP 1033): text to ordered blocks and styled
+# runs, plus the one conversion into the plan's values. Shared by both
+# readers — `apps/markdown` opens a file, `apps/llp` a directory of them.
+[package]
+name = "markdown-parse"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Markdown to the blocks and runs an Exact reader draws"
+publish = false
+
+[lib]
+name = "markdown_parse"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }

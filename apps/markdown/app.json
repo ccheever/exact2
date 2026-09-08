@@ -1,0 +1,34 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Markdown",
+  "short_name": "Markdown",
+  "id": "com.exact.markdown",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#f7f7f5",
+  "background_color": "#ffffff",
+  "file_handlers": [
+    {
+      "action": "/",
+      "name": "Markdown document",
+      "accept": { "text/markdown": [".md", ".markdown", ".mdown", ".mkd"] }
+    },
+    {
+      "action": "/",
+      "name": "Text document",
+      "accept": { "text/plain": [".txt"] }
+    },
+    {
+      "action": "/",
+      "name": "Folder",
+      "accept": { "inode/directory": [] }
+    }
+  ],
+  "app": { "id": "com.exact.markdown", "name": "Markdown", "command": "mdview" },
+  "host": {
+    "macos": { "minimumOS": "14.0", "window": { "width": 1000, "height": 760, "minWidth": 480, "minHeight": 360 } },
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "web": {}
+  },
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0" } }
+}

@@ -10,6 +10,44 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **Percentage width inflates an auto-height flex column in native layout**
+  (2026-09-08): LLP 1032's blocks ended at 30,145 points while Taffy sized
+  their `width: 100%; max-width: 720px` column to 67,373, leaving a white
+  phantom scroll range. The readers use the CSS-equivalent definite preferred
+  width plus `max-width: 100%` meanwhile; reduce this to a kernel fixture and
+  make the original CSS shape agree with the browser.
+
+- **Two concurrent app builds ship each other's binaries** (2026-09-08):
+  `host/apple/build.mjs` links every app's `ExactMac` into one product path
+  (`host/apple/.build/<triple>/release/ExactMac`, staged through one
+  `.build/composition-<composition>`) and then copies it into that app's
+  bundle. Two builds of different apps at once — two terminals, two agents —
+  race, and the loser's `.app` has one app's Info.plist over another app's
+  executable. Seen for real: `LLP.app` launched as Weatherlight, and
+  `scripts/agent.mjs` (which drives that same shared path, not the bundle)
+  drove Weatherlight for `--app llp`. `scripts/exact.mjs` now refuses a
+  bundle whose executable carries another app's id, but that is a smoke
+  alarm, not the fix: the product and scratch paths want to be per-app.
+
+- **`line-height` is a length, not CSS's ratio** (2026-09-08): the kernel's
+  `line_height` row is absolute points and a unitless `1.62` draws every line
+  on top of the last. CSS's unitless value is a multiple of the font size,
+  and `rules/RULES.md` §Scope says a semantic that could follow CSS follows
+  it. Either implement the ratio or declare the deviation in LLP 1001 §1.
+  Found writing the Markdown readers (LLP 1033).
+
+- **Text rows do not cascade into inline runs** (2026-09-08): a `text` node's
+  `font-size`/`color`/`line-height` do not reach the `text` children the
+  kernel measures as its runs, so every run must repeat them. On the web they
+  inherit. Decide whether the kernel inherits text rows or whether this is
+  declared; the Markdown readers thread the type through as props meanwhile.
+
+- **Two `.contract` files cannot be shared between apps** (2026-09-08): the
+  `Blocks`/`Runs` renderer is copied between `apps/markdown` and `apps/llp`
+  because `use … from` refuses a `..` segment and a path outside the entry
+  file's directory. A third reader is the trigger to widen it; doing so has a
+  compatibility-id consequence (the shared file is an input to the bake).
+
 - **Intermittent macOS GPU smoke stall** (2026-09-07): a TS Caltrain run sampled
   in drawable acquisition, then passed in 2.1 s on rerun; final `host` smoke
   exceeded 60 s and was stopped. Investigate window/display-dependent progress.
@@ -22,10 +60,9 @@ sits on that list carries the trade it would take.
   Normal cold/warm OS URL delivery and live reload pass after the storage fix;
   Charlie also confirmed native opening from Safari. Explicit cold/warm Safari
   cases and four-finger menu recognition remain to be checked.
-- **Safari initial scrolling** (2026-09-07): Charlie reports 5–10 seconds before
-  full scrolling. A held-module Chrome probe confirms root inertness blocks the
-  already-laid-out list. Measure on the phone, then preserve scrolling while
-  gating app actions; Safari automation currently cannot connect over the LAN.
+- **Safari initial scrolling, phone sweep** (2026-09-08): the web host now gates
+  actions/editing without making the baked tree inert; Chrome verifies scrolling
+  with the data module held or failed. Repeat the touch-scroll check on iPhone.
 - **Dev program rebuild boundary** (2026-09-07): after the normal phone's live
   edit passed, a server rebuild reported web inputs changed / iOS inputs unchanged
   but the iPhone required a native relaunch. Check whether the shared program

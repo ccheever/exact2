@@ -39,13 +39,44 @@ let appReadyMs = ExactEnv.wall()
 /// The one session and its view; the session's clock is the agent's under a script.
 let exact = ExactComposition.app
 final class Adapter: ExactSessionDelegate {
-    /// The capabilities: `setScheme` is the app's appearance — light or dark,
-    /// as the web's `color-scheme`; anything else is named and refused.
+    /// The capabilities: `setScheme` is the app's appearance — `light`,
+    /// `dark`, or `system`, as the web's `color-scheme`, where following the
+    /// user's preference is the absence of an override rather than a third
+    /// appearance; `openURL` is a link the reader followed
+    /// (`TextSelectionMac`); anything else is named and refused.
     func exactSession(_ session: ExactSession, command name: String, args: [Any]) {
         switch name {
-        case "setScheme": app.appearance = NSAppearance(named: (args.first as? String) == "dark" ? .darkAqua : .aqua)
+        case "setScheme":
+            switch args.first as? String {
+            case "dark": app.appearance = NSAppearance(named: .darkAqua)
+            case "light": app.appearance = NSAppearance(named: .aqua)
+            default: app.appearance = nil
+            }
+        case "openURL": open(args.first as? String ?? "", from: session)
         default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
         }
+    }
+
+    /// A followed link. One that names a local file or directory is a
+    /// document for this app (a Markdown link to the file beside it); one
+    /// that names a page goes to whatever handles pages. Nothing else opens:
+    /// a link comes out of a document this app did not write, and handing an
+    /// arbitrary scheme to Launch Services is handing it whatever is
+    /// registered for that scheme (LLP 0382 — fail closed, loudly).
+    private func open(_ target: String, from session: ExactSession) {
+        guard !target.isEmpty else { return }
+        let url = URL(string: target)
+        let local = url?.isFileURL == true ? url!.standardizedFileURL.path
+            : target.hasPrefix("/") ? URL(fileURLWithPath: target).standardizedFileURL.path : nil
+        if let local, FileManager.default.fileExists(atPath: local) {
+            ExactDocuments.deliver([local], to: session)
+            return
+        }
+        guard let url, ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") else {
+            FileHandle.standardError.write(Data("exact: refused to open \(target)\n".utf8))
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 }
 let adapter = Adapter()
@@ -97,11 +128,24 @@ ExactEnv.stamp("center")
 final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationDidFinishLaunching(_ notification: Notification) { ExactEnv.stamp("didFinishLaunching") }
+    /// Launch Services brought something: a development link, or documents —
+    /// a Finder double-click, an Open With, `open -a`, or a second `mdview`
+    /// while this one runs. A document arriving now is why the app comes
+    /// forward; one that opens nothing leaves the window where it was.
     func application(_ application: NSApplication, open urls: [URL]) {
         if let url = urls.first, ExactDevelopmentLink.open(url) {
-            application.windows.first?.makeKeyAndOrderFront(nil)
-            application.activate(ignoringOtherApps: true)
+            front(application)
+            return
         }
+        let documents = ExactDocuments.paths(of: urls)
+        guard !documents.isEmpty, ExactDocuments.deliver(documents, to: session) else { return }
+        if let first = documents.first { application.windows.first?.title = ExactDocuments.windowTitle(for: first) }
+        front(application)
+    }
+
+    private func front(_ application: NSApplication) {
+        application.windows.first?.makeKeyAndOrderFront(nil)
+        application.activate(ignoringOtherApps: true)
     }
     func windowDidBecomeKey(_ notification: Notification) {
         if !ExactEnv.stamps.contains(where: { $0.0 == "windowDidBecomeKey" }) { ExactEnv.stamp("windowDidBecomeKey") }
@@ -155,14 +199,15 @@ if let planPath = ExactEnv.environment["EXACT_DEV_PLAN"] {
         exact.connect(planPath)
     } else {
         devPlanPath = planPath
-        var last = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date) ?? .distantPast
+        let candidate = ExactDevelopmentPlan(planPath)
+        var last = candidate.hasModule ? [] : candidate.revision
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + 0.1, repeating: 0.1)
         t.setEventHandler {
-            guard let m = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date), m > last else { return }
-            last = m
-            guard let bytes = FileManager.default.contents(atPath: planPath) else { return }
-            exact.apply(bytes, label: String(planPath.split(separator: "/").last ?? "plan"))
+            let revision = candidate.revision
+            guard revision != last else { return }
+            last = revision
+            candidate.apply(to: exact)
         }
         t.resume()
         planWatch = t
@@ -175,7 +220,10 @@ DevMenu.install(session: session, planPath: devPlanPath ?? ExactEnv.environment[
 let boot: Batch = {
     let size = session.viewportSize
     let path = ExactEnv.environment["EXACT_PLAN"] ?? devPlanPath
-    if let path, let bytes = FileManager.default.contents(atPath: path) {
+    if let path, ExactDevelopmentPlan(path).hasModule, ExactEnv.environment["EXACT_PLAN"] != nil {
+        DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
+    }
+    if let path, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
         return session.boot(plan: bytes, size: size)
     }
     return session.boot(size: size)
@@ -192,6 +240,26 @@ ExactEnv.stamp("makeKeyAndOrderFront")
 // window's canvases render nothing, LLP 1009 D4) — but never activated.
 if agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
 ExactEnv.stamp("activate")
+
+// The documents named on the command line, now that the first frame has
+// mounted the app's own nodes. Launch Services' route into a *running* app is
+// `application(_:open urls:)` above; a terminal's is this, and the two are
+// the same from here down. Not under a script or the smoke: those drive the
+// app themselves and a stray argument is not a document. @ref LLP 1033 D3
+if !agentMode && !smoke {
+    let opened = ExactDocuments.paths(in: CommandLine.arguments)
+    ExactDocuments.deliver(opened, to: session)
+    // The window says which project is open, not just which app this is
+    // (LLP 1033 D7). The path the OS handed over is the one to name it by.
+    if let first = opened.first { window.title = ExactDocuments.windowTitle(for: first) }
+}
+// What the system is set to, now and whenever it changes (LLP 1033 D6). An
+// app that draws its own palette needs this to follow the system at all: the
+// window's appearance is the host's, and the page's colours are the app's.
+// Delivered under a script too — a reader's palette is part of what a driver
+// reads, and unlike a command-line argument this is not a stray.
+ExactDocuments.reportAppearance(to: session)
+let appearanceWatch = ExactDocuments.watchAppearance(session)
 
 /// Agent mode: the driver owns the process from here — one JSON line in,
 /// one out. `ready` goes out once the first frame is applied and the window

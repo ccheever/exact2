@@ -8,8 +8,8 @@
 use crate::error::DecodeError;
 use crate::generated::{StyleId, StyleMask, STYLE_MASK_WORDS};
 use crate::style::{
-    Color, Dimension, Edge, GridLine, GridPlacement, GridTrack, GridTracks, Transitions, Vec2,
-    MAX_GRID_TRACKS,
+    Color, ColorValue, Dimension, Edge, GridLine, GridPlacement, GridTrack, GridTracks,
+    Transitions, Vec2, MAX_GRID_TRACKS,
 };
 use exact_motion::easing::MAX_LINEAR_STOPS;
 use exact_motion::{
@@ -172,6 +172,18 @@ impl<'a> Reader<'a> {
             x: self.f32()?,
             y: self.f32()?,
         })
+    }
+
+    /// Read a colour as a row holds it: a tag byte, then one colour
+    /// (`0`) or a light/dark pair (`1`). Tagged the way `dimension` is —
+    /// a kind byte then its payload — because a colour row may now hold
+    /// either. @ref LLP 1034 D1
+    pub fn color_value(&mut self) -> Result<ColorValue, DecodeError> {
+        match self.u8()? {
+            0 => Ok(ColorValue::Fixed(self.color()?)),
+            1 => Ok(ColorValue::LightDark(self.color()?, self.color()?)),
+            other => Err(DecodeError::BadColorValue(other)),
+        }
     }
 
     /// Read two colors.
@@ -455,6 +467,21 @@ impl Writer {
     pub fn vec2(&mut self, v: Vec2) {
         self.f32(v.x);
         self.f32(v.y);
+    }
+
+    /// Write a colour as a row holds it (see `Reader::color_value`).
+    pub fn color_value(&mut self, c: ColorValue) {
+        match c {
+            ColorValue::Fixed(one) => {
+                self.u8(0);
+                self.color(one);
+            }
+            ColorValue::LightDark(light, night) => {
+                self.u8(1);
+                self.color(light);
+                self.color(night);
+            }
+        }
     }
 
     /// Append two colors.

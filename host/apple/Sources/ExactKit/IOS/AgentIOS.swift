@@ -117,7 +117,22 @@ extension Agent {
         for (id, v) in presenter.views.sorted(by: { $0.key < $1.key }) where v.window != nil {
             let r = box(v)
             var n: [String: Any] = ["id": Int(id), "x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)]
-            if let sv = v.scroll { n["sx"] = Agent.r2(sv.contentOffset.x); n["sy"] = Agent.r2(sv.contentOffset.y) }
+            if let sv = v.scroll {
+                n["sx"] = Agent.r2(sv.contentOffset.x)
+                n["sy"] = Agent.r2(sv.contentOffset.y)
+                // How far past its own ends it sits: a stretched bounce is a
+                // state a driver cannot read from the offset alone.
+                let past = { (value: CGFloat, limit: CGFloat) -> CGFloat in
+                    let end = max(0, limit)
+                    if value < -0.5 { return value }
+                    if value > end + 0.5 { return value - end }
+                    return 0
+                }
+                let ox = past(sv.contentOffset.x, sv.contentSize.width - sv.bounds.width)
+                let oy = past(sv.contentOffset.y, sv.contentSize.height - sv.bounds.height)
+                if ox != 0 { n["ox"] = Agent.r2(ox) }
+                if oy != 0 { n["oy"] = Agent.r2(oy) }
+            }
             nodes.append(n)
         }
         // The page's environment (LLP 1012 §1): the insets the kernel was

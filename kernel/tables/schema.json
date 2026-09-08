@@ -2,186 +2,1072 @@
   "schemaVersion": 1,
   "_about": "The single declaration authority for the kernel's node types, props, style rows, enum vocabularies, and opcodes. build.rs generates the Rust types, the wire codec, the style mask, and the schema digest from this file. Nothing here is hand-mirrored anywhere else; a second copy of any table is a defect.",
   "nodeTypes": [
-    { "id": 0, "name": "View" },
-    { "id": 1, "name": "Text" },
-    { "id": 2, "name": "Image" },
-    { "id": 3, "name": "ScrollView" },
-    { "id": 4, "name": "List" },
-    { "id": 5, "name": "TextInput" },
-    { "id": 6, "name": "Pressable" },
-    { "id": 7, "name": "Svg" },
-    { "id": 8, "name": "Toggle" },
-    { "id": 9, "name": "NativeView" },
-    { "id": 10, "name": "Canvas" },
-    { "id": 11, "name": "WebView" }
+    {
+      "id": 0,
+      "name": "View"
+    },
+    {
+      "id": 1,
+      "name": "Text"
+    },
+    {
+      "id": 2,
+      "name": "Image"
+    },
+    {
+      "id": 3,
+      "name": "ScrollView"
+    },
+    {
+      "id": 4,
+      "name": "List"
+    },
+    {
+      "id": 5,
+      "name": "TextInput"
+    },
+    {
+      "id": 6,
+      "name": "Pressable"
+    },
+    {
+      "id": 7,
+      "name": "Svg"
+    },
+    {
+      "id": 8,
+      "name": "Toggle"
+    },
+    {
+      "id": 9,
+      "name": "NativeView"
+    },
+    {
+      "id": 10,
+      "name": "Canvas"
+    },
+    {
+      "id": 11,
+      "name": "WebView"
+    }
   ],
   "_propKinds": "str | bool | int (i64) | float (f64). `measure: true` marks props whose change invalidates a text leaf's intrinsic size.",
   "props": [
-    { "id": 0, "name": "text", "kind": "str", "measure": true },
-    { "id": 1, "name": "imageSource", "kind": "str" },
-    { "id": 2, "name": "placeholder", "kind": "str", "measure": true },
-    { "id": 3, "name": "accessibilityLabel", "kind": "str" },
-    { "id": 4, "name": "toggleValue", "kind": "bool" },
-    { "id": 5, "name": "disabled", "kind": "bool" },
-    { "id": 6, "name": "showsScrollIndicator", "kind": "bool" },
-    { "id": 7, "name": "selectable", "kind": "bool" },
-    { "id": 8, "name": "svgSource", "kind": "str" },
-    { "id": 9, "name": "lang", "kind": "str" },
-    { "id": 10, "name": "focusable", "kind": "bool" },
-    { "id": 11, "name": "testId", "kind": "str" },
-    { "id": 12, "name": "nativeId", "kind": "str" },
-    { "id": 13, "name": "tabIndex", "kind": "int" },
-    { "id": 14, "name": "href", "kind": "str" },
-    { "id": 15, "name": "type", "kind": "str" },
-    { "id": 16, "name": "editable", "kind": "bool" },
-    { "id": 17, "name": "value", "kind": "str", "measure": true },
-    { "id": 18, "name": "hitSlop", "kind": "float" },
-    { "id": 19, "name": "scrollLocked", "kind": "bool" },
-    { "id": 20, "name": "inert", "kind": "bool" },
-    { "id": 21, "name": "accessibilityRole", "kind": "str" },
-    { "id": 22, "name": "accessibilityHint", "kind": "str" },
-    { "id": 23, "name": "accessibilityValueText", "kind": "str" },
-    { "id": 24, "name": "accessibilityChecked", "kind": "bool" },
-    { "id": 25, "name": "accessibilitySelected", "kind": "bool" },
-    { "id": 26, "name": "accessibilityExpanded", "kind": "bool" },
-    { "id": 27, "name": "accessibilityDisabled", "kind": "bool" },
-    { "id": 28, "name": "accessibilityLive", "kind": "str" },
-    { "id": 29, "name": "accessibilityBusy", "kind": "bool" },
-    { "id": 30, "name": "accessibilityHeadingLevel", "kind": "int" },
-    { "id": 31, "name": "accessibilityElementsHidden", "kind": "bool" },
-    { "id": 32, "name": "accessibilityModal", "kind": "bool" },
-    { "id": 33, "name": "semanticTag", "kind": "str" },
-    { "id": 34, "name": "nativeViewModuleName", "kind": "str" },
-    { "id": 35, "name": "nativeViewProps", "kind": "str" },
-    { "id": 36, "name": "scrollCommand", "kind": "str" },
-    { "id": 37, "name": "virtualized", "kind": "bool" },
-    { "id": 38, "name": "initialFocus", "kind": "bool" },
-    { "id": 39, "name": "inputMode", "kind": "str" },
-    { "id": 40, "name": "viewportFit", "kind": "str" },
-    { "id": 41, "name": "interactiveWidget", "kind": "str" },
-    { "id": 42, "name": "src", "kind": "str" },
-    { "id": 43, "name": "sandbox", "kind": "str" },
-    { "id": 44, "name": "id", "kind": "str" },
-    { "id": 45, "name": "popover", "kind": "str" },
-    { "id": 46, "name": "popovertarget", "kind": "str" },
-    { "id": 47, "name": "popovertargetaction", "kind": "str" },
-    { "id": 48, "name": "accessibilityKeyShortcuts", "kind": "str" }
+    {
+      "id": 0,
+      "name": "text",
+      "kind": "str",
+      "measure": true
+    },
+    {
+      "id": 1,
+      "name": "imageSource",
+      "kind": "str"
+    },
+    {
+      "id": 2,
+      "name": "placeholder",
+      "kind": "str",
+      "measure": true
+    },
+    {
+      "id": 3,
+      "name": "accessibilityLabel",
+      "kind": "str"
+    },
+    {
+      "id": 4,
+      "name": "toggleValue",
+      "kind": "bool"
+    },
+    {
+      "id": 5,
+      "name": "disabled",
+      "kind": "bool"
+    },
+    {
+      "id": 6,
+      "name": "showsScrollIndicator",
+      "kind": "bool"
+    },
+    {
+      "id": 7,
+      "name": "selectable",
+      "kind": "bool"
+    },
+    {
+      "id": 8,
+      "name": "svgSource",
+      "kind": "str"
+    },
+    {
+      "id": 9,
+      "name": "lang",
+      "kind": "str"
+    },
+    {
+      "id": 10,
+      "name": "focusable",
+      "kind": "bool"
+    },
+    {
+      "id": 11,
+      "name": "testId",
+      "kind": "str"
+    },
+    {
+      "id": 12,
+      "name": "nativeId",
+      "kind": "str"
+    },
+    {
+      "id": 13,
+      "name": "tabIndex",
+      "kind": "int"
+    },
+    {
+      "id": 14,
+      "name": "href",
+      "kind": "str"
+    },
+    {
+      "id": 15,
+      "name": "type",
+      "kind": "str"
+    },
+    {
+      "id": 16,
+      "name": "editable",
+      "kind": "bool"
+    },
+    {
+      "id": 17,
+      "name": "value",
+      "kind": "str",
+      "measure": true
+    },
+    {
+      "id": 18,
+      "name": "hitSlop",
+      "kind": "float"
+    },
+    {
+      "id": 19,
+      "name": "scrollLocked",
+      "kind": "bool"
+    },
+    {
+      "id": 20,
+      "name": "inert",
+      "kind": "bool"
+    },
+    {
+      "id": 21,
+      "name": "accessibilityRole",
+      "kind": "str"
+    },
+    {
+      "id": 22,
+      "name": "accessibilityHint",
+      "kind": "str"
+    },
+    {
+      "id": 23,
+      "name": "accessibilityValueText",
+      "kind": "str"
+    },
+    {
+      "id": 24,
+      "name": "accessibilityChecked",
+      "kind": "bool"
+    },
+    {
+      "id": 25,
+      "name": "accessibilitySelected",
+      "kind": "bool"
+    },
+    {
+      "id": 26,
+      "name": "accessibilityExpanded",
+      "kind": "bool"
+    },
+    {
+      "id": 27,
+      "name": "accessibilityDisabled",
+      "kind": "bool"
+    },
+    {
+      "id": 28,
+      "name": "accessibilityLive",
+      "kind": "str"
+    },
+    {
+      "id": 29,
+      "name": "accessibilityBusy",
+      "kind": "bool"
+    },
+    {
+      "id": 30,
+      "name": "accessibilityHeadingLevel",
+      "kind": "int"
+    },
+    {
+      "id": 31,
+      "name": "accessibilityElementsHidden",
+      "kind": "bool"
+    },
+    {
+      "id": 32,
+      "name": "accessibilityModal",
+      "kind": "bool"
+    },
+    {
+      "id": 33,
+      "name": "semanticTag",
+      "kind": "str"
+    },
+    {
+      "id": 34,
+      "name": "nativeViewModuleName",
+      "kind": "str"
+    },
+    {
+      "id": 35,
+      "name": "nativeViewProps",
+      "kind": "str"
+    },
+    {
+      "id": 36,
+      "name": "scrollCommand",
+      "kind": "str"
+    },
+    {
+      "id": 37,
+      "name": "virtualized",
+      "kind": "bool"
+    },
+    {
+      "id": 38,
+      "name": "initialFocus",
+      "kind": "bool"
+    },
+    {
+      "id": 39,
+      "name": "inputMode",
+      "kind": "str"
+    },
+    {
+      "id": 40,
+      "name": "viewportFit",
+      "kind": "str"
+    },
+    {
+      "id": 41,
+      "name": "interactiveWidget",
+      "kind": "str"
+    },
+    {
+      "id": 42,
+      "name": "src",
+      "kind": "str"
+    },
+    {
+      "id": 43,
+      "name": "sandbox",
+      "kind": "str"
+    },
+    {
+      "id": 44,
+      "name": "id",
+      "kind": "str"
+    },
+    {
+      "id": 45,
+      "name": "popover",
+      "kind": "str"
+    },
+    {
+      "id": 46,
+      "name": "popovertarget",
+      "kind": "str"
+    },
+    {
+      "id": 47,
+      "name": "popovertargetaction",
+      "kind": "str"
+    },
+    {
+      "id": 48,
+      "name": "accessibilityKeyShortcuts",
+      "kind": "str"
+    }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
   "enums": {
-    "FlexDirection": { "values": ["row", "column", "row-reverse", "column-reverse"], "default": "row" },
-    "FlexWrap": { "values": ["nowrap", "wrap", "wrap-reverse"], "default": "nowrap" },
-    "JustifyContent": { "values": ["flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly"], "default": "flex-start" },
-    "AlignItems": { "values": ["flex-start", "flex-end", "center", "baseline", "stretch"], "default": "stretch" },
-    "AlignSelf": { "values": ["auto", "flex-start", "flex-end", "center", "baseline", "stretch"], "default": "auto" },
-    "AlignContent": { "values": ["flex-start", "flex-end", "center", "stretch", "space-between", "space-around", "space-evenly"], "default": "stretch" },
-    "PositionType": { "values": ["relative", "absolute"], "default": "relative" },
-    "Overflow": { "values": ["visible", "hidden", "scroll"], "default": "visible" },
-    "TextAlign": { "values": ["left", "center", "right", "justify"], "default": "left" },
-    "Display": { "values": ["block", "flex", "grid", "none"], "default": "block" },
-    "GridAutoFlow": { "values": ["row", "column", "row-dense", "column-dense"], "default": "row" },
-    "Direction": { "values": ["ltr", "rtl"], "default": "ltr" },
-    "FontStyle": { "values": ["normal", "italic"], "default": "normal" },
-    "TextDecorationLine": { "values": ["none", "underline", "line-through", "underline-line-through"], "default": "none" },
-    "BoxSizing": { "values": ["content-box", "border-box"], "default": "content-box" },
-    "ObjectFit": { "values": ["fill", "contain", "cover", "none", "scale-down"], "default": "fill" },
-    "WhiteSpace": { "values": ["normal", "pre-wrap"], "default": "normal" },
-    "TextOverflow": { "values": ["clip", "ellipsis"], "default": "clip" }
+    "FlexDirection": {
+      "values": [
+        "row",
+        "column",
+        "row-reverse",
+        "column-reverse"
+      ],
+      "default": "row"
+    },
+    "FlexWrap": {
+      "values": [
+        "nowrap",
+        "wrap",
+        "wrap-reverse"
+      ],
+      "default": "nowrap"
+    },
+    "JustifyContent": {
+      "values": [
+        "flex-start",
+        "flex-end",
+        "center",
+        "space-between",
+        "space-around",
+        "space-evenly"
+      ],
+      "default": "flex-start"
+    },
+    "AlignItems": {
+      "values": [
+        "flex-start",
+        "flex-end",
+        "center",
+        "baseline",
+        "stretch"
+      ],
+      "default": "stretch"
+    },
+    "AlignSelf": {
+      "values": [
+        "auto",
+        "flex-start",
+        "flex-end",
+        "center",
+        "baseline",
+        "stretch"
+      ],
+      "default": "auto"
+    },
+    "AlignContent": {
+      "values": [
+        "flex-start",
+        "flex-end",
+        "center",
+        "stretch",
+        "space-between",
+        "space-around",
+        "space-evenly"
+      ],
+      "default": "stretch"
+    },
+    "PositionType": {
+      "values": [
+        "relative",
+        "absolute"
+      ],
+      "default": "relative"
+    },
+    "Overflow": {
+      "values": [
+        "visible",
+        "hidden",
+        "scroll"
+      ],
+      "default": "visible"
+    },
+    "TextAlign": {
+      "values": [
+        "left",
+        "center",
+        "right",
+        "justify"
+      ],
+      "default": "left"
+    },
+    "Display": {
+      "values": [
+        "block",
+        "flex",
+        "grid",
+        "none"
+      ],
+      "default": "block"
+    },
+    "GridAutoFlow": {
+      "values": [
+        "row",
+        "column",
+        "row-dense",
+        "column-dense"
+      ],
+      "default": "row"
+    },
+    "Direction": {
+      "values": [
+        "ltr",
+        "rtl"
+      ],
+      "default": "ltr"
+    },
+    "FontStyle": {
+      "values": [
+        "normal",
+        "italic"
+      ],
+      "default": "normal"
+    },
+    "TextDecorationLine": {
+      "values": [
+        "none",
+        "underline",
+        "line-through",
+        "underline-line-through"
+      ],
+      "default": "none"
+    },
+    "BoxSizing": {
+      "values": [
+        "content-box",
+        "border-box"
+      ],
+      "default": "content-box"
+    },
+    "ObjectFit": {
+      "values": [
+        "fill",
+        "contain",
+        "cover",
+        "none",
+        "scale-down"
+      ],
+      "default": "fill"
+    },
+    "WhiteSpace": {
+      "values": [
+        "normal",
+        "pre-wrap"
+      ],
+      "default": "normal"
+    },
+    "TextOverflow": {
+      "values": [
+        "clip",
+        "ellipsis"
+      ],
+      "default": "clip"
+    },
+    "OverscrollBehavior": {
+      "values": [
+        "auto",
+        "contain",
+        "none"
+      ],
+      "default": "auto"
+    }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. Defaults are the storage defaults AND the semantic defaults — this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
   "styles": [
-    { "bit": 0, "field": "width", "codec": "dimension", "admitsAuto": true, "layout": true, "default": "auto" },
-    { "bit": 1, "field": "height", "codec": "dimension", "admitsAuto": true, "layout": true, "default": "auto" },
-    { "bit": 2, "field": "min_width", "codec": "dimension", "admitsAuto": true, "layout": true, "default": "auto" },
-    { "bit": 3, "field": "min_height", "codec": "dimension", "admitsAuto": true, "layout": true, "default": "auto" },
-    { "bit": 4, "field": "max_width", "codec": "dimension", "admitsAuto": true, "layout": true, "default": "auto" },
-    { "bit": 5, "field": "max_height", "codec": "dimension", "admitsAuto": true, "layout": true, "default": "auto" },
-    { "bit": 6, "field": "padding_top", "codec": "dimension", "admitsAuto": false, "layout": true, "default": 0 },
-    { "bit": 7, "field": "padding_right", "codec": "dimension", "admitsAuto": false, "layout": true, "default": 0 },
-    { "bit": 8, "field": "padding_bottom", "codec": "dimension", "admitsAuto": false, "layout": true, "default": 0 },
-    { "bit": 9, "field": "padding_left", "codec": "dimension", "admitsAuto": false, "layout": true, "default": 0 },
-    { "bit": 10, "field": "margin_top", "codec": "dimension", "admitsAuto": true, "layout": true, "default": 0 },
-    { "bit": 11, "field": "margin_right", "codec": "dimension", "admitsAuto": true, "layout": true, "default": 0 },
-    { "bit": 12, "field": "margin_bottom", "codec": "dimension", "admitsAuto": true, "layout": true, "default": 0 },
-    { "bit": 13, "field": "margin_left", "codec": "dimension", "admitsAuto": true, "layout": true, "default": 0 },
-    { "bit": 14, "field": "flex_direction", "codec": "enum:FlexDirection", "layout": true },
-    { "bit": 15, "field": "flex_wrap", "codec": "enum:FlexWrap", "layout": true },
-    { "bit": 16, "field": "justify_content", "codec": "enum:JustifyContent", "layout": true },
-    { "bit": 17, "field": "align_items", "codec": "enum:AlignItems", "layout": true },
-    { "bit": 18, "field": "align_self", "codec": "enum:AlignSelf", "layout": true },
-    { "bit": 19, "field": "align_content", "codec": "enum:AlignContent", "layout": true },
-    { "bit": 20, "field": "flex_grow", "codec": "f32", "layout": true, "default": 0 },
-    { "bit": 21, "field": "flex_shrink", "codec": "f32", "layout": true, "default": 1 },
-    { "bit": 22, "field": "flex_basis", "codec": "dimension", "admitsAuto": true, "layout": true, "default": "auto" },
-    { "bit": 23, "field": "position_type", "codec": "enum:PositionType", "layout": true },
-    { "bit": 24, "field": "top", "codec": "dimension", "admitsAuto": true, "layout": true, "default": "auto" },
-    { "bit": 25, "field": "right", "codec": "dimension", "admitsAuto": true, "layout": true, "default": "auto" },
-    { "bit": 26, "field": "bottom", "codec": "dimension", "admitsAuto": true, "layout": true, "default": "auto" },
-    { "bit": 27, "field": "left", "codec": "dimension", "admitsAuto": true, "layout": true, "default": "auto" },
-    { "bit": 28, "field": "row_gap", "codec": "f32", "layout": true, "default": 0 },
-    { "bit": 29, "field": "column_gap", "codec": "f32", "layout": true, "default": 0 },
-    { "bit": 30, "field": "aspect_ratio", "codec": "f32", "layout": true, "default": 0 },
-    { "bit": 31, "field": "display", "codec": "enum:Display", "layout": true },
-    { "bit": 32, "field": "box_sizing", "codec": "enum:BoxSizing", "layout": true },
-    { "bit": 33, "field": "overflow_x", "codec": "enum:Overflow", "layout": true },
-    { "bit": 34, "field": "overflow_y", "codec": "enum:Overflow", "layout": true },
-    { "bit": 35, "field": "z_index", "codec": "i32", "default": 0 },
-    { "bit": 36, "field": "grid_auto_flow", "codec": "enum:GridAutoFlow", "layout": true },
-    { "bit": 37, "field": "grid_template_columns", "codec": "tracks", "layout": true },
-    { "bit": 38, "field": "grid_template_rows", "codec": "tracks", "layout": true },
-    { "bit": 39, "field": "grid_column", "codec": "placement", "layout": true },
-    { "bit": 40, "field": "grid_row", "codec": "placement", "layout": true },
-    { "bit": 41, "field": "justify_items", "codec": "enum:AlignItems", "layout": true },
-    { "bit": 42, "field": "direction", "codec": "enum:Direction", "layout": true, "text": true },
-    { "bit": 43, "field": "border_width_top", "codec": "f32", "layout": true, "default": 0 },
-    { "bit": 44, "field": "border_width_right", "codec": "f32", "layout": true, "default": 0 },
-    { "bit": 45, "field": "border_width_bottom", "codec": "f32", "layout": true, "default": 0 },
-    { "bit": 46, "field": "border_width_left", "codec": "f32", "layout": true, "default": 0 },
-    { "bit": 47, "field": "background_color", "codec": "rgba8", "default": 0 },
-    { "bit": 48, "field": "opacity", "codec": "f32", "default": 1 },
-    { "bit": 49, "field": "border_radius_top_left", "codec": "f32", "default": 0 },
-    { "bit": 50, "field": "border_radius_top_right", "codec": "f32", "default": 0 },
-    { "bit": 51, "field": "border_radius_bottom_right", "codec": "f32", "default": 0 },
-    { "bit": 52, "field": "border_radius_bottom_left", "codec": "f32", "default": 0 },
-    { "bit": 53, "field": "border_color_top", "codec": "rgba8", "default": 0 },
-    { "bit": 54, "field": "border_color_right", "codec": "rgba8", "default": 0 },
-    { "bit": 55, "field": "border_color_bottom", "codec": "rgba8", "default": 0 },
-    { "bit": 56, "field": "border_color_left", "codec": "rgba8", "default": 0 },
-    { "bit": 57, "field": "shadow_color", "codec": "rgba8", "default": 0 },
-    { "bit": 58, "field": "shadow_offset", "codec": "vec2", "default": [0,0] },
-    { "bit": 59, "field": "shadow_radius", "codec": "f32", "default": 0 },
-    { "bit": 60, "field": "shadow_opacity", "codec": "f32", "default": 0 },
-    { "bit": 61, "field": "tint_color", "codec": "rgba8", "default": 0 },
-    { "bit": 62, "field": "backdrop_blur", "codec": "f32", "default": 0 },
-    { "bit": 63, "field": "translate", "codec": "vec2", "default": [0,0] },
-    { "bit": 64, "field": "scale", "codec": "f32", "default": 1 },
-    { "bit": 65, "field": "rotate", "codec": "f32", "default": 0 },
-    { "bit": 66, "field": "object_fit", "codec": "enum:ObjectFit" },
-    { "bit": 67, "field": "font_size", "codec": "f32", "text": true, "layout": true, "default": 16 },
-    { "bit": 68, "field": "font_weight", "codec": "u16", "text": true, "layout": true, "default": 400 },
-    { "bit": 69, "field": "font_style", "codec": "enum:FontStyle", "text": true, "layout": true },
-    { "bit": 70, "field": "font_family", "codec": "u16", "text": true, "layout": true, "default": 0 },
-    { "bit": 71, "field": "text_align", "codec": "enum:TextAlign" },
-    { "bit": 72, "field": "line_height", "codec": "f32", "text": true, "layout": true, "default": 0 },
-    { "bit": 73, "field": "letter_spacing", "codec": "f32", "text": true, "layout": true, "default": 0 },
-    { "bit": 74, "field": "text_decoration_line", "codec": "enum:TextDecorationLine" },
-    { "bit": 75, "field": "font_variant_numeric", "codec": "u8", "text": true, "layout": true, "default": 0 },
-    { "bit": 76, "field": "line_clamp", "codec": "u32", "text": true, "layout": true, "default": 0 },
-    { "bit": 77, "field": "text_overflow", "codec": "enum:TextOverflow" },
-    { "bit": 78, "field": "text_color", "codec": "rgba8", "default": 255 },
-    { "bit": 79, "field": "transition", "codec": "transitions" },
-    { "bit": 80, "field": "white_space", "codec": "enum:WhiteSpace", "text": true, "layout": true }
+    {
+      "bit": 0,
+      "field": "width",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto"
+    },
+    {
+      "bit": 1,
+      "field": "height",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto"
+    },
+    {
+      "bit": 2,
+      "field": "min_width",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto"
+    },
+    {
+      "bit": 3,
+      "field": "min_height",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto"
+    },
+    {
+      "bit": 4,
+      "field": "max_width",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto"
+    },
+    {
+      "bit": 5,
+      "field": "max_height",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto"
+    },
+    {
+      "bit": 6,
+      "field": "padding_top",
+      "codec": "dimension",
+      "admitsAuto": false,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 7,
+      "field": "padding_right",
+      "codec": "dimension",
+      "admitsAuto": false,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 8,
+      "field": "padding_bottom",
+      "codec": "dimension",
+      "admitsAuto": false,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 9,
+      "field": "padding_left",
+      "codec": "dimension",
+      "admitsAuto": false,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 10,
+      "field": "margin_top",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 11,
+      "field": "margin_right",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 12,
+      "field": "margin_bottom",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 13,
+      "field": "margin_left",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 14,
+      "field": "flex_direction",
+      "codec": "enum:FlexDirection",
+      "layout": true
+    },
+    {
+      "bit": 15,
+      "field": "flex_wrap",
+      "codec": "enum:FlexWrap",
+      "layout": true
+    },
+    {
+      "bit": 16,
+      "field": "justify_content",
+      "codec": "enum:JustifyContent",
+      "layout": true
+    },
+    {
+      "bit": 17,
+      "field": "align_items",
+      "codec": "enum:AlignItems",
+      "layout": true
+    },
+    {
+      "bit": 18,
+      "field": "align_self",
+      "codec": "enum:AlignSelf",
+      "layout": true
+    },
+    {
+      "bit": 19,
+      "field": "align_content",
+      "codec": "enum:AlignContent",
+      "layout": true
+    },
+    {
+      "bit": 20,
+      "field": "flex_grow",
+      "codec": "f32",
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 21,
+      "field": "flex_shrink",
+      "codec": "f32",
+      "layout": true,
+      "default": 1
+    },
+    {
+      "bit": 22,
+      "field": "flex_basis",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto"
+    },
+    {
+      "bit": 23,
+      "field": "position_type",
+      "codec": "enum:PositionType",
+      "layout": true
+    },
+    {
+      "bit": 24,
+      "field": "top",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto"
+    },
+    {
+      "bit": 25,
+      "field": "right",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto"
+    },
+    {
+      "bit": 26,
+      "field": "bottom",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto"
+    },
+    {
+      "bit": 27,
+      "field": "left",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto"
+    },
+    {
+      "bit": 28,
+      "field": "row_gap",
+      "codec": "f32",
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 29,
+      "field": "column_gap",
+      "codec": "f32",
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 30,
+      "field": "aspect_ratio",
+      "codec": "f32",
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 31,
+      "field": "display",
+      "codec": "enum:Display",
+      "layout": true
+    },
+    {
+      "bit": 32,
+      "field": "box_sizing",
+      "codec": "enum:BoxSizing",
+      "layout": true
+    },
+    {
+      "bit": 33,
+      "field": "overflow_x",
+      "codec": "enum:Overflow",
+      "layout": true
+    },
+    {
+      "bit": 34,
+      "field": "overflow_y",
+      "codec": "enum:Overflow",
+      "layout": true
+    },
+    {
+      "bit": 35,
+      "field": "z_index",
+      "codec": "i32",
+      "default": 0
+    },
+    {
+      "bit": 36,
+      "field": "grid_auto_flow",
+      "codec": "enum:GridAutoFlow",
+      "layout": true
+    },
+    {
+      "bit": 37,
+      "field": "grid_template_columns",
+      "codec": "tracks",
+      "layout": true
+    },
+    {
+      "bit": 38,
+      "field": "grid_template_rows",
+      "codec": "tracks",
+      "layout": true
+    },
+    {
+      "bit": 39,
+      "field": "grid_column",
+      "codec": "placement",
+      "layout": true
+    },
+    {
+      "bit": 40,
+      "field": "grid_row",
+      "codec": "placement",
+      "layout": true
+    },
+    {
+      "bit": 41,
+      "field": "justify_items",
+      "codec": "enum:AlignItems",
+      "layout": true
+    },
+    {
+      "bit": 42,
+      "field": "direction",
+      "codec": "enum:Direction",
+      "layout": true,
+      "text": true
+    },
+    {
+      "bit": 43,
+      "field": "border_width_top",
+      "codec": "f32",
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 44,
+      "field": "border_width_right",
+      "codec": "f32",
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 45,
+      "field": "border_width_bottom",
+      "codec": "f32",
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 46,
+      "field": "border_width_left",
+      "codec": "f32",
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 47,
+      "field": "background_color",
+      "codec": "color",
+      "default": 0
+    },
+    {
+      "bit": 48,
+      "field": "opacity",
+      "codec": "f32",
+      "default": 1
+    },
+    {
+      "bit": 49,
+      "field": "border_radius_top_left",
+      "codec": "f32",
+      "default": 0
+    },
+    {
+      "bit": 50,
+      "field": "border_radius_top_right",
+      "codec": "f32",
+      "default": 0
+    },
+    {
+      "bit": 51,
+      "field": "border_radius_bottom_right",
+      "codec": "f32",
+      "default": 0
+    },
+    {
+      "bit": 52,
+      "field": "border_radius_bottom_left",
+      "codec": "f32",
+      "default": 0
+    },
+    {
+      "bit": 53,
+      "field": "border_color_top",
+      "codec": "color",
+      "default": 0
+    },
+    {
+      "bit": 54,
+      "field": "border_color_right",
+      "codec": "color",
+      "default": 0
+    },
+    {
+      "bit": 55,
+      "field": "border_color_bottom",
+      "codec": "color",
+      "default": 0
+    },
+    {
+      "bit": 56,
+      "field": "border_color_left",
+      "codec": "color",
+      "default": 0
+    },
+    {
+      "bit": 57,
+      "field": "shadow_color",
+      "codec": "color",
+      "default": 0
+    },
+    {
+      "bit": 58,
+      "field": "shadow_offset",
+      "codec": "vec2",
+      "default": [
+        0,
+        0
+      ]
+    },
+    {
+      "bit": 59,
+      "field": "shadow_radius",
+      "codec": "f32",
+      "default": 0
+    },
+    {
+      "bit": 60,
+      "field": "shadow_opacity",
+      "codec": "f32",
+      "default": 0
+    },
+    {
+      "bit": 61,
+      "field": "tint_color",
+      "codec": "color",
+      "default": 0
+    },
+    {
+      "bit": 62,
+      "field": "backdrop_blur",
+      "codec": "f32",
+      "default": 0
+    },
+    {
+      "bit": 63,
+      "field": "translate",
+      "codec": "vec2",
+      "default": [
+        0,
+        0
+      ]
+    },
+    {
+      "bit": 64,
+      "field": "scale",
+      "codec": "f32",
+      "default": 1
+    },
+    {
+      "bit": 65,
+      "field": "rotate",
+      "codec": "f32",
+      "default": 0
+    },
+    {
+      "bit": 66,
+      "field": "object_fit",
+      "codec": "enum:ObjectFit"
+    },
+    {
+      "bit": 67,
+      "field": "font_size",
+      "codec": "f32",
+      "text": true,
+      "layout": true,
+      "default": 16
+    },
+    {
+      "bit": 68,
+      "field": "font_weight",
+      "codec": "u16",
+      "text": true,
+      "layout": true,
+      "default": 400
+    },
+    {
+      "bit": 69,
+      "field": "font_style",
+      "codec": "enum:FontStyle",
+      "text": true,
+      "layout": true
+    },
+    {
+      "bit": 70,
+      "field": "font_family",
+      "codec": "u16",
+      "text": true,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 71,
+      "field": "text_align",
+      "codec": "enum:TextAlign"
+    },
+    {
+      "bit": 72,
+      "field": "line_height",
+      "codec": "f32",
+      "text": true,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 73,
+      "field": "letter_spacing",
+      "codec": "f32",
+      "text": true,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 74,
+      "field": "text_decoration_line",
+      "codec": "enum:TextDecorationLine"
+    },
+    {
+      "bit": 75,
+      "field": "font_variant_numeric",
+      "codec": "u8",
+      "text": true,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 76,
+      "field": "line_clamp",
+      "codec": "u32",
+      "text": true,
+      "layout": true,
+      "default": 0
+    },
+    {
+      "bit": 77,
+      "field": "text_overflow",
+      "codec": "enum:TextOverflow"
+    },
+    {
+      "bit": 78,
+      "field": "text_color",
+      "codec": "color",
+      "default": 255
+    },
+    {
+      "bit": 79,
+      "field": "transition",
+      "codec": "transitions"
+    },
+    {
+      "bit": 80,
+      "field": "white_space",
+      "codec": "enum:WhiteSpace",
+      "text": true,
+      "layout": true
+    },
+    {
+      "bit": 81,
+      "field": "overscroll_behavior_x",
+      "codec": "enum:OverscrollBehavior"
+    },
+    {
+      "bit": 82,
+      "field": "overscroll_behavior_y",
+      "codec": "enum:OverscrollBehavior"
+    }
   ],
-  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
-    { "id": 1, "name": "CreateView" },
-    { "id": 2, "name": "DestroyView" },
-    { "id": 3, "name": "SetProp" },
-    { "id": 4, "name": "ClearProp" },
-    { "id": 5, "name": "SetStyle" },
-    { "id": 6, "name": "ClearStyle" },
-    { "id": 7, "name": "SetChildren" },
-    { "id": 8, "name": "AttachRoot" }
+    {
+      "id": 1,
+      "name": "CreateView"
+    },
+    {
+      "id": 2,
+      "name": "DestroyView"
+    },
+    {
+      "id": 3,
+      "name": "SetProp"
+    },
+    {
+      "id": 4,
+      "name": "ClearProp"
+    },
+    {
+      "id": 5,
+      "name": "SetStyle"
+    },
+    {
+      "id": 6,
+      "name": "ClearStyle"
+    },
+    {
+      "id": 7,
+      "name": "SetChildren"
+    },
+    {
+      "id": 8,
+      "name": "AttachRoot"
+    }
   ]
 }

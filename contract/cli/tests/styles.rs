@@ -38,13 +38,16 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     assert_eq!(card.row_gap, 10.0);
     assert_eq!(
         card.background_color,
-        Color::parse_hex("#ffffffd9").unwrap()
+        Color::parse_hex("#ffffffd9").unwrap().into()
     );
     let tight = style_of("tight");
     assert_eq!(tight.padding_top, Dimension::Points(4.0));
     assert_eq!(tight.padding_bottom, Dimension::Points(4.0));
     assert_eq!(tight.border_radius_top_left, 16.0);
-    assert_eq!(tight.background_color, Color::parse_hex("#000000").unwrap());
+    assert_eq!(
+        tight.background_color,
+        Color::parse_hex("#000000").unwrap().into()
+    );
 }
 
 #[test]

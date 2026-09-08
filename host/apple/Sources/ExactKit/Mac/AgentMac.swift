@@ -41,20 +41,64 @@ extension Agent {
         return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
     }
 
+    /// How far an offset lies outside `[0, max]` per axis, and zero on an
+    /// axis within them — the geometry of an overscroll.
+    ///
+    /// Stated over numbers rather than over a view because `NSClipView`
+    /// clamps an origin set through its own API while AppKit's rubber band
+    /// puts one out of range, so a test cannot build the state it needs to
+    /// check the arithmetic. `ExactKitTests` checks this; the view reads the
+    /// three numbers and calls it.
+    static func overscroll(origin: CGPoint, document: CGSize, visible: CGSize) -> (CGFloat, CGFloat) {
+        let past = { (value: CGFloat, limit: CGFloat) -> CGFloat in
+            // Half a point of slack: a fractional layout is not an overscroll.
+            let end = max(0, limit)
+            if value < -0.5 { return value }
+            if value > end + 0.5 { return value - end }
+            return 0
+        }
+        return (past(origin.x, document.width - visible.width), past(origin.y, document.height - visible.height))
+    }
+
+    /// The same, for a live scroller.
+    static func overscroll(of sv: NSScrollView) -> (CGFloat, CGFloat) {
+        overscroll(origin: sv.contentView.bounds.origin,
+                   document: sv.documentView?.frame.size ?? .zero,
+                   visible: sv.contentView.bounds.size)
+    }
+
     func layout() -> [String: Any] {
         let clip = presenter.viewport.contentView
         var nodes: [[String: Any]] = []
         for (id, v) in presenter.views.sorted(by: { $0.key < $1.key }) where v.window != nil {
             let r = box(v)
             var n: [String: Any] = ["id": Int(id), "x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)]
-            if let sv = v.scroll { n["sx"] = Agent.r2(sv.contentView.bounds.origin.x); n["sy"] = Agent.r2(sv.contentView.bounds.origin.y) }
+            if let sv = v.scroll {
+                let o = sv.contentView.bounds.origin
+                n["sx"] = Agent.r2(o.x)
+                n["sy"] = Agent.r2(o.y)
+                // How far past its own ends this scroller currently sits.
+                // A stretched rubber band is a real state a driver could not
+                // otherwise see: the offset alone reads as an ordinary
+                // number, and a band that never releases looks like a
+                // scrolled pane. Absent when the offset is within its bounds.
+                let (ox, oy) = Agent.overscroll(of: sv)
+                if ox != 0 { n["ox"] = Agent.r2(ox) }
+                if oy != 0 { n["oy"] = Agent.r2(oy) }
+            }
             nodes.append(n)
         }
         // The page's environment (LLP 1012 §1): under `viewport-fit=cover`
         // the titlebar is the top inset; a software keyboard is never here.
         let i = presenter.insets
         let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": 0]
-        return ["clock": session.now(), "viewport": ["w": Agent.r2(clip.bounds.width), "h": Agent.r2(clip.bounds.height)], "env": env, "nodes": nodes]
+        // The page scrolls too, and it is the one whose overscroll drags the
+        // app's own chrome (LLP 1033 D4).
+        let (px, py) = Agent.overscroll(of: presenter.viewport)
+        var viewport: [String: Any] = ["w": Agent.r2(clip.bounds.width), "h": Agent.r2(clip.bounds.height)]
+        if px != 0 { viewport["ox"] = Agent.r2(px) }
+        if py != 0 { viewport["oy"] = Agent.r2(py) }
+        return ["clock": session.now(), "viewport": viewport, "env": env, "nodes": nodes]
     }
 
     func view(_ req: [String: Any]) -> NodeView? {
@@ -80,20 +124,51 @@ extension Agent {
             return ["tapped": Int(v.id), "hover": true, "at": at]
         }
         if let wheel = req["wheel"] as? [Double], wheel.count == 2 {
-            // The web's sign (a positive dy scrolls down), pixel units, no
-            // phase: a gesture's phases would put the top-level scroll view
-            // into a tracking loop that a synchronous call cannot feed. The
+            // The web's sign (a positive dy scrolls down), pixel units. The
             // hit view gets it and the responder chain carries it up, as the
             // window routes a trackpad's. Deltas are whole pixels here
             // (rounded, bounded); a non-finite delta is refused, never a trap.
+            //
+            // `gesture` sends what a finger sends instead of a bare delta:
+            // `.began`, `.changed`, and the **zero-delta `.ended`** that is a
+            // lift. Elastic overscroll lives entirely in those phases — a
+            // plain wheel scrolls a pane perfectly while a real trackpad
+            // sticks — so the phases are the only way to drive that path
+            // (LLP 1033 D4a). The whole sequence goes out inside this one
+            // call: the original refusal here was that phases put the top
+            // scroll view into a tracking loop a synchronous call cannot
+            // feed, and a gesture delivered complete is never left waiting.
+            // What AppKit then animates (a rubber band settling) is its own
+            // and outside the session clock; `layout` reports the overscroll
+            // it leaves behind.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
+            let gesture = req["gesture"] as? Bool == true
             let whole = { (d: Double) -> Int32 in Int32(min(max(d.rounded(), -1_000_000), 1_000_000)) }
-            guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -whole(wheel[1]), wheel2: -whole(wheel[0]), wheel3: 0) else { return ["error": "no wheel event"] }
             let screen = win.convertPoint(toScreen: p)
-            cg.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
-            guard let e = NSEvent(cgEvent: cg) else { return ["error": "no wheel event"] }
-            (win.contentView?.hitTest(p) ?? v).scrollWheel(with: e)
-            return ["tapped": Int(v.id), "wheel": wheel, "at": at]
+            let location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
+            let target = win.contentView?.hitTest(p) ?? v
+            // CGScrollPhase: began 1, changed 2, ended 4.
+            let halfX: Double = wheel[0] / 2
+            let halfY: Double = wheel[1] / 2
+            let restX: Double = wheel[0] - halfX
+            let restY: Double = wheel[1] - halfY
+            var steps: [(phase: Int64, dx: Double, dy: Double)] = [(0, wheel[0], wheel[1])]
+            if gesture {
+                steps = [(1, halfX, halfY), (2, restX, restY), (4, 0, 0)]
+            }
+            for (phase, dx, dy) in steps {
+                guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -whole(dy), wheel2: -whole(dx), wheel3: 0) else { return ["error": "no wheel event"] }
+                cg.location = location
+                if gesture {
+                    // A trackpad's deltas are continuous; without this the
+                    // event reads as a wheel's notches and the phase is moot.
+                    cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+                    cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+                }
+                guard let e = NSEvent(cgEvent: cg) else { return ["error": "no wheel event"] }
+                target.scrollWheel(with: e)
+            }
+            return ["tapped": Int(v.id), "wheel": wheel, "gesture": gesture, "at": at]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
         let t = ProcessInfo.processInfo.systemUptime

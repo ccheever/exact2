@@ -6,6 +6,14 @@
   /* The page renders the kernel's tree; the kernel's defaults are CSS's for a
      bare <div>, so only UA styles that a bare div lacks are reset here. */
   html, body { margin: 0; padding: 0; height: 100%; }
+  /* The appearance, before the first pixel (LLP 1034 D2). `light dark` is
+     CSS for "this page supports both, the user's preference decides", which
+     is what no override means on every other host — an absent NSAppearance,
+     `.unspecified` on UIKit. Without it `color-scheme` is `normal`, a
+     `light-dark()` colour resolves light whatever the system says, and the
+     first frame of an app that never calls `setScheme` is wrong. `setScheme`
+     overrides this on the element, as an app choosing light or dark. */
+  html { color-scheme: light dark; }
   /* LLP 1019 §5: nearest real face, never browser-synthesized bold/italic. */
   #exact-root { height: 100%; font-synthesis: none; }
   body { font: 16px system-ui, sans-serif; }
@@ -19,8 +27,9 @@
   #exact-root * { position: relative; }
   img { display: block; }
   /* The kernel owns the iframe's declared 300×150 content box. Browser UA
-     borders and inline baseline space must not enlarge or shift it. */
-  iframe { display: block; box-sizing: content-box; margin: 0; border: 0; }
+     borders and inline baseline space must not enlarge or shift it. Scope
+     this to presented nodes: the data module's hidden iframe is not UI. */
+  #exact-root iframe { display: block; box-sizing: content-box; margin: 0; border: 0; }
 </style>
 <div id="exact-root"></div>
 <script type="module" src="./glue.js"></script>

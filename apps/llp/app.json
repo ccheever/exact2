@@ -1,0 +1,29 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "LLP",
+  "short_name": "LLP",
+  "id": "com.exact.llp",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#f5f4f0",
+  "background_color": "#ffffff",
+  "file_handlers": [
+    {
+      "action": "/",
+      "name": "LLP corpus",
+      "accept": { "inode/directory": [] }
+    },
+    {
+      "action": "/",
+      "name": "LLP document",
+      "accept": { "text/markdown": [".md", ".markdown"] }
+    }
+  ],
+  "app": { "id": "com.exact.llp", "name": "LLP", "command": "llpview" },
+  "host": {
+    "macos": { "minimumOS": "14.0", "window": { "width": 1280, "height": 860, "minWidth": 720, "minHeight": 400 } },
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "web": {}
+  },
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0" } }
+}

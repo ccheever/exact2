@@ -1,0 +1,20 @@
+[package]
+name = "llp-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The LLP reader on Apple platforms: the host's C exports over its data source and baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "llp_apple"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+exact-apple = { path = "../../../host/apple" }
+llp-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+llp-data = { path = "../data" }

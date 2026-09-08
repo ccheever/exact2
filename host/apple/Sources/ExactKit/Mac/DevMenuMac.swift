@@ -1,8 +1,10 @@
 // The dev menu, the macOS half of the iOS presenter's: a real menu bar
 // where iOS has a four-finger tap. The app menu (Quit ⌘Q — the bare window
-// had no menu bar at all) always; Edit always (the field editor's command
-// keys — ⌘A/X/C/V/Z — are menu equivalents, not key bindings; without this
-// they are dead); Develop — Reload ⌘R, Open Project… ⌘O, App Info… ⌘D —
+// had no menu bar at all) always; File — Open… ⌘O when the app declares
+// documents it opens (LLP 1033), plus whatever shortcuts the plan declares;
+// Edit always (the field editor's command keys — ⌘A/X/C/V/Z — are menu
+// equivalents, not key bindings; without this they are dead); Develop —
+// Reload ⌘R, Open Project… ⇧⌘O behind a document app, App Info… ⌘D —
 // unless EXACT_DEV_MENU=0. Native AppKit above the presenter, so it is
 // alive even when the plan is broken; reload re-fetches a live connection,
 // else restarts from the dev loop's plan when one is named (the watcher's
@@ -16,6 +18,7 @@ final class DevMenuTarget: NSObject {
     @objc func reload(_ sender: Any?) { DevMenu.reload() }
     @objc func info(_ sender: Any?) { DevMenu.showInfo() }
     @objc func openProject(_ sender: Any?) { DevMenu.openProject() }
+    @objc func openDocument(_ sender: Any?) { DevMenu.openDocument() }
 }
 
 /// Select All on a focused field. A secure field editor can ignore
@@ -64,6 +67,13 @@ public enum DevMenu {
         bar.addItem(fileItem)
         let file = NSMenu(title: "File")
         fileItem.submenu = file
+        // ⌘O belongs to the app's own documents when it declares any
+        // (`file_handlers`, LLP 1033) — that is what ⌘O means on this
+        // platform, and Develop ▸ Open Project… takes ⇧⌘O behind it.
+        if ExactDocuments.declared {
+            file.addItem(withTitle: "Open…", action: #selector(DevMenuTarget.openDocument(_:)), keyEquivalent: "o").target = target
+            file.addItem(.separator())
+        }
         session.presenter.shortcuts.attach(file)
         // AppKit does not bind ⌘A itself (`StandardKeyBinding.dict` has no
         // `selectAll`); the Edit menu is how a field hears select-all, cut,
@@ -87,7 +97,9 @@ public enum DevMenu {
             bar.addItem(devItem)
             let dev = NSMenu(title: "Develop")
             dev.addItem(withTitle: "Reload", action: #selector(DevMenuTarget.reload(_:)), keyEquivalent: "r").target = target
-            dev.addItem(withTitle: "Open Project…", action: #selector(DevMenuTarget.openProject(_:)), keyEquivalent: "o").target = target
+            let project = dev.addItem(withTitle: "Open Project…", action: #selector(DevMenuTarget.openProject(_:)), keyEquivalent: "o")
+            project.target = target
+            if ExactDocuments.declared { project.keyEquivalentModifierMask = [.command, .shift] }
             dev.addItem(withTitle: "App Info…", action: #selector(DevMenuTarget.info(_:)), keyEquivalent: "d").target = target
             devItem.submenu = dev
         }
@@ -114,12 +126,18 @@ public enum DevMenu {
         ExactApp.shared.connect(url)
     }
 
+    /// File ▸ Open… — the app's own documents (LLP 1033), not a project.
+    static func openDocument() {
+        guard let session else { return }
+        ExactDocuments.open(into: session)
+    }
+
     public static func reload() {
         // A live URL session re-fetches (and clears a rebuilt stop).
         if ExactApp.shared.connectionStatus != nil { ExactApp.shared.reloadConnection(); return }
         guard let session else { return }
-        if let path = planPath, let bytes = FileManager.default.contents(atPath: path) {
-            session.apply(bytes, label: String(path.split(separator: "/").last ?? "plan"))
+        if let path = planPath {
+            ExactDevelopmentPlan(path).apply(to: ExactApp.shared)
             return
         }
         let started = CACurrentMediaTime()

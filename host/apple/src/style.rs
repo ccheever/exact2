@@ -12,6 +12,7 @@
 //! applies their *presentation* values from `present` ops, never the style.
 //! Rows a presenter cannot use yet are named, not guessed.
 
+use exact_kernel::style::ColorValue;
 use exact_kernel::{Dimension, Env, NodeRef, Overflow, RowValue, StyleId, StyleProps};
 use std::fmt::Write as _;
 
@@ -40,6 +41,26 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                 Dimension::Env(..) => unreachable!("resolved"),
             },
             RowValue::Color(c) => format!("[{},{},{},{}]", c.r(), c.g(), c.b(), c.a()),
+            // A colour a row holds (LLP 1034 D1/D2). A fixed one crosses as
+            // the four channels it always did; a `light-dark()` pair crosses
+            // as both, because the presenter resolves it against the
+            // *owning view's* appearance and must re-resolve when that
+            // changes. Flattening here would be the kernel choosing, which
+            // is exactly what D2 forbids.
+            RowValue::ColorValue(ColorValue::Fixed(c)) => {
+                format!("[{},{},{},{}]", c.r(), c.g(), c.b(), c.a())
+            }
+            RowValue::ColorValue(ColorValue::LightDark(l, d)) => format!(
+                "[[{},{},{},{}],[{},{},{},{}]]",
+                l.r(),
+                l.g(),
+                l.b(),
+                l.a(),
+                d.r(),
+                d.g(),
+                d.b(),
+                d.a()
+            ),
             RowValue::Enum(e) => format!("\"{e}\""),
             RowValue::Vec2(v) => format!("[{},{}]", num(v.x), num(v.y)),
             RowValue::Number(n) => num(n as f32),

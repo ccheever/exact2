@@ -6,5 +6,8 @@
     "@sqlite.org/sqlite-wasm": "3.53.0-build1",
     "rolldown": "1.2.7",
     "typescript": "7.0.2"
+  },
+  "bin": {
+    "exact": "scripts/exact.mjs"
   }
 }

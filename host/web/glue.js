@@ -13,9 +13,29 @@ const messageFrames = new Set(); // iframes whose node handles `message`
 let messageListening = false;
 let wasm = null;
 let memory = null;
+let inputReady = false;
+const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
 let resolveModuleReady;
 const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
+// Baked content is readable and scrollable before the data executor arrives.
+// `inert` would remove the entire tree from hit testing (including scrollers)
+// and accessibility. Gate actions and editing, not browser layout/navigation.
+function setInputReady(ready) {
+  inputReady = ready;
+  root.setAttribute("aria-busy", String(!ready));
+  if (ready) for (const el of views.values()) {
+    if (authoredDisabled.has(el)) {
+      el.disabled = authoredDisabled.get(el);
+      authoredDisabled.delete(el);
+    }
+  }
+}
+for (const kind of ["click", "beforeinput", "submit"]) {
+  root.addEventListener(kind, event => {
+    if (!inputReady) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+}
 function moduleCall(op, ptr, len) {
   if (op === 1) {
     if (len !== moduleResponse.length) throw new Error('module response buffer mismatch');
@@ -130,6 +150,15 @@ function applyProps(el, set, clear) {
       el.setAttribute(name, (name === "src" || name === "href") ? localAssetURL(value) : value);
     }
   }
+  // Native range/date controls can edit on pointer/key defaults without
+  // beforeinput. Disable controls until activation, keeping the plan's own
+  // disabled value through any intervening prop updates. Scrollers stay live.
+  if (!inputReady && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLButtonElement)) {
+    const disabled = set && "disabled" in set ? set.disabled === "true"
+      : clear?.includes("disabled") ? false : authoredDisabled.get(el) ?? el.disabled;
+    authoredDisabled.set(el, disabled);
+    el.disabled = true;
+  }
   if (el instanceof HTMLIFrameElement && sandboxChanged) {
     // Sandbox tokens take effect on navigation. Re-set the authored source
     // so an immutable-per-mount sandbox change remounts as it does on Apple.
@@ -149,6 +178,7 @@ function ensureMessageListener() {
   if (messageListening) return;
   messageListening = true;
   window.addEventListener("message", (event) => {
+    if (!inputReady) return;
     for (const el of messageFrames) {
       if (event.source !== el.contentWindow) continue;
       if (!guestMessageAuthorized(el, event.origin)) return;
@@ -208,14 +238,14 @@ function attach(el, id, handlers) {
   // Teardown can synchronously blur the old input after the new runner is
   // live. Only the element currently owning this id may dispatch into it.
   const on = (event, handle) => el.addEventListener(event, (e) => {
-    if (views.get(id) === el) handle(e);
+    if (views.get(id) === el && (inputReady || event === "load")) handle(e);
   });
   if (el instanceof HTMLIFrameElement) {
     if (!iframeLoading.has(el)) iframeLoading.set(el, true);
     const dispatchLoad = handlers.includes("load");
     on("load", () => {
       iframeLoading.set(el, false);
-      if (dispatchLoad) send(wasm.exact_dispatch(id, 8, 0, now()));
+      if (dispatchLoad && inputReady) send(wasm.exact_dispatch(id, 8, 0, now()));
     });
     if (handlers.includes("message")) {
       messageFrames.add(el);
@@ -254,7 +284,7 @@ function attach(el, id, handlers) {
 // App-declared ARIA shortcuts activate the same mounted buttons as a click.
 // Browsers may reserve a chord before it reaches the page (notably Meta+N).
 document.addEventListener("keydown", (event) => {
-  if (event.isComposing || !wasm || root.inert || event.defaultPrevented) return;
+  if (event.isComposing || !wasm || !inputReady || event.defaultPrevented) return;
   const matches = (chord) => {
     const parts = chord.split("+");
     const key = parts.pop();
@@ -420,7 +450,10 @@ function apply(batch) {
       case "command": {
         // A capability an action called (LLP 1005 §3). `setScheme` is the
         // document's colour scheme — what `prefers-color-scheme` would be.
-        if (op.name === "setScheme") document.documentElement.style.colorScheme = String(op.args[0] ?? "");
+        // `system` is CSS's `light dark`: the page supports both and the
+        // user's preference decides, which is what "follow the system" is on
+        // the web. `light`/`dark` are the property's own values.
+        if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; }
         else if (op.name === "focus") focusCommands.push(op.args);
         else console.warn(`exact: unknown command ${op.name}`);
         break;
@@ -454,7 +487,7 @@ function apply(batch) {
   // Focusing can dispatch an action; every node/value in this batch must be
   // committed before its focus handler runs.
   for (const args of focusCommands) {
-    if (args?.length !== 1 || typeof args[0] !== "string" || root.inert) continue;
+    if (args?.length !== 1 || typeof args[0] !== "string" || !inputReady) continue;
     const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
     if (!el || !el.isConnected || el.matches(":disabled") || el.closest("[inert]")
         || !el.getClientRects().length || getComputedStyle(el).visibility !== "visible") continue;
@@ -818,7 +851,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   } else len = wasm.exact_boot();
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
-  if (module) { activeModule?.realm.dispose(); activeModule = module; root.inert = false; }
+  if (module) { activeModule?.realm.dispose(); activeModule = module; setInputReady(true); }
   const oldAssets = devAssets;
   devAssets = assets;
   shaderCommit?.();
@@ -874,7 +907,7 @@ globalThis.exact = {
     }
   },
   get devAssets() { return devAssets; },
-  get ready() { return ready.then(async () => { if (logicInfo) { await moduleReady; if (root.inert) throw new Error(root.dataset.error || 'browser module not ready'); } }); },
+  get ready() { return ready.then(async () => { if (logicInfo) { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'browser module not ready'); } }); },
   ...(agentMode ? { agent, now } : {}), views, root, generation: 0, pendingSurfaces: [],
 };
 
@@ -898,7 +931,7 @@ async function main() {
   memory = wasm.memory;
   globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
   logicInfo = wasm.exact_logic ? JSON.parse(readOut(wasm.exact_logic())) : null;
-  root.inert = !!logicInfo; // First pixel is baked; input needs the deferred executor.
+  setInputReady(!logicInfo); // First pixel is baked; actions need the deferred executor.
   // The kept secrets, before boot (LLP 1018 D6): every `exact.secret.*` key,
   // handed to the runner, which keeps the granted names — so the first frame
   // is a returning user's. Agent mode starts from nothing.
@@ -937,7 +970,7 @@ async function main() {
           const batch = JSON.parse(readOut(wasm.exact_data_ready()));
           if (batch.error) throw new Error(batch.error);
           applyBatch(batch);
-          root.inert = false;
+          setInputReady(true);
           root.dataset.moduleReady = 'true';
         }
       } catch (error) { root.dataset.error = String(error); console.error(error); }

@@ -322,6 +322,18 @@ impl StyleValue {
         }
     }
 
+    /// A colour as a row holds it. `light-dark(a, b)` is the one text a
+    /// colour row takes beyond a hex, exactly as `env()` is the one text a
+    /// dimension row takes (LLP 1034 D1).
+    pub(crate) fn color_value(&self, style: StyleId) -> Result<ColorValue, StyleValueError> {
+        if let StyleValue::Text(t) = self {
+            if let Some(pair) = ColorValue::parse_light_dark(t) {
+                return Ok(pair);
+            }
+        }
+        self.color(style).map(ColorValue::Fixed)
+    }
+
     pub(crate) fn color(&self, style: StyleId) -> Result<Color, StyleValueError> {
         match self {
             StyleValue::Number(n)
@@ -345,6 +357,71 @@ impl StyleValue {
                 expected: "vec2",
             }),
         }
+    }
+}
+
+/// A colour as authored, which may not be a single colour yet.
+///
+/// The deferred-value shape `Dimension` already has: the row stores what was
+/// written and something else resolves it later. A length resolves in the
+/// kernel because layout depends on it; a colour resolves in the **host**,
+/// because nothing about layout depends on a colour and because the browser
+/// is the one that should resolve `light-dark()` — handed the function it
+/// does so per element against the inherited `color-scheme`, with no work of
+/// ours. @ref LLP 1034 D1/D2
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorValue {
+    /// One colour, whatever the appearance.
+    Fixed(Color),
+    /// CSS `light-dark(a, b)`: the first under a light scheme, the second
+    /// under a dark one.
+    LightDark(Color, Color),
+}
+
+impl Default for ColorValue {
+    fn default() -> ColorValue {
+        ColorValue::Fixed(Color(0))
+    }
+}
+
+impl ColorValue {
+    /// The colour under an appearance. A host that paints calls this; the web
+    /// host does not, because it hands the pair to the browser.
+    pub const fn resolve(self, dark: bool) -> Color {
+        match self {
+            ColorValue::Fixed(c) => c,
+            ColorValue::LightDark(light, night) => {
+                if dark {
+                    night
+                } else {
+                    light
+                }
+            }
+        }
+    }
+
+    /// Whether this is a pair — what a host asks before deciding whether an
+    /// appearance change is anything to it.
+    pub const fn is_scheme_aware(self) -> bool {
+        matches!(self, ColorValue::LightDark(..))
+    }
+
+    /// `light-dark(<color>, <color>)`, CSS's own spelling and nothing else.
+    /// Whitespace is free; anything that is not two parseable colours is not
+    /// this function, and falls through to the plain colour parse.
+    pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
+        let inner = text.trim().strip_prefix("light-dark(")?.strip_suffix(')')?;
+        let (light, night) = inner.split_once(',')?;
+        Some(ColorValue::LightDark(
+            Color::parse_hex(light.trim())?,
+            Color::parse_hex(night.trim())?,
+        ))
+    }
+}
+
+impl From<Color> for ColorValue {
+    fn from(c: Color) -> ColorValue {
+        ColorValue::Fixed(c)
     }
 }
 
@@ -386,6 +463,9 @@ pub enum RowValue<'a> {
     Number(f64),
     /// A color.
     Color(Color),
+    /// A colour a row holds: fixed, or a `light-dark()` pair a host resolves
+    /// (LLP 1034 D1).
+    ColorValue(ColorValue),
     /// Two numbers.
     Vec2(Vec2),
     /// Two colors.
@@ -855,6 +935,75 @@ mod tests {
                 .y,
             taffy::style::Overflow::Hidden
         );
+    }
+
+    #[test]
+    fn a_colour_row_holds_a_light_dark_pair_and_the_host_resolves_it() {
+        // CSS's spelling, and only it (LLP 1034 D1).
+        let pair = ColorValue::parse_light_dark("light-dark(#ffffff, #000000)").unwrap();
+        assert_eq!(
+            pair,
+            ColorValue::LightDark(
+                Color::parse_hex("#ffffff").unwrap(),
+                Color::parse_hex("#000000").unwrap()
+            )
+        );
+        assert_eq!(pair.resolve(false), Color::parse_hex("#ffffff").unwrap());
+        assert_eq!(pair.resolve(true), Color::parse_hex("#000000").unwrap());
+        assert!(pair.is_scheme_aware());
+        // Whitespace is free.
+        assert_eq!(
+            ColorValue::parse_light_dark("  light-dark( #fff , #000 )  "),
+            Some(ColorValue::LightDark(
+                Color::parse_hex("#fff").unwrap(),
+                Color::parse_hex("#000").unwrap()
+            ))
+        );
+        // Anything that is not two colours is not this function.
+        for text in [
+            "#ffffff",
+            "light-dark(#fff)",
+            "light-dark(#fff, nope)",
+            "dark-light(#fff, #000)",
+            "light-dark(#fff, #000",
+        ] {
+            assert_eq!(ColorValue::parse_light_dark(text), None, "{text}");
+        }
+        // A fixed colour resolves to itself under either appearance.
+        let one = ColorValue::Fixed(Color::parse_hex("#abcdef").unwrap());
+        assert_eq!(one.resolve(false), one.resolve(true));
+        assert!(!one.is_scheme_aware());
+    }
+
+    #[test]
+    fn a_colour_row_takes_a_pair_dynamically_as_a_dimension_takes_env() {
+        let mut s = StyleProps::default();
+        s.set_dynamic(
+            StyleId::BackgroundColor,
+            &StyleValue::Text("light-dark(#ffffff, #17181b)".into()),
+        )
+        .expect("a colour row takes CSS's own function");
+        assert_eq!(
+            s.background_color,
+            ColorValue::LightDark(
+                Color::parse_hex("#ffffff").unwrap(),
+                Color::parse_hex("#17181b").unwrap()
+            )
+        );
+        // And still takes a plain colour, which is the common case.
+        s.set_dynamic(StyleId::TextColor, &StyleValue::Text("#112233".into()))
+            .expect("a hex is still a colour");
+        assert_eq!(
+            s.text_color,
+            ColorValue::Fixed(Color::parse_hex("#112233").unwrap())
+        );
+        // A text that is neither is refused, not silently taken.
+        assert!(s
+            .set_dynamic(
+                StyleId::TextColor,
+                &StyleValue::Text("light-dark(#fff)".into())
+            )
+            .is_err());
     }
 
     #[test]

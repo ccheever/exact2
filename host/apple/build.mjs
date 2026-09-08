@@ -3,6 +3,7 @@
 // library (cargo, release), then the presenter (swift build) linked against
 // it. Usage:
 //   node host/apple/build.mjs [crate=caltrain-apple] [--run]                 macOS
+//   node host/apple/build.mjs [crate] --test                                  the Swift host tests
 //   node host/apple/build.mjs --ios [crate] [--run] [--sim <udid|name>]        iOS, on a simulator
 //   node host/apple/build.mjs --device [crate] [--run] [--phone <udid|name>]   iOS, on a phone
 // Add --url <http(s) app URL> with --run to connect any of these clients
@@ -270,6 +271,40 @@ export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = a
   return plistFile(dict);
 };
 
+// The UTI each MIME type names on Apple platforms. `inode/directory` is the
+// one deviation from IANA's registry — freedesktop's spelling for a folder,
+// because the web has no MIME type for one and an app that opens a directory
+// (the LLP reader) must be able to say so. An unmapped type fails the bake
+// rather than guessing `public.data` (LLP 0382: fail closed, loudly).
+const UTIS = {
+  'text/markdown': 'net.daringfireball.markdown',
+  'text/plain': 'public.plain-text',
+  'text/html': 'public.html',
+  'application/json': 'public.json',
+  'inode/directory': 'public.folder',
+};
+
+/** `CFBundleDocumentTypes` from the manifest's `file_handlers` (LLP 1033 D1):
+ *  one entry per handler, `Viewer` and `Alternate` so declaring a type never
+ *  takes it away from whatever already owns it. */
+export function documentTypes(app) {
+  return (app.manifest.file_handlers ?? []).map((handler) => {
+    const types = Object.keys(handler.accept).map((mime) => {
+      const uti = UTIS[mime];
+      if (!uti) throw new Error(`host/apple: ${app.name}'s file_handlers accepts ${mime}, which names no Apple type; add it to UTIS in host/apple/build.mjs`);
+      return uti;
+    });
+    const extensions = [...new Set(Object.values(handler.accept).flat().map((e) => e.replace(/^\./, '')).filter(Boolean))];
+    return {
+      CFBundleTypeName: handler.name ?? `${app.displayName} document`,
+      CFBundleTypeRole: 'Viewer',
+      LSHandlerRank: 'Alternate',
+      LSItemContentTypes: types,
+      ...(extensions.length ? { CFBundleTypeExtensions: extensions } : {}),
+    };
+  });
+}
+
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
 export const macInfoPlist = (app, { development = false } = {}) => plistFile({
   CFBundleExecutable: 'ExactMac',
@@ -282,7 +317,7 @@ export const macInfoPlist = (app, { development = false } = {}) => plistFile({
   LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0',
   NSHighResolutionCapable: true,
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
-  ...(app.manifest.host?.macos?.documentTypes?.length ? { CFBundleDocumentTypes: app.manifest.host.macos.documentTypes } : {}),
+  ...(documentTypes(app).length ? { CFBundleDocumentTypes: documentTypes(app) } : {}),
   ...openingLinks(app, 'macos', development),
 });
 
@@ -429,6 +464,10 @@ function main(args) {
   const bin = resolve(binDir, product);
 
   if (!ios) {
+    // `--bundle`'s assembled `.app`, when one was asked for: what `--run`
+    // then launches, so the running process has the app's bundle identity —
+    // its Info.plist, its document types, its Dock tile (LLP 1033 D2).
+    let bundlePath = null;
     // Replace the dylib, never overwrite it in place: a running app may still
     // have the old one mapped, and rewriting a mapped, ad-hoc-signed file poisons
     // the kernel's cached signature for that inode — every later dlopen dies with
@@ -465,8 +504,13 @@ function main(args) {
     if (args.includes('--bundle')) {
       const output = resolve(app.target, 'clients', app.id, 'macos');
       mkdirSync(output, { recursive: true });
-      const stage = mkdtempSync(resolve(output, 'build-'));
-      const bundle = resolve(stage, 'ExactMac.app'), contents = resolve(bundle, 'Contents');
+      // One stable path per app — `<target>/clients/<id>/macos/<Name>.app` —
+      // so `exact run`, `exact install`, Launch Services, and a Dock tile all
+      // name the same bundle across rebuilds (LLP 1033 D2). Assembled beside
+      // it and moved into place: a half-written bundle is never launchable,
+      // and a running app keeps the inodes it already mapped.
+      const stage = mkdtempSync(resolve(output, '.build-'));
+      const bundle = resolve(stage, `${app.displayName}.app`), contents = resolve(bundle, 'Contents');
       const executables = resolve(contents, 'MacOS'), resources = resolve(contents, 'Resources');
       mkdirSync(executables, { recursive: true });
       mkdirSync(resources);
@@ -477,13 +521,21 @@ function main(args) {
       copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
       for (const file of [webLoadName, ...(hasGpu ? [loadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
-      console.log(`local client: ${bundle}\n  Open this app once to register its native opening link.`);
+      const placed = resolve(output, `${app.displayName}.app`);
+      const previous = existsSync(placed) ? mkdtempSync(resolve(output, '.old-')) : null;
+      if (previous) renameSync(placed, resolve(previous, 'app'));
+      renameSync(bundle, placed);
+      rmSync(stage, { recursive: true, force: true });
+      if (previous) rmSync(previous, { recursive: true, force: true });
+      bundlePath = placed;
+      console.log(`local client: ${placed}\n  Open this app once to register its native opening link.`);
     }
     rmSync(webBuildDir, { recursive: true, force: true });
     console.log(`host/apple: ${bin.replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${webLoadName}`);
-    // --run: the app, with the dev loop's plan watched when host/web/dev.mjs is
-    // running (it writes host/web/dist/app.plan on every save).
-    if (args.includes('--run')) spawnSync(bin, [], { stdio: 'inherit', env: { ...env, EXACT_DEV_PLAN: launchEnv.EXACT_DEV_PLAN ?? resolve(root, 'host/web/dist/app.plan'), EXACT_ASSETS: app.dir } });
+    // A live source is explicit (--url or EXACT_DEV_PLAN). The shared web
+    // output may belong to another app, and TypeScript edits publish complete
+    // URL generations rather than rewriting its initial app.plan.
+    if (args.includes('--run')) spawnSync(bundlePath ? resolve(bundlePath, 'Contents/MacOS/ExactMac') : bin, [], { stdio: 'inherit', env: { ...env, ...launchEnv, EXACT_ASSETS: app.dir } });
     return;
   }
 
@@ -556,16 +608,36 @@ function main(args) {
   const t3 = Date.now();
   console.log(`host/apple: ${appBundle.replace(root + '/', '')} on ${dev.name} (${dev.runtime.replace(/.*SimRuntime\./, '')}, ${dev.udid}) (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s, install ${((t3 - t2) / 1000).toFixed(1)} s); GPU: ${gpuNote}; web arm: ${webLoadName}`);
   if (args.includes('--run')) {
-    // Simulator.app showing this device, then the app — with the dev loop's
-    // plan watched when host/web/dev.mjs is running. simctl passes the
-    // environment through as SIMCTL_CHILD_*.
+    // Simulator.app showing this device, then the app. simctl passes the
+    // explicitly selected live source through as SIMCTL_CHILD_*.
     spawnSync('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' });
     const launched = read('xcrun', ['simctl', 'launch', '--terminate-running-process', dev.udid, app.id], {
-      env: { ...process.env, SIMCTL_CHILD_EXACT_DEV_PLAN: launchEnv.EXACT_DEV_PLAN ?? resolve(root, 'host/web/dist/app.plan'), SIMCTL_CHILD_EXACT_ASSETS: app.dir },
+      env: { ...process.env, ...(launchEnv.EXACT_DEV_PLAN ? { SIMCTL_CHILD_EXACT_DEV_PLAN: launchEnv.EXACT_DEV_PLAN } : {}), SIMCTL_CHILD_EXACT_ASSETS: app.dir },
     });
     if (launched.status !== 0) { console.error(launched.stderr); process.exit(launched.status ?? 1); }
     console.log(`launched ${launched.stdout.trim()} on ${dev.name}`);
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) main(process.argv.slice(2));
+/** `--test`: the Swift host tests (LLP 1033 D4a). They link `ExactKit`,
+ *  which links an app's archive, so cargo builds one first — Caltrain's by
+ *  default, any app's by name. Not one of the five checks (`rules/RULES.md`
+ *  caps those at five); run it when the host's own behaviour changes. */
+function test(args) {
+  const app = resolveApp(args.find((a) => !a.startsWith('--')));
+  const crate = app.crate('apple');
+  const cargoEnv = { ...process.env, ...developmentBuildEnv(), EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' };
+  run('cargo', ['build', '--release', '-p', crate], { env: cargoEnv });
+  const libDir = resolve(app.target, 'release');
+  runApple('swift', ['test', '--scratch-path', resolve(pkg, '.build/tests')], {
+    cwd: pkg,
+    stdio: 'inherit',
+    env: { ...process.env, MACOSX_DEPLOYMENT_TARGET: '14.0', EXACT_TESTS: '1', EXACT_LIB_DIR: libDir, EXACT_LIB: crate.replace(/-/g, '_'), EXACT_APP_COMPOSITION: 'embedded' },
+  });
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+  const args = process.argv.slice(2);
+  if (args.includes('--test')) test(args);
+  else main(args);
+}

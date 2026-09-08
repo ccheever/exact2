@@ -522,3 +522,40 @@ fn declared_keyboard_shortcuts_are_standard_aria_attributes() {
     let batch = host.dispatch(id, Event::Press);
     assert!(batch.contains("\"disabled\":\"true\""), "{batch}");
 }
+
+/// A scheme-aware colour is handed to the browser, not resolved here.
+///
+/// This is the whole reason the kernel keeps `light-dark()` as a pair rather
+/// than flattening it (LLP 1034 D2): handed the function, the browser
+/// resolves it per element against the inherited `color-scheme`, with no
+/// JavaScript, no repaint pass of ours, and no appearance reported to the
+/// app. A host that flattened it would be making the browser's decision.
+#[test]
+fn a_light_dark_colour_reaches_the_browser_as_the_function() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(
+            StyleId::BackgroundColor,
+            &StyleValue::Text("light-dark(#ffffff, #17181b)".into()),
+        )
+        .unwrap();
+    let (css, _) = css_text(&style, &[]);
+    assert!(
+        css.contains("light-dark("),
+        "the pair must survive to CSS, not be resolved here: {css}"
+    );
+    assert!(css.contains("255,255,255"), "the light half: {css}");
+    assert!(css.contains("23,24,27"), "the dark half: {css}");
+
+    // A fixed colour is unchanged — the common case pays nothing.
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(StyleId::TextColor, &StyleValue::Text("#112233".into()))
+        .unwrap();
+    let (css, _) = css_text(&style, &[]);
+    assert!(
+        !css.contains("light-dark("),
+        "a fixed colour is a colour: {css}"
+    );
+}

@@ -23,6 +23,25 @@ final class PageScrollView: NSScrollView {
     override func tile() {
         super.tile()
         pinInsets()
+        syncElasticity()
+    }
+    /// A page that fits does not rubber-band.
+    ///
+    /// AppKit's `.automatic` elasticity bounces an axis the page cannot
+    /// actually scroll, so an inner pane that reaches its end and chains the
+    /// rest of the gesture up here (`ChainingScrollView`) drags the whole
+    /// window's content — the app's own chrome with it — even though the
+    /// document is exactly the viewport. The browser's rule is the one to
+    /// match: an axis is elastic only while it has somewhere to go. Chaining
+    /// itself is unchanged; a page that really does scroll still bounces.
+    func syncElasticity() {
+        let document = documentView?.frame.size ?? .zero
+        let visible = contentView.bounds.size
+        // Half a point of slack: a fractional layout must not read as scrollable.
+        let x: NSScrollView.Elasticity = document.width - visible.width > 0.5 ? .automatic : .none
+        let y: NSScrollView.Elasticity = document.height - visible.height > 0.5 ? .automatic : .none
+        if horizontalScrollElasticity != x { horizontalScrollElasticity = x }
+        if verticalScrollElasticity != y { verticalScrollElasticity = y }
     }
     func pinInsets() {
         if automaticallyAdjustsContentInsets { automaticallyAdjustsContentInsets = false }
@@ -125,6 +144,9 @@ final class Presenter {
             size.height = max(size.height, r.frame.maxY)
         }
         if root.frame.size != size { root.frame = NSRect(origin: .zero, size: size) }
+        // The document just changed size; whether the page can scroll — and
+        // so whether it may bounce — changed with it.
+        viewport.syncElasticity()
     }
     var onPress: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?

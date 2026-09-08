@@ -1,0 +1,20 @@
+[package]
+name = "llp-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The LLP reader on the web: one wasm with the runner, the kernel, its data source and baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "llp_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-web = { path = "../../../host/web" }
+llp-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+llp-data = { path = "../data" }

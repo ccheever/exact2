@@ -24,33 +24,122 @@ final class ChainingScrollView: NSScrollView {
     /// Which axes scroll (the node's effective `overflow_x`/`overflow_y`).
     var scrollsX = true
     var scrollsY = true
+    /// `overscroll-behavior` per axis: what happens to a gesture this view
+    /// has run out of room for. `auto` hands the rest to the enclosing
+    /// scroller (CSS scroll chaining); `contain` and `none` keep it here.
+    var containX = false
+    var containY = false
+    /// Whether a contained axis shows the platform's overscroll affordance —
+    /// the rubber band. `contain` does, `none` does not (CSS Overscroll §3).
+    var bouncesX = false
+    var bouncesY = false
+
+    /// What a wheel event does here.
+    ///
+    /// The decision is named, and computed apart from acting on it, because
+    /// the defects this code has had were routing choices and not drawn
+    /// frames: a zero-delta lift dropped before AppKit could see it left a
+    /// rubber band stretched forever, and nothing about that is visible in a
+    /// screenshot or reachable by an agent's wheel. Named, it is a pure
+    /// function of the event and the geometry, and `ExactKitTests` checks it
+    /// without an animation, a clock, or a window.
+    enum Routing: Equatable {
+        /// Hand the gesture to `NSScrollView` — a contained axis, whose
+        /// scrolling, momentum, and rubber band are AppKit's to run.
+        case appKit
+        /// Scroll this view by hand: an `auto` axis with room to move.
+        case here
+        /// Pass it to the enclosing scroller (CSS scroll chaining).
+        case chain
+        /// Nothing here wants it, and nothing else may have it.
+        case drop
+    }
+
+    /// The geometry a routing decision reads. Passed in so a test can state
+    /// one without building a window.
+    struct Extent {
+        var maxX: CGFloat
+        var maxY: CGFloat
+        var origin: CGPoint
+    }
+
+    var extent: Extent {
+        let document = documentView?.frame.size ?? .zero
+        let visible = contentView.bounds.size
+        return Extent(maxX: max(0, document.width - visible.width),
+                      maxY: max(0, document.height - visible.height),
+                      origin: contentView.bounds.origin)
+    }
+
+    /// Where `dx`/`dy` goes. `phased` is whether the event carries a gesture
+    /// phase — a lift or a momentum end, which have no delta at all.
+    func routing(dx: CGFloat, dy: CGFloat, phased: Bool, in extent: Extent) -> Routing {
+        // A gesture's phase transitions carry no delta — the lift that ends a
+        // trackpad scroll is a zero-delta `.ended`, and momentum ends the
+        // same way — and AppKit's elastic state machine needs them: without
+        // the lift it never learns the gesture is over, so a stretched rubber
+        // band stays stretched. A contained axis is AppKit's to drive, so it
+        // sees every event of the gesture, delta or not. An `auto` axis is
+        // driven here and has no use for them.
+        if dx == 0 && dy == 0 {
+            return (containX || containY) && phased ? .appKit : .drop
+        }
+        // The dominant axis decides who owns the event: a gesture is one thing.
+        let vertical = abs(dy) >= abs(dx)
+        let room = vertical ? (scrollsY && extent.maxY > 0) : (scrollsX && extent.maxX > 0)
+        // A contained axis never hands a gesture to an ancestor. Contained
+        // with nowhere to go, it stops here: passing it on is exactly what
+        // `contain` forbids.
+        //
+        // Only a *gesture* goes to AppKit. A wheel with no phases is a mouse
+        // wheel, and a mouse wheel does not rubber-band on this platform —
+        // elastic overscroll is a trackpad's. Clamping one here rather than
+        // handing it over keeps it synchronous, and synchronous is what makes
+        // it drivable: `super.scrollWheel` scrolls over several frames, so an
+        // agent that wheels and then reads the offset races the animation.
+        // A phased gesture gets AppKit, its momentum, and its rubber band.
+        if vertical ? containY : containX {
+            if !room { return .drop }
+            return phased ? .appKit : .here
+        }
+        // Per axis: can this view move in the delta's direction? (Flipped
+        // document: origin grows as content scrolls up; a negative delta
+        // scrolls content up.)
+        return take(vertical ? dy : dx,
+                    scrolls: vertical ? scrollsY : scrollsX,
+                    limit: vertical ? extent.maxY : extent.maxX,
+                    at: vertical ? extent.origin.y : extent.origin.x) ? .here : .chain
+    }
+
+    private func take(_ delta: CGFloat, scrolls: Bool, limit: CGFloat, at origin: CGFloat) -> Bool {
+        scrolls && delta != 0 && limit > 0 && ((delta < 0 && origin < limit) || (delta > 0 && origin > 0))
+    }
 
     override func scrollWheel(with event: NSEvent) {
         // Precise deltas (a trackpad) are in points; a wheel's are in lines.
         let precise = event.hasPreciseScrollingDeltas
         var dx = precise ? event.scrollingDeltaX : event.deltaX * ChainingScrollView.lineHeight
         var dy = precise ? event.scrollingDeltaY : event.deltaY * ChainingScrollView.lineHeight
-        if dx == 0 && dy == 0 { return }
-        let doc = documentView?.frame.size ?? .zero
-        let origin = contentView.bounds.origin
-        let visible = contentView.bounds.size
-        // Per axis: can this view move in the delta's direction? (Flipped
-        // document: origin grows as content scrolls up; a negative delta
-        // scrolls content up.)
-        let maxX = max(0, doc.width - visible.width), maxY = max(0, doc.height - visible.height)
-        let takeX = scrollsX && dx != 0 && maxX > 0 && ((dx < 0 && origin.x < maxX) || (dx > 0 && origin.x > 0))
-        let takeY = scrollsY && dy != 0 && maxY > 0 && ((dy < 0 && origin.y < maxY) || (dy > 0 && origin.y > 0))
-        // The dominant axis decides who owns the event (a gesture is one
-        // thing); what this view can take of it, it takes itself — never
-        // through AppKit, whose nested-scroll routing may move the enclosing
-        // view or animate later, doubling a delta applied here.
-        let dominantTaken = abs(dy) >= abs(dx) ? takeY : takeX
-        guard dominantTaken else { nextResponder?.scrollWheel(with: event); return }
-        if !takeX { dx = 0 }
-        if !takeY { dy = 0 }
-        let target = NSPoint(x: min(max(origin.x - dx, 0), maxX), y: min(max(origin.y - dy, 0), maxY))
-        contentView.scroll(to: target)
-        reflectScrolledClipView(contentView)
+        let phased = !(event.phase.isEmpty && event.momentumPhase.isEmpty)
+        let extent = self.extent
+        switch routing(dx: dx, dy: dy, phased: phased, in: extent) {
+        case .drop:
+            return
+        case .appKit:
+            super.scrollWheel(with: event)
+        case .chain:
+            nextResponder?.scrollWheel(with: event)
+        case .here:
+            // What this view can take of it, it takes itself — never through
+            // AppKit, whose nested-scroll routing may move the enclosing view
+            // or animate later, doubling a delta applied here.
+            if !take(dx, scrolls: scrollsX, limit: extent.maxX, at: extent.origin.x) { dx = 0 }
+            if !take(dy, scrolls: scrollsY, limit: extent.maxY, at: extent.origin.y) { dy = 0 }
+            let target = NSPoint(x: min(max(extent.origin.x - dx, 0), extent.maxX),
+                                 y: min(max(extent.origin.y - dy, 0), extent.maxY))
+            contentView.scroll(to: target)
+            reflectScrolledClipView(contentView)
+        }
     }
 }
 
@@ -483,9 +572,53 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return win.convertToScreen(canvas.convert(inCanvas, to: nil))
     }
 
+    /// Whether this view draws in the dark appearance. The **owning view's**
+    /// appearance, not `NSAppearance.currentDrawing()`: `currentDrawing()`
+    /// names whatever is drawing at that instant, and colours are not all
+    /// applied inside a draw — a field's `textColor` is assigned in
+    /// `applyStyle`. @ref LLP 1034 D2
+    var drawsDark: Bool {
+        effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+
+    /// The four channels a colour row carries, resolved. A fixed colour is
+    /// the four; a `light-dark()` pair is two fours and this picks one
+    /// (LLP 1034 D1). Anything else is not a colour.
+    func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
+        let night = dark ?? drawsDark
+        switch style[key] {
+        case let c as [Double] where c.count == 4: return c
+        case let pair as [[Double]] where pair.count == 2:
+            let half = night ? pair[1] : pair[0]
+            return half.count == 4 ? half : nil
+        default: return nil
+        }
+    }
+
+    /// Whether any colour on this node is a pair — what says an appearance
+    /// change is something to this view rather than nothing.
+    var hasSchemeColor: Bool {
+        style.values.contains { ($0 as? [[Double]])?.count == 2 }
+    }
+
     func color(_ key: String, _ fallback: NSColor) -> NSColor {
-        guard let c = style[key] as? [Double], c.count == 4 else { return fallback }
+        guard let c = channels(key) else { return fallback }
         return NSColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+    }
+
+    /// The appearance changed under this view. A repaint is not enough: the
+    /// text engine caches a paragraph spec and a laid-out paragraph, and a
+    /// `Run` carries a concrete colour, so ink from the previous appearance
+    /// would survive a redisplay. Inline text nodes are not in the native
+    /// hierarchy, so the paragraph that owns them is invalidated too, and
+    /// the colours assigned outside a draw are re-applied. @ref LLP 1034 D2
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        guard hasSchemeColor || textChildren.contains(where: { $0.hasSchemeColor }) else { return }
+        paragraphOwner.invalidateText()
+        paragraphOwner.needsDisplay = true
+        applyStyle(style)
+        needsDisplay = true
     }
     func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key] as? Double { return CGFloat(n) }
@@ -609,6 +742,21 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         scroll?.scrollsX = ox == "scroll"
         scroll?.scrollsY = oy == "scroll"
+        // `overscroll-behavior` (CSS): `auto` chains, `contain` keeps the
+        // gesture and bounces, `none` keeps it and does not.
+        let bx = s["overscroll_behavior_x"] as? String ?? "auto"
+        let by = s["overscroll_behavior_y"] as? String ?? "auto"
+        scroll?.containX = bx != "auto"
+        scroll?.containY = by != "auto"
+        scroll?.bouncesX = bx == "contain"
+        scroll?.bouncesY = by == "contain"
+        // Set with the style and not per event: elasticity is what AppKit
+        // reads to decide whether a gesture may stretch past the end, and
+        // writing it while one is in flight disturbs the machine it enables.
+        let ex: NSScrollView.Elasticity = bx == "contain" ? .allowed : bx == "none" ? .none : .automatic
+        let ey: NSScrollView.Elasticity = by == "contain" ? .allowed : by == "none" ? .none : .automatic
+        if let sv = scroll, sv.horizontalScrollElasticity != ex { sv.horizontalScrollElasticity = ex }
+        if let sv = scroll, sv.verticalScrollElasticity != ey { sv.verticalScrollElasticity = ey }
         scroll?.hasHorizontalScroller = ox == "scroll"
         scroll?.hasVerticalScroller = oy == "scroll"
         clipsToBounds = ox == "hidden" || oy == "hidden"

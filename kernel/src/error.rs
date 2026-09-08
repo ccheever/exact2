@@ -31,6 +31,9 @@ pub enum StyleDomainError {
 pub enum DecodeError {
     /// Fewer bytes remained than the field needs.
     Truncated { needed: usize, available: usize },
+    /// A colour row's tag byte named neither a fixed colour nor a
+    /// `light-dark()` pair (LLP 1034 D1).
+    BadColorValue(u8),
     /// The frame does not start with the EXWF magic.
     BadMagic,
     /// The frame revision is not one this kernel reads.

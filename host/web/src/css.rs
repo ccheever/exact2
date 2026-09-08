@@ -12,6 +12,7 @@
 //! this table does not know — in which case it is skipped and named in
 //! [`Skipped`], never guessed.
 
+use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, RowValue, StyleId, StyleProps};
 use exact_motion::{
     Easing, StepPosition, TimingFunction, Transition, TransitionProperty, Transitions,
@@ -48,10 +49,20 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
                     .2 = *n as f32
             }
+            // A shadow is composed into one `box-shadow` string here rather
+            // than emitted as its own declaration, so its colour is resolved
+            // rather than handed over: CSS has no way to say "this shadow's
+            // colour is scheme-aware" inside a composed value. A pair on a
+            // shadow takes its light half (LLP 1034 §5).
             ("shadow_color", RowValue::Color(c)) => {
                 shadow
                     .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
                     .3 = *c
+            }
+            ("shadow_color", RowValue::ColorValue(v)) => {
+                shadow
+                    .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
+                    .3 = v.resolve(false)
             }
             ("shadow_opacity", RowValue::Number(n)) => {
                 shadow
@@ -183,6 +194,14 @@ fn declaration(name: &str, value: &RowValue<'_>) -> Option<(String, String)> {
     let val = match value {
         RowValue::Dimension(d) => dimension(*d),
         RowValue::Color(c) => rgba(*c),
+        // The browser resolves this one (LLP 1034 D2): handed the function
+        // it does so per element against the inherited `color-scheme`, with
+        // no work of ours and no repaint pass. This is the whole reason the
+        // kernel keeps the pair instead of flattening it.
+        RowValue::ColorValue(ColorValue::Fixed(c)) => rgba(*c),
+        RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
+            format!("light-dark({}, {})", rgba(*l), rgba(*d))
+        }
         RowValue::Enum(e) => e.to_string(),
         RowValue::Vec2(v) => match name {
             "translate" => format!("{}px {}px", num(v.x), num(v.y)),

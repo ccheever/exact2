@@ -1,0 +1,19 @@
+# The LLP reader's data source: the corpus index, its search, and the
+# cross-references that make it navigable. The document itself is the
+# general reader's parser, unchanged.
+[package]
+name = "llp-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The LLP reader's data source: index, search, outline, and cross-references"
+publish = false
+
+[lib]
+name = "llp_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+markdown-parse = { path = "../../markdown/parse" }

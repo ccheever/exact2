@@ -213,6 +213,10 @@ pub struct Painter {
     pub text: Shared,
     /// Device pixels per point.
     pub scale: f32,
+    /// Which appearance a `light-dark()` colour resolves to (LLP 1034 D2).
+    /// This host has no system appearance of its own, so it is whatever the
+    /// app's `setScheme` last said; `light` until it says otherwise.
+    pub dark: bool,
     backend: Box<dyn Backend>,
 }
 
@@ -227,6 +231,7 @@ impl Painter {
         Painter {
             text,
             scale,
+            dark: false,
             backend,
         }
     }
@@ -338,8 +343,9 @@ impl Painter {
                 s.border_radius_bottom_left,
             ],
         );
-        if s.background_color.a() > 0 && w > 0.0 && h > 0.0 {
-            self.backend.fill(&outer, rgba(s.background_color), ts);
+        if s.background_color.resolve(self.dark).a() > 0 && w > 0.0 && h > 0.0 {
+            self.backend
+                .fill(&outer, rgba(s.background_color.resolve(self.dark)), ts);
         }
         // Borders: a uniform border with a radius is a stroke inset by half
         // its width; anything else is four side rectangles (as the Apple
@@ -359,10 +365,14 @@ impl Painter {
         if widths.iter().any(|b| *b > 0.0) {
             let uniform =
                 widths.iter().all(|b| *b == widths[0]) && colors.iter().all(|c| *c == colors[0]);
-            if uniform && outer.rounded() && colors[0].a() > 0 {
+            if uniform && outer.rounded() && colors[0].resolve(self.dark).a() > 0 {
                 let bw = widths[0];
-                self.backend
-                    .stroke(&outer.inset(bw / 2.0), bw, rgba(colors[0]), ts);
+                self.backend.stroke(
+                    &outer.inset(bw / 2.0),
+                    bw,
+                    rgba(colors[0].resolve(self.dark)),
+                    ts,
+                );
             } else {
                 let sides = [
                     (x, y, w, widths[0]),
@@ -371,8 +381,16 @@ impl Painter {
                     (x, y, widths[3], h),
                 ];
                 for (i, side) in sides.iter().enumerate() {
-                    if widths[i] > 0.0 && colors[i].a() > 0 && side.2 > 0.0 && side.3 > 0.0 {
-                        self.backend.fill(&Shape::rect(*side), rgba(colors[i]), ts);
+                    if widths[i] > 0.0
+                        && colors[i].resolve(self.dark).a() > 0
+                        && side.2 > 0.0
+                        && side.3 > 0.0
+                    {
+                        self.backend.fill(
+                            &Shape::rect(*side),
+                            rgba(colors[i].resolve(self.dark)),
+                            ts,
+                        );
                     }
                 }
             }
@@ -407,7 +425,7 @@ impl Painter {
                     self.backend.text(
                         &mut engine,
                         &paragraph,
-                        rgba(s.text_color),
+                        rgba(s.text_color.resolve(self.dark)),
                         (content.0, content.1),
                         ts,
                     );
@@ -436,7 +454,7 @@ impl Painter {
                 let ink = if placeholder {
                     [0x75, 0x75, 0x75, 0xff]
                 } else {
-                    rgba(s.text_color)
+                    rgba(s.text_color.resolve(self.dark))
                 };
                 {
                     let mut engine = self.text.borrow_mut();
@@ -452,7 +470,7 @@ impl Painter {
                     };
                     self.backend.fill(
                         &Shape::rect((caret_x, oy, 1.0, caret_h)),
-                        rgba(s.text_color),
+                        rgba(s.text_color.resolve(self.dark)),
                         ts,
                     );
                 }

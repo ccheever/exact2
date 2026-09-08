@@ -40,13 +40,18 @@ extension NodeView {
         default: align = 0
         }
         var runs: [Run] = []
+        // An inline run is not in the view hierarchy — its paragraph owns it
+        // and it was removed from any superview — so it has no appearance of
+        // its own to read. It inherits the paragraph's, which is the one
+        // actually on screen. @ref LLP 1034 D2
+        let night = drawsDark
         func collect(_ node: NodeView) {
             if let value = node.props["text"] {
                 runs.append(Run(text: value, size: node.number("font_size", 16),
                     weight: Int(node.number("font_weight", 400)), family: Int(node.number("font_family")),
                     italic: (node.style["font_style"] as? String) == "italic",
                     lineHeight: node.number("line_height"), letterSpacing: node.number("letter_spacing"),
-                    color: node.style["text_color"] as? [Double],
+                    color: node.channels("text_color", dark: night),
                     decoration: node.style["text_decoration_line"] as? String ?? "",
                     href: node.props["href"] ?? ""))
             } else {
@@ -55,7 +60,7 @@ extension NodeView {
         }
         collect(self)
         let spec = Spec(runs: runs, align: align, lineClamp: Int(number("line_clamp")),
-                        color: style["text_color"] as? [Double] ?? [0, 0, 0, 255])
+                        color: channels("text_color", dark: night) ?? [0, 0, 0, 255])
         cachedTextSpec = spec
         return spec
     }

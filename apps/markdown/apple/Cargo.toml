@@ -1,0 +1,20 @@
+[package]
+name = "markdown-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Markdown reader on Apple platforms: the host's C exports over its data source and baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "markdown_apple"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+exact-apple = { path = "../../../host/apple" }
+markdown-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+markdown-data = { path = "../data" }

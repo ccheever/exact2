@@ -448,8 +448,10 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// Run the commands the last commits asked for (LLP 1005 §3): the
-    /// delivery pair are the store's (LLP 1030 D7); `setScheme` has no
-    /// appearance to set on this painter; anything else is named.
+    /// delivery pair are the store's (LLP 1030 D7); `setScheme` is which
+    /// appearance a `light-dark()` colour resolves to on this painter, which
+    /// has no system appearance of its own (LLP 1034 D2); anything else is
+    /// named.
     pub fn run_commands(&mut self, mut data: impl FnMut() -> D) {
         for c in std::mem::take(&mut self.commands) {
             match c.name.as_str() {
@@ -463,7 +465,13 @@ impl<D: DataSource> Presenter<D> {
                     Ok(false) => eprintln!("exact update: nothing is staged"),
                     Err(e) => eprintln!("exact update: activate: {e}"),
                 },
-                "setScheme" => {}
+                // The app's chosen appearance is what a `light-dark()` colour
+                // resolves to here (LLP 1034 D2). `system` is no override,
+                // and this host has no system to follow, so it draws light.
+                "setScheme" => {
+                    self.brush.dark =
+                        matches!(c.args.first(), Some(exact_plan::Value::Str(s)) if &**s == "dark");
+                }
                 other => eprintln!("exact: unknown command {other}"),
             }
         }

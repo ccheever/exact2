@@ -118,6 +118,7 @@ enum Codec {
     U32,
     I32,
     Rgba8,
+    ColorValue,
     Vec2,
     Color2,
     Tracks,
@@ -135,6 +136,7 @@ fn parse_codec(s: &str) -> Codec {
         "u32" => Codec::U32,
         "i32" => Codec::I32,
         "rgba8" => Codec::Rgba8,
+        "color" => Codec::ColorValue,
         "vec2" => Codec::Vec2,
         "color2" => Codec::Color2,
         "tracks" => Codec::Tracks,
@@ -157,6 +159,7 @@ impl Codec {
             Codec::U32 => "u32".into(),
             Codec::I32 => "i32".into(),
             Codec::Rgba8 => "Color".into(),
+            Codec::ColorValue => "ColorValue".into(),
             Codec::Vec2 => "Vec2".into(),
             Codec::Color2 => "[Color; 2]".into(),
             Codec::Tracks => "GridTracks".into(),
@@ -175,6 +178,7 @@ impl Codec {
             Codec::U32 => "U32",
             Codec::I32 => "I32",
             Codec::Rgba8 => "Rgba8",
+            Codec::ColorValue => "ColorValue",
             Codec::Vec2 => "Vec2",
             Codec::Color2 => "Color2",
             Codec::Tracks => "Tracks",
@@ -214,6 +218,10 @@ impl Codec {
             Codec::U32 => format!("{}u32", int(value, 0.0, u32::MAX as f64)),
             Codec::I32 => format!("{}i32", int(value, i32::MIN as f64, i32::MAX as f64)),
             Codec::Rgba8 => format!("Color({}u32)", int(value, 0.0, u32::MAX as f64)),
+            Codec::ColorValue => format!(
+                "ColorValue::Fixed(Color({}u32))",
+                int(value, 0.0, u32::MAX as f64)
+            ),
             Codec::Vec2 => {
                 let arr = value
                     .as_array()
@@ -269,6 +277,7 @@ impl Codec {
             Codec::U32 => "r.u32()?".into(),
             Codec::I32 => "r.i32()?".into(),
             Codec::Rgba8 => "r.color()?".into(),
+            Codec::ColorValue => "r.color_value()?".into(),
             Codec::Vec2 => "r.vec2()?".into(),
             Codec::Color2 => "r.color2()?".into(),
             Codec::Tracks => "r.tracks_for_style()?".into(),
@@ -289,6 +298,7 @@ impl Codec {
             Codec::U32 => format!("w.u32({access});"),
             Codec::I32 => format!("w.i32({access});"),
             Codec::Rgba8 => format!("w.color({access});"),
+            Codec::ColorValue => format!("w.color_value({access});"),
             Codec::Vec2 => format!("w.vec2({access});"),
             Codec::Color2 => format!("w.color2({access});"),
             Codec::Tracks => format!("w.tracks(&{access});"),
@@ -456,7 +466,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "use crate::error::{{DecodeError, StyleDomainError}};").unwrap();
     writeln!(
         w,
-        "use crate::error::StyleValueError;\nuse crate::style::{{Color, Dimension, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Vec2, MAX_GRID_TRACKS}};"
+        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Vec2, MAX_GRID_TRACKS}};"
     )
     .unwrap();
     writeln!(w, "use crate::wire::codec::{{Reader, Writer}};").unwrap();
@@ -743,7 +753,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, F32, U8, U16, U32, I32, Rgba8, Vec2, Color2, Tracks, Placement, Transitions, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, F32, U8, U16, U32, I32, Rgba8, ColorValue, Vec2, Color2, Tracks, Placement, Transitions, Enum }}").unwrap();
     writeln!(w).unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
@@ -1265,6 +1275,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::U32 => format!("self.{f} = value.int(id, 0.0, u32::MAX as f64)? as u32;"),
             Codec::I32 => format!("self.{f} = value.int(id, i32::MIN as f64, i32::MAX as f64)? as i32;"),
             Codec::Rgba8 => format!("self.{f} = value.color(id)?;"),
+            Codec::ColorValue => format!("self.{f} = value.color_value(id)?;"),
             Codec::Vec2 => format!("self.{f} = value.vec2(id)?;"),
             Codec::Enum(name) => format!(
                 "self.{f} = {name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?;"
@@ -1298,6 +1309,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
                 format!("RowValue::Number(self.{f} as f64)")
             }
             Codec::Rgba8 => format!("RowValue::Color(self.{f})"),
+            Codec::ColorValue => format!("RowValue::ColorValue(self.{f})"),
             Codec::Vec2 => format!("RowValue::Vec2(self.{f})"),
             Codec::Color2 => format!("RowValue::Color2(self.{f})"),
             Codec::Enum(_) => format!("RowValue::Enum(self.{f}.name())"),

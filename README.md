@@ -25,6 +25,8 @@ never to block. Its design documents are imported under `llp/research/`.
 | `runner/` (`exact-runner`) | The plan runner: VM, keyed instances, kernel ops, events, timers under a seekable clock, the data seam. | LLP 1005 |
 | `contract/` | The Contract compiler in Rust: `syntax` → `types` → `analyze` → `lower`, the `contract` driver and CLI, and the corpus. | LLP 1004 (decision), LLP 1006 (spec) |
 | `apps/fieldnotes/` | Offline notes: Contract UI, TypeScript sources, SQLite persistence, and JSON file backup/restore. See its [README](apps/fieldnotes/README.md). | LLP 1027 |
+| `apps/markdown/` | A Markdown reader: the parser and block model both readers share, and the general one-file app. `mdview`. See its [README](apps/markdown/README.md). | LLP 1033 |
+| `apps/llp/` | The same reader specialised for an LLP corpus: numbered index with sub-documents, search over every document's text, section outline, `LLP 1234` as a link. `llpview`. See its [README](apps/llp/README.md). | LLP 1033 |
 | `apps/caltrain/` | The v1 app: `app.contract`, its Rust data crate, and its wasm crate; the end-to-end fixture. | — |
 | `gpu/` (`exact-gpu`) | The GPU canvas: a `Surface` trait against wgpu, a per-app module loaded on demand (a dylib on macOS, a second wasm on the web) after the first pixel; the same Rust renders on Metal and on the browser's WebGPU. `apps/caltrain/gpu` is the line map and the aurora. `gpu/reflect` (`exact-gpu-reflect`, naga only) reflects every `.wgsl` in a GPU crate's `build.rs`: bindings, struct layouts, vertex inputs, and entry points generated as Rust, the WGSL as the one declaration authority. | LLP 1009 |
 | `host/apple/` (`exact-apple`) | The Apple host: runner + kernel as a static library with a C ABI, the kernel's layout with CoreText measurement through a callback, `exact-motion` as the executor, typed batches; `macos/` is the AppKit presenter and `ios/` the UIKit one (SwiftPM, sharing `swift/`). `node host/apple/build.mjs --run`; `node host/apple/build.mjs --ios --run` on a simulator. | LLP 1008 |
@@ -34,6 +36,29 @@ never to block. Its design documents are imported under `llp/research/`.
 
 All four surfaces run the app; `QUEUE.md` is the ordered list of what would
 make sense to do next.
+
+## Run an app from a terminal on macOS
+
+```sh
+node scripts/exact.mjs list                       # the apps here, and their commands
+node scripts/exact.mjs run markdown README.md     # build and launch, log on this terminal
+node scripts/exact.mjs install markdown           # ~/Applications/Markdown.app + `mdview`
+mdview README.md                                  # from anywhere, reusing a running copy
+```
+
+`npm link` (or a symlink into a directory on `PATH`) makes it plain `exact`.
+Both verbs launch the executable inside `<Name>.app`, so the process has the
+app's bundle identity: its name in the menu bar, its Dock tile, and the
+document types Finder's Open With reads. `install` also writes a shim named by
+the manifest's `app.command` into the first of `~/.local/bin`, `/usr/local/bin`,
+`~/bin` that is already on `PATH` (`EXACT_BIN_DIR` overrides), and prints the
+line to add when none is.
+
+An app says what it opens with `file_handlers` in `app.json` — the W3C Web App
+Manifest's own key — and the macOS bake derives `CFBundleDocumentTypes` from
+it. A path from the command line, from Finder, from ⌘O, or from a link inside
+a document all arrive at the same place: the app's `open-file` node
+(LLP 1033 D3). `exact uninstall <app>` takes both halves away.
 
 ## Open the same development URL on Apple hosts
 

@@ -6,9 +6,14 @@
 //
 // Usage:  node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window]
-//   tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name>
+//   tap <target> [wheel <dx> <dy> [gesture] | hover] | type <target> <text…> | type <target> key <Name>
 //   clock <ms|+ms|settle>
 // A target is a testId or a view id; each op is one argument (quote it).
+// `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
+// began, changed, and the zero-delta lift that ends it — instead of a bare
+// delta. Elastic overscroll lives entirely in those phases, so a plain wheel
+// exercises a path a finger never takes (LLP 1033 D4a). macOS only: a host
+// that cannot phase a wheel refuses rather than quietly sending a plain one.
 // `tap … hover` moves the pointer onto the target (a hover, LLP 1005 §3);
 // `type … key Enter` presses a key at it, by the web's key names — forms of
 // tap and type, not operations of their own (rules/NOT-DOING.md).
@@ -374,7 +379,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
       ask,
       async input(id, kind, opts) {
         const guest = { selector: opts.selector, x: opts.x, y: opts.y };
-        const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
+        const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -461,7 +466,7 @@ async function openIOS({ plan, app, env: extra = {}, session, bundle = appBundle
       ask,
       async input(id, kind, opts) {
         const guest = { selector: opts.selector, x: opts.x, y: opts.y };
-        const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
+        const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -535,6 +540,12 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
     /** A press on the target through the host's input path (an iframe target accepts guest `selector` or `x`/`y`); with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over). */
     async tap(target, opts = {}) {
       const node = await s.find(target);
+      // A gesture is the platform's, and only the AppKit carrier can phase
+      // one. Refusing beats quietly sending a bare delta: the whole reason
+      // this form exists is that a plain wheel tests a path a finger never
+      // takes, so a driver must never be told it sent a gesture when it did
+      // not (LLP 0382 — fail closed, loudly).
+      if (opts.gesture && !(host === 'macos' || host === 'mac')) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
       const r = await carrier.input(node.id, opts.wheel ? 'wheel' : opts.hover ? 'hover' : 'press', opts);
       return { ...r, tapped: node.id, target };
     },
@@ -577,7 +588,7 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
  *           {"  " × depth}{Type}#{id} [{testId}] "{text}" value="…" label="…" ({handlers, comma-separated})
  *           an iframe adds url="…" loading=true|false and `[guest]` outline lines
  *   layout  viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] · clock C ms
- *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy}
+ *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} [overscroll {ox},{oy}]
  *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
  *           the host's lines indented two spaces; "(nothing new)" when there is nothing
  *   state   the JSON, indented two spaces
@@ -598,7 +609,11 @@ export function render(op, r) {
     case 'layout': {
       const e = r.env;
       const env = e && Object.values(e).some((v) => v) ? ` · safe-area ${e['safe-area-inset-top']} ${e['safe-area-inset-right']} ${e['safe-area-inset-bottom']} ${e['safe-area-inset-left']} · keyboard ${e['keyboard-inset-height']}` : '';
-      return [`viewport ${r.viewport.w}×${r.viewport.h}${env} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}`)).join('\n');
+      // `overscroll` is how far a scroller sits past its own ends — a
+      // stretched rubber band, which the offset alone cannot distinguish
+      // from an ordinary scroll position. Printed only when there is one.
+      const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
+      return [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`)).join('\n');
     }
     case 'logs':
       return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
@@ -705,7 +720,7 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone });
@@ -716,7 +731,7 @@ async function main(argv) {
       switch (op) {
         case 'tree': case 'state': case 'logs': case 'layout': r = await s[op](); break;
         case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[1] === 'window'); break;
-        case 'tap': r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])] }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : await s.tap(args[0]); break;
+        case 'tap': r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : await s.tap(args[0]); break;
         case 'type': r = args[1] === 'key' && args[2] ? await s.type(args[0], { key: args[2] }) : await s.type(args[0], args.slice(1).join(' ')); break;
         case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
         default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock)`);

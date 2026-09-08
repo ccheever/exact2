@@ -16,10 +16,44 @@ let libName = ProcessInfo.processInfo.environment["EXACT_LIB"] ?? "caltrain_appl
 let composition = ProcessInfo.processInfo.environment["EXACT_APP_COMPOSITION"] ?? "embedded"
 precondition(["embedded", "updating"].contains(composition), "EXACT_APP_COMPOSITION must be embedded or updating")
 
+// `swift test` builds every target a package declares, and the two UIKit
+// executables cannot build for macOS. EXACT_TESTS=1 narrows the package to
+// what the tests need — the same environment-driven shape the composition
+// above already uses — so a normal build is unchanged and a test build is
+// quick. `node host/apple/build.mjs --test` sets it.
+let testing = ProcessInfo.processInfo.environment["EXACT_TESTS"] == "1"
+
+let core: [Target] = [
+    .systemLibrary(name: "CExact", path: "Sources/CExact"),
+    .target(
+        name: "ExactKit",
+        dependencies: ["CExact"],
+        path: "Sources/ExactKit",
+        linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName), .linkedLibrary("c++")]
+    ),
+    .target(name: "ExactUpdates", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactUpdates"),
+    .target(name: "ExactComposition", dependencies: [.target(name: "ExactKit")] + (composition == "updating" ? [.target(name: "ExactUpdates")] : []),
+            path: composition == "updating" ? "Sources/ExactUpdating" : "Sources/ExactEmbedded"),
+]
+
+let executables: [Target] = [
+    .executableTarget(name: "ExactMac", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactMac"),
+    .executableTarget(name: "ExactIOS", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactIOS"),
+    .executableTarget(name: "ExactHostMac", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactHostMac"),
+    .executableTarget(name: "ExactHostIOS", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactHostIOS"),
+]
+
+// Host behaviour no other check can see: a wheel event's routing, asserted
+// as a decision rather than a drawn frame, so it needs no window, no run
+// loop, and no clock (LLP 1033 D4a).
+let tests: [Target] = [
+    .testTarget(name: "ExactKitTests", dependencies: ["ExactKit"], path: "Tests/ExactKitTests"),
+]
+
 let package = Package(
     name: "Exact",
     platforms: [.macOS(.v14), .iOS(.v17)],
-    products: [
+    products: testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
         .library(name: "ExactKit", targets: ["ExactKit"]),
         .library(name: "ExactUpdates", targets: ["ExactUpdates"]),
         .executable(name: "ExactMac", targets: ["ExactMac"]),
@@ -27,20 +61,5 @@ let package = Package(
         .executable(name: "ExactHostMac", targets: ["ExactHostMac"]),
         .executable(name: "ExactHostIOS", targets: ["ExactHostIOS"]),
     ],
-    targets: [
-        .systemLibrary(name: "CExact", path: "Sources/CExact"),
-        .target(
-            name: "ExactKit",
-            dependencies: ["CExact"],
-            path: "Sources/ExactKit",
-            linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName), .linkedLibrary("c++")]
-        ),
-        .target(name: "ExactUpdates", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactUpdates"),
-        .target(name: "ExactComposition", dependencies: [.target(name: "ExactKit")] + (composition == "updating" ? [.target(name: "ExactUpdates")] : []),
-                path: composition == "updating" ? "Sources/ExactUpdating" : "Sources/ExactEmbedded"),
-        .executableTarget(name: "ExactMac", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactMac"),
-        .executableTarget(name: "ExactIOS", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactIOS"),
-        .executableTarget(name: "ExactHostMac", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactHostMac"),
-        .executableTarget(name: "ExactHostIOS", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactHostIOS"),
-    ]
+    targets: core + (testing ? tests : executables)
 )

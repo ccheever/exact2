@@ -1402,6 +1402,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
+name = "llp-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "llp-data",
+]
+
+[[package]]
+name = "llp-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+ "markdown-parse",
+]
+
+[[package]]
+name = "llp-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-web",
+ "llp-data",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1415,6 +1442,40 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
+name = "markdown-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "markdown-data",
+]
+
+[[package]]
+name = "markdown-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+ "markdown-parse",
+]
+
+[[package]]
+name = "markdown-parse"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+]
+
+[[package]]
+name = "markdown-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-web",
+ "markdown-data",
+]
 
 [[package]]
 name = "memchr"

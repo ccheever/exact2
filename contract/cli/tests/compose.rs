@@ -59,11 +59,11 @@ fn a_provide_fills_an_inject_and_the_innermost_wins() {
     };
     assert_eq!(
         color_of("label-outer"),
-        Color::parse_hex("#112233").unwrap()
+        Color::parse_hex("#112233").unwrap().into()
     );
     assert_eq!(
         color_of("label-inner"),
-        Color::parse_hex("#ff0000").unwrap()
+        Color::parse_hex("#ff0000").unwrap().into()
     );
 }
 
@@ -77,6 +77,6 @@ fn a_provided_value_may_be_state_and_follows_it() {
     let key = k.find_by_test_id("label-x")[0];
     assert_eq!(
         k.node_by_key(key).unwrap().style.text_color,
-        Color::parse_hex("#00ff00").unwrap()
+        Color::parse_hex("#00ff00").unwrap().into()
     );
 }

@@ -1,0 +1,18 @@
+# Markdown's data source: the one seam through which a file becomes a
+# document (LLP 1004 D4). Reads on the host's worker, never in the runner.
+[package]
+name = "markdown-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Markdown reader's data source: a path in, a document out"
+publish = false
+
+[lib]
+name = "markdown_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+markdown-parse = { path = "../parse" }

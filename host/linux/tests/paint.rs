@@ -130,8 +130,11 @@ fn px(frame: &Pixmap, x: f32, y: f32) -> (u8, u8, u8) {
 /// fixture with no background is white — never assumed here).
 fn page<D: DataSource>(p: &Presenter<D>) -> (u8, u8, u8) {
     let id = view(p, "caltrain-main");
+    // The row holds a colour as authored, which may be a `light-dark()` pair
+    // (LLP 1034 D1). This fixture reads the light half, which is the
+    // appearance a headless painter draws in unless the app says otherwise.
     let c = p.host().kernel().node(id).unwrap().style.background_color;
-    let [r, g, b, a] = exact_linux::paint::rgba(c);
+    let [r, g, b, a] = exact_linux::paint::rgba(c.resolve(false));
     assert_eq!(a, 255, "the page is opaque");
     (r, g, b)
 }

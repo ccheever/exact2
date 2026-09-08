@@ -1,7 +1,9 @@
 //! `StyleProps::set_dynamic`: the one place an id-addressed producer turns an
 //! untyped value into a row, refused typed, nothing changed on refusal.
 
-use exact_kernel::{Color, Dimension, StyleId, StyleProps, StyleValue, StyleValueError};
+use exact_kernel::{
+    Color, ColorValue, Dimension, StyleId, StyleProps, StyleValue, StyleValueError,
+};
 
 #[test]
 fn every_dynamic_codec_fills_its_row_and_marks_the_mask() {
@@ -31,8 +33,11 @@ fn every_dynamic_codec_fills_its_row_and_marks_the_mask() {
     assert_eq!(s.flex_grow, 1.0);
     assert_eq!(s.font_weight, 700);
     assert_eq!(s.z_index, -2);
-    assert_eq!(s.background_color, Color::rgba(255, 0, 0, 128));
-    assert_eq!(s.text_color, Color(0x1122_33ff));
+    assert_eq!(
+        s.background_color,
+        ColorValue::Fixed(Color::rgba(255, 0, 0, 128))
+    );
+    assert_eq!(s.text_color, ColorValue::Fixed(Color(0x1122_33ff)));
     assert_eq!(s.flex_direction, exact_kernel::FlexDirection::Column);
     assert_eq!((s.shadow_offset.x, s.shadow_offset.y), (1.0, 2.0));
     for id in [
