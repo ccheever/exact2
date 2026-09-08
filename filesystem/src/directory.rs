@@ -191,27 +191,27 @@ impl Directory {
         token: &str,
         before_commit: impl FnOnce() -> io::Result<()>,
     ) -> io::Result<&'static str> {
-        self.write_with_parent_sync(leaf, bytes, immutable, token, before_commit, true)
+        self.write_with_sync(leaf, bytes, immutable, token, before_commit, true)
     }
-    /// Retention alone batches parent durability. The caller must keep this
-    /// owned directory and sync it before publishing the generation envelope.
-    pub fn write_retained_payload(
+    /// Immutable development-cache writes retain complete-file visibility,
+    /// but do not promise recovery after a machine crash or power loss.
+    pub fn write_cached(
         &self,
         leaf: &str,
         bytes: &[u8],
         token: &str,
         before_commit: impl FnOnce() -> io::Result<()>,
     ) -> io::Result<&'static str> {
-        self.write_with_parent_sync(leaf, bytes, true, token, before_commit, false)
+        self.write_with_sync(leaf, bytes, true, token, before_commit, false)
     }
-    fn write_with_parent_sync(
+    fn write_with_sync(
         &self,
         leaf: &str,
         bytes: &[u8],
         immutable: bool,
         token: &str,
         before_commit: impl FnOnce() -> io::Result<()>,
-        sync_parent: bool,
+        synchronize: bool,
     ) -> io::Result<&'static str> {
         match self.kind(leaf) {
             Ok(_) => {}
@@ -225,7 +225,9 @@ impl Directory {
         let mut file = self.file(&temp, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL)?;
         let result = (|| {
             file.write_all(bytes)?;
-            file.sync_all()?;
+            if synchronize {
+                file.sync_all()?;
+            }
             before_commit()?;
             match self.kind(leaf) {
                 Ok(_) => {}
@@ -262,7 +264,7 @@ impl Directory {
                     )
                 })?;
             }
-            if sync_parent {
+            if synchronize {
                 self.0.sync_all()?;
             }
             Ok("written")

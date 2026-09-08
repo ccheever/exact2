@@ -41,9 +41,14 @@ fn retained_generation_quota_is_atomic_and_never_prunes() {
         "files":{"app.plan":STANDARD.encode("plan"), "deck/nested/page.html":STANDARD.encode("old guest"), "exact.json":STANDARD.encode("envelope")}})
     };
     let first = request(1, 1024);
-    let used = operate(&root, &first, None).unwrap().as_u64().unwrap();
-    assert_eq!(used, 48 + 4 + 9 + 8);
-    assert_eq!(operate(&root, &request(1, used), None).unwrap(), used);
+    let used = operate(&root, &first, None).unwrap()["bytes"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(used, 68 + 4 + 9 + 8);
+    assert_eq!(
+        operate(&root, &request(1, used), None).unwrap()["bytes"],
+        used
+    );
     assert!(operate(&root, &request(2, used + 1), None)
         .unwrap_err()
         .to_string()
@@ -98,7 +103,7 @@ fn retained_payload_failure_never_publishes_the_envelope() {
     // Failure releases the single publisher lock, retains the partial quota
     // usage, and leaves every temporary name cleaned up before returning.
     let used = operate(&root, &request(2, good.clone()), None).unwrap();
-    assert_eq!(used, retained_bytes(&root).unwrap());
+    assert_eq!(used["bytes"], retained_bytes(&root).unwrap());
     assert_eq!(operate(&root, &request(2, good), None).unwrap(), used);
     // Reuse an already-linked payload from the failed batch. The retry must
     // include its held directory in durability completion before its envelope.
@@ -114,6 +119,79 @@ fn retained_payload_failure_never_publishes_the_envelope() {
     assert!(names
         .keys()
         .all(|path| !path.split('/').any(|part| part.starts_with(".tmp-"))));
+}
+
+#[test]
+fn retained_completion_counts_require_the_last_successful_holder() {
+    let fixture = Fixture::new();
+    let root = fixture.dir("cache");
+    let epoch = "d".repeat(32);
+    let other = "abcdef0123456789abcdef0123456789abcdef0123456789";
+    let request = |seq, token, previous| {
+        json!({"op":"retain", "path":format!("{epoch}/{seq}"),
+        "quota":4096, "token":token, "previousToken":previous,
+        "files":{"payload":STANDARD.encode("payload"), "exact.json":STANDARD.encode("complete")}})
+    };
+    let first = operate(&root, &request(0, TOKEN, Value::Null), None).unwrap();
+    assert_eq!(first["bytes"], retained_bytes(&root).unwrap());
+    assert_eq!(first["token"], TOKEN);
+    // A different publisher completes under the same lock. Its extra files
+    // must count even when the original publisher supplies its stale token.
+    operate(&root, &request(1, other, Value::Null), None).unwrap();
+    let next = operate(&root, &request(2, TOKEN, json!(TOKEN)), None).unwrap();
+    assert_eq!(next["bytes"], retained_bytes(&root).unwrap());
+    let held = Lock::acquire(&root, ".retained/.lock", other).unwrap();
+    assert!(operate(&root, &request(3, TOKEN, json!(TOKEN)), None).is_err());
+    drop(held);
+    let next = operate(&root, &request(3, TOKEN, json!(TOKEN)), None).unwrap();
+    assert_eq!(next["bytes"], retained_bytes(&root).unwrap());
+    // Failure after a payload write invalidates the count, even if a caller
+    // reuses the same token. A fresh scan includes the abandoned partial bytes.
+    let mut failed = request(4, TOKEN, json!(TOKEN));
+    failed["files"] = json!({"a-partial":STANDARD.encode("partial"),
+        "collision":STANDARD.encode("file"), "collision/child":STANDARD.encode("child"),
+        "exact.json":STANDARD.encode("absent")});
+    assert!(operate(&root, &failed, None).is_err());
+    assert_eq!(
+        fs::metadata(fixture.path("cache/.retained/.lock"))
+            .unwrap()
+            .len(),
+        48
+    );
+    let next = operate(&root, &request(5, TOKEN, json!(TOKEN)), None).unwrap();
+    assert_eq!(next["bytes"], retained_bytes(&root).unwrap());
+    let mut quota_refusal = request(6, TOKEN, json!(TOKEN));
+    quota_refusal["quota"] = json!(next["bytes"].as_u64().unwrap());
+    assert!(operate(&root, &quota_refusal, None).is_err());
+    assert_eq!(
+        fs::metadata(fixture.path("cache/.retained/.lock"))
+            .unwrap()
+            .len(),
+        48
+    );
+    // A malformed fixed-width completion cannot be used as accounting.
+    fs::write(
+        fixture.path("cache/.retained/.lock"),
+        format!("{TOKEN}{}", "x".repeat(20)),
+    )
+    .unwrap();
+    let next = operate(&root, &request(6, TOKEN, json!(TOKEN)), None).unwrap();
+    assert_eq!(next["bytes"], retained_bytes(&root).unwrap());
+    // Untouched historical corruption is discovered on reads or the next full
+    // scan, not by a matching completion. New writes still use nofollow handles.
+    let linked = fixture.path(&format!("cache/{epoch}/0/corrupt"));
+    symlink(fixture.path("outside"), &linked).unwrap();
+    operate(&root, &request(7, TOKEN, json!(TOKEN)), None).unwrap();
+    assert!(operate(&root, &request(8, TOKEN, Value::Null), None).is_err());
+    assert!(root
+        .parent(&format!("{epoch}/0/corrupt"), false)
+        .unwrap()
+        .0
+        .read("corrupt")
+        .is_err());
+    fs::remove_file(linked).unwrap();
+    let next = operate(&root, &request(8, TOKEN, json!(TOKEN)), None).unwrap();
+    assert_eq!(next["bytes"], retained_bytes(&root).unwrap());
 }
 
 #[test]

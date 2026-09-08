@@ -137,14 +137,17 @@ import { createInterface } from 'node:readline';
 const stage=realpathSync(process.argv[1]);
 const libraries=resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))),'lib');
 const tsc=resolve(libraries,'tsc'), execute=promisify(execFile);
+// Short-lived native checks trade fewer GC cycles for a soft Go memory limit
+// (not an RSS cap); explicit user settings always win.
+const checkEnv={GOGC:'300',GOMEMLIMIT:'128MiB',GOMAXPROCS:'4',...process.env};
 const allowed = path => { path=resolve(path);return path === stage || path.startsWith(stage+sep) || path === libraries || path.startsWith(libraries+sep); };
 const config=resolve(stage,'__exact_tsconfig.json');
 // The native builder owns dependency and diagnostic invalidation, including
 // globals and standard libraries. Its cache never comes from the app capture.
-writeFileSync(config,JSON.stringify({compilerOptions:{noEmit:true,strict:true,target:'ES2020',module:'ESNext',moduleResolution:'bundler',lib:['ES2020','DOM'],incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')},files:['__exact_entry.ts']}));
+writeFileSync(config,JSON.stringify({compilerOptions:{noEmit:true,strict:true,target:'ES2020',module:'ESNext',moduleResolution:'bundler',lib:['ES2020','WebWorker'],incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')},files:['__exact_entry.ts']}));
 async function check() {
   let files;
-  try { ({stdout:files}=await execute(tsc,['--project',config,'--pretty','false','--listFiles'],{cwd:stage,encoding:'utf8',maxBuffer:4*1024*1024})); }
+  try { ({stdout:files}=await execute(tsc,['--project',config,'--pretty','false','--listFiles'],{cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024})); }
   catch(error) {
     const diagnostics=String(error.stdout??'').split(/\r?\n/).filter(line=>! /^(?:\/|[A-Za-z]:[\\/]).*\.[cm]?[jt]sx?$/.test(line)).join('\n');
     throw new Error(diagnostics+String(error.stderr??'') || String(error.message));

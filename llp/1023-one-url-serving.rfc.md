@@ -204,7 +204,9 @@ The browser uses the same generation protocol:
 - **Payload URLs never change bytes.** `/__dev/generation/<epoch>/<seq>/…`
   serves captured files retained outside rebuilt `dist`, under the app-specific
   `target/dev-generations` cache. Old deck URLs and relative resources survive
-  rejected successors, server restarts, and dist replacement. Publication holds
+  rejected successors, ordinary process restarts, and dist replacement. This
+  reconstructible cache is not durable against OS crashes/power loss (1030.002 D2);
+  lost historical resources can require an explicit reload. Publication holds
   the filesystem lock, checks the 4 GiB cache quota, writes immutable files, and
   commits the envelope last; incomplete or undeclared files are never served.
   Nothing automatically deletes possibly live namespaces. A full cache refuses

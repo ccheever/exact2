@@ -565,17 +565,30 @@ Each request captures the current source graph and runs full strict diagnostics;
 bundling and HBC compilation overlap checking, but bytecode inspection and the bake
 wait for checking to succeed. Resolved type-only imports must also stay inside the
 capture or pinned standard libraries. An invalid, deleted or superseded input
-cannot reuse a previous successful result.
+cannot reuse a previous successful result. Both producer paths check the full
+`ES2020,WebWorker` standard libraries: data modules use web APIs, not DOM UI types
+such as `Window`, `Document` or `HTMLElement`, which native hosts cannot support.
+This is a cross-host type boundary, not a sandbox: the browser iframe can expose
+additional globals incidentally, and ambient worker types grant no runtime API.
+[TypeScript's library contexts](https://www.typescriptlang.org/tsconfig/lib.html)
+separate these declarations without disabling diagnostics. The short-lived native
+checker uses a larger GC growth target and a 128 MiB soft runtime-memory limit;
+explicit Go environment settings override those development defaults.
 Compiler overrides keep the one-shot invocation contract. Direct file watches
 avoid delayed directory notifications; a bounded directory scan discovers additions
 and replacements, and file identity/timestamps suppress duplicate notifications.
-Logic edits reuse admitted static assets. Immutable generation payloads flush in
-parallel, with held-parent directory syncs before the envelope publishes.
+Logic edits reuse admitted static assets. Immutable development-cache payloads
+are written completely before the envelope, without power-loss durability flushes
+(1030.002 D2). Quota accounting reuses only the preceding successful completion
+record; startup, foreign writers and failures force a full scan. Browser payloads
+share one bounded fetch queue, with all integrity checks complete before acceptance.
 
-Twenty real Fieldnotes logic edits measured 74.5 ms save-to-DOM acceptance,
-77.5 ms to refreshed SQLite-backed content, and 83 ms to the next frame opportunity
-(p95 118 ms), versus 436 ms refreshed-content median before these changes. This
-local run meets the 100 ms p50 budget; it does not claim every edit is under 100 ms.
+Twenty real Fieldnotes logic edits measured 32 ms save-to-DOM acceptance,
+34.5 ms to refreshed SQLite-backed content, and 49 ms to the next frame opportunity
+(p95 50 ms), versus 436 ms refreshed-content median before these changes. This
+local run meets the 40 ms content-update target and the 100 ms p50 budget;
+next-frame timing remains above 40 ms and is not a compositor-paint measurement.
+Timing starts before the source write; the first measured edit is included.
 Draft carry, type-error refusal, latest-edit recovery, imported-file addition and
 deletion, atomic replacement and subsequent edits passed. `scripts/metrics.mjs`
 also recognizes the module producer and reports 20 visible Contract edits with

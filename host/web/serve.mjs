@@ -89,10 +89,10 @@ export function moduleCards(files, appId) {
     return [key, { bytes: bytes.length, sha256: sha256(bytes) }];
   }));
 }
-export function retainDevGeneration(cache, epoch, seq, files, quota = DEV_GENERATION_CACHE_BYTES) {
+export function retainDevGeneration(cache, epoch, seq, files, quota = DEV_GENERATION_CACHE_BYTES, previousToken = null) {
   if (!/^[0-9a-f]{32}$/.test(epoch) || !Number.isSafeInteger(seq) || seq < 0) throw new Error('invalid dev generation identity');
   try {
-    filesystem({ op: 'retain', root: resolve(cache), path: `${epoch}/${seq}`, quota,
+    return filesystem({ op: 'retain', root: resolve(cache), path: `${epoch}/${seq}`, quota, previousToken,
       files: Object.fromEntries([...files].map(([name, bytes]) => [staticRelative(name), Buffer.from(bytes).toString('base64')])) });
   } catch (error) {
     if (error.message.includes('cache quota exceeded')) throw new Error(`dev generation cache is full: ${resolve(cache)}; close all pages and native dev connections before manually removing this cache, then restart the dev server`);

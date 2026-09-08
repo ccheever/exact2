@@ -317,7 +317,7 @@ fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
             "--moduleResolution",
             "bundler",
             "--lib",
-            "ES2020,DOM",
+            "ES2020,WebWorker",
             "--pretty",
             "false",
             "__exact_entry.ts",

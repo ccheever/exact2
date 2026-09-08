@@ -131,6 +131,9 @@ function result(name, ok, detail = '') {
   if (ok) console.log(`ok    ${name}`);
   else { failed += 1; console.log(`FAIL  ${name}`); if (detail) console.log(detail); }
 }
+async function rejects(action, matches) {
+  try { await action(); return false; } catch (error) { return matches(error); }
+}
 // The boot check's parser must see every valid spelling that can execute.
 const BOOT_RULES = GOOD_RULES.replace('| Cold start to interactive | 100ms |', '| Cold start to interactive | 100ms |\n| App JS executed before first pixel | none |');
 function boot(html, files = {}) {
@@ -190,9 +193,7 @@ for (const [name, html, files, expectCode, expect] of [
     }))]]);
   };
   const first = files(1); retainDevGeneration(cache, epoch, 1, first);
-  let full = false;
-  try { retainDevGeneration(cache, epoch, 2, files(2), 48 + [...first.values()].reduce((n, b) => n + b.length, 0)); }
-  catch (error) { full = error.message.includes(cache) && error.message.includes('close all pages'); }
+  const full = await rejects(() => retainDevGeneration(cache, epoch, 2, files(2), 48 + [...first.values()].reduce((n, b) => n + b.length, 0)), error => error.message.includes(cache) && error.message.includes('close all pages'));
   const refusedWhole = readDevGeneration(cache, `/__dev/generation/${epoch}/2/exact.json`) === null;
   for (let seq = 2; seq <= 7; seq++) retainDevGeneration(cache, epoch, seq, files(seq));
   retainDevGeneration(cache, epoch, 1, first);
@@ -203,6 +204,15 @@ for (const [name, html, files, expectCode, expect] of [
   const paths = ['../exact.json', '%2e%2e/exact.json', 'deck/%2e%2e/exact.json', 'deck%5csecret', 'deck/%00', '.retained/.lock', 'deck/unknown.html'];
   const refused = paths.every((path) => readDevGeneration(cache, prefix + path) === null)
     && readDevGeneration(cache, `/__dev/generation/${epoch}/8/deck/partial.html`) === null;
+  // Model cache damage after an OS crash: an envelope may outlive its files.
+  rmSync(join(cache, epoch, '7', 'app.plan'));
+  writeFileSync(join(cache, epoch, '6', 'app.plan'), 'broken');
+  writeFileSync(join(cache, epoch, '5', 'exact.json'), '{');
+  result('damaged dev cache payloads and envelopes fail closed after restart',
+    readDevGeneration(cache, `/__dev/generation/${epoch}/7/app.plan`) === null
+      && readDevGeneration(cache, `/__dev/generation/${epoch}/6/app.plan`) === null
+      && readDevGeneration(cache, `/__dev/generation/${epoch}/5/exact.json`) === null
+      && readDevGeneration(cache, prefix + 'app.plan')?.body.toString() === 'plan');
   const secret = join(dir, 'secret'); writeFileSync(secret, 'outside');
   const page = join(cache, epoch, '1', 'deck', 'nested', 'page.html'); rmSync(page); symlinkSync(secret, page);
   result('retained dev routes reject links, traversal, undeclared and partial files', refused
@@ -222,24 +232,16 @@ for (const [name, html, files, expectCode, expect] of [
   writeFileSync(join(source, 'ok.txt'), 'good');
   copyStaticTree(source, target);
   symlinkSync(outside, join(source, 'linked.txt'));
-  let treeRefused = false;
-  try { copyStaticTree(source, join(dir, 'other')); }
-  catch (error) { treeRefused = error.message.includes('cannot be symlinks'); }
+  const treeRefused = await rejects(() => copyStaticTree(source, join(dir, 'other')), error => error.message.includes('cannot be symlinks'));
   rmSync(join(source, 'linked.txt'));
   writeFileSync(join(target, 'live.txt'), 'last good');
   writeFileSync(join(source, 'live.txt'), 'invalid');
-  let invalidRefused = false;
-  try { installStaticCandidate(source, 'live.txt', join(target, 'live.txt'), () => { throw new Error('invalid shader'); }); }
-  catch (error) { invalidRefused = error.message === 'invalid shader'; }
+  const invalidRefused = await rejects(() => installStaticCandidate(source, 'live.txt', join(target, 'live.txt'), () => { throw new Error('invalid shader'); }), error => error.message === 'invalid shader');
   rmSync(join(source, 'live.txt'));
   symlinkSync(outside, join(source, 'live.txt'));
-  let linkRefused = false;
-  try { installStaticCandidate(source, 'live.txt', join(target, 'live.txt')); }
-  catch (error) { linkRefused = error.message.includes('cannot be symlinks'); }
+  const linkRefused = await rejects(() => installStaticCandidate(source, 'live.txt', join(target, 'live.txt')), error => error.message.includes('cannot be symlinks'));
   rmSync(join(source, 'live.txt'));
-  let missingRefused = false;
-  try { installStaticCandidate(source, 'live.txt', join(target, 'live.txt')); }
-  catch (error) { missingRefused = error.code === 'ENOENT'; }
+  const missingRefused = await rejects(() => installStaticCandidate(source, 'live.txt', join(target, 'live.txt')), error => error.code === 'ENOENT');
   writeFileSync(join(source, 'live.txt'), 'next good');
   const installed = installStaticCandidate(source, 'live.txt', join(target, 'live.txt'), () => rmSync(join(source, 'live.txt')));
   mkdirSync(join(source, 'gone', 'inside'), { recursive: true });
@@ -257,16 +259,12 @@ for (const [name, html, files, expectCode, expect] of [
   const startupRemoved = !syncStaticTree(startupSource, startupTarget) && !existsSync(startupTarget);
   mkdirSync(startupTarget); writeFileSync(join(startupTarget, 'last-good.txt'), 'last good');
   symlinkSync(join(dir, 'does-not-exist'), startupSource);
-  let brokenRootRefused = false;
-  try { syncStaticTree(startupSource, startupTarget); }
-  catch (error) { brokenRootRefused = error.message.includes('must be a real directory'); }
+  const brokenRootRefused = await rejects(() => syncStaticTree(startupSource, startupTarget), error => error.message.includes('must be a real directory'));
   const lastGoodRoot = readFileSync(join(startupTarget, 'last-good.txt'), 'utf8') === 'last good';
   rmSync(startupSource);
   const absentCopySkipped = copyStaticTreeIfPresent(startupSource, join(dir, 'absent-copy')) === false;
   symlinkSync(join(dir, 'still-does-not-exist'), startupSource);
-  let brokenCopyRefused = false;
-  try { copyStaticTreeIfPresent(startupSource, join(dir, 'broken-copy')); }
-  catch (error) { brokenCopyRefused = error.message.includes('must be a real directory'); }
+  const brokenCopyRefused = await rejects(() => copyStaticTreeIfPresent(startupSource, join(dir, 'broken-copy')), error => error.message.includes('must be a real directory'));
   const shaderSource = join(dir, 'shader-source');
   const shaderTarget = join(dir, 'shader-target');
   const reflector = resolve(dirname(fileURLToPath(import.meta.url)), '../target/debug/exact-gpu-reflect');
@@ -276,9 +274,7 @@ for (const [name, html, files, expectCode, expect] of [
   const validateShaders = (candidate) => shaderInterfaceDigests(candidate, reflector);
   syncStaticTree(shaderSource, shaderTarget, validateShaders);
   writeFileSync(join(shaderSource, 'surface.wgsl'), 'not wgsl');
-  let startupShaderRefused = false;
-  try { syncStaticTree(shaderSource, shaderTarget, validateShaders); }
-  catch (error) { startupShaderRefused = error.message.includes('expected global item'); }
+  const startupShaderRefused = await rejects(() => syncStaticTree(shaderSource, shaderTarget, validateShaders), error => error.message.includes('expected global item'));
   const startupShaderPreserved = readFileSync(join(shaderTarget, 'surface.wgsl'), 'utf8').startsWith('@compute');
   result('static candidates reject links and preserve last-good bytes', treeRefused && invalidRefused
     && linkRefused && missingRefused && readFileSync(join(target, 'ok.txt'), 'utf8') === 'good'
@@ -326,6 +322,50 @@ for (const [name, html, files, expectCode, expect] of [
   result('static watcher follows absent root creation, deletion, and recreation', created && deleted && recreated && errors.length === 0,
     JSON.stringify({ created, deleted, recreated, errors }));
   rmSync(dir, { recursive: true, force: true });
+}
+// Independent dev payloads share a bounded queue; integrity still gates return.
+{
+  const origin = 'http://exact.test/', body = Buffer.from('payload');
+  const card = name => ({ url: origin + name, bytes: body.length, sha256: sha256(body) });
+  const assets = Array.from({ length: 5 }, (_, i) => ({ name: `assets/${i}.txt`, ...card(`assets/${i}.txt`) }));
+  const module = Object.fromEntries(['native', 'receipt', 'web'].map(key => [key, card(key)]));
+  const canonical = { assets: assets.map(({ name, bytes, sha256 }) => ({ bytes, name, sha256 })),
+    module: Object.fromEntries(['native', 'receipt', 'web'].map(key => [key, { bytes: body.length, sha256: sha256(body) }])),
+    plan: { bytes: body.length, sha256: sha256(body) } };
+  const identity = { epoch: 'a'.repeat(32), seq: 1, generation: sha256(Buffer.from(JSON.stringify(canonical))), program: 'b'.repeat(64) };
+  const envelope = { exact: 1, app: { id: 'com.exact.test' }, dev: identity, plan: card('app.plan'), assets, module };
+  let pending = [], peak = 0, count = 0, corrupt = false;
+  const context = { TextEncoder, TextDecoder, AbortController, URL, setTimeout, clearTimeout,
+    performance, location: { href: origin, origin: new URL(origin).origin }, exact: { ready: Promise.resolve(), compat: { inputs: { app: 'com.exact.test' } } },
+    fetch: async url => {
+      if (url === origin + 'exact.json') return new Response(JSON.stringify(envelope));
+      count++;
+      return await new Promise(resolve => {
+        pending.push(() => resolve(new Response(corrupt && url === origin + 'web' ? 'damaged' : body)));
+        peak = Math.max(peak, pending.length);
+      });
+    } };
+  runInNewContext(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../host/web/dev.js'), 'utf8'), context);
+  const run = async () => {
+    let done = false;
+    const promise = context.fetchGeneration({ ...identity, envelope: origin + 'exact.json' }, new AbortController().signal)
+      .then(value => ({ value }), error => ({ error })).finally(() => { done = true; });
+    await new Promise(setImmediate);
+    const first = pending.length;
+    for (let i = 0; !done && i < 20; i++) {
+      const batch = pending; pending = []; batch.forEach(resolve => resolve());
+      await new Promise(setImmediate);
+    }
+    if (!done) throw new Error('dev fetch queue did not settle');
+    return { first, ...await promise };
+  };
+  const good = await run();
+  corrupt = true;
+  const bad = await run();
+  result('dev payloads fetch concurrently within four slots and refuse bad integrity',
+    good.first === 4 && peak === 4 && count === 16 && good.value?.assets.size === 5 && good.value?.module
+      && bad.error?.message.includes('payload integrity failed: module web'),
+    JSON.stringify({first:good.first,peak,count,goodError:good.error?.message,badError:bad.error?.message,assets:good.value?.assets.size}));
 }
 // The protocol reconciles complete namespaces and rejects out-of-order
 // completions. Its LAN hash path must match SHA-256 at block boundaries.
@@ -421,8 +461,7 @@ for (const [name, html, files, expectCode, expect] of [
   delete named.app.id;
   writeFileSync(join(dir, 'exact.json'), JSON.stringify(named));
   const missingEnvelopeId = !builtAppMatches(dir, app);
-  let unnamedPlanRefused = false;
-  try { webEnvelope(app, Buffer.alloc(36), []); } catch (error) { unnamedPlanRefused = error.message.includes('nonempty app id'); }
+  const unnamedPlanRefused = await rejects(() => webEnvelope(app, Buffer.alloc(36), []), error => error.message.includes('nonempty app id'));
   writeFileSync(join(dir, 'app.plan'), 'corrupt');
   result('dev startup identifies only a complete coherent named app build', complete && staleName
     && staleManifest && replacedWasm && changedRuntime && missingEnvelopeId
@@ -514,9 +553,7 @@ for (const [name, html, files, expectCode, expect] of [
   const table = await classify({ app, opts: {}, origin, channel: 'prod', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, release: 'test', web: newWeb,
     bundle: {}, compat: {}, platforms: [], wantOrigin: true });
   whole &&= table.rows[0].files.removed.join(',') === '.well-known/apple-app-site-association,assets/removed.txt';
-  let directHeadRefused = false;
-  try { await origin.put(`.exact/web/${'b'.repeat(64)}/exact.json`, Buffer.from('unguarded'), { immutable: true }); }
-  catch (error) { directHeadRefused = error.message.includes('stream heads require putHead'); }
+  const directHeadRefused = await rejects(async () => await origin.put(`.exact/web/${'b'.repeat(64)}/exact.json`, Buffer.from('unguarded'), { immutable: true }), error => error.message.includes('stream heads require putHead'));
   whole &&= directHeadRefused;
   const rootChannel = await classify({ app, opts: {}, origin, channel: 'root', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, release: 'test', web: newWeb,
     bundle: { plan: { sha256: '0'.repeat(64), bytes: 3 }, assets: [] }, compat: { linux: { id: 'c'.repeat(32), inputs: { store: { L: 'A' }, executors: [] } } }, platforms: ['linux'], wantOrigin: false });
@@ -577,9 +614,7 @@ for (const [name, html, files, expectCode, expect] of [
   bytes.writeUInt32LE(Buffer.byteLength(id), 32); bytes.write(id, 36);
   const app = { name: 'internal-slug', id, displayName: 'Cross-platform Display', manifest: { name: 'Web Install Name' } };
   const web = webEnvelope(app, bytes, []);
-  let mismatchedPlanRefused = false;
-  try { webEnvelope({ ...app, id: 'com.exact.another' }, bytes, []); }
-  catch (error) { mismatchedPlanRefused = error.message.includes(`plan is for ${id}`); }
+  const mismatchedPlanRefused = await rejects(() => webEnvelope({ ...app, id: 'com.exact.another' }, bytes, []), error => error.message.includes(`plan is for ${id}`));
   const stream = streamHead({ app, bundle: { plan: { bytes, sha256: web.plan.sha256, formatVersion: 4, kernelSchema: '0000000000000001' }, assets: [] },
     stream: { channel: 'prod', compatibilityId: 'a'.repeat(32) }, seq: 1, release: 'test' });
   result('web and stream envelopes use the cross-platform display name', app.name !== app.manifest.name
@@ -686,12 +721,8 @@ for (const [name, html, files, expectCode, expect] of [
   const pretty = { json: reordered, bytes: prettyBytes, sha256: createHash('sha256').update(prettyBytes).digest('hex') };
   const numberedKeys = signed((head) => { head.unknownKeys = { 2: 'two', 10: 'ten' }; });
   const numberedCanonical = canonicalBytes(numberedKeys).toString('utf8');
-  let surrogateValueRefused = false;
-  try { canonicalBytes({ value: String.fromCharCode(0xd800) }); }
-  catch (error) { surrogateValueRefused = error.message.includes('not a Unicode scalar value'); }
-  let surrogateKeyRefused = false;
-  try { canonicalBytes({ [String.fromCharCode(0xdc00)]: 'value' }); }
-  catch (error) { surrogateKeyRefused = error.message.includes('not a Unicode scalar value'); }
+  const surrogateValueRefused = await rejects(() => canonicalBytes({ value: String.fromCharCode(0xd800) }), error => error.message.includes('not a Unicode scalar value'));
+  const surrogateKeyRefused = await rejects(() => canonicalBytes({ [String.fromCharCode(0xdc00)]: 'value' }), error => error.message.includes('not a Unicode scalar value'));
   const repaired = await Promise.all(variants.map((candidate) => tableFor(candidate)));
   const missingHeadTable = await tableFor(null);
   const emptyHeadTable = await tableFor(null, false);
@@ -703,9 +734,7 @@ for (const [name, html, files, expectCode, expect] of [
     channel: stream.channel, snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
     release: 'next', web: dir, bundle, builds:{linux:fixtureBuild(compatibilityId,bundle)}, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
     platforms: ['linux'], wantOrigin: false });
-  let noHistoryRefused = false;
-  try { await tableFor(badSignature, false); }
-  catch (error) { noHistoryRefused = error.message.includes('release history has no authenticated sequence floor'); }
+  const noHistoryRefused = await rejects(async () => await tableFor(badSignature, false), error => error.message.includes('release history has no authenticated sequence floor'));
   let unknownHistoryRefused = false;
   let unknownHistoryWrote = false;
   const unknownOrigin = {
@@ -1024,9 +1053,7 @@ for (const [name, html, files, expectCode, expect] of [
   const externalApp = fixtureApp('external', external, external);
   const linkedApp = fixtureApp('linked', linked, linked);
   const filteredApp = fixtureApp('filtered', filtered, filtered);
-  let escapingSymlinkRefused = false;
-  try { snapshotOf(linkedApp, {}, linked); }
-  catch (error) { escapingSymlinkRefused = error.message.includes('symlink src/main.rs') && error.message.includes('absolute'); }
+  const escapingSymlinkRefused = await rejects(() => snapshotOf(linkedApp, {}, linked), error => error.message.includes('symlink src/main.rs') && error.message.includes('absolute'));
   const linkRaceBin = join(fixture, 'link-race-bin');
   const linkRaceDone = join(fixture, 'link-race-done');
   mkdirSync(linkRaceBin);
@@ -1108,10 +1135,8 @@ for (const [name, html, files, expectCode, expect] of [
   writeFileSync(join(internal, 'target/generated.bin'), 'not source\n');
   mkdirSync(join(internal, 'generated'));
   writeFileSync(join(internal, 'generated/output.bin'), 'ignored input root\n');
-  let siblingRefused = false;
-  try { snapshotOf(internalApp, {}, internal); }
-  catch (error) { siblingRefused = error.message.includes('exact2') && error.message.includes('host/runtime.rs')
-    && error.message.includes('assets/ignored.txt') && !error.message.includes('target/generated.bin'); }
+  const siblingRefused = await rejects(() => snapshotOf(internalApp, {}, internal), error => error.message.includes('exact2') && error.message.includes('host/runtime.rs')
+    && error.message.includes('assets/ignored.txt') && !error.message.includes('target/generated.bin'));
   const dirtySnapshot = snapshotOf(internalApp, { dirty: true }, internal);
   writeFileSync(join(internal, 'host/runtime.rs'), 'transient replacement\n');
   writeFileSync(join(internal, 'apps/test/assets/dist/published.txt'), 'transient nested replacement\n');
@@ -1128,16 +1153,10 @@ for (const [name, html, files, expectCode, expect] of [
     && readFileSync(join(dirtyMaterialized.exactRoot, 'generated/output.bin'), 'utf8') === 'ignored input root\n';
   writeFileSync(join(internal, 'apps/test/assets/ignored.txt'), 'ignored changed\n');
   const dirtyAgain = snapshotOf(internalApp, { dirty: true }, internal);
-  let changedSnapshotRefused = false;
-  try { snapshotOf(internalApp, { dirty: true, snapshot: dirtySnapshot.id }, internal); }
-  catch (error) { changedSnapshotRefused = error.message.includes('same complete source set'); }
-  let ignoredRootRefused = false;
-  try { snapshotOf(externalApp, {}, exact); }
-  catch (error) { ignoredRootRefused = error.message.includes('cargo') && error.message.includes('generated/value.txt'); }
+  const changedSnapshotRefused = await rejects(() => snapshotOf(internalApp, { dirty: true, snapshot: dirtySnapshot.id }, internal), error => error.message.includes('same complete source set'));
+  const ignoredRootRefused = await rejects(() => snapshotOf(externalApp, {}, exact), error => error.message.includes('cargo') && error.message.includes('generated/value.txt'));
   const externalSnapshot = snapshotOf(externalApp, { dirty: true }, exact);
-  let partialPinRefused = false;
-  try { snapshotOf(externalApp, { dirty: true, snapshot: externalSnapshot.commit }, exact); }
-  catch (error) { partialPinRefused = error.message.includes('complete source set'); }
+  const partialPinRefused = await rejects(() => snapshotOf(externalApp, { dirty: true, snapshot: externalSnapshot.commit }, exact), error => error.message.includes('complete source set'));
   const pinned = snapshotOf(externalApp, { dirty: true, snapshot: externalSnapshot.id.slice(0, 12) }, exact);
   const externalRun = deployRun(externalApp.target, 'external');
   const externalMaterialized = materializeSnapshot(externalSnapshot, externalRun, externalApp);
@@ -1161,21 +1180,15 @@ for (const [name, html, files, expectCode, expect] of [
   writeFileSync(join(external, 'Cargo.toml'), relativeManifest.replace('../cargo-dep/crates/fixture-dep', join(cargoDep, 'crates/fixture-dep')));
   const absoluteSnapshot = snapshotOf(externalApp, { dirty: true }, exact);
   writeFileSync(join(cargoDep, 'shared.txt'), '2\n');
-  let absoluteDependencyRefused = false;
-  try { materializeSnapshot(absoluteSnapshot, deployRun(externalApp.target, 'absolute-dependency'), externalApp); }
-  catch (error) { absoluteDependencyRefused = error.message.includes('resolves outside the captured source root'); }
+  const absoluteDependencyRefused = await rejects(() => materializeSnapshot(absoluteSnapshot, deployRun(externalApp.target, 'absolute-dependency'), externalApp), error => error.message.includes('resolves outside the captured source root'));
   writeFileSync(join(cargoDep, 'shared.txt'), '1\n');
   writeFileSync(join(external, 'Cargo.toml'), relativeManifest);
   writeFileSync(join(external, 'Cargo.toml'), `${relativeManifest}\n[[bin]]\nname="outside"\npath=${JSON.stringify(outsideTarget)}\n`);
   const absoluteTargetSnapshot = snapshotOf(externalApp, { dirty: true }, exact);
-  let absoluteTargetRefused = false;
-  try { materializeSnapshot(absoluteTargetSnapshot, deployRun(externalApp.target, 'absolute-target'), externalApp); }
-  catch (error) { absoluteTargetRefused = error.message.includes('target outside') && error.message.includes('resolves outside'); }
+  const absoluteTargetRefused = await rejects(() => materializeSnapshot(absoluteTargetSnapshot, deployRun(externalApp.target, 'absolute-target'), externalApp), error => error.message.includes('target outside') && error.message.includes('resolves outside'));
   writeFileSync(join(external, 'Cargo.toml'), relativeManifest);
   writeFileSync(join(cargoDep, 'crates/fixture-dep/ignored.rs'), 'pub const CAPTURED: bool = true;\n');
-  let ignoredDependencyRefused = false;
-  try { snapshotOf(externalApp, {}, exact); }
-  catch (error) { ignoredDependencyRefused = error.message.includes('cargo') && error.message.includes('crates/fixture-dep/ignored.rs'); }
+  const ignoredDependencyRefused = await rejects(() => snapshotOf(externalApp, {}, exact), error => error.message.includes('cargo') && error.message.includes('crates/fixture-dep/ignored.rs'));
   const dependencyDirty = snapshotOf(externalApp, { dirty: true }, exact);
   const dependencyRun = deployRun(externalApp.target, 'external-dependency');
   const dependencyMaterialized = materializeSnapshot(dependencyDirty, dependencyRun, externalApp);
@@ -1185,9 +1198,7 @@ for (const [name, html, files, expectCode, expect] of [
   const rendered = renderTable({ release: 'test', snapshot: externalSnapshot, channel: 'prod',
     origin: { kind: 'directory', location: '/origin' }, notes: [], rows: [] });
   writeFileSync(join(exact, 'host/runtime.rs'), 'edited\n');
-  let dependencyRefused = false;
-  try { snapshotOf(externalApp, {}, exact); }
-  catch (error) { dependencyRefused = error.message.includes('exact2') && error.message.includes('host/runtime.rs'); }
+  const dependencyRefused = await rejects(() => snapshotOf(externalApp, {}, exact), error => error.message.includes('exact2') && error.message.includes('host/runtime.rs'));
   result('deploy snapshots every source repository the bake reads', initialized
     && internalSnapshot.id === internalSnapshot.commit && internalSnapshot.sources.length === 1
     && internalSnapshot.sources[0].roles.join(',') === 'app,exact2'
@@ -1330,9 +1341,7 @@ for (const [name, html, files, expectCode, expect] of [
   writeFileSync(join(dir, 'app.wasm'), 'wasm');
   writeFileSync(join(dir, 'exact.json'), '{"app":{"id":"com.exact.castle"}}\n');
   const app = { id: 'com.exact.castle', crate: (kind) => `castle-${kind}` };
-  let refused = false;
-  try { assertWebDistApp(dir, app); }
-  catch (e) { refused = /not a complete build for selected app com\.exact\.castle/.test(e.message); }
+  const refused = await rejects(() => assertWebDistApp(dir, app), e => /not a complete build for selected app com\.exact\.castle/.test(e.message));
   rmSync(dir, { recursive: true, force: true });
   result('web agent refuses an unauthenticated matching envelope', refused);
 }
@@ -1350,9 +1359,7 @@ for (const [name, html, files, expectCode, expect] of [
     && developmentLaunchEnvironment([], inherited).EXACT_DEV_PLAN === inherited.EXACT_DEV_PLAN);
   const remote = deviceLaunchArgs('PHONE', 'com.example.app', launched);
   const baked = deviceLaunchArgs('PHONE', 'com.example.app', {});
-  let refused = false;
-  try { deviceLaunchArgs('PHONE', 'com.example.app', { EXACT_DEV_PLAN: '/tmp/app.plan' }); }
-  catch (e) { refused = /http\(s\) URL/.test(e.message); }
+  const refused = await rejects(() => deviceLaunchArgs('PHONE', 'com.example.app', { EXACT_DEV_PLAN: '/tmp/app.plan' }), e => /http\(s\) URL/.test(e.message));
   result('device launch carries only a reachable dev-plan URL',
     remote.at(-3) === '--environment-variables'
       && remote.at(-2) === '{"EXACT_DEV_PLAN":"http://192.168.1.20:8765/"}'
@@ -1477,19 +1484,13 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(join(bundle, 'assets', 'extra.png'));
   result('Apple and web packaging enforce the baked plan and complete static roster', matched && changedPlan && removed && changed && added);
   symlinkSync(outside, join(source, 'assets', 'linked'));
-  let appRefused = false;
-  try { copyAppleStaticTrees(source, join(dir, 'refused-app'), appTrees); }
-  catch (error) { appRefused = error.message.includes('cannot be symlinks'); }
+  const appRefused = await rejects(() => copyAppleStaticTrees(source, join(dir, 'refused-app'), appTrees), error => error.message.includes('cannot be symlinks'));
   symlinkSync(outside, join(bundle, 'assets', 'linked'));
-  let hostRefused = false;
-  try { copyAppleStaticTrees(bundle, join(dir, 'refused-host')); }
-  catch (error) { hostRefused = error.message.includes('cannot be symlinks'); }
+  const hostRefused = await rejects(() => copyAppleStaticTrees(bundle, join(dir, 'refused-host')), error => error.message.includes('cannot be symlinks'));
   rmSync(join(source, 'assets', 'linked'));
   const missingRoot = join(dir, 'missing-deck');
   symlinkSync(missingRoot, join(source, 'deck'));
-  let danglingRootRefused = false;
-  try { copyAppleStaticTrees(source, join(dir, 'refused-root'), appTrees); }
-  catch (error) { danglingRootRefused = error.message.includes('must be a real directory'); }
+  const danglingRootRefused = await rejects(() => copyAppleStaticTrees(source, join(dir, 'refused-root'), appTrees), error => error.message.includes('must be a real directory'));
   rmSync(dir, { recursive: true, force: true });
   result('Apple packages reject linked static files and roots', copied && appRefused && hostRefused && danglingRootRefused);
 }

@@ -101,6 +101,7 @@ const announcement = () => current ? {
   digest: current.envelope.plan.sha256, envelope: current.url,
 } : { epoch, ready: false };
 const hello = () => JSON.stringify({ hello: true, ...announcement() });
+let retentionToken = null;
 function captureGeneration(reuseCurrentAssets = false) {
   const encodedPlan = currentModule ? null : filesystem({ op: 'get', root: dist, path: 'app.plan' });
   if (!currentModule && encodedPlan === null) throw new Error('the plan is missing');
@@ -143,7 +144,8 @@ function captureGeneration(reuseCurrentAssets = false) {
   const envelopeBytes = Buffer.from(JSON.stringify(envelope) + '\n');
   if (envelopeBytes.length > 64 * 1024) throw new Error('generation envelope exceeds 64 KiB');
   files.set('exact.json', envelopeBytes);
-  retainDevGeneration(generationCache, epoch, seq, files);
+  const retained = retainDevGeneration(generationCache, epoch, seq, files, undefined, retentionToken);
+  retentionToken = retained.token;
   const revision = { epoch, seq, generation, envelope, files, prefix, url: prefix + 'exact.json' };
   const classification=classifyGeneration(planBytes,assets);
   current = revision;
@@ -260,7 +262,7 @@ function startModuleCompiler() {
   console.log(`compiler pid ${child.pid}`);
   let active = null, buffered = '', errors = '';
   const produce = () => {
-    clearTimeout(moduleTimer);
+    clearImmediate(moduleTimer);
     if (dev !== child || active || moduleWatch?.error) return;
     const started = Date.now(), stage = mkdtempSync(resolve(scratch, 'candidate-'));
     moduleStage = stage;
@@ -310,16 +312,16 @@ function startModuleCompiler() {
   });
   moduleWatch = watchModuleSources(app.dir, name => skipped.test(name) || /(^|\/)\./.test(name)
     || assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')), error => {
-    moduleRun++; moduleSaved = Date.now(); clearTimeout(moduleTimer);
+    moduleRun++; moduleSaved = Date.now(); clearImmediate(moduleTimer);
     if (error) { console.error(error.message); push({error:error.message}); return; }
-    moduleTimer = setTimeout(produce,0);
+    moduleTimer = setImmediate(produce);
   });
   if (moduleWatch.error) { console.error(moduleWatch.error.message); push({error:moduleWatch.error.message}); }
 
   produce();
 }
 const killCompiler = () => {
-  moduleWatch?.close(); moduleWatch = null; clearTimeout(moduleTimer); moduleRun++;
+  moduleWatch?.close(); moduleWatch = null; clearImmediate(moduleTimer); moduleRun++;
   const d = dev; dev = null; if (d) { try { process.kill(-d.pid, 'SIGKILL'); } catch {} }
   if (moduleStage) { rmSync(moduleStage, { recursive: true, force: true }); moduleStage = null; }
 };

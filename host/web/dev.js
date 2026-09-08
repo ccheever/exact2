@@ -108,19 +108,21 @@ async function fetchGeneration(message, signal) {
   const cards = [envelope.plan, ...envelope.assets, ...moduleCards];
   if (cards.some((card) => !Number.isSafeInteger(card?.bytes) || card.bytes < 0 || card.bytes > 64 * 1024 * 1024)
       || cards.reduce((sum, card) => sum + card.bytes, 0) > 256 * 1024 * 1024) throw new Error("generation exceeds the payload budget");
-  const plan = await load(envelope.plan, "app.plan");
+  // All admitted payloads are independent. One bounded queue avoids separate
+  // network rounds for the plan, assets and module without raising concurrency.
+  const jobs = [[envelope.plan, "app.plan"], ...envelope.assets.map(card => [card, card.name]),
+    ...(envelope.module ? ['receipt', 'web'].map(key => [envelope.module[key], `module ${key}`]) : [])];
+  const loaded = new Array(jobs.length);
   let next = 0;
-  await Promise.all(Array.from({ length: Math.min(4, envelope.assets.length) }, async () => {
-    while (next < envelope.assets.length) {
-      const card = envelope.assets[next++];
-      assets.set(card.name, await load(card, card.name));
+  await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, async () => {
+    while (next < jobs.length) {
+      const index = next++;
+      loaded[index] = await load(...jobs[index]);
     }
   }));
-  let module = null;
-  if (envelope.module) {
-    const [receipt, web] = await Promise.all(['receipt', 'web'].map(key => load(envelope.module[key], `module ${key}`)));
-    module = { receipt: receipt.bytes, script: web.bytes };
-  }
+  const plan = loaded[0];
+  envelope.assets.forEach((card, index) => assets.set(card.name, loaded[index + 1]));
+  const module = envelope.module ? { receipt: loaded.at(-2).bytes, script: loaded.at(-1).bytes } : null;
   const canonical = { assets: [...envelope.assets].sort((a, b) => utf8Compare(a.name, b.name)).map((a) => ({ bytes: a.bytes, name: a.name, sha256: a.sha256 })),
     ...(envelope.module ? { module: Object.fromEntries(moduleKeys.map(key => [key, { bytes: envelope.module[key].bytes, sha256: envelope.module[key].sha256 }])) } : {}),
     plan: { bytes: plan.bytes.length, sha256: plan.sha256 } };

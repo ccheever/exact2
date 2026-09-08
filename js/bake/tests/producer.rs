@@ -417,7 +417,7 @@ fn resident_producer_rechecks_changed_deleted_and_added_sources_and_recovers() {
     let diagnostics = producer.bake(&f.0).err().unwrap();
     assert!(diagnostics.contains("TS2322"));
     assert!(
-        !diagnostics.contains("lib.dom.d.ts"),
+        !diagnostics.contains("lib.webworker.d.ts"),
         "the error is not the --listFiles inventory: {diagnostics}"
     );
     assert!(
@@ -557,5 +557,47 @@ fn resident_compilation_refusals_are_drained_before_the_next_request() {
     f.write("hermes-wrapper", &launch);
     assert!(producer.bake(&f.0).err().unwrap().contains("TS2322"));
     f.write("logic.ts", "export const prefix = 'recovered: ';");
+    assert_eq!(producer.bake(&f.0).unwrap().receipt, f.bake().receipt);
+}
+
+#[test]
+fn both_producer_paths_check_worker_web_types_and_refuse_dom_ui_types() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    let accepted = "export const prefix = 'web: '; export async function request(url: URL, init: RequestInit): Promise<string> { const response: Response = await fetch(url, init); const headers: Headers = response.headers; return headers.get('content-type') ?? await response.text(); }";
+    f.write("logic.ts", accepted);
+    assert_eq!(producer.bake(&f.0).unwrap().receipt, f.bake().receipt);
+    f.write(
+        "logic.ts",
+        &format!("{accepted} type UI = Document | HTMLElement | Window;"),
+    );
+    for error in [
+        producer.bake(&f.0).err().unwrap(),
+        bake(&f.0, &Tools::default()).err().unwrap(),
+    ] {
+        for name in ["Document", "HTMLElement", "Window"] {
+            assert!(
+                error.contains(name),
+                "missing UI-type diagnostic for {name}: {error}"
+            );
+        }
+    }
+    f.write(
+        "logic.ts",
+        &accepted.replace("Promise<string>", "Promise<number>"),
+    );
+    for error in [
+        producer.bake(&f.0).err().unwrap(),
+        bake(&f.0, &Tools::default()).err().unwrap(),
+    ] {
+        assert!(
+            error.contains("TS2322"),
+            "fetch result types remain checked: {error}"
+        );
+    }
+    f.write("logic.ts", accepted);
     assert_eq!(producer.bake(&f.0).unwrap().receipt, f.bake().receipt);
 }

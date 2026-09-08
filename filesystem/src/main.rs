@@ -4,9 +4,8 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use directory::{refuse, Directory};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::MetadataExt;
 
@@ -79,7 +78,7 @@ fn retain(root: &Directory, input: &Value) -> io::Result<Value> {
     if token.len() != 48 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(refuse("invalid temporary-file token"));
     }
-    let lock = Lock::acquire(root, ".retained/.lock", token)?;
+    let mut lock = Lock::acquire(root, ".retained/.lock", token)?;
     let quota = input["quota"]
         .as_u64()
         .ok_or_else(|| refuse("missing quota"))?;
@@ -100,9 +99,31 @@ fn retain(root: &Directory, input: &Value) -> io::Result<Value> {
     if !files.contains_key("exact.json") {
         return Err(refuse("retained generation needs an envelope"));
     }
-    let mut total = retained_bytes(root)?;
+    // Only the immediately preceding successful holder can reuse its count.
+    // Acquisition has already invalidated that record before any possible write.
+    let completed = input["previousToken"].as_str().and_then(|previous| {
+        let record = std::str::from_utf8(&lock.previous).ok()?;
+        (previous.len() == 48
+            && record.len() == 68
+            && record.is_ascii()
+            && &record[..48] == previous
+            && record[48..].bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| {
+            record[48..]
+                .parse::<u64>()
+                .ok()
+                .filter(|total| *total >= 68)
+        })
+        .flatten()
+    });
+    let mut total = match completed {
+        Some(total) => total,
+        // The live lock currently occupies 48 bytes. Its completed count adds 20.
+        None => retained_bytes(root)?
+            .checked_add(20)
+            .ok_or_else(|| refuse("retained size overflow"))?,
+    };
     let mut candidate = Vec::new();
-    let mut parents = HashMap::new();
     for (name, encoded) in files {
         let path = format!("{prefix}/{name}");
         let body = STANDARD
@@ -110,15 +131,9 @@ fn retain(root: &Directory, input: &Value) -> io::Result<Value> {
             .map_err(|_| refuse("invalid base64"))?;
         let previous = root
             .parent(&path, false)
-            .and_then(|(parent, leaf)| parent.read(&leaf).map(|bytes| (parent, bytes)));
+            .and_then(|(parent, leaf)| parent.read(&leaf));
         match previous {
-            Ok((parent, old)) if old == body => {
-                // A prior failed batch may have linked this immutable payload
-                // without syncing its directory. A retry must finish that work.
-                let identity = parent.0.metadata()?;
-                parents.insert((identity.dev(), identity.ino()), parent);
-                continue;
-            }
+            Ok(old) if old == body => continue,
             Ok(_) => return Err(refuse("immutable retained file changed")),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
@@ -131,57 +146,16 @@ fn retain(root: &Directory, input: &Value) -> io::Result<Value> {
     if total > quota {
         return Err(refuse("retained generation cache quota exceeded"));
     }
-    // Independent payload flushes can overlap, but the envelope remains the
-    // completion marker: every payload must be durable before it is published.
+    // This is a development cache, not a durable publication stream. Complete
+    // immutable payloads precede the envelope; disk flushes are not on the edit
+    // path. A machine crash may lose cached generations, which readers verify.
     candidate.sort_by_key(|(envelope, _, _)| *envelope);
-    let envelope = if candidate.last().is_some_and(|(envelope, _, _)| *envelope) {
-        candidate.pop()
-    } else {
-        None
-    };
-    let workers = std::thread::available_parallelism()
-        .map_or(1, usize::from)
-        .min(4);
-    let chunk_size = candidate.len().div_ceil(workers).max(1);
-    let lock = &lock;
-    std::thread::scope(|scope| -> io::Result<()> {
-        let handles: Vec<_> = candidate
-            .chunks(chunk_size)
-            .map(|chunk| {
-                scope.spawn(move || -> io::Result<HashMap<(u64, u64), Directory>> {
-                    let mut parents = HashMap::new();
-                    for (_, path, body) in chunk {
-                        let (parent, leaf) = root.parent(path, true)?;
-                        // The caller's random token still owns the temporary name;
-                        // each concurrent sibling needs a distinct derivative of it.
-                        let temporary = format!("{:x}", Sha256::digest(format!("{token}/{path}")));
-                        parent.write_retained_payload(&leaf, body, &temporary[..48], || {
-                            lock.verify(root)
-                        })?;
-                        let identity = parent.0.metadata()?;
-                        parents.insert((identity.dev(), identity.ino()), parent);
-                    }
-                    Ok(parents)
-                })
-            })
-            .collect();
-        for handle in handles {
-            parents.extend(
-                handle
-                    .join()
-                    .map_err(|_| refuse("retained payload writer failed"))??,
-            );
-        }
-        Ok(())
-    })?;
-    for parent in parents.into_values() {
-        parent.0.sync_all()?;
-    }
-    if let Some((_, path, body)) = envelope {
+    for (_, path, body) in candidate {
         let (parent, leaf) = root.parent(&path, true)?;
-        parent.write_checked(&leaf, &body, true, token, || lock.verify(root))?;
+        parent.write_cached(&leaf, &body, token, || lock.verify(root))?;
     }
-    Ok(json!(total))
+    lock.complete_retention(root, total)?;
+    Ok(json!({"bytes":total, "token":token}))
 }
 
 fn operate(root: &Directory, input: &Value, locked: Option<&Lock>) -> io::Result<Value> {
@@ -262,6 +236,7 @@ struct Lock {
     dir: Directory,
     leaf: String,
     token: Vec<u8>,
+    previous: Vec<u8>,
     head: String,
     path: String,
 }
@@ -278,6 +253,14 @@ impl Lock {
         if i128::from(old.dev()) != i128::from(named.st_dev) || old.ino() != named.st_ino {
             return Err(refuse("lock changed while acquiring"));
         }
+        let mut previous = Vec::new();
+        if path == ".retained/.lock" && old.len() == 68 {
+            Read::by_ref(&mut file)
+                .take(69)
+                .read_to_end(&mut previous)?;
+            file.seek(SeekFrom::Start(0))?;
+        }
+        // Invalidate the previous completion even if this operation later fails.
         file.set_len(0)?;
         file.write_all(token.as_bytes())?;
         // This token identifies a live flock holder, not recovery state. Reads
@@ -288,6 +271,7 @@ impl Lock {
             dir,
             leaf,
             token: token.as_bytes().to_vec(),
+            previous,
             path: path.to_owned(),
             head: format!(
                 "{}/exact.json",
@@ -295,6 +279,14 @@ impl Lock {
                     .ok_or_else(|| refuse("invalid stream lock path"))?
             ),
         })
+    }
+    fn complete_retention(&mut self, root: &Directory, total: u64) -> io::Result<()> {
+        self.verify(root)?;
+        // The acquisition token is already written. A partial count has the
+        // wrong record length and cannot seed another holder's quota check.
+        self.file.seek(SeekFrom::Start(48))?;
+        self.file.write_all(format!("{total:020}").as_bytes())?;
+        Ok(())
     }
     fn verify(&self, root: &Directory) -> io::Result<()> {
         let (current, _) = root.parent(&self.path, false)?;
