@@ -1,5 +1,5 @@
 [workspace]
-members = ["kernel", "motion", "plan", "runner", "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli", "apps/caltrain", "apps/caltrain/data", "host/web", "apps/caltrain/web", "host/apple", "host/apple-update", "apps/caltrain/apple", "host/linux", "host/linux-update", "apps/caltrain/linux", "gpu", "gpu/reflect", "apps/caltrain/gpu", "js", "js/bake", "js/value", "js/web", "update", "filesystem", "apps/fieldnotes/web", "apps/fieldnotes/apple", "apps/markdown/parse", "apps/markdown/data", "apps/markdown/apple", "apps/markdown/web", "apps/llp/data", "apps/llp/apple", "apps/llp/web"]
+members = ["kernel", "motion", "plan", "runner", "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli", "apps/caltrain", "apps/caltrain/data", "host/web", "apps/caltrain/web", "host/apple", "host/apple-update", "apps/caltrain/apple", "host/linux", "host/linux-update", "apps/caltrain/linux", "gpu", "gpu/reflect", "apps/caltrain/gpu", "js", "js/bake", "js/value", "js/web", "update", "filesystem", "apps/fieldnotes/web", "apps/fieldnotes/apple", "apps/markdown/parse", "apps/markdown/data", "apps/markdown/apple", "apps/markdown/web", "apps/llp/data", "apps/llp/apple", "apps/llp/web", "apps/weatherlight/web", "apps/weatherlight/apple", "apps/weatherlight/gpu"]
 resolver = "2"
 
 [workspace.package]

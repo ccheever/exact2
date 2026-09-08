@@ -501,7 +501,7 @@ public final class ExactSession {
         apply(batch)
         view?.rebooted()
         state = .ready
-        print("reloaded \(label)")
+        fputs("reloaded \(label)\n", stderr)
     }
 
     /// A host may replace one session's plan transactionally; app delivery

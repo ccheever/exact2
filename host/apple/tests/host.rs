@@ -49,6 +49,9 @@ assert.ok(html.includes('cannot detect whether a client is installed'));
 fn swift_development_locator_refuses_malformed_links() {
     // Compile the actual Foundation-only opening code, not a parallel parser.
     let source = include_str!("../Sources/ExactKit/PlanURL.swift")
+        .split("public enum ExactDevelopmentLink")
+        .nth(1)
+        .unwrap()
         .split("/// One bounded HTTP rung.")
         .next()
         .unwrap();
@@ -72,6 +75,69 @@ for bad in ["other://open?url=https://x.test", "exact2-test://else?url=https://x
  precondition(ExactDevelopmentLink.page(URL(string: bad)!, scheme: scheme) == nil, bad)
 }
 precondition(ExactDevelopmentLink.page(URL(string: "exact2-test://open?url=https://x.test/" + String(repeating:"a", count:8192))!, scheme:scheme) == nil)
+"#;
+    let result = std::process::Command::new("swift")
+        .args([
+            "-swift-version",
+            "5",
+            "-e",
+            &format!("import Foundation\npublic enum ExactDevelopmentLink{source}\n{checks}"),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn local_development_plan_loads_the_pair_and_retries_partial_writes() {
+    let source = include_str!("../Sources/ExactKit/PlanURL.swift")
+        .split("/// Explicit development-only opening action")
+        .next()
+        .unwrap();
+    let checks = r#"
+struct ExactModule { let receipt: Data; let bytecode: Data }
+struct ExactGeneration { let plan: Data; let assets: String; let module: ExactModule }
+public final class ExactApp {
+    let resolver = "assets"
+    var plain = 0
+    var generations: [ExactGeneration] = []
+    func apply(_ bytes: Data, label: String) -> Bool { plain += 1; return true }
+    func applyGeneration(_ g: ExactGeneration, label: String, commit: () -> Bool) -> Bool {
+        precondition(commit()); generations.append(g); return true
+    }
+}
+let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: directory) }
+func write(_ name: String, _ value: String) throws {
+    try Data(value.utf8).write(to: directory.appendingPathComponent(name), options: .atomic)
+}
+let app = ExactApp(), candidate = ExactDevelopmentPlan(directory.appendingPathComponent("app.plan").path)
+try write("app.plan", "plan")
+precondition(!candidate.hasModule && candidate.apply(to: app) && app.plain == 1)
+let bare = candidate.revision
+try write("app.module.json", "receipt")
+let partial = candidate.revision
+precondition(partial != bare && candidate.hasModule)
+precondition(!candidate.apply(to: app) && app.plain == 1 && app.generations.isEmpty)
+try write("app.hbc", "bytecode")
+precondition(candidate.revision != partial && candidate.apply(to: app))
+let pair = app.generations.last!
+precondition(pair.plan == Data("plan".utf8) && pair.module.receipt == Data("receipt".utf8))
+precondition(pair.module.bytecode == Data("bytecode".utf8))
+let first = candidate.revision
+try write("app.hbc", "replacement")
+precondition(candidate.revision != first && candidate.apply(to: app))
+precondition(app.generations.last!.module.bytecode == Data("replacement".utf8))
+try FileManager.default.removeItem(at: directory.appendingPathComponent("app.module.json"))
+precondition(!candidate.apply(to: app) && app.plain == 1 && app.generations.count == 2)
+try write("app.module.json", String(repeating: "x", count: (1 << 20) + 1))
+precondition(!candidate.apply(to: app) && app.generations.count == 2)
 "#;
     let result = std::process::Command::new("swift")
         .args(["-swift-version", "5", "-e", &format!("{source}\n{checks}")])

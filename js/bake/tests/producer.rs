@@ -311,6 +311,12 @@ fn native_host_sessions_prepare_together_and_keep_the_live_app_when_one_refuses(
     assert!(output(&b, count)["error"].is_null());
     let before_a = ask(&mut a, "state");
     let before_b = ask(&mut b, "state");
+    let mut unpaired = f.bake();
+    unpaired.receipt = "{}".into();
+    assert!(prepare(&mut b, &unpaired)
+        .unwrap_err()
+        .contains("module generation"));
+    assert_eq!(ask(&mut b, "state"), before_b);
     f.write("logic.ts", "export const prefix = 'new: ';\n");
     f.write(
         "app.ts",

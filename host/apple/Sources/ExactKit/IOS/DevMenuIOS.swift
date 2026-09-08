@@ -112,8 +112,8 @@ public enum DevMenu {
         sheet?.dismiss(animated: false)
         if ExactApp.shared.connectionStatus != nil { ExactApp.shared.reloadConnection(); return }
         guard let session else { return }
-        if let path = planPath, let bytes = FileManager.default.contents(atPath: path) {
-            session.apply(bytes, label: String(path.split(separator: "/").last ?? "plan"))
+        if let path = planPath {
+            ExactDevelopmentPlan(path).apply(to: ExactApp.shared)
             return
         }
         let started = CACurrentMediaTime()

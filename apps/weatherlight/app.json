@@ -1,0 +1,13 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Weatherlight", "short_name": "Weatherlight", "id": "com.exact.weatherlight",
+  "start_url": "/", "display": "standalone",
+  "theme_color": "#102839", "background_color": "#f4f5f2",
+  "app": { "id": "com.exact.weatherlight", "name": "Weatherlight" },
+  "host": {
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "macos": { "minimumOS": "14.0", "window": { "width": 1180, "height": 920, "minWidth": 380, "minHeight": 600 } },
+    "web": {}
+  },
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" } }
+}

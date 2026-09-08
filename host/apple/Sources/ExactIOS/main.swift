@@ -43,11 +43,17 @@ final class Adapter: ExactSessionDelegate {
     weak var window: UIWindow?
     var announced = false
     /// The capabilities: `setScheme` is the window's interface style —
-    /// light or dark, as the web's `color-scheme`; anything else is named
-    /// and refused.
+    /// `light`, `dark`, or `system`, as the web's `color-scheme`, where
+    /// following the user's preference is `.unspecified` rather than a third
+    /// style; anything else is named and refused.
     func exactSession(_ session: ExactSession, command name: String, args: [Any]) {
         switch name {
-        case "setScheme": window?.overrideUserInterfaceStyle = (args.first as? String) == "dark" ? .dark : .light
+        case "setScheme":
+            switch args.first as? String {
+            case "dark": window?.overrideUserInterfaceStyle = .dark
+            case "light": window?.overrideUserInterfaceStyle = .light
+            default: window?.overrideUserInterfaceStyle = .unspecified
+            }
         default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
         }
     }
@@ -83,14 +89,15 @@ func watchPlan() {
         return
     }
     devPlanPath = planPath
-    var last = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date) ?? .distantPast
+    let candidate = ExactDevelopmentPlan(planPath)
+    var last = candidate.hasModule ? [] : candidate.revision
     let t = DispatchSource.makeTimerSource(queue: .main)
     t.schedule(deadline: .now() + 0.1, repeating: 0.1)
     t.setEventHandler {
-        guard let m = (try? FileManager.default.attributesOfItem(atPath: planPath)[.modificationDate] as? Date), m > last else { return }
-        last = m
-        guard let bytes = FileManager.default.contents(atPath: planPath) else { return }
-        exact.apply(bytes, label: String(planPath.split(separator: "/").last ?? "plan"))
+        let revision = candidate.revision
+        guard revision != last else { return }
+        last = revision
+        candidate.apply(to: exact)
     }
     t.resume()
     planWatch = t
@@ -203,7 +210,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // library — any compiled contract, no rebuild (smokes, fixtures).
         // The view boots the session at its first layout; a file plan is
         // booted here first, at the screen's size the view will take.
-        if let path = environment["EXACT_PLAN"] ?? devPlanPath, let bytes = FileManager.default.contents(atPath: path) {
+        if let path = environment["EXACT_PLAN"], ExactDevelopmentPlan(path).hasModule {
+            DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
+        }
+        if let path = environment["EXACT_PLAN"] ?? devPlanPath, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
             ExactIOS.session.boot(plan: bytes, size: ws.coordinateSpace.bounds.inset(by: w.safeAreaInsets).size)
         }
         let c = Controller()

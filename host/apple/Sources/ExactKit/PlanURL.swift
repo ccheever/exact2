@@ -12,6 +12,56 @@
 import CryptoKit
 import Foundation
 
+/// A local development bake is a plan plus its optional, inseparable module
+/// pair (LLP 1027 D7). Watch all three files: a writer can replace them in
+/// either order, and a refused partial bake must be retried when it finishes.
+public struct ExactDevelopmentPlan {
+    private let files: [URL]
+    public init(_ path: String) {
+        let plan = URL(fileURLWithPath: path)
+        let directory = plan.deletingLastPathComponent()
+        files = [plan, directory.appendingPathComponent("app.module.json"), directory.appendingPathComponent("app.hbc")]
+    }
+
+    public var hasModule: Bool { files.dropFirst().contains { FileManager.default.fileExists(atPath: $0.path) } }
+
+    /// Identity and subsecond modification time, including missing files.
+    public var revision: [Double] {
+        files.flatMap { url -> [Double] in
+            let a = try? FileManager.default.attributesOfItem(atPath: url.path)
+            return [(a?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? -1,
+                    (a?[.size] as? NSNumber)?.doubleValue ?? -1,
+                    (a?[.systemFileNumber] as? NSNumber)?.doubleValue ?? -1]
+        }
+    }
+
+    @discardableResult
+    public func apply(to app: ExactApp) -> Bool {
+        do {
+            func read(_ index: Int, limit: Int) throws -> Data {
+                let url = files[index]
+                let a = try FileManager.default.attributesOfItem(atPath: url.path)
+                guard let size = a[.size] as? NSNumber, size.intValue <= limit else {
+                    throw NSError(domain: "ExactDevelopmentPlan", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(url.lastPathComponent) exceeds the development artifact limit"])
+                }
+                let bytes = try Data(contentsOf: url)
+                guard bytes.count <= limit else { throw CocoaError(.fileReadTooLarge) }
+                return bytes
+            }
+            let plan = try read(0, limit: 32 << 20)
+            let label = files[0].lastPathComponent
+            if hasModule {
+                let module = ExactModule(receipt: try read(1, limit: 1 << 20), bytecode: try read(2, limit: 32 << 20))
+                return app.applyGeneration(ExactGeneration(plan: plan, assets: app.resolver, module: module), label: label, commit: { true })
+            }
+            return app.apply(plan, label: label)
+        } catch {
+            fputs("exact: local generation refused: \(error.localizedDescription)\n", stderr)
+            return false
+        }
+    }
+}
+
 /// Explicit development-only opening action (LLP 1030.000 §7). The locator
 /// stays an HTTP(S) URL; the outer app-specific scheme only selects the client.
 public enum ExactDevelopmentLink {
@@ -194,7 +244,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     /// already current app, while another kind of apply invalidates the identity.
     static func open(_ page: String, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
         guard let u = URL(string: page), u.host != nil, sameOrigin(u, u) else {
-            print("exact url: not an HTTP app URL: \(page)")
+            fputs("exact url: not an HTTP app URL: \(page)\n", stderr)
             return nil
         }
         let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, apply: apply)
@@ -587,5 +637,5 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         fetchEnvelope(url, subscribe: false, generation: generation, expected: revision)
     }
 
-    private func status(_ message: String) { print("exact url: \(message)") }
+    private func status(_ message: String) { fputs("exact url: \(message)\n", stderr) }
 }

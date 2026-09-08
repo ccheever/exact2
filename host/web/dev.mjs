@@ -40,7 +40,7 @@ const port = Number(arg('--port', 8765));
 const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
 const host = loopback ? '127.0.0.1' : '0.0.0.0';
 const root = resolve(new URL('../..', import.meta.url).pathname);
-const dist = resolve(root, 'host/web/dist');
+const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(root, 'host/web/dist'));
 const source = resolve(app.dir, 'app.contract');
 const typescript = existsSync(resolve(app.dir, 'app.ts'));
 const plan = resolve(dist, 'app.plan');

@@ -559,6 +559,15 @@ in-flight bake; a refused bake leaves discovery unchanged. The ordinary Cargo
 build scripts can call `exact_js_bake::build` to embed the same paired artifacts
 and target receipt, currently for updater-free web/macOS/iOS compositions only.
 
+The Apple adapters' explicit local `EXACT_DEV_PLAN` path and Reload menu also
+load `app.module.json` and `app.hbc` beside the plan through paired acceptance.
+They watch all three file identities and modification times: partial writes
+keep the old app, and completion retries even if the plan itself is unchanged.
+Native `--run` no longer implicitly watches the shared `host/web/dist/app.plan`;
+live source edits use the dev server's `--url`, whose complete generations include
+module-only edits. `EXACT_WEB_DIST` isolates that server's output when another app
+is being built in the same checkout.
+
 The development producer retains imported Rolldown and the native TypeScript
 builder's private incremental cache across requests (`exact-js-bake <app> --serve`).
 Each request captures the current source graph and runs full strict diagnostics;
@@ -606,6 +615,14 @@ UI drive, physical iOS guard execution and physical live-URL replacement;
 signed module delivery remains owed.
 
 ### D6 — The web: the browser is the executor; one wasm import; the same module under two loaders
+
+**Startup scrolling (2026-09-08).** Baked content remains scrollable and readable
+while the deferred executor loads or fails. The web glue gates app event dispatch
+and editing, rather than making the root `inert`. The private module iframe is
+outside the presented tree; the host's iframe CSS applies only inside
+`#exact-root`, so its `hidden` state cannot accidentally add a second page scroll
+area. `js/web/tests/browser.rs` drives wheel, editing, activation, and failure in
+Chrome and checks both private and presented iframe geometry.
 
 **Implementation status (Codex, 2026-09-07):** `exact-js-web` and the private
 browser loader support synchronous and async providers, including fetch.

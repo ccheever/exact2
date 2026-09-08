@@ -1,0 +1,274 @@
+// Weatherlight: one Contract UI, network data below the seam, an optional GPU sky.
+shape Hour
+  id: string
+  time: string
+  temp: number
+  feels: number
+  humidity: number
+  cloud: number
+  rain: number
+  chance: number
+  wind: number
+  code: number
+  day: number
+  hour: number
+shape Day
+  id: string
+  low: number
+  high: number
+  code: number
+  chance: number
+  sunrise: string
+  sunset: string
+  uv: number
+shape Forecast
+  lat: number
+  lon: number
+  ready: bool
+  stale: bool
+  message: string
+  updated: string
+  current: Hour
+  hours: list<Hour>
+  days: list<Day>
+shape Place
+  id: string
+  name: string
+  detail: string
+  lat: number
+  lon: number
+shape Places
+  items: list<Place>
+  message: string
+shape HourCard
+  id: string
+  label: string
+  temp: string
+  icon: string
+  chance: string
+shape DayCard
+  id: string
+  label: string
+  condition: string
+  icon: string
+  chance: string
+  low: string
+  high: string
+  left: string
+  span: string
+shape Outlook
+  ready: bool
+  temp: string
+  condition: string
+  feels: string
+  wind: string
+  humidity: string
+  chance: string
+  range: string
+  sunrise: string
+  sunset: string
+  uv: string
+  summary: string
+  selectedLabel: string
+  cloud: number
+  rain: number
+  day: number
+  hour: number
+  speed: number
+  hours: list<HourCard>
+  days: list<DayCard>
+
+component Weatherlight
+  state city = "San Francisco"
+  state region = "California, United States"
+  state lat = 37.7749
+  state lon = -122.4194
+  state units = "F"
+  state selected = "now"
+  state revision = 0
+  state ticks = 0
+  state searching = false
+  state query = ""
+  state submitted = ""
+  state animated = true
+  resource forecast = forecast(lat, lon, revision) as shape Forecast
+  resource outlook = outlook(forecast, units, selected, lat, lon) as shape Outlook
+  resource places = places(submitted) as shape Places
+
+  action openSearch writes searching
+    searching = true
+    focus("city-query")
+  action closeSearch writes searching
+    searching = false
+  action changeQuery(value) writes query
+    query = value
+  action search writes submitted
+    submitted = query
+    refresh places
+  action searchKey(k: string) writes submitted, searching
+    if k == "Enter"
+      submitted = query
+      refresh places
+    if k == "Escape"
+      searching = false
+  action choose(name: string, detail: string, latitude: number, longitude: number) writes city, region, lat, lon, selected, searching, query, submitted
+    city = name
+    region = detail
+    lat = latitude
+    lon = longitude
+    selected = "now"
+    searching = false
+    query = ""
+    submitted = ""
+  action setUnits(value: string) writes units
+    units = value
+  action explore(id: string) writes selected
+    selected = id
+  action reloadWeather writes revision, selected
+    revision = revision + 1
+    selected = "now"
+  action toggleMotion writes animated
+    animated = not animated
+  action tick writes ticks, revision
+    if ticks == 0
+      revision = revision + 1
+    ticks = (ticks + 1) % 600
+  task updates mount
+    every(1000, tick)
+
+  view
+    main testId="weatherlight" width="100%" min-height="100%" box-sizing="border-box" background-color="#f4f5f2" color="#183444" display="flex" flex-direction="column" align-items="center"
+      column width="100%" max-width=1200 box-sizing="border-box" padding=20 gap=22 flex-shrink=0
+        row justify-content="space-between" align-items="center" flex-wrap="wrap" gap=16
+          row align-items="center" gap=10
+            text "◒" font-size=32 color="#ce8152"
+            column gap=2
+              text "weatherlight" font-size=24 font-family="serif" font-weight=600 letter-spacing=-1
+              text "A LITTLE CLOSER TO OUTSIDE" font-size=9 font-weight=600 letter-spacing=2 color="#71818a"
+          row align-items="center" gap=8
+            button press=openSearch testId="change-city" aria-label="Search for a city" padding=11 border-radius=22 background-color="#e6ebe7"
+              text "⌕  Find a city" font-size=13 color="#183444"
+            row padding=3 gap=2 border-radius=22 background-color="#e6ebe7"
+              button press=setUnits("C") testId="unit-c" aria-label="Celsius" padding=8 border-radius=18 background-color=(units == "C" ? "#ffffff" : "#e6ebe7")
+                text "°C" font-size=13 color="#183444" font-weight=600
+              button press=setUnits("F") testId="unit-f" aria-label="Fahrenheit" padding=8 border-radius=18 background-color=(units == "F" ? "#ffffff" : "#e6ebe7")
+                text "°F" font-size=13 color="#183444" font-weight=600
+        when searching
+          column padding=20 gap=14 background-color="#ffffff" border-radius=18 border-width=1 border-color="#dce3de" testId="search-panel"
+            row justify-content="space-between" align-items="center"
+              text "Where shall we go?" font-family="serif" font-size=24
+              button press=closeSearch testId="close-search" aria-label="Close city search" padding=8
+                text "Close ×" color="#536b78"
+            row gap=8
+              input id="city-query" testId="city-query" value=query change=changeQuery key=searchKey placeholder="City or postal code" aria-label="City or postal code" flex=1 min-width=0 padding=12 border-radius=8 border-width=1 border-color="#c7d2ce" font-size=16
+              button press=search testId="search-city" padding=12 border-radius=8 background-color="#183444"
+                text "Search" color="#ffffff"
+            when pending(places)
+              text "Looking for places…" color="#536b78" font-size=13
+            else
+              text places.message color="#536b78" font-size=13 testId="search-message"
+            each place in places.items key=place.id
+              button press=choose(place.name, place.detail, place.lat, place.lon) testId=`place-${place.id}` padding=12 border-radius=8 background-color="#f4f5f2"
+                row justify-content="space-between" gap=12 flex-wrap="wrap"
+                  text place.name font-weight=600
+                  text place.detail color="#536b78" font-size=13
+        row gap=8 flex-wrap="wrap" align-items="center"
+          text "ELSEWHERE" font-size=10 letter-spacing=2 color="#71818a" margin-right=6
+          button press=choose("San Francisco", "California, United States", 37.7749, -122.4194) testId="city-sf" padding=8 border-radius=16 background-color=(city == "San Francisco" ? "#dce5dd" : "#f4f5f2")
+            text "San Francisco" font-size=12 color="#405b69"
+          button press=choose("London", "England, United Kingdom", 51.5074, -0.1278) testId="city-london" padding=8 border-radius=16 background-color=(city == "London" ? "#dce5dd" : "#f4f5f2")
+            text "London" font-size=12 color="#405b69"
+          button press=choose("Tokyo", "Japan", 35.6762, 139.6503) testId="city-tokyo" padding=8 border-radius=16 background-color=(city == "Tokyo" ? "#dce5dd" : "#f4f5f2")
+            text "Tokyo" font-size=12 color="#405b69"
+          button press=choose("Reykjavík", "Iceland", 64.1466, -21.9426) testId="city-reykjavik" padding=8 border-radius=16 background-color=(city == "Reykjavík" ? "#dce5dd" : "#f4f5f2")
+            text "Reykjavík" font-size=12 color="#405b69"
+        canvas surface=weather(outlook.cloud, outlook.rain, outlook.day, outlook.hour, outlook.speed, animated) testId="weather-sky" width="100%" height=440 border-radius=24 overflow="hidden" background-color="#183e56" display="flex" flex-direction="column" justify-content="space-between" padding=26 box-sizing="border-box" color="#ffffff"
+          row justify-content="space-between" align-items="flex-start" gap=12
+            column gap=6 flex=1 min-width=0
+              text city testId="city-name" font-family="serif" font-size=34 letter-spacing=-1 color="#ffffff"
+              text region font-size=12 color="#d5e3e9"
+            button press=toggleMotion testId="pause-sky" aria-label=(animated ? "Pause sky animation" : "Play sky animation") padding=10 border-radius=20 background-color="#17374e"
+              text (animated ? "Ⅱ" : "▷") color="#e2eced" font-size=14
+          column gap=3
+            text (pending(forecast) ? "UPDATING FORECAST" : outlook.selectedLabel) testId="selected-label" font-size=10 font-weight=600 letter-spacing=2 color="#d5e3e9"
+            text (outlook.ready ? outlook.temp : "—°") testId="temperature" font-size=92 font-weight=300 letter-spacing=-6 line-height=100 color="#ffffff"
+            text (outlook.ready ? outlook.condition : "Finding your patch of sky…") testId="condition" font-size=22 font-family="serif" color="#ffffff"
+            text outlook.range font-size=13 color="#d5e3e9" margin-top=8
+          row justify-content="space-between" align-items="center" flex-wrap="wrap" gap=12
+            text (outlook.ready ? outlook.summary : "The forecast will appear here when it arrives.") font-size=13 color="#e2eced" max-width=650
+            when selected != "now"
+              button press=explore("now") testId="back-now" padding=10 border-radius=18 background-color="#17374e"
+                text "↶ Back to now" font-size=12 color="#ffffff"
+        when forecast.message != "" and not pending(forecast)
+          row gap=12 justify-content="space-between" align-items="center" padding=14 border-radius=12 background-color="#f5e8d7" testId="network-notice"
+            text forecast.message color="#825227" font-size=13 flex=1
+            button press=reloadWeather testId="retry-weather" padding=8
+              text "Try again ↻" font-weight=600 color="#825227"
+        column gap=14
+          row justify-content="space-between" align-items="center" gap=12
+            column gap=4
+              text "The day, unfolding" font-family="serif" font-size=25 letter-spacing=-0.5
+              text "Choose an hour. Watch the sky change." font-size=12 color="#71818a"
+            text "NEXT 24 HOURS" font-size=9 font-weight=600 letter-spacing=2 color="#71818a"
+          row overflow-x="scroll" overflow-y="hidden" gap=8 padding-bottom=8 testId="hourly-timeline"
+            button press=explore("now") testId="hour-now" disabled=(not outlook.ready) height=150 width=88 flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == "now" ? "#183444" : "#ffffff")
+              column gap=13 align-items="center"
+                text "Now" font-size=12 color=(selected == "now" ? "#ffffff" : "#536b78")
+                text "◉" font-size=22 color="#c78c54"
+                text (outlook.ready ? "Live" : "—") font-size=16 font-weight=600 color=(selected == "now" ? "#ffffff" : "#183444")
+                text "Today" font-size=10 color=(selected == "now" ? "#b8cfda" : "#71818a")
+            each hour in outlook.hours key=hour.id
+              button press=explore(hour.id) disabled=(not outlook.ready) testId=`hour-${hour.id}` aria-label=`${hour.label}, ${hour.temp}, ${hour.chance} chance of precipitation` scale=(selected == hour.id ? 1.025 : 1) transition="scale 180ms ease" height=150 width=88 flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == hour.id ? "#183444" : "#ffffff")
+                column gap=13 align-items="center"
+                  text hour.label font-size=12 color=(selected == hour.id ? "#ffffff" : "#536b78")
+                  text hour.icon font-size=22 color="#c78c54"
+                  text hour.temp font-size=18 font-weight=600 color=(selected == hour.id ? "#ffffff" : "#183444")
+                  text hour.chance font-size=10 color=(selected == hour.id ? "#b8cfda" : "#71818a")
+        row gap=18 flex-wrap="wrap" align-items="stretch"
+          column flex=1 min-width=290 gap=16 padding=22 box-sizing="border-box" background-color="#ffffff" border-radius=20 testId="seven-day"
+            text "A look ahead" font-family="serif" font-size=25 letter-spacing=-0.5
+            text "7-DAY FORECAST" font-size=9 letter-spacing=2 color="#71818a"
+            each day in outlook.days key=day.id
+              row align-items="center" gap=10 height=41 box-sizing="border-box" padding-top=9 padding-bottom=9
+                text day.label width=48 font-size=13 font-weight=600
+                text day.icon width=23 font-size=19 color="#c78c54" aria-label=day.condition
+                text day.chance width=34 font-size=11 color="#71818a"
+                text day.low width=30 font-size=13 color="#71818a" text-align="right"
+                row flex=1 height=5 background-color="#edf0e9" border-radius=3 min-width=20
+                  box width=day.left height=5
+                  box width=day.span height=5 background-color="#c99662" border-radius=3
+                text day.high width=30 font-size=13 font-weight=600
+          column flex=1 min-width=290 gap=16 padding=22 box-sizing="border-box" background-color="#e7ece5" border-radius=20
+            text "Out in the elements" font-family="serif" font-size=25 letter-spacing=-0.5
+            text outlook.selectedLabel font-size=9 letter-spacing=2 color="#667b72"
+            row gap=14 flex-wrap="wrap"
+              column flex=1 min-width=100 gap=6 padding=14 background-color="#f3f5ef" border-radius=12
+                text "↗  WIND" font-size=10 letter-spacing=1 color="#667b72"
+                text outlook.wind testId="wind" font-size=22 font-family="serif"
+              column flex=1 min-width=100 gap=6 padding=14 background-color="#f3f5ef" border-radius=12
+                text "◌  HUMIDITY" font-size=10 letter-spacing=1 color="#667b72"
+                text outlook.humidity font-size=22 font-family="serif"
+            row gap=14 flex-wrap="wrap"
+              column flex=1 min-width=100 gap=6 padding=14 background-color="#f3f5ef" border-radius=12
+                text "◈  FEELS LIKE" font-size=10 letter-spacing=1 color="#667b72"
+                text outlook.feels testId="feels-like" font-size=22 font-family="serif"
+              column flex=1 min-width=100 gap=6 padding=14 background-color="#f3f5ef" border-radius=12
+                text "☂  RAIN CHANCE" font-size=10 letter-spacing=1 color="#667b72"
+                text outlook.chance font-size=22 font-family="serif"
+            row justify-content="space-between" gap=12 padding-top=8 flex-wrap="wrap"
+              column gap=5
+                text "SUNRISE" font-size=9 letter-spacing=1 color="#667b72"
+                text outlook.sunrise font-size=17 font-family="serif"
+              column gap=5
+                text "SUNSET" font-size=9 letter-spacing=1 color="#667b72"
+                text outlook.sunset font-size=17 font-family="serif"
+              column gap=5
+                text "UV INDEX" font-size=9 letter-spacing=1 color="#667b72"
+                text outlook.uv font-size=17 font-family="serif"
+        row justify-content="space-between" align-items="center" gap=12 flex-wrap="wrap" padding-bottom=10
+          column gap=5
+            link href="https://open-meteo.com/" color="#71818a" font-size=11
+              text "Weather data by Open-Meteo · CC BY 4.0"
+            text (outlook.ready ? `Local forecast time ${forecast.updated}${pending(forecast) ? " · updating" : forecast.stale ? " · last available forecast" : ""}` : "Waiting for a forecast · times are local to the city") font-size=10 color="#71818a" testId="forecast-status"
+          button press=reloadWeather disabled=pending(forecast) testId="refresh-weather" padding=10 border-radius=16 background-color="#e6ebe7"
+            text (pending(forecast) ? "Updating…" : "Refresh ↻") font-size=12 color="#405b69"

@@ -41,14 +41,52 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 const routes = {'/module-glue.js':'host/web/module-glue.js','/module-prelude.js':'js/src/prelude.js'};
+routes['/startup/glue.js']='host/web/glue.js';
+const hostPage=readFileSync('host/web/index.html','utf8');
+const modulePage=hostPage.replace(/<script type="module" src="\.\/glue\.js"><\/script>/,'');
+const startupStub=()=>{
+  const memory=new WebAssembly.Memory({initial:2});
+  const out=value=>{const bytes=new TextEncoder().encode(JSON.stringify(value));new Uint8Array(memory.buffer,65536,bytes.length).set(bytes);return bytes.length;};
+  globalThis.startup={dispatch:[],activated:false,release:null};
+  globalThis.startupGate=new Promise(resolve=>startup.release=resolve);
+  const create=(id,tag,props,css,handlers=[])=>({op:'create',id,tag,props,css,handlers});
+  const batch={ops:[
+    create(1,'main',{id:'scroller'},'height:100%;overflow:auto'),
+    create(2,'button',{id:'action',text:'Act'},'height:40px;width:200px',['press']),
+    create(3,'input',{id:'editor',value:'baked'},'height:40px;width:200px',['change']),
+    create(4,'button',{id:'disabled',text:'Disabled',disabled:'true'},'height:40px;width:200px',['press']),
+    create(6,'input',{id:'range',type:'range',min:'0',max:'100',value:'50'},'appearance:auto;height:40px;width:200px',['change']),
+    create(7,'button',{id:'disabled-on-activation',text:'Will disable'},'height:40px;width:200px',['press']),
+    create(8,'button',{id:'enabled-on-activation',text:'Will enable',disabled:'true'},'height:40px;width:200px',['press']),
+    create(5,'div',{text:'A long baked page'},'height:2200px'),
+    {op:'children',id:1,ids:[2,3,4,6,7,8,5]},{op:'roots',ids:[1]}
+  ]};
+  WebAssembly.instantiateStreaming=async response=>{
+    await response;
+    return {instance:{exports:{memory,exact_out:()=>65536,exact_in:()=>0,
+      exact_compat:()=>out({}),exact_logic:()=>out({appId:'test.startup',grants:''}),
+      exact_plan:()=>out([]),exact_plan_fonts:()=>out([]),exact_boot:()=>out(batch),
+      exact_data_ready:()=>{startup.activated=true;return out({ops:[
+        {op:'props',id:7,set:{disabled:'true'},clear:[]},
+        {op:'props',id:8,set:{},clear:['disabled']}
+      ]});},
+      exact_dispatch:(id,kind,length)=>{startup.dispatch.push({id,kind,value:new TextDecoder().decode(new Uint8Array(memory.buffer,0,length))});return out({ops:[]});}
+    }}};
+  };
+};
+const startupPage=hostPage.replace('<script type="module" src="./glue.js"></script>',`<script>(${startupStub.toString()})()</script><script type="module" src="/startup/glue.js"></script>`);
 for(const name of ['storage.js','storage-fs.js','storage-sqlite.js','storage-worker.js'])routes['/'+name]='host/web/'+name;
 routes['/sqlite3.mjs']='node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs';
 routes['/sqlite3.wasm']='node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm';
 const fixtures=Object.fromEntries(['inputs','castle','caltrain','ambient-init','storage'].map(name=>[name,execFileSync('./node_modules/.bin/rolldown',[`js/tests/fixtures/${name}.ts`,'--format','iife'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})]));
 fixtures.oracle=JSON.parse(process.env.EXACT_PARITY);
 const server = createServer((req,res)=>{
+  if(req.url.startsWith('/startup/module-glue.js')){
+    res.setHeader('content-type','text/javascript');
+    res.end(`globalThis.exact.moduleRuntime={baked:async()=>{await globalThis.startupGate;if(location.search.includes('fail'))throw new Error('controlled loader failure');return {};},prepare:async()=>({id:0,dispose(){}})};`);return;
+  }
   res.setHeader('content-type', req.url.endsWith('.wasm') ? 'application/wasm' : routes[req.url] ? 'text/javascript' : 'text/html');
-  res.end(routes[req.url] ? readFileSync(routes[req.url]) : '<script>globalThis.exact={}</script>');
+  res.end(routes[req.url] ? readFileSync(routes[req.url]) : req.url.startsWith('/startup') ? startupPage : modulePage);
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const profile = mkdtempSync(resolve(tmpdir(),'exact-module-browser-'));
@@ -67,7 +105,9 @@ try {
     const {prepare,call,run} = await import('/module-glue.js');
     const checkpoint=async result=>{for(let i=0;result.continuation&&i<20;i++)result=await run(result.continuation);return result;};
     const oldDate=Date, oldNow=Date.now, oldRandom=Math.random;
-    const guest=document.createElement('iframe');document.body.append(guest);
+    const guest=document.createElement('iframe');document.getElementById('exact-root').append(guest);
+    const guestBox=guest.getBoundingClientRect(), pageHeight=document.documentElement.scrollHeight;
+    if(guestBox.width!==300||guestBox.height!==150)throw new Error('guest iframe lost its 300x150 box');
     const guestDate=guest.contentWindow.Date;
     const identity={appId:'test.browser.module',grants:'secret.keep token'};
     const encode=s=>new TextEncoder().encode(s);
@@ -87,6 +127,9 @@ try {
       if(source==='async')return Promise.resolve('later');
       return 'ok';}};`;
     const module = await prepare(await payload(source),identity);
+    const privateFrames=[...document.querySelectorAll('iframe')].filter(frame=>frame!==guest);
+    if(privateFrames.length!==1||privateFrames.some(frame=>frame.getClientRects().length))throw new Error('private module iframe participates in layout');
+    if(document.documentElement.scrollHeight!==pageHeight)throw new Error('private module grew document scroll height');
     const answer=(source,args=[])=>call({op:'answer',id:module.id,source,args,store:[['token','old']],grants:['token']});
     const results=['alias','random','constructor','intl'].map(name=>answer(name));
     if(!results.every(r=>r.message?.includes('pass time or a random seed')))throw new Error(JSON.stringify(results));
@@ -317,6 +360,71 @@ try {
   assert.equal(persisted.exceptionDetails,undefined,JSON.stringify(persisted.exceptionDetails));
   assert.equal(persisted.result.value,true,'storage survives full page reload');
   console.log(JSON.stringify(result.result.value));
+  const evaluate=async expression=>{
+    const result=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});
+    assert.equal(result.exceptionDetails,undefined,JSON.stringify(result.exceptionDetails));
+    return result.result.value;
+  };
+  const frames='await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))';
+  const click=async id=>{
+    const point=await evaluate(`(()=>{const r=document.getElementById(${JSON.stringify(id)}).getBoundingClientRect();return {x:r.x+20,y:r.y+20};})()`);
+    await call('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});
+    await call('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...point});
+  };
+  const scroll=async()=>{
+    await call('Input.dispatchMouseEvent',{type:'mouseWheel',x:350,y:200,deltaX:0,deltaY:320});
+    const moved=await evaluate(`(async()=>{for(let i=0;i<30;i++){${frames};if(document.getElementById('scroller').scrollTop>0)return true;}return false;})()`);
+    assert.equal(moved,true,'baked page accepts wheel scrolling while module is unavailable');
+    await evaluate(`document.getElementById('scroller').scrollTop=0`);
+    await evaluate(`(async()=>{${frames};})()`);
+  };
+  const rangeKeyboard=async()=>{
+    await evaluate(`document.getElementById('range').focus()`);
+    await call('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});
+    await call('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});
+  };
+  const blockedRange=async()=>{
+    await rangeKeyboard();
+    assert.equal(await evaluate(`document.getElementById('range').value`),'50','unready range rejects native keyboard editing');
+    await click('range');
+    assert.equal(await evaluate(`document.getElementById('range').value`),'50','unready range rejects native pointer editing');
+  };
+  for(const fails of [false,true]){
+    await call('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/startup${fails?'?fail=1':''}`});
+    assert.equal(await evaluate(`(async()=>{for(let i=0;i<120;i++){${frames};if(document.getElementById('exact-root').dataset.bootMs&&globalThis.exact.moduleRuntime)return true;}return false;})()`),true,'real glue paints before the controlled module is released');
+    assert.equal(await evaluate('startup.activated'),false);
+    await scroll();
+    await click('action');
+    await click('editor');
+    await call('Input.insertText',{text:'early'});
+    await blockedRange();
+    assert.deepEqual(await evaluate(`({dispatch:startup.dispatch,value:document.getElementById('editor').value})`),{dispatch:[],value:'baked'},'unready app neither dispatches nor edits baked input');
+    await evaluate('startup.release()');
+    assert.equal(await evaluate(`(async()=>{for(let i=0;i<120;i++){${frames};const root=document.getElementById('exact-root');if(root.dataset.${fails?'error':'moduleReady'})return true;}return false;})()`),true,'module release settles readiness');
+    if(fails){
+      await scroll();
+      await click('action');await click('editor');await call('Input.insertText',{text:'failed'});
+      await blockedRange();
+      assert.deepEqual(await evaluate(`({active:startup.activated,dispatch:startup.dispatch,value:document.getElementById('editor').value})`),{active:false,dispatch:[],value:'baked'},'failed module remains gated without disabling scrolling');
+    }else{
+      await click('action');await click('editor');await call('Input.insertText',{text:'ready'});
+      const active=await evaluate(`({dispatch:startup.dispatch,value:document.getElementById('editor').value,disabled:document.getElementById('disabled').disabled})`);
+      assert.equal(active.dispatch.some(event=>event.id===2&&event.kind===0),true,'ready button dispatches');
+      assert.equal(active.dispatch.some(event=>event.id===3&&event.kind===1),true,'ready input dispatches edits');
+      assert.equal(active.value.includes('ready'),true);assert.equal(active.disabled,true,'authored disabled state survives activation');
+      assert.deepEqual(await evaluate(`['disabled-on-activation','enabled-on-activation'].map(id=>document.getElementById(id).disabled)`),[true,false],'activation prop changes override originally authored disabled state');
+      await rangeKeyboard();
+      assert.equal(await evaluate(`document.getElementById('range').value`),'51','activated range accepts native keyboard editing');
+      await click('range');
+      assert.equal(await evaluate(`Number(document.getElementById('range').value)<51`),true,'activated range accepts native pointer editing');
+      assert.equal(await evaluate(`startup.dispatch.filter(event=>event.id===6&&event.kind===1).length`),2,'keyboard and pointer range edits both dispatch');
+      await click('enabled-on-activation');
+      assert.equal(await evaluate(`startup.dispatch.some(event=>event.id===8&&event.kind===0)`),true,'activation can enable an originally disabled button');
+      const count=await evaluate('startup.dispatch.length');await click('disabled');await click('disabled-on-activation');
+      assert.equal(await evaluate('startup.dispatch.length'),count,'authored disabled button stays noninteractive');
+    }
+  }
+  console.log('startup: private iframe layout, pre-activation scroll, input gating, successful and failed activation');
 } finally {
   process.kill(-child.pid,'SIGKILL');await exited;server.closeAllConnections();await new Promise(r=>server.close(r));rmSync(profile,{recursive:true,force:true,maxRetries:3,retryDelay:100});
 }

@@ -361,16 +361,18 @@ impl<D: DataSource> Bridge<D> {
         };
         let data = match replacement() {
             Ok(data) => data,
-            Err(error) => return self.prepare_error(format!("module generation: {error:?}")),
+            Err(error) => return self.refuse_preparation(&format!("module generation: {error:?}")),
         };
         let mut validated = None;
         if self.painted {
             let mut validation = match replacement() {
                 Ok(data) => data,
-                Err(error) => return self.prepare_error(format!("module generation: {error:?}")),
+                Err(error) => {
+                    return self.refuse_preparation(&format!("module generation: {error:?}"))
+                }
             };
             if let Err(error) = validation.activate_for_validation() {
-                return self.prepare_error(format!("candidate module: {error:?}"));
+                return self.refuse_preparation(&format!("candidate module: {error:?}"));
             }
             // Validate carried-state answers and layout, without endowing real
             // storage or releasing candidate effects. A refusal keeps the live
