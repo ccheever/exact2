@@ -35,6 +35,11 @@ const app = resolveApp(appName);
 // resolved root bypasses capture. Foreign inherited markers cannot do so.
 if (!process.argv.includes('--scaling') && process.env.EXACT_DIAGNOSTIC_ROOT !== ROOT) {
   const code = await withAppFixture(app, async ({ exactRoot, env }) => {
+    // The captured source excludes node_modules. Resolve the pinned toolchain
+    // inside this private checkout, rather than borrowing the live workspace.
+    const installed = spawnSync('npm', ['ci', '--no-audit', '--no-fund'],
+      { cwd: exactRoot, env, encoding: 'utf8' });
+    if (installed.error || installed.status !== 0) throw new Error(`diagnostic npm ci: ${installed.error?.message ?? installed.stderr}`);
     const child = spawn(process.execPath, [resolve(exactRoot, 'scripts/metrics.mjs'), ...process.argv.slice(2)],
       { cwd: exactRoot, env, stdio: 'inherit' });
     return await new Promise((done, fail) => { child.once('error', fail); child.once('exit', (code) => done(code ?? 1)); });
