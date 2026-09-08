@@ -1,13 +1,6 @@
 #!/usr/bin/env node
-/**
- * Proves every caps rule fires. A budget check that cannot fail is worse than
- * no check: it reports green while inspecting nothing, and everyone believes it.
- *
- * Each case builds a throwaway repository, breaks exactly one thing, and asserts
- * the matching code appears. The last case asserts a clean repository passes, so
- * the suite cannot be satisfied by a check that simply always fails.
- */
-
+// Proves caps rules fire in throwaway repositories and a clean repo passes;
+// also exercises the shared build, delivery, and launch helpers.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, renameSync, writeFileSync, rmSync, symlinkSync, utimesSync } from 'node:fs';
@@ -17,9 +10,9 @@ import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
-import { assertWebDistApp } from './agent.mjs';
+import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { resolveApp, verifyBakeFiles, withAppFixture, pendingBuildInputs } from './app.mjs';
-import { copyAppleStaticTrees, deviceLaunchArgs } from '../host/apple/build.mjs';
+import { copyAppleStaticTrees, developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/build.mjs';
 import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, publishStream, publishRoot, webRelease, renderTable, snapshotOf, streamHead } from './deploy.mjs';
 import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, webRootPath, webReleasePath, sha256 } from './origin.mjs';
 // Minimal compiler receipts for origin protocol fixtures below; capability
@@ -29,7 +22,6 @@ const fixtureBuild = (id, bundle) => ({version:1,compat:{id,inputs:{store:{L:'A'
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
 const BOOT = join(dirname(fileURLToPath(import.meta.url)), 'boot.mjs');
 const DEPLOY = join(dirname(fileURLToPath(import.meta.url)), 'deploy.mjs');
-
 const GOOD_RULES = `# Rules
 
 - **5 blocking checks, 60s total.** **[check]**
@@ -372,7 +364,7 @@ for (const [name, html, files, expectCode, expect] of [
   const delayed = await client.receive(message('c', 3, 'e'));
   const keptBarrier = delayed === false && !waiting.has(`${c4.epoch}/3`);
   const refused = [];
-  const refusing = generationClient({ fetchGeneration: async (m) => m, apply: async () => false, failed: (e) => refused.push(e.message) });
+  const refusing = generationClient({ fetchGeneration: async (m) => m, apply: async () => false, failed: (e) => { if (!e.hostRefused) throw new Error('host refusals must not retry'); refused.push(e.message); } });
   await refusing.receive(c1);
   let programReloads = 0, finishApply, beganApply;
   const applyingStarted = new Promise((resolve) => { beganApply = resolve; });
@@ -1344,10 +1336,19 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir, { recursive: true, force: true });
   result('web agent refuses an unauthenticated matching envelope', refused);
 }
-// A phone gets the caller's LAN dev URL through devicectl, never a path on
-// this Mac. With no locator it remains a normal baked launch.
+// Phone URL launch and closed-agent transport regressions.
 {
-  const remote = deviceLaunchArgs('PHONE', 'com.example.app', { EXACT_DEV_PLAN: 'http://192.168.1.20:8765/' });
+  const stream = new (await import('node:stream')).PassThrough(), writes = [], lines = jsonLines(stream, {write: x => writes.push(x)}, []), pending = lines.ask({op:'state'}).catch(e => e.message);
+  lines.fail('phone crashed'); lines.fail('socket closed'); const later = await lines.ask({op:'logs'}).catch(e => e.message);
+  result('a dead agent rejects pending and future requests without writing again', await pending === 'phone crashed' && later === 'phone crashed' && writes.length === 1); stream.destroy();
+  const inherited = { EXACT_DEV_PLAN: '/tmp/local.plan', PRESERVED: 'yes' };
+  const launched = developmentLaunchEnvironment(['--run', '--url', 'http://192.168.1.20:8765'], inherited);
+  const invalid = [['--url', 'https://example.test'], ['--run', '--url'], ['--run', '--url', '/tmp/app.plan'], ['--run', '--url', 'file:///tmp/app.plan'], ['--run', '--url', 'https://a.test', '--url', 'https://b.test']];
+  const rejected = invalid.every((args) => { try { developmentLaunchEnvironment(args, inherited); return false; } catch { return true; } });
+  result('explicit development URLs override only the launch locator and reject invalid arguments', rejected
+    && launched.PRESERVED === 'yes' && inherited.EXACT_DEV_PLAN === '/tmp/local.plan'
+    && developmentLaunchEnvironment([], inherited).EXACT_DEV_PLAN === inherited.EXACT_DEV_PLAN);
+  const remote = deviceLaunchArgs('PHONE', 'com.example.app', launched);
   const baked = deviceLaunchArgs('PHONE', 'com.example.app', {});
   let refused = false;
   try { deviceLaunchArgs('PHONE', 'com.example.app', { EXACT_DEV_PLAN: '/tmp/app.plan' }); }

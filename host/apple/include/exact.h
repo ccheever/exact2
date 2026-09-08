@@ -119,6 +119,11 @@ uint32_t exact_boot(ExactRuntime rt, float width, float height);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
 uint32_t exact_commit_plan(ExactRuntime rt);
+/* Development generation: concatenated plan, pairing receipt, module bytes.
+ * Identity/grants must match the binary; hashes do not authenticate an origin. */
+uint32_t exact_prepare_module(ExactRuntime rt, size_t plan, size_t receipt, size_t module, float width, float height);
+/* Call after first pixel, never as a prerequisite to painting the baked frame. */
+uint32_t exact_data_ready(ExactRuntime rt);
 void exact_discard_plan(ExactRuntime rt);
 /* Every queued reply into the runner, on its thread: the batch of their
  * commits (empty when none). A request the app sends (LLP 1016) runs on the

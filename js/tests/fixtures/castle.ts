@@ -69,6 +69,7 @@ async function profile(store: Store): Promise<Session> {
   const kept = store.get(SECRET);
   if (kept === null) return { ...idle, error: "Not signed in" };
   const token = (JSON.parse(kept) as { token: string }).token;
+  await Promise.resolve(); // A microtask before the first fetch still owns this call.
   const me = await fetch("https://api.castle.xyz/me", { headers: { "x-auth-token": token } });
   const username = String(((await me.json()) as any).username ?? "");
   const p = await fetch(`https://api.castle.xyz/profile/${encodeURIComponent(username)}`);
@@ -95,6 +96,11 @@ async function refusedLater(): Promise<Session> {
   throw new Error("after the fetch");
 }
 
+async function parallel(): Promise<Session> {
+  const [a, b] = await Promise.all([fetch("https://api.castle.xyz/a"), fetch("https://api.castle.xyz/b")]);
+  return {ok:true,username:"parallel",error:Array.from(new Uint8Array(await a.arrayBuffer())).join(",") + "/" + await b.text()};
+}
+
 function answer(source: string, args: unknown[], store: Store): unknown {
   switch (source) {
     case "remember": return remember(store);
@@ -104,6 +110,7 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case "stuck": return stuck();
     case "refused": return refused();
     case "refusedLater": return refusedLater();
+    case "parallel": return parallel();
     default: throw new DataError("UnknownSource", source);
   }
 }

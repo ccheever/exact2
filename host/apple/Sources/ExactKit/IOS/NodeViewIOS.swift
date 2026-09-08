@@ -57,6 +57,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         didSet {
             if handlers.contains("hover"), hoverRecognizer == nil {
                 let g = UIHoverGestureRecognizer(target: self, action: #selector(hovering(_:)))
+                // Hover observes pointer movement; it must never hold or cancel
+                // finger events while a node is removed by a URL replacement.
+                g.delaysTouchesBegan = false
+                g.delaysTouchesEnded = false
+                g.cancelsTouchesInView = false
                 addGestureRecognizer(g)
                 hoverRecognizer = g
             }

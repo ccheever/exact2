@@ -297,14 +297,14 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    fn configure_storage(&mut self) -> Result<(), exact_runner::DataError> {
+    fn configure_storage(source: &mut D) -> Result<(), exact_runner::DataError> {
         use exact_runner::DataError;
         use std::path::PathBuf;
         // Scripted drives must not read or write the developer's app files.
         if std::env::var_os("EXACT_AGENT").is_some() {
             return Ok(());
         }
-        let app_id = self.runner.data().app_id().to_string();
+        let app_id = source.app_id().to_string();
         if app_id.is_empty() {
             return Ok(());
         }
@@ -328,7 +328,18 @@ impl<D: DataSource> Host<D> {
         // The user's cache base avoids a predictable shared /tmp directory.
         let temporary = cache.join("temporary");
         let cache = cache.join("cache");
-        self.runner.data().configure_storage(data, cache, temporary)
+        source.configure_storage(data, cache, temporary)
+    }
+
+    /// The common post-pixel activation order, also for a private live candidate.
+    pub(crate) fn activate_source(source: &mut D) -> Result<(), exact_runner::DataError> {
+        Self::configure_storage(source)?;
+        source.activate()
+    }
+
+    /// A live candidate was configured and loaded before its runner booted.
+    pub(crate) fn mark_data_activated(&mut self) {
+        self.data_activated = true;
     }
 
     /// Transfer a source-owned operation to the native executor.
@@ -346,10 +357,7 @@ impl<D: DataSource> Host<D> {
         if self.data_activated {
             return self.commit(&[], None);
         }
-        if let Err(error) = self
-            .configure_storage()
-            .and_then(|()| self.runner.data().activate())
-        {
+        if let Err(error) = Self::activate_source(self.runner.data()) {
             return self.commit(&[], Some(format!("activate data: {error:?}")));
         }
         self.data_activated = true;

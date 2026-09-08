@@ -63,8 +63,10 @@ final class Adapter: ExactSessionDelegate {
     }
 }
 let adapter = Adapter()
-let session = exact.makeSession(delegate: adapter, label: "main")
-if agentMode { session.clock = 0 }
+// A session creates UIKit scroll views. Construct it only after UIKit starts:
+// pre-UIApplicationMain creation reproduces the physical delayed-touch crash
+// even with a plain plan and no dev menu (@ref LLP 1012, timing reduction).
+nonisolated(unsafe) var session: ExactSession!
 /// The view, made when the scene connects: UIKit's window comes with its
 /// scene, not before.
 nonisolated(unsafe) var exactView: ExactView!
@@ -161,6 +163,8 @@ func printSmoke() {
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         ExactEnv.stamp("didFinishLaunching")
+        session = exact.makeSession(delegate: adapter, label: "main")
+        if agentMode { session.clock = 0 }
         return true
     }
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
@@ -208,6 +212,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         DevMenu.install(on: w, session: ExactIOS.session, controller: c, planPath: devPlanPath ?? environment["EXACT_PLAN"])
         w.makeKeyAndVisible()
         ExactEnv.stamp("window")
+        if let url = connectionOptions.urlContexts.first?.url {
+            DispatchQueue.main.async { ExactDevelopmentLink.open(url) }
+        }
+    }
+    func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
+        if let url = contexts.first?.url { ExactDevelopmentLink.open(url) }
     }
     /// Seen again: the canvases follow (`Canvases.visible`).
     func sceneDidBecomeActive(_ scene: UIScene) {

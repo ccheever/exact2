@@ -114,6 +114,9 @@ export function developmentBuildEnv() {
   return { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' };
 }
 
+/** An app-specific OS opening action, not the app URL or an authentication credential. */
+export const developmentURLScheme = (appId) => 'exact2-' + createHash('sha256').update(appId).digest('hex').slice(0, 32);
+
 /** The private directory receiving documents emitted by actual app build scripts. */
 export function bakeOutput(app, env = process.env) {
   return env.EXACT_BAKE_OUTPUT ?? resolve(app.target, 'bake', app.id, env.EXACT_UPDATE_TRUST ?? 'production');

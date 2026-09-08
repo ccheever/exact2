@@ -4,6 +4,8 @@
 // own app.test.contract; Caltrain's landmarks, interactions, GPU reference,
 // and deck run when its fixture root is present. Not a blocking check (it needs Chrome or
 // a window server): `node scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`
+// --app-only runs the complete selected app drive and its Contract tests,
+// not the unrelated bare-plan host fixtures. ios --device selects a phone.
 // after `node host/web/build.mjs` / `node host/apple/build.mjs [--ios]` /
 // `cargo build --release -p caltrain-linux`.
 import { spawn, spawnSync } from 'node:child_process';
@@ -24,8 +26,10 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const appName = argv.includes('--app') ? argv[argv.indexOf('--app') + 1] : undefined;
 const app = resolveApp(appName);
 let selectedWebDist = null;
-const open = (options) => openAgent({ ...options, app: options.app ?? app.name, webDist: options.webDist ?? selectedWebDist });
-const runTests = (options) => runAgentTests({ ...options, app: options.app ?? app.name, webDist: options.webDist ?? selectedWebDist });
+const device = argv.includes('--device');
+const phone = argv.includes('--phone') ? argv[argv.indexOf('--phone') + 1] : undefined;
+const open = (options) => openAgent({ device, phone, ...options, app: options.app ?? app.name, webDist: options.webDist ?? selectedWebDist });
+const runTests = (options) => runAgentTests({ device, phone, ...options, app: options.app ?? app.name, webDist: options.webDist ?? selectedWebDist });
 
 // 0. The transcript form (LLP 1012 §7): the one text rendering of the
 // replies, pinned by a fixture — `scripts/fixtures/transcript.json` rendered
@@ -625,6 +629,9 @@ try {
 // 8. The nested case (LLP 1010, the scroll fixture): a scroll node that
 // overflows on a page that overflows. A wheel over the node scrolls it; at
 // its edge the wheel chains to the page.
+// A paired module client cannot boot unrelated bare plans. --app-only keeps
+// the complete app drive and its Contract tests, excluding host-only fixtures.
+if (!argv.includes('--app-only')) {
 const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
 const plan = resolve(tmp, 'scroll.plan');
 const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/scroll.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
@@ -962,6 +969,8 @@ if (deckFixture) {
     }
   }
   rmSync(tmp, { recursive: true, force: true });
+}
+
 }
 
 // 13. The resolved app's own tests (LLP 1017 P7), when it declares them:

@@ -26,11 +26,11 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
-import { existsSync, readFileSync, watch } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
-import { applyStaticChange, applyStaticTreeChange, builtAppMatches, readDevGeneration, readStaticFile, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope } from './serve.mjs';
+import { applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGeneration, readStaticFile, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -42,6 +42,7 @@ const host = loopback ? '127.0.0.1' : '0.0.0.0';
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const dist = resolve(root, 'host/web/dist');
 const source = resolve(app.dir, 'app.contract');
+const typescript = existsSync(resolve(app.dir, 'app.ts'));
 const plan = resolve(dist, 'app.plan');
 const graphPath = resolve(dist, 'bake.json');
 buildEnv.EXACT_DEV_BAKE = graphPath;
@@ -82,6 +83,7 @@ const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stri
 const epoch = randomBytes(16).toString('hex');
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir })).digest('hex'));
 let current = null;
+let currentModule = null;
 let assetsNeedRebuild = false;
 // This names the actual programs already served, including optional GPU code.
 // A changed program stays terminal even when its compatibility metadata agrees.
@@ -102,8 +104,9 @@ const hello = () => JSON.stringify({ hello: true, ...announcement() });
 function captureGeneration() {
   const encodedPlan = filesystem({ op: 'get', root: dist, path: 'app.plan' });
   if (encodedPlan === null) throw new Error('the plan is missing');
-  const planBytes = Buffer.from(encodedPlan, 'base64');
-  const files = new Map([['app.plan', planBytes]]);
+  const planBytes = currentModule?.get('app.plan') ?? Buffer.from(encodedPlan, 'base64');
+  const files = currentModule ? new Map(currentModule) : new Map([['app.plan', planBytes]]);
+  const module = currentModule ? moduleCards(files, app.id) : null;
   const assets = [];
   for (const tree of ['assets', 'deck', 'shaders']) {
     let captured;
@@ -120,11 +123,12 @@ function captureGeneration() {
     || [...files.values()].reduce((sum, body) => sum + body.length, 0) > 256 * 1024 * 1024) throw new Error('generation exceeds the payload budget');
   const envelope = webEnvelope(app, planBytes, assets);
   const generation = createHash('sha256').update(canonicalBytes({
-    plan: { sha256: envelope.plan.sha256, bytes: planBytes.length }, assets,
+    plan: { sha256: envelope.plan.sha256, bytes: planBytes.length }, assets, ...(module ? { module } : {}),
   })).digest('hex');
   const prefix = `/__dev/generation/${epoch}/${seq}/`;
   envelope.dev = { epoch, program, seq, generation, events: '/__dev' };
   envelope.plan.url = prefix + 'app.plan';
+  if (module) envelope.module = Object.fromEntries(Object.entries(module).map(([key, card]) => [key, { ...card, url: prefix + MODULE_FILES[key] }]));
   for (const asset of envelope.assets) asset.url = prefix + asset.name.split('/').map(encodeURIComponent).join('/');
   const envelopeBytes = Buffer.from(JSON.stringify(envelope) + '\n');
   if (envelopeBytes.length > 64 * 1024) throw new Error('generation envelope exceeds 64 KiB');
@@ -140,6 +144,7 @@ function captureGeneration() {
 let dev = null;
 let announced = false;
 function startCompiler() {
+  if (typescript) { startModuleCompiler(); return; }
   dev = spawn('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--bin', 'dev', '--', source, plan], { cwd: app.workspace, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
@@ -171,7 +176,55 @@ function startCompiler() {
   });
   dev.on('exit', (code) => { if (dev === me) { console.error(`dev compiler exited ${code}`); process.exit(code ?? 1); } });
 }
-const killCompiler = () => { const d = dev; dev = null; if (d) { try { process.kill(-d.pid, 'SIGKILL'); } catch {} } };
+let moduleWatch = null, moduleTimer = null, moduleRun = 0, moduleStage = null, moduleSaved = 0;
+function startModuleCompiler() {
+  const built = spawnSync('cargo', ['build', '-q', '-p', 'exact-js-bake'], { cwd: root, env: toolingEnv, stdio: 'inherit' });
+  if (built.status !== 0) throw new Error('the module producer did not build');
+  const scratch = resolve(app.target, 'module-dev');
+  mkdirSync(scratch, { recursive: true });
+  const produce = () => {
+    clearTimeout(moduleTimer);
+    if (dev) return;
+    const revision = moduleRun, started = Date.now(), saved = moduleSaved || started;
+    const stage = mkdtempSync(resolve(scratch, 'candidate-'));
+    moduleStage = stage;
+    const output = resolve(stage, 'generation');
+    const child = dev = spawn(resolve(app.target, 'debug/exact-js-bake'), [app.dir, '--out', output], { cwd: root, env: toolingEnv, detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    let errors = '';
+    child.stderr.on('data', chunk => { errors = (errors + chunk).slice(-65536); });
+    child.on('exit', code => {
+      if (dev !== child) return;
+      dev = null;
+      try {
+        if (revision !== moduleRun) return;
+        if (code !== 0) throw new Error(errors || `module producer exited ${code}`);
+        const candidate = new Map(['app.plan', ...Object.values(MODULE_FILES)].map(name => [name, readFileSync(resolve(output, name))]));
+        moduleCards(candidate, app.id);
+        const previous = currentModule;
+        currentModule = candidate;
+        seq++;
+        try { captureGeneration(); } catch (error) { currentModule = previous; throw error; }
+        if (previous) pending.set(seq, { saved, ready: Date.now() });
+        console.log(`module generation ready in ${Date.now() - started} ms; restart with carry, no native rebuild`);
+        push(announcement());
+      } catch (error) { console.error(error.message); push({ error: error.message }); }
+      finally {
+        rmSync(stage, { recursive: true, force: true }); moduleStage = null;
+        if (revision !== moduleRun) produce();
+      }
+    });
+  };
+  moduleWatch = watch(app.dir, { recursive: true }, (_event, name) => {
+    if (!name || skipped.test(name) || /(^|\/)\./.test(name) || !/\.(ts|contract|json)$/.test(name) || assetTrees.some(([tree]) => resolve(app.dir, name).startsWith(tree + '/'))) return;
+    moduleRun++; moduleSaved = Date.now(); clearTimeout(moduleTimer); moduleTimer = setTimeout(produce, 30);
+  });
+  produce();
+}
+const killCompiler = () => {
+  moduleWatch?.close(); moduleWatch = null; clearTimeout(moduleTimer); moduleRun++;
+  const d = dev; dev = null; if (d) { try { process.kill(-d.pid, 'SIGKILL'); } catch {} }
+  if (moduleStage) { rmSync(moduleStage, { recursive: true, force: true }); moduleStage = null; }
+};
 startCompiler();
 const stop = () => { killCompiler(); process.exit(0); };
 
@@ -300,6 +353,7 @@ function refreshNativePending(){nativePending.clear();for(const r of builtReceip
 refreshNativePending();
 let previousWeb=cohortReceipt(JSON.parse(readFileSync(graphPath,'utf8')));
 function classifyGeneration(planBytes, assets) {
+  if (currentModule) return ['plan/module/assets: development candidate; each client verifies its admitted module identity and grants (not signed deployment classification)'];
   const web=JSON.parse(readFileSync(graphPath,'utf8'));
   const candidate=developmentCandidate(web,{sha256:createHash('sha256').update(planBytes).digest('hex'),bytes:planBytes.length},assets,shaderDigests);
   const lines=[];
@@ -346,6 +400,7 @@ function watchCompilerInputs() {
     if(skipped.test(dir)||dir.includes('/.cargo/')||watched.has(dir)||!existsSync(dir))continue;
     try {watched.set(dir,watch(dir,(_event,name)=>{
       if(!name||skipped.test(name)||name.endsWith('dev.js')||assetTrees.some(([tree])=>resolve(dir,name).startsWith(tree+'/'))||resolve(dir,name)===source)return;
+      if (typescript && resolve(dir, name).startsWith(app.dir + '/') && /\.(ts|contract)$/.test(name)) return;
       changed.add(resolve(dir,name));console.log(`edit ${resolve(dir,name)} → build pending; classification follows its receipt`);
       clearTimeout(timer);timer=setTimeout(rebuild,200);
     }));}catch(error){console.error(`cannot watch ${dir}: ${error.message}`);}
@@ -389,6 +444,11 @@ const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted';
   if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && devBeacon)) { res.writeHead(405); res.end(); return; }
+  if (url.pathname === '/__dev/open') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' });
+    res.end(req.method === 'HEAD' ? undefined : developmentOpenPage(app));
+    return;
+  }
   if (url.pathname.startsWith('/__dev/generation/')) {
     const retained = readDevGeneration(generationCache, url.pathname);
     if (!retained) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }

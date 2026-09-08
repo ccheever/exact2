@@ -11,9 +11,15 @@
 #if os(iOS)
 import UIKit
 
-final class DevMenuTarget: NSObject {
+final class DevMenuTarget: NSObject, UIGestureRecognizerDelegate {
     @objc func menuTap(_ g: UIGestureRecognizer) { DevMenu.toggle() }
     @objc func reloadTap(_ g: UIGestureRecognizer) { DevMenu.reload() }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive event: UIEvent) -> Bool {
+        // Four fingers means direct touches, never hover/press events. A window
+        // recognizer otherwise participates in UIKit's delayed-event queue even
+        // for events with no touches (the physical iOS nil-insertion crash).
+        event.type == .touches && !(event.allTouches?.isEmpty ?? true)
+    }
 }
 
 public enum DevMenu {
@@ -38,9 +44,18 @@ public enum DevMenu {
         let reload = UITapGestureRecognizer(target: target, action: #selector(DevMenuTarget.reloadTap(_:)))
         reload.numberOfTouchesRequired = 4
         reload.numberOfTapsRequired = 2
+        // Developer shortcuts must not hold app touches across a URL restart.
+        // iOS 26.6.1 crashed in UIKit's delayed-event queue on the physical phone.
+        reload.delaysTouchesEnded = false
         let menu = UITapGestureRecognizer(target: target, action: #selector(DevMenuTarget.menuTap(_:)))
         menu.numberOfTouchesRequired = 4
+        menu.delaysTouchesEnded = false
         menu.require(toFail: reload)
+        for recognizer in [reload, menu] {
+            recognizer.delegate = target
+            recognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+            recognizer.allowedPressTypes = []
+        }
         window.addGestureRecognizer(reload)
         window.addGestureRecognizer(menu)
     }

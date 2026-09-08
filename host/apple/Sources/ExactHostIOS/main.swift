@@ -45,10 +45,11 @@ let delegate = HostDelegate()
 
 /// Two sessions of the one plan (LLP 1031 D1), each in its own pane, each
 /// with its own clock under the agent.
-let a = exact.makeSession(delegate: delegate, label: "a")
-let b = exact.makeSession(delegate: delegate, label: "b")
-if ExactEnv.agentMode { a.clock = 0; b.clock = 0 }
-let sessions: [(String, ExactSession)] = [("a", a), ("b", b)]
+// Session construction creates UIKit views; defer it until didFinishLaunching
+// (@ref LLP 1012, physical pre-UIApplicationMain delayed-touch reproduction).
+nonisolated(unsafe) var a: ExactSession!
+nonisolated(unsafe) var b: ExactSession!
+nonisolated(unsafe) var sessions: [(String, ExactSession)] = []
 nonisolated(unsafe) var root: RootController?
 
 /// A native screen pushed over a session: the Exact view leaves its pane
@@ -200,6 +201,10 @@ func agentReady() {
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        a = exact.makeSession(delegate: delegate, label: "a")
+        b = exact.makeSession(delegate: delegate, label: "b")
+        if ExactEnv.agentMode { a.clock = 0; b.clock = 0 }
+        sessions = [("a", a), ("b", b)]
         let w = UIWindow(frame: UIScreen.main.bounds)
         let rootController = RootController()
         root = rootController

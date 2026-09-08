@@ -33,13 +33,18 @@
 // one) and answers the same JSON lines over a Unix socket — a simulator app
 // has no stdin (`AgentIOS.swift`); its stdout and stderr come through the
 // `simctl launch --console` that stays attached.
-import { spawn } from 'node:child_process';
+// ios --device connects back to a one-launch TCP listener on this Mac's LAN
+// address (EXACT_AGENT_HOST overrides its selection); --phone selects a paired
+// phone. This is a trusted-LAN developer carrier, not an encrypted remote agent.
+// Build/install first with build.mjs --device. No Mac-local plan/assets paths.
+import { spawn, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { connect } from 'node:net';
-import { tmpdir } from 'node:os';
+import { connect, createServer as createTCPServer } from 'node:net';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { appBundle, bundleId, hostBundle, install, macBinary, macHostBinary, simulator } from '../host/apple/build.mjs';
+import { appBundle, bundleId, developmentLaunchEnvironment, deviceBundle, hostBundle, install, macBinary, macHostBinary, phone, simulator } from '../host/apple/build.mjs';
 import { builtAppMatches, serveStatic } from '../host/web/serve.mjs';
 import { resolveApp } from './app.mjs';
 
@@ -170,6 +175,7 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
       await sleep(15);
       boot = await evaluate("document.getElementById('exact-root')?.dataset.bootMs ?? null").catch(() => null);
     }
+    await evaluate('exact.ready'); // First pixel precedes deferred module readiness.
     if (plan) await evaluate("fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => exact.reload(new Uint8Array(b)))");
     const frame = () => Promise.race([evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), sleep(250)]);
     const ask = async (req) => JSON.parse(await evaluate(`Promise.resolve(exact.agent(${JSON.stringify(req)})).then((r) => JSON.stringify(r))`));
@@ -231,8 +237,9 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
 // ---------------------------------------------------------------- macOS and Linux, over stdio
 
 /** JSON lines over a duplex: each request is answered by the next line the app writes; unmatched lines are host output (`hostLines`). `fail` rejects every pending request (the app is gone). */
-function jsonLines(readable, writable, hostLines) {
+export function jsonLines(readable, writable, hostLines) {
   const waiting = [];
+  let failure = null;
   let buf = '';
   readable.setEncoding('utf8');
   readable.on('data', (d) => {
@@ -246,21 +253,68 @@ function jsonLines(readable, writable, hostLines) {
       try { w.resolve(JSON.parse(line)); } catch { w.reject(new Error('unreadable reply: ' + line)); }
     }
   });
-  const next = () => new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+  const next = () => failure ? Promise.reject(failure) : new Promise((resolve, reject) => waiting.push({ resolve, reject }));
   return {
     next,
-    ask: (req) => { const p = next(); writable.write(JSON.stringify(req) + '\n'); return p; },
-    fail: (why) => { for (const w of waiting.splice(0)) w.reject(new Error(why)); },
+    ask: (req) => { const p = next(); if (!failure) writable.write(JSON.stringify(req) + '\n'); return p; },
+    fail: (why) => { failure ??= new Error(why); for (const w of waiting.splice(0)) w.reject(failure); },
   };
 }
 
-/** The stdio carrier: an app that answers JSON lines under EXACT_AGENT=1 — the macOS presenter (`Agent.swift`), the macOS sample host (`ExactHostMac`, LLP 1031 D10: several sessions of one plan, each request routed by its `session` label), and the Linux host (`host/linux/src/agent.rs`), one protocol. */
-async function openStdio({ host, plan, size, app, env: extra = {}, session }) {
+/** One launch, one phone connection; reject other peers before any agent request.
+ * The token crosses via the paired device's launch environment, not a public URL. */
+export async function phoneBridge() {
+  const interfaces = networkInterfaces();
+  const address = process.env.EXACT_AGENT_HOST ?? [...(interfaces.en0 ?? []), ...Object.values(interfaces).flat()]
+    .find((n) => n.family === 'IPv4' && !n.internal)?.address;
+  if (!address) throw new Error('phone agent needs a reachable Mac IPv4 address (EXACT_AGENT_HOST)');
+  const token = randomBytes(32).toString('hex');
+  const sockets = new Set();
+  let accept, fail;
+  const ready = new Promise((resolve, reject) => { accept = resolve; fail = reject; });
+  const server = createTCPServer((socket) => {
+    if (sockets.size >= 8) { socket.destroy(); return; }
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    socket.on('error', () => {});
+    socket.setTimeout(5000, () => socket.destroy());
+    let buf = '';
+    socket.setEncoding('utf8');
+    const hello = (chunk) => {
+      buf += chunk;
+      if (buf.length > 4096) { socket.destroy(); return; }
+      if (!buf.includes('\n')) return;
+      let announcement;
+      try { announcement = JSON.parse(buf); } catch { socket.destroy(); return; }
+      if (!announcement || announcement.token !== token || announcement.ready !== true) { socket.destroy(); return; }
+      delete announcement.token;
+      socket.pause();
+      socket.removeListener('data', hello);
+      socket.setTimeout(0);
+      server.close();
+      for (const other of sockets) if (other !== socket) other.destroy();
+      accept({ socket, announcement });
+    };
+    socket.on('data', hello);
+  });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, address, resolve); });
+  server.on('error', fail);
+  return {
+    ready, fail,
+    env: { EXACT_AGENT_CONNECT: `${address}:${server.address().port}`, EXACT_AGENT_TOKEN: token },
+    close() { for (const socket of sockets) socket.destroy(); server.close(); },
+  };
+}
+
+/** One JSON-lines protocol over stdio on macOS/Linux, or a phone's outbound socket. */
+async function openStdio({ host, plan, size, app, env: extra = {}, session, device = false, phone: pick }) {
   const a = resolveApp(app);
   const linux = host === 'linux';
   const sample = host === 'host';
   const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`)) : sample ? macHostBinary : (process.env.EXACT_MAC_BIN ?? macBinary);
-  if (!existsSync(bin)) throw new Error(linux ? `run cargo build --release -p ${a.crate('linux')} first` : sample ? 'run node host/apple/build.mjs --host first' : 'run node host/apple/build.mjs first');
+  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run node host/apple/build.mjs --device first' : linux ? `run cargo build --release -p ${a.crate('linux')} first` : sample ? 'run node host/apple/build.mjs --host first' : 'run node host/apple/build.mjs first');
+  if (device && (plan || extra.EXACT_PLAN || extra.EXACT_ASSETS)) throw new Error('a phone cannot read host-local plan/assets paths; use --url or its embedded app');
+  const ph = device ? phone(pick) : null;
   const env = { EXACT_ASSETS: a.dir, ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;
   if (linux && size) env.EXACT_SIZE = `${size[0]}x${size[1]}`;
@@ -272,21 +326,49 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session }) {
     env.EXACT_FONT ??= 'DejaVu Sans';
   }
   Object.assign(env, extra);
-  const child = spawn(bin, [], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const bridge = device ? await phoneBridge() : null;
+  const child = device
+    ? spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--quiet', '--console', '--terminate-existing', '--device', ph.udid,
+        '--environment-variables', JSON.stringify({ ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
+    : spawn(bin, [], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
-  const lines = jsonLines(child.stdout, child.stdin, hostLines);
-  const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); lines.fail(`the app exited (${code ?? signal}); ` + hostLines.join('\n')); }));
-  const close = async () => { try { child.stdin.end(); } catch {} await Promise.race([exited, sleep(2000)]); try { process.kill(child.pid, 'SIGKILL'); } catch {} };
+  if (device) child.stdout.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
+  let lines = device ? null : jsonLines(child.stdout, child.stdin, hostLines);
+  const fail = (why) => { lines?.fail(why); bridge?.fail(new Error(why)); };
+  child.on('error', (e) => fail(`launch failed: ${e.message}`));
+  const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); fail(`the app exited (${code ?? signal}); ` + hostLines.join('\n')); }));
+  const close = async () => { bridge?.close(); try { child.stdin.end(); if (device) child.kill('SIGTERM'); } catch {} await Promise.race([exited, sleep(2000)]); try { process.kill(child.pid, 'SIGKILL'); } catch {} };
+  let readyTimeout;
   try {
-    const readyLine = lines.next();
-    const ready = await Promise.race([readyLine, sleep(20000).then(() => { throw new Error('the app never became ready; ' + hostLines.join('\n')); })]);
+    const readyLine = device ? bridge.ready.then(({ socket, announcement }) => {
+      lines = jsonLines(socket, socket, hostLines);
+      socket.on('close', () => lines.fail('the phone agent connection closed; ' + hostLines.slice(-20).join('\n')));
+      socket.resume();
+      return announcement;
+    }) : lines.next();
+    const ready = await Promise.race([readyLine, new Promise((_, reject) => {
+      readyTimeout = setTimeout(() => reject(new Error('the app never became ready; ' + hostLines.join('\n'))), 20000);
+    })]);
+    clearTimeout(readyTimeout);
     if (!ready.ready) throw new Error('unexpected first line: ' + JSON.stringify(ready));
     if (ready.error) throw new Error('the app booted with an error: ' + ready.error);
     // The sample host routes by label: the session the caller named, and
     // `s.session = "b"` moves every later request to another.
     const state = { session: session ?? null };
-    const ask = (req) => lines.ask(state.session ? { ...req, session: state.session } : req);
+    const ask = async (req) => {
+      const reply = lines.ask(state.session ? { ...req, session: state.session } : req);
+      if (!device) return reply;
+      let timer;
+      try {
+        return await Promise.race([reply, new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            bridge.close();
+            reject(new Error(`phone ${req.op} did not answer within 45 s; check app health, foreground state and network\n` + hostLines.slice(-20).join('\n')));
+          }, 45000);
+        })]);
+      } finally { clearTimeout(timer); }
+    };
     return {
       host, boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
       ask,
@@ -297,8 +379,15 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session }) {
         return r;
       },
       async screenshot(path, window = false) {
-        const r = await ask({ op: 'screenshot', path, window });
+        const remote = device ? `${ready.container}/tmp/exact-agent.png` : path;
+        const r = await ask({ op: 'screenshot', path: remote, window });
         if (r.error) throw new Error(r.error);
+        if (device) {
+          const copied = spawnSync('xcrun', ['devicectl', 'device', 'copy', 'from', '--quiet', '--device', ph.udid,
+            '--domain-type', 'appDataContainer', '--domain-identifier', a.id, '--source', 'tmp/exact-agent.png', '--destination', resolve(path)], { encoding: 'utf8', timeout: 20000 });
+          if (copied.status !== 0) throw new Error(`phone screenshot copy: ${copied.stderr || copied.error || copied.stdout}`);
+          r.screenshot = path;
+        }
         return r;
       },
       close,
@@ -306,6 +395,8 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session }) {
   } catch (e) {
     await close();
     throw e;
+  } finally {
+    clearTimeout(readyTimeout);
   }
 }
 
@@ -389,9 +480,16 @@ async function openIOS({ plan, app, env: extra = {}, session, bundle = appBundle
 
 // ---------------------------------------------------------------- the eight operations
 
-/** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `plan` boots a compiled contract instead of the app's baked plan; `env` adds to a native host's environment. */
-export async function open({ host, plan, size, env, app, session, url, webDist } = {}) {
-  const carrier = host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, bundle: hostBundle, id: `${resolveApp(app).id}.host` }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url, app, webDist });
+/** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
+ * the same app address on each host; `plan` boots a local compiled contract;
+ * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
+export async function open({ host, plan, size, env, app, session, url, webDist, device = false, phone: pick } = {}) {
+  if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
+  if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'host', 'host-ios'].includes(host)) {
+    if (plan) throw new Error('a native session takes either --url or --plan, not both');
+    env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
+  }
+  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, bundle: hostBundle, id: `${resolveApp(app).id}.host` }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url, app, webDist });
   const s = {
     host: carrier.host,
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
@@ -518,8 +616,7 @@ export function render(op, r) {
  * operations use. One session per file; a failed expect names the test, the
  * line, and what was seen. Returns `{ passed, failed, results }`.
  */
-export async function runTests({ host, file, plan, app, size, env, webDist } = {}) {
-  const { spawnSync } = await import('node:child_process');
+export async function runTests({ host, file, plan, app, size, env, webDist, device = false, phone, url } = {}) {
   const root = resolve(new URL('..', import.meta.url).pathname);
   let bin = resolve(root, 'target/debug/contract');
   if (!existsSync(bin)) {
@@ -533,7 +630,7 @@ export async function runTests({ host, file, plan, app, size, env, webDist } = {
   // Every test starts from the first frame: a session of its own.
   for (const t of tests) {
     const failures = [];
-    const s = await open({ host, plan, size, env, app, webDist });
+    const s = await open({ host, plan, size, env, app, webDist, device, phone, url });
     try {
       for (const st of t.steps) {
         const at = `${t.name}: line ${st.line}`;
@@ -593,11 +690,13 @@ async function main(argv) {
     else if (argv[i] === '--test') flags.test = argv[++i];
     else if (argv[i] === '--session') flags.session = argv[++i];
     else if (argv[i] === '--url') flags.url = argv[++i];
+    else if (argv[i] === '--device') flags.device = true;
+    else if (argv[i] === '--phone') flags.phone = argv[++i];
     else rest.push(argv[i]);
   }
   const [host, ...ops] = rest;
   if (host && flags.test) {
-    const r = await runTests({ host, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size });
+    const r = await runTests({ host, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url });
     for (const t of r.results) {
       console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
       for (const f of t.failures) console.error('  ' + f);
@@ -606,10 +705,10 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url });
+  const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone });
   try {
     for (const line of ops) {
       const [op, ...args] = line.trim().split(/\s+/);

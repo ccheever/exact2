@@ -102,7 +102,10 @@ async function fetchGeneration(message, signal) {
     if (!validName(card.name) || names.has(card.name)) throw new Error("invalid or duplicate asset name");
     names.add(card.name);
   }
-  const cards = [envelope.plan, ...envelope.assets];
+  const moduleKeys = ['native', 'receipt', 'web'];
+  if (envelope.module !== undefined && (!envelope.module || Object.keys(envelope.module).sort().join(',') !== moduleKeys.join(','))) throw new Error('invalid module manifest');
+  const moduleCards = envelope.module ? moduleKeys.map(key => envelope.module[key]) : [];
+  const cards = [envelope.plan, ...envelope.assets, ...moduleCards];
   if (cards.some((card) => !Number.isSafeInteger(card?.bytes) || card.bytes < 0 || card.bytes > 64 * 1024 * 1024)
       || cards.reduce((sum, card) => sum + card.bytes, 0) > 256 * 1024 * 1024) throw new Error("generation exceeds the payload budget");
   const plan = await load(envelope.plan, "app.plan");
@@ -113,10 +116,16 @@ async function fetchGeneration(message, signal) {
       assets.set(card.name, await load(card, card.name));
     }
   }));
+  let module = null;
+  if (envelope.module) {
+    const [receipt, web] = await Promise.all(['receipt', 'web'].map(key => load(envelope.module[key], `module ${key}`)));
+    module = { receipt: receipt.bytes, script: web.bytes };
+  }
   const canonical = { assets: [...envelope.assets].sort((a, b) => utf8Compare(a.name, b.name)).map((a) => ({ bytes: a.bytes, name: a.name, sha256: a.sha256 })),
+    ...(envelope.module ? { module: Object.fromEntries(moduleKeys.map(key => [key, { bytes: envelope.module[key].bytes, sha256: envelope.module[key].sha256 }])) } : {}),
     plan: { bytes: plan.bytes.length, sha256: plan.sha256 } };
   if (await digest(encoder.encode(JSON.stringify(canonical))) !== identity.generation) throw new Error("the generation digest does not bind its complete manifest");
-  return { ...identity, plan: plan.bytes, assets, fetchMs: performance.now() - started };
+  return { ...identity, plan: plan.bytes, assets, module, fetchMs: performance.now() - started };
 }
 
 // Fetches may finish in any order. Only the latest request can enter the
@@ -148,9 +157,11 @@ function generationClient({ fetchGeneration, apply, applied = () => {}, failed =
         try {
           const candidate = await fetchGeneration(message, signal);
           if (!current()) return false;
-          const accepted = await apply(candidate, current);
+          let accepted;
+          try { accepted = await apply(candidate, current); }
+          catch (error) { throw Object.assign(new Error(String(error)), { hostRefused: true }); }
           if (!current()) return false;
-          if (!accepted) throw new Error("the host refused the current generation");
+          if (!accepted) throw Object.assign(new Error("the host refused the current generation"), { hostRefused: true });
           committed = candidate.generation;
           applied(candidate);
           return true;
@@ -165,12 +176,19 @@ function generationClient({ fetchGeneration, apply, applied = () => {}, failed =
 
 if (!es) globalThis.exactDevProtocol = { digest, generationClient, validIdentity };
 if (es) {
+  // Host affordance, outside the app tree and absent from static/production pages.
+  const opening = document.body.appendChild(document.createElement('a'));
+  opening.href = '/__dev/open' + location.search + location.hash;
+  opening.textContent = 'Open in native…';
+  opening.style = 'position:fixed;right:10px;bottom:10px;padding:8px 12px;background:#fff;color:#164bc4;border:1px solid #ccd3df;border-radius:8px;font:13px system-ui;z-index:2147483646';
+  // The module loader uses this implementation on trusted LAN HTTP too.
+  globalThis.exact.moduleDigest = digest;
   let retry = null;
   const client = generationClient({ fetchGeneration, programChanged: () => { clearTimeout(retry); location.reload(); },
     apply: async (candidate, current) => {
       if (!current()) return false;
       const t = performance.now();
-      const accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current);
+      const accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module);
       if (accepted) {
         navigator.sendBeacon(`/__dev/reloaded?epoch=${candidate.epoch}&seq=${candidate.seq}&dom=${Date.now()}&fetch=${candidate.fetchMs.toFixed(1)}&boot=${(performance.now() - t).toFixed(1)}`);
         requestAnimationFrame(() => navigator.sendBeacon(`/__dev/painted?epoch=${candidate.epoch}&seq=${candidate.seq}&paint=${Date.now()}`));
@@ -181,6 +199,9 @@ if (es) {
     failed: (error, current) => {
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
+      // A deterministic host refusal needs a new edit, not repeated execution
+      // of the same candidate every 250 ms. Network discovery still retries.
+      if (error.hostRefused) return;
       const discover = async () => {
         if (!current()) return;
         try {

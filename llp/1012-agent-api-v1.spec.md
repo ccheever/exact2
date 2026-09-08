@@ -23,6 +23,160 @@ protocol on a pipe; the macOS app over stdio); the smoke is a script of the
 operations that runs unchanged on both. Where this document and the code
 disagree, the code and its tests are the authority.
 
+**Physical iOS carrier (Codex, 2026-09-07):** `ios --device` / `open({host:
+'ios', device:true})` selects the paired phone (`--phone` / `phone` chooses one).
+The signed app is installed first by `host/apple/build.mjs --device`.
+`devicectl --console` launches and captures diagnostics, but its stdin is EOF
+on the tested phone. Instead, `EXACT_AGENT=1`, `EXACT_AGENT_CONNECT` and a random
+per-launch `EXACT_AGENT_TOKEN` opt into an outbound connection after first pixel.
+The driver binds a temporary port on the Mac's IPv4 LAN address (`EXACT_AGENT_HOST`
+overrides selection), validates the token, then carries the same JSON lines.
+No listener opens on the phone. This is a trusted-LAN developer carrier, not TLS
+or an internet control API; allow local networking and keep the app foregrounded.
+Agent startup disables UIKit's idle timer for that test process only, since
+agent input does not reset the user-idle timer; normal launches are unchanged.
+Host-local plan/assets paths refuse: use embedded artifacts or `--url`.
+Only explicit launch environment crosses to the phone. Screenshots are written
+in the app's temporary directory and copied back with its app-container file
+service. The iPhone 17 Pro Max / iOS 26.6.1 passed the guard app drive, state/log
+assertions and screenshot copy; a second run passed in 5.7 s. Physical live-URL
+replacement, refusal and recovery now pass alongside the browser (1027 D6).
+Two device crash reports identify UIKit's delayed-touch queue, not a locked
+phone: the dev-menu recognizers now leave touch endings undelayed, and the full
+guard proof passes with them enabled. Caltrain subsequently reproduced the same
+crash despite that mitigation; its full URL proof passes with `EXACT_DEV_MENU=0`
+(1027 D6). Follow-up: disabling touch delays/cancellation on Caltrain's hover
+observers, plus direct-touch-only menu admission, passes two full Caltrain URL
+proofs with the menu enabled, finally without tracing. Manual gesture recognition
+is still owed. **Correction from real touch testing (2026-09-07):** Charlie
+opened the client through Safari and reproduced the same nil-insertion crash on
+first touch/scroll, including with `EXACT_DEV_MENU=0`. Those mitigations are not
+a fix. The iOS agent invokes the app's input path without synthesizing UIKit
+finger events, so its passing drives do not verify this gesture path. Root cause
+remains unconfirmed; debugger attachment also failed. Other prior timeouts are
+not all attributed.
+
+**UIKit reduction (Charlie approved; Codex, 2026-09-07):**
+`node host/apple/touch.mjs --device --run` installs the separate
+`com.exact.touch-repro` app; `--phone <id>` chooses the device, `--case 0..4`
+chooses its starting case. Without `--device` it uses the simulator (`--sim`).
+`ios/touch.swift` links UIKit alone: plain buttons in a scroll view, then reduced
+Exact hit/press handling, hover observers, four-finger window recognizers, and
+replacing rows during scrolling. Cases are cumulative and selected with Next
+case. Console and container `Documents/touch.log` record cases, real touch phases,
+tap callbacks and scroll starts. No private API, synthetic touch, Exact runtime,
+GPU, WebKit, module or URL loader is present. This is an approved diagnostic,
+not a sixth check or proof that the full Exact presenter matches the reduction.
+Physical build/signature/install/launch and simulator build/launch pass; the
+simulator screenshot was inspected. The physical plain-UIKit case recorded seven
+row taps and 15 scroll starts without crashing (PID 34926; saved log
+`/tmp/exact-native-crash.xvrqhW/touch-baseline.log`). Charlie subsequently tried
+all five cases and reported no crashes, including row replacement during dragging;
+the complete log also records four-finger menu recognition
+(`/tmp/exact-native-crash.xvrqhW/touch-all-cases.log`). This rules out none of the
+full presenter's interactions: the approximated input patterns alone did not
+reproduce the fault.
+
+**Production-view reduction:** `node host/apple/touch.mjs --device --presenter
+--case 5 --run` compiles the actual ExactKit Swift sources into this same
+diagnostic executable and links the already-built client archive (`--archive`
+overrides the platform's `libcaltrain_ts_apple.a`). Case 6/7 (CLI case 5) creates
+the real Presenter, PlainView, NodeView and nested ScrollViews without creating
+an ExactApp/session/runtime; its row captions are UILabels. Case 7/7 (CLI case 6)
+creates a full ExactSession/ExactView and boots the bundled, compiled
+`scroll.contract`. Neither has menu gestures, a URL connection, an update-store
+adapter, GPU canvases or web nodes. The archive is linked in both cases, so
+process-level native initializers are not excluded. Cases 1–5 remain available
+as same-binary controls. The starting case is baked into the diagnostic plist
+as well as passed at launch, so opening from Search/Home no longer changes the
+starting experiment. No production source modifications or core feature flags.
+Fixture boot failures display an error and never mount ExactView (which would
+otherwise fall back to the baked Caltrain plan). First simulator trial exposed
+a stale archive/schema mismatch; that is not a gesture result. Rebuilding the
+simulator archive with `IPHONEOS_DEPLOYMENT_TARGET=17.0` produced a clean link and
+case 7/7 booted with `views=84 error=none` (PID 27595); both simulator screenshots
+were inspected. Physical case 6/7 installed and launched as PID 35216; real touch
+phases were recorded without an exception so far, but manual outcomes are pending.
+That initial phone build predates the fixture-refusal guard: require the case 7/7
+console's 84-view/error-none confirmation before attributing its result. Five repo
+checks passed, plus default UIKit-only Swift typechecking and presenter compilation.
+
+**Physical full-session control passed (Charlie, 2026-09-07):** a direct launch
+at 16:56:43 opened case 7/7 as PID 35523. Console confirmed `views=84 error=none`,
+recorded real touches on both the nested rows and outer page, and recorded cycling
+to the next case afterward. Charlie reported no crashes; saved container log:
+`/tmp/exact-native-crash.xvrqhW/full-session-phone.log`. This makes startup timing
+a concrete next comparison: ExactIOS (and ExactHostIOS) create their sessions
+before UIApplicationMain, whereas the diagnostic created its session in
+viewDidLoad. Session initialization creates the presenter's UIKit scroll view.
+
+`touch.mjs --device --presenter --case 6 --early-session --run` moves only session
+creation ahead of UIApplicationMain; the fixture still boots in viewDidLoad.
+Its title is **Early session · scroll plan**; Next case is disabled because
+cycling would not repeat the early initialization. The choice is baked into the
+diagnostic plist for Search/Home launches; `TOUCH_EARLY_SESSION=0` overrides it
+for a same-binary late-start control. Device PID 35540 and simulator PID 79313
+logged early creation before entry to UIApplicationMain, then 84 views/error none.
+**Timing result:** early-start PID 35567 crashed on its first touch with the
+same `_delayTouchesForEvent:inPhase:` nil insertion as Caltrain (saved
+`TouchRepro-170357.ips`, launch 17:03:21, crash 17:03:56). The exact same installed
+binary relaunched with `TOUCH_EARLY_SESSION=0` as PID 35577, booted 84 views/error
+none, and accepted repeated inner/outer scrolling; Charlie confirmed scrolling
+the gray list. Saved log: `timing-ab-phone.log` in the evidence directory.
+This isolates pre-UIApplicationMain session construction as a reproducing cause,
+not the menu, URL, GPU or TypeScript execution alone.
+
+**Targeted fix (2026-09-07):** ExactIOS and ExactHostIOS now create sessions in
+`application(_:didFinishLaunchingWithOptions:)`, before their views boot but
+after UIKit startup. Agent clocks are still set before boot, and the sample's
+session list is populated before either pane mounts. No gesture changes or
+private API. Both simulator products build; the standalone phone build was
+installed and launched normally with menu/graphics enabled. Five repo checks
+passed. Simulator host-ios smoke passed in 3.6 s (independent sessions, native
+navigation, refusal, destruction); the full TS Caltrain app drive passed in 8.3 s
+with all three Contract tests and an inspected screenshot
+(`fixed-caltrain-sim.png` in the evidence directory). Charlie then reported
+"seemed ok" after the request to scroll and try Change station in the rebuilt
+regular Caltrain client (2026-09-07). This is real-app touch acceptance, separate
+from the diagnostic control and scripted drives; four-finger menu recognition
+and cold/warm URL usability on the repaired client remain separate checks.
+
+Next reduction uses the installed Caltrain TS binary with the existing
+`contract/corpus/scroll.contract` compiled and copied to its Documents directory,
+then launched normally with `EXACT_PLAN` pointing to the phone-local file and
+`EXACT_DEV_MENU=0`. No agent mode, live connection, GPU canvas or web node; the
+linked TypeScript runtime remains. Screen: Above, a gray numbered-row scroll,
+then Below labels. This reuses the production presenter and existing file-plan
+fixture path without changing Caltrain's source or installed binary.
+**Result:** the console attached to this launch recorded the same delayed-touch
+nil-insertion exception. Saved `ExactIOS-160257.ips` in the evidence directory
+identifies PID 35083, launched at 15:54:26 and crashed at 16:02:56, matching the
+file-plan launch rather than a later Search relaunch. A fresh `EXACT_SMOKE=1`
+launch at 16:07:34 printed `84 views; root 440x1372; error none`, confirming the
+intended fixture loaded, then hit the same exception before the smoke completed.
+Charlie also reported crashes after opening through Search; those launches alone
+do not identify the file-plan fixture, since launch environment is not persistent.
+The real presenter can reproduce without Caltrain's canvas, web nodes, URL or menu;
+its scroll hierarchy and linked runtime remain to be isolated. Not a fix.
+
+Device requests fail after 45 s with recent native diagnostics and close the
+connection; the carrier remembers failure so subsequent reads reject immediately.
+Malformed,
+oversized and wrong-token handshake peers refuse. No ninth operation or automatic
+phone fallback. Simulator and macOS carriers retain their existing transports.
+
+**Apple request scheduling (Codex, 2026-09-07):** the reader waits for each
+request to finish on the main run loop, using `CFRunLoopPerformBlock`, rather than
+entering a synchronous main-dispatch-queue block. The latter starves main-queue
+WebKit snapshot completions during nested run-loop waits. Requests remain serial
+and main-thread-owned. Full TS Caltrain drives pass on macOS and the physical
+iPhone, including guest pixels in the copied screenshot (1020 D4).
+An OS-opened macOS bundle also exposed a startup ordering bug: becoming key can
+synchronously announce agent readiness before the later global initializer reset
+its guard, starting two stdin readers. The guard now initializes before ordering
+the window. Cold/warm OS opening passes with one ready announcement and serial
+responses; the public operations are unchanged.
+
 ## 1. The operations
 
 Public: what `scripts/agent.mjs` exposes as a session (`open({host, plan,

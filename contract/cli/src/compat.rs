@@ -329,7 +329,7 @@ fn compatibility_with_trust(
         return Err("production updater requires deploy.signing.keys with at least one verification key; use EXACT_UPDATE_TRUST=development only for a development artifact".into());
     }
     let host = manifest.host(platform);
-    let executors = executors(app_dir);
+    let executors = executors(app_dir, platform);
     let hermes = executors.iter().any(|e| e == "hermes");
     let wasmtime = executors.iter().any(|e| e == "wasmtime");
     let mut kinds = vec!["plan", "assets"];
@@ -423,15 +423,22 @@ fn abi_version() -> Result<u32, String> {
 }
 
 /// The executors the app's composition links (LLP 1029 D2): the native
-/// crate always; Hermes iff there is an `app.ts`; wasmtime iff the host
-/// crate names `Swappable`.
-fn executors(app_dir: &Path) -> Vec<String> {
+/// crate always; an `app.ts` uses the browser on web, Hermes on native;
+/// wasmtime iff the native host crate names `Swappable`.
+fn executors(app_dir: &Path, platform: &str) -> Vec<String> {
     let mut out = vec!["native".to_string()];
     if app_dir.join("app.ts").exists() {
-        out.push("hermes".into());
+        out.push(
+            if platform == "web" {
+                "browser"
+            } else {
+                "hermes"
+            }
+            .into(),
+        );
     }
     let host = app_dir.join("apple/src/lib.rs");
-    if std::fs::read_to_string(host).is_ok_and(|s| s.contains("Swappable")) {
+    if platform != "web" && std::fs::read_to_string(host).is_ok_and(|s| s.contains("Swappable")) {
         out.push("wasmtime".into());
     }
     out.sort();
@@ -735,6 +742,7 @@ mod tests {
         let mut manifest = Manifest::read(&dir).unwrap();
         manifest.json["deploy"] = serde_json::json!({});
         manifest.json["app"]["origin"] = serde_json::json!("https://updates.example");
+        std::fs::write(dir.join("app.ts"), "").unwrap();
         for setting in [None, Some(serde_json::json!("0"))] {
             if let Some(setting) = setting {
                 manifest.json["deploy"]["store"] = serde_json::json!({"web":setting});
@@ -743,6 +751,10 @@ mod tests {
                 compatibility_with_trust(&dir, "web", "wasm32", &manifest, None, "production")
                     .unwrap();
             assert_eq!(plain.inputs["store"]["L"], "0");
+            assert_eq!(
+                plain.inputs["executors"],
+                serde_json::json!(["browser", "native"])
+            );
             assert_eq!(
                 plain.inputs["store"]["acceptedKinds"],
                 serde_json::json!([])

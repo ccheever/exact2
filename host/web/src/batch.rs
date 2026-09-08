@@ -173,6 +173,13 @@ impl Batch {
     /// — a request the runner handed the host to run (LLP 1016 D2); the
     /// reply comes back through `exact_fulfill`.
     pub fn request(&mut self, r: &exact_runner::RequestOut) {
+        if let Some(token) = r.request.continuation {
+            self.ops.push(format!(
+                "{{\"op\":\"continue\",\"ticket\":{},\"token\":{token}}}",
+                r.ticket
+            ));
+            return;
+        }
         let mut s = format!("{{\"op\":\"request\",\"ticket\":{},\"target\":", r.ticket);
         quote(&r.target, &mut s);
         s.push_str(",\"method\":");

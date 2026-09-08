@@ -11,6 +11,7 @@
 // routes a request to a session by its host-owned `session` label when
 // there is more than one — routing, not a ninth operation.
 import Foundation
+import CoreFoundation
 
 public final class Agent {
     let session: ExactSession
@@ -35,7 +36,16 @@ public final class Agent {
             while let i = pending.firstIndex(of: UInt8(ascii: "\n")) {
                 let line = String(decoding: pending[pending.startIndex..<i], as: UTF8.self)
                 pending.removeSubrange(pending.startIndex...i)
-                DispatchQueue.main.sync { handle(line) }
+                // A synchronous main-queue block prevents nested run-loop waits
+                // from servicing main-queue completions (notably WK snapshots on
+                // a device). Enter through the run loop, still one request at a time.
+                let completed = DispatchSemaphore(value: 0)
+                CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+                    handle(line)
+                    completed.signal()
+                }
+                CFRunLoopWakeUp(CFRunLoopGetMain())
+                completed.wait()
             }
         }
         DispatchQueue.main.async { exit(0) }

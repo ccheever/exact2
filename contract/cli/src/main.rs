@@ -4,6 +4,8 @@
 //! `contract compat <app-dir> --platform <p> [--target <triple>] [--json]`
 //! — the compatibility id (LLP 1030 D3a) the bake writes beside the plan,
 //! and with `--json` the inputs it digests, for reading why two differ.
+//! `contract types <file.contract> [-o <app.d.ts>]` — generate TypeScript's
+//! data-source signatures from the same plan tables the executor reads.
 
 use std::process::ExitCode;
 
@@ -13,9 +15,39 @@ fn main() -> ExitCode {
         Some("build") => build(&args[1..]),
         Some("test") => tests(&args[1..]),
         Some("compat") => compat(&args[1..]),
+        Some("types") => types(&args[1..]),
         _ => {
-            eprintln!("usage: contract build <file.contract> [-o <file.plan>] | contract test <file.test.contract> | contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]");
+            eprintln!("usage: contract build <file.contract> [-o <file.plan>] | contract types <file.contract> [-o <app.d.ts>] | contract test <file.test.contract> | contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]");
             ExitCode::from(2)
+        }
+    }
+}
+
+fn types(args: &[String]) -> ExitCode {
+    let valid = matches!(args, [input] if !input.starts_with('-'))
+        || matches!(args, [input, flag, output] if !input.starts_with('-') && flag == "-o" && !output.starts_with('-'));
+    if !valid {
+        eprintln!("usage: contract types <file.contract> [-o <app.d.ts>]");
+        return ExitCode::from(2);
+    }
+    let result = contract::compile_path(std::path::Path::new(&args[0]))
+        .map_err(|e| e.to_string())
+        .and_then(|plan| contract::typescript(&plan));
+    match result {
+        Ok(declarations) => {
+            if let Some(output) = args.get(2) {
+                if let Err(error) = std::fs::write(output, declarations) {
+                    eprintln!("{output}: {error}");
+                    return ExitCode::from(1);
+                }
+            } else {
+                print!("{declarations}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{}:{error}", args[0]);
+            ExitCode::from(1)
         }
     }
 }

@@ -279,3 +279,65 @@ fn newer_explicit_arguments_and_reload_do_not_accept_stale_async_results() {
         .is_none());
     assert_eq!(reloaded.slot("result"), Some(&expected));
 }
+
+#[test]
+fn pending_resources_are_reasked_when_the_same_module_restarts() {
+    struct Deferred;
+    impl DataSource for Deferred {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::str("boot"))
+        }
+        fn revision(&self) -> Option<&str> {
+            Some("unchanged")
+        }
+        fn answer(&mut self, _: &mut Store, _: &str, args: &[Value]) -> Result<Answer, DataError> {
+            if args == [Value::Number(0.0)] {
+                Ok(Answer::Now(Value::str("boot")))
+            } else {
+                Ok(Answer::Later(exact_runner::Request::get(
+                    "https://fixture.exact.test/value",
+                )))
+            }
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            Ok(Answer::Now(Value::str("settled")))
+        }
+    }
+    let plan = contract::bake(
+        contract::compile(
+            r#"
+component App
+  state attempt = 0
+  resource result = value(attempt) as shape string
+  action run writes attempt
+    attempt = attempt + 1
+  view
+    text result
+"#,
+        )
+        .unwrap(),
+        Deferred,
+    )
+    .unwrap();
+    let mut old = Runner::boot(plan.clone(), Deferred, Kernel::with_monospace()).unwrap();
+    old.act("run", vec![]).unwrap();
+    assert_eq!(old.take_requests().len(), 1);
+    assert!(
+        old.carry().resources.is_empty(),
+        "an in-flight placeholder is not a settled answer"
+    );
+    let mut next =
+        Runner::boot_carrying(plan, Deferred, Kernel::with_monospace(), &old.carry()).unwrap();
+    let fresh = next.take_requests()[0].ticket;
+    // Tickets are scoped to the host incarnation; old completions are
+    // discarded there, not handed to the replacement runner.
+    next.fulfill(fresh, response()).unwrap();
+    assert_eq!(next.resource("result"), Some(&Value::str("settled")));
+    assert!(!next.has_pending());
+}

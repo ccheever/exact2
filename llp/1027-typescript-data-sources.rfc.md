@@ -729,6 +729,85 @@ This is a verified mitigation, not a proof that every prior timeout had that cau
 manual four-finger menu recognition itself was not driven. Systematic linked
 size/startup/per-call measurements remain owed; Linux still has a refusing stub.
 
+**Physical Caltrain follow-up (Codex, 2026-09-07):** the TypeScript twin with
+unchanged production Contract/tests, real assets, deck and GPU passes the full
+app smoke and all three Contract tests on web (10.5 s), macOS (3.4 s), and the
+physical iPhone (33.5 s; 98.0 ms boot, one sample). The phone screenshot initially
+omitted the loaded web deck: main-queue request scheduling starved WebKit's
+snapshot completion, and clean backing layers needed explicit capture redraw
+(1012/1020). The corrected focused capture has 1334 guest-blue pixels versus zero;
+the full smoke's screenshot assertion now passes.
+
+Both clients then opened the same LAN URL, selected Palo Alto and advanced clock
+60000. A TypeScript-only edit displayed `Palo Alto · live` on both; a candidate
+that throws only for the carried Palo Alto station preserved their complete state;
+the corrected `Palo Alto · recovered` edit recovered both. Slots, clock and both
+train boards stayed unchanged, with no pending work. Plan SHA-256 stayed
+`254d926fefec3ae6f4de491136d45a84c8c76d676c6f5075db06731ce096d055`;
+HBC changed `c8e8668c…` → `30c2bb58…`. Phone PID 34336 and native binary SHA-256
+`76204bf4d30299fb60cf11633a5c9ec2db29022e5dac94794a9a612e272ca064`
+stayed unchanged. Phone screenshots were copied and visually inspected.
+Local artifacts: `/tmp/exact-caltrain-phone-proof.RTsXNt/` (`proof.txt`, harness,
+process snapshots, crash report and PNGs).
+
+**Limit:** this Caltrain URL proof used `EXACT_DEV_MENU=0`. The preceding
+menu-enabled attempt crashed at the first edit: the 14:03 report for PID 34325
+again ends in UIKit `_delayTouchesForEvent:inPhase:` inserting nil. The earlier
+non-delaying-recognizer mitigation is incomplete, not a default-client stability
+claim. Manual menu gestures remain untested. One earlier full phone drive also
+timed out on layout before capture; its cause remains unresolved.
+
+**Crash follow-up (Codex, 2026-09-07):** filtering the developer menu to direct
+touch events alone still crashed (14:13). The app's `UIHoverGestureRecognizer`
+also inherited delayed touch endings. Hover now sets both delay flags and
+`cancelsTouchesInView` false: observing the pointer cannot hold finger input
+across node destruction. With that change and menu filtering, the complete
+Caltrain/browser URL edit/refusal/recovery proof passes twice with the menu
+enabled, finally with diagnostic tracing removed. Final phone PID 34489 and
+binary SHA-256 `852b93502a58c46f1db0b0d7307518e16222f97291a67623aff642be50d856ba`
+remain unchanged throughout, with station Palo Alto, clock 60000 and both train
+boards carried. Artifacts: `/tmp/exact-onboarding.NsRIFE/final-menu-proof.txt`.
+One earlier launch timeout and one type timeout remain distinct, unclassified
+device failures; these are not claimed fixed. Manual four-finger recognition
+still requires the human sweep. The tested menu-enabled binary also handles
+cold/warm explicit development links without losing the agent connection (1030.000 §7).
+
+**Real-touch correction (2026-09-07):** Charlie's Safari opening succeeds but
+first touch/scroll still crashes with the same UIKit nil-insertion signature,
+also in a console-observed normal launch with `EXACT_DEV_MENU=0`. The passing
+agent proofs above do not establish touch stability (1012). Root cause remains
+unconfirmed; temporary diagnostic hooks were removed without a new fix claim.
+Normal URL replacement also reports a separate storage-configuration ordering
+error outside agent mode. Both are in the queue; the next crash investigation
+should reduce the UIKit reproduction rather than repeat the earlier mitigations.
+**Follow-up:** the same-binary timing reduction now reproduces that exact crash
+only in the tested pre-UIApplicationMain session-creation arm; the late-start
+control survives Charlie's scrolling. Both iOS adapters now defer session
+creation to didFinishLaunching (1012). Charlie subsequently accepted real touches
+in the rebuilt regular Caltrain client ("seemed ok"). The separate storage-ordering
+error was reproduced on a normal cold URL launch and fixed separately below.
+
+**Storage-ordering fix (Codex, 2026-09-07):** Apple candidate preparation now
+configures app-scoped directories before loading bytecode, then marks that
+candidate activated so committed draws do not configure/load it a second time.
+The focused ABI regression and all five repo checks pass; rebuilt simulator
+Caltrain passed all three Contract tests and full UI smoke (7.3 s), and host-ios
+passed the two-session smoke (3.5 s). The rebuilt physical client, launched
+normally without EXACT_AGENT through the explicit URL at 17:50:40, reloaded with
+no storage error. Warm delivery at 17:51:09 kept that console connection alive;
+a subsequent TypeScript label edit published generation 26 and reloaded in the
+same connected process (PID 35966). Binary SHA-256:
+`5339bb5950e6a4613ace87117e1fddd12c740092520925ea72461aa3d16b1804`.
+This is normal-launch activation evidence; retained-state edit/refusal/recovery
+remains the earlier agent proof, and Safari confirmation UI/four-finger recognition
+on this rebuilt client still require human checks.
+Later in that drive, a server rebuild reported changed web inputs but unchanged
+iOS inputs; the phone refused the changed program identity and retained its last
+good generation. Warm delivery at 17:53 likewise retained PID 35966 but could not
+join that newer generation without a relaunch. This is a separate queued rebuild
+boundary investigation, not a storage activation failure or uninterrupted-live
+reload claim. The temporary TypeScript label edit was restored.
+
 Answering LLP 1026 §10 Q6 for this executor: the web loads the module
 separately, *because it must* (there is no wasm form of it), and a
 generation of `app.ts` is a restart with carry on the web too, not a new wasm
@@ -849,6 +928,11 @@ Linux uses absolute XDG roots or the HOME defaults. Temporary is an app-cache
 subdirectory, not an automatic cleanup promise. Grants come from the admitted
 app identity (`fs.read`, `fs.write`, `sqlite.open`), not from module globals.
 Resources close on unload, and directory configuration survives replacement.
+Apple's private live candidate uses the same configure-then-activate sequence as
+normal startup. Once activated before candidate runner boot, it is marked ready
+so its first committed draw does not configure or load the module again. Before
+the first pixel, candidate preparation does neither. The ABI regression covers
+both painted states in isolated normal/agent processes, including repeated draws.
 
 Storage work runs in Ibex2's workers. A runner continuation carries readiness
 through the host executor; only the runtime owner delivers a completion and

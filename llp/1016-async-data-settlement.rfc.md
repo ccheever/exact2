@@ -86,6 +86,14 @@ pub trait DataSource {
 }
 ```
 
+**Browser module extension (Codex, 2026-09-07):** the implemented `Request`
+also has `continuation: Option<u64>`. `None` is the HTTP shape above;
+`Request::continuation(token)` is an executor-local microtask turn, never a
+network URL. It uses the same `Later` / ticket / `fulfill` lifecycle, and a
+settlement may issue another request (the implemented `parse` returns `Answer`).
+Module-authored HTTP JSON cannot set this field. Apple/Linux refuse this kind
+as `Unsupported`; Hermes drains its microtasks synchronously instead.
+
 `Request` and `Response` are the runner's own two structs, the fields of
 ibex2's `stdlib::fetch::{Request, Response}` (LLP 0068 §1) minus what a plan
 runner does not decide (redirect mode; the final URL). They are not ibex2's
@@ -138,6 +146,14 @@ The host runs it with the executor it has, and brings the outcome back:
 Both entries end in the runner's one method: `Runner::fulfill(ticket, outcome,
 now_ms) -> Receipt`. A ticket the runner no longer holds (D5) is dropped with a
 journal line, not an error.
+
+**Browser continuation execution (Codex, 2026-09-07):** `op: "continue"`
+carries a ticket and a realm-local token. The loader serializes each realm's
+turns, drains microtasks to a MessageChannel task checkpoint, and returns a
+typed step through ordinary fulfillment. The glue tracks this work alongside
+HTTP in `inflight`, so agent `clock settle` waits for both. Fetch still emits a
+real grant-checked HTTP request; continuation turns do not bypass that path.
+The host incarnation guard and disposal discard late completion after reload.
 
 The alternative — the data source blocks on a worker thread and the runner
 waits — was rejected because it cannot exist on the web, and the web is the

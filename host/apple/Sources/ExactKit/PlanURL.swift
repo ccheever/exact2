@@ -12,6 +12,34 @@
 import CryptoKit
 import Foundation
 
+/// Explicit development-only opening action (LLP 1030.000 §7). The locator
+/// stays an HTTP(S) URL; the outer app-specific scheme only selects the client.
+public enum ExactDevelopmentLink {
+    public static func page(_ link: URL, scheme: String) -> URL? {
+        guard link.absoluteString.utf8.count <= 8192,
+              let c = URLComponents(url: link, resolvingAgainstBaseURL: false),
+              c.scheme?.lowercased() == scheme, c.host == "open",
+              c.user == nil, c.password == nil, c.port == nil, c.fragment == nil,
+              c.path.isEmpty || c.path == "/",
+              let items = c.queryItems, items.count == 1, items[0].name == "url",
+              let value = items[0].value, let page = URL(string: value),
+              ["http", "https"].contains(page.scheme?.lowercased() ?? ""),
+              let host = page.host, !host.isEmpty, page.user == nil, page.password == nil
+        else { return nil }
+        return page
+    }
+
+    @discardableResult
+    public static func open(_ link: URL) -> Bool {
+        guard let scheme = Bundle.main.object(forInfoDictionaryKey: "ExactDevelopmentURLScheme") as? String,
+              let page = page(link, scheme: scheme) else { return false }
+        // The existing loader still checks app identity, pairing, grants and
+        // runtime compatibility before changing any session. A scheme is no trust.
+        ExactApp.shared.connect(page.absoluteString)
+        return true
+    }
+}
+
 /// One bounded HTTP rung. URLSession's completion-handler API buffers an
 /// entire response before the caller can inspect it; the loader instead owns
 /// a data delegate so every chunk is stopped at the rung's limit. Redirects
@@ -128,6 +156,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         let identity: String
         let plan: Data
         let assets: [String: Data]
+        let module: ExactModule?
     }
     private struct Revision: Equatable {
         let epoch: String
@@ -367,7 +396,22 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             assets.append(asset)
         }
         assets.sort { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
-        let canonical = "{\"assets\":[" + assets.map(\.canonical).joined(separator: ",") + "],\"plan\":" + plan.canonical + "}"
+        var module: [String: FileCard] = [:]
+        if let row = json["module"] {
+            guard let rows = row as? [String: Any], Set(rows.keys) == Set(["native", "receipt", "web"]) else {
+                failed("invalid module manifest", generation: generation); return
+            }
+            for key in ["native", "receipt", "web"] {
+                guard let row = rows[key] as? [String: Any], let file = card(row, name: "", base: base),
+                      file.count <= (key == "receipt" ? 1024 * 1024 : 32 * 1024 * 1024),
+                      file.count <= PlanURL.generationLimit - total else {
+                    failed("invalid or oversized module card", generation: generation); return
+                }
+                module[key] = file; total += file.count
+            }
+        }
+        let moduleCanonical = module.isEmpty ? "" : ",\"module\":{" + ["native", "receipt", "web"].map { PlanURL.quote($0) + ":" + module[$0]!.canonical }.joined(separator: ",") + "}"
+        let canonical = "{\"assets\":[" + assets.map(\.canonical).joined(separator: ",") + "]" + moduleCanonical + ",\"plan\":" + plan.canonical + "}"
         let identity = PlanURL.hash(Data(canonical.utf8))
         if let dev = json["dev"] as? [String: Any] {
             guard let revision = PlanURL.revision(dev), revision.identity == identity,
@@ -386,22 +430,24 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         // Subscribe before payloads finish: hello repairs an edit between
         // discovery and the stream opening, including an asset-only edit.
         guard currentGeneration() != identity else { pending = nil; return }
-        fetchGeneration(plan: plan, assets: assets, identity: identity, generation: generation)
+        fetchGeneration(plan: plan, assets: assets, module: module, identity: identity, generation: generation)
     }
 
     /// Serial fetching bounds concurrent buffers as well as total bytes. The
     /// resolver is handed over only after every file verifies; no partial
     /// asset callbacks, and an empty roster means every old asset is absent.
-    private func fetchGeneration(plan: FileCard, assets: [FileCard], identity: String, generation: UInt64) {
+    private func fetchGeneration(plan: FileCard, assets: [FileCard], module: [String: FileCard], identity: String, generation: UInt64) {
         var planBytes = Data()
         var assetBytes: [String: Data] = [:]
-        let cards = [plan] + assets
+        var moduleBytes: [Data] = []
+        let cards = [plan] + assets + ["receipt", "native"].compactMap { module[$0] }
         func next(_ index: Int) {
             guard !closed, terminal == nil, generation == resolution else { return }
             guard index < cards.count else {
                 pending = nil
                 if currentGeneration() != identity {
-                    let candidate = Generation(identity: identity, plan: planBytes, assets: assetBytes)
+                    let logic = moduleBytes.isEmpty ? nil : ExactModule(receipt: moduleBytes[0], bytecode: moduleBytes[1])
+                    let candidate = Generation(identity: identity, plan: planBytes, assets: assetBytes, module: logic)
                     if !applyGeneration(candidate, "generation ← " + (page.host ?? "")) {
                         status("the host refused the generation; keeping the running app")
                     }
@@ -418,7 +464,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
                     self.failed("cannot verify \(card.url); keeping the running app", generation: generation)
                     return
                 }
-                if index == 0 { planBytes = data } else { assetBytes[card.name] = data }
+                if index == 0 { planBytes = data }
+                else if index <= assets.count { assetBytes[card.name] = data }
+                else { moduleBytes.append(data) }
                 next(index + 1)
             }
         }

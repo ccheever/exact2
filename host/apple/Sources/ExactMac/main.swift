@@ -97,6 +97,12 @@ ExactEnv.stamp("center")
 final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationDidFinishLaunching(_ notification: Notification) { ExactEnv.stamp("didFinishLaunching") }
+    func application(_ application: NSApplication, open urls: [URL]) {
+        if let url = urls.first, ExactDevelopmentLink.open(url) {
+            application.windows.first?.makeKeyAndOrderFront(nil)
+            application.activate(ignoringOtherApps: true)
+        }
+    }
     func windowDidBecomeKey(_ notification: Notification) {
         if !ExactEnv.stamps.contains(where: { $0.0 == "windowDidBecomeKey" }) { ExactEnv.stamp("windowDidBecomeKey") }
         agentReady()
@@ -177,6 +183,9 @@ let boot: Batch = {
 let rustMs = session.rustMs
 let applyMs = session.applyMs
 let bootMs = session.bootMs
+// Becoming key can synchronously announce readiness. Initialize the guard
+// before ordering the window, not afterward (two stdin readers otherwise).
+nonisolated(unsafe) var readySent = false
 window.makeKeyAndOrderFront(nil)
 ExactEnv.stamp("makeKeyAndOrderFront")
 // Under a script: in front regardless, so the window is seen (a covered
@@ -188,7 +197,6 @@ ExactEnv.stamp("activate")
 /// one out. `ready` goes out once the first frame is applied and the window
 /// ordered front; an accessory app's window is not key until something
 /// asks, and a `type` asks (`AgentMac`).
-nonisolated(unsafe) var readySent = false
 func agentReady() {
     guard agentMode, !readySent else { return }
     readySent = true

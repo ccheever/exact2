@@ -107,6 +107,78 @@ impl<D: DataSource> Bridge<D> {
         self.output.len() as u32
     }
 
+    /// Binary-admitted module metadata, without activating any logic.
+    pub fn logic_info(&mut self, data: D) -> u32 {
+        if let Some(revision) = data.revision() {
+            let mut json = String::from("{");
+            for (i, (key, value)) in [
+                ("appId", data.app_id()),
+                ("grants", data.grants()),
+                ("revision", revision),
+            ]
+            .iter()
+            .enumerate()
+            {
+                if i > 0 {
+                    json.push(',');
+                }
+                exact_runner::agent::quote(key, &mut json);
+                json.push(':');
+                exact_runner::agent::quote(value, &mut json);
+            }
+            json.push('}');
+            self.emit(json)
+        } else {
+            self.emit("null".into())
+        }
+    }
+
+    /// Activate after first pixel; no-op for binary-bound sources.
+    pub fn data_ready(&mut self) -> u32 {
+        let batch = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            Host::data_ready,
+        );
+        self.emit(batch)
+    }
+
+    /// The input concatenates plan, pairing receipt, and browser environment id.
+    /// The JS loader prepares that private environment before this synchronous swap.
+    pub fn boot_module(&mut self, lengths: [usize; 3], admitted: D) -> u32 {
+        let [plan, receipt, module] = lengths;
+        if plan
+            .checked_add(receipt)
+            .and_then(|n| n.checked_add(module))
+            != Some(self.input.len())
+            || plan > 32 << 20
+            || receipt > 1 << 20
+            || module > 32
+        {
+            return self.emit(exact_runner::agent::error(
+                "invalid module generation lengths",
+            ));
+        }
+        let result = std::str::from_utf8(&self.input[plan..plan + receipt])
+            .map_err(|e| e.to_string())
+            .and_then(|receipt_text| {
+                admitted
+                    .replacement(
+                        &self.input[..plan],
+                        receipt_text,
+                        self.input[plan + receipt..].to_vec(),
+                    )
+                    .map_err(|e| format!("{e:?}"))
+            });
+        let mut data = match result {
+            Ok(data) => data,
+            Err(error) => return self.emit(exact_runner::agent::error(&error)),
+        };
+        if let Err(error) = data.activate() {
+            return self.emit(exact_runner::agent::error(&format!("{error:?}")));
+        }
+        self.boot_plan(plan, data)
+    }
+
     /// Boot from `plan` with `data` and the snapshot `store` handed in; the
     /// output is the first batch.
     pub fn boot(&mut self, plan: &[u8], data: D) -> u32 {
@@ -251,9 +323,23 @@ pub type Cell<D> = RefCell<Bridge<D>>;
 /// `$data` is the app's `DataSource` type (constructed with `Default`);
 /// `$plan` a `&'static [u8]` of baked plan bytes (typically `include_bytes!`
 /// of what the app's `build.rs` wrote).
+/// A fourth argument supplies a data factory; a fifth supplies the paired
+/// module's `[receipt, browser script, native bytecode]` byte slices for bake extraction.
 #[macro_export]
 macro_rules! host {
+    ($data:ty, $plan:expr, $compat:expr, $new:expr, $module:expr) => {
+        $crate::host!($data, $plan, $compat, $new);
+        /// Copy one exact embedded module artifact for the web producer.
+        #[no_mangle]
+        pub extern "C" fn exact_module_artifact(index: u32) -> u32 {
+            let artifacts: &[&[u8]] = &$module;
+            EXACT_BRIDGE.with(|b| b.borrow_mut().baked_plan(artifacts.get(index as usize).copied().unwrap_or(&[])))
+        }
+    };
     ($data:ty, $plan:expr, $compat:expr) => {
+        $crate::host!($data, $plan, $compat, || <$data as ::std::default::Default>::default());
+    };
+    ($data:ty, $plan:expr, $compat:expr, $new:expr) => {
         thread_local! {
             static EXACT_BRIDGE: $crate::abi::Cell<$data> = ::std::cell::RefCell::new($crate::abi::Bridge::new());
         }
@@ -297,7 +383,7 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 b.set_compat($compat);
-                b.boot($plan, <$data as ::std::default::Default>::default())
+                b.boot($plan, ($new)())
             })
         }
 
@@ -307,8 +393,24 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 b.set_compat($compat);
-                b.boot_plan(len as usize, <$data as ::std::default::Default>::default())
+                b.boot_plan(len as usize, ($new)())
             })
+        }
+
+        /// Metadata for the optional browser module loader.
+        #[no_mangle]
+        pub extern "C" fn exact_logic() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().logic_info(($new)()))
+        }
+        /// The first pixel has been painted; activate deferred logic.
+        #[no_mangle]
+        pub extern "C" fn exact_data_ready() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().data_ready())
+        }
+        /// Replace the paired plan and privately prepared browser module.
+        #[no_mangle]
+        pub extern "C" fn exact_boot_module(plan: u32, receipt: u32, module: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().boot_module([plan as usize, receipt as usize, module as usize], ($new)()))
         }
 
         /// Inspect a plan's fonts without changing the live host.

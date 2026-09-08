@@ -11,6 +11,79 @@ use exact_runner::{DataError, DataSource, Event, Value};
 use std::ffi::c_void;
 use std::sync::Mutex;
 
+#[test]
+fn development_opening_metadata_is_app_specific_and_opt_in() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = std::process::Command::new("node")
+        .current_dir(root)
+        .args(["--input-type=module", "-e", r#"
+import assert from 'node:assert/strict';
+import {developmentURLScheme} from './scripts/app.mjs';
+import {infoPlist, macInfoPlist} from './host/apple/build.mjs';
+import {developmentOpenPage} from './host/web/serve.mjs';
+const app = {id:'test.one', displayName:'<img src=x onerror=alert(1)>', crate:()=>'<script>bad</script>', manifest:{host:{ios:{urlSchemes:['existing']}}}};
+const scheme = developmentURLScheme(app.id);
+assert.match(scheme, /^exact2-[0-9a-f]{32}$/);
+assert.notEqual(scheme, developmentURLScheme('test.two'));
+for (const make of [d=>infoPlist(app,false,{development:d}),d=>macInfoPlist(app,{development:d})]) {
+  assert.ok(make(true).includes(scheme)); assert.ok(make(true).includes('ExactDevelopmentURLScheme'));
+  assert.ok(!make(false).includes(scheme)); assert.ok(!make(false).includes('ExactDevelopmentURLScheme'));
+}
+assert.ok(infoPlist(app).includes('existing'));
+const html = developmentOpenPage(app);
+assert.ok(!html.includes(app.displayName)); assert.ok(html.includes('&lt;img'));
+assert.ok(!html.includes('<script>bad')); assert.ok(html.includes(scheme + '://open?url='));
+assert.ok(html.includes('cannot detect whether a client is installed'));
+"#])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn swift_development_locator_refuses_malformed_links() {
+    // Compile the actual Foundation-only opening code, not a parallel parser.
+    let source = include_str!("../Sources/ExactKit/PlanURL.swift")
+        .split("/// One bounded HTTP rung.")
+        .next()
+        .unwrap();
+    let checks = r#"
+final class ExactApp {
+    static let shared = ExactApp()
+    func connect(_ url: String) { preconditionFailure("must not connect in a non-development bundle") }
+}
+let scheme = "exact2-test"
+let page = "https://example.test/a?q=x%26y#hello"
+var c = URLComponents(string: "exact2-test://open")!
+c.queryItems = [URLQueryItem(name: "url", value: page)]
+precondition(ExactDevelopmentLink.page(c.url!, scheme: scheme)?.absoluteString == page)
+precondition(!ExactDevelopmentLink.open(c.url!))
+for bad in ["other://open?url=https://x.test", "exact2-test://else?url=https://x.test",
+ "exact2-test://open?url=file:///tmp/secret", "exact2-test://open?url=javascript:alert(1)",
+ "exact2-test://open?url=https://u:p@x.test", "exact2-test://open?url=https://x.test&url=https://y.test",
+ "exact2-test://open?url=https://x.test&other=1", "exact2-test://open?url=https://x.test#extra",
+ "exact2-test://open/path?url=https://x.test", "exact2-test://u@open?url=https://x.test",
+ "exact2-test://open:3?url=https://x.test", "exact2-test://open", "exact2-test://open?url="] {
+ precondition(ExactDevelopmentLink.page(URL(string: bad)!, scheme: scheme) == nil, bad)
+}
+precondition(ExactDevelopmentLink.page(URL(string: "exact2-test://open?url=https://x.test/" + String(repeating:"a", count:8192))!, scheme:scheme) == nil)
+"#;
+    let result = std::process::Command::new("swift")
+        .args(["-swift-version", "5", "-e", &format!("{source}\n{checks}")])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
 #[derive(Debug, PartialEq)]
 struct RecordedFace {
     family: String,

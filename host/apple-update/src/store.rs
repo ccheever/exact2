@@ -536,7 +536,11 @@ mod tests {
     }
 
     impl Transport for RedirectTransport {
-        fn send(&self, request: &Request) -> Result<Response, HostError> {
+        fn open(
+            &self,
+            request: &Request,
+            signal: &ibex2::stdlib::abort::AbortSignal,
+        ) -> Result<ibex2::stdlib::fetch::StreamingResponse, HostError> {
             self.requests.fetch_add(1, Ordering::SeqCst);
             assert_eq!(request.redirect, ibex2::stdlib::fetch::RedirectMode::Manual);
             let mut headers = Headers::new();
@@ -548,7 +552,8 @@ mod tests {
                 body: b"not an update".to_vec(),
                 url: request.url.clone(),
                 redirected: false,
-            })
+            }
+            .into_stream(request.body_limit(), signal.clone()))
         }
     }
 
@@ -574,7 +579,11 @@ mod tests {
     }
 
     impl Transport for StalledTransport {
-        fn send(&self, request: &Request) -> Result<Response, HostError> {
+        fn open(
+            &self,
+            request: &Request,
+            signal: &ibex2::stdlib::abort::AbortSignal,
+        ) -> Result<ibex2::stdlib::fetch::StreamingResponse, HostError> {
             let head = request.url.ends_with("exact.json");
             if head == self.block_head {
                 self.entered.send(()).unwrap();
@@ -591,7 +600,8 @@ mod tests {
                 },
                 url: request.url.clone(),
                 redirected: false,
-            })
+            }
+            .into_stream(request.body_limit(), signal.clone()))
         }
     }
 

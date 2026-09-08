@@ -161,6 +161,15 @@ envelope names lives on `U`'s origin.
   plan `application/vnd.exact.plan`; `dev.mjs`'s type map gains `.json`
   (it has none today, dev.mjs:131).
 
+**Module extension (Codex, 2026-09-07; LLP 1027 D5/D6):** an optional
+`module` object contains `native`, `receipt`, and `web` cards, each with
+`url`, `bytes`, and `sha256`, naming `app.hbc`, `app.module.json`, and `app.js`.
+The pairing receipt binds the plan and both logic forms to app identity,
+grants, ABI and bytecode version. Native fetches receipt/HBC; web fetches
+receipt/script. Hashes ensure pairing, not publisher authentication. This
+slice is admitted development on module-aware web/macOS clients, not Go or
+signed delivery; Rust-only clients refuse modules.
+
 **D3 — reload is the dev loop, one network hop longer, and transactional.**
 A native dev host given `U` resolves the envelope and subscribes to `dev.events`.
 The browser uses the same generation protocol:
@@ -178,6 +187,10 @@ The browser uses the same generation protocol:
   `{"assets":[{"bytes":N,"name":"assets/x","sha256":"…"}],"plan":{"bytes":N,"sha256":"…"}}`.
   Assets sort by UTF-8 name. URLs and live ordering fields are excluded. Every
   card has an exact size and SHA-256; clients verify every payload before use.
+  When present, canonical `module` is included between `assets` and `plan`,
+  with sorted `native`, `receipt`, `web` entries of `{bytes,sha256}`. All three
+  count against generation budgets even if a client downloads only its pair.
+  The receipt is capped at 1 MiB; either logic artifact at 32 MiB.
   The envelope limit is 64 KiB, each payload 64 MiB, the complete payload set
   256 MiB. Fetches are bounded and obsolete requests are canceled.
 - **A candidate replaces the app only when whole.** Clients prepare the plan,

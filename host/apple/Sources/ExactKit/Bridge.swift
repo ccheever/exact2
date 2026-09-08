@@ -74,6 +74,14 @@ final class Runtime {
         return read(exact_prepare_plan(rt, token, n, Float(width), Float(height)))
     }
     func commitPlan() -> Batch { read(exact_commit_plan(rt)) }
+    func prepareModule(_ plan: Data, module: ExactModule, width: CGFloat, height: CGFloat) -> Batch {
+        var payload = plan
+        payload.append(module.receipt)
+        payload.append(module.bytecode)
+        _ = write(payload)
+        return read(exact_prepare_module(rt, plan.count, module.receipt.count, module.bytecode.count, Float(width), Float(height)))
+    }
+    func dataReady() -> Batch { read(exact_data_ready(rt)) }
     func discardPlan() { exact_discard_plan(rt) }
 
     /// Every queued reply into the runner: the batch of their commits.

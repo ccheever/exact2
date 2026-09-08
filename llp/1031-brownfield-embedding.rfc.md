@@ -44,6 +44,8 @@ The developer-facing promise, as it will actually read:
 ```swift
 // Link lib<app>_apple.a (from `node host/apple/build.mjs --embed`) and
 // the ExactKit package; no Rust toolchain in the consuming project.
+// On iOS, run this from the app/scene/controller lifecycle after UIKit starts,
+// never top-level before UIApplicationMain: a session already creates UIKit views.
 let app = ExactApp.shared                        // the archive's app: identity, assets, the dev connection
 let session = app.makeSession(delegate: self)    // one runner, one plan, one clock; boots on first layout
 let exact = ExactView(session: session)          // an ordinary UIView / NSView

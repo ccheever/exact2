@@ -176,7 +176,7 @@ inspected screenshot. A repeat assertion run passed in 5.7 s (83.5 ms first
 frame, one sample rather than a startup budget result).
 
 The TypeScript Caltrain twin passed the complete app drive and all three
-Contract tests on web, macOS and iOS simulator, with its real assets, deck and
+Contract tests on web, macOS, iOS simulator and physical iPhone, with its real assets, deck and
 GPU module. Production Caltrain remains Rust. `smoke.mjs --app-only` runs the
 selected app and its tests without unrelated bare-plan host fixtures, which a
 paired module client correctly refuses. The driver now supports
@@ -190,9 +190,37 @@ native binary, and the same phone PID. A candidate that throws only at the carri
 counter preserves both clients; the next valid edit recovers. Each valid revision
 passes the async guard sweep. Earlier apparent stalls included a UIKit delayed-touch
 crash; the dev-menu recognizers no longer delay touch endings. The complete proof
-passes with the menu enabled and tracing removed. Agent deadlines include native
+passes with the menu enabled and tracing removed. The full Caltrain URL proof
+also passes: live edit, broken-candidate refusal and recovery preserve the selected
+station, clock and train boards, with unchanged phone PID/native binary. The
+initial menu-only mitigation was incomplete: Caltrain's hover recognizers still
+delayed touch endings. Hover now neither delays nor cancels finger events, and
+the four-finger shortcuts accept only direct touch events. Two physical Caltrain
+replacement/refusal/recovery runs pass with the menu enabled (the final one with
+tracing removed). Those gesture mitigations did not fix real finger scrolling:
+the same-binary diagnostic isolated session creation before UIApplicationMain.
+Both iOS adapters now create sessions after UIKit starts; Charlie confirmed
+scrolling in regular Caltrain and opening it natively from Safari. Normal URL
+module replacement also configures storage before activation, exactly once.
+Manual four-finger single/double-tap verification remains owed.
+Agent deadlines include native
 diagnostics; a closed carrier rejects later requests immediately. Systematic
 size/startup/per-call measurements remain to be proved.
+
+The dev page's **Open in native…** link offers an installed-client action and
+local setup instructions at `/__dev/open`. Development Apple builds register an
+app-specific opening scheme and pass its HTTP(S) locator to the existing loader;
+production builds do not register that development handler. iOS handles cold and
+warm URL delivery. For a local macOS bundle, use
+`node host/apple/build.mjs <app>-apple --bundle` and open the printed `.app` once.
+The bundle includes its assets and native modules; it is not a notarized download.
+Browser navigation, both Apple cold/warm handlers and malformed-link refusals are
+tested. The page cannot detect installation, and does not trigger signing/builds.
+Safari's reported 5–10-second initial scroll delay remains unresolved: the web
+root is inert until the module loads. A held-loader Chrome probe confirmed that
+this blocks scrolling despite the complete list already being present; physical
+Safari timing still needs a working remote automation connection. Web-only program
+rebuilds also currently invalidate connected native clients unnecessarily.
 
 Remaining: Linux native TypeScript execution, npm dependency capture, signed
 module updates, downloadable custom clients, and the generic Go launcher.

@@ -361,11 +361,19 @@ impl<D: DataSource> Bridge<D> {
             Err(error) => return self.prepare_error(format!("module generation: {error:?}")),
         };
         if self.painted {
-            if let Err(error) = data.activate() {
+            if let Err(error) = Host::activate_source(&mut data) {
                 return self.prepare_error(format!("candidate module: {error:?}"));
             }
         }
-        self.prepare_plan(plan_len, data, hooks, width, height)
+        let result = self.prepare_plan(plan_len, data, hooks, width, height);
+        if self.painted {
+            if let Some(prepared) = self.prepared.as_mut() {
+                // The candidate already booted with ready answers. Its first
+                // draw must not configure a loaded module or activate it twice.
+                prepared.host.mark_data_activated();
+            }
+        }
+        result
     }
 
     /// Boot from the input buffer's first `len` bytes (a plan the app
@@ -993,6 +1001,113 @@ mod tests {
             None,
         );
         builder.finish().unwrap().encode()
+    }
+
+    #[derive(Clone, Default)]
+    struct StorageModule {
+        configured: bool,
+        loaded: bool,
+        calls: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl DataSource for StorageModule {
+        fn app_id(&self) -> &str {
+            "test.exact.storage.reload"
+        }
+        fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(name.into()))
+        }
+        fn ready(&self) -> bool {
+            self.loaded
+        }
+        fn configure_storage(
+            &mut self,
+            data: std::path::PathBuf,
+            cache: std::path::PathBuf,
+            temporary: std::path::PathBuf,
+        ) -> Result<(), DataError> {
+            assert!(!self.loaded, "cannot configure an already-loaded module");
+            assert!(!self.configured, "configure only once per candidate");
+            for path in [data, cache, temporary] {
+                assert!(path.is_absolute());
+                assert!(path.components().any(|p| p.as_os_str() == self.app_id()));
+            }
+            self.configured = true;
+            self.calls.lock().unwrap().push("configure");
+            Ok(())
+        }
+        fn activate(&mut self) -> Result<(), DataError> {
+            assert!(!self.loaded, "candidate must not activate twice");
+            assert_eq!(self.configured, std::env::var_os("EXACT_AGENT").is_none());
+            self.loaded = true;
+            self.calls.lock().unwrap().push("activate");
+            Ok(())
+        }
+        fn replacement(&self, _: &[u8], _: &str, _: Vec<u8>) -> Result<Self, DataError> {
+            Ok(Self {
+                calls: self.calls.clone(),
+                ..Self::default()
+            })
+        }
+    }
+
+    #[test]
+    fn module_replacement_configures_before_activation_once_and_only_after_pixel() {
+        const CHILD: &str = "EXACT_MODULE_STORAGE_ORDER_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            for agent in [false, true] {
+                let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+                command.args(["--exact", "abi::tests::module_replacement_configures_before_activation_once_and_only_after_pixel"])
+                    .env(CHILD, "1").env_remove("EXACT_AGENT");
+                if agent {
+                    command.env("EXACT_AGENT", "1");
+                }
+                let output = command.output().unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}\n{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            return;
+        }
+        let expected = if std::env::var_os("EXACT_AGENT").is_some() {
+            vec!["activate"]
+        } else {
+            vec!["configure", "activate"]
+        };
+        for painted in [false, true] {
+            let bytes = plan(None);
+            let source = StorageModule::default();
+            let mut bridge = Bridge::new();
+            bridge.boot(&bytes, source.clone(), Hooks::none(), 390.0, 844.0);
+            assert!(bridge.host.is_some());
+            assert!(source.calls.lock().unwrap().is_empty());
+            if painted {
+                bridge.data_ready();
+                assert_eq!(*source.calls.lock().unwrap(), expected);
+                source.calls.lock().unwrap().clear();
+            }
+            bridge.input_write(&bytes);
+            bridge.prepare_module(
+                [bytes.len(), 0, 0],
+                source.clone(),
+                Hooks::none(),
+                390.0,
+                844.0,
+            );
+            assert!(bridge.prepared.is_some());
+            if !painted {
+                assert!(source.calls.lock().unwrap().is_empty());
+            } else {
+                assert_eq!(*source.calls.lock().unwrap(), expected);
+            }
+            bridge.commit_plan();
+            bridge.data_ready();
+            bridge.data_ready();
+            assert_eq!(*source.calls.lock().unwrap(), expected);
+        }
     }
 
     #[derive(Clone)]

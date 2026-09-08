@@ -45,6 +45,8 @@ component App
     send probe = refused()
   action refusedLater writes probe
     send probe = refusedLater()
+  action parallel writes probe
+    send probe = parallel()
 
   view
     column testId="app"
@@ -115,6 +117,32 @@ fn later(a: Answer) -> exact_runner::Request {
 }
 
 const LOGIN_OK: &str = r#"{"data":{"loginV2":{"token":"t0k","username":"ada"}}}"#;
+
+#[test]
+fn parallel_fetches_keep_every_request_and_binary_response() {
+    let mut m = module();
+    let mut s = store();
+    assert_eq!(
+        later(m.answer(&mut s, "parallel", &[]).unwrap()).url,
+        "https://api.castle.xyz/a"
+    );
+    let binary = Outcome::Response(Response {
+        status: 200,
+        headers: vec![],
+        body: vec![0, 255],
+    });
+    assert_eq!(
+        later(m.parse(&mut s, "parallel", &[], binary).unwrap()).url,
+        "https://api.castle.xyz/b"
+    );
+    assert_eq!(
+        session(&now(m
+            .parse(&mut s, "parallel", &[], response(200, "ok"))
+            .unwrap()))
+        .2,
+        "0,255/ok"
+    );
+}
 
 #[test]
 fn login_describes_a_request_and_the_reply_becomes_the_session_and_a_store_write() {
@@ -356,6 +384,16 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
     );
     assert_eq!(text_of(&r, "remembered").as_deref(), Some(""));
     assert!(r.data_ready().unwrap().is_none(), "asked once");
+
+    // Live replacement loads beside the old client. It must not disable
+    // keeping fresh answers merely because its engine is already ready.
+    let mut r = Runner::boot_carrying(
+        baked.clone(),
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        &r.carry(),
+    )
+    .unwrap();
 
     // Log in: the fresh answer to `remembered` is kept beside the session,
     // and the app cannot see it.

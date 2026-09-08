@@ -401,7 +401,14 @@ final class WebViews {
     func snapshots() -> [UInt32: ExactWebImage] {
         var out: [UInt32: ExactWebImage] = [:]
         for (id, entry) in entries.sorted(by: { $0.key < $1.key }) {
-            guard entry.owner?.window != nil, case .success(let data) = request(entry) else { continue }
+            guard entry.owner?.window != nil else { continue }
+            let data: Data
+            switch request(entry) {
+            case .success(let bytes): data = bytes
+            case .failure(let error):
+                FileHandle.standardError.write(Data("exact: iframe \(id) snapshot: \(error.message)\n".utf8))
+                continue
+            }
             #if os(macOS)
             if let image = NSImage(data: data) { out[id] = image }
             #else

@@ -1,0 +1,19 @@
+[package]
+name = "exact-js-bake"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Build-time TypeScript bundling and Contract baking; never linked by a runtime"
+
+[dependencies]
+contract = { path = "../../contract/cli" }
+exact-js = { path = ".." }
+serde_json = "1.0"
+sha2 = "0.10"
+
+[dev-dependencies]
+exact-kernel = { path = "../../kernel" }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }
+exact-apple = { path = "../../host/apple" }

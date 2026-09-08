@@ -252,6 +252,14 @@ as the browser's origin rules allow:
   opaque blank live render would cover a good snapshot). The device row
   is asserted by the same smoke when one runs there. The web arm's page
   capture already includes iframes.
+  Physical Caltrain verification (Codex, 2026-09-07) exposed an empty capture:
+  Apple agent requests now enter the main run loop rather than a synchronous
+  main-queue block, allowing the snapshot's main-queue completion to run during
+  its wait (1012). Before `drawHierarchy`, web/canvas nodes redraw their capture
+  backing layers; afterward those nodes are invalidated to clear capture-only
+  pixels. Snapshot request failures log their iframe id and error. The focused
+  phone capture changed from zero to 1334 guest-blue pixels, and the complete
+  physical Caltrain smoke passes its guest-pixel assertion.
 - **`clock`** does not govern the guest. A foreign runtime's
   `requestAnimationFrame` is not on the seekable clock, and pretending
   otherwise rebuilds the settle-flake NOT-DOING §Agent API exists to kill.

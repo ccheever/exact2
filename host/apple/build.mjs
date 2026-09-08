@@ -5,6 +5,8 @@
 //   node host/apple/build.mjs [crate=caltrain-apple] [--run]                 macOS
 //   node host/apple/build.mjs --ios [crate] [--run] [--sim <udid|name>]        iOS, on a simulator
 //   node host/apple/build.mjs --device [crate] [--run] [--phone <udid|name>]   iOS, on a phone
+// Add --url <http(s) app URL> with --run to connect any of these clients
+// to the same address as the browser (LLP 1030.000 §7).
 // --ios builds the same archive for the simulator's Rust target, the UIKit
 // presenter for the simulator triple, assembles the .app here (its
 // Info.plist written, never committed), installs it on a simulator — --sim
@@ -23,7 +25,7 @@ import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { buildBake, bakeTarget, developmentBuildEnv, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { buildBake, bakeTarget, developmentBuildEnv, developmentURLScheme, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -151,6 +153,21 @@ export function deviceLaunchArgs(device, id, environment = process.env) {
   return args;
 }
 
+/** The explicit app URL is a launch input, never a baked origin. Validate it
+ * before invoking any build or signing tools. @ref LLP 1030.000 §7 */
+export function developmentLaunchEnvironment(args, environment = process.env) {
+  const index = args.indexOf('--url');
+  if (index < 0) return { ...environment };
+  if (args.lastIndexOf('--url') !== index) throw new Error('--url may be specified only once');
+  if (!args.includes('--run')) throw new Error('--url requires --run');
+  let url;
+  try { url = new URL(args[index + 1]); } catch { /* diagnosed below */ }
+  if (!url || !['http:', 'https:'].includes(url.protocol) || !url.hostname) {
+    throw new Error('--url requires an absolute http(s) app URL');
+  }
+  return { ...environment, EXACT_DEV_PLAN: url.href };
+}
+
 /** A development profile on this Mac covering the phone and the bundle id (the team's wildcard or the id itself), unexpired; EXACT_PROFILE names one. */
 export function profile(udid, bundle) {
   if (process.env.EXACT_PROFILE) return decodeProfile(process.env.EXACT_PROFILE);
@@ -204,6 +221,13 @@ const plist = (value, indent = '  ') => {
 };
 const plistFile = (dict) => `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">${plist(dict)}</plist>\n`;
 
+function openingLinks(app, platform, development) {
+  const scheme = development ? developmentURLScheme(app.id) : null;
+  const schemes = [...new Set([...(app.manifest.host?.[platform]?.urlSchemes ?? []), ...(scheme ? [scheme] : [])])];
+  return { ...(schemes.length ? { CFBundleURLTypes: [{ CFBundleURLName: app.id, CFBundleURLSchemes: schemes }] } : {}),
+    ...(scheme ? { ExactDevelopmentURLScheme: scheme } : {}) };
+}
+
 /** The entitlements a device build signs with (LLP 1030 D1's host-metadata row): the identity the profile grants, and what the manifest's `host.ios` claims — associated domains for the app's origin when it says so. Generated, never committed. */
 export const entitlements = (app, team) => {
   const ios = app.manifest.host?.ios ?? {};
@@ -217,7 +241,7 @@ export const entitlements = (app, team) => {
 };
 
 /** The iOS `Info.plist` from the manifest (LLP 1030 D2: one declaration; `build.mjs` consumes what it generates). The dev client's local-networking permission is `host.ios.localNetworking` (a string: the prompt); the store-required version numbers are counters bake owns, not authored. */
-export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = app.id, name = app.displayName } = {}) => {
+export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = app.id, name = app.displayName, development = false } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
   const families = (ios.deviceFamily ?? ['iphone', 'ipad']).map((f) => (f === 'ipad' ? 2 : 1));
   const dict = {
@@ -241,13 +265,13 @@ export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = a
     dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
   }
   if (ios.backgroundModes?.length) dict.UIBackgroundModes = ios.backgroundModes;
-  if (ios.urlSchemes?.length) dict.CFBundleURLTypes = [{ CFBundleURLName: app.id, CFBundleURLSchemes: ios.urlSchemes }];
+  Object.assign(dict, openingLinks(app, 'ios', development));
   for (const [key, text] of Object.entries(ios.permissions ?? {})) dict[key] = text;
   return plistFile(dict);
 };
 
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
-export const macInfoPlist = (app) => plistFile({
+export const macInfoPlist = (app, { development = false } = {}) => plistFile({
   CFBundleExecutable: 'ExactMac',
   CFBundleIdentifier: app.id,
   CFBundleName: app.displayName,
@@ -259,7 +283,7 @@ export const macInfoPlist = (app) => plistFile({
   NSHighResolutionCapable: true,
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
   ...(app.manifest.host?.macos?.documentTypes?.length ? { CFBundleDocumentTypes: app.manifest.host.macos.documentTypes } : {}),
-  ...(app.manifest.host?.macos?.urlSchemes?.length ? { CFBundleURLTypes: [{ CFBundleURLName: app.id, CFBundleURLSchemes: app.manifest.host.macos.urlSchemes }] } : {}),
+  ...openingLinks(app, 'macos', development),
 });
 
 /** The build receipt (LLP 1030 D2): what this binary was actually built from and with — the toolchain, the SDK, the identity and profile, the entitlements as signed — written beside it, never committed, so "what did this binary contain" is answered by a file. */
@@ -276,9 +300,12 @@ export function receipt(app, fields) {
 // ---------------------------------------------------------------- the build
 
 function main(args) {
+  let launchEnv;
+  try { launchEnv = developmentLaunchEnvironment(args); }
+  catch (e) { console.error(e.message); process.exitCode = 1; return; }
   const device = args.includes('--device');
   const ios = device || args.includes('--ios');
-  const app = resolveApp(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--sim' && args[i - 1] !== '--phone'));
+  const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url'].includes(args[i - 1])));
   const crate = app.crate('apple');
   const gpuCrate = app.crate('gpu');
   const hasGpu = existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'));
@@ -302,6 +329,7 @@ function main(args) {
     ...(ios ? { IPHONEOS_DEPLOYMENT_TARGET: '17.0' } : { MACOSX_DEPLOYMENT_TARGET: '14.0' }),
   };
   const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, {env:cargoEnv});
+  const development = cargoEnv.EXACT_UPDATE_TRUST === 'development';
   const bakedCompat = buildReceipt.compat;
   const bakedPlan = readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT ?? resolve(app.target, 'bake', app.id, cargoEnv.EXACT_UPDATE_TRUST), `${ios ? 'ios' : 'macos'}-${target}.plan`));
   const level = bakedCompat.inputs?.store?.L;
@@ -426,17 +454,36 @@ function main(args) {
     // so two apps built here are two identities to the keychain (LLP 1018 D7).
     rmSync(resolve(binDir, 'Info.plist'), { force: true });
     rmSync(resolve(binDir, '_CodeSignature'), { recursive: true, force: true });
-    writeFileSync(resolve(binDir, `${products[0]}-Info.plist`), macInfoPlist(app));
+    writeFileSync(resolve(binDir, `${products[0]}-Info.plist`), macInfoPlist(app, { development }));
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', app.id, bin], { stdio: 'ignore' });
     for (const p of products.slice(1)) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', `${app.id}.${p.toLowerCase()}`, resolve(binDir, p)], { stdio: 'ignore' });
     // The receipt beside it (LLP 1030 D2).
     writeFileSync(resolve(binDir, 'receipt.json'), receipt(app, { compatibilityId:bakedCompat.id, build:buildReceipt, composition, platform: 'macos', target: process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin', sdk, identity: sha1 ?? 'ad-hoc', profile: null, entitlements: null, gpu: hasGpu ? dylib : null }));
+    // A local .app gives Launch Services a real owner for development links.
+    // It is not a notarized distribution artifact or a public download.
+    if (args.includes('--bundle')) {
+      const output = resolve(app.target, 'clients', app.id, 'macos');
+      mkdirSync(output, { recursive: true });
+      const stage = mkdtempSync(resolve(output, 'build-'));
+      const bundle = resolve(stage, 'ExactMac.app'), contents = resolve(bundle, 'Contents');
+      const executables = resolve(contents, 'MacOS'), resources = resolve(contents, 'Resources');
+      mkdirSync(executables, { recursive: true });
+      mkdirSync(resources);
+      for (const file of ['ExactMac', webLoadName, ...(hasGpu ? [loadName] : [])]) copyFileSync(resolve(binDir, file), resolve(executables, file));
+      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development }));
+      copyAppleStaticTrees(app.dir, resources, [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]);
+      verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources));
+      copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
+      for (const file of [webLoadName, ...(hasGpu ? [loadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
+      run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
+      console.log(`local client: ${bundle}\n  Open this app once to register its native opening link.`);
+    }
     rmSync(webBuildDir, { recursive: true, force: true });
     console.log(`host/apple: ${bin.replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${webLoadName}`);
     // --run: the app, with the dev loop's plan watched when host/web/dev.mjs is
     // running (it writes host/web/dist/app.plan on every save).
-    if (args.includes('--run')) spawnSync(bin, [], { stdio: 'inherit', env: { ...env, EXACT_DEV_PLAN: env.EXACT_DEV_PLAN ?? resolve(root, 'host/web/dist/app.plan'), EXACT_ASSETS: app.dir } });
+    if (args.includes('--run')) spawnSync(bin, [], { stdio: 'inherit', env: { ...env, EXACT_DEV_PLAN: launchEnv.EXACT_DEV_PLAN ?? resolve(root, 'host/web/dist/app.plan'), EXACT_ASSETS: app.dir } });
     return;
   }
 
@@ -448,7 +495,7 @@ function main(args) {
   rmSync(bundle, { recursive: true, force: true });
   mkdirSync(resolve(bundle, 'Frameworks'), { recursive: true });
   copyFileSync(bin, resolve(bundle, product));
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development }));
   // The GPU crate's shaders (LLP 1030 D8): files the presenter registers
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(app.dir, bundle, [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]);
@@ -477,7 +524,7 @@ function main(args) {
     console.log(`installed on ${ph.name} in ${((Date.now() - t2) / 1000).toFixed(1)} s`);
     if (args.includes('--run')) {
       let launch;
-      try { launch = deviceLaunchArgs(ph.udid, app.id); }
+      try { launch = deviceLaunchArgs(ph.udid, app.id, launchEnv); }
       catch (e) { console.error(e.message); process.exit(1); }
       const l = read('xcrun', launch);
       if (l.status !== 0) { console.error(l.stderr || l.stdout); process.exit(l.status ?? 1); }
@@ -514,7 +561,7 @@ function main(args) {
     // environment through as SIMCTL_CHILD_*.
     spawnSync('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' });
     const launched = read('xcrun', ['simctl', 'launch', '--terminate-running-process', dev.udid, app.id], {
-      env: { ...process.env, SIMCTL_CHILD_EXACT_DEV_PLAN: process.env.EXACT_DEV_PLAN ?? resolve(root, 'host/web/dist/app.plan'), SIMCTL_CHILD_EXACT_ASSETS: app.dir },
+      env: { ...process.env, SIMCTL_CHILD_EXACT_DEV_PLAN: launchEnv.EXACT_DEV_PLAN ?? resolve(root, 'host/web/dist/app.plan'), SIMCTL_CHILD_EXACT_ASSETS: app.dir },
     });
     if (launched.status !== 0) { console.error(launched.stderr); process.exit(launched.status ?? 1); }
     console.log(`launched ${launched.stdout.trim()} on ${dev.name}`);
