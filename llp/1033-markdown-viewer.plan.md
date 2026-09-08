@@ -603,3 +603,45 @@ the header, three panes away from the list they change; they are at the top
 of that list now, outside its scroll so they stay put while it moves — a
 filter you have to scroll back up to reach is a filter you stop using. Only
 `Outline` stayed in the header, beside the pane it controls.
+
+## D8 — `exact release`, the build a teammate can open, 2026-09-08
+
+`exact install` makes an app for this Mac. A teammate's Mac refuses it: the
+zip arrives quarantined, and an app that is not notarised is "cannot be
+opened because the developer cannot be verified". Confirmed rather than
+assumed — setting the quarantine attribute Safari would set and running
+`spctl --assess` returns **rejected**.
+
+`exact release <app>` (also `exact install <app> --release`) is the path that
+clears it, and each of its three parts is required by the next:
+
+1. **A Developer ID Application certificate.** Not "Apple Development",
+   which signs what you run on your own machines; Apple will not notarise a
+   build signed with one. This Mac has only the latter, so the verb refuses
+   before building and says where to get the other.
+2. **The hardened runtime and a secure timestamp** — notarisation's
+   requirements, not preferences; a build without them is rejected at
+   submission. Signed innermost first, because a bundle is sealed over its
+   contents and a library re-signed after its container invalidates it.
+3. **Notarisation and stapling.** `notarytool submit --wait`, then `stapler`
+   into both the `.app` and the `.dmg`, so they open on a machine that is
+   offline. The zip is rebuilt from the stapled app, since a zip carries no
+   ticket of its own. It ends by asking `spctl` what a teammate's Mac will
+   decide, and refuses to hand over artifacts that would be rejected there.
+
+Credentials are never arguments: `notarytool` keeps them in the keychain and
+this passes the profile's name, because an app-specific password on a command
+line is in the shell history and the process table.
+
+**What is verified, and what is not.** The refusal paths both fire with the
+command to fix them — no certificate, and no keychain profile (the second
+needed correcting: notarytool reports that one on *stderr*, and says "No
+Keychain password item found", not what the first draft matched on). Forcing
+the identity to the development certificate carries the rest through:
+signing inside out, `codesign --verify --deep --strict` reporting "valid on
+disk" and "satisfies its Designated Requirement", `flags=0x10000(runtime)`
+and a timestamp on both the bundle and the dylib, and the packaged app still
+launching and `dlopen`ing its WebKit arm — the hardened runtime's library
+validation admits it because it carries the same team's signature. The
+submission, the staple, and the Gatekeeper acceptance are **not** verified,
+and cannot be from here: they need a Developer ID this Mac does not have.

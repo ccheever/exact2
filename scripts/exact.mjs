@@ -5,6 +5,7 @@
 //   exact run <app> [file …]     build if stale, launch in the foreground
 //   exact install <app>          a real .app in ~/Applications, plus a shim
 //   exact uninstall <app>        take both away again
+//   exact release <app>          sign for distribution, notarise, staple, package
 //   exact list                   the apps this repo has, and what is installed
 //
 // The two things this exists to get right, because they are the two that make
@@ -27,7 +28,7 @@
 // second executable path for the same binary, and macOS gives it the bundle
 // identity of whatever the *symlink* is beside — which is not the app.
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { resolveApp } from './app.mjs';
@@ -168,6 +169,131 @@ exec /usr/bin/open -a ${JSON.stringify(target)} ${'"$@"'}
   else console.log(`\n  ${command} <file> opens it — in the copy already running, if there is one.`);
 }
 
+/** A tool this verb depends on, run to completion. A failure here is the
+ *  end of the verb: half a signed bundle is worse than none. */
+function sh(cmd, args) {
+  const r = spawnSync(cmd, args, { stdio: 'inherit' });
+  if (r.status !== 0) throw new Error(`${cmd} ${args[0]} failed (exit ${r.status ?? 'signal'})`);
+  return r;
+}
+
+/** The identity a distributed build must be signed with.
+ *
+ * Not the same certificate a local build uses. "Apple Development" signs
+ * something you run on your own machines; Apple will not notarise it, and an
+ * un-notarised app is refused on a machine that downloaded it. Only
+ * "Developer ID Application" is for distribution outside the App Store. */
+function developerID() {
+  if (process.env.EXACT_DEVELOPER_ID) return process.env.EXACT_DEVELOPER_ID;
+  const found = spawnSync('security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8' }).stdout ?? '';
+  return /\b([0-9A-F]{40})\s+"Developer ID Application: /.exec(found)?.[1] ?? null;
+}
+
+/** Everything in a bundle that carries its own signature, innermost first.
+ *  A bundle is sealed over its contents, so a nested library re-signed after
+ *  its container invalidates the container. */
+function signingOrder(bundle) {
+  const inner = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir, { withFileTypes: true })) {
+      const path = resolve(dir, name.name);
+      if (name.isDirectory()) walk(path);
+      else if (name.name.endsWith('.dylib')) inner.push(path);
+    }
+  };
+  walk(resolve(bundle, 'Contents'));
+  return [...inner, bundle];
+}
+
+/** `exact release` — the build a teammate can actually open.
+ *
+ * Three things separate this from `install`, and all three are required by
+ * the next one: a Developer ID signature, the hardened runtime with a secure
+ * timestamp, and Apple's notarisation stapled to the artifact. Skip any and
+ * macOS refuses the app on a machine that downloaded it — which is what the
+ * unsigned build's "cannot be opened because the developer cannot be
+ * verified" is.
+ *
+ * Credentials are never arguments here. `notarytool` keeps them in the
+ * keychain (`xcrun notarytool store-credentials`), and this passes the
+ * profile's name; an app-specific password on a command line ends up in the
+ * shell history and the process table. */
+function release(app) {
+  const identity = developerID();
+  if (!identity) {
+    throw new Error(`no "Developer ID Application" certificate is on this Mac, and notarisation needs one.
+  An "Apple Development" certificate is not it — Apple will not notarise a build signed with one.
+  Get it from https://developer.apple.com/account/resources/certificates (a paid Apple Developer
+  account), download it, and open it once so it lands in the login keychain. Then run this again.
+  EXACT_DEVELOPER_ID=<sha1> names one explicitly.`);
+  }
+  const profile = process.env.EXACT_NOTARY_PROFILE ?? 'exact-notary';
+  const bundle = build(app);
+  const out = resolve(app.target, 'dist', app.name);
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+  const staged = resolve(out, `${app.displayName}.app`);
+  sh('/usr/bin/ditto', [bundle, staged]);
+
+  // Sign inside out, with the hardened runtime and a timestamp. Both are
+  // notarisation's requirements, not preferences: a build without them is
+  // rejected at submission rather than at launch.
+  for (const path of signingOrder(staged)) {
+    sh('codesign', ['--force', '--sign', identity, '--options', 'runtime', '--timestamp',
+      ...(path === staged ? ['--identifier', app.id] : []), path]);
+  }
+  sh('codesign', ['--verify', '--deep', '--strict', '--verbose=1', staged]);
+
+  // A zip is what notarytool takes for an app; ditto and not zip, which
+  // mangles the bundle's symlinks and its signature.
+  const zip = resolve(out, `${app.displayName}.zip`);
+  sh('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', staged, zip]);
+
+  console.log(`notarising ${app.displayName} — Apple's turn, usually a minute or two`);
+  // Both streams: notarytool reports progress on stdout and every failure —
+  // including a missing credential profile — on stderr.
+  const submit = spawnSync('xcrun', ['notarytool', 'submit', zip, '--keychain-profile', profile, '--wait'], { encoding: 'utf8' });
+  const said = `${submit.stdout ?? ''}${submit.stderr ?? ''}`;
+  process.stdout.write(said);
+  const id = /id: ([0-9a-f-]{36})/.exec(said)?.[1];
+  if (submit.status !== 0 || !/status: Accepted/.test(said)) {
+    if (/Keychain (profile|password item)/i.test(said)) {
+      throw new Error(`no notarytool credentials named "${profile}". Store them once:
+  xcrun notarytool store-credentials ${profile} --apple-id <your-apple-id> --team-id <TEAMID> --password <app-specific-password>
+  The password is an app-specific one from https://account.apple.com, not your Apple ID password.
+  EXACT_NOTARY_PROFILE names a different profile.`);
+    }
+    if (id) {
+      console.error(`\nwhat Apple objected to (submission ${id}):`);
+      spawnSync('xcrun', ['notarytool', 'log', id, '--keychain-profile', profile], { stdio: 'inherit' });
+    }
+    throw new Error('notarisation did not come back Accepted; nothing was stapled');
+  }
+
+  // Staple the ticket into the artifacts, so they open on a machine that is
+  // offline or that Apple's service cannot be reached from.
+  sh('xcrun', ['stapler', 'staple', staged]);
+  const dmg = resolve(out, `${app.displayName}.dmg`);
+  const image = mkdtempSync(resolve(out, '.dmg-'));
+  sh('/usr/bin/ditto', [staged, resolve(image, `${app.displayName}.app`)]);
+  symlinkSync('/Applications', resolve(image, 'Applications'));
+  sh('hdiutil', ['create', '-volname', app.displayName, '-srcfolder', image, '-ov', '-format', 'UDZO', '-quiet', dmg]);
+  rmSync(image, { recursive: true, force: true });
+  sh('xcrun', ['stapler', 'staple', dmg]);
+  // The zip carries no ticket of its own; rebuild it from the stapled app.
+  rmSync(zip, { force: true });
+  sh('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', staged, zip]);
+
+  // What a teammate's Mac will decide, asked here rather than discovered
+  // there. `spctl` is the same assessment Gatekeeper makes.
+  const assess = spawnSync('spctl', ['--assess', '--type', 'execute', '--verbose=2', staged], { encoding: 'utf8' });
+  const verdict = `${assess.stdout ?? ''}${assess.stderr ?? ''}`.trim();
+  console.log(`\n${app.displayName} ${assess.status === 0 ? 'is accepted by Gatekeeper' : 'is NOT accepted by Gatekeeper'}: ${verdict}`);
+  console.log(`  ${dmg}`);
+  console.log(`  ${zip}`);
+  if (assess.status !== 0) throw new Error('the artifacts were built but Gatekeeper refuses them; do not send these');
+}
+
 /** `exact uninstall` — both halves, and nothing else. */
 function uninstall(app) {
   const target = installedAt(app), shim = resolve(binDirectory(), commandOf(app));
@@ -192,22 +318,29 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
 
   exact run <app> [file …]     build and launch it here; ^C ends it
   exact install <app>          put it in ~/Applications and its name on PATH
+  exact release <app>          sign with a Developer ID, notarise, staple, package
   exact uninstall <app>        take both away
   exact list                   the apps in this repo
 
 An app is a directory under apps/ (or EXACT_APP_DIR for one outside this repo).
 EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
-/usr/local/bin, ~/bin that is already on PATH.`;
+/usr/local/bin, ~/bin that is already on PATH.
+
+release needs a "Developer ID Application" certificate and notarytool
+credentials in the keychain; it says how to get each if one is missing.
+EXACT_DEVELOPER_ID and EXACT_NOTARY_PROFILE name them explicitly.`;
 
 function main(argv) {
   const [verb, name, ...rest] = argv;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
   if (verb === 'list') return list();
-  if (!['run', 'install', 'uninstall'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
+  if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }
   if (process.platform !== 'darwin') { console.error(`exact ${verb} is macOS's; on Linux build the app's own executable (cargo build --release -p ${name}-linux)`); process.exit(2); }
   const app = resolveApp(name);
   if (verb === 'run') return run(app, rest);
+  // `--release` on `install` is the same path, since that is what it is for.
+  if (verb === 'release' || (verb === 'install' && rest.includes('--release'))) return release(app);
   if (verb === 'install') return install(app);
   return uninstall(app);
 }
