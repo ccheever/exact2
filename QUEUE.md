@@ -33,12 +33,6 @@ sits on that list carries the trade it would take.
 - **ibex host SDK during iOS bake** (2026-09-07): its host `darwin_http.mm`
   compile inherits the iPhone SDK; target-specific macOS CXXFLAGS unblocked this run.
   Fix SDK selection in the sibling build script rather than relying on that override.
-- **Module edit latency** (2026-09-07): resident strict TypeScript/Rolldown
-  producer improves changed-source p50 from 202 to 91 ms. Ten Fieldnotes edits
-  measure 211 ms save-to-DOM acceptance / 297 ms refreshed SQLite-backed UI
-  (previous visible-data p50 436 ms). Target remains 100 ms p50; strict checking
-  and post-reload storage startup remain measurable costs.
-
 - **Resource carry source identity** (2026-09-07): carry checks name, arguments,
   value shape and module hash, but not a Contract edit redirecting that resource
   to another source in unchanged logic. Include the source in compatibility.

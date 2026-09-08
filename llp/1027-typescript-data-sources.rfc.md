@@ -559,22 +559,35 @@ in-flight bake; a refused bake leaves discovery unchanged. The ordinary Cargo
 build scripts can call `exact_js_bake::build` to embed the same paired artifacts
 and target receipt, currently for updater-free web/macOS/iOS compositions only.
 
-The development producer now retains its TypeScript server and imported Rolldown
-across requests (`exact-js-bake <app> --serve`). Each request captures the current
-source graph, runs full strict diagnostics, bundles, compiles HBC and bakes; an
-invalid, deleted or superseded input cannot reuse a previous successful result.
-Compiler overrides keep the one-shot invocation contract. Ten changed-source
-producer samples improved from 202 ms to 91 ms median. Ten real Fieldnotes edits
-measured 211 ms save-to-DOM acceptance and 297 ms to refreshed SQLite-backed UI,
-versus 436 ms to refreshed UI before this change. Draft carry, type-error refusal
-and recovery passed. These local measurements remain above the 100 ms budget.
+The development producer retains imported Rolldown and the native TypeScript
+builder's private incremental cache across requests (`exact-js-bake <app> --serve`).
+Each request captures the current source graph and runs full strict diagnostics;
+bundling and HBC compilation overlap checking, but bytecode inspection and the bake
+wait for checking to succeed. Resolved type-only imports must also stay inside the
+capture or pinned standard libraries. An invalid, deleted or superseded input
+cannot reuse a previous successful result.
+Compiler overrides keep the one-shot invocation contract. Direct file watches
+avoid delayed directory notifications; a bounded directory scan discovers additions
+and replacements, and file identity/timestamps suppress duplicate notifications.
+Logic edits reuse admitted static assets. Immutable generation payloads flush in
+parallel, with held-parent directory syncs before the envelope publishes.
+
+Twenty real Fieldnotes logic edits measured 74.5 ms save-to-DOM acceptance,
+77.5 ms to refreshed SQLite-backed content, and 83 ms to the next frame opportunity
+(p95 118 ms), versus 436 ms refreshed-content median before these changes. This
+local run meets the 100 ms p50 budget; it does not claim every edit is under 100 ms.
+Draft carry, type-error refusal, latest-edit recovery, imported-file addition and
+deletion, atomic replacement and subsequent edits passed. `scripts/metrics.mjs`
+also recognizes the module producer and reports 20 visible Contract edits with
+p50/p95 and next-frame timing; that generic metric is distinct from the Fieldnotes
+SQLite-backed logic-edit drive.
 
 Actual external counter clients at one URL changed their displayed answer with
 count 1 retained on web/macOS, without rebuilding wasm or the native binary.
 A candidate that bakes at count 0 but throws at count 1 preserved both running
 apps. One browser producer-start-to-DOM sample was ~359 ms (producer 329 ms,
 fetch 26 ms, restart 3 ms), excluding watch debounce; timing now includes it.
-The 100 ms save-to-present p50 budget is not demonstrated. D6 records the
+The repeated Fieldnotes measurements above supersede that one-off timing. D6 records the
 subsequent async data parity, iOS simulator guard sweep and TypeScript Caltrain
 UI drive, physical iOS guard execution and physical live-URL replacement;
 signed module delivery remains owed.
@@ -968,8 +981,11 @@ Quota/persistence failures reject and invalidate a divergent SQLite connection.
 Browser retention/eviction policy still applies; HTTPS/localhost supplies Web Locks.
 
 Only the owning answer's checkpoint delivers a browser storage completion, with
-its store context installed; no unsolicited microtask resumes app code. Worker
-and filesystem connections close with the realm. Agent mode rejects storage.
+its store context installed; no unsolicited microtask resumes app code. Database,
+statement and filesystem handles close with the realm. Overlapping realms of one
+app share the SQLite worker, with separate client handles and queues; the last
+owner terminates it. This lets a reload reuse initialized SQLite while refusing
+old handles and pending answers. Agent mode rejects storage.
 The build captures the runtime sources and pinned npm artifacts in its receipt,
 and serves them lazily after first pixel. Browser/native fixtures cover grants,
 SQL restrictions, integer/blob types, transactions, fetch interleaving, and

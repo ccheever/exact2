@@ -1,34 +1,53 @@
 // @ref LLP 1027 D10 — worker-owned SQLite capability.
 import { authorize } from './storage-fs.js';
 
+// Owners exist before their first query, but workers still start lazily.
+const workers = new Map();
+let nextClient = 0;
+const failure = message => Object.assign(new Error(message), { kind: 'Unavailable' });
+
 export function createSqlite(appId, grants) {
-  let worker, sequence = 0, disposed = false;
-  const pending = new Map();
-  const failure = message => Object.assign(new Error(message), { kind: 'Unavailable' });
+  let shared = workers.get(appId);
+  if (!shared) {
+    shared = { worker: null, clients: new Map() };
+    workers.set(appId, shared);
+  }
+  const client = ++nextClient, pending = new Map();
+  let sequence = 0, disposed = false;
   function stop(message) {
+    if (disposed) return;
     disposed = true;
-    worker?.terminate();
+    shared.clients.delete(client);
     for (const { reject } of pending.values()) reject(failure(message));
     pending.clear();
+    if (!shared.clients.size) {
+      shared.worker?.terminate();
+      if (workers.get(appId) === shared) workers.delete(appId);
+    } else shared.worker?.postMessage({ client, op: 'dispose' });
   }
+  shared.clients.set(client, { pending, stop });
   function request(op, args) {
     if (disposed) return Promise.reject(failure('storage runtime is unloaded'));
-    if (!worker) {
-      worker = new Worker(new URL('./storage-worker.js', import.meta.url), { type: 'module' });
+    if (!shared.worker) {
+      const worker = shared.worker = new Worker(new URL('./storage-worker.js', import.meta.url), { type: 'module' });
       worker.onmessage = ({ data }) => {
-        const call = pending.get(data.id);
+        const calls = shared.clients.get(data.client)?.pending;
+        const call = calls?.get(data.id);
         if (!call) return;
-        pending.delete(data.id);
+        calls.delete(data.id);
         if (data.error) call.reject(Object.assign(failure(data.error.message), data.error));
         else call.resolve(data.value);
       };
-      worker.onerror = event => { event.preventDefault(); stop('SQLite worker failed'); };
-      worker.onmessageerror = () => stop('SQLite worker message failed');
+      const failed = message => {
+        for (const owner of [...shared.clients.values()]) owner.stop(message);
+      };
+      worker.onerror = event => { event.preventDefault(); failed('SQLite worker failed'); };
+      worker.onmessageerror = () => failed('SQLite worker message failed');
     }
     const id = ++sequence;
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject });
-      try { worker.postMessage({ id, op, args, appId }); }
+      try { shared.worker.postMessage({ client, id, op, args, appId }); }
       catch (error) { pending.delete(id); reject(failure(error.message)); }
     });
   }

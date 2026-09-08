@@ -4,6 +4,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use directory::{refuse, Directory};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::os::fd::AsRawFd;
@@ -75,6 +76,9 @@ fn retained_bytes(dir: &Directory) -> io::Result<u64> {
 
 fn retain(root: &Directory, input: &Value) -> io::Result<Value> {
     let token = field(input, "token")?;
+    if token.len() != 48 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(refuse("invalid temporary-file token"));
+    }
     let lock = Lock::acquire(root, ".retained/.lock", token)?;
     let quota = input["quota"]
         .as_u64()
@@ -98,6 +102,7 @@ fn retain(root: &Directory, input: &Value) -> io::Result<Value> {
     }
     let mut total = retained_bytes(root)?;
     let mut candidate = Vec::new();
+    let mut parents = HashMap::new();
     for (name, encoded) in files {
         let path = format!("{prefix}/{name}");
         let body = STANDARD
@@ -105,9 +110,15 @@ fn retain(root: &Directory, input: &Value) -> io::Result<Value> {
             .map_err(|_| refuse("invalid base64"))?;
         let previous = root
             .parent(&path, false)
-            .and_then(|(parent, leaf)| parent.read(&leaf));
+            .and_then(|(parent, leaf)| parent.read(&leaf).map(|bytes| (parent, bytes)));
         match previous {
-            Ok(old) if old == body => continue,
+            Ok((parent, old)) if old == body => {
+                // A prior failed batch may have linked this immutable payload
+                // without syncing its directory. A retry must finish that work.
+                let identity = parent.0.metadata()?;
+                parents.insert((identity.dev(), identity.ino()), parent);
+                continue;
+            }
             Ok(_) => return Err(refuse("immutable retained file changed")),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
@@ -120,9 +131,53 @@ fn retain(root: &Directory, input: &Value) -> io::Result<Value> {
     if total > quota {
         return Err(refuse("retained generation cache quota exceeded"));
     }
-    // The envelope is the completion marker. A partial write is never served.
+    // Independent payload flushes can overlap, but the envelope remains the
+    // completion marker: every payload must be durable before it is published.
     candidate.sort_by_key(|(envelope, _, _)| *envelope);
-    for (_, path, body) in candidate {
+    let envelope = if candidate.last().is_some_and(|(envelope, _, _)| *envelope) {
+        candidate.pop()
+    } else {
+        None
+    };
+    let workers = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(4);
+    let chunk_size = candidate.len().div_ceil(workers).max(1);
+    let lock = &lock;
+    std::thread::scope(|scope| -> io::Result<()> {
+        let handles: Vec<_> = candidate
+            .chunks(chunk_size)
+            .map(|chunk| {
+                scope.spawn(move || -> io::Result<HashMap<(u64, u64), Directory>> {
+                    let mut parents = HashMap::new();
+                    for (_, path, body) in chunk {
+                        let (parent, leaf) = root.parent(path, true)?;
+                        // The caller's random token still owns the temporary name;
+                        // each concurrent sibling needs a distinct derivative of it.
+                        let temporary = format!("{:x}", Sha256::digest(format!("{token}/{path}")));
+                        parent.write_retained_payload(&leaf, body, &temporary[..48], || {
+                            lock.verify(root)
+                        })?;
+                        let identity = parent.0.metadata()?;
+                        parents.insert((identity.dev(), identity.ino()), parent);
+                    }
+                    Ok(parents)
+                })
+            })
+            .collect();
+        for handle in handles {
+            parents.extend(
+                handle
+                    .join()
+                    .map_err(|_| refuse("retained payload writer failed"))??,
+            );
+        }
+        Ok(())
+    })?;
+    for parent in parents.into_values() {
+        parent.0.sync_all()?;
+    }
+    if let Some((_, path, body)) = envelope {
         let (parent, leaf) = root.parent(&path, true)?;
         parent.write_checked(&leaf, &body, true, token, || lock.verify(root))?;
     }
@@ -225,7 +280,9 @@ impl Lock {
         }
         file.set_len(0)?;
         file.write_all(token.as_bytes())?;
-        file.sync_all()?;
+        // This token identifies a live flock holder, not recovery state. Reads
+        // see the write immediately; process exit/reboot releases the OS lock.
+        // Persisting the token adds no ownership guarantee.
         Ok(Self {
             file,
             dir,

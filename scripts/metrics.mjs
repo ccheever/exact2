@@ -291,7 +291,7 @@ step('boot', () => {
   const original = readFileSync(source, 'utf8');
   let page = null;
   try {
-    const ready = await until(/^plan ready/, 120000, 0); // a cold build of the dev bin can take a while; warm is ~1 s
+    const ready = await until(/^(?:plan ready|module generation ready)/, 120000, 0); // a cold build of the dev bin can take a while; warm is ~1 s
     if (ready && existsSync(chrome)) {
       page = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`,
         '--no-sandbox', '--disable-extensions', '--disable-background-networking', '--no-first-run',
@@ -322,21 +322,44 @@ step('boot', () => {
       const literals = [...original.matchAll(/\btext ("(?:[^"\\]|\\.)*")/g)];
       const match = literals.find(m => { try { const value = JSON.parse(m[1]); return value.trim() && visible.includes(value); } catch { return false; } });
       if (!match) throw new Error('no visible literal text in app.contract to edit; no edit timing claimed');
-      const marker = `exact-metrics-${Date.now()}`;
-      const replacement = match[0].replace(match[1], JSON.stringify(`${JSON.parse(match[1])} ${marker}`));
-      const edited = original.slice(0, match.index) + replacement + original.slice(match.index + match[0].length);
-      const planReady = until(/^edit → plan ready (\d+) ms \(compile ([\d.]+) ms, bake ([\d.]+) ms/, 6000);
-      const reloaded = until(/^reloaded seq=\d+ total_ms=(\d+)/, 6000);
-      writeFileSync(source, edited);
-      const [p, r] = await Promise.all([planReady, reloaded]);
-      out.reload_plan_ms = p ? Number(p[1]) : NaN;
-      out.reload_ms = r ? Number(r[1]) : NaN;
-      if (!r) out.reload_note = lines.slice(-3).join(' | ');
-      else {
-        out.reload_verified = await evaluate(`new Promise(resolve => requestAnimationFrame(() => resolve(exact.root.innerText.includes(${JSON.stringify(marker)}))))`);
-        if (!out.reload_verified) { out.reload_ms = NaN; out.reload_note = 'the accepted generation did not show the edited text'; }
-        else out.reload_note = 'save to host DOM acceptance; edited text verified at the next frame opportunity';
+      const samples = [];
+      for (let index = 0; index < 20; index++) {
+        const marker = `exact-metrics-${Date.now()}-${index}`;
+        const replacement = match[0].replace(match[1], JSON.stringify(`${JSON.parse(match[1])} ${marker}`));
+        const edited = original.slice(0, match.index) + replacement + original.slice(match.index + match[0].length);
+        // Observe before saving; the timestamp includes filesystem notification,
+        // producer work, publication and the browser's actual changed content.
+        await evaluate(`globalThis.__exactReloadMetric = new Promise((resolve, reject) => {
+          const observer = new MutationObserver(() => {
+            if (!exact.root.innerText.includes(${JSON.stringify(marker)})) return;
+            const dom = Date.now(); observer.disconnect();
+            requestAnimationFrame(() => { clearTimeout(timer); resolve({ dom, frame: Date.now() }); });
+          });
+          const timer = setTimeout(() => { observer.disconnect(); reject(Error('edited text did not arrive')); }, 10000);
+          observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+        }); void 0;`);
+        const planReady = until(/^(?:edit → plan ready|module generation ready in) (\d+) ms/, 10000);
+        const saved = Date.now();
+        writeFileSync(source, edited);
+        const result = await evaluate('__exactReloadMetric');
+        const ready = await planReady;
+        samples.push({ dom_ms: result.dom - saved, frame_opportunity_ms: result.frame - saved,
+          producer_and_publish_ms: ready ? Number(ready[1]) : null });
       }
+      const percentile = (key, fraction) => {
+        const values = samples.map(sample => sample[key]).filter(Number.isFinite).sort((a, b) => a - b);
+        if (!values.length) return NaN;
+        return fraction === .5 && values.length % 2 === 0
+          ? (values[values.length / 2 - 1] + values[values.length / 2]) / 2
+          : values[Math.ceil(values.length * fraction) - 1];
+      };
+      out.reload_samples = samples;
+      out.reload_ms = percentile('dom_ms', .5);
+      out.reload_p95_ms = percentile('dom_ms', .95);
+      out.reload_frame_opportunity_ms = percentile('frame_opportunity_ms', .5);
+      out.reload_plan_ms = percentile('producer_and_publish_ms', .5);
+      out.reload_verified = true;
+      out.reload_note = '20 distinct Contract edits; save-to-visible-DOM p50/p95, next frame opportunity reported separately; includes module producer for TypeScript apps';
     } else {
       out.reload_ms = NaN;
       out.reload_note = ready ? 'no Chrome at $CHROME' : 'dev driver did not come up: ' + (diagnostic || lines.slice(-2).join(' | '));
@@ -499,7 +522,7 @@ const rows = [
   ['browser: → contentful paint', ms(out.browser_contentful_paint_ms), 'browser content, not application readiness'],
   ['browser: click → changed DOM', ms(out.browser_first_interaction?.changed_dom_ms - out.browser_first_interaction?.input_ms), out.browser_first_interaction?.target ?? out.browser_interaction_note ?? out.browser_note ?? 'unmeasured'],
   ['boot modules before first pixel', `${out.boot_modules}`, `${out.boot.javascript_bytes} B source JS; ${out.boot_ok ? 'allowed paths' : 'VIOLATION'}; not a content/work proof`],
-  ['edit → DOM (resident dev loop)', ms(out.reload_ms), Number.isFinite(out.reload_ms) ? `plan ready ${ms(out.reload_plan_ms)} after save; budget ${budget('Dev restart')}` : out.reload_note ?? ''],
+  ['edit → DOM (resident dev loop)', ms(out.reload_ms), Number.isFinite(out.reload_ms) ? `p50; p95 ${ms(out.reload_p95_ms)}; next frame ${ms(out.reload_frame_opportunity_ms)}; budget ${budget('Dev restart')}` : out.reload_note ?? ''],
   ['macOS: exec → first paint (raw)', ms(out.macos_total_ms), Number.isFinite(out.macos_paint_ms) ? `${out.macos_views} views; empty AppKit main → draw ${ms(out.floor_draw_ms)}` : out.macos_note ?? ''],
 ];
 if (Number.isFinite(out.macos_paint_ms)) rows.push(

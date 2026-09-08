@@ -191,6 +191,28 @@ impl Directory {
         token: &str,
         before_commit: impl FnOnce() -> io::Result<()>,
     ) -> io::Result<&'static str> {
+        self.write_with_parent_sync(leaf, bytes, immutable, token, before_commit, true)
+    }
+    /// Retention alone batches parent durability. The caller must keep this
+    /// owned directory and sync it before publishing the generation envelope.
+    pub fn write_retained_payload(
+        &self,
+        leaf: &str,
+        bytes: &[u8],
+        token: &str,
+        before_commit: impl FnOnce() -> io::Result<()>,
+    ) -> io::Result<&'static str> {
+        self.write_with_parent_sync(leaf, bytes, true, token, before_commit, false)
+    }
+    fn write_with_parent_sync(
+        &self,
+        leaf: &str,
+        bytes: &[u8],
+        immutable: bool,
+        token: &str,
+        before_commit: impl FnOnce() -> io::Result<()>,
+        sync_parent: bool,
+    ) -> io::Result<&'static str> {
         match self.kind(leaf) {
             Ok(_) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -240,7 +262,9 @@ impl Directory {
                     )
                 })?;
             }
-            self.0.sync_all()?;
+            if sync_parent {
+                self.0.sync_all()?;
+            }
             Ok("written")
         })();
         let _ = self.unlink(&temp);

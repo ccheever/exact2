@@ -6,8 +6,8 @@ import { createFileStore, lockPaths } from './storage-fs.js';
 // atomically publish its complete SQLite file after each successful mutation.
 // This costs O(database size) per write; a connection exclusively locks its file.
 const ready = sqlite3InitModule({ locateFile: file => new URL(file, import.meta.url).href });
-const databases = new Map();
-let nextDatabase = 0, nextStatement = 0, queue = Promise.resolve();
+const clients = new Map();
+let retiring = Promise.resolve();
 const limit = 16 * 1024 * 1024;
 const fail = message => { throw Object.assign(new Error(message), { kind: 'Unavailable' }); };
 const allowedPragmas = new Set(['user_version', 'application_id', 'table_info', 'table_xinfo',
@@ -104,13 +104,13 @@ function internal(session, sql) {
   session.internal = true;
   try { session.db.exec(sql); } finally { session.internal = false; }
 }
-async function close(id) {
+async function close(databases, id) {
   const session = databases.get(id);
   if (!session) return;
   databases.delete(id);
   try { session.db.close(); } finally { session.files.close(); await session.release(); }
 }
-async function persist(sqlite, id, session) {
+async function persist(sqlite, databases, id, session) {
   try {
     let bytes;
     session.serializing = true;
@@ -125,12 +125,13 @@ async function persist(sqlite, id, session) {
   catch (error) {
     // Memory already committed. Invalidate every handle rather than exposing a
     // successful-looking connection whose state differs from the persisted file.
-    await close(id);
+    await close(databases, id);
     throw error;
   }
 }
 
-async function dispatch({ appId, op, args }) {
+async function dispatch(owner, { appId, op, args }) {
+  const { databases } = owner;
   const sqlite = await ready;
   if (op === 'open') {
     const path = args[0], release = await lockPaths(appId, [path]);
@@ -146,9 +147,9 @@ async function dispatch({ appId, op, args }) {
           BigInt(bytes.length), BigInt(bytes.length), sqlite.capi.SQLITE_DESERIALIZE_FREEONCLOSE | sqlite.capi.SQLITE_DESERIALIZE_RESIZEABLE));
       }
       configure(sqlite, session);
-      const id = ++nextDatabase;
+      const id = ++owner.nextDatabase;
       databases.set(id, session);
-      if (!bytes) await persist(sqlite, id, session);
+      if (!bytes) await persist(sqlite, databases, id, session);
       return id;
     } catch (error) {
       for (const [id, candidate] of databases) if (candidate === session) databases.delete(id);
@@ -156,13 +157,13 @@ async function dispatch({ appId, op, args }) {
     }
   }
   const [id, ...rest] = args;
-  if (op === 'close') return close(id);
+  if (op === 'close') return close(databases, id);
   if (op === 'statementClose') { databases.get(id)?.statements.delete(rest[0]); return; }
   const session = databases.get(id);
   if (!session) fail('database is closed');
   if (op === 'prepare') {
     validate(sqlite, session, rest[0]);
-    const statement = ++nextStatement;
+    const statement = ++owner.nextStatement;
     session.statements.set(statement, rest[0]);
     return statement;
   }
@@ -175,7 +176,7 @@ async function dispatch({ appId, op, args }) {
       results = commands.map(command => run(sqlite, session, command.sql, command.params ?? [], false));
       internal(session, 'COMMIT');
     } catch (error) { internal(session, 'ROLLBACK'); throw error; }
-    await persist(sqlite, id, session);
+    await persist(sqlite, databases, id, session);
     return results;
   }
   let sql = rest[0], values = rest[1];
@@ -185,13 +186,33 @@ async function dispatch({ appId, op, args }) {
   }
   const query = op === 'query' || op === 'statementQuery';
   const result = run(sqlite, session, sql, values, query);
-  if (!query) await persist(sqlite, id, session);
+  if (!query) await persist(sqlite, databases, id, session);
   return result;
 }
 
 onmessage = ({ data }) => {
-  queue = queue.then(async () => {
-    try { postMessage({ id: data.id, value: await dispatch(data) }); }
-    catch (error) { postMessage({ id: data.id, error: { kind: 'Unavailable', code: error.code, message: String(error.message || error) } }); }
+  let owner = clients.get(data.client);
+  if (!owner) {
+    owner = { databases: new Map(), nextDatabase: 0, nextStatement: 0, queue: Promise.resolve() };
+    clients.set(data.client, owner);
+  }
+  // Capture only earlier cleanup: waiting on future disposal could wait on
+  // this very operation. A replacement open must see its predecessor unlocked.
+  const earlierDisposals = retiring;
+  if (data.op === 'dispose') {
+    clients.delete(data.client);
+    retiring = Promise.all([earlierDisposals, owner.queue]).then(async () => {
+      await Promise.allSettled([...owner.databases.keys()].map(id => close(owner.databases, id)));
+    });
+    return;
+  }
+  owner.queue = owner.queue.then(async () => {
+    try {
+      await earlierDisposals;
+      postMessage({ client: data.client, id: data.id, value: await dispatch(owner, data) });
+    } catch (error) {
+      postMessage({ client: data.client, id: data.id,
+        error: { kind: 'Unavailable', code: error.code, message: String(error.message || error) } });
+    }
   });
 };

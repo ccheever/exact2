@@ -19,14 +19,14 @@
 // match the new format), and pushes a reload: a new wasm is a new program,
 // so the page reloads rather than restarts in place. A build that fails
 // shows its errors in the page's overlay, as a contract that fails does,
-// and the page keeps the last good wasm. No bundler: there is nothing to
-// bundle (no app JS by rule), and the watch is Node's own.
+// and the page keeps the last good wasm. TypeScript apps use a checked
+// resident producer below the data seam; file watching remains Node's own.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
@@ -101,21 +101,31 @@ const announcement = () => current ? {
   digest: current.envelope.plan.sha256, envelope: current.url,
 } : { epoch, ready: false };
 const hello = () => JSON.stringify({ hello: true, ...announcement() });
-function captureGeneration() {
-  const encodedPlan = filesystem({ op: 'get', root: dist, path: 'app.plan' });
-  if (encodedPlan === null) throw new Error('the plan is missing');
+function captureGeneration(reuseCurrentAssets = false) {
+  const encodedPlan = currentModule ? null : filesystem({ op: 'get', root: dist, path: 'app.plan' });
+  if (!currentModule && encodedPlan === null) throw new Error('the plan is missing');
   const planBytes = currentModule?.get('app.plan') ?? Buffer.from(encodedPlan, 'base64');
   const files = currentModule ? new Map(currentModule) : new Map([['app.plan', planBytes]]);
   const module = currentModule ? moduleCards(files, app.id) : null;
   const assets = [];
-  for (const tree of ['assets', 'deck', 'shaders']) {
-    let captured;
-    try { captured = filesystem({ op: 'tree', root: resolve(dist, tree) }); }
-    catch (error) { if (error.code === 'ENOENT') continue; throw error; }
-    for (const [relative, encoded] of Object.entries(captured)) {
-      const name = `${tree}/${relative}`, body = Buffer.from(encoded, 'base64');
-      files.set(name, body);
-      assets.push({ name, sha256: createHash('sha256').update(body).digest('hex'), bytes: body.length });
+  // Logic edits reuse the last admitted static snapshot. Asset events capture
+  // through owned filesystem reads again before publishing their own revision.
+  if (reuseCurrentAssets && current) {
+    for (const asset of current.envelope.assets) {
+      const body = current.files.get(asset.name);
+      files.set(asset.name, body);
+      assets.push({ name: asset.name, sha256: asset.sha256, bytes: body.length });
+    }
+  } else {
+    for (const tree of ['assets', 'deck', 'shaders']) {
+      let captured;
+      try { captured = filesystem({ op: 'tree', root: resolve(dist, tree) }); }
+      catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+      for (const [relative, encoded] of Object.entries(captured)) {
+        const name = `${tree}/${relative}`, body = Buffer.from(encoded, 'base64');
+        files.set(name, body);
+        assets.push({ name, sha256: createHash('sha256').update(body).digest('hex'), bytes: body.length });
+      }
     }
   }
   assets.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
@@ -176,26 +186,88 @@ function startCompiler() {
   });
   dev.on('exit', (code) => { if (dev === me) { console.error(`dev compiler exited ${code}`); process.exit(code ?? 1); } });
 }
+// Direct file watchers avoid recursive-directory event coalescing on macOS.
+// The directory watcher discovers new paths; file metadata suppresses its
+// delayed duplicate events. Bounds match the producer's byte limits, with a
+// finite traversal/descriptor budget for the development watcher itself.
+function watchModuleSources(directory, ignore, changed) {
+  const files = new Map();
+  let identity = '', refusal = null, closed = false, queued = false;
+  const metadata = stat => [stat.dev,stat.ino,stat.size,stat.mtimeNs,stat.ctimeNs].join(':');
+  const rescan = () => {
+    if (closed || queued) return;
+    queued = true;
+    queueMicrotask(() => { queued = false; if (!closed) scan(true); });
+  };
+  function scan(notify) {
+    const next = new Map(), state = [];
+    let entries = 0, bytes = 0;
+    try {
+      const rootStat = lstatSync(directory);
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('module source root is not a regular directory');
+      function walk(at, prefix = '', depth = 0) {
+        if (depth > 64) throw new Error('module watcher source graph is too deep');
+        for (const entry of readdirSync(at, { withFileTypes: true })) {
+          const name = prefix + entry.name;
+          if (ignore(name)) continue;
+          if (++entries > 4096) throw new Error('module watcher source graph exceeds 4096 entries');
+          const path = resolve(directory, name), stat = lstatSync(path, { bigint: true });
+          if (stat.isSymbolicLink()) { state.push([name,'symlink']); continue; }
+          if (stat.isDirectory()) { walk(path,name+'/',depth+1); continue; }
+          if (!/\.(ts|contract|json)$/.test(name)) continue;
+          if (!stat.isFile()) { state.push([name,'not-regular']); continue; }
+          bytes += Number(stat.size);
+          if (stat.size > 16n*1024n*1024n || bytes > 64*1024*1024 || next.size >= 2048) throw new Error('module watcher source graph exceeds its file/byte budget');
+          const stamp = metadata(stat);
+          next.set(path,{ stamp, inode:stat.dev+':'+stat.ino });
+          state.push([name,stamp]);
+        }
+      }
+      walk(directory);
+      for (const [path, old] of files) if (!next.has(path) || next.get(path).inode !== old.inode) { old.watch.close(); files.delete(path); }
+      for (const [path, record] of next) {
+        const old = files.get(path);
+        const handle = old?.watch ?? watch(path, rescan);
+        if (!old) handle.on('error',()=>{handle.close();if(files.get(path)?.watch===handle)files.delete(path);rescan();});
+        files.set(path,{ ...record,watch:handle });
+      }
+      const value = JSON.stringify(state.sort(([a],[b])=>a<b?-1:a>b?1:0));
+      const different = value !== identity || refusal !== null;
+      identity = value; refusal = null;
+      if (notify && different) changed(null);
+    } catch (error) {
+      const different = refusal?.message !== error.message;
+      refusal = error;
+      if (notify && different) changed(error);
+    }
+  }
+  const rootStat = lstatSync(directory);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('module source root is not a regular directory');
+  scan(false);
+  const directoryWatch = watch(directory,{recursive:true},(_event,name)=>{ if(!name || !ignore(String(name))) rescan(); });
+  directoryWatch.on('error',error=>{refusal=error;changed(error);});
+  return { get error(){return refusal;}, close(){closed=true;directoryWatch.close();for(const file of files.values())file.watch.close();files.clear();} };
+}
 let moduleWatch = null, moduleTimer = null, moduleRun = 0, moduleStage = null, moduleSaved = 0;
 function startModuleCompiler() {
-  const built = spawnSync('cargo', ['build', '-q', '-p', 'exact-js-bake'], { cwd: root, env: toolingEnv, stdio: 'inherit' });
+  const built = spawnSync('cargo', ['build', '-q', '--release', '-p', 'exact-js-bake'], { cwd: root, env: toolingEnv, stdio: 'inherit' });
   if (built.status !== 0) throw new Error('the module producer did not build');
   const scratch = resolve(app.target, 'module-dev');
   mkdirSync(scratch, { recursive: true });
-  const child = dev = spawn(resolve(app.target, 'debug/exact-js-bake'), [app.dir, '--serve'], {
+  const child = dev = spawn(resolve(app.target, 'release/exact-js-bake'), [app.dir, '--serve'], {
     cwd: root, env: toolingEnv, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
   });
   console.log(`compiler pid ${child.pid}`);
   let active = null, buffered = '', errors = '';
   const produce = () => {
     clearTimeout(moduleTimer);
-    if (dev !== child || active) return;
+    if (dev !== child || active || moduleWatch?.error) return;
     const started = Date.now(), stage = mkdtempSync(resolve(scratch, 'candidate-'));
     moduleStage = stage;
     active = { id: moduleRun, started, saved: moduleSaved || started, stage, output: resolve(stage, 'generation') };
     child.stdin.write(JSON.stringify({ id: active.id, out: active.output }) + '\n');
   };
-  child.stderr.on('data', chunk => { errors = (errors + chunk).slice(-65536); });
+  child.stderr.on('data', chunk => {  errors = (errors + chunk).slice(-65536); });
   child.stdout.on('data', chunk => {
     if (dev !== child) return;
     buffered += chunk;
@@ -205,7 +277,7 @@ function startModuleCompiler() {
     }
     const lines = buffered.split('\n'); buffered = lines.pop();
     for (const line of lines) {
-      const request = active;
+      const request = active, produced = Date.now();
       try {
         const reply = JSON.parse(line);
         if (!request || reply.id !== request.id) throw new Error('unexpected module producer response');
@@ -217,9 +289,9 @@ function startModuleCompiler() {
         const previous = currentModule;
         currentModule = candidate;
         seq++;
-        try { captureGeneration(); } catch (error) { currentModule = previous; throw error; }
+        try { captureGeneration(true); } catch (error) { currentModule = previous; throw error; }
         if (previous) pending.set(seq, { saved: request.saved, ready: Date.now() });
-        console.log(`module generation ready in ${Date.now() - request.started} ms; restart with carry, no native rebuild`);
+        console.log(`module generation ready in ${Date.now() - request.started} ms (producer ${produced-request.started} ms, publish ${Date.now()-produced} ms); restart with carry, no native rebuild`);
         push(announcement());
       } catch (error) { console.error(error.message); push({ error: error.message }); }
       finally {
@@ -236,10 +308,14 @@ function startModuleCompiler() {
     console.error(`module producer exited ${code}: ${errors}`);
     killCompiler(); process.exit(code || 1);
   });
-  moduleWatch = watch(app.dir, { recursive: true }, (_event, name) => {
-    if (!name || skipped.test(name) || /(^|\/)\./.test(name) || !/\.(ts|contract|json)$/.test(name) || assetTrees.some(([tree]) => resolve(app.dir, name).startsWith(tree + '/'))) return;
-    moduleRun++; moduleSaved = Date.now(); clearTimeout(moduleTimer); moduleTimer = setTimeout(produce, 10);
+  moduleWatch = watchModuleSources(app.dir, name => skipped.test(name) || /(^|\/)\./.test(name)
+    || assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')), error => {
+    moduleRun++; moduleSaved = Date.now(); clearTimeout(moduleTimer);
+    if (error) { console.error(error.message); push({error:error.message}); return; }
+    moduleTimer = setTimeout(produce,0);
   });
+  if (moduleWatch.error) { console.error(moduleWatch.error.message); push({error:moduleWatch.error.message}); }
+
   produce();
 }
 const killCompiler = () => {
@@ -421,7 +497,7 @@ function watchCompilerInputs() {
   for(const dir of directories) {
     if(skipped.test(dir)||dir.includes('/.cargo/')||watched.has(dir)||!existsSync(dir))continue;
     try {watched.set(dir,watch(dir,(_event,name)=>{
-      if(!name||skipped.test(name)||name.endsWith('dev.js')||assetTrees.some(([tree])=>resolve(dir,name).startsWith(tree+'/'))||resolve(dir,name)===source)return;
+      if(!name||skipped.test(name)||/(^|\/)\./.test(name)||name.endsWith('dev.js')||assetTrees.some(([tree])=>resolve(dir,name).startsWith(tree+'/'))||resolve(dir,name)===source)return;
       if (typescript && resolve(dir, name).startsWith(app.dir + '/') && /\.(ts|contract)$/.test(name)) return;
       changed.add(resolve(dir,name));console.log(`edit ${resolve(dir,name)} → build pending; classification follows its receipt`);
       clearTimeout(timer);timer=setTimeout(rebuild,200);
@@ -472,7 +548,17 @@ const server = createServer((req, res) => {
     return;
   }
   if (url.pathname.startsWith('/__dev/generation/')) {
-    const retained = readDevGeneration(generationCache, url.pathname);
+    // These are the same immutable bytes admitted to the retained cache before
+    // publication. Keep current requests on that snapshot; older generations
+    // still use the verified disk reader, including after server restart.
+    let retained;
+    if (current && url.pathname.startsWith(current.prefix)) {
+      try {
+        const name = decodeURIComponent(url.pathname.slice(current.prefix.length));
+        const body = current.files.get(name);
+        if (body) retained = { name, body };
+      } catch { /* malformed URL */ }
+    } else retained = readDevGeneration(generationCache, url.pathname);
     if (!retained) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
     const { name, body } = retained;
     res.writeHead(200, { 'content-type': name === 'exact.json' ? 'application/vnd.exact.envelope+json' : webContentType('/' + name), 'cache-control': 'no-store' });

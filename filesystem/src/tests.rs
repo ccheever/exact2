@@ -66,6 +66,57 @@ fn retained_generation_quota_is_atomic_and_never_prunes() {
 }
 
 #[test]
+fn retained_payload_failure_never_publishes_the_envelope() {
+    let fixture = Fixture::new();
+    let root = fixture.dir("cache");
+    let epoch = "c".repeat(32);
+    let request = |sequence, files| {
+        json!({"op":"retain", "path":format!("{epoch}/{sequence}"),
+        "quota":4096, "token":TOKEN, "files":files})
+    };
+    let good = json!({"a":STANDARD.encode("first"), "b":STANDARD.encode("second"),
+        "c":STANDARD.encode("third"), "d":STANDARD.encode("fourth"),
+        "exact.json":STANDARD.encode("complete")});
+    operate(&root, &request(0, good.clone()), None).unwrap();
+    // Both absent names pass quota admission. Publication must fail because
+    // one payload needs a directory where the other needs a regular file.
+    let bad = json!({"collision":STANDARD.encode("file"),
+        "collision/child":STANDARD.encode("child"), "independent":STANDARD.encode("partial"),
+        "exact.json":STANDARD.encode("must not publish")});
+    assert!(operate(&root, &request(1, bad), None).is_err());
+    assert!(!fixture
+        .path(&format!("cache/{epoch}/1/exact.json"))
+        .exists());
+    assert_eq!(
+        fs::read(fixture.path(&format!("cache/{epoch}/0/exact.json"))).unwrap(),
+        b"complete"
+    );
+    assert_eq!(
+        fs::read(fixture.path(&format!("cache/{epoch}/0/b"))).unwrap(),
+        b"second"
+    );
+    // Failure releases the single publisher lock, retains the partial quota
+    // usage, and leaves every temporary name cleaned up before returning.
+    let used = operate(&root, &request(2, good.clone()), None).unwrap();
+    assert_eq!(used, retained_bytes(&root).unwrap());
+    assert_eq!(operate(&root, &request(2, good), None).unwrap(), used);
+    // Reuse an already-linked payload from the failed batch. The retry must
+    // include its held directory in durability completion before its envelope.
+    let recovered = json!({"independent":STANDARD.encode("partial"),
+        "exact.json":STANDARD.encode("recovered")});
+    operate(&root, &request(1, recovered), None).unwrap();
+    assert_eq!(
+        fs::read(fixture.path(&format!("cache/{epoch}/1/exact.json"))).unwrap(),
+        b"recovered"
+    );
+    let mut names = serde_json::Map::new();
+    tree(&root, "", &mut names, false).unwrap();
+    assert!(names
+        .keys()
+        .all(|path| !path.split('/').any(|part| part.starts_with(".tmp-"))));
+}
+
+#[test]
 fn retained_generations_cannot_bypass_heads_or_symlink_gate() {
     let fixture = Fixture::new();
     let root = fixture.dir("cache");

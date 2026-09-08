@@ -23,6 +23,7 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
         .current_dir(root)
         .output()
         .unwrap();
+    eprintln!("{}", String::from_utf8_lossy(&result.stdout));
     assert!(
         result.status.success(),
         "{}\n{}",
@@ -160,6 +161,12 @@ try {
     if((await ask('parallel',[],response('ok'))).value.error!=='0,255/ok')throw new Error('parallel binary body');
     if((await ask('logout')).writes[0][1]!==null)throw new Error('forget');
     castle.dispose();
+    const NativeWorker=globalThis.Worker;
+    let workersCreated=0, workersTerminated=0;
+    globalThis.Worker=class extends NativeWorker {
+      constructor(...args){super(...args);workersCreated++;}
+      terminate(){workersTerminated++;return super.terminate();}
+    };
     const storageIdentity={appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n'};
     const beforeStorage=(await indexedDB.databases()).length;
     let storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
@@ -184,9 +191,12 @@ try {
     for(let i=0;i<paired.length;i++)if(paired[i].request?.url!=='https://example.test/'+['b','c'][i])throw new Error('interleaved storage request attribution');
     const replies=await Promise.all(['c','b'].map(value=>invoke(storage,'work',['fetch',value],[],['session'],response(value))));
     for(let i=0;i<replies.length;i++)if(replies[i].value?.text!==['c:c','b:b'][i]||replies[i].writes[0]?.[1]!==['c','b'][i])throw new Error('interleaved storage result attribution');
-    storage.dispose();
-    storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
+    const workerCount=workersCreated;
+    const replacement=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
+    storage.dispose();storage=replacement;
+
     if(await storageCall('read')!=='hello'||await storageCall('list')!=='remember')throw new Error('storage reload persistence');
+    if(workersCreated!==workerCount)throw new Error('overlapping realm replaced SQLite worker');
     storage.dispose();
     const secondIdentity={...storageIdentity,appId:'dev.exact.storage-other'};
     storage=await prepare(await payload(fixtures.storage.replaceAll(storageIdentity.appId,secondIdentity.appId),secondIdentity),secondIdentity);
@@ -249,7 +259,34 @@ try {
     if((await copied.query('SELECT value FROM t')).rows[0][0]!==42n)throw new Error('copied database contents');
     const prepared=await copied.prepare('SELECT value FROM t');await copied.close();
     await refused(prepared.query());
+    const reloadApp='test.browser.sqlite-overlap';
+    let current=createSqlite(reloadApp,fsGrants);
+    const coldStart=performance.now();
+    let live=await current.open('app:/data/reload.db');
+    const coldMs=performance.now()-coldStart;
+    await live.execute('CREATE TABLE t (value INTEGER)');
+    await live.execute('INSERT INTO t VALUES (?)',[91n]);
+    let oldStatement=await live.prepare('SELECT value FROM t');
+    const warmMs=[], expectedWorkers=workersCreated;
+    for(let i=0;i<5;i++){
+      const next=createSqlite(reloadApp,fsGrants);
+      await refused(next.open('app:/data/reload.db'));
+      const other=await next.open('app:/data/other.db');
+      await other.close();
+      const late=live.query('SELECT value FROM t');
+      const start=performance.now();current.dispose();
+      await refused(late);await refused(live.query('SELECT value FROM t'));await refused(oldStatement.query());
+      live=await next.open('app:/data/reload.db');
+      if((await live.query('SELECT value FROM t')).rows[0][0]!==91n)throw new Error('warm reload lost SQLite data');
+      warmMs.push(performance.now()-start);
+      oldStatement=await live.prepare('SELECT value FROM t');current=next;
+    }
+    if(workersCreated!==expectedWorkers)throw new Error('same app overlap spawned workers');
+    current.dispose();
+    if(workersCreated!==workersTerminated+1)throw new Error('last owner retained a SQLite worker');
     sql.dispose();fs.dispose();
+    if(workersCreated!==workersTerminated)throw new Error('SQLite worker leaked');
+    globalThis.Worker=NativeWorker;
     const caltrainIdentity={appId:'com.exact.caltrain',grants:''};
     const train=await prepare(await payload(fixtures.caltrain,caltrainIdentity),caltrainIdentity);
     const canonical=v=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
@@ -259,10 +296,11 @@ try {
       if(canonical(actual)!==canonical(test.expected))throw new Error(`Caltrain parity ${test.source}: ${JSON.stringify({actual,expected:test.expected})}`);
     }
     train.dispose();
-    return {guards:forms.length,caltrain:fixtures.oracle.length,store:true,isolated:true,refusals:true,async:true,storage:true};
+    return {guards:forms.length,caltrain:fixtures.oracle.length,store:true,isolated:true,refusals:true,async:true,storage:true,sqliteReload:{coldMs,warmMs}};
   };
   const result=await call('Runtime.evaluate',{expression:`(${probe.toString()})(${JSON.stringify(fixtures)})`,returnByValue:true,awaitPromise:true});
   assert.equal(result.exceptionDetails,undefined,JSON.stringify(result.exceptionDetails));
+  console.log(JSON.stringify(result.result.value.sqliteReload));delete result.result.value.sqliteReload;
   assert.deepEqual(result.result.value,{guards:25,caltrain:20,store:true,isolated:true,refusals:true,async:true,storage:true});
   await call('Page.reload');
   const persisted=await call('Runtime.evaluate',{expression:`(async()=>{

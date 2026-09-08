@@ -138,6 +138,9 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             let entry = entry.map_err(|e| e.to_string())?;
             let name = entry.file_name();
             let name = name.to_string_lossy();
+            if at == root && name == "__exact_build.tsbuildinfo" {
+                return Err("__exact_build.tsbuildinfo is reserved for the producer".into());
+            }
             if matches!(&*name, ".git" | "node_modules" | "target" | "dist")
                 || name.starts_with(".exact-js-bake-")
             {
@@ -256,15 +259,11 @@ fn bake_in(
     let entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", exact_js::ABI);
     write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
     if let Some(compiler) = compiler {
-        compiler.compile(stage)?;
+        compiler.compile(stage, &tools.hermesc)?;
     } else {
         compile_once(stage, tools)?;
+        compile_bytecode(stage, &tools.hermesc)?;
     }
-    run(
-        &tools.hermesc,
-        &["-O", "-emit-binary", "-out", "app.hbc", "app.js"],
-        stage,
-    )?;
     let script = std::fs::read(stage.join("app.js")).map_err(|e| e.to_string())?;
     let bytecode = std::fs::read(stage.join("app.hbc")).map_err(|e| e.to_string())?;
     let module = Module::inspect(bytecode.clone())?;
@@ -288,6 +287,14 @@ fn bake_in(
         declarations,
         receipt,
     })
+}
+
+fn compile_bytecode(stage: &Path, hermesc: &Path) -> Result<(), String> {
+    run(
+        hermesc,
+        &["-O", "-emit-binary", "-out", "app.hbc", "app.js"],
+        stage,
+    )
 }
 
 fn write_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {

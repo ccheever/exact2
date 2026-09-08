@@ -1,5 +1,5 @@
 //! The development producer retains compiler processes, never unchecked app results.
-use super::{bake_in, Baked, Scratch, Tools};
+use super::{bake_in, compile_bytecode, Baked, Scratch, Tools};
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -76,96 +76,104 @@ impl Compiler {
             output,
         })
     }
-    pub(super) fn compile(&mut self, _stage: &Path) -> Result<(), String> {
+    pub(super) fn compile(&mut self, stage: &Path, hermesc: &Path) -> Result<(), String> {
         let input = self.input.as_mut().ok_or("resident compiler is closed")?;
         input
             .write_all(b"{}\n")
             .and_then(|_| input.flush())
             .map_err(|e| format!("resident compiler: {e}"))?;
+        let reply = self.reply()?;
+        if reply["phase"] != "bundled" {
+            return Err(reply["error"]
+                .as_str()
+                .unwrap_or("resident compiler refused before bundling")
+                .to_owned());
+        }
+        // Compilation is independent of checking. Never inspect or execute
+        // the bytecode until both succeed, and always consume the final reply
+        // even if Hermes refuses, so the next request cannot read stale status.
+        let bytecode = compile_bytecode(stage, hermesc);
+        let checked = self.reply().and_then(|reply| {
+            if reply["ok"] == true {
+                Ok(())
+            } else {
+                Err(reply["error"]
+                    .as_str()
+                    .unwrap_or("resident type checker refused")
+                    .to_owned())
+            }
+        });
+        match (bytecode, checked) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(a), Err(b)) => Err(format!("{a}\n{b}")),
+            (Err(error), _) | (_, Err(error)) => Err(error),
+        }
+    }
+    fn reply(&mut self) -> Result<serde_json::Value, String> {
         let mut line = String::new();
         self.output
             .read_line(&mut line)
             .map_err(|e| e.to_string())?;
-        let reply: serde_json::Value = serde_json::from_str(&line)
-            .map_err(|e| format!("resident compiler stopped or sent an invalid reply: {e}"))?;
-        if reply["ok"] == true {
-            Ok(())
-        } else {
-            Err(reply["error"]
-                .as_str()
-                .unwrap_or("resident compiler refused")
-                .to_owned())
-        }
+        serde_json::from_str(&line)
+            .map_err(|e| format!("resident compiler stopped or sent an invalid reply: {e}"))
     }
 }
 impl Drop for Compiler {
     fn drop(&mut self) {
-        // EOF closes the compiler API and its owned TS server before Node exits.
+        // EOF closes the owned bundler process after any compiler invocation finishes.
         drop(self.input.take());
         let _ = self.child.wait();
     }
 }
 
 const WORKER: &str = r#"
-import { API } from 'typescript/unstable/sync';
 import { rolldown } from 'rolldown';
-import { readFileSync, writeFileSync, readdirSync, realpathSync } from 'node:fs';
+import { writeFileSync, realpathSync, rmSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 const stage=realpathSync(process.argv[1]);
 const libraries=resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))),'lib');
+const tsc=resolve(libraries,'tsc'), execute=promisify(execFile);
 const allowed = path => { path=resolve(path);return path === stage || path.startsWith(stage+sep) || path === libraries || path.startsWith(libraries+sep); };
-const api=new API({cwd:stage,fs:{
-  readFile:path=>allowed(path)?undefined:null,
-  fileExists:path=>allowed(path)?undefined:false,
-  directoryExists:path=>allowed(path)?undefined:false,
-  getAccessibleEntries:path=>allowed(path)?undefined:{files:[],directories:[]},
-}});
 const config=resolve(stage,'__exact_tsconfig.json');
-writeFileSync(config,JSON.stringify({compilerOptions:{noEmit:true,strict:true,target:'ES2020',module:'ESNext',moduleResolution:'bundler',lib:['ES2020','DOM']},files:['__exact_entry.ts']}));
-let previous=new Map(), opened=false;
-function files(at=stage,result=new Map()) {
-  for(const entry of readdirSync(at,{withFileTypes:true})) {
-    const path=resolve(at,entry.name);
-    if(entry.isDirectory())files(path,result);
-    else if(/\.(ts|json)$/.test(path))result.set(path,readFileSync(path,'utf8'));
+// The native builder owns dependency and diagnostic invalidation, including
+// globals and standard libraries. Its cache never comes from the app capture.
+writeFileSync(config,JSON.stringify({compilerOptions:{noEmit:true,strict:true,target:'ES2020',module:'ESNext',moduleResolution:'bundler',lib:['ES2020','DOM'],incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')},files:['__exact_entry.ts']}));
+async function check() {
+  let files;
+  try { ({stdout:files}=await execute(tsc,['--project',config,'--pretty','false','--listFiles'],{cwd:stage,encoding:'utf8',maxBuffer:4*1024*1024})); }
+  catch(error) {
+    const diagnostics=String(error.stdout??'').split(/\r?\n/).filter(line=>! /^(?:\/|[A-Za-z]:[\\/]).*\.[cm]?[jt]sx?$/.test(line)).join('\n');
+    throw new Error(diagnostics+String(error.stderr??'') || String(error.message));
   }
-  return result;
-}
-function diagnostics(program) {
-  return [...program.getConfigFileParsingDiagnostics(),...program.getProgramDiagnostics(),
-    ...program.getSyntacticDiagnostics(),...program.getBindDiagnostics(),
-    ...program.getGlobalDiagnostics(),...program.getSemanticDiagnostics()];
-}
-function explain(d) {
-  return `${d.fileName??'TypeScript'}:${d.pos??0} TS${d.code}: ${d.text}` + (d.messageChain??[]).map(x=>'\n'+explain(x)).join('');
+  // Check the compiler's actual resolved graph, including type-only imports.
+  // An external declaration must not influence an accepted app artifact.
+  for(const path of files.trim().split(/\r?\n/)) {
+    if(!path || !allowed(realpathSync(path)))throw new Error('module outside captured app: '+path);
+  }
 }
 async function compile() {
-  const current=files(), changes={created:[],changed:[],deleted:[]};
-  for(const [path,text] of current) {
-    if(!previous.has(path))changes.created.push(path);
-    else if(previous.get(path)!==text)changes.changed.push(path);
-  }
-  for(const path of previous.keys())if(!current.has(path))changes.deleted.push(path);
-  const snapshot=api.updateSnapshot(opened?{fileChanges:changes}:{openProjects:[config]});
-  opened=true;previous=current;
+  // Generated output is not a captured input. Remove it before resolution,
+  // so an app's ./app.js import follows the same TS substitution as one-shot.
+  rmSync(resolve(stage,'app.js'),{force:true});
+  const checking=check().then(()=>null,error=>error);
+  let failed;
   try {
-    const project=snapshot.getProject(config);
-    if(!project)throw new Error('TypeScript did not load the captured project');
-    const errors=diagnostics(project.program);
-    if(errors.length)throw new Error(errors.map(explain).join('\n'));
-  } finally { snapshot.dispose(); }
   const bundle=await rolldown({cwd:stage,input:resolve(stage,'__exact_entry.ts'),platform:'neutral',
     plugins:[{name:'captured-sources',load(id){if(!id.startsWith(stage+sep))throw new Error('module outside captured app: '+id);return null;}}]});
   try { await bundle.write({file:resolve(stage,'app.js'),format:'iife',name:'exact'}); }
   finally { await bundle.close(); }
+  process.stdout.write('{"phase":"bundled"}\n');
+  } catch(error) { failed=error; }
+  const typeError=await checking;
+  if(failed || typeError)throw new Error([failed,typeError].filter(Boolean).map(e=>e.message??String(e)).join('\n'));
 }
-process.once('SIGTERM',()=>{api.close();process.exit(0);});
-try {
-  for await(const line of createInterface({input:process.stdin,crlfDelay:Infinity})) {
-    try { JSON.parse(line);await compile();process.stdout.write('{"ok":true}\n'); }
-    catch(error){process.stdout.write(JSON.stringify({ok:false,error:String(error?.message??error).slice(0,65536)})+'\n');}
-  }
-} finally { api.close(); }
+process.once('SIGTERM',()=>process.exit(0));
+for await(const line of createInterface({input:process.stdin,crlfDelay:Infinity})) {
+  try { JSON.parse(line);await compile();process.stdout.write('{"ok":true}\n'); }
+  catch(error){process.stdout.write(JSON.stringify({ok:false,error:String(error?.message??error).slice(0,65536)})+'\n');}
+}
 "#;

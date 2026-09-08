@@ -392,6 +392,9 @@ fn resident_producer_rechecks_changed_deleted_and_added_sources_and_recovers() {
     }
     let f = Fixture::new();
     let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    f.write("__exact_build.tsbuildinfo", "{}");
+    assert!(producer.bake(&f.0).err().unwrap().contains("reserved"));
+    std::fs::remove_file(f.0.join("__exact_build.tsbuildinfo")).unwrap();
     let first = producer.bake(&f.0).unwrap();
     let standalone = f.bake();
     assert_eq!(first.script, standalone.script);
@@ -400,10 +403,23 @@ fn resident_producer_rechecks_changed_deleted_and_added_sources_and_recovers() {
     assert_eq!(first.receipt, standalone.receipt);
     assert_eq!(first.receipt, producer.bake(&f.0).unwrap().receipt);
 
+    f.write("app.ts", &format!("import './app.js';\n{SOURCE}"));
+    assert_eq!(
+        producer.bake(&f.0).unwrap().receipt,
+        f.bake().receipt,
+        "previous generated JavaScript is not a captured source"
+    );
+    f.write("app.ts", SOURCE);
+
     f.write("logic.ts", "export const prefix = 'new: ';\n");
     assert_ne!(first.receipt, producer.bake(&f.0).unwrap().receipt);
     f.write("logic.ts", "export const prefix: string = 42;\n");
-    assert!(producer.bake(&f.0).err().unwrap().contains("TS2322"));
+    let diagnostics = producer.bake(&f.0).err().unwrap();
+    assert!(diagnostics.contains("TS2322"));
+    assert!(
+        !diagnostics.contains("lib.dom.d.ts"),
+        "the error is not the --listFiles inventory: {diagnostics}"
+    );
     assert!(
         producer.bake(&f.0).is_err(),
         "unchanged invalid input is never cached as success"
@@ -466,6 +482,22 @@ fn resident_producer_rechecks_changed_deleted_and_added_sources_and_recovers() {
         producer.bake(&f.0).is_err(),
         "absolute imports cannot escape the captured app"
     );
+    outside.write("types.d.ts", "export interface External { value: string }");
+    f.write(
+        "logic.ts",
+        &format!(
+            "import type {{External}} from {:?}; export const prefix = 'final: ';",
+            outside.0.join("types.d.ts").to_str().unwrap()
+        ),
+    );
+    assert!(
+        producer
+            .bake(&f.0)
+            .err()
+            .unwrap()
+            .contains("outside captured app"),
+        "type-only imports cannot influence a captured app either"
+    );
     f.write("logic.ts", "export const prefix = 'final: ';\n");
     assert_eq!(final_bake.receipt, producer.bake(&f.0).unwrap().receipt);
 }
@@ -486,4 +518,44 @@ fn resident_producer_honors_compiler_overrides() {
         .err()
         .unwrap()
         .contains("/usr/bin/false refused"));
+}
+
+#[test]
+fn resident_compilation_refusals_are_drained_before_the_next_request() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    let defaults = Tools::default();
+    let wrapper = f.0.join("hermes-wrapper");
+    let launch = format!(
+        "#!/bin/sh\nexec '{}' \"$@\"\n",
+        defaults.hermesc.to_str().unwrap().replace('\'', "'\"'\"'")
+    );
+    f.write("hermes-wrapper", "#!/bin/sh\nexit 1\n");
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut producer = exact_js_bake::Producer::new(Tools {
+        hermesc: wrapper,
+        ..defaults
+    })
+    .unwrap();
+    assert!(producer
+        .bake(&f.0)
+        .err()
+        .unwrap()
+        .contains("hermes-wrapper refused"));
+    f.write("hermes-wrapper", &launch);
+    assert_eq!(producer.bake(&f.0).unwrap().receipt, f.bake().receipt);
+    f.write("logic.ts", "export const prefix: string = 42;");
+    f.write("hermes-wrapper", "#!/bin/sh\nexit 1\n");
+    let error = producer.bake(&f.0).err().unwrap();
+    assert!(
+        error.contains("TS2322") && error.contains("hermes-wrapper refused"),
+        "{error}"
+    );
+    f.write("hermes-wrapper", &launch);
+    assert!(producer.bake(&f.0).err().unwrap().contains("TS2322"));
+    f.write("logic.ts", "export const prefix = 'recovered: ';");
+    assert_eq!(producer.bake(&f.0).unwrap().receipt, f.bake().receipt);
 }
