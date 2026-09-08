@@ -331,15 +331,10 @@ impl<D: DataSource> Host<D> {
         source.configure_storage(data, cache, temporary)
     }
 
-    /// The common post-pixel activation order, also for a private live candidate.
+    /// The common post-pixel activation order for committed sources.
     pub(crate) fn activate_source(source: &mut D) -> Result<(), exact_runner::DataError> {
         Self::configure_storage(source)?;
         source.activate()
-    }
-
-    /// A live candidate was configured and loaded before its runner booted.
-    pub(crate) fn mark_data_activated(&mut self) {
-        self.data_activated = true;
     }
 
     /// Transfer a source-owned operation to the native executor.

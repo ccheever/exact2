@@ -1075,6 +1075,12 @@ mod tests {
             self.calls.lock().unwrap().push("activate");
             Ok(())
         }
+        fn activate_for_validation(&mut self) -> Result<(), DataError> {
+            assert!(!self.configured && !self.loaded);
+            self.loaded = true;
+            self.calls.lock().unwrap().push("validate");
+            Ok(())
+        }
         fn replacement(&self, _: &[u8], _: &str, _: Vec<u8>) -> Result<Self, DataError> {
             Ok(Self {
                 calls: self.calls.clone(),
@@ -1130,12 +1136,11 @@ mod tests {
                 844.0,
             );
             assert!(bridge.prepared.is_some());
-            if !painted {
-                assert!(source.calls.lock().unwrap().is_empty());
-            } else {
-                assert_eq!(*source.calls.lock().unwrap(), expected);
-            }
+            let prepared = if painted { vec!["validate"] } else { vec![] };
+            assert_eq!(*source.calls.lock().unwrap(), prepared);
             bridge.commit_plan();
+            assert_eq!(*source.calls.lock().unwrap(), prepared);
+            source.calls.lock().unwrap().clear();
             bridge.data_ready();
             bridge.data_ready();
             assert_eq!(*source.calls.lock().unwrap(), expected);

@@ -971,11 +971,11 @@ Linux uses absolute XDG roots or the HOME defaults. Temporary is an app-cache
 subdirectory, not an automatic cleanup promise. Grants come from the admitted
 app identity (`fs.read`, `fs.write`, `sqlite.open`), not from module globals.
 Resources close on unload, and directory configuration survives replacement.
-Apple's private live candidate uses the same configure-then-activate sequence as
-normal startup. Once activated before candidate runner boot, it is marked ready
-so its first committed draw does not configure or load the module again. Before
-the first pixel, candidate preparation does neither. The ABI regression covers
-both painted states in isolated normal/agent processes, including repeated draws.
+Apple validates a painted replacement in a disposable source without real storage.
+The accepted source stays deferred until commit and its paint receipt, when the
+normal configure-then-activate sequence runs once. Before the first pixel,
+preparation does neither. The ABI regression covers both painted states in
+isolated normal/agent processes, including repeated draws.
 
 Storage work runs in Ibex2's workers. A runner continuation carries readiness
 through the host executor; only the runtime owner delivers a completion and
