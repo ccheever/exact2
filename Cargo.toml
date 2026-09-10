@@ -3,8 +3,8 @@ members = ["kernel", "motion", "plan", "runner", "contract/syntax", "contract/ty
 resolver = "2"
 
 [workspace.dependencies]
-ibex2 = { git = "https://github.com/expo/ibex.git", rev = "f68cfb082d0a5ea927497715069f830ecdac2a10", default-features = false }
-ibex2-sqlite = { git = "https://github.com/expo/ibex.git", rev = "f68cfb082d0a5ea927497715069f830ecdac2a10" }
+ibex2 = { git = "https://github.com/expo/ibex.git", rev = "4a544eeb22237c942a0a4b10ae8a0f647cff68da", default-features = false }
+ibex2-sqlite = { git = "https://github.com/expo/ibex.git", rev = "4a544eeb22237c942a0a4b10ae8a0f647cff68da" }
 
 [workspace.package]
 edition = "2021"
