@@ -361,7 +361,13 @@ function main(args) {
   const cargoEnv = {
     ...developmentBuildEnv(),
     SDKROOT: sdk,
-    ...(ios ? { IPHONEOS_DEPLOYMENT_TARGET: '17.0' } : { MACOSX_DEPLOYMENT_TARGET: '14.0' }),
+    MACOSX_DEPLOYMENT_TARGET: '14.0',
+    ...(ios ? {
+      IPHONEOS_DEPLOYMENT_TARGET: '17.0',
+      // The bake's host dependencies compile Objective-C++ too. cc-rs
+      // inherits SDKROOT; target the Mac SDK explicitly for those units.
+      HOST_CXXFLAGS: `${process.env.HOST_CXXFLAGS ?? ''} -isysroot ${read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim()}`,
+    } : {}),
   };
   const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, {env:cargoEnv});
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development';

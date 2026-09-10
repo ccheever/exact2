@@ -74,7 +74,7 @@ pub fn set_style(
     let style_value = match value {
         Value::Number(n) => StyleValue::Number(*n),
         Value::Str(s) => match s.as_ref() {
-            "auto" => StyleValue::Auto,
+            "auto" if style.codec() == exact_kernel::StyleCodec::Dimension => StyleValue::Auto,
             t if t.ends_with('%') => t[..t.len() - 1]
                 .parse::<f64>()
                 .map(StyleValue::Percent)

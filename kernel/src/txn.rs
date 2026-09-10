@@ -15,7 +15,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::arena::NodeArena;
 use crate::error::{ApplyError, StyleDomainError};
-use crate::generated::{NodeType, PropId, StyleMask};
+use crate::generated::{NodeType, PropId, StyleMask, StyleProps};
 use crate::id::{NodeFlags, NodeKey, ViewId};
 use crate::layout::LayoutTree;
 use crate::selector::SelectorIndex;
@@ -441,6 +441,7 @@ pub fn apply(
                 arena.style_mut(slot).apply_patch(patch);
                 style_changed(arena, layout, slot, changed, &mut receipt);
                 touched.insert(slot);
+                propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
             }
             Op::ClearStyle { id, mask } => {
                 let slot = live_slot(arena, op_index, *id)?;
@@ -451,6 +452,7 @@ pub fn apply(
                 arena.style_mut(slot).clear(*mask);
                 style_changed(arena, layout, slot, changed, &mut receipt);
                 touched.insert(slot);
+                propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
             }
             Op::SetChildren { id, children } => {
                 let slot = live_slot(arena, op_index, *id)?;
@@ -472,6 +474,22 @@ pub fn apply(
                         arena.set_parent(*o, None);
                     }
                 }
+                // A child arriving from another parent takes its inherited
+                // rows from its new ancestors: remember what it computed
+                // under the old ones, to propagate only what differs. One
+                // arriving from no parent (an orphan, a fresh node) is
+                // re-derived in full.
+                let moved: Vec<(u32, Option<StyleProps>)> = new
+                    .iter()
+                    .copied()
+                    .filter(|n| arena.parent(*n) != Some(slot))
+                    .map(|n| {
+                        let before = arena
+                            .parent(n)
+                            .map(|_| arena.computed_style(n, StyleMask::INHERITED));
+                        (n, before)
+                    })
+                    .collect();
                 for n in &new {
                     if let Some(p) = arena.parent(*n) {
                         if p != slot {
@@ -491,6 +509,27 @@ pub fn apply(
                 }
                 touched.insert(slot);
                 receipt.layout_invalidated = true;
+                for (m, before) in moved {
+                    let changed = match before {
+                        Some(before) => {
+                            let after = arena.computed_style(m, StyleMask::INHERITED);
+                            let mut changed = StyleMask::EMPTY;
+                            for id in StyleMask::INHERITED.iter() {
+                                if before.get(id) != after.get(id) {
+                                    changed.set(id);
+                                }
+                            }
+                            changed
+                        }
+                        None => StyleMask::INHERITED.minus(arena.style(m).mask),
+                    };
+                    if changed.is_empty() {
+                        continue;
+                    }
+                    inherited_changed(arena, layout, m, changed, &mut receipt);
+                    touched.insert(m);
+                    propagate_inherited(arena, layout, m, changed, &mut touched, &mut receipt);
+                }
             }
             Op::AttachRoot { id } => {
                 let slot = live_slot(arena, op_index, *id)?;
@@ -567,6 +606,57 @@ fn style_changed(
         receipt.layout_invalidated = true;
     }
     if !mask.minus(StyleMask::LAYOUT).is_empty() {
+        arena.flags_mut(slot).insert(NodeFlags::PAINT_DIRTY);
+    }
+}
+
+/// CSS inheritance: an inherited row that changed on `slot` changes the
+/// computed value of every logical descendant that does not set the row
+/// itself. Mark and touch them, stopping under a descendant that overrides
+/// every changed row, so the receipt names what changed and no host has to
+/// re-derive descendants per frame (LLP 1035.000 D4).
+fn propagate_inherited(
+    arena: &mut NodeArena,
+    layout: &mut LayoutTree,
+    slot: u32,
+    changed: StyleMask,
+    touched: &mut BTreeSet<u32>,
+    receipt: &mut CommitReceipt,
+) {
+    let changed = changed.intersect(StyleMask::INHERITED);
+    if changed.is_empty() {
+        return;
+    }
+    let mut stack: Vec<(u32, StyleMask)> =
+        arena.children(slot).iter().map(|c| (*c, changed)).collect();
+    while let Some((s, rows)) = stack.pop() {
+        let pass = rows.minus(arena.style(s).mask);
+        if pass.is_empty() {
+            continue;
+        }
+        inherited_changed(arena, layout, s, pass, receipt);
+        touched.insert(s);
+        stack.extend(arena.children(s).iter().map(|c| (*c, pass)));
+    }
+}
+
+/// What a changed inherited value does at a node: text rows remeasure its
+/// paragraph (the nearest measure owner); the rest repaint. No inherited
+/// row shapes a box, so box layout is untouched.
+fn inherited_changed(
+    arena: &mut NodeArena,
+    layout: &mut LayoutTree,
+    slot: u32,
+    rows: StyleMask,
+    receipt: &mut CommitReceipt,
+) {
+    if rows.intersects(StyleMask::TEXT)
+        && matches!(arena.node_type(slot), NodeType::Text | NodeType::TextInput)
+    {
+        invalidate_text(arena, layout, slot);
+        receipt.layout_invalidated = true;
+    }
+    if !rows.minus(StyleMask::TEXT).is_empty() {
         arena.flags_mut(slot).insert(NodeFlags::PAINT_DIRTY);
     }
 }

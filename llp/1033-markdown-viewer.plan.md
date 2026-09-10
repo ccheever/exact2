@@ -246,10 +246,14 @@ written rather than as CSS reads:
   meant 1.62 points and every line drew on top of the last. The readers use
   point values (26 for 16 px prose). This is an undeclared deviation from
   "the web is the standard"; it is noted in `QUEUE.md`, not fixed here.
-- A style row does not cascade into the inline `text` nodes the kernel
+- ~~A style row does not cascade into the inline `text` nodes the kernel
   measures as runs, so a heading whose runs said nothing drew at 16 px. Each
   run carries its own size, weight, height and colour; the paragraph's type
-  is a prop of the `Runs` component.
+  is a prop of the `Runs` component.~~ Landed 2026-09-09 (LLP 1035.000 slice
+  1, LLP 1001 §6): the text rows inherit into runs on every host, so the
+  paragraph carries `color` and `line-height` and `Runs` threads only the
+  size and weight it computes per run (the mono run's 0.92 em and the
+  bold-or-base weight — CSS `em` and `bolder` are what would remove those).
 
 **Tests.** `markdown-parse` has twelve, one of which parses every document in
 `llp/` and asserts blocks, titles, headings and tables come out of the real

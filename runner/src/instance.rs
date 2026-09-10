@@ -92,6 +92,28 @@ struct Row {
     slots: RowSlots,
 }
 
+/// One step of the instance path from the plan's roots to a view: the
+/// region crossed and, for an `each` row, its key; for a `when`/`match`
+/// region, the active arm (LLP 1035.002 D6 — what identifies *this*
+/// instance of a repeated site).
+#[derive(Debug, Clone, PartialEq)]
+pub enum InstanceStep {
+    /// A keyed row of an `each`.
+    Row {
+        /// The region.
+        region: RegionsId,
+        /// The row's key.
+        key: Value,
+    },
+    /// The active arm of a `when`/`match`.
+    Arm {
+        /// The region.
+        region: RegionsId,
+        /// Which arm, when one is active.
+        arm: Option<usize>,
+    },
+}
+
 /// Allocates kernel view ids; never reuses one within a runner's life.
 #[derive(Debug, Default)]
 pub struct Ids {
@@ -715,5 +737,82 @@ impl Tree {
             }
         }
         None
+    }
+
+    /// The site owning `view` and the instance path to it: the regions
+    /// crossed, with the row key or the active arm at each (LLP 1035.002).
+    pub fn site(&self, view: ViewId) -> Option<(NodesId, Vec<InstanceStep>)> {
+        let mut path = Vec::new();
+        for c in &self.children {
+            let found = match c {
+                Child::Node(n) => n.site(view, &mut path),
+                Child::Region(r) => r.site(view, &mut path),
+            };
+            if let Some(node) = found {
+                return Some((node, path));
+            }
+        }
+        None
+    }
+}
+
+impl NodeInst {
+    fn site(&self, view: ViewId, path: &mut Vec<InstanceStep>) -> Option<NodesId> {
+        if self.view == view {
+            return Some(self.node);
+        }
+        for c in &self.children {
+            let found = match c {
+                Child::Node(n) => n.site(view, path),
+                Child::Region(r) => r.site(view, path),
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+        None
+    }
+}
+
+impl RegionInst {
+    fn site(&self, view: ViewId, path: &mut Vec<InstanceStep>) -> Option<NodesId> {
+        let walk = |roots: &[Child], path: &mut Vec<InstanceStep>| -> Option<NodesId> {
+            for c in roots {
+                let found = match c {
+                    Child::Node(n) => n.site(view, path),
+                    Child::Region(r) => r.site(view, path),
+                };
+                if found.is_some() {
+                    return found;
+                }
+            }
+            None
+        };
+        match &self.active {
+            Active::Arm { roots, arm, .. } => {
+                path.push(InstanceStep::Arm {
+                    region: self.region,
+                    arm: *arm,
+                });
+                if let Some(found) = walk(roots, path) {
+                    return Some(found);
+                }
+                path.pop();
+                None
+            }
+            Active::Rows { rows } => {
+                for r in rows {
+                    path.push(InstanceStep::Row {
+                        region: self.region,
+                        key: r.key.clone(),
+                    });
+                    if let Some(found) = walk(&r.roots, path) {
+                        return Some(found);
+                    }
+                    path.pop();
+                }
+                None
+            }
+        }
     }
 }

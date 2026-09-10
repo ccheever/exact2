@@ -96,12 +96,15 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     });
                 }
             }
-            ("font_variant_numeric", _) | ("line_clamp", _) | ("tint_color", _) => {
-                skipped.push(Skipped {
-                    row: id,
-                    reason: "not lowered in v1",
-                })
+            ("line_clamp", RowValue::Number(n)) => {
+                if *n > 0.0 {
+                    let _ = write!(out, "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{n};overflow:hidden;");
+                }
             }
+            ("font_variant_numeric", _) | ("tint_color", _) => skipped.push(Skipped {
+                row: id,
+                reason: "not lowered in v1",
+            }),
             ("grid_template_columns", _)
             | ("grid_template_rows", _)
             | ("grid_column", _)
@@ -203,6 +206,7 @@ fn declaration(name: &str, value: &RowValue<'_>) -> Option<(String, String)> {
             format!("light-dark({}, {})", rgba(*l), rgba(*d))
         }
         RowValue::Enum(e) => e.to_string(),
+        RowValue::ClipPath(p) => p.css(),
         RowValue::Vec2(v) => match name {
             "translate" => format!("{}px {}px", num(v.x), num(v.y)),
             _ => return None,

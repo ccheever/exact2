@@ -125,19 +125,176 @@ function assetNamespace(cards) {
 }
 function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (card.objectURL) URL.revokeObjectURL(card.objectURL); }
 
+// DOM scrollTop/scrollLeft writes apply after this batch's new children and styles exist.
+// An unchanged binding never overrides a user's scroll position.
+const pendingScrolls = new Map();
+// An explicit chat/log policy, not CSS overflow anchoring: keep the end
+// visible across resizing only while the reader is already there.
+const followedScrolls = new Map();
+function rememberScroll(s) {
+  s.top = s.el.scrollTop; s.height = s.el.scrollHeight; s.port = s.el.clientHeight;
+  s.end = s.top >= s.height - s.port - 1;
+}
+function settleFollow(s) {
+  if (!s.el.isConnected) return;
+  // A reader above the end uses the browser's CSS scroll anchoring. Writing
+  // the remembered numeric offset here would undo its adjustment when content
+  // above the visible message changes.
+  if (s.end) s.el.scrollTop = s.el.scrollHeight - s.el.clientHeight;
+  rememberScroll(s);
+  const children = [...s.el.children];
+  if (children.length !== s.children.length || children.some((el, i) => el !== s.children[i])) {
+    s.observer.disconnect(); s.observer.observe(s.el);
+    for (const child of children) s.observer.observe(child);
+    s.children = children;
+  }
+}
+function followScroll(el, enabled) {
+  const old = followedScrolls.get(el);
+  if (old || !enabled) {
+    if (old && !enabled) { old.observer.disconnect(); el.removeEventListener("scroll", old.scrolled); followedScrolls.delete(el); }
+    return;
+  }
+  const s = { el, top: 0, height: 0, port: 0, end: true, children: [] };
+  s.scrolled = () => {
+    // ResizeObserver settles a changed geometry before a queued scroll
+    // notification is allowed to change whether the reader follows the end.
+    if (el.scrollHeight === s.height && el.clientHeight === s.port) rememberScroll(s);
+  };
+  s.observer = new ResizeObserver(() => { settleFollow(s); positionContexts(); });
+  s.observer.observe(el); el.addEventListener("scroll", s.scrolled, { passive: true });
+  followedScrolls.set(el, s);
+}
+root.addEventListener("pointerdown", event => {
+  const target = event.target;
+  const editor = target.closest?.("input, textarea, select") || target.isContentEditable;
+  if (!editor && target.closest?.('[retainFocus="true"]')) { event.preventDefault(); return; }
+  const button = target.closest?.("button");
+  if (!button) return;
+  for (const preview of root.querySelectorAll("[contextTarget]")) {
+    if (contextPanel(preview)?.contains(button)) { event.preventDefault(); return; }
+  }
+});
+function contextPanel(preview) {
+  for (let parent = preview.parentElement; parent && parent !== root; parent = parent.parentElement) {
+    if (getComputedStyle(parent).position === "absolute") return parent;
+  }
+  return null;
+}
+const contextTransforms = new Set();
+const contextAnchors = new Map(); // preview view id -> mounted source and entry box
+function contextAnchor(target, port = root.getBoundingClientRect()) {
+  const box = target.getBoundingClientRect();
+  const scroll = contextContent(target)?.parentElement;
+  return { target, left: box.left - port.left, top: box.top - port.top,
+    width: box.width, height: box.height, viewportWidth: port.width,
+    scroll, scrollTop: scroll ? scroll.getBoundingClientRect().top - port.top : null };
+}
+function prepareContexts(batch) {
+  // Focus commands can resize the keyboard viewport in this same batch.
+  for (const op of batch.ops ?? []) {
+    const props = op.op === "create" ? op.props : op.op === "props" ? op.set : null;
+    if (!props?.contextTarget) continue;
+    const target = document.getElementById(props.contextTarget);
+    if (target && contextAnchors.get(op.id)?.target !== target) contextAnchors.set(op.id, contextAnchor(target));
+  }
+}
+function contextContent(source) {
+  for (let child = source; child?.parentElement && child.parentElement !== root; child = child.parentElement) {
+    const parent = child.parentElement;
+    if (parent.dataset.scroll === "true" && /^(auto|scroll)$/.test(getComputedStyle(parent).overflowY)) return child;
+  }
+  return null;
+}
+function positionContexts() {
+  // Native context presentation magnifies the preview without reflowing its
+  // text. Keep authored individual transforms; this is the panel projection.
+  for (const node of contextTransforms) node.style.transform = "";
+  contextTransforms.clear();
+  for (const [id, anchor] of contextAnchors) {
+    const preview = views.get(id);
+    if (!preview?.isConnected || !anchor.target.isConnected
+      || document.getElementById(preview.getAttribute("contextTarget")) !== anchor.target) contextAnchors.delete(id);
+  }
+  const project = (node, transform) => { node.style.transform = transform; contextTransforms.add(node); };
+  for (const preview of root.querySelectorAll("[contextTarget]")) {
+    const target = document.getElementById(preview.getAttribute("contextTarget"));
+    const panel = contextPanel(preview);
+    if (!target || !panel) continue;
+    const box = panel.getBoundingClientRect(), content = preview.getBoundingClientRect();
+    if (content.width <= 0 || content.height <= 0) continue;
+    const liveSource = target.getBoundingClientRect(), port = root.getBoundingClientRect();
+    const id = Number(preview.dataset.view);
+    if (!contextAnchors.has(id) || contextAnchors.get(id).viewportWidth !== port.width) {
+      contextAnchors.set(id, contextAnchor(target, port));
+    }
+    const anchor = contextAnchors.get(id);
+    const source = { left: port.left + anchor.left, top: port.top + anchor.top,
+      right: port.left + anchor.left + anchor.width, width: anchor.width, height: anchor.height };
+    // iPhone 17 / iOS 26.5 target-preview measurements: 15%, at most 26pt wide.
+    const scale = preview.getAttribute("contextMagnify") === "false" ? 1 : Math.min(1.15, 1 + 26 / content.width);
+    const extra = content.height * (scale - 1);
+    const trailing = source.left + source.width / 2 > port.left + port.width / 2;
+    const dx = trailing ? source.right - content.right - content.width * (scale - 1) / 2
+      : source.left - content.left + content.width * (scale - 1) / 2;
+    for (const sibling of preview.parentElement.children) {
+      if (sibling === preview) continue;
+      const side = sibling.getBoundingClientRect();
+      if (Math.abs(side.top - content.top) >= 0.01) continue;
+      if (side.right <= content.left + 0.01) project(sibling, `translateX(${dx - content.width * (scale - 1) / 2}px)`);
+      else if (side.left >= content.right - 0.01) project(sibling, `translateX(${dx + content.width * (scale - 1) / 2}px)`);
+    }
+    // The panel moves up by half the added height. Offset later content once
+    // at each enclosing level so receipts keep their source-relative position.
+    for (let child = preview; child && child !== panel; child = child.parentElement) {
+      const bottom = child.getBoundingClientRect().bottom;
+      for (const sibling of child.parentElement.children) {
+        if (sibling !== child && sibling.getBoundingClientRect().top >= bottom - 0.01) {
+          project(sibling, `translateY(${extra / 2}px)`);
+        }
+      }
+    }
+    project(preview, `translate(${dx}px, ${extra / 2}px) scale(${scale})`);
+    const wanted = source.top + source.height / 2 - (content.top - box.top) - content.height * scale / 2;
+    const overflow = Math.max(extra / 2, content.bottom + extra - box.bottom);
+    const region = panel.offsetParent?.getBoundingClientRect() || port;
+    const minimum = Math.max(region.top, port.top + 8);
+    const maximum = Math.min(region.bottom, port.bottom - 8) - box.height - overflow;
+    const top = Math.max(minimum, Math.min(wanted, maximum));
+    panel.style.top = `${parseFloat(getComputedStyle(panel).top) + top - box.top}px`;
+    const contentRoot = contextContent(target);
+    if (contentRoot && !contentRoot.contains(panel)) {
+      const scroll = contentRoot.parentElement;
+      const scrollDelta = scroll === anchor.scroll && !scroll.contains(panel)
+        ? port.top + anchor.scrollTop - scroll.getBoundingClientRect().top : 0;
+      if (scrollDelta) project(scroll, `translateY(${scrollDelta}px)`);
+      project(contentRoot, `translateY(${source.top + top - wanted - liveSource.top - scrollDelta}px)`);
+    }
+  }
+}
+addEventListener("resize", () => requestAnimationFrame(positionContexts));
+visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
 function applyProps(el, set, clear) {
   let sandboxChanged = false;
   for (const name of clear || []) {
     if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
     if (el instanceof HTMLIFrameElement && name === "sandbox" && el.hasAttribute("sandbox")) sandboxChanged = true;
-    if (name === "text") el.textContent = "";
+    if (name === "scrollFollowEnd") followScroll(el, false);
+    else if (name === "scrollTop" || name === "scrollLeft") {
+      const pending = pendingScrolls.get(el); if (pending) delete pending[name];
+    }
+    else if (name === "text") el.textContent = "";
     else if (name === "value") el.value = "";
     else if (name === "checked") el.checked = false;
     else el.removeAttribute(name);
   }
   for (const [name, value] of Object.entries(set || {})) {
     if (el instanceof HTMLIFrameElement && name === "sandbox" && el.getAttribute("sandbox") !== value) sandboxChanged = true;
-    if (name === "text") {
+    if (name === "scrollFollowEnd") followScroll(el, value === "true");
+    else if (name === "scrollTop" || name === "scrollLeft") {
+      const offset = Number(value);
+      if (Number.isFinite(offset)) pendingScrolls.set(el, { ...pendingScrolls.get(el), [name]: offset });
+    } else if (name === "text") {
       if (el.childElementCount === 0) el.textContent = value;
     } else if (name === "value") {
       if (el.value !== value) el.value = value;
@@ -259,8 +416,82 @@ function attach(el, id, handlers) {
   for (const kind of handlers) {
     if (kind === "press") {
       on("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch(id, 0, 0, now())); });
+    } else if (kind === "scroll") {
+      on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop}`); send(wasm.exact_dispatch(id, 13, n, now())); });
+    } else if (kind === "swiperight") {
+      let drag = null, suppressClick = false;
+      on("pointerdown", (e) => {
+        if (!e.isPrimary || e.button !== 0 || el.matches(":disabled") || el.closest("[inert]")) return;
+        // The CSS touch-action decides which touch directions the browser
+        // keeps for scrolling. A scrolling pointer cancels this observation.
+        e.preventDefault(); e.stopPropagation();
+        const translate = getComputedStyle(el).translate;
+        const parts = translate === "none" ? ["0px", "0px"] : translate.match(/calc\([^)]*\)|\S+/g);
+        drag = { pointer: e.pointerId, x: e.clientX, y: e.clientY, distance: 0, active: false,
+          translate: el.style.translate, transition: el.style.transition, base: parts,
+          indicators: [...el.children].filter(n => n.getAttribute("swipeIndicator") === "true").map(node => {
+            // Start from authored targets even if a preceding return is in flight.
+            const scale = (node.style.scale || "1").split(" ").map(Number);
+            return { node, opacity: node.style.opacity, scale: node.style.scale, transition: node.style.transition,
+              baseOpacity: Number(node.style.opacity || "1"), baseScale: [scale[0], scale[1] ?? scale[0]] };
+          }) };
+        el.setPointerCapture(e.pointerId);
+      });
+      on("pointermove", (e) => {
+        if (!drag || drag.pointer !== e.pointerId) return;
+        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+        if (!drag.active) {
+          if (Math.abs(dy) > 8 && Math.abs(dy) >= Math.abs(dx) || dx < -8) { drag = null; return; }
+          if (dx < 8 || dx <= Math.abs(dy)) return;
+          drag.active = true;
+          el.style.transition = "none";
+          for (const { node } of drag.indicators) node.style.transition = "none";
+        }
+        drag.distance = Math.max(0, dx);
+        const offset = Math.min(drag.distance, 64) + Math.max(0, drag.distance - 64) * 0.2;
+        el.style.translate = `calc(${drag.base[0]} + ${offset}px) ${drag.base[1] || "0px"}`;
+        const progress = Math.min(offset / 64, 1);
+        for (const indicator of drag.indicators) {
+          indicator.node.style.opacity = indicator.baseOpacity + (1 - indicator.baseOpacity) * progress;
+          indicator.node.style.scale = indicator.baseScale.map(v => v + (1 - v) * progress).join(" ");
+        }
+        e.stopPropagation();
+      });
+      const finish = (e) => {
+        if (!drag || drag.pointer !== e.pointerId) return;
+        const ended = drag; drag = null;
+        if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+        if (!ended.active) return;
+        suppressClick = true;
+        // Commit the held value before restoring the authored CSS transition.
+        el.getBoundingClientRect();
+        el.style.transition = ended.transition;
+        el.style.translate = ended.translate;
+        for (const { node, opacity, scale, transition } of ended.indicators) {
+          node.style.transition = transition; node.style.opacity = opacity; node.style.scale = scale;
+        }
+        if (e.type === "pointerup" && ended.distance >= 64) send(wasm.exact_dispatch(id, 12, 0, now()));
+      };
+      on("pointerup", finish); on("pointercancel", finish); on("lostpointercapture", finish);
+      on("click", (e) => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopPropagation(); } });
+    } else if (kind === "contextmenu" || kind === "dblclick") {
+      on(kind, (e) => {
+        if (el.matches(":disabled") || el.closest("[inert]")) return;
+        e.preventDefault(); e.stopPropagation();
+        send(wasm.exact_dispatch(id, kind === "contextmenu" ? 10 : 11, 0, now()));
+      });
     } else if (kind === "change") {
-      on("input", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); });
+      on("input", (e) => {
+        const value = el.value;
+        if (el.getAttribute("emojiPicker") === "true") {
+          if (e.isComposing) return;
+          el.value = "";
+          const clusters = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
+          if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value)
+            || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
+        }
+        const n = writeIn(value); send(wasm.exact_dispatch(id, 1, n, now()));
+      });
     } else if (kind === "hover") {
       // pointerenter/pointerleave: the element's own, not a bubbling mouseover.
       on("pointerenter", () => send(wasm.exact_dispatch(id, 2, 0, now())));
@@ -314,6 +545,8 @@ function viewFor(op, id) {
 }
 
 function apply(batch) {
+  prepareContexts(batch);
+  for (const s of followedScrolls.values()) s.scrolled();
   const focusCommands = [];
   if (batch.error) console.error("exact:", batch.error);
   for (const op of batch.ops ?? []) {
@@ -455,10 +688,24 @@ function apply(batch) {
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; }
         else if (op.name === "focus") focusCommands.push(op.args);
+        else if (op.name === "copyText") {
+          if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
+            console.error("exact: copyText requires one string");
+          } else if (!navigator.clipboard?.writeText) {
+            console.error("exact: copyText unavailable; a secure clipboard context is required");
+          } else {
+            // Start inside the input dispatch while browser user activation
+            // is live. No clipboard read or focus/selection manipulation.
+            const pending = navigator.clipboard.writeText(op.args[0])
+              .catch(error => console.error("exact: copyText failed", String(error)));
+            inflight.add(pending);
+            pending.finally(() => inflight.delete(pending));
+          }
+        }
         else console.warn(`exact: unknown command ${op.name}`);
         break;
       }
-      case "destroy": { const el = views.get(op.id); if (el) { messageFrames.delete(el); el.remove(); } views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
+      case "destroy": { const el = views.get(op.id); if (el) { followScroll(el, false); messageFrames.delete(el); el.remove(); } views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
       case "roots": {
         const roots = [];
         for (const id of op.ids) {
@@ -484,6 +731,27 @@ function apply(batch) {
       console.error(`exact: ${String(op?.op ?? "unknown")} op failed`, e);
     }
   }
+  // Navigation keeps its routes mounted; only the selected route receives
+  // input or participates in accessibility. UIKit projects these into its
+  // own controller stack; the browser retains the same declarative state.
+  for (const nav of root.querySelectorAll("[navigationBack]")) {
+    const routes = [...nav.children].filter(route => route.hasAttribute("navigationKey"));
+    const selected = routes.findIndex(route => route.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
+    const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
+    for (const [index, route] of routes.entries()) {
+      const active = index === selected;
+      if (!active && route.contains(document.activeElement)) document.activeElement.blur();
+      route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
+      route.inert = !active;
+    }
+  }
+  for (const s of followedScrolls.values()) settleFollow(s);
+  for (const [el, offsets] of pendingScrolls) if (el.isConnected) {
+    // Mirroring the current offset must not restart snapping or cancel a pan.
+    for (const [name, offset] of Object.entries(offsets)) if (el[name] !== offset) el[name] = offset;
+    const s = followedScrolls.get(el); if (s) rememberScroll(s);
+  }
+  pendingScrolls.clear();
   // Focusing can dispatch an action; every node/value in this batch must be
   // committed before its focus handler runs.
   for (const args of focusCommands) {
@@ -493,6 +761,7 @@ function apply(batch) {
         || !el.getClientRects().length || getComputedStyle(el).visibility !== "visible") continue;
     el.focus();
   }
+  positionContexts();
   return batch.timers;
 }
 
@@ -606,6 +875,67 @@ function deferFulfill(...args) {
 function ask(request) {
   const n = writeIn(JSON.stringify(request));
   return JSON.parse(readOut(wasm.exact_agent(n)));
+}
+
+// `layout <node>` (LLP 1035.002 D1): the runner's rows and their sources
+// for one node (`node`, answered in the wasm), then what the page knows —
+// the box in the viewport and relative to its parent, the scroll and clip
+// chains above it, whether it is hidden, inert, in the viewport or clipped
+// away, the element that carries it — and the browser's own computed value
+// of every inherited row: the oracle printed beside the kernel's answer.
+// Spaces the page cannot observe (a window, a screen) are absent.
+const INHERITED_CSS = {
+  text_color: "color", font_family: "font-family", font_size: "font-size", font_weight: "font-weight",
+  font_style: "font-style", line_height: "line-height", letter_spacing: "letter-spacing",
+  font_variant_numeric: "font-variant-numeric", direction: "direction", white_space: "white-space", text_align: "text-align",
+};
+function nodeDetail(id) {
+  const el = views.get(id);
+  if (!el || !el.isConnected) return { error: `stale node #${id}` };
+  const node = ask({ op: "node", id });
+  if (node.error) return node;
+  // The kernel's layout never runs on the web (LLP 1007 §9): its frames are
+  // not observations here, so they are absent rather than zeros.
+  delete node.frame;
+  delete node.absolute;
+  delete node.content;
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const rect = (r) => ({ x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) });
+  const idOf = (e) => { for (const [i, v] of views) if (v === e) return i; return null; };
+  const r = el.getBoundingClientRect();
+  node.space = {
+    viewport: rect(r),
+    local: { w: r2(el.clientWidth), h: r2(el.clientHeight) },
+    capture: { scale: devicePixelRatio },
+  };
+  const scroll = [], clip = [];
+  let clipped = r.width === 0 || r.height === 0;
+  for (let a = el.parentElement; a; a = a.parentElement) {
+    const aid = idOf(a);
+    if (aid == null) continue;
+    const cs = getComputedStyle(a);
+    if (a.dataset.scroll === "true") scroll.unshift({ id: aid, sx: r2(a.scrollLeft), sy: r2(a.scrollTop) });
+    const clips = (cs.overflowX !== "visible" || cs.overflowY !== "visible" ? ["overflow"] : []).concat(cs.clipPath !== "none" ? ["clip-path"] : []);
+    for (const kind of clips) {
+      clip.unshift({ id: aid, kind });
+      const c = a.getBoundingClientRect();
+      if (r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom) clipped = true;
+    }
+  }
+  if (scrollX || scrollY) scroll.unshift({ viewport: true, sx: r2(scrollX), sy: r2(scrollY) });
+  node.scroll = scroll;
+  node.clip = clip;
+  node.visible = {
+    hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false,
+    inert: !!el.closest("[inert]"),
+    inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight,
+    clipped,
+  };
+  node.native = { element: el.localName };
+  const cs = getComputedStyle(el);
+  node.browser = Object.fromEntries(Object.entries(INHERITED_CSS).map(([row, prop]) => [row, cs.getPropertyValue(prop)]));
+  node.observed = { clock: now(), wall: Date.now() };
+  return node;
 }
 
 // A same-origin guest joins `tree` as a compact, bounded outline. Access to
@@ -765,14 +1095,20 @@ function agent(request) {
           if (el.dataset.scroll === "true") { n.sx = r2(el.scrollLeft); n.sy = r2(el.scrollTop); }
           nodes.push(n);
         }
-        return { clock: now(), viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes };
+        const reply = { clock: now(), viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes };
+        if (request.id != null) {
+          const detail = nodeDetail(request.id);
+          if (detail.error) return detail;
+          reply.node = detail;
+        }
+        return reply;
       }
       case "focus": {
         const el = views.get(request.id);
         if (!el) return { error: `no view ${request.id}` };
         if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return { error: `view ${request.id} is not an input` };
         el.focus();
-        el.select();
+        if (request.select !== false) el.select();
         return { ok: true };
       }
       case "tap": {
@@ -868,6 +1204,8 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   for (const a of animations.values()) a.cancel();
   animations.clear();
   globalThis.exact?.gpu?.reset();
+  for (const el of followedScrolls.keys()) followScroll(el, false);
+  pendingScrolls.clear();
   views.clear();
   messageFrames.clear();
   grants = [];
@@ -981,3 +1319,16 @@ async function main() {
 
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
+
+root.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  for (const nav of root.querySelectorAll("[navigationBack]")) {
+    const route = [...nav.children].find(child => child.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
+    if (route?.getAttribute("navigationPresentation") !== "modal") continue;
+    event.preventDefault();
+    if (route.getAttribute("closedby") === "none") return;
+    const control = document.getElementById(nav.getAttribute("navigationBack"));
+    if (control && !control.disabled) control.click();
+    return;
+  }
+});

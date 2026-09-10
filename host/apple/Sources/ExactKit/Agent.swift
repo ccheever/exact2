@@ -17,6 +17,12 @@ public final class Agent {
     let session: ExactSession
     init(session: ExactSession) { self.session = session }
 
+    /// The one contact the driver may hold across requests (LLP 1035.003
+    /// D1): where it is, in the viewport's space, while the button is down.
+    /// `nil` between contacts. AppKit holds it as a real mouse button; UIKit
+    /// cannot hold one and says so.
+    var contact: CGPoint? = nil
+
     /// Where replies go: the stream the requests came on.
     nonisolated(unsafe) static var out = FileHandle.standardOutput
 
@@ -81,7 +87,7 @@ public final class Agent {
         }
         switch op {
         case "tree": Agent.reply(session.webviews.tree())
-        case "layout": Agent.reply(layout())
+        case "layout": Agent.reply(layout(req))
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
         // after a frame, so the frame is rendered here, not left to the

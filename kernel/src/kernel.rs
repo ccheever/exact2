@@ -7,17 +7,22 @@
 //! threads.
 
 use std::collections::VecDeque;
+use std::sync::LazyLock;
 
 use crate::arena::NodeArena;
 use crate::error::{KernelError, LayoutError};
 use crate::export::{self, NodeRow};
-use crate::generated::{NodeType, StyleProps};
+use crate::generated::{NodeType, PropId, StyleId, StyleMask, StyleProps};
 use crate::id::{Frame, NodeFlags, NodeKey, Offer, ViewId};
 use crate::layout::{self, LayoutReceipt, LayoutTree};
 use crate::props::PropList;
 use crate::selector::SelectorIndex;
-use crate::style::{taffy_style, uses_env, Env};
-use crate::text::{MonospaceMeasurer, TextMeasurer};
+use crate::style::{taffy_style, uses_env, ColorValue, Env, RowValue};
+use crate::text::{MonospaceMeasurer, TextMeasurer, TextStyle};
+
+/// The initial value of every row: what a computed read returns when neither
+/// the node nor an ancestor sets an inherited row.
+static INITIAL: LazyLock<StyleProps> = LazyLock::new(StyleProps::default);
 use crate::txn::{self, CommitReceipt, Target};
 use crate::wire::{self, Op};
 
@@ -52,7 +57,69 @@ pub struct NodeRef<'a> {
     slot: u32,
 }
 
-impl NodeRef<'_> {
+impl<'a> NodeRef<'a> {
+    /// The node whose own row supplies `id` here: this node when it sets the
+    /// row; for a row the schema marks inherited, the nearest logical ancestor
+    /// that does; `None` when the initial value applies (LLP 1035.000 D1).
+    /// Authored presence stays in `style.mask`; this is where a computed
+    /// value came from.
+    pub fn source_of(&self, id: StyleId) -> Option<ViewId> {
+        self.arena
+            .inherited_source(self.slot, id)
+            .map(|s| self.arena.local_id(s))
+    }
+
+    /// CSS's computed value of a row: the own row; else, for an inherited
+    /// row, the nearest logical ancestor's; else the initial value.
+    pub fn computed(&self, id: StyleId) -> RowValue<'a> {
+        match self.arena.inherited_source(self.slot, id) {
+            Some(s) => self.arena.style(s).get(id),
+            None => INITIAL.get(id),
+        }
+    }
+
+    /// The node's rows with the inherited rows in `rows` resolved through the
+    /// logical ancestors (`NodeArena::computed_style`): what a host paints
+    /// and measures with.
+    pub fn computed_style(&self, rows: StyleMask) -> StyleProps {
+        self.arena.computed_style(self.slot, rows)
+    }
+
+    /// The run style this node's text measures and paints with: its own text
+    /// rows, else its paragraph's, else the initial values.
+    pub fn text_style(&self) -> TextStyle {
+        TextStyle::from_style(&self.computed_style(StyleMask::INHERITED))
+    }
+
+    /// The nearest explicit HTML spelling-check hint in the logical tree.
+    /// Empty means true; missing/invalid values inherit. None leaves the
+    /// editor's platform/user default in charge, without changing authored props.
+    pub fn spellcheck(&self) -> Option<bool> {
+        let mut slot = Some(self.slot);
+        while let Some(current) = slot {
+            if let Some(value) = self.arena.props(current).str(PropId::Spellcheck) {
+                if value.is_empty() || value.eq_ignore_ascii_case("true") {
+                    return Some(true);
+                }
+                if value.eq_ignore_ascii_case("false") {
+                    return Some(false);
+                }
+            }
+            slot = self.arena.parent(current);
+        }
+        None
+    }
+
+    /// CSS `color`, computed: the nearest declared value through the logical
+    /// tree, a light/dark pair kept intact for the painting host to resolve.
+    /// One instance of [`NodeRef::computed`].
+    pub fn text_color(&self) -> ColorValue {
+        match self.computed(StyleId::TextColor) {
+            RowValue::ColorValue(c) => c,
+            _ => unreachable!("text_color is a colour row"),
+        }
+    }
+
     /// Whether this text node is an inline run owned by a Text parent.
     pub fn is_inline_run(&self) -> bool {
         self.arena.is_inline_run(self.slot)

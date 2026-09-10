@@ -1,1 +1,0 @@
-../1026-dynamic-delivery.rfc.md

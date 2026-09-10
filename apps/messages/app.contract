@@ -1,0 +1,859 @@
+// A local-only Messages UI. UIKit owns the keyboard and scrolling.
+shape Person
+  id: string
+  name: string
+  initials: string
+  color: string
+  preview: string
+  time: string
+  unread: bool
+  draft: string
+  reply: string
+  muted: bool
+shape Inbox
+  people: list<Person>
+shape Recipient
+  id: string
+  name: string
+  without: string
+shape Recipients
+  selected: list<Recipient>
+  people: list<Person>
+  target: string
+  canSend: bool
+  last: string
+  withoutLast: string
+  resolved: string
+shape SavedReaction
+  id: string
+  value: string
+  name: string
+  initials: string
+  color: string
+  own: bool
+  offset: number
+  edge: bool
+shape ReactionGroup
+  value: string
+  people: list<SavedReaction>
+  width: number
+shape Message
+  chosen: bool
+  selection: string
+  id: string
+  body: string
+  outgoing: bool
+  time: string
+  reaction: string
+  reactionCount: number
+  reactionEntries: list<SavedReaction>
+  reactionGroups: list<ReactionGroup>
+  reactionPanelWidth: number
+  day: string
+  timeLabel: string
+  delivery: string
+  reply: string
+  tail: bool
+  replyRoot: string
+  replyCount: number
+  sender: string
+  senderName: string
+  senderInitials: string
+  senderColor: string
+  showSender: bool
+shape ReactionChoice
+  id: string
+  value: string
+  label: string
+shape Conversation
+  selectionCount: number
+  selectedText: string
+  muted: bool
+  knownContact: bool
+  contactKind: string
+  contactAddress: string
+  id: string
+  name: string
+  initials: string
+  color: string
+  messages: list<Message>
+  revision: number
+  scrollRevision: number
+  reactions: list<ReactionChoice>
+  replies: list<Message>
+  typingName: string
+  typingAvatar: string
+  typingRoot: string
+shape Change
+  revision: number
+  pending: bool
+
+component Messages
+  state ticks = 0
+  state thread = ""
+  state query = ""
+  state inboxTop = 0
+  derive inboxTitleOpacity = (inboxTop < 44 ? 0 : (inboxTop > 60 ? 1 : (inboxTop - 44) / 16))
+  state swipedThread = ""
+  state swipeOffset = 70
+  state timestampOffset = 0
+  derive timestampDistance = (timestampOffset < 0 ? 0 : (timestampOffset * 0.4 > 58 ? 58 : timestampOffset * 0.4))
+  derive timestampCompensation = timestampOffset - timestampDistance
+  state draft = ""
+  state selecting = false
+  state selection = ""
+  state confirmDelete = false
+  state selected = ""
+  state selectedBody = ""
+  state selectedRoot = ""
+  state selectedOutgoing = false
+  state selectedReaction = ""
+  state selectedTail = false
+  state selectedGroup = false
+  state selectedActions = false
+  state selectedMenuActions = false
+  state selectedPicker = false
+  state selectedPickerVisited = false
+  state selectedEditing = false
+  state replying = ""
+  state details = false
+  state composerEditing = false
+  state detailsEditing = false
+  state attachments = false
+  state composing = false
+  state recipientQuery = ""
+  state recipient = ""
+  state recipientSelection = ""
+  state recipientRemainder = ""
+  state newDraft = ""
+  state showContacts = false
+  mutation change as shape Change
+  derive revision = match change { case some(c) => c.revision, case none => 0 }
+  derive pendingReplies = match change { case some(c) => c.pending, case none => false }
+  derive typingPhase = ticks % 4
+  derive laughPath = "path('M 2 1 Q 1 1 1 2 L 1 12 Q 1 13 2 13 L 3 13 Q 4 13 4 12 L 4 8 L 8 8 L 8 12 Q 8 13 9 13 L 10 13 Q 11 13 11 12 L 11 2 Q 11 1 10 1 L 9 1 Q 8 1 8 2 L 8 5 L 4 5 L 4 2 Q 4 1 3 1 Z M 14 13 Q 13 13 13 12 L 13 6 C 13 2 15 1 19 1 C 23 1 25 2 25 6 L 25 12 Q 25 13 24 13 L 23 13 Q 22 13 22 12 L 22 10 L 16 10 L 16 12 Q 16 13 15 13 Z M 16 7 L 22 7 L 22 6 Q 22 4 19 4 Q 16 4 16 6 Z M 2 15 Q 1 15 1 16 L 1 26 Q 1 27 2 27 L 3 27 Q 4 27 4 26 L 4 22 L 8 22 L 8 26 Q 8 27 9 27 L 10 27 Q 11 27 11 26 L 11 16 Q 11 15 10 15 L 9 15 Q 8 15 8 16 L 8 19 L 4 19 L 4 16 Q 4 15 3 15 Z M 14 27 Q 13 27 13 26 L 13 20 C 13 16 15 15 19 15 C 23 15 25 16 25 20 L 25 26 Q 25 27 24 27 L 23 27 Q 22 27 22 26 L 22 24 L 16 24 L 16 26 Q 16 27 15 27 Z M 16 21 L 22 21 L 22 20 Q 22 18 19 18 Q 16 18 16 20 Z')"
+  derive bellPath = "path('M 12 1 C 10 1 10 3 10 3 C 5 4 4 7 4 12 L 4 16 L 1 20 L 23 20 L 20 16 L 20 12 C 20 7 19 4 14 3 C 14 3 14 1 12 1 Z M 8 22 C 8 27 16 27 16 22 Z')"
+  derive trashPath = "path('M 8 1 L 16 1 Q 18 1 18 3 L 18 5 L 23 5 L 23 7 L 21 7 L 19 27 L 5 27 L 3 7 L 1 7 L 1 5 L 6 5 L 6 3 Q 6 1 8 1 Z M 8 3 L 8 5 L 16 5 L 16 3 Z M 6 8 L 7.5 24 L 9.5 24 L 8 8 Z M 11 8 L 11 24 L 13 24 L 13 8 Z M 16 8 L 14.5 24 L 16.5 24 L 18 8 Z')"
+  derive callPath = "path('M 4 0 Q 2 0 1 3 C -3 12 12 27 21 23 Q 24 22 23 20 L 18 16 Q 17 15 15 17 L 13 18 Q 7 15 5 9 L 7 7 Q 9 5 7 3 Z')"
+  derive personPath = "path('M 16 2 C 11 2 8 6 8 11 C 8 16 11 20 16 20 C 21 20 24 16 24 11 C 24 6 21 2 16 2 Z M 2 35 C 2 26 8 22 16 22 C 24 22 30 26 30 35 Z')"
+  derive emojiFacePath = "path('M 12 1 C 5.925 1 1 5.925 1 12 C 1 18.075 5.925 23 12 23 C 18.075 23 23 18.075 23 12 C 23 5.925 18.075 1 12 1 Z M 12 3 C 16.971 3 21 7.029 21 12 C 21 16.971 16.971 21 12 21 C 7.029 21 3 16.971 3 12 C 3 7.029 7.029 3 12 3 Z M 7 9 C 7 7 10 7 10 9 C 10 11 7 11 7 9 Z M 14 9 C 14 7 17 7 17 9 C 17 11 14 11 14 9 Z M 5 13 Q 12 17 19 13 C 18 23 6 23 5 13 Z M 7 16 C 9 20 15 20 17 16 Q 12 18 7 16 Z')"
+  derive outgoingTailPath = "path('M 0 0 L 22 0 C 22 14.4 16.4 11.9 16.4 17.8 C 16.4 18.7 17.7 21.7 18.7 22.4 C 18.6 23.6 18.5 24 16.8 23.6 C 11.6 21.7 0.6 13.2 0 11 Z')"
+  derive incomingTailPath = "path('M 22 0 L 0 0 C 0 14.4 5.6 11.9 5.6 17.8 C 5.6 18.7 4.3 21.7 3.3 22.4 C 3.4 23.6 3.5 24 5.2 23.6 C 10.4 21.7 21.4 13.2 22 11 Z')"
+  resource inbox = inbox(query, revision) as shape Inbox
+  resource contacts = recipients(recipient, recipientQuery, newDraft, revision) as shape Recipients
+  resource chat = conversation(thread, revision, replying, selection) as shape Conversation
+
+  action search(value) writes query, swipedThread
+    query = value
+    swipedThread = ""
+  action open(id: string, savedDraft: string, savedReply: string) writes thread, selected, details, composing, change, draft, replying, swipedThread, composerEditing, timestampOffset
+    timestampOffset = 0
+    if swipedThread != ""
+      swipedThread = ""
+    else
+      thread = id
+      composerEditing = false
+      selected = ""
+      details = false
+      composing = false
+      draft = savedDraft
+      replying = savedReply
+      send change = markRead(id)
+  action back writes thread, selected, details, attachments, change, composerEditing, timestampOffset, selecting, selection, confirmDelete
+    selecting = false
+    selection = ""
+    confirmDelete = false
+    timestampOffset = 0
+    send change = saveDraft(thread, draft, replying)
+    thread = ""
+    composerEditing = false
+    selected = ""
+    details = false
+    attachments = false
+  action timestampsScrolled(left: number, top: number) writes timestampOffset
+    timestampOffset = left
+  action inboxListScrolled(left: number, top: number) writes inboxTop
+    inboxTop = top
+  action inboxScrolled(id: string, left: number, top: number) writes swipedThread, swipeOffset
+    if left < 69 or left > 71
+      swipedThread = id
+      swipeOffset = left
+    if left == 70 and swipedThread == id
+      swipedThread = ""
+  action muteThread(id: string) writes change, swipedThread
+    swipedThread = ""
+    send change = muteConversation(id)
+  action readThread(id: string, unread: bool) writes change, swipedThread
+    swipedThread = ""
+    send change = setConversationUnread(id, unread)
+  action deleteThread(id: string) writes change, swipedThread
+    swipedThread = ""
+    send change = deleteConversation(id)
+  action write(value) writes draft
+    draft = value
+  action sendDraft writes draft, change, attachments
+    if draft != ""
+      send change = sendMessage(thread, draft, replying, ticks, now())
+      draft = ""
+      attachments = false
+      focus("composer")
+  action select(id: string, body: string, outgoing: bool, emoji: string, tail: bool, root: string, group: bool, actions: bool) writes selected, selectedBody, selectedOutgoing, selectedReaction, selectedTail, selectedRoot, selectedGroup, selectedActions, selectedEditing, selectedMenuActions, selectedPicker, selectedPickerVisited
+    selected = id
+    selectedBody = body
+    selectedRoot = root
+    selectedOutgoing = outgoing
+    selectedReaction = emoji
+    selectedTail = tail
+    selectedGroup = group
+    selectedActions = actions
+    selectedMenuActions = actions
+    selectedPicker = false
+    selectedPickerVisited = false
+    selectedEditing = composerEditing
+    if actions
+      focus("emoji-return")
+  action menuKey(value) writes selected, selectedPicker
+    if value == "Escape"
+      if selectedPicker
+        selectedPicker = false
+        if not selectedActions and selectedEditing
+          focus("composer")
+        else
+          focus("emoji-return")
+      else
+        selected = ""
+        if (selectedActions or selectedPickerVisited) and selectedEditing
+          focus("composer")
+  action showEmojiPicker writes selectedPicker, selectedPickerVisited, selectedMenuActions
+    selectedPicker = true
+    selectedPickerVisited = true
+    selectedMenuActions = false
+    focus("emoji-input")
+  action closeEmojiPicker writes selectedPicker
+    selectedPicker = false
+    if not selectedActions and selectedEditing
+      focus("composer")
+    else
+      focus("emoji-return")
+  action dismiss writes selected, attachments, selectedPicker
+    selected = ""
+    selectedPicker = false
+    if (selectedActions or selectedPickerVisited) and selectedEditing
+      focus("composer")
+    attachments = false
+  action reaction(emoji: string) writes change, selected, selectedPicker
+    send change = react(thread, selected, emoji)
+    selected = ""
+    selectedPicker = false
+    if (selectedActions or selectedPickerVisited) and selectedEditing
+      focus("composer")
+  action reply writes replying, selected
+    replying = selectedRoot
+    selected = ""
+    focus("composer")
+  action copyMessage writes selected, selectedPicker
+    copyText(selectedBody)
+    selected = ""
+    selectedPicker = false
+    if selectedEditing
+      focus("composer")
+  action openReplies(id: string) writes replying
+    replying = id
+    focus("composer")
+  action cancelReply writes replying
+    replying = ""
+  action more writes selecting, selection, selected, timestampOffset, attachments
+    selection = selected
+    selecting = true
+    selected = ""
+    timestampOffset = 0
+    attachments = false
+    focus("selection-toolbar")
+  action chooseMessage(value: string) writes selection
+    selection = value
+  action cancelSelection writes selecting, selection, confirmDelete
+    selecting = false
+    selection = ""
+    confirmDelete = false
+  action selectionKey(value) writes selecting, selection, confirmDelete
+    if value == "Escape"
+      if confirmDelete
+        confirmDelete = false
+      else
+        selecting = false
+        selection = ""
+  action requestDelete writes confirmDelete
+    if chat.selectionCount > 0
+      confirmDelete = true
+  action cancelDelete writes confirmDelete
+    confirmDelete = false
+  action deleteSelected writes change, selecting, selection, confirmDelete
+    send change = deleteMessages(thread, selection)
+    selecting = false
+    selection = ""
+    confirmDelete = false
+  action composerFocus writes composerEditing
+    composerEditing = true
+  action composerBlur writes composerEditing
+    composerEditing = false
+  action showDetails writes details, detailsEditing, selected, attachments
+    detailsEditing = composerEditing
+    selected = ""
+    attachments = false
+    details = true
+  action closeDetails writes details
+    details = false
+    if detailsEditing
+      focus("composer")
+  action showAttachments writes attachments
+    attachments = not attachments
+  action insert(value: string) writes draft, attachments
+    draft = draft + value
+    attachments = false
+    focus("composer")
+  action newMessage writes composing, recipientQuery, recipient, newDraft, showContacts, recipientSelection, swipedThread
+    swipedThread = ""
+    composing = true
+    recipientSelection = ""
+    recipientQuery = ""
+    recipient = ""
+    newDraft = ""
+    showContacts = false
+    focus("recipient-search")
+  action forwardSelected writes composing, selecting, selection, recipientQuery, recipient, newDraft, showContacts, recipientSelection
+    if chat.selectionCount > 0
+      newDraft = chat.selectedText
+      composing = true
+      selecting = false
+      selection = ""
+      recipientSelection = ""
+      recipientQuery = ""
+      recipient = ""
+      showContacts = false
+      focus("recipient-search")
+  action cancelNewMessage writes composing
+    composing = false
+  action searchRecipient(value) writes recipientQuery, recipientSelection
+    recipientQuery = value
+    recipientSelection = ""
+  action chooseRecipient(id: string) writes recipient, recipientQuery, showContacts, recipientSelection
+    recipientSelection = ""
+    recipient = recipient + "|" + id
+    recipientQuery = ""
+    showContacts = false
+    focus("new-composer")
+  action selectRecipient(id: string, remaining: string) writes recipientSelection, recipientRemainder
+    if recipientQuery == ""
+      recipientSelection = id
+      recipientRemainder = remaining
+    focus("recipient-search")
+  action recipientKey(k: string) writes recipient, recipientQuery, recipientSelection, recipientRemainder, showContacts
+    if k == "Backspace" and recipientQuery == ""
+      if recipientSelection == ""
+        recipientSelection = contacts.last
+        recipientRemainder = contacts.withoutLast
+      else
+        recipient = recipientRemainder
+        recipientSelection = ""
+      showContacts = false
+    if k == "Escape"
+      recipientSelection = ""
+    if k == "Enter" and contacts.resolved != ""
+      recipient = contacts.resolved
+      recipientQuery = ""
+      recipientSelection = ""
+      showContacts = false
+      focus("new-composer")
+  action clearRecipientSelection writes recipientSelection, recipient, recipientQuery, showContacts
+    recipientSelection = ""
+    if contacts.resolved != ""
+      recipient = contacts.resolved
+      recipientQuery = ""
+      showContacts = false
+  action browseContacts writes showContacts, recipientSelection
+    recipientSelection = ""
+    showContacts = not showContacts
+    focus("recipient-search")
+  action writeNew(value) writes newDraft
+    newDraft = value
+  action sendNewMessage writes change, thread, composing, draft, replying, newDraft, timestampOffset
+    timestampOffset = 0
+    if contacts.canSend
+      if thread != "" and thread != contacts.target
+        send change = saveDraft(thread, draft, replying)
+      send change = sendMessage(contacts.target, newDraft, "", ticks, now())
+      thread = contacts.target
+      composing = false
+      draft = ""
+      newDraft = ""
+      replying = ""
+      focus("composer")
+
+  // Fixture time is explicit and follows the same seekable clock on every host.
+  action tick writes ticks, change
+    if pendingReplies
+      ticks = ticks + 1
+      send change = advanceReplies(ticks + 1, thread, now())
+  task replies mount
+    every(300, tick)
+
+  view
+    main testId="messages" navigationKey=(composing ? "compose" : (details ? `details:${thread}` : thread)) navigationBack=(composing ? "cancel-new-message" : (details ? "close-details" : "back")) viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" background-color="light-dark(#ffffff, #000000)" color="light-dark(#000000, #ffffff)" font-family="system-ui"
+      column navigationKey="" testId="inbox-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" background-color="light-dark(#ffffff, #000000)" padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
+        column flex=1 min-height=0
+          row testId="inbox-title-bar" position="absolute" top=0 left=0 right=0 z-index=1 padding-left=20 padding-right=20 height=44 align-items="center" justify-content="space-between" backgroundMaterial="ultra-thin" opacity=inboxTitleOpacity
+            text "Messages" testId="inbox-title-compact" font-size=17 font-weight=600 flex=1 text-align="center"
+          scroll scroll=inboxListScrolled testId="conversation-list" flex=1 min-height=0
+            column
+              column testId="inbox-title-area" padding-top=57 padding-bottom=8 padding-left=16 padding-right=16
+                text "Messages" testId="inbox-title-large" font-size=34 font-weight=700 line-height=41 opacity=(1 - inboxTitleOpacity)
+              each person in inbox.people key=person.id
+                scroll swipeContent=`conversation-${person.id}` swipeLeading=`read-thread-${person.id}` swipeTrailing=`delete-thread-${person.id} mute-${person.id}` scroll=inboxScrolled(person.id) testId=`thread-swipe-${person.id}` width="100%" height=86.6667 overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory" scrollLeft=(swipedThread == person.id ? swipeOffset : 70)
+                  row width="100%" height=86.6667
+                    row testId=`thread-read-action-${person.id}` width=70 height=86.6667 flex-shrink=0 scroll-snap-align="start" box-sizing="border-box" padding-left=10 padding-right=10 align-items="center"
+                      button press=readThread(person.id, not person.unread) id=`read-thread-${person.id}` testId=`read-thread-${person.id}` aria-label=(person.unread ? "Mark as Read" : "Mark as Unread") width=50 height=50 border-radius=25 background-color="#0088ff" display="flex" align-items="center" justify-content="center" flex-shrink=0
+                        box width=24 height=22
+                          box width=24 height=22 background-color="#ffffff" clip-path="path('M 12 2 C 5.5 2 0 5.8 0 11 C 0 13.4 1.3 15.6 3.3 17.2 L 1.8 21 L 7.3 19.4 C 8.7 19.8 10.3 20 12 20 C 18.6 20 24 16 24 11 C 24 5.8 18.6 2 12 2 Z')"
+                          when not person.unread
+                            box position="absolute" right=-1 top=0 width=9 height=9 border-radius=5 background-color="#0088ff" display="flex" align-items="center" justify-content="center"
+                              box width=4 height=4 border-radius=3 border-width=1.5 border-color="#ffffff"
+                    button background-color=(swipedThread == person.id ? "light-dark(#e5e5ea, #2c2c2e)" : "light-dark(#ffffff, #000000)") border-radius=(swipedThread == person.id ? 28 : 0) press=open(person.id, person.draft, person.reply) id=`conversation-${person.id}` testId=`conversation-${person.id}` aria-label=`${person.name}, ${person.preview}` display="flex" flex-direction="row" align-items="center" width="100%" flex-shrink=0 scroll-snap-align="start" box-sizing="border-box" padding-left=11 padding-right=16 height=86.6667 gap=8
+                      box testId=`unread-dot-${person.id}` width=7 height=7 border-radius=4 background-color=(person.unread ? "light-dark(#007aff, #0a84ff)" : "#00000000") flex-shrink=0
+                      column width=45 height=45 border-radius=22.5 background-color=person.color justify-content="center" align-items="center" flex-shrink=0
+                        when person.initials != ""
+                          text person.initials font-size=20 color="#ffffff" font-weight=500
+                        else
+                          box width=32 height=36 scale=0.65 clip-path=personPath background-color="#ffffff"
+                      column flex=1 min-width=0 height=86.6667 box-sizing="border-box" padding-top=13 padding-bottom=10 margin-left=4 border-bottom-width=0.6667 border-color=(swipedThread == person.id ? "#00000000" : "light-dark(#d9d9dc, #38383a)") gap=0
+                        row justify-content="space-between" gap=8 align-items="center" height=20.3333 flex-shrink=0
+                          text person.name testId=`conversation-name-${person.id}` line-height=20.3333 font-size=17 font-weight=600 flex=1 min-width=0 line-clamp=1
+                          when person.muted
+                            box testId=`muted-${person.id}` width=12 height=14 flex-shrink=0
+                              box width=24 height=28 scale=0.5 position="absolute" left=-6 top=-7 clip-path=bellPath background-color="#8e8e93"
+                              box position="absolute" left=5 top=-1 width=1.5 height=16 rotate=-45 background-color="#8e8e93"
+                          text person.time font-size=14 color="#8e8e93"
+                          text "›" font-size=21 color="light-dark(#c7c7cc, #48484a)"
+                        text (person.draft != "" ? `Draft: ${person.draft}` : person.preview) testId=`conversation-preview-${person.id}` font-size=15 color="#8e8e93" line-clamp=2 line-height=20.3333 text-align="left" flex-shrink=0
+                    row testId=`thread-actions-${person.id}` width=130 height=86.6667 flex-shrink=0 scroll-snap-align="start" box-sizing="border-box" padding-left=10 padding-right=10 gap=10 align-items="center"
+                      button press=muteThread(person.id) id=`mute-${person.id}` testId=`mute-${person.id}` aria-label=(person.muted ? "Show Alerts" : "Hide Alerts") width=50 height=50 border-radius=25 background-color="light-dark(#6155f5, #6d7cff)" display="flex" align-items="center" justify-content="center" flex-shrink=0
+                        box width=24 height=28 scale=0.75
+                          box width=24 height=28 clip-path=bellPath background-color="#ffffff"
+                          when not person.muted
+                            box position="absolute" left=10 top=-3 width=5 height=34 rotate=-45 background-color="light-dark(#6155f5, #6d7cff)"
+                            box position="absolute" left=11.5 top=-3 width=2 height=34 rotate=-45 background-color="#ffffff"
+                      button swipeDestructive=true press=deleteThread(person.id) id=`delete-thread-${person.id}` testId=`delete-thread-${person.id}` aria-label=`Delete conversation with ${person.name}` width=50 height=50 border-radius=25 background-color="light-dark(#ff383c, #ff4245)" display="flex" align-items="center" justify-content="center" flex-shrink=0
+                        box width=24 height=28 scale=0.75 clip-path=trashPath background-color="#ffffff"
+              when length(inbox.people) == 0
+                text "No Results" text-align="center" padding=40 font-size=20 font-weight=600 color="#8e8e93"
+          row margin-left=28 margin-right=16 margin-bottom=16 gap=8 align-items="center" flex-shrink=0
+            row testId="search-bar" padding-left=18 padding-right=14 height=48 flex=1 min-width=0 border-radius=24 backgroundMaterial="glass" align-items="center" gap=12 flex-shrink=0
+              box width=20 height=20 flex-shrink=0 background-color="light-dark(#000000, #ffffff)" clip-path="path('M 8 0 C 12.4 0 16 3.6 16 8 C 16 9.8 15.4 11.5 14.4 12.8 L 19.7 18.1 Q 20.4 18.8 19.7 19.5 Q 19 20.2 18.3 19.5 L 13 14.2 C 11.6 15.3 9.9 16 8 16 C 3.6 16 0 12.4 0 8 C 0 3.6 3.6 0 8 0 Z M 8 2 C 4.7 2 2 4.7 2 8 C 2 11.3 4.7 14 8 14 C 11.3 14 14 11.3 14 8 C 14 4.7 11.3 2 8 2 Z')"
+              input id="search" testId="search" value=query change=search placeholder="Search" aria-label="Search conversations" color="light-dark(#000000, #ffffff)" font-size=17 flex=1 min-width=0 height=44 border-width=0
+              button disabled=true testId="search-dictation" aria-label="Dictate search" width=28 height=40 display="flex" align-items="center" justify-content="center" flex-shrink=0
+                box width=14 height=20 clip-path="path('M 7 0 C 4.8 0 3 1.8 3 4 L 3 10 C 3 12.2 4.8 14 7 14 C 9.2 14 11 12.2 11 10 L 11 4 C 11 1.8 9.2 0 7 0 Z M 7 1.5 C 8.4 1.5 9.5 2.6 9.5 4 L 9.5 10 C 9.5 11.4 8.4 12.5 7 12.5 C 5.6 12.5 4.5 11.4 4.5 10 L 4.5 4 C 4.5 2.6 5.6 1.5 7 1.5 Z M 0 8 L 1.5 8 L 1.5 10 C 1.5 13 4 15.5 7 15.5 C 10 15.5 12.5 13 12.5 10 L 12.5 8 L 14 8 L 14 10 C 14 13.6 11.3 16.6 7.75 17 L 7.75 18.5 L 11 18.5 L 11 20 L 3 20 L 3 18.5 L 6.25 18.5 L 6.25 17 C 2.7 16.6 0 13.6 0 10 Z')" background-color="light-dark(#000000, #ffffff)"
+            button press=newMessage testId="new-message" aria-label="New message" width=48 height=48 border-radius=24 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center" flex-shrink=0
+              box testId="compose-symbol" width=24 height=24 background-color="light-dark(#000000, #ffffff)" clip-path="path('M 5 4 L 13 4 L 11 6 L 5 6 Q 3 6 3 8 L 3 19 Q 3 21 5 21 L 16 21 Q 18 21 18 19 L 18 11 L 20 9 L 20 19 Q 20 23 16 23 L 5 23 Q 1 23 1 19 L 1 8 Q 1 4 5 4 Z M 8 12 L 17.5 2.5 L 21.5 6.5 L 12 16 L 7 17 Z M 9.6 12.9 L 9.2 14.8 L 11.1 14.4 L 18.7 6.8 L 17.2 5.3 Z M 18.7 1.3 L 19.4 0.6 Q 20.5 -0.5 21.6 0.6 L 23.4 2.4 Q 24.5 3.5 23.4 4.6 L 22.7 5.3 Z')"
+          box height="calc(env(safe-area-inset-bottom) - 22px)" min-height=0 flex-shrink=0
+      when thread != ""
+        column navigationKey=thread testId="conversation-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" background-color="light-dark(#ffffff, #000000)" padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
+          row testId="conversation-header" height=96 flex-shrink=0 align-items="flex-start" justify-content="center" padding-left=16 padding-right=16
+            button press=back disabled=composing id="back" testId="back" aria-label="Back to Messages" position="absolute" left=16 top=0 width=44 height=44 border-radius=22 backgroundMaterial="glass" display=(replying == "" and not selecting ? "flex" : "none") align-items="center" justify-content="center"
+              box width=18 height=24
+                box position="absolute" left=7 top=2 width=3 height=14 border-radius=1.5 rotate=45 background-color="light-dark(#000000, #ffffff)"
+                box position="absolute" left=7 top=10 width=3 height=14 border-radius=1.5 rotate=-45 background-color="light-dark(#000000, #ffffff)"
+            when replying != "" and not selecting
+              button press=cancelReply testId="close-reply-thread" aria-label="Close replies" position="absolute" right=16 top=0 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center" z-index=2
+                box testId="close-symbol" width=18 height=18
+                  box position="absolute" left=8 top=-1 width=2 height=20 border-radius=1 rotate=45 background-color="light-dark(#000000, #ffffff)"
+                  box position="absolute" left=8 top=-1 width=2 height=20 border-radius=1 rotate=-45 background-color="light-dark(#000000, #ffffff)"
+            when selecting
+              button press=cancelSelection testId="cancel-selection" aria-label="Cancel message selection" position="absolute" right=16 top=0 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center" opacity=(confirmDelete ? 0.4 : 1) z-index=2
+                box width=18 height=18
+                  box position="absolute" left=8 top=-1 width=2 height=20 border-radius=1 rotate=45 background-color="light-dark(#000000, #ffffff)"
+                  box position="absolute" left=8 top=-1 width=2 height=20 border-radius=1 rotate=-45 background-color="light-dark(#000000, #ffffff)"
+            button press=showDetails retainFocus=true disabled=selecting testId="contact-details" aria-label=`Contact information for ${chat.name}` max-width="70%" display="flex" flex-direction="column" align-items="center"
+              column width=60 height=60 border-radius=30 background-color=chat.color align-items="center" justify-content="center" z-index=1
+                when chat.initials != ""
+                  text chat.initials color="#ffffff" font-size=26 font-weight=600
+                else
+                  box width=32 height=36 scale=0.8 clip-path=personPath background-color="#ffffff"
+              row max-width="100%" box-sizing="border-box" padding-left=14 padding-right=12 height=32 margin-top=-5 border-radius=16 backgroundMaterial="glass" align-items="center" gap=6
+                text chat.name min-width=0 line-clamp=1 font-size=17 font-weight=600 color="light-dark(#000000, #ffffff)"
+                text "›" font-size=22 font-weight=600 color="light-dark(#b4b4b7, #8e8e93)"
+          column testId="conversation-body" flex=1 min-height=0
+            scroll testId="transcript" scrollFollowEnd=true keyboardDismissMode="interactive" scrollTop=(1000000 + chat.scrollRevision) flex=1 min-height=0 overflow-x="hidden"
+              scroll scroll=timestampsScrolled testId="timestamp-reveal" width="100%" overflow-x=(selecting ? "hidden" : "scroll") overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+                row width="200%"
+                  column scroll-snap-align="start" width="50%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=14 padding-bottom=14 gap=4
+                    when length(chat.messages) > 0
+                      column testId="conversation-service" left=timestampOffset align-items="center" margin-bottom=10
+                        text "iMessage" font-size=11 line-height=13.333333 color="#8e8e93"
+                        row testId="conversation-encryption" align-items="center" gap=4.333333 height=13.333333
+                          box width=6 height=8.333333 background-color="#8e8e93" clip-path="path('M 1 3.333 L 1 2.167 C 1 0.972 1.895 0 3 0 C 4.105 0 5 0.972 5 2.167 L 5 3.333 L 5.333 3.333 Q 6 3.333 6 4 L 6 7.667 Q 6 8.333 5.333 8.333 L 0.667 8.333 Q 0 8.333 0 7.667 L 0 4 Q 0 3.333 0.667 3.333 Z M 2 3.333 L 4 3.333 L 4 2.167 C 4 1.522 3.552 1 3 1 C 2.448 1 2 1.522 2 2.167 Z')"
+                          text "Encrypted" font-size=11 line-height=13.333333 color="#8e8e93"
+                    each message in chat.messages key=message.id
+                      when message.timeLabel != ""
+                        text message.timeLabel testId=`time-label-${message.id}` left=timestampOffset font-size=11 line-height=13.333333 color="#8e8e93" text-align="center" margin-bottom=2.666667
+                      column testId=`message-row-${message.id}` left=(timestampCompensation + (selecting and not message.outgoing ? 44 : 0)) align-items=(message.outgoing ? "flex-end" : "flex-start") padding-left=(message.senderName != "" ? 44 : 0) box-sizing="border-box" margin-top=(message.reactionCount > 0 ? 13 : 0) margin-bottom=(message.tail ? 6 : 0)
+                        when message.showSender
+                          text message.senderName testId=`sender-${message.id}` font-size=11 color="#8e8e93" margin-left=12 margin-bottom=4
+                        when message.senderName != "" and message.tail
+                          column testId=`avatar-${message.id}` position="absolute" left=4 bottom=(message.replyCount > 0 ? 28 : 0) width=32 height=32 border-radius=16 background-color=message.senderColor align-items="center" justify-content="center"
+                            when message.senderInitials != ""
+                              text message.senderInitials font-size=12 color="#ffffff" font-weight=600
+                            else
+                              box width=32 height=36 scale=0.55 clip-path=personPath background-color="#ffffff"
+                        when message.reply != ""
+                          text message.reply font-size=13 color="#8e8e93" max-width="75%" border-left-width=2 border-color="light-dark(#c7c7cc, #48484a)" padding-left=8 margin-bottom=5 line-clamp=2
+                        row width="100%" justify-content=(message.outgoing ? "flex-end" : "flex-start")
+                          when message.outgoing
+                            ReactionBadges(message=message, prefix="reaction", hidden=(selected == message.id and replying == ""), open=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false), laughPath=laughPath)
+                          button retainFocus=true swiperight=openReplies(message.replyRoot) touch-action="pan-right pan-y" transition="translate 180ms ease-out" contextmenu=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", true) dblclick=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false) id=`bubble-${message.id}` testId=`bubble-${message.id}` opacity=(selected == message.id and replying == "" ? 0 : 1) aria-label=message.body max-width="75%" min-width=48 box-sizing="border-box" display="flex" justify-content="center" align-items="center" padding-left=14 padding-right=14 padding-top=10 padding-bottom=10 border-radius=20 background-color=(message.outgoing ? "light-dark(#007aff, #0a84ff)" : "light-dark(#e9e9eb, #262629)")
+                            column swipeIndicator=true testId=`swipe-indicator-${message.id}` position="absolute" left=-40 top="50%" margin-top=-16 width=32 height=32 align-items="center" justify-content="center" opacity=0 scale=0.5 transition="opacity 180ms ease-out, scale 180ms ease-out"
+                              box width=20 height=16 clip-path="path('M 8 0 Q 9 0 9 1 L 9 4 L 11 4 C 17 4 20 8 20 14 Q 20 16 19 14 C 17 10 15 9 11 9 L 9 9 L 9 12 Q 9 13 8 12 L 1 7 Q 0 6 1 5 Z')" background-color="light-dark(#aeaeb2, #636366)"
+                            when message.tail
+                              when message.outgoing
+                                box position="absolute" right=5 bottom=-7 width=22 height=24 clip-path=outgoingTailPath background-color="light-dark(#007aff, #0a84ff)"
+                              else
+                                box position="absolute" left=5 bottom=-7 width=22 height=24 clip-path=incomingTailPath background-color="light-dark(#e9e9eb, #262629)"
+                            text message.body font-size=17 line-height=20 color=(message.outgoing ? "#ffffff" : "light-dark(#000000, #ffffff)") text-align="left"
+                          when not message.outgoing
+                            ReactionBadges(message=message, prefix="reaction", hidden=(selected == message.id and replying == ""), open=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false), laughPath=laughPath)
+                          when selecting
+                            button press=chooseMessage(message.selection) retainFocus=true testId=`selection-toggle-${message.id}` aria-label=`Select message: ${message.body}` aria-checked=message.chosen position="absolute" left=(message.outgoing ? -8 : (message.senderName != "" ? -96 : -52)) top="50%" margin-top=-16 width=32 height=32 z-index=4 display="flex" align-items="center" justify-content="center"
+                              column testId=`selection-circle-${message.id}` width=22 height=22 border-radius=11 background-color=(message.chosen ? "light-dark(#007aff, #0a84ff)" : "light-dark(#c7c7cc, #48484a)") align-items="center" justify-content="center"
+                                when message.chosen
+                                  box width=12 height=12 clip-path="path('M 0 6 L 2 4 L 5 8 L 10 0 L 12 1 L 5 12 Z')" background-color="#ffffff"
+                                else
+                                  box width=19 height=19 border-radius=9.5 background-color="light-dark(#ffffff, #000000)"
+                          column position="absolute" left="100%" margin-left=8 top=0 bottom=0 width=50 opacity=(timestampDistance > 0 ? 1 : 0) justify-content="center"
+                            text message.time testId=`timestamp-${message.id}` font-size=11 line-height=14 color="#8e8e93" text-align="right"
+                        when message.delivery != "" and not selecting
+                          text message.delivery testId=`delivery-status-${message.id}` opacity=(selected == message.id and replying == "" ? 0 : 1) font-size=11 font-weight=600 color="#8e8e93" margin-top=6.333333 margin-right=20
+                        when message.replyCount > 0
+                          button press=openReplies(message.replyRoot) testId=`replies-${message.id}` margin-top=5 margin-left=6 margin-right=6 padding=3
+                            text (message.replyCount == 1 ? "1 Reply" : `${message.replyCount} Replies`) font-size=12 color="light-dark(#007aff, #0a84ff)"
+                        when selecting
+                          button press=chooseMessage(message.selection) retainFocus=true testId=`select-message-${message.id}` aria-label=`Select message: ${message.body}` aria-checked=message.chosen position="absolute" top=0 right=0 bottom=0 left=0 width="100%" height="100%" z-index=3
+                    when chat.typingName != ""
+                      row testId="typing-indicator" left=timestampCompensation aria-label=`${chat.typingName} is typing` align-items="flex-end" gap=6 margin-top=4 margin-bottom=6 height=40 flex-shrink=0
+                        when chat.typingAvatar != ""
+                          column width=28 height=28 border-radius=14 background-color="#76a998" align-items="center" justify-content="center"
+                            text chat.typingAvatar font-size=11 color="#ffffff" font-weight=600
+                        row width=68 height=36 border-radius=18 background-color="light-dark(#e9e9eb, #262629)" align-items="center" justify-content="center" gap=5
+                          box position="absolute" left=0 bottom=-2 width=12 height=12 border-radius=6 background-color="light-dark(#e9e9eb, #262629)"
+                          box position="absolute" left=-4 bottom=-6 width=6 height=6 border-radius=3 background-color="light-dark(#e9e9eb, #262629)"
+                          box testId="typing-dot-0" width=9 height=9 border-radius=4.5 background-color="light-dark(#8e8e93, #98989d)" opacity=(typingPhase == 0 ? 1 : 0.45) scale=(typingPhase == 0 ? 1 : 0.8) transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
+                          box testId="typing-dot-1" width=9 height=9 border-radius=4.5 background-color="light-dark(#8e8e93, #98989d)" opacity=(typingPhase == 1 ? 1 : 0.45) scale=(typingPhase == 1 ? 1 : 0.8) transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
+                          box testId="typing-dot-2" width=9 height=9 border-radius=4.5 background-color="light-dark(#8e8e93, #98989d)" opacity=(typingPhase == 2 ? 1 : 0.45) scale=(typingPhase == 2 ? 1 : 0.8) transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
+                  box width="50%"
+            when replying != "" and not selecting
+              column testId="reply-thread" z-index=2 position="absolute" top=0 right=0 bottom=0 left=0 backgroundMaterial="ultra-thin" justify-content="center"
+                button press=cancelReply testId="dismiss-reply-thread" aria-label="Return to conversation" position="absolute" top=0 right=0 bottom=0 left=0 width="100%" height="100%"
+                scroll testId="reply-messages" max-height="100%" width="100%" scrollFollowEnd=true scrollTop=(1000000 + chat.scrollRevision) keyboardDismissMode="interactive" overflow-x="hidden"
+                  column padding=16 gap=12
+                    each message in chat.replies key=message.id
+                      column
+                        when message.timeLabel != ""
+                          text message.timeLabel testId=`reply-time-label-${message.id}` font-size=11 color="#8e8e93" align-self="center" margin-bottom=8
+                        column align-items=(message.outgoing ? "flex-end" : "flex-start") padding-left=(message.senderName != "" ? 44 : 0) box-sizing="border-box"
+                          when message.showSender
+                            text message.senderName testId=`reply-sender-${message.id}` font-size=11 color="#8e8e93" margin-left=12 margin-bottom=4
+                          when message.senderName != "" and message.tail
+                            column testId=`reply-avatar-${message.id}` position="absolute" left=4 bottom=0 width=32 height=32 border-radius=16 background-color=message.senderColor align-items="center" justify-content="center"
+                              when message.senderInitials != ""
+                                text message.senderInitials font-size=12 color="#ffffff" font-weight=600
+                              else
+                                box width=32 height=36 scale=0.55 clip-path=personPath background-color="#ffffff"
+                          row width="100%" justify-content=(message.outgoing ? "flex-end" : "flex-start")
+                            when message.outgoing
+                              ReactionBadges(message=message, prefix="reply-reaction", hidden=(selected == message.id), open=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false), laughPath=laughPath)
+                            button retainFocus=true swiperight=openReplies(message.replyRoot) touch-action="pan-right pan-y" transition="translate 180ms ease-out" contextmenu=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", true) dblclick=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false) id=`reply-bubble-${message.id}` testId=`reply-bubble-${message.id}` opacity=(selected == message.id ? 0 : 1) aria-label=message.body max-width="75%" min-width=48 box-sizing="border-box" display="flex" justify-content="center" align-items="center" padding-left=14 padding-right=14 padding-top=10 padding-bottom=10 border-radius=20 background-color=(message.outgoing ? "light-dark(#007aff, #0a84ff)" : "light-dark(#e9e9eb, #262629)")
+                              column swipeIndicator=true testId=`reply-swipe-indicator-${message.id}` position="absolute" left=-40 top="50%" margin-top=-16 width=32 height=32 align-items="center" justify-content="center" opacity=0 scale=0.5 transition="opacity 180ms ease-out, scale 180ms ease-out"
+                                box width=20 height=16 clip-path="path('M 8 0 Q 9 0 9 1 L 9 4 L 11 4 C 17 4 20 8 20 14 Q 20 16 19 14 C 17 10 15 9 11 9 L 9 9 L 9 12 Q 9 13 8 12 L 1 7 Q 0 6 1 5 Z')" background-color="light-dark(#aeaeb2, #636366)"
+                              when message.tail
+                                when message.outgoing
+                                  box position="absolute" right=5 bottom=-7 width=22 height=24 clip-path=outgoingTailPath background-color="light-dark(#007aff, #0a84ff)"
+                                else
+                                  box position="absolute" left=5 bottom=-7 width=22 height=24 clip-path=incomingTailPath background-color="light-dark(#e9e9eb, #262629)"
+                              text message.body font-size=17 line-height=20 color=(message.outgoing ? "#ffffff" : "light-dark(#000000, #ffffff)") text-align="left"
+                            when not message.outgoing
+                              ReactionBadges(message=message, prefix="reply-reaction", hidden=(selected == message.id), open=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false), laughPath=laughPath)
+                          when message.delivery != ""
+                            text message.delivery testId=`reply-delivery-status-${message.id}` opacity=(selected == message.id ? 0 : 1) font-size=11 font-weight=600 color="#8e8e93" margin-top=6.333333 margin-right=20
+                    when chat.typingName != "" and chat.typingRoot == replying
+                      row testId="reply-typing-indicator" aria-label=`${chat.typingName} is typing` align-items="flex-end" gap=6 margin-top=4 margin-bottom=6 height=40 flex-shrink=0
+                        when chat.typingAvatar != ""
+                          column width=28 height=28 border-radius=14 background-color="#76a998" align-items="center" justify-content="center"
+                            text chat.typingAvatar font-size=11 color="#ffffff" font-weight=600
+                        row width=68 height=36 border-radius=18 background-color="light-dark(#e9e9eb, #262629)" align-items="center" justify-content="center" gap=5
+                          box position="absolute" left=0 bottom=-2 width=12 height=12 border-radius=6 background-color="light-dark(#e9e9eb, #262629)"
+                          box position="absolute" left=-4 bottom=-6 width=6 height=6 border-radius=3 background-color="light-dark(#e9e9eb, #262629)"
+                          box testId="reply-typing-dot-0" width=9 height=9 border-radius=4.5 background-color="light-dark(#8e8e93, #98989d)" opacity=(typingPhase == 0 ? 1 : 0.45) scale=(typingPhase == 0 ? 1 : 0.8) transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
+                          box testId="reply-typing-dot-1" width=9 height=9 border-radius=4.5 background-color="light-dark(#8e8e93, #98989d)" opacity=(typingPhase == 1 ? 1 : 0.45) scale=(typingPhase == 1 ? 1 : 0.8) transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
+                          box testId="reply-typing-dot-2" width=9 height=9 border-radius=4.5 background-color="light-dark(#8e8e93, #98989d)" opacity=(typingPhase == 2 ? 1 : 0.45) scale=(typingPhase == 2 ? 1 : 0.8) transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
+          when attachments and not selecting
+            row testId="attachments" gap=16 padding=16 justify-content="center" background-color="light-dark(#f2f2f7, #1c1c1e)" flex-shrink=0
+              button press=insert("😊") testId="insert-smile" padding=12 border-radius=14 background-color="light-dark(#ffffff, #000000)"
+                text "😊" font-size=30
+              button press=insert("❤️") testId="insert-heart" padding=12 border-radius=14 background-color="light-dark(#ffffff, #000000)"
+                text "❤️" font-size=30
+              button press=insert("☕️") testId="insert-coffee" padding=12 border-radius=14 background-color="light-dark(#ffffff, #000000)"
+                text "☕️" font-size=30
+          column testId="composer-bar" display=(selecting ? "none" : "flex") padding-left=16 padding-right=16 padding-top=12 padding-bottom=16 flex-shrink=0 background-color="light-dark(#ffffff, #000000)"
+            row align-items="flex-end"
+              box width="calc(env(safe-area-inset-bottom) - 22px)" min-width=0 flex-shrink=0
+              row flex=1 min-width=0 gap=12 align-items="flex-end"
+                button press=showAttachments testId="add" aria-label="Add attachment" width=40 height=40 display="flex" justify-content="center" align-items="center" border-radius=20 backgroundMaterial="glass"
+                  box width=18 height=18 rotate=(attachments ? 45 : 0)
+                    box position="absolute" left=8 top=0 width=2 height=18 border-radius=1 background-color="light-dark(#000000, #ffffff)"
+                    box position="absolute" left=0 top=8 width=18 height=2 border-radius=1 background-color="light-dark(#000000, #ffffff)"
+                row testId="composer-surface" flex=1 min-width=0 min-height=40 box-sizing="border-box" backgroundMaterial="glass" border-radius=20 align-items="flex-end" padding-left=16 padding-right=6 padding-top=6 padding-bottom=6 gap=4
+                  textarea id="composer" testId="composer" value=draft change=write focus=composerFocus blur=composerBlur placeholder="iMessage" aria-label="Message" color="light-dark(#000000, #ffffff)" font-family="system-ui" font-size=17 line-height=22 flex=1 min-width=0 field-sizing="content" min-height=28 max-height=138 padding-top=3 padding-bottom=3 box-sizing="border-box" border-width=0
+                  button press=sendDraft disabled=(draft == "") testId="send" aria-label=(draft == "" ? "Dictate message" : "Send message") width=28 height=28 border-radius=14 background-color=(draft == "" ? "#00000000" : "light-dark(#007aff, #0a84ff)") display="flex" align-items="center" justify-content="center"
+                    when draft == ""
+                      box width=14 height=20 clip-path="path('M 7 0 C 4.8 0 3 1.8 3 4 L 3 10 C 3 12.2 4.8 14 7 14 C 9.2 14 11 12.2 11 10 L 11 4 C 11 1.8 9.2 0 7 0 Z M 7 1.5 C 8.4 1.5 9.5 2.6 9.5 4 L 9.5 10 C 9.5 11.4 8.4 12.5 7 12.5 C 5.6 12.5 4.5 11.4 4.5 10 L 4.5 4 C 4.5 2.6 5.6 1.5 7 1.5 Z M 0 8 L 1.5 8 L 1.5 10 C 1.5 13 4 15.5 7 15.5 C 10 15.5 12.5 13 12.5 10 L 12.5 8 L 14 8 L 14 10 C 14 13.6 11.3 16.6 7.75 17 L 7.75 18.5 L 11 18.5 L 11 20 L 3 20 L 3 18.5 L 6.25 18.5 L 6.25 17 C 2.7 16.6 0 13.6 0 10 Z')" background-color="light-dark(#b4b4b7, #8e8e93)"
+                    else
+                      box testId="send-symbol" width=16 height=18 background-color="#ffffff" clip-path="path('M 8 0 Q 8.5 0 9 0.5 L 15.5 7 Q 16.5 8 15.5 9 Q 14.5 10 13.5 9 L 9.5 5 L 9.5 16.5 Q 9.5 18 8 18 Q 6.5 18 6.5 16.5 L 6.5 5 L 2.5 9 Q 1.5 10 0.5 9 Q -0.5 8 0.5 7 L 7 0.5 Q 7.5 0 8 0 Z')"
+              box width="calc(env(safe-area-inset-bottom) - 22px)" min-width=0 flex-shrink=0
+            box height="calc(env(safe-area-inset-bottom) - 22px)" min-height=0 flex-shrink=0
+          when selecting
+            column id="selection-toolbar" testId="selection-toolbar" key=selectionKey flex-shrink=0
+              row height=48 padding-left=28 padding-right=28 justify-content="space-between"
+                button press=requestDelete disabled=(chat.selectionCount == 0) testId="delete-selection" aria-label="Delete selected messages" width=48 height=48 border-radius=24 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
+                  box width=24 height=28 clip-path=trashPath background-color=(chat.selectionCount > 0 ? "light-dark(#000000, #ffffff)" : "light-dark(#b4b4b7, #636366)")
+                button press=forwardSelected disabled=(chat.selectionCount == 0) testId="forward-selection" aria-label="Forward selected messages" width=48 height=48 border-radius=24 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
+                  box width=26 height=24 clip-path="path('M 15 0 Q 14 -1 14 1 L 14 6 C 6 6 1 12 0 22 Q 0 24 2 22 C 6 17 9 15 14 15 L 14 22 Q 14 24 16 22 L 26 12 Z M 16 4 L 23 12 L 16 19 L 16 13 C 10 12 6 14 3 18 C 5 11 8 8 16 8 Z')" background-color=(chat.selectionCount > 0 ? "light-dark(#000000, #ffffff)" : "light-dark(#b4b4b7, #636366)")
+              box height="calc(env(safe-area-inset-bottom) - 6px)" min-height=0
+          when confirmDelete
+            column testId="delete-confirmation" position="absolute" top=0 right=0 bottom=0 left=0 z-index=20
+              button press=cancelDelete retainFocus=true testId="dismiss-delete-confirmation" aria-label="Cancel deletion" position="absolute" top=0 right=0 bottom=0 left=0 width="100%" height="100%"
+              column backgroundMaterial="glass" position="absolute" left=11 bottom="calc(env(safe-area-inset-bottom) + 10px)" width=240 padding=16 box-sizing="border-box" border-radius=36
+                button press=deleteSelected retainFocus=true testId="confirm-delete-messages" aria-label=(chat.selectionCount == 1 ? "Delete Message" : `Delete ${chat.selectionCount} Messages`) height=48 border-radius=24 background-color="light-dark(#d9d9dc, #555559)" display="flex" align-items="center" justify-content="center"
+                  text (chat.selectionCount == 1 ? "Delete Message" : `Delete ${chat.selectionCount} Messages`) font-size=17 font-weight=600 color="#ff3b30"
+          when selected != ""
+            column testId="tapback-layer" z-index=10 position="absolute" top=0 right=0 bottom=0 left=0 background-color=(selectedActions ? "light-dark(#7676805b, #000000aa)" : "light-dark(#0000001a, #00000066)")
+              button press=dismiss retainFocus=true testId="dismiss-tapback" aria-label="Dismiss Tapbacks" width="100%" height="100%" position="absolute" top=0 right=0 bottom=0 left=0
+              each message in chat.messages key=message.id
+                when message.id == selected
+                  when message.reactionCount > 0
+                    row position="absolute" top="env(safe-area-inset-top)" left=12 right=12 justify-content="center"
+                      row testId="reaction-participants" width=message.reactionPanelWidth max-width="100%" height=122 border-radius=32 backgroundMaterial="glass" justify-content="center" align-items="center"
+                        scroll width="100%" height="100%" display="flex" flex-direction="row" justify-content="center" align-items="center" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none"
+                          each group in message.reactionGroups key=group.value
+                            column width=98 height=104 flex-shrink=0 align-items="center"
+                              column width=50 height=50 border-radius=25 background-color="light-dark(#ffffff, #3a3a3c)" align-items="center" justify-content="center"
+                                text (group.value == "❤️" ? "🩷" : (group.value == "haha" ? "HA\nHA" : group.value)) font-size=27 color="#00baff" font-weight=800 text-align="center"
+                                box position="absolute" left=19 top=45 width=12 height=12 border-radius=6 background-color="light-dark(#ffffff, #3a3a3c)"
+                                box position="absolute" left=22.5 top=60 width=5 height=5 border-radius=2.5 background-color="light-dark(#ffffff, #3a3a3c)"
+                              row width=group.width height=32 margin-top=20
+                                each person in group.people key=person.id
+                                  column testId=`reaction-person-${person.id}` aria-label=person.name position="absolute" left=person.offset top=0 width=32 height=32 box-sizing="border-box" border-radius=16 border-width=1 border-color="light-dark(#ffffff, #000000)" background-color=person.color align-items="center" justify-content="center"
+                                    text person.initials font-size=14 color="#ffffff" font-weight=600
+                  column testId="tapback-region" press=dismiss retainFocus=true position="absolute" left=0 right=0 bottom=0 top=(message.reactionCount > 0 ? (selectedPicker ? "calc(env(safe-area-inset-top) + 122px)" : "calc(env(safe-area-inset-top) + 146px)") : "0%")
+                    column id="emoji-return" key=menuKey testId="tapback-menu" position="absolute" left=11 right=16 top=0 gap=6
+                      when selectedPicker
+                        box testId="emoji-picker-controls" width="100%" height=88
+                      else
+                        column testId="tapback-surface" backgroundMaterial="glass" width="100%" height=64 border-radius=32 flex-shrink=0
+                          scroll testId="tapback-choices" width="100%" height=64 overflow-x="scroll" overflow-y="hidden" border-radius=32 flex-shrink=0
+                            row height=64 padding-left=8 padding-right=8 align-items="center" gap=1
+                              each choice in chat.reactions key=choice.id
+                                button press=reaction(choice.value) testId=`tapback-${choice.id}` aria-label=choice.label aria-checked=(selectedReaction == choice.value) width=48 height=48 border-radius=24 background-color=(selectedReaction == choice.value ? "light-dark(#dadadd, #555559)" : "#00000000") display="flex" align-items="center" justify-content="center" flex-shrink=0
+                                  when choice.value == "haha"
+                                    box testId="laugh-symbol" width=26 height=28 clip-path=laughPath background-color="#00baff"
+                                  else
+                                    text (choice.id == "heart" ? "🩷" : choice.value) font-size=25
+                      column width="100%" box-sizing="border-box" padding-left=(selectedGroup ? 49 : 5) align-items=(selectedOutgoing ? "flex-end" : "flex-start")
+                        row width="100%" justify-content=(selectedOutgoing ? "flex-end" : "flex-start")
+                          when selectedOutgoing
+                            box width=50 height=0 flex-shrink=0 z-index=2
+                              when selectedPicker
+                                column press=showEmojiPicker position="absolute" left=22 top=-80 width=74 height=74 border-radius=37 backgroundMaterial="glass" align-items="center" justify-content="center"
+                                  input id="emoji-input" testId="emoji-input" emojiPicker=true change=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
+                                  box width=24 height=24 clip-path=emojiFacePath scale=1.666667 background-color="light-dark(#99999e, #b4b4b9)"
+                                button press=closeEmojiPicker retainFocus=true testId="close-emoji-picker" aria-label="Close emoji picker" position="absolute" left=80 top=-84 width=26 height=26 border-radius=13 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
+                                  box width=14 height=14
+                                    box position="absolute" left=6 top=0 width=1.5 height=14 rotate=45 background-color="light-dark(#000000, #ffffff)"
+                                    box position="absolute" left=6 top=0 width=1.5 height=14 rotate=-45 background-color="light-dark(#000000, #ffffff)"
+                              else
+                                button press=showEmojiPicker retainFocus=true testId="open-emoji-picker" aria-label="Choose another emoji" position="absolute" left=0 top=-12 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
+                                  box width=24 height=24 clip-path=emojiFacePath background-color="light-dark(#99999e, #b4b4b9)"
+                          column contextTarget=(replying == "" ? `bubble-${selected}` : `reply-bubble-${selected}`) contextMagnify=selectedActions testId="tapback-preview" max-width="75%" min-width=48 box-sizing="border-box" display="flex" justify-content="center" align-items="center" padding-left=14 padding-right=14 padding-top=10 padding-bottom=10 border-radius=20 background-color=(selectedOutgoing ? "light-dark(#007aff, #0a84ff)" : "light-dark(#ffffff, #38383a)")
+                            when selectedTail
+                              when selectedOutgoing
+                                box position="absolute" right=5 bottom=-7 width=22 height=24 clip-path=outgoingTailPath background-color="light-dark(#007aff, #0a84ff)"
+                              else
+                                box position="absolute" left=5 bottom=-7 width=22 height=24 clip-path=incomingTailPath background-color="light-dark(#ffffff, #38383a)"
+                            text selectedBody font-size=17 line-height=20 color=(selectedOutgoing ? "#ffffff" : "light-dark(#000000, #ffffff)") text-align="left" line-clamp=8
+                          when not selectedOutgoing
+                            box width=50 height=0 flex-shrink=0 z-index=2
+                              when selectedPicker
+                                column press=showEmojiPicker position="absolute" left=-46 top=-80 width=74 height=74 border-radius=37 backgroundMaterial="glass" align-items="center" justify-content="center"
+                                  input id="emoji-input" testId="emoji-input" emojiPicker=true change=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
+                                  box width=24 height=24 clip-path=emojiFacePath scale=1.666667 background-color="light-dark(#99999e, #b4b4b9)"
+                                button press=closeEmojiPicker retainFocus=true testId="close-emoji-picker" aria-label="Close emoji picker" position="absolute" left=-56 top=-84 width=26 height=26 border-radius=13 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
+                                  box width=14 height=14
+                                    box position="absolute" left=6 top=0 width=1.5 height=14 rotate=45 background-color="light-dark(#000000, #ffffff)"
+                                    box position="absolute" left=6 top=0 width=1.5 height=14 rotate=-45 background-color="light-dark(#000000, #ffffff)"
+                              else
+                                button press=showEmojiPicker retainFocus=true testId="open-emoji-picker" aria-label="Choose another emoji" position="absolute" left=6 top=-12 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
+                                  box width=24 height=24 clip-path=emojiFacePath background-color="light-dark(#99999e, #b4b4b9)"
+                        column testId="tapback-status" display=(selectedPicker and selectedActions ? "none" : "flex") min-height=(selectedMenuActions ? 20.333333 : 0) width="100%" align-items="flex-end"
+                          each message in (replying == "" ? chat.messages : chat.replies) key=message.id
+                            when message.id == selected and message.delivery != ""
+                              text message.delivery testId="tapback-delivery" font-size=11 font-weight=600 color="#8e8e93" margin-top=6.333333 margin-right=20
+                      when selectedMenuActions
+                        column id="message-actions" testId="message-actions" backgroundMaterial="glass" align-self=(selectedOutgoing ? "flex-end" : "flex-start") margin-left=(selectedOutgoing ? 0 : 5) width=250 border-radius=32 padding-top=10 padding-bottom=10
+                          button press=reply testId="reply" height=42 padding-left=24 padding-right=16 display="flex" align-items="center" gap=8
+                            column width=32 height=32 align-items="center" justify-content="center"
+                              text "↩︎" font-size=22 color="light-dark(#000000, #ffffff)"
+                            text "Reply" font-size=17 color="light-dark(#000000, #ffffff)"
+                          button press=copyMessage testId="copy-message" height=42 padding-left=24 padding-right=16 display="flex" align-items="center" gap=8
+                            column width=32 height=32 align-items="center" justify-content="center"
+                              box width=18 height=22
+                                box position="absolute" left=5 top=1 width=11 height=15 border-width=1.5 border-color="light-dark(#000000, #ffffff)" border-radius=2
+                                box position="absolute" left=1 top=6 width=11 height=15 border-width=1.5 border-color="light-dark(#000000, #ffffff)" border-radius=2
+                            text "Copy" font-size=17 color="light-dark(#000000, #ffffff)"
+                          button press=more testId="more-message" height=42 padding-left=24 padding-right=16 display="flex" align-items="center" gap=8
+                            column width=32 height=32 align-items="center" justify-content="center"
+                              row width=18 height=18 box-sizing="border-box" border-width=1.5 border-radius=9 border-color="light-dark(#000000, #ffffff)" align-items="center" justify-content="center" gap=1.5
+                                box width=2 height=2 border-radius=1 background-color="light-dark(#000000, #ffffff)"
+                                box width=2 height=2 border-radius=1 background-color="light-dark(#000000, #ffffff)"
+                                box width=2 height=2 border-radius=1 background-color="light-dark(#000000, #ffffff)"
+                            text "More…" font-size=17 color="light-dark(#000000, #ffffff)"
+      when details
+        column navigationKey=`details:${thread}` testId="details-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" background-color="light-dark(#ffffff, #000000)" padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
+          scroll testId="details-scroll" touch-action="pan-y" flex=1 min-height=0
+            column padding-left=16 padding-right=16 padding-bottom="calc(env(safe-area-inset-bottom) + 24px)" align-items="center"
+              column testId="details-avatar" width=80 height=80 border-radius=40 background-color=chat.color align-items="center" justify-content="center"
+                when chat.initials != ""
+                  text chat.initials font-size=36 font-weight=600 color="#ffffff"
+                else
+                  box width=32 height=36 scale=1.1 clip-path=personPath background-color="#ffffff"
+              text chat.name testId="details-name" width="100%" margin-top=4 font-size=28 line-height=34 font-weight=700 text-align="center" line-clamp=1
+              row margin-top=16 gap=20 height=48
+                button disabled=true aria-label="Call" width=48 height=48 border-radius=24 background-color="light-dark(#efeff0, #1c1c1e)" display="flex" align-items="center" justify-content="center"
+                  box width=22 height=24 clip-path=callPath background-color="light-dark(#000000, #ffffff)"
+                button disabled=true aria-label="Video call" width=48 height=48 border-radius=24 background-color="light-dark(#efeff0, #1c1c1e)" display="flex" align-items="center" justify-content="center"
+                  box width=24 height=18 clip-path="path('M 3 1 L 14 1 Q 17 1 17 4 L 17 14 Q 17 17 14 17 L 3 17 Q 0 17 0 14 L 0 4 Q 0 1 3 1 Z M 18 6 L 22 3 Q 24 2 24 4 L 24 14 Q 24 16 22 15 L 18 12 Z')" background-color="#bababc"
+                button disabled=true aria-label="Email" width=48 height=48 border-radius=24 background-color="light-dark(#efeff0, #1c1c1e)" display="flex" align-items="center" justify-content="center"
+                  box width=24 height=18 clip-path="path('M 1 0 L 23 0 L 12 9 Z M 0 1 L 9 9 L 0 17 Z M 24 1 L 15 9 L 24 17 Z M 1 18 L 10 10 L 12 12 L 14 10 L 23 18 Z')" background-color="#bababc"
+              column width="100%" margin-top=20 gap=20
+                when chat.contactAddress != ""
+                  row testId="details-address" height=70 border-radius=28 background-color="light-dark(#efeff0, #1c1c1e)" padding-left=16 padding-right=16 align-items="center"
+                    column flex=1 min-width=0
+                      row gap=5 align-items="center"
+                        text chat.contactKind font-size=13 color="#8e8e93"
+                        text "RECENT" font-size=9 font-weight=700 color="#ffffff" background-color="#8e8e93" border-radius=3 padding-left=3 padding-right=3
+                      text chat.contactAddress font-size=17 line-clamp=1
+                    when chat.contactKind == "phone"
+                      box width=12 height=14
+                        box position="absolute" left=-5 top=-5 width=22 height=24 scale=0.6 clip-path=callPath background-color="#8e8e93"
+                when not chat.knownContact
+                  column border-radius=28 background-color="light-dark(#efeff0, #1c1c1e)" padding-left=16 padding-right=16
+                    button disabled=true aria-label="Create New Contact" height=51 display="flex" align-items="center"
+                      text "Create New Contact" font-size=17 color="light-dark(#007aff, #0a84ff)"
+                    box height=0.5 background-color="light-dark(#d9d9dc, #38383a)"
+                    button disabled=true aria-label="Add to Existing Contact" height=51 display="flex" align-items="center"
+                      text "Add to Existing Contact" font-size=17 color="light-dark(#007aff, #0a84ff)"
+                button press=muteThread(thread) testId="details-hide-alerts" role="switch" aria-label="Hide Alerts" aria-checked=chat.muted height=52 border-radius=28 background-color="light-dark(#efeff0, #1c1c1e)" display="flex" align-items="center" justify-content="space-between" padding-left=16 padding-right=14
+                  text "Hide Alerts" font-size=17
+                  box width=64 height=28 border-radius=14 background-color=(chat.muted ? "#34c759" : "#bababc")
+                    box testId="details-alerts-thumb" position="absolute" left=(chat.muted ? 26 : 2) top=2 width=36 height=24 border-radius=12 background-color="#ffffff"
+                button disabled=true aria-label="Block Contact" height=52 border-radius=28 background-color="light-dark(#efeff0, #1c1c1e)" display="flex" align-items="center" padding-left=16 padding-right=16
+                  text "Block Contact" font-size=17 color="#ff3b30"
+          button press=closeDetails id="close-details" testId="close-details" aria-label="Back to conversation" position="absolute" left=16 top="env(safe-area-inset-top)" width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
+            box width=18 height=24
+              box position="absolute" left=7 top=2 width=3 height=14 border-radius=1.5 rotate=45 background-color="light-dark(#000000, #ffffff)"
+              box position="absolute" left=7 top=10 width=3 height=14 border-radius=1.5 rotate=-45 background-color="light-dark(#000000, #ffffff)"
+
+      when composing
+        NewMessageSheet(contacts=contacts, recipientSelection=recipientSelection, recipientQuery=recipientQuery, newDraft=newDraft, showContacts=showContacts, personPath=personPath, editable=(thread != "" or contacts.target != ""), cancelNewMessage=cancelNewMessage, selectRecipient=selectRecipient, searchRecipient=searchRecipient, recipientKey=recipientKey, browseContacts=browseContacts, chooseRecipient=chooseRecipient, writeNew=writeNew, clearRecipientSelection=clearRecipientSelection, sendNewMessage=sendNewMessage)
+
+component NewMessageSheet
+  props
+    contacts: Recipients
+    recipientSelection: string
+    recipientQuery: string
+    newDraft: string
+    showContacts: bool
+    personPath: string
+    editable: bool
+    cancelNewMessage: action
+    selectRecipient: action
+    searchRecipient: action
+    recipientKey: action
+    browseContacts: action
+    chooseRecipient: action
+    writeNew: action
+    clearRecipientSelection: action
+    sendNewMessage: action
+  view
+    column navigationKey="compose" navigationPresentation="modal" closedby=(newDraft == "" ? "closerequest" : "none") testId="new-message-layer" position="absolute" top=0 left=0 right=0 bottom=0 z-index=10
+      box position="absolute" top="calc(env(safe-area-inset-top) + 40px)" left=0 right=0 bottom=0 background-color="light-dark(#ffffff, #1c1c1e)"
+      column testId="new-message-sheet" position="absolute" top="env(safe-area-inset-top)" left=0 right=0 bottom=0 border-radius=40 background-color="light-dark(#ffffff, #1c1c1e)" overflow="hidden"
+        row retainFocus=true height=80 flex-shrink=0 align-items="center" justify-content="center"
+          text "New Message" font-size=17 font-weight=600
+          button press=cancelNewMessage id="cancel-new-message" testId="cancel-new-message" aria-label="Close new message" position="absolute" right=16 top=16 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
+            box width=18 height=18
+              box position="absolute" left=8 top=-1 width=2 height=20 border-radius=1 rotate=45 background-color="light-dark(#000000, #ffffff)"
+              box position="absolute" left=8 top=-1 width=2 height=20 border-radius=1 rotate=-45 background-color="light-dark(#000000, #ffffff)"
+        row testId="recipient-field" margin-left=16 margin-right=16 min-height=48 border-radius=24 backgroundMaterial="glass" align-items="center" padding-left=14 padding-right=12 gap=6 flex-shrink=0
+          text "To:" font-size=15 color="#8e8e93" flex-shrink=0
+          row flex=1 min-width=0 flex-wrap="wrap" align-items="center" column-gap=4 padding-top=4 padding-bottom=4
+            each person in contacts.selected key=person.id
+              button press=selectRecipient(person.id, person.without) testId=`selected-recipient-${person.id}` aria-label=`${person.name}${recipientSelection == person.id ? ", selected" : ""}` background-color=(recipientSelection == person.id ? "light-dark(#007aff, #0a84ff)" : "#00000000") border-radius=4 max-width="100%" height=32 display="flex" align-items="center"
+                text person.name font-size=17 color=(recipientSelection == person.id ? "#ffffff" : "light-dark(#007aff, #0a84ff)") line-clamp=1
+            input id="recipient-search" testId="recipient-search" autocapitalize="none" autocorrect="off" spellcheck="false" value=recipientQuery change=searchRecipient key=recipientKey aria-label="To" font-size=17 color="light-dark(#000000, #ffffff)" flex=1 min-width=36 height=40 border-width=0
+          button press=browseContacts testId="choose-contact" aria-label="Add contact" width=28 height=28 border-radius=14 background-color="light-dark(#e5e5ea, #48484a)" display="flex" align-items="center" justify-content="center"
+            box width=14 height=14
+              box position="absolute" left=6 top=0 width=2 height=14 border-radius=1 background-color="light-dark(#000000, #ffffff)"
+              box position="absolute" left=0 top=6 width=14 height=2 border-radius=1 background-color="light-dark(#000000, #ffffff)"
+        scroll testId="recipient-results" flex=1 min-height=0 keyboardDismissMode="interactive" margin-top=8
+          when recipientQuery != "" or showContacts
+            column padding-left=28 padding-right=20
+              each person in contacts.people key=person.id
+                button press=chooseRecipient(person.id) testId=`recipient-${person.id}` aria-label=person.name height=64 display="flex" align-items="center" gap=12 border-bottom-width=0.5 border-color="light-dark(#d9d9dc, #38383a)"
+                  column width=36 height=36 border-radius=18 background-color=person.color align-items="center" justify-content="center" flex-shrink=0
+                    when person.initials != ""
+                      text person.initials font-size=14 color="#ffffff"
+                    else
+                      box width=32 height=36 scale=0.55 clip-path=personPath background-color="#ffffff"
+                  text person.name font-size=17 line-clamp=1 color="light-dark(#007aff, #0a84ff)"
+              when length(contacts.people) == 0
+                text "No Results" font-size=17 color="#8e8e93" text-align="center" padding=24
+        column padding-left=16 padding-right=16 padding-top=12 padding-bottom=16 flex-shrink=0
+          row gap=12 align-items="flex-end"
+            button disabled=true aria-label="Add attachment" width=40 height=40 border-radius=20 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
+              box width=18 height=18
+                box position="absolute" left=8 top=0 width=2 height=18 border-radius=1 background-color="#b4b4b7"
+                box position="absolute" left=0 top=8 width=18 height=2 border-radius=1 background-color="#b4b4b7"
+            row testId="new-composer-surface" flex=1 min-width=0 min-height=40 box-sizing="border-box" backgroundMaterial="glass" border-radius=20 align-items="flex-end" padding-left=16 padding-right=6 padding-top=6 padding-bottom=6 gap=4
+              textarea id="new-composer" testId="new-composer" disabled=(not editable) value=newDraft change=writeNew focus=clearRecipientSelection placeholder=(contacts.target == "" ? "" : "iMessage") aria-label="New message" color="light-dark(#000000, #ffffff)" font-size=17 line-height=22 flex=1 min-width=0 field-sizing="content" min-height=28 max-height=138 padding-top=3 padding-bottom=3 box-sizing="border-box" border-width=0
+              button press=sendNewMessage disabled=(not contacts.canSend) testId="send-new-message" aria-label="Send message" width=28 height=28 border-radius=14 background-color=(newDraft == "" ? "#00000000" : (contacts.canSend ? "light-dark(#007aff, #0a84ff)" : "light-dark(#e9e9eb, #3a3a3c)")) display="flex" align-items="center" justify-content="center"
+                when newDraft != ""
+                  box width=16 height=18 background-color=(contacts.canSend ? "#ffffff" : "light-dark(#b4b4b7, #8e8e93)") clip-path="path('M 8 0 Q 8.5 0 9 0.5 L 15.5 7 Q 16.5 8 15.5 9 Q 14.5 10 13.5 9 L 9.5 5 L 9.5 16.5 Q 9.5 18 8 18 Q 6.5 18 6.5 16.5 L 6.5 5 L 2.5 9 Q 1.5 10 0.5 9 Q -0.5 8 0.5 7 L 7 0.5 Q 7.5 0 8 0 Z')"
+                else
+                  box width=14 height=20 clip-path="path('M 7 0 C 4.8 0 3 1.8 3 4 L 3 10 C 3 12.2 4.8 14 7 14 C 9.2 14 11 12.2 11 10 L 11 4 C 11 1.8 9.2 0 7 0 Z M 7 1.5 C 8.4 1.5 9.5 2.6 9.5 4 L 9.5 10 C 9.5 11.4 8.4 12.5 7 12.5 C 5.6 12.5 4.5 11.4 4.5 10 L 4.5 4 C 4.5 2.6 5.6 1.5 7 1.5 Z M 0 8 L 1.5 8 L 1.5 10 C 1.5 13 4 15.5 7 15.5 C 10 15.5 12.5 13 12.5 10 L 12.5 8 L 14 8 L 14 10 C 14 13.6 11.3 16.6 7.75 17 L 7.75 18.5 L 11 18.5 L 11 20 L 3 20 L 3 18.5 L 6.25 18.5 L 6.25 17 C 2.7 16.6 0 13.6 0 10 Z')" background-color="light-dark(#b4b4b7, #8e8e93)"
+        box height="calc(env(safe-area-inset-bottom) - 22px)" min-height=0 flex-shrink=0
+
+// A zero-width side slot preserves the balloon's percentage width and gesture target.
+component ReactionBadges
+  props
+    message: Message
+    prefix: string
+    hidden: bool
+    open: action
+    laughPath: string
+  view
+    box width=0 height=0 flex-shrink=0 z-index=3 opacity=(hidden ? 0 : 1)
+      each entry in message.reactionEntries key=entry.id
+        button press=open retainFocus=true testId=(entry.edge ? `${prefix}-${message.id}` : `${prefix}-${message.id}-${entry.id}`) aria-label=`${entry.name}: ${entry.value} reaction` position="absolute" left=(message.outgoing ? -15 + entry.offset : -21 - entry.offset) top=-28 width=36 height=36 box-sizing="border-box" border-radius=18 border-width=1 border-color="light-dark(#ffffff, #000000)" background-color=(entry.own ? "#008cff" : "light-dark(#e9e9eb, #262629)") display="flex" align-items="center" justify-content="center" z-index=(100 - entry.offset)
+          when entry.edge
+            box position="absolute" left=(message.outgoing ? 2 : 23) top=27 width=11 height=11 border-radius=5.5 background-color=(entry.own ? "#008cff" : "light-dark(#e9e9eb, #262629)")
+            box position="absolute" left=(message.outgoing ? -2 : 33) top=38 width=5 height=5 border-radius=2.5 background-color=(entry.own ? "#008cff" : "light-dark(#e9e9eb, #262629)")
+          when entry.value == "haha"
+            box width=26 height=28 scale=0.65 clip-path=laughPath background-color=(entry.own ? "#ffffff" : "#00baff")
+          else
+            text (entry.value == "❤️" ? "🩷" : entry.value) font-size=19

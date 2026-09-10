@@ -53,6 +53,128 @@ the kernel owns its bytes (`wire/codec.rs`) and depends on `exact-motion` for th
 type, which is the only dependency edge between the two crates. `Kernel::motion_sync`
 restates a commit for the engine (LLP 1003 §6).
 
+`scrollLeft` (prop 59, float) is the horizontal counterpart of `scrollTop`: a
+changed binding sets that axis after layout, clamped by the host’s content
+extent; unrelated updates preserve the reader’s offset.
+
+`autocapitalize` and `autocorrect` (props 57/58, text) carry HTML editing
+hints. They remain strings so HTML's case-insensitive aliases and missing,
+empty and invalid-value behavior stay the host's. The browser receives real
+attributes; native editors apply them without transforming stored text.
+
+Explicit application policies (Messages, 2026-09-09) have no CSS
+equivalent: `scrollFollowEnd` (boolean, absent/false by default) keeps a
+scroll container at its trailing vertical edge across content/viewport changes
+only while the reader is already there. Above the end, web leaves CSS scroll
+anchoring to the browser; iOS records a visible descendant and adjusts the offset
+by its movement after layout. It keeps that choice between batches until the
+reader scrolls; if the node disappears, a surviving visible candidate can hold
+the position. With none left, iOS clamps the old offset to the new extent.
+An inactive iOS route retains an unpinned offset across a temporary viewport
+clamp, restoring it when space permits; a new drag or explicit scroll write wins.
+macOS still preserves the numeric offset in all cases. An explicit `scrollTop` assignment wins. Web uses
+ResizeObserver and commit boundaries; Apple snapshots before each batch and
+restores after layout. The opt-in policy is not a complete native implementation
+of CSS `overflow-anchor` selection and suppression rules.
+`retainFocus` (prop 55, boolean, absent/false by default) lets a button
+retain the existing editing session on a tap, including a button with gesture
+handlers and no press action. Messages uses it on bubbles and reaction badges
+that open Tapbacks: the panel does not exist yet at pointer down. Web prevents
+the pointer’s default focus change; iOS skips resigning the current responder.
+It neither focuses a field nor opens a keyboard. Other hosts currently ignore it.
+`swipeIndicator` (prop 56, boolean, absent/false by default) marks a direct
+child of a `swiperight` target as authored gesture feedback. Web and iOS hold
+its opacity and scale between their authored values and 1 as the rightward
+offset grows from 0 to the 64-point action threshold, clamped thereafter.
+Reversal follows the offset; release/cancellation restores the authored values
+through their transitions. Its subtree does not take pointer hits, including at
+zero opacity. It has no CSS equivalent and creates no host artwork
+or runner gesture state. Other hosts ignore it.
+`keyboardDismissMode` (`none`, `on-drag`, `interactive`; absent means `none`)
+opts an iOS scroll container into UIKit's keyboard dismissal behavior. Other
+hosts retain their platform behavior. Linux does not yet implement either policy.
+
+`scrollbar-width` (bit 88; Messages, 2026-09-09) follows
+[CSS Scrollbars](https://www.w3.org/TR/css-scrollbars-1/#scrollbar-width):
+`auto` initially, `thin`, or `none`, not inherited. It changes scrollbar
+presentation, not overflow, scroll position, snap, or layout. Web emits the CSS
+property. iOS uses its already thin native indicators for `auto`/`thin` and
+hides both for `none`; macOS uses regular/small scrollers and hides both for
+`none`. Clearing the row restores platform defaults. Linux has no scrollbar
+painting yet and ignores this row. Messages hides the horizontal timestamp track.
+
+`clip-path` (bit 87) clips painting and platform hit-testing without changing
+layout. Its initial value is `none`. The implemented CSS subset is
+`path("...")` with explicit absolute `M`, `L`, `Q`, `C`, and `Z` commands,
+whitespace/comma-separated finite coordinates in CSS pixels, and nonzero fill.
+Other shapes, fill-rule arguments, relative/implicit commands, and adjoining
+signed coordinates are rejected. `clip.rs` validates and canonicalizes the value;
+the wire carries that CSS string and validates it on decode. Apple receives the
+parsed commands, applies a layer mask to the entire subtree, and tests the same
+path for pointer hits. Web emits CSS. Linux painting has not implemented it.
+Messages uses it for transparent curved tails over the focused reply material.
+
+`navigationKey` and `navigationBack` declare a host navigation container on the
+first root. Its direct children carry unique `navigationKey` values; the root's
+key selects one, with preceding children retained as its back stack.
+`navigationBack` names the HTML `id` of a press control in the active route.
+UIKit presents those existing Contract views through `UINavigationController`
+and presses that control after a completed native pop; cancellation changes no
+Contract state. The browser hides and makes inactive routes inert. This is an
+explicit platform navigation policy, not a CSS style or an engine-owned gesture
+or interactive transition model. Other hosts currently retain their ordinary
+stacked rendering; callers supply opaque, absolutely positioned route surfaces.
+
+`swipeContent` (65), `swipeLeading` (66) and `swipeTrailing` (67) are
+explicit native row presentation requests (2026-09-10, Messages). The first
+names a descendant's HTML `id`; the others are whitespace-separated control
+ids, ordered from the outer action inward. `swipeDestructive` (68, boolean,
+absent/false) marks a control's destructive role in that presentation. These
+props do not change CSS layout, inheritance or scroll semantics. UIKit supplies
+the row's swipe surface (LLP 1008 §9); other hosts keep the authored content and
+controls. A full swipe performs the first configured action when it is enabled.
+Missing/ambiguous references or invalid row geometry leave the authored fallback
+in place and produce a host diagnostic. All references must be within the owning
+scroll node, and its content must have that node's width and height.
+
+`emojiPicker` (prop 63, boolean, absent/false by default) is an explicit
+selection-input policy on `input`, not an HTML `inputmode` value. A single emoji
+grapheme emits `change`; ordinary text and multiple graphemes are refused and
+the field is cleared. iOS prefers an enabled emoji keyboard, including its
+native search; web and macOS filter entered characters without opening a system
+picker. Linux's driver reports unsupported before changing focus or state.
+The app keeps `value=""`; its draft belongs to a separate editor. The selection
+gate accepts emoji-presentation scalars, or emoji scalars accompanied by VS16
+or the keycap mark, within one grapheme. This is a bounded input filter, not a
+complete Unicode emoji-sequence validator. It is not inherited.
+
+`contextTarget` on a context-preview node names its source's HTML `id`.
+The preview's nearest enclosing absolutely positioned panel aligns that preview
+with the source's visible position, clamped inside the viewport and safe areas.
+Web and Apple also intersect that vertical range with the panel's containing
+region, allowing authored content to reserve space above or below the menu.
+The region's bounds do not change the preview's source or text measurement.
+The app supplies the preview's matching content and the surrounding controls;
+the host supplies placement over scrolled content. This is a context-preview
+presentation policy, not CSS anchor positioning. Web and iOS also magnify the
+preview by 15%, capped at 26 added points of width, preserving its text layout,
+source-facing outside edge and vertical center before viewport clamping. Later
+content counteracts the panel's half-height shift so a receipt keeps its
+source-relative position. Top-aligned immediate side siblings translate to the
+enlarged preview's left or right edge, preserving their authored horizontal gap
+without changing the preview's percentage-width basis. Clamping includes the farther extent of the enlarged
+preview or following controls; the kernel's layout and authored transform rows
+do not change. This follows measured iPhone
+17 / iOS 26.5 preview geometry, not a recovered UIKit rounding/animation policy.
+`contextMagnify=false` on that preview disables only this host magnification;
+alignment, containment and the authored CSS transform still apply. Absent or
+true keeps the 15%/26-point rule. The prop is a non-inherited boolean and has
+no effect without `contextTarget`. Messages uses false for badge/double-tap
+entry and true for long-press entry, including their respective emoji pickers.
+macOS implements alignment without magnification; Linux currently retains the
+panel's authored position. Messages supplies its outside-dismiss backdrop as an
+ordinary press control.
+
 Declared deviations, each because the engine cannot express the CSS value:
 `position` has no `static` (Taffy positions an absolute child against its parent,
 so `relative` without insets is the closest box; a web host emits `position:
@@ -80,6 +202,12 @@ ratio); the ratio still holds (`kernel/tests/image.rs`; LLP 1011).
   a `PropKind` (`str | bool | int | float`). A boolean is a boolean on the wire and
   in storage; `"true"` is unrepresentable. A kind mismatch is a decode rejection
   (`PropKindMismatch`) or, for in-process ops, an apply rejection.
+- **Spelling-check hint** (2026-09-09, Messages). HTML's enumerated `spellcheck`
+  is a string prop, preserving the authored spelling. `NodeRef::spellcheck()`
+  returns the nearest explicit hint through logical ancestors: ASCII-case-insensitive
+  `true`/`false`, empty true, invalid/missing values inherited without trimming.
+  `None` leaves the editor's default in charge. The getter does not modify props;
+  native hosts project its result to editors and the web emits the authored attribute.
 - **Columnar arena** (`arena.rs`). Nodes are slots; every attribute is a column;
   topology is index-based (`parents`, `children`); destroyed slots go on a free
   list. Frames and Taffy handles are *derived* columns — rehydration is
@@ -179,6 +307,15 @@ retained in a 64-deep ring. `compute_layout(root, offer)` runs Taffy over that
 root, publishes absolute frames, and returns a `LayoutReceipt` naming exactly the
 nodes whose frame bits changed — the changed-geometry receipt.
 
+Frames retain fractional CSS pixel geometry (Messages, 2026-09-09). Taffy's
+whole-point rounding is disabled when constructing the layout tree, including
+rebuilds and rehydration. A half-point height edit must move the following row
+by half a point, not by a whole point or zero; nested fractional offsets and
+intrinsic image ratios must survive publication too. Kernel regressions and a
+browser/iPhone fixture cover those cases. Rasterization belongs to the host;
+this does not remove rounding inside an injected text measurer or promise
+identical floating-point quantization in every browser engine.
+
 **The result-equality gate is a test, from the first commit.**
 `tests/layout_equality.rs` mutates a random tree for hundreds of rounds and asserts
 the incremental frames equal, bit for bit, both a kernel rehydrated from the
@@ -190,6 +327,30 @@ production path): `LayoutTree` records it, `compute_layout` reports
 `LayoutError::Engine`, rebuilds the engine tree from the columns, and retries once.
 
 ## 6. Text (WS-E, WS-I)
+
+**Inheritance** (LLP 1035.000 D1–D4, landed 2026-09-09). The schema marks the
+rows CSS inherits with `inherited: true` — `text_color`, `font_family`,
+`font_size`, `font_weight`, `font_style`, `line_height`, `letter_spacing`,
+`font_variant_numeric`, `direction`, `white_space`, `text_align` — and the
+generator emits `StyleMask::INHERITED` and `StyleId::inherited()`. One
+mechanism serves them all: `NodeRef::computed(id)` is the own row, else the
+nearest logical ancestor's for an inherited row, else the initial value;
+`source_of(id)` names the node that supplied it; `computed_style(rows)`
+resolves a set of rows in one walk; `text_color()` and `text_style()` are
+instances. Authored presence stays in the own mask — a computed value is
+never written back. A run measures with its computed style (`arena.text_runs`),
+so a `text` child without a `font_size` takes its paragraph's, as a `<span>` in
+a `<div>`; a paragraph's `direction` and `text_align` inherit into its
+measurement too. Invalidation is the kernel's: a write to an inherited row
+marks and touches every logical descendant that does not set the row itself
+(text rows remeasure its paragraph, the rest repaint), stopping under an
+override; a child moved between parents propagates only the rows whose
+computed value differs, and an orphan re-attached is re-derived in full. The
+receipt therefore names what an inherited change reached; no host re-derives
+descendants per frame. A light/dark pair is preserved for the host to resolve.
+`kernel/tests/apply.rs` holds colour (reparenting, cleared overrides) and the
+text rows (a bare, a bold and a small run; the touched set after an ancestor
+change, a move and a clear; an identical write touching nothing).
 
 Text measurement is a **per-kernel injected trait object** (`Box<dyn TextMeasurer>`),
 never a process-global callback. The kernel hands the measurer a paragraph as
@@ -236,3 +397,32 @@ transcription rather than speculation. (The C ABI found its consumer on
 `cargo clippy -p exact-kernel --all-targets -- -D warnings`, `cargo fmt --check`,
 `cargo build -p exact-kernel --target wasm32-unknown-unknown`, `node scripts/caps.mjs`.
 Every source file is under 1,500 lines; the largest is the generator.
+
+### Platform background materials
+
+`backgroundMaterial` (prop 54) requests a system material, not a CSS blur
+radius. `ultra-thin` is consumed by the Messages focused reply thread. UIKit uses
+`UIVisualEffectView` with `.systemUltraThinMaterial`, including the platform's
+appearance and accessibility adaptation; web approximates the material with
+`backdrop-filter: blur(20px) saturate(180%)` and an appearance-aware translucent
+fill. `glass` uses `UIGlassEffect(style: .regular)` on iOS 26, falling back
+to ultra-thin blur on earlier iOS. Its corner configuration follows the node’s
+uniform border radius. Web uses translucent fill, blur, and a light shadow.
+Messages uses glass for its composer, header controls, and inbox search. Authored
+children go in the effect’s `contentView`; enabled nodes with a press handler use
+`UIGlassEffect.isInteractive`. Changing or clearing the material preserves those
+children. Glass grouping is not implemented. Other hosts currently leave materials
+transparent. This explicit
+host policy does not alter the existing CSS `backdrop-blur` style row or claim
+pixel parity between a UIKit material and a CSS filter.
+
+### Touch panning directions
+
+`touch-action` (style bit 86, initial `auto`) admits the keyword combinations
+listed in `schema.json`. Web emits the CSS declaration unchanged. UIKit tests
+the initial pan direction against the hit node's and ancestors' declarations,
+through the scroll container, leaving permitted scrolling to `UIScrollView`.
+The directional names describe scrolling: a leftward finger movement scrolls
+right, so Messages uses `pan-right pan-y` on a replyable bubble. This mapping
+was driven against Chrome touch input. Changing the row after recognition does
+not change that gesture. Native pinch zoom is not added by this row.

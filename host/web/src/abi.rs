@@ -251,6 +251,16 @@ impl<D: DataSource> Bridge<D> {
             7 => Event::Submit,
             8 => Event::Load,
             9 => Event::Message(payload),
+            10 => Event::Contextmenu,
+            11 => Event::Dblclick,
+            12 => Event::Swiperight,
+            13 => {
+                let Some(event) = Event::scroll_payload(&payload) else {
+                    return self
+                        .emit(r#"{"ops":[],"error":"invalid scroll coordinates"}"#.to_string());
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {

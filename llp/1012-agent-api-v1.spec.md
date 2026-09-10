@@ -189,8 +189,8 @@ host only ever sees a view id.
 | `tree` | `{"op":"tree"}` | `epoch`, `incarnation`, `clock`, `roots`, `nodes[]` in preorder: `id`, `parent`, `depth`, `type` (schema name), `props` by schema name, `handlers` (`press`/`change`/`hover`/`focus`/`blur`/`key`), `children` | runner (`Kernel::rows` + props) |
 | `state` | `{"op":"state"}` | `clock`; `slots`, `derives`, `resources` by declared name as typed JSON: records keyed by field name, `none`/unit `null` | runner (the plan's type table) |
 | `logs` | `{"op":"logs","since":N}` | `next`, `from`, `lines[]` — the journal from `since` (§3); the driver adds `host[]` (page console / app stderr) and `dropped` | runner |
-| `layout` | `{"op":"layout"}` | `clock`, `viewport{w,h}`, `env{…}` (2026-08-30: the page's environment by the web's `env()` names — `safe-area-inset-top/right/bottom/left`, the insets the host gave the kernel under `viewport-fit=cover`, and `keyboard-inset-height`, a software keyboard's overlap with the screen's viewport; under `interactive-widget="resizes-content"` `viewport` itself shrinks to the keyboard's top, as Chrome's `innerHeight` does; zeros on macOS and Linux, the browser's own on the web), `nodes[]`: `id`, `x`, `y`, `w`, `h` (+ `sx`, `sy` on scroll containers); the driver adds `type` and `testId` | host |
-| `tap` | `{"op":"tap","id":V}` / `{…,"wheel":[dx,dy]}` / `{…,"hover":true}` | `tapped`, `at` (+ `hover`); the driver adds `target`. On iOS (2026-08-30) a tap also does what a touch up does first: the nearest node that takes the focus takes it, and when none does the field being edited is blurred (LLP 1008 §9) | host input path |
+| `layout` | `{"op":"layout"}` / `{…,"id":V}` | `clock`, `viewport{w,h}`, `env{…}` (2026-08-30: the page's environment by the web's `env()` names — `safe-area-inset-top/right/bottom/left`, the insets the host gave the kernel under `viewport-fit=cover`, and `keyboard-inset-height`, a software keyboard's overlap with the screen's viewport; under `interactive-widget="resizes-content"` `viewport` itself shrinks to the keyboard's top, as Chrome's `innerHeight` does; zeros on macOS and Linux, the browser's own on the web), `nodes[]`: `id`, `x`, `y`, `w`, `h` (+ `sx`, `sy` on scroll containers); the driver adds `type` and `testId`. **With `id` (2026-09-09, LLP 1035.002 D1, `layout <target>` on the CLI): `node{…}` explains that one node** — the runner's half (`epoch`, `incarnation`, `site`, `instance`, every row it sets or inherits as `{value, source: authored | inherited (+from) | initial}`, `props`, the kernel's `frame` in the parent and `absolute`) merged with the host's (`space{viewport, local, window?, screen?, capture{scale}}`, the `scroll` and `clip` chains outermost first, `visible{hidden, inert, inViewport, clipped}`, `native{…}` — what was mounted; the web adds `browser{…}`, its own computed values for the inherited rows). A space a host cannot observe is absent; a stale id is refused by name | runner (the node's rows and sources, the private `node` message) + host (the spaces) |
+| `tap` | `{"op":"tap","id":V}` / `{…,"wheel":[dx,dy]}` / `{…,"hover":true}` / **a contact's phases** (2026-09-09, LLP 1035.003 D1): `{…,"phase":"down"[,"x","y"]}`, then `{"op":"tap","phase":"move","x","y"｜"dx","dy"[,"ms"]}`, `"hold"[,"ms"]`, `"up"`, `"cancel"` — CLI `tap <target> down [at <x> <y>]`, `tap move <x> <y>｜by <dx> <dy> [over <ms>]`, `tap hold [<ms>]`, `tap up`, `tap cancel`, the phase words read as phases only while a contact is down | `tapped`, `at` (+ `hover`); a phase replies `phase`, `at`; **every input reply carries `delivery`** — `platform` (a real input event through the platform's path: CDP mouse/touch, `NSWindow.sendEvent`), `recognized` (an already-recognized event injected: iOS `contextmenu`/`dblclick`/`hover`), `activation` (a hit-test and a direct call: iOS `tap`), or `unsupported` — plus `carrier` and `mode`, added by the driver from the host's answer and its own table (D2); the driver adds `target`. On iOS (2026-08-30) a tap also does what a touch up does first: the nearest node that takes the focus takes it, and when none does the field being edited is blurred (LLP 1008 §9); a phase on iOS or Linux is `unsupported`, never an activation dressed as a finger | host input path (the web: CDP touch events under touch emulation, switched on by the first contact; macOS: the mouse button held across requests, a timed move as dragged events with the run loop turning between them, `cancel` unsupported because AppKit has none) |
 | `type` | `{"op":"type","id":V,"text":…}` / `{…,"key":"Enter"}` | `typed` (+ `value` on macOS) / `key`; the driver adds `target` | host text path |
 | `clock` | `{"op":"clock","to":ms}` / `{…,"settle":true}` | `clock` (where it landed), `settled` for `settle` | host, both clocks |
 | `screenshot` | `{"op":"screenshot","path":…}` (+`"window":true` on macOS) | `screenshot`, `w`, `h` (viewport points / CSS px, not PNG pixels; `scale` for a window capture) | host |
@@ -230,6 +230,9 @@ the Linux host implements this list, not that file):
   Web: `focus` (a page-side helper, §1 private) then CDP `Input.insertText`;
   macOS: first responder, the field editor's `selectAll` + `insertText`. One
   `change` with the whole value; a non-input target is refused on both.
+  Key presses preserve the editor’s existing cursor/selection; only whole-value
+  replacement selects all first. On iOS, Backspace calls the actual field’s
+  `deleteBackward`, including its authored key event and normal text deletion.
   With `key: "Enter"` (2026-08-30), one key down (and up) on the target by
   the web's name: web CDP `Input.dispatchKeyEvent` after focusing the target;
   macOS a synthesized `NSEvent` key-down/up through the window with the
@@ -252,8 +255,9 @@ the Linux host implements this list, not that file):
   is on).
 
 **Private messages** are not operations: `focus` (web `type`'s first half),
-`settle` (the engine's end time, read by `clock`), `quit` (macOS stdio), and
-the `at` op inside a batch (§2). `exact.reload` / `EXACT_PLAN` boot a plan —
+`settle` (the engine's end time, read by `clock`), `node` (the runner's half
+of `layout <target>`, 2026-09-09), `quit` (macOS stdio), and the `at` op
+inside a batch (§2). `exact.reload` / `EXACT_PLAN` boot a plan —
 session setup, not a drive. `Runner::act` runs an action by name for **tests**
 (LLP 1005 §6 now says so); an agent never takes it.
 
@@ -458,8 +462,16 @@ rendered as `--- name` + newline + the rendering, joined by blank lines,
 with a final newline; a sample named `empty` or `dropped` is a `logs`
 reply, the rest are named by their op. `scripts/smoke.mjs` checks it before
 opening a host; `--record` rewrites it after a deliberate change. The input
-grammar — `tap <target> [wheel <dx> <dy>]`, `type <target> <text…>`, `clock
-<ms|+ms|settle>`, `screenshot <png> [window]` — is the whole of it.
+grammar — `tap <target> [wheel <dx> <dy> | hover | contextmenu | dblclick |
+down [at <x> <y>]]`, `tap move <x> <y>｜by <dx> <dy> [over <ms>]`, `tap
+hold [<ms>]`, `tap up`, `tap cancel` (the four phase words only while a
+contact is down), `type <target> <text…>`, `clock <ms|+ms|settle>`,
+`screenshot <png> [window]`, `layout [<target>]` — is the whole of it. `layout <target>` (2026-09-09, LLP 1035.002) renders its
+`node` as a block under the listing — `node #id [testId] Type · site ·
+instance · epoch · incarnation`, one `row = value (source)` line per row,
+then `space`, `scroll`, `clip`, `visible`, `native` and, on the web,
+`browser` lines, each present only when the host reported it (`renderNode`
+in `scripts/agent.mjs`; the fixture's `layout` sample carries one).
 
 ## 8. Review record, not in v1, open
 
@@ -481,7 +493,9 @@ clock had moved to the batch's landing time, so a seek across the timer
 still bore them at the destination — `applyBatch` registers before it
 moves the clock.
 
-**Not in v1:** a drag form of `tap`; keys beyond `type`'s value
+**Not in v1:** ~~a drag form of `tap`~~ (the contact phases landed 2026-09-09
+for the web and macOS carriers, LLP 1035.003; iOS and Linux answer
+`unsupported` until a backend exists); keys beyond `type`'s value
 replacement; the display link idling under agent mode; replaying two timers' writes to one animatable row within a seek;
 attaching to an already running app (a session is a process; the dev loop
 wants the same resident channel).

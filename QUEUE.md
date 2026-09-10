@@ -10,6 +10,17 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **LLP 1035 follow-ups** (2026-09-09): landed the same day — inherited rows
+  (1035.000 slice 1), `layout <node>` (1035.002 slice 1), a contact's phases on
+  the web and macOS carriers (1035.003). Next, in the umbrella's order: the
+  Simulator contact gate (1035.003 §3; the backend is Charlie's call), 1035.001
+  slice 1 (XCTest units for the navigation/modal rules, journal lines for
+  refused intents, a session-scoped blur in the two-session host), 1035.004's
+  six symbol roles, 1035.005's `contract fmt` with the continuation rule;
+  `dynamic` as a `layout <node>` source once a constant binding can be told
+  from an expression; `metrics.mjs` printing the inherited-invalidation cost on
+  Messages; the reply tags on `tap`/`type`/`clock`/`screenshot`.
+
 - **Percentage width inflates an auto-height flex column in native layout**
   (2026-09-08): LLP 1032's blocks ended at 30,145 points while Taffy sized
   their `width: 100%; max-width: 720px` column to 67,373, leaving a white
@@ -35,12 +46,6 @@ sits on that list carries the trade it would take.
   and `rules/RULES.md` §Scope says a semantic that could follow CSS follows
   it. Either implement the ratio or declare the deviation in LLP 1001 §1.
   Found writing the Markdown readers (LLP 1033).
-
-- **Text rows do not cascade into inline runs** (2026-09-08): a `text` node's
-  `font-size`/`color`/`line-height` do not reach the `text` children the
-  kernel measures as its runs, so every run must repeat them. On the web they
-  inherit. Decide whether the kernel inherits text rows or whether this is
-  declared; the Markdown readers thread the type through as props meanwhile.
 
 - **Two `.contract` files cannot be shared between apps** (2026-09-08): the
   `Blocks`/`Runs` renderer is copied between `apps/markdown` and `apps/llp`
@@ -149,8 +154,12 @@ sits on that list carries the trade it would take.
    table (below), and two ghost-only size properties on the engine. Charlie to confirm
    the boundary (§Open questions).
 
-- **Mixed by default, and the wasm executor on wasmtime** — LLP 1029 (Draft RFC,
-  2026-09-03) over LLP 1028 (the measurements: wasmtime runtime +0.49 MB / +Pulley
+- **Rust development reload** — **LLP 1029.000** (Draft RFC, 2026-09-09): native-first Rust
+  logic, native shared-library swaps, browser Wasm, Pulley on physical iOS;
+  whole modules first, phone/native-loader measurements owed. Production Rust
+  delivery and per-source digest analysis move behind the proposed dev loop.
+  Parent **LLP 1029** (Draft RFC, 2026-09-03), mixed by default and optional
+  executors, builds on LLP 1028 (the measurements: wasmtime runtime +0.49 MB / +Pulley
   +0.58 / wasmi +1.0 / Cranelift +5.6, never shipped). Charlie's three rulings of
   2026-09-03 — wasmtime optional, never mandatory even for Rust logic, the default app
   mixed TS + Rust — are its Summary; §7 stages it (phone numbers first), §8 asks
@@ -274,7 +283,7 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 - **Kernel / layout** (LLP 1001, 1010): `position: static`; `text_align: start`;
   presentation transforms in scrollable overflow; `overscroll-behavior`; scroll
-  snapping; a scroll offset or event reaching the runner.
+  snapping beyond the admitted horizontal subset; Linux scroll events.
 - **Motion** (LLP 1003 §9): layout transitions (gated on an incremental-relayout
   number); `@keyframes`; a Core Animation executor (measured question); reduced
   motion is the producer's `transition: none`.
@@ -317,9 +326,8 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 ## Later
 
-- **Windowed `List`** — when a list misses 60 fps. Needs three things the seam lacks
-  (LLP 1010 §5): a logical total extent, window-origin compensation, and a
-  scroll-offset event to the runner. `List` and `ScrollView` are the same thing on
+- **Windowed `List`** — when a list misses 60 fps. Needs a logical total extent and window-origin compensation
+  (LLP 1010 §5); scroll-offset events now reach the runner on web and Apple. `List` and `ScrollView` are the same thing on
   every host today.
 - **Windows, Android** — `rules/NOT-DOING.md` §Surfaces; after the loop is proven.
 - **ibex2** (`~/projects/ibex/crates/ibex2`; ibex LLP 0057 §5.2 targets Exact 2). Two
@@ -409,3 +417,53 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   one-frame `pending` first. 1019's link (Accepted, landed) left `current/` for it.
 
 - macOS text controls: align focus/blur notifications with first-responder changes; AppKit editing-began delegates currently wait for the first edit, so a focus command can move the caret before a Contract focus handler runs.
+
+- **Stale `target/` cache from another checkout breaks every bake** (2026-09-08):
+  its dep-info names `/Users/ccheever/projects/exact2-principles-metrics/target/…`, so
+  `host/web/build.mjs` dies in `completeBuild` ("stale compiler dependency names missing
+  input"); worked around with a private `CARGO_TARGET_DIR=target/dev-local`. Needs: decide
+  whether the checkout's `target/` gets wiped/rebuilt once or the receipt step tolerates
+  foreign dep-info.
+
+- **Messages iPhone parity** (`apps/messages`): the local chat example now runs on
+  web and iOS. Finish native back/Tapback/reply gestures, timestamp motion matching (recognition threshold and release curve; resisted/capped travel and stationary labels now work; extent/rate/paging probes rejected, a direct UIKit spring is closer but not integrated),
+  anchor-removal fallback and typing/insertion motion, then compare actual touch
+  behavior and screenshots with Messages.
+  `apps/messages/README.md` records the current implementation gaps.
+  The focused reply surface, swipe entry, and reply indicator are in place; finish thread positioning,
+  and connecting lines. Transparent curved tails now work over its material.
+
+- Border parity: an explicit edge width/color paints on iOS but remains invisible on the web without a border style; define and implement CSS `border-style` consistently before relying on border geometry for icons. Observed in Messages back-chevron rendering.
+
+- Messages navigation: after three integration fix rounds, native header back-swipes cancel/complete with drafts, but the timestamp horizontal scroll still consumes rightward gestures over the transcript. An app-only directional `touch-action` probe enabled edge Back but not gutter Back; reverted because the fresh simulated Messages reference ignored the corresponding navigation gestures despite working timestamp input and button Back. Establish a reference that demonstrates the gesture before calling that change parity; no engine gesture arena.
+
+- Messages reactions: per-person blue/gray badges, independent add/remove, inner-edge anchors and grouped participants now pass clean physical main/focused/group checks with the named Simulator verified foreground. The reproduced input miss was a browser covering the Simulator, not a delivered UIKit touch (`/tmp/messages-touch-phases/`). The participant/menu region now prevents keyboard-open overlap with the measured 24-point gap. Source anchoring through keyboard dismissal and transcript displacement behind a crowded preview now pass iOS/web checks (`/tmp/messages-context-anchor/`), including restoration and the focused thread's retained clip. Measure badge travel with a real native iMessage reply gesture, then match it; the SMS fixture only supplied drag-and-drop (`/tmp/messages-reply-badges/`). Finish native artwork. The participant popover's rectangular shadow cutoff is repaired by separating its glass from its scrolling content (`/tmp/messages-popover-shadow/`). Preview entry modes now match the incoming/outgoing native evidence: badge and double tap keep the original size; long press magnifies, including the picker (`/tmp/messages-preview-modes/`). Native focused-thread scale is still unmeasured; Exact applies the same entry policy there. Compare focused-thread Close's keyboard policy (current physical Close blurs the composer).
+
+- Messages compose: finish native recipient token editing, invalid-address presentation/international formatting, native sheet motion and existing-history presentation before send. UIKit modal presentation and empty-draft gesture dismissal are now in place; the live source view follows appearance changes while a sheet is open; finish the small dark corner-edge difference and complete transition timing. Multiple fixture recipients now create/reuse local groups on send. The dedicated fixture recipient sheet replaces the old inbox-search shortcut.
+
+- Investigate intermittent Linux update test `a_refused_initial_layout_releases_no_network_requests`: the workspace run observed one request after refused layout; isolated and full-workspace reruns passed (Messages compose validation, 2026-09-09).
+
+- Messages inbox gestures: finish trailing full-swipe confirmation, Recently Deleted/recovery, exact glyph size/artwork and transition comparison. Explicit UIKit swipe rows now pass leading full Read/Unread, reversal, partial actions, Mute/Unmute, Delete, row switching, first-tap dismissal, draft/history retention and parent vertical scrolling (`/tmp/messages-swipe-activation/`). Callback eligibility follows the original authored ancestors, excluding UIKit’s temporarily disabled cell. Native action inspection and agent activation pass; the browser retains its authored controls. First-child scale/rotation capture and the pinned light/dark action colors are corrected (`/tmp/messages-swipe-glyphs/`); exact symbol paths remain owed. Open actions still retain their earlier appearance: two adaptive-image attempts passed action checks but corrupted surrounding avatar lettering and were removed at the repair limit. Isolate the rendering failure before another adaptive capture attempt. Real iOS gesture input still uses the temporary foreground-guarded helper.
+
+- Messages contact details: finish call/video/email, contact editing/blocking, group/shared-content sections, and switch motion. Third-route navigation, draft/focus and reading-position restoration, and shared Hide Alerts now work; ordinary-launch button Back and cancelled/completed native swipes preserve the transcript with the keyboard restored.
+
+- Messages balloons: match multiline intrinsic sizing (native sample 262 points wide, Exact 277 with the same three lines), fractional bubble rasterization, and sender-name repetition after pauses. Tail contours now measure about 0.10/0.11 points of outgoing/incoming edge error after normalizing the bubble bottom; complete pixel equality remains unverified. Time-based bubble runs now follow the measured 30/59/61-second cases; the exact 60-second boundary remains unverified. Minimum size, padding, line spacing, transcript insets, and group preview indentation now follow native samples.
+
+- Messages date headings: establish same-day grouping from a stronger native fixture before adding a cutoff. Native Messages and the current web/iPhone app retain one heading across a 301-second gap followed by a 299-second gap; subsequent 601- and 901-second native pauses also keep that heading. Five-, ten-, and fifteen-minute inactivity cutoffs would disagree with this reference; the bounded pause study has not established a threshold. Matched captures and recorded input times are in `/tmp/messages-date-headings/`.
+
+- Messages Tapbacks: Copy now writes the full message and restores the draft/focus; the menu has leading icons and measured row spacing (`/tmp/messages-copy-action/`). Finish Translate and text Select, native symbols, emoji/sticker picker and attached button, exact artwork/compositing (including system-keyboard dimming), preview pixel rounding/clipping and animation. The native outgoing samples in `/tmp/messages-reply-motion/` grow about 15% for short bubbles and about 26 points in width for wider ones; iOS/web previews now use this bounded scale without reflow, preserving source-edge alignment and space for receipts/actions. Final UIKit rounding/clipping remains. A public UIKit target preview reproduces this growth (`/tmp/messages-context-study/`), but a reaction button inside its custom preview receives no tap: UIKit commits/dismisses instead. Preserve interactive reactions before adopting that presentation. The duplicated source balloon and receipt now stop painting while their preview is active, preserving geometry and restoring on close; compare native lift/return timing and treatment of surrounding badges/avatars. Palette/action-card glass is in place; strip dimensions and sampled light-mode dimming colors match the reference; dark-mode native comparison remains. Long-press now hides the keyboard and adds actions; double-tap shows only reactions with the keyboard retained. Physical iPhone drives verify both paths and prior-focus restoration. Isolate a normal-mode far-right outside-dismiss tap miss: the agent drive passed that point, and left-side normal dismissal passed.
+
+- Messages emoji picker: integrated public UITextField emoji mode, native search/selection, attached smile control and Close; browser/iOS driver cases and physical Simulator software-keyboard search/selection plus long/double Close pass (`/tmp/messages-emoji-integration/`). Draft and entry-focus policy are retained separately. Still owed: joined thought-bubble/glass artwork, animation, stickers, native incoming large-control geometry (currently mirrored), and removal of the public keyboard's ABC/dictation differences if a supported native path exists. Integrated hardware keystrokes did not populate Search Emoji; software taps did. Per-person reaction storage and grouped participants now pass the clean foreground-verified physical checks; final artwork and the transcript displacement behind crowded panels remain owed.
+- Messages selection: finish selection/deletion motion and scroll anchoring. More now preselects the pressed message, supports multi-selection and count-specific confirmed deletion, and preserves the draft with the keyboard closed. Forwarding now opens a populated UIKit recipient sheet and sends the selected text locally; populated drafts resist downward dismissal and empty drafts permit it. Finish the small dark corner-edge difference and transition timing; the duplicate light-mode corner seam is fixed. Sheet-header swipes now keep the source route, draft, and keyboard in place. Match the remaining menu actions and reaction-participant presentation to native Messages.
+
+- Native modal startup: verify a plan whose initially selected route is a sheet. The temporary bootstrap source-stack adjustment dispatched Back while installing the source route and was removed; normal Messages starts at the inbox. The initial-sheet source background remains unverified.
+
+- Native text padding: a padded Text node allocated the padding but painted its glyphs at the outer origin in the inbox-title experiment. Verify the CoreText draw bounds against a padded DOM text element; ordinary container padding positions the title correctly.
+
+- Messages inbox title: initial title/row spacing now follows native measurements. The remaining travel difference is native navigation-bar inset ownership: a standalone large-title table reproduces native travel while bare UIKit scrolling matches Exact. Integrate title and content-scroll intent in the navigation layer, with a coherent browser projection (1035.001). The public scroll-edge interaction works around UILabel in a fixture, but not around custom-painted text (1035.004); the current app header still uses a uniform material. An isolated real-Messages prototype with the authored title removed and a paired cold generation still initialized compact (inset/first-row y=116, expected expanded y=168); it stopped after three integration rounds. Its action-dispatch navigation retained the draft. The next bounded approach must address controller/scroll initialization, not another title-position constant.
+
+- Apple baseline precision: the kernel preserves fractional frames and `TextEngine` preserves authored fractional line heights, but intrinsic widths, normal paragraph heights and painted baselines still round to logical points. A same-font iOS 26.5 UILabel/CoreText/WebKit fixture found that removing that rounding improves some native labels but does not consistently match either UIKit or WebKit. Resolve line-box/baseline placement with a targeted comparison before changing painting globally; Removing all measurement ceilings changed Caltrain’s established scroll extent and canvas readback; investigate those intrinsic metrics separately. Authored line-height precision alone does not establish glyph fidelity.
+
+- iOS agent wheel bounds: `AgentIOS.scroll` ignores `adjustedContentInset`, so a native-inset scroll view can have a reachable negative offset but receive no wheel movement when content size equals bounds. Reproduced in the isolated Messages navigation-header prototype. This is a driver limitation, not evidence that a finger cannot collapse the header.
+
+- Dynamic style diagnostics: a conditional `top` branch containing `"0px"` compiled but poisoned the runner with `WrongKind` on activation (`/tmp/messages-panel-placement/late-failure-web.json`). Accept the CSS length or diagnose the unsupported value before dispatch; the Messages branch currently uses the supported `"0%"`.

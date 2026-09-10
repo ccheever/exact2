@@ -53,6 +53,29 @@ unknown name, or a name declared differently in both is refused by name);
 anything but a `.contract` path is `contract-no-imports`, as before.
 **Styles.** `style Name` with lines of `attr=literal` (style rows only), applied
 by `class=Name` on a node, the node's own attribute winning (LLP 1017 P6).
+**Editor hints** (2026-09-09, Messages). `autocapitalize` and `autocorrect`
+lower to same-named string props on `input` and `textarea`. Their values use
+[HTML's vocabulary](https://html.spec.whatwg.org/multipage/interaction.html#autocapitalization):
+`none`/`off`, `sentences`/`on`, `words`, `characters` for capitalization, and
+`on`/`off` for correction. They are input-method hints, not text transforms.
+Contract has no form-owner or contenteditable model; these hints are applied
+directly to the declared editors.
+`spellcheck` is a same-named string prop on any element: `"true"` and `"false"`
+(case-insensitive), with empty meaning true and invalid/missing values deferring
+to ancestors and then the editor default. The browser receives the authored HTML
+attribute; native editors receive the nearest explicit logical-tree hint.
+`swipeContent`, `swipeLeading` and `swipeTrailing` lower to string props;
+`swipeDestructive` lowers to a boolean. Their id references are resolved by the
+native presenter after keyed nodes exist, not inferred from test ids. The
+kernel declaration and native boundary are in LLP 1001 §1 and LLP 1008 §9.
+
+`contextMagnify` lowers to a boolean prop controlling the `contextTarget`
+preview's host enlargement (LLP 1001 §1); expressions may change it as the
+presentation mode changes. It does not lower to a CSS transform.
+`emojiPicker` lowers to a boolean prop for the selection-input policy in LLP
+1001 §1. It uses the ordinary `change` action and an empty authored input value;
+it does not introduce an `inputmode` value or a new event.
+
 **The environment** (2026-08-30): a style attribute's text may be an `env()`
 length — `padding-top="env(safe-area-inset-top)"`,
 `margin-bottom="calc(env(safe-area-inset-bottom) + 12px)"` — passed as text by
@@ -103,7 +126,7 @@ loops (a body still always terminates, LLP 1005 §2; `writes` covers every
 branch; `if` needs a bool, `type-condition`; the `match` binds its name as a
 local, as the inline form does); a parameter's type is written or
 inferred from its handler call sites (the handler attributes are `press`,
-`change`, `hover`, `focus`, `blur`, `key`, `submit`, LLP 1005 §3 — `submit`
+`change`, `hover`, `focus`, `blur`, `key`, `submit`, `contextmenu`, `dblclick`, LLP 1005 §3 — `submit`
 on an `input` is Enter, the web's implicit submission; a `key`'s or
 `change`'s payload types the last parameter `string`, a `hover`'s `bool`);
 an assignment to an undeclared slot is
@@ -263,3 +286,13 @@ not yet expose `transition`). Each is a fixture away, never a speculation.
 `apps/caltrain/tests/app.rs`, and every crate's unit tests, all under
 `cargo test --workspace` (135 tests across the workspace on 2026-08-28);
 clippy `-D warnings`, fmt, and `caps` green.
+
+The `swiperight` handler accepts an action and its captured arguments, like
+`press`; the compiler emits its distinct EventKind. `touch-action` lowers to
+the schema's CSS keyword row. Messages uses the pair to open an inline reply
+without replacing vertical scrolling or leftward timestamp reveal.
+
+`scroll=action(args)` (2026-09-09, Messages) appends two numeric arguments,
+`scrollLeft` then `scrollTop`. Analysis and lowering check both arguments;
+type inference refines both untyped parameters and rejects incompatible explicit
+types. The corpus checks currying, round-trip dispatch, arity and both types.

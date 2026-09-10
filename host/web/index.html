@@ -17,10 +17,18 @@
   /* LLP 1019 §5: nearest real face, never browser-synthesized bold/italic. */
   #exact-root { height: 100%; font-synthesis: none; }
   body { font: 16px system-ui, sans-serif; }
-  button, input { all: unset; display: block; box-sizing: content-box; cursor: default; }
-  input { cursor: text; -webkit-user-select: text; user-select: text; }
+  button, input, textarea { all: unset; display: block; box-sizing: content-box; cursor: default; }
+  input, textarea { cursor: text; -webkit-user-select: text; user-select: text; }
+  /* Gesture feedback is decorative, including when its opacity is zero. */
+  [swipeIndicator="true"] { pointer-events: none; }
+  /* Modal dimming belongs to the host; UIKit supplies its own backdrop. */
+  [navigationPresentation="modal"] { isolation: isolate; }
+  [navigationPresentation="modal"]::before { content: ""; position: absolute; inset: 0; z-index: -1; background: #00000033; }
   /* `all: unset` would inherit the field's color onto the placeholder. */
-  input::placeholder { color: #3c3c434c; opacity: 1; }
+  input::placeholder, textarea::placeholder { color: light-dark(#3c3c434c, #ebebf54c); opacity: 1; }
+  /* A platform material, distinct from the CSS blur-radius row. */
+  [backgroundMaterial="ultra-thin"] { backdrop-filter: blur(20px) saturate(180%); background-color: light-dark(#ffffff80, #20202080); }
+  [backgroundMaterial="glass"] { backdrop-filter: blur(20px) saturate(150%); background-color: light-dark(#ffffffb3, #262629b3); box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   [data-scroll="true"] { overflow: auto; }
   /* LLP 1001 §1: the kernel has no `position: static`; every node is `relative`
      (an absolute node's inline style wins). */

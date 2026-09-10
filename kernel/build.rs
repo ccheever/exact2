@@ -65,6 +65,9 @@ struct StyleRow {
     layout: bool,
     #[serde(default)]
     text: bool,
+    /// The row follows CSS inheritance (LLP 1035.000 D1).
+    #[serde(default)]
+    inherited: bool,
     #[serde(default)]
     default: serde_json::Value,
 }
@@ -75,12 +78,12 @@ struct OpcodeRow {
     name: String,
 }
 
-/// Convert `snake_case`/`kebab-case`/`camelCase` to `PascalCase`.
+/// Convert CSS words, `snake_case`/`kebab-case`/`camelCase` to `PascalCase`.
 fn pascal(s: &str) -> String {
     let mut out = String::new();
     let mut upper = true;
     for ch in s.chars() {
-        if ch == '_' || ch == '-' {
+        if ch == '_' || ch == '-' || ch.is_ascii_whitespace() {
             upper = true;
             continue;
         }
@@ -124,6 +127,7 @@ enum Codec {
     Tracks,
     Placement,
     Transitions,
+    ClipPath,
     Enum(String),
 }
 
@@ -142,6 +146,7 @@ fn parse_codec(s: &str) -> Codec {
         "tracks" => Codec::Tracks,
         "placement" => Codec::Placement,
         "transitions" => Codec::Transitions,
+        "clip-path" => Codec::ClipPath,
         other => match other.strip_prefix("enum:") {
             Some(name) => Codec::Enum(name.to_string()),
             None => panic!("schema: unknown codec `{other}`"),
@@ -165,6 +170,7 @@ impl Codec {
             Codec::Tracks => "GridTracks".into(),
             Codec::Placement => "GridPlacement".into(),
             Codec::Transitions => "Transitions".into(),
+            Codec::ClipPath => "crate::clip::ClipPath".into(),
             Codec::Enum(name) => name.clone(),
         }
     }
@@ -184,6 +190,7 @@ impl Codec {
             Codec::Tracks => "Tracks",
             Codec::Placement => "Placement",
             Codec::Transitions => "Transitions",
+            Codec::ClipPath => "ClipPath",
             Codec::Enum(_) => "Enum",
         }
     }
@@ -245,6 +252,7 @@ impl Codec {
                 );
                 "GridTracks::default()".into()
             }
+            Codec::ClipPath => "crate::clip::ClipPath::default()".into(),
             Codec::Transitions => {
                 assert!(
                     value.is_null(),
@@ -283,6 +291,7 @@ impl Codec {
             Codec::Tracks => "r.tracks_for_style()?".into(),
             Codec::Placement => "r.placement_for_style()?".into(),
             Codec::Transitions => "r.transitions()?".into(),
+            Codec::ClipPath => "crate::clip::ClipPath::parse(r.string()?).ok_or(crate::error::DecodeError::BadClipPath)?".into(),
             Codec::Enum(name) => format!(
                 "{{ let v = r.u8()?; {name}::from_wire(v).ok_or(DecodeError::UnknownEnumValue {{ style: StyleId::{style_id}, value: v }})? }}"
             ),
@@ -304,13 +313,14 @@ impl Codec {
             Codec::Tracks => format!("w.tracks(&{access});"),
             Codec::Placement => format!("w.placement({access});"),
             Codec::Transitions => format!("w.transitions(&{access});"),
+            Codec::ClipPath => format!("w.string(&{access}.css());"),
             Codec::Enum(_) => format!("w.u8({access} as u8);"),
         }
     }
 
     /// Whether the field type is `Copy` (so encode can pass by value).
     fn is_copy(&self) -> bool {
-        !matches!(self, Codec::Tracks | Codec::Transitions)
+        !matches!(self, Codec::Tracks | Codec::Transitions | Codec::ClipPath)
     }
 }
 
@@ -753,7 +763,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, F32, U8, U16, U32, I32, Rgba8, ColorValue, Vec2, Color2, Tracks, Placement, Transitions, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, F32, U8, U16, U32, I32, Rgba8, ColorValue, Vec2, Color2, Tracks, Placement, Transitions, ClipPath, Enum }}").unwrap();
     writeln!(w).unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
@@ -870,6 +880,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
             "Whether a change invalidates text measurement.",
             |r| r.text,
         ),
+        (
+            "inherited",
+            "Whether the row follows CSS inheritance: a node without its own row takes the nearest logical ancestor's computed value.",
+            |r| r.inherited,
+        ),
     ] {
         writeln!(w, "    /// {doc}").unwrap();
         writeln!(w, "    pub fn {method}(self) -> bool {{").unwrap();
@@ -948,6 +963,17 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(
         w,
+        "    /// Rows that follow CSS inheritance (LLP 1035.000 D1)."
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "    pub const INHERITED: StyleMask = StyleMask {{ words: [{}] }};",
+        word_mask(&|r| r.inherited)
+    )
+    .unwrap();
+    writeln!(
+        w,
         "    /// Bits above the last row. A wire mask with any of these set is rejected."
     )
     .unwrap();
@@ -997,6 +1023,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(w, "    /// Whether any row is set in both masks.").unwrap();
     writeln!(w, "    pub fn intersects(self, other: StyleMask) -> bool {{ self.words.iter().zip(other.words.iter()).any(|(a, b)| a & b != 0) }}").unwrap();
+    writeln!(w, "    /// Intersection.").unwrap();
+    writeln!(w, "    pub fn intersect(self, other: StyleMask) -> StyleMask {{ let mut out = self; for (a, b) in out.words.iter_mut().zip(other.words.iter()) {{ *a &= b; }} out }}").unwrap();
     writeln!(w, "    /// Union.").unwrap();
     writeln!(w, "    pub fn union(self, other: StyleMask) -> StyleMask {{ let mut out = self; for (a, b) in out.words.iter_mut().zip(other.words.iter()) {{ *a |= b; }} out }}").unwrap();
     writeln!(w, "    /// Difference (`self` minus `other`).").unwrap();
@@ -1098,6 +1126,32 @@ fn generate(schema: &Schema, digest: u64) -> String {
         .unwrap();
     }
     writeln!(w, "        self.mask = self.mask.minus(mask);").unwrap();
+    writeln!(w, "    }}").unwrap();
+    writeln!(
+        w,
+        "    /// Copy the rows in `mask` from `from` and mark them set here, whatever `from`'s own mask says."
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "    pub fn copy_rows(&mut self, from: &StyleProps, mask: StyleMask) {{"
+    )
+    .unwrap();
+    for row in &schema.styles {
+        let id = pascal(&row.field);
+        let clone = if parse_codec(&row.codec).is_copy() {
+            ""
+        } else {
+            ".clone()"
+        };
+        writeln!(
+            w,
+            "        if mask.has(StyleId::{id}) {{ self.{f} = from.{f}{clone}; }}",
+            f = row.field
+        )
+        .unwrap();
+    }
+    writeln!(w, "        self.mask = self.mask.union(mask);").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(
         w,
@@ -1283,6 +1337,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::Transitions => format!(
                 "self.{f} = Transitions::parse(value.text(id)?).map_err(|_| StyleValueError::BadTransition {{ style: id }})?;"
             ),
+            Codec::ClipPath => format!("self.{f} = crate::clip::ClipPath::parse(value.text(id)?).ok_or(StyleValueError::BadClipPath {{ style: id }})?;"),
             Codec::Color2 | Codec::Tracks | Codec::Placement => {
                 "return Err(StyleValueError::Unsupported { style: id });".to_string()
             }
@@ -1316,6 +1371,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::Tracks => format!("RowValue::Tracks(&self.{f})"),
             Codec::Placement => format!("RowValue::Placement(self.{f})"),
             Codec::Transitions => format!("RowValue::Transitions(&self.{f})"),
+            Codec::ClipPath => format!("RowValue::ClipPath(&self.{f})"),
         };
         writeln!(w, "            StyleId::{id} => {expr},").unwrap();
     }

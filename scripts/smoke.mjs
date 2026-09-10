@@ -433,6 +433,16 @@ try {
     let logo = box(layout, 'logo');
     for (let i = 0; i < 40 && !(logo && Math.round(logo.h) === 36); i++) { await sleep(50); logo = box(await s.layout(), 'logo'); }
     check(logo && Math.round(logo.w) === 96 && Math.round(logo.h) === 36, `the logo is ${logo?.w}×${logo?.h}, not 96×36 from its 320×120 ratio`);
+    // 2b. `layout <node>` (LLP 1035.002 D1): the runner's half names where
+    // each value came from, the host's half the spaces it has; the explained
+    // box is the listing's box; a stale id is refused by name.
+    const explained = await s.layout('station-name');
+    const n = explained.node;
+    const listed = box(layout, 'station-name');
+    check(n && n.id === byTestId(tree, 'station-name')?.id && n.style && n.space?.viewport, `layout station-name carries no node detail: ${JSON.stringify(explained.node)}`);
+    check(n && ['authored', 'inherited', 'initial'].includes(n.style.text_color?.source), `text_color has no source: ${JSON.stringify(n?.style?.text_color)}`);
+    check(n && listed && Math.abs(n.space.viewport.x - listed.x) < 0.01 && Math.abs(n.space.viewport.w - listed.w) < 0.01, `the explained box ${JSON.stringify(n?.space?.viewport)} disagrees with the listing ${JSON.stringify(listed)}`);
+    check(await s.op({ op: 'layout', id: 999999 }).then(() => false, (e) => /stale node/.test(e.message)), 'a stale node id was not refused by name');
   }
 
   // 2a. The iframe parity oracle and Apple arm (@ref LLP 1020 M1/M2): load
@@ -567,6 +577,28 @@ try {
   tree = await s.tree();
   check(byTestId(tree, 'station-name')?.props.text === 'Palo Alto', `after picking Palo Alto the station is ${byTestId(tree, 'station-name')?.props.text}`);
   check(byTestId(tree, 'home-screen'), 'picking a station did not return home');
+  // 4b. A held contact (LLP 1035.003 D1) on the AppKit carrier: the button
+  // goes down on Change station, leaves it, and comes up — a press AppKit
+  // cancels, so nothing navigates; down and up in place navigates. AppKit
+  // has no cancel for a mouse, and the reply says so instead of faking one.
+  if (host === 'macos') {
+    const down = await s.tap('change-station', { down: true });
+    check(down.delivery === 'platform' && s.contact, `a contact went down as ${down.delivery}`);
+    await s.pointer('move', { dx: 0, dy: 300, ms: 50 });
+    const cancel = await s.pointer('cancel');
+    check(cancel.delivery === 'unsupported' && s.contact, 'AppKit claimed a cancel it cannot do');
+    await s.pointer('up');
+    tree = await s.tree();
+    check(!byTestId(tree, 'stations-screen') && !s.contact, 'a press released outside its button still opened the stations screen');
+    await s.tap('change-station', { down: true });
+    await s.pointer('hold', { ms: 50 });
+    await s.pointer('up');
+    tree = await s.tree();
+    check(byTestId(tree, 'stations-screen'), 'a contact down and up in place did not press the button');
+    await s.tap('station-paloalto');
+    tree = await s.tree();
+    check(byTestId(tree, 'home-screen'), 'the contact step did not return home');
+  }
 
   // 5. Scrolling (LLP 1010): a wheel over the content moves it, and exactly
   // one scroll container takes it — the node when it can, else the page.
@@ -641,6 +673,22 @@ else {
   try {
     let l = await f.layout();
     check(box(l, 'rows') && box(l, 'root'), 'the fixture did not boot');
+    // 8a. A held contact on the web (LLP 1035.003 D1): a finger down on a
+    // row, dragged up while the rows are read mid-gesture, held still so
+    // there is no fling, then lifted; the wheel steps below start from the
+    // top again. Chrome's own touch scrolling, through CDP touch events.
+    if (host === 'web') {
+      const down = await f.tap('row-1', { down: true });
+      check(down.delivery === 'platform', `a contact went down as ${down.delivery}`);
+      await f.pointer('move', { dx: 0, dy: -100, ms: 100 });
+      const held = box(await f.layout(), 'rows');
+      check(held.sy > 50, `a held drag of 100 up scrolled the rows by ${held.sy}`);
+      await f.pointer('hold', { ms: 200 });
+      const up = await f.pointer('up');
+      check(up.delivery === 'platform' && !f.contact, 'the contact was not released');
+      await f.tap('rows', { wheel: [0, -box(await f.layout(), 'rows').sy] });
+      check(box(await f.layout(), 'rows').sy === 0, 'the rows did not return to the top after the contact');
+    }
     await f.tap('row-1', { wheel: [0, 100] });
     l = await f.layout();
     check(box(l, 'rows').sy === 100, `the scroll node took a wheel of 100: scrolled ${box(l, 'rows').sy}`);
@@ -905,6 +953,18 @@ if (deckFixture) {
       } else {
         check(kb === 0 && note.y === noteBefore.y, `no software keyboard here: keyboard-inset-height ${kb}, the field at ${note.y} (was ${noteBefore.y})`);
         console.log(`${host} insets: env ${JSON.stringify(env)}; the viewport ${l.viewport.w}×${l.viewport.h}; no keyboard`);
+      }
+      // A press stops at its button, before the enclosing key handler can
+      // steal focus. This is the reaction-strip shape used by Messages.
+      if (host === 'ios' || host === 'web') {
+        await f.tap('retain');
+        st = await f.state();
+        check(st.slots.presses === 1 && st.slots.focused === true, `the button retained the editor beneath a key handler: ${JSON.stringify(st.slots)}`);
+        if (host === 'ios') {
+          const input = await f.find('note');
+          const observed = await f.op({ op: 'layout', id: input.id });
+          check(observed.node?.native?.firstResponder === true, 'the retained editor is still UIKit first responder');
+        }
       }
       // Dismiss: the button takes the focus (it has a focus handler), the
       // field blurs, the keyboard goes, and the field is where it was.

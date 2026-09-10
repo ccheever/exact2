@@ -1296,6 +1296,10 @@ fn refine_params_from_view(
                             | "submit"
                             | "load"
                             | "message"
+                            | "contextmenu"
+                            | "dblclick"
+                            | "swiperight"
+                            | "scroll"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),
@@ -1314,12 +1318,14 @@ fn refine_params_from_view(
                             // Event payloads: change/key/message are strings;
                             // hover is whether the pointer is over.
                             let payload = match a.name.as_str() {
-                                "change" | "key" | "message" => Some(Ty::String),
-                                "hover" => Some(Ty::Bool),
-                                _ => None,
+                                "change" | "key" | "message" => vec![Ty::String],
+                                "hover" => vec![Ty::Bool],
+                                "scroll" => vec![Ty::Number, Ty::Number],
+                                _ => vec![],
                             };
-                            if let Some(ty) = payload {
-                                let last = ct.actions[ai].len().saturating_sub(1);
+                            let start = ct.actions[ai].len().saturating_sub(payload.len());
+                            for (offset, ty) in payload.into_iter().enumerate() {
+                                let last = start + offset;
                                 if args.len() < ct.actions[ai].len() {
                                     let declared = ct.actions[ai][last].clone();
                                     let Some(unified) = declared.unify(&ty) else {

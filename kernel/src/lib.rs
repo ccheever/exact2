@@ -28,6 +28,7 @@
 #![warn(missing_docs)]
 
 pub mod arena;
+pub mod clip;
 pub mod error;
 pub mod export;
 pub mod generated;

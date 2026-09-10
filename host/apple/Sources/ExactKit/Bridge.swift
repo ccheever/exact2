@@ -91,6 +91,14 @@ final class Runtime {
     func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { read(exact_dispatch(rt, view, over ? 2 : 3, 0, now)) }
     func focus(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 4, 0, now)) }
     func blur(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 5, 0, now)) }
+    func contextmenu(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 10, 0, now)) }
+    func dragX(_ view: UInt32, delta: Double, velocity: Double, release: Bool, now: Double) -> Batch { read(exact_drag_x(rt, view, delta, velocity, release ? 1 : 0, now)) }
+    func swiperight(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 12, 0, now)) }
+    func scroll(_ view: UInt32, left: Double, top: Double, now: Double) -> Batch {
+        let n = write("\(left),\(top)")
+        return read(exact_dispatch(rt, view, 13, n, now))
+    }
+    func dblclick(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 11, 0, now)) }
     func submit(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 7, 0, now)) }
     func load(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 8, 0, now)) }
     func message(_ view: UInt32, _ value: String, now: Double) -> Batch {

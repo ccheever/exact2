@@ -1,33 +1,260 @@
 {
   "tree": {
-    "epoch": 3, "incarnation": 1, "clock": 1500, "roots": [1],
+    "epoch": 3,
+    "incarnation": 1,
+    "clock": 1500,
+    "roots": [
+      1
+    ],
     "nodes": [
-      { "id": 1, "parent": null, "depth": 0, "type": "View", "props": { "testId": "root" }, "handlers": [], "children": [2, 3] },
-      { "id": 2, "parent": 1, "depth": 1, "type": "Text", "props": { "text": "Say \"hi\"\n" }, "handlers": [], "children": [] },
-      { "id": 3, "parent": 1, "depth": 1, "type": "Pressable", "props": { "testId": "go", "accessibilityLabel": "" }, "handlers": ["press", "change"], "children": [4] },
-      { "id": 4, "parent": 3, "depth": 2, "type": "TextInput", "props": { "testId": "q", "value": "", "placeholder": "Search" }, "handlers": ["change"], "children": [] }
+      {
+        "id": 1,
+        "parent": null,
+        "depth": 0,
+        "type": "View",
+        "props": {
+          "testId": "root"
+        },
+        "handlers": [],
+        "children": [
+          2,
+          3
+        ]
+      },
+      {
+        "id": 2,
+        "parent": 1,
+        "depth": 1,
+        "type": "Text",
+        "props": {
+          "text": "Say \"hi\"\n"
+        },
+        "handlers": [],
+        "children": []
+      },
+      {
+        "id": 3,
+        "parent": 1,
+        "depth": 1,
+        "type": "Pressable",
+        "props": {
+          "testId": "go",
+          "accessibilityLabel": ""
+        },
+        "handlers": [
+          "press",
+          "change"
+        ],
+        "children": [
+          4
+        ]
+      },
+      {
+        "id": 4,
+        "parent": 3,
+        "depth": 2,
+        "type": "TextInput",
+        "props": {
+          "testId": "q",
+          "value": "",
+          "placeholder": "Search"
+        },
+        "handlers": [
+          "change"
+        ],
+        "children": []
+      }
     ]
   },
   "layout": {
-    "clock": 1500, "viewport": { "w": 420, "h": 900 },
+    "clock": 1500,
+    "viewport": {
+      "w": 420,
+      "h": 900
+    },
     "nodes": [
-      { "id": 1, "testId": "root", "type": "View", "x": 0, "y": 0, "w": 420, "h": 900 },
-      { "id": 2, "type": "Text", "x": 20, "y": 12.5, "w": 380, "h": 18 },
-      { "id": 5, "testId": "rows", "type": "ScrollView", "x": 0, "y": 40, "w": 420, "h": 200, "sx": 0, "sy": 100 }
-    ]
+      {
+        "id": 1,
+        "testId": "root",
+        "type": "View",
+        "x": 0,
+        "y": 0,
+        "w": 420,
+        "h": 900
+      },
+      {
+        "id": 2,
+        "type": "Text",
+        "x": 20,
+        "y": 12.5,
+        "w": 380,
+        "h": 18
+      },
+      {
+        "id": 5,
+        "testId": "rows",
+        "type": "ScrollView",
+        "x": 0,
+        "y": 40,
+        "w": 420,
+        "h": 200,
+        "sx": 0,
+        "sy": 100
+      }
+    ],
+    "node": {
+      "id": 2,
+      "type": "Text",
+      "site": 3,
+      "instance": [
+        {
+          "region": 0,
+          "key": "north"
+        }
+      ],
+      "epoch": 2,
+      "incarnation": 1,
+      "style": {
+        "text_color": {
+          "value": "light-dark(#000000, #ffffff)",
+          "source": "inherited",
+          "from": 1
+        },
+        "font_size": {
+          "value": 20,
+          "source": "authored"
+        },
+        "letter_spacing": {
+          "value": 0,
+          "source": "initial"
+        }
+      },
+      "props": {
+        "text": "Mountain View"
+      },
+      "frame": {
+        "x": 20,
+        "y": 12.5,
+        "w": 380,
+        "h": 18
+      },
+      "absolute": {
+        "x": 20,
+        "y": 12.5,
+        "w": 380,
+        "h": 18
+      },
+      "space": {
+        "viewport": {
+          "x": 20,
+          "y": 12.5,
+          "w": 380,
+          "h": 18
+        },
+        "local": {
+          "w": 380,
+          "h": 18
+        },
+        "window": {
+          "x": 20,
+          "y": 56.5,
+          "w": 380,
+          "h": 18
+        },
+        "capture": {
+          "scale": 2
+        }
+      },
+      "scroll": [
+        {
+          "viewport": true,
+          "sx": 0,
+          "sy": 0
+        },
+        {
+          "id": 5,
+          "sx": 0,
+          "sy": 100
+        }
+      ],
+      "clip": [
+        {
+          "id": 5,
+          "kind": "overflow"
+        }
+      ],
+      "visible": {
+        "hidden": false,
+        "inert": false,
+        "inViewport": true,
+        "clipped": false
+      },
+      "native": {
+        "view": "NodeView",
+        "controller": "RouteController",
+        "route": "home"
+      }
+    }
   },
   "logs": {
-    "next": 3, "from": 1, "dropped": 0,
-    "lines": ["t=0 press view 3 (go) → epoch 2 (+1 −0 ~1)", "t=1500 advance → 1 timer fired, epoch 3"],
-    "host": ["console.error: exact: something"]
+    "next": 3,
+    "from": 1,
+    "dropped": 0,
+    "lines": [
+      "t=0 press view 3 (go) → epoch 2 (+1 −0 ~1)",
+      "t=1500 advance → 1 timer fired, epoch 3"
+    ],
+    "host": [
+      "console.error: exact: something"
+    ]
   },
-  "empty": { "next": 3, "from": 3, "dropped": 0, "lines": [], "host": [] },
-  "dropped": { "next": 5000, "from": 4990, "dropped": 4989, "lines": ["t=4990000 advance → 1 timer fired, epoch 9"], "host": [] },
+  "empty": {
+    "next": 3,
+    "from": 3,
+    "dropped": 0,
+    "lines": [],
+    "host": []
+  },
+  "dropped": {
+    "next": 5000,
+    "from": 4990,
+    "dropped": 4989,
+    "lines": [
+      "t=4990000 advance → 1 timer fired, epoch 9"
+    ],
+    "host": []
+  },
   "state": {
     "clock": 1500,
-    "slots": { "query": "", "stationId": null },
-    "derives": { "selectedId": "mv" },
-    "resources": { "station": { "id": "mv", "name": "Mountain View" }, "board": [{ "id": "a", "at": 1 }] }
+    "slots": {
+      "query": "",
+      "stationId": null
+    },
+    "derives": {
+      "selectedId": "mv"
+    },
+    "resources": {
+      "station": {
+        "id": "mv",
+        "name": "Mountain View"
+      },
+      "board": [
+        {
+          "id": "a",
+          "at": 1
+        }
+      ]
+    }
   },
-  "tap": { "at": [210, 45.5], "tapped": 3, "target": "go" }
+  "tap": {
+    "at": [
+      210,
+      45.5
+    ],
+    "tapped": 3,
+    "target": "go",
+    "delivery": "platform",
+    "carrier": "macos",
+    "mode": "agent"
+  }
 }

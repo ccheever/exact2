@@ -42,6 +42,9 @@ Tables: `types`, `fields`, `slots`, `derives`, `resources`, `args`, `actions`,
 `handlers`. **No kernel vocabulary is declared here**: `nodes.node_type`,
 `bindings.id` are the kernel's ordinals as numbers (LLP 1004 D2); the plan
 header carries the kernel's `SCHEMA_DIGEST` so a mismatch is refused at boot.
+The value bridge consults the row's generated codec before interpreting `auto`:
+it becomes a dimension value only for dimension rows, and remains text for enum
+rows such as `align-self`, `overscroll-behavior`, and `scrollbar-width`.
 
 ## 2. Bytes (`Plan::encode` / `Plan::decode`)
 
@@ -160,18 +163,25 @@ Style values go through the kernel's own `StyleProps::set_dynamic`
 enum name, `auto`, `N%`, or a hex color; a number is the row's number.
 
 **Events.** `dispatch(view, Press | Change(text) | Hover(over) | Focus | Blur
-| Key(name) | Submit)` finds the site and the frames in force at that view, evaluates
+| Key(name) | Submit | Load | Message(text) | Contextmenu | Dblclick | Swiperight | Scroll(left, top))` finds the site and the frames in force at that view, evaluates
 the handler's curried arguments there at dispatch time, appends the event
 payload — a change's text, a hover's `over` (in or out: one kind, one handler,
 one action), a key's web name (`Enter`, `Escape`, `ArrowDown`, `a` — the
-DOM's `KeyboardEvent.key`), nothing for press, focus, blur, submit — and
+DOM's `KeyboardEvent.key`), nothing for press, focus, blur, submit, load, contextmenu or dblclick — and
 runs the action. `Submit` (2026-08-30) is Enter in an input with a `submit`
 handler: the web's implicit submission (HTML forms §4.10.21.2) without a
-form, so an action need not branch on a key. The seven `EventKind`s are
+form, so an action need not branch on a key. `Contextmenu` and `Dblclick`
+(2026-09-09, Messages) carry no payload: the platform recognizes secondary
+activation / a long press and a double click / tap. The `EventKind`s are
 `plan/tables/format.json`'s. Not events
 (2026-08-30, the minimal set first): pointer coordinates and moves (a drag),
-`keyup`, double-click, and a wheel's offsets reaching the runner (a scroll
+`keyup`, and a wheel's offsets reaching the runner (a scroll
 container's position is the host's, LLP 1007 §6).
+`Scroll` (2026-09-09, Messages) appends two number arguments, `scrollLeft`
+and `scrollTop`, in CSS pixels, after the authored arguments. It reports the
+host's changed position, including programmatic changes, and does not bubble.
+The host still owns scrolling. The ABI's dispatch kind 13 carries two finite
+numbers as UTF-8 `left,top`; malformed coordinates are refused.
 `act(name, args)` runs an action by name (tests; an agent goes through the host's input path, LLP 1012 §1). Arguments must
 conform to the parameters' declared types (`ArgumentType`) and every write to
 its slot's (`SlotType`) — so an authored `width = 1/0` is a typed refusal with
@@ -182,7 +192,11 @@ each commit and carries them to its presenter as `command` ops (2026-08-30;
 before that they were journaled and nothing executed them): `setScheme(s)`
 is the host's colour scheme — the document's `color-scheme` on the web,
 `NSAppearance` on macOS, the window's interface style on iOS — and a name
-no presenter knows is refused on its stderr. Keyed rows use one key rule:
+no presenter knows is refused on its stderr. `copyText(text)` writes one string
+to the host clipboard after commit (Apple: LLP 1008 §5; web: LLP 1007 §4).
+It has no return value and neither reads clipboard contents nor changes focus.
+Invalid arguments and unsupported/denied writes are reported by the host.
+Keyed rows use one key rule:
 strings, finite numbers (`-0` is `0`), bools; NaN is refused (`KeyKind`).
 
 **Atomicity.** A failure during settlement rolls back the action's slot
@@ -247,3 +261,7 @@ field and by pc, value shapes, jump resolution), `runner/tests/now_screen.rs`
 reorder, `when` flip, timers, commands, refusals leave the kernel untouched,
 schema mismatch), the `math` pins. All under `cargo test --workspace`; clippy
 `-D warnings`, fmt, wasm, and `caps` green on 2026-08-28.
+
+`swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
+host event. It preserves authored action arguments and journals once on a
+completed swipe. Move/cancel samples do not enter the runner.

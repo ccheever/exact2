@@ -36,8 +36,11 @@ event, now_ms)` and `Host::advance(now_ms)` run the runner and emit a batch
 for the receipts: destroyed keys → `destroy`; created keys → `create` with the
 element's tag, DOM props, `cssText`, and handler kinds; touched keys → `props`
 (set/clear deltas), `style` (whole `cssText`, only when it changed),
-`children` (only when the ordered list changed); then, last, `animate` for
-any spring the commit released (§3). `now_ms` is the page's clock
+`children` (only when the ordered list changed), and `animate` for
+any spring the commit released (§3). When one advance collects several receipts,
+all surviving elements are created before their final child lists are attached:
+an early receipt reads the final kernel tree and can name a later receipt's child.
+Springs retain their receipt's due time. `now_ms` is the page's clock
 (`performance.now()` from script start), the one clock the runner's timers
 and the springs share. A per-view mirror is the memo of what the page has
 been told; the kernel stays the one source of truth. A runner refusal comes
@@ -51,7 +54,16 @@ by `semanticTag` (`main`, `header`, `nav`, `section`, `footer`, `article`,
 `aside`). Props → DOM names: `text`→`textContent`, `testId`→`data-testid`,
 `accessibilityLabel`→`aria-label`, `accessibilityRole`→`role`,
 `placeholder`, `value`, `disabled`, `lang`, `imageSource`→`src`; any other
-prop rides as `data-<name>` so nothing is lost.
+prop rides as `data-<name>` so nothing is lost. `scrollTop` and `scrollLeft`
+are explicit DOM-property bindings, applied after the complete batch has mounted
+its children and styles. Changes on one axis leave the other alone; clearing a
+binding cancels its pending assignment, and unchanged bindings do not override
+manual scrolling. A pending offset equal to the DOM’s current value is not
+assigned again, so a mirrored scroll event does not restart CSS snapping. A declared `scroll` handler listens to the element's
+[non-bubbling DOM event](https://drafts.csswg.org/cssom-view/#scrolling-events)
+and reports its actual `scrollLeft` and `scrollTop`
+through dispatch kind 13. Initial offset writes and later programmatic changes
+use that same browser event; unchanged positions produce no synthetic event.
 
 ## 2. CSS, once (`host/web/src/css.rs`)
 
@@ -157,6 +169,12 @@ It stamps `data-boot-ms` on the root when the first batch is in the DOM and
 bare `<div>` would not have (`body` margin; `button`/`input` UA styles),
 because the kernel's defaults are already CSS's.
 
+An explicit `retainFocus` ancestor prevents pointer-down focus changes on
+non-editable content, including buttons and passive sheet headers. Inputs,
+textareas, selects, and contenteditable targets keep their normal focus behavior.
+This matches the native unhandled-touch retention policy; an authored focus
+command can still transfer focus.
+
 **The page's environment (2026-08-30).** The viewport meta follows the first
 root's `viewportFit` and `interactiveWidget` props (`syncViewportFit`, on
 every `roots` op and on a change of either): `cover` appends
@@ -170,6 +188,50 @@ shrinks, the focused field is scrolled into it. The
 agent's `layout` reports both as `env` (LLP 1012 §1): the insets read off a
 hidden element padded by `env()`, `keyboard-inset-height` as `innerHeight`
 less the visual viewport's height (zero on a desktop).
+
+The `contextTarget` presentation policy (LLP 1001 §1, 1008 §9) finds the nearest
+absolute ancestor of the declared preview. It magnifies the existing content
+with a CSS transform (15%, at most 26 added points of width), leaving its text
+layout intact. Following siblings move by half the added height before panel
+alignment, preserving their source-relative position after the panel moves up.
+`contextMagnify=false` disables host enlargement and its extra-height
+offsets while preserving source placement, clamping and authored transforms.
+Otherwise the default magnification applies.
+Top-aligned immediate side siblings move horizontally to preserve their gap to
+the enlarged preview edge; zero-height side slots keep the balloon's original
+percentage-width basis and the row's height.
+Clamping includes the farther extent of the enlarged preview or following
+controls. The vertical clamp intersects the viewport with the panel's containing
+block, so an authored region can reserve space for a participant popover.
+Source-edge alignment and viewport clamping use painted rectangles;
+fractional CSS `top` values stay fractional across updates. This separate panel
+projection leaves the authored individual transform rows alone and resets before
+recomputation. The controls remain live DOM content, including focus retention,
+reaction-strip scrolling and outside dismissal.
+
+The preview captures its source rectangle in root coordinates before its entry
+batch can change focus. Height changes retain that rectangle; width changes
+recapture it after layout. The source's vertical scroll contents receive the
+same presentation displacement as the clamped preview. If the scroll region
+itself moved (a centered reply thread after keyboard dismissal), its clip retains
+its entry position too. These transforms reset before each projection and on
+dismissal; they do not write authored scroll offsets. Projection follows batch
+focus/scroll settlement and ResizeObserver settlement, so a later end-follow
+adjustment cannot leave the source behind. The cache ends when the preview or
+source disconnects or the target changes.
+
+The `copyText(text)` command accepts exactly one string and starts
+`navigator.clipboard.writeText` synchronously during batch dispatch, retaining
+the browser's user-activation context. Its promise joins the existing in-flight
+set so driver settlement can wait for the write. Invalid arguments, an absent
+secure-context clipboard API, and rejected writes are logged as errors; there
+is no fallback that selects text or moves focus. It never reads the clipboard.
+
+An input with `emojiPicker=true` carries that explicit DOM policy attribute.
+Its input handler waits for composition to finish, clears the field, and sends
+`change` only for a single emoji grapheme, using `Intl.Segmenter` and the gate
+in LLP 1001 §1. It does not open an OS emoji panel. The browser receives no
+search text from a native keyboard's separate search field.
 
 ## 5. The parity harness (`host/web/src/parity.rs`, `parity.html`, `parity.mjs`)
 
@@ -358,3 +420,25 @@ and Exact's local absolute image/font/deck URLs bind to the same base. Native
 stream blobs and web release paths receive immutable cache headers; canonical
 aliases, pointers, and removals are no-store. Local build/dev serving retains
 its unversioned paths. The agent's HTTP carrier calls the same static handler.
+
+**Modal routes** (2026-09-09, Messages): the selected keyed route's
+`navigationPresentation="modal"` keeps its preceding route visible and inert
+behind the authored overlay. An isolated pseudo-element supplies the host's
+20% black backdrop; the app does not duplicate UIKit's presentation dimming.
+Escape invokes the root's named Back control
+unless the modal's `closedby` is `none`; explicit Close remains available.
+The iOS projection uses UIKit's sheet and its local keyboard viewport (LLP 1008).
+Both route-policy props reach the DOM, including updates to the close policy.
+
+**`layout <node>`** (2026-09-09, LLP 1035.002 D1): `layout` with an `id`
+adds `node` — the runner's rows and sources (the wasm's `node` message)
+merged with what the page knows (`glue.js` `nodeDetail`): the box in the
+viewport, the client box, `devicePixelRatio` as the capture scale, the
+scroll chain (the page first, then `data-scroll` ancestors), the ancestors
+whose computed `overflow` or `clip-path` clip, `hidden` from
+`checkVisibility`, `inert` from the nearest `[inert]`, in-viewport and
+clipped-away from the rects — and `browser`, the browser's computed value
+of every inherited row (`color`, the font rows, `line-height`,
+`letter-spacing`, `text-align`, `direction`, `white-space`), the oracle
+beside the kernel's answer. No window or screen space is reported: the
+page has none.

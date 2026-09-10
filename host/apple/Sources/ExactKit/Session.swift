@@ -377,6 +377,10 @@ public final class ExactSession {
         presenter.onFocus = { [unowned self] id in apply(runtime.focus(id, now: now())) }
         presenter.onBlur = { [unowned self] id in apply(runtime.blur(id, now: now())) }
         presenter.onKey = { [unowned self] id, name in apply(runtime.key(id, name, now: now())) }
+        presenter.onContextmenu = { [unowned self] id in apply(runtime.contextmenu(id, now: now())) }
+        presenter.onSwiperight = { [unowned self] id in apply(runtime.swiperight(id, now: now())) }
+        presenter.onScroll = { [unowned self] id, left, top in apply(runtime.scroll(id, left: left, top: top, now: now())) }
+        presenter.onDblclick = { [unowned self] id in apply(runtime.dblclick(id, now: now())) }
         presenter.onSubmit = { [unowned self] id in apply(runtime.submit(id, now: now())) }
         presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
         presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
@@ -537,6 +541,21 @@ public final class ExactSession {
             let queued = pendingCommands
             pendingCommands = []
             for (name, args) in queued {
+                if name == "copyText" {
+                    guard args.count == 1, let text = args.first as? String else {
+                        fputs("exact: copyText requires one string\n", stderr)
+                        continue
+                    }
+                    #if canImport(UIKit)
+                    UIPasteboard.general.string = text
+                    #else
+                    NSPasteboard.general.clearContents()
+                    if !NSPasteboard.general.setString(text, forType: .string) {
+                        fputs("exact: copyText failed\n", stderr)
+                    }
+                    #endif
+                    continue
+                }
                 if name == "focus" {
                     app.deliver { [weak self] in self?.presenter.focusElement(args) }
                     continue

@@ -1,0 +1,41 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Messages",
+  "short_name": "Messages",
+  "id": "com.exact.messages",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "app": {
+    "id": "com.exact.messages",
+    "name": "Messages"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 402,
+        "height": 874,
+        "minWidth": 320,
+        "minHeight": 500
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

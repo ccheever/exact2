@@ -82,10 +82,10 @@ fn frame(kernel: &mut Kernel, image: u32) -> (f32, f32) {
     (f.width, f.height)
 }
 
-/// Frames land on the point grid; compare within a point.
+/// Ratio calculations retain fractional CSS pixels; allow floating-point error.
 fn near(got: (f32, f32), want: (f32, f32), what: &str) {
     assert!(
-        (got.0 - want.0).abs() < 1.0 && (got.1 - want.1).abs() < 1.0,
+        (got.0 - want.0).abs() < 0.001 && (got.1 - want.1).abs() < 0.001,
         "{what}: got {got:?}, want {want:?}"
     );
 }
@@ -172,8 +172,8 @@ fn in_a_block_parent_an_auto_width_image_fills_it_a_declared_deviation() {
         .compute_layout(1, Offer::definite(390.0, 844.0))
         .unwrap();
     let f = kernel.node(2).unwrap().frame;
-    // 390 × (120/320) = 146.25, rounded to the point grid.
-    assert_eq!((f.width, f.height), (390.0, 146.0));
+    // 390 × (120/320) = 146.25; layout preserves the fractional ratio.
+    assert_eq!((f.width, f.height), (390.0, 146.25));
 }
 
 #[test]
@@ -196,7 +196,7 @@ fn the_css_replaced_element_constraint_table() {
     );
     near(
         loaded(&[(MaxHeight, 40.0)], false),
-        (106.67, 40.0),
+        (40.0 * 320.0 / 120.0, 40.0),
         "max-height keeps the ratio",
     );
     near(
@@ -206,12 +206,12 @@ fn the_css_replaced_element_constraint_table() {
     );
     near(
         loaded(&[(Width, 96.0), (MaxHeight, 20.0)], false),
-        (53.33, 20.0),
+        (20.0 * 320.0 / 120.0, 20.0),
         "a set width, then max-height: the width follows",
     );
     near(
         loaded(&[(MaxWidth, 100.0), (MaxHeight, 20.0)], false),
-        (53.33, 20.0),
+        (20.0 * 320.0 / 120.0, 20.0),
         "both maxima violated: the tighter one wins",
     );
 }

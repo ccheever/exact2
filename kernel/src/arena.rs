@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use taffy::NodeId;
 
 use crate::error::ApplyError;
-use crate::generated::{NodeType, PropId, StyleProps};
+use crate::generated::{FieldSizing, NodeType, PropId, StyleId, StyleMask, StyleProps};
 use crate::id::{Frame, NodeFlags, NodeKey, ViewId};
 use crate::props::PropList;
 use crate::style::Env;
@@ -249,20 +249,74 @@ impl NodeArena {
                 .is_some_and(|p| self.node_types[p as usize] == NodeType::Text)
     }
 
-    /// Append the text runs of the leaf rooted at `slot`, in order.
+    /// The slot whose own row supplies `id` for `slot`: the slot itself when
+    /// it sets the row; for a row the schema marks inherited, the nearest
+    /// logical ancestor that does; `None` when the initial value applies
+    /// (CSS inheritance, LLP 1035.000 D1).
+    pub fn inherited_source(&self, slot: u32, id: StyleId) -> Option<u32> {
+        let mut cur = Some(slot);
+        while let Some(s) = cur {
+            if self.styles[s as usize].mask.has(id) {
+                return Some(s);
+            }
+            if !id.inherited() {
+                return None;
+            }
+            cur = self.parents[s as usize];
+        }
+        None
+    }
+
+    /// The node's rows with the inherited rows in `rows` resolved through the
+    /// logical ancestors: an own row stays; a missing inherited row takes the
+    /// nearest ancestor's and is marked set; a row no ancestor sets keeps the
+    /// initial value, unmarked. Rows outside `rows`, and rows the schema does
+    /// not mark inherited, are the node's own. One walk, however many rows.
+    pub fn computed_style(&self, slot: u32, rows: StyleMask) -> StyleProps {
+        let mut out = self.styles[slot as usize].clone();
+        let mut pending = rows.intersect(StyleMask::INHERITED).minus(out.mask);
+        let mut cur = self.parents[slot as usize];
+        while !pending.is_empty() {
+            let Some(p) = cur else { break };
+            let ancestor = &self.styles[p as usize];
+            let found = pending.intersect(ancestor.mask);
+            if !found.is_empty() {
+                out.copy_rows(ancestor, found);
+                pending = pending.minus(found);
+            }
+            cur = self.parents[p as usize];
+        }
+        out
+    }
+
+    /// Append the text runs of the leaf rooted at `slot`, in order. A run
+    /// measures with its computed style: the rows it sets, else its
+    /// paragraph's, else the initial values — as a `<span>` inside a `<div>`.
     pub fn text_runs<'a>(&'a self, slot: u32, out: &mut Vec<TextRun<'a>>) {
         let s = slot as usize;
-        let style = TextStyle::from_style(&self.styles[s]);
+        let style = TextStyle::from_style(&self.computed_style(slot, StyleMask::INHERITED));
         match self.node_types[s] {
             NodeType::TextInput => {
                 // An input has a line box even when empty (the web's
                 // `<input>`): its value, else its placeholder, else one space.
                 let props = &self.props[s];
-                let text = props
-                    .str(PropId::Value)
-                    .filter(|v| !v.is_empty())
-                    .or_else(|| props.str(PropId::Placeholder).filter(|p| !p.is_empty()))
-                    .unwrap_or(" ");
+                // Fixed controls have a preferred size independent of their
+                // current value. HTML's default character width is 20; a
+                // textarea's default is two rows. Explicit CSS dimensions
+                // still win in layout. Content sizing measures the live value.
+                let text = if self.styles[s].field_sizing == FieldSizing::Fixed {
+                    if props.str(PropId::SemanticTag) == Some("textarea") {
+                        "00000000000000000000\n00000000000000000000"
+                    } else {
+                        "00000000000000000000"
+                    }
+                } else {
+                    props
+                        .str(PropId::Value)
+                        .filter(|v| !v.is_empty())
+                        .or_else(|| props.str(PropId::Placeholder).filter(|p| !p.is_empty()))
+                        .unwrap_or(" ")
+                };
                 out.push(TextRun { text, style });
             }
             _ => {

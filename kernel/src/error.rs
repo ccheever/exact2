@@ -36,6 +36,8 @@ pub enum DecodeError {
     BadColorValue(u8),
     /// The frame does not start with the EXWF magic.
     BadMagic,
+    /// Invalid or unsupported CSS clipping path.
+    BadClipPath,
     /// The frame revision is not one this kernel reads.
     UnsupportedRevision(u16),
     /// The producer was generated from a different schema than this kernel.
@@ -326,17 +328,32 @@ pub enum StyleValueError {
         expected: &'static str,
     },
     /// The row is an enum and the text is not one of its values.
-    UnknownEnumValue { style: StyleId },
+    UnknownEnumValue {
+        style: StyleId,
+    },
     /// `auto` on a row that does not admit it.
-    AutoNotAdmitted { style: StyleId },
+    AutoNotAdmitted {
+        style: StyleId,
+    },
     /// The number does not fit the row's integer codec.
-    OutOfRange { style: StyleId },
+    OutOfRange {
+        style: StyleId,
+    },
     /// A color text was not `#rgb`, `#rrggbb`, or `#rrggbbaa`.
-    BadColor { style: StyleId },
+    BadColor {
+        style: StyleId,
+    },
     /// The row's codec has no dynamic form (grid tracks, placements, gradients).
-    Unsupported { style: StyleId },
+    Unsupported {
+        style: StyleId,
+    },
     /// A `transition` text was not CSS shorthand the evaluator accepts.
-    BadTransition { style: StyleId },
+    BadTransition {
+        style: StyleId,
+    },
+    BadClipPath {
+        style: StyleId,
+    },
 }
 
 impl fmt::Display for StyleValueError {

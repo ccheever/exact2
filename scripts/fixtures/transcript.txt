@@ -10,6 +10,15 @@ viewport 420×900 · clock 1500 ms
 #1 [root] View 0,0 420×900
 #2 Text 20,12.5 380×18
 #5 [rows] ScrollView 0,40 420×200 scroll 0,100
+node #2 Text · site 3 · instance "north" · epoch 2 · incarnation 1
+  font_size = 20 (authored)
+  letter_spacing = 0 (initial)
+  text_color = light-dark(#000000, #ffffff) (inherited from #1)
+  space viewport 20,12.5 380×18 · frame 20,12.5 380×18 (kernel, in the parent) · window 20,56.5 380×18 · scale 2
+  scroll viewport 0,0 · #5 0,100
+  clip #5 overflow
+  visible clipped=false hidden=false inViewport=true inert=false
+  native controller=RouteController route=home view=NodeView
 
 --- logs
 t=0 press view 3 (go) → epoch 2 (+1 −0 ~1)
@@ -48,4 +57,4 @@ t=4990000 advance → 1 timer fired, epoch 9
 }
 
 --- tap
-{"at":[210,45.5],"tapped":3,"target":"go"}
+{"at":[210,45.5],"tapped":3,"target":"go","delivery":"platform","carrier":"macos","mode":"agent"}

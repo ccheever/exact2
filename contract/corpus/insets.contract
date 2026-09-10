@@ -7,6 +7,12 @@
 component Insets
   state note = ""
   state focused = false
+  state presses = 0
+  state lastKey = ""
+  action retain writes presses
+    presses = presses + 1
+  action menuKey(value) writes lastKey
+    lastKey = value
   action setNote(value) writes note
     note = value
   action focusIn writes focused
@@ -17,6 +23,9 @@ component Insets
     main testId="root" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" background-color="#12081f" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
       column testId="content" width="100%" height="100%" justify-content="flex-end" gap=12 padding=16 box-sizing="border-box"
         text "Insets" testId="title" font-size=20 font-weight=700 color="#ffffff"
+        column key=menuKey testId="key-parent"
+          button press=retain retainFocus=true testId="retain" padding=10 background-color="#7c4dff"
+            text "Keep editing" font-size=14 color="#ffffff"
         button press=focusOut focus=focusOut testId="dismiss" padding=10 border-radius=8 background-color="#7c4dff"
           text "Dismiss the keyboard" font-size=14 color="#ffffff"
         when focused

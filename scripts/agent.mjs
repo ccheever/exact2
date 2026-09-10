@@ -6,7 +6,7 @@
 //
 // Usage:  node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window]
-//   tap <target> [wheel <dx> <dy> [gesture] | hover] | type <target> <text…> | type <target> key <Name>
+//   tap <target> [wheel <dx> <dy> [gesture] | hover | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name>
 //   clock <ms|+ms|settle>
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
@@ -14,6 +14,8 @@
 // delta. Elastic overscroll lives entirely in those phases, so a plain wheel
 // exercises a path a finger never takes (LLP 1033 D4a). macOS only: a host
 // that cannot phase a wheel refuses rather than quietly sending a plain one.
+// `tap … contextmenu` and `tap … dblclick` use browser secondary/double clicks;
+// on iOS they inject the recognized event, not a UIKit finger gesture.
 // `tap … hover` moves the pointer onto the target (a hover, LLP 1005 §3);
 // `type … key Enter` presses a key at it, by the web's key names — forms of
 // tap and type, not operations of their own (rules/NOT-DOING.md).
@@ -183,14 +185,18 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
     await evaluate('exact.ready'); // First pixel precedes deferred module readiness.
     if (plan) await evaluate("fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => exact.reload(new Uint8Array(b)))");
     const frame = () => Promise.race([evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), sleep(250)]);
+    // The one contact this carrier may hold (LLP 1035.003 D1), and whether
+    // Chrome's touch emulation is on — switched on by the first contact.
+    let touch = false;
+    let contact = null;
     const ask = async (req) => JSON.parse(await evaluate(`Promise.resolve(exact.agent(${JSON.stringify(req)})).then((r) => JSON.stringify(r))`));
     return {
       host: 'web', boot: Number(boot), hostLines, gpuMs: () => gpuMs,
       ask,
       async input(id, kind, opts) {
-        const r = (await ask({ op: 'layout' })).nodes.find((n) => n.id === id);
-        if (!r || (r.w === 0 && r.h === 0)) throw new Error(`view ${id} has no box on screen`);
-        const x = r.x + r.w / 2, y = r.y + r.h / 2;
+        const r = id == null ? null : (await ask({ op: 'layout' })).nodes.find((n) => n.id === id);
+        if (id != null && (!r || (r.w === 0 && r.h === 0))) throw new Error(`view ${id} has no box on screen`);
+        const x = r ? r.x + r.w / 2 : contact?.x, y = r ? r.y + r.h / 2 : contact?.y;
         if (kind === 'press' || kind === 'key' || kind === 'type') {
           const request = kind === 'press'
             ? { op: 'tap', id, selector: opts.selector, x: opts.x, y: opts.y }
@@ -202,10 +208,54 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
             return { ...guest, at: [x, y] };
           }
         }
+        if (kind === 'down' || kind === 'move' || kind === 'hold' || kind === 'up' || kind === 'cancel') {
+          // A held contact (LLP 1035.003 D1) is a finger here: CDP touch
+          // events under touch emulation, enabled the first time a contact
+          // is used. Chrome recognizes, scrolls and flings from them exactly
+          // as it would from a hand; a timed move is delivered as steps on
+          // real time so its velocity is real too.
+          if (!touch) { await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 }); touch = true; }
+          if (kind === 'down') {
+            if (contact) throw new Error('a contact is already down; up it first');
+            const px = opts.x ?? x, py = opts.y ?? y;
+            await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: px, y: py }] });
+            contact = { x: px, y: py };
+            await frame();
+            return { contact: id, phase: 'down', at: [px, py], delivery: 'platform' };
+          }
+          if (!contact) throw new Error('no contact is down');
+          if (kind === 'move') {
+            const to = { x: opts.x ?? contact.x + (opts.dx ?? 0), y: opts.y ?? contact.y + (opts.dy ?? 0) };
+            const ms = Math.max(0, opts.ms ?? 0);
+            const steps = Math.max(1, Math.round(ms / 16));
+            for (let i = 1; i <= steps; i++) {
+              const t = i / steps;
+              await call('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: contact.x + (to.x - contact.x) * t, y: contact.y + (to.y - contact.y) * t }] });
+              if (ms) await sleep(ms / steps);
+            }
+            contact = to;
+            await frame();
+            return { phase: 'move', at: [to.x, to.y], delivery: 'platform' };
+          }
+          if (kind === 'hold') { if (opts.ms) await sleep(opts.ms); return { phase: 'hold', at: [contact.x, contact.y], delivery: 'platform' }; }
+          await call('Input.dispatchTouchEvent', { type: kind === 'up' ? 'touchEnd' : 'touchCancel', touchPoints: [] });
+          const at = [contact.x, contact.y];
+          contact = null;
+          await frame();
+          return { phase: kind, at, delivery: 'platform' };
+        }
         if (kind === 'wheel') await call('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: opts.wheel[0], deltaY: opts.wheel[1] });
         else if (kind === 'hover') await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+        else if (kind === 'contextmenu' || kind === 'dblclick') {
+          await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+          for (let clickCount = 1; clickCount <= (kind === 'dblclick' ? 2 : 1); clickCount++) {
+            const button = kind === 'contextmenu' ? 'right' : 'left';
+            await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, clickCount });
+            await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, clickCount });
+          }
+        }
         else if (kind === 'key') {
-          const f = await ask({ op: 'focus', id });
+          const f = await ask({ op: 'focus', id, select: false });
           if (f.error) throw new Error(f.error);
           const key = opts.key;
           const code = { Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight' }[key] ?? (key.length === 1 ? `Key${key.toUpperCase()}` : key);
@@ -379,7 +429,8 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
       ask,
       async input(id, kind, opts) {
         const guest = { selector: opts.selector, x: opts.x, y: opts.y };
-        const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
+        const phase = ['down', 'move', 'hold', 'up', 'cancel'].includes(kind);
+        const r = phase ? await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms }) : kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -466,7 +517,8 @@ async function openIOS({ plan, app, env: extra = {}, session, bundle = appBundle
       ask,
       async input(id, kind, opts) {
         const guest = { selector: opts.selector, x: opts.x, y: opts.y };
-        const r = kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
+        const phase = ['down', 'move', 'hold', 'up', 'cancel'].includes(kind);
+        const r = phase ? await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms }) : kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -523,11 +575,14 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       s.logCursor = r.next;
       return { lines: r.lines, host: carrier.hostLines.splice(0), from: r.from, next: r.next, dropped };
     },
-    /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. */
-    async layout() {
-      const [l, t] = await Promise.all([s.op({ op: 'layout' }), s.tree()]);
+    /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. With a target, `node` explains that one node (LLP 1035.002 D1): every row it sets or inherits with where the value came from, its box in each coordinate space the host has, the scroll and clip chains above it, whether it is hidden, inert, in the viewport or clipped away, and what the host mounted for it — observations of the runner's memory and the host's view tree, never a second model. */
+    async layout(target) {
+      const req = { op: 'layout' };
+      if (target != null) req.id = (await s.find(target)).id;
+      const [l, t] = await Promise.all([s.op(req), s.tree()]);
       const by = new Map(t.nodes.map((n) => [n.id, n]));
       for (const n of l.nodes) { const k = by.get(n.id); if (k) { n.type = k.type; if (k.props.testId) n.testId = k.props.testId; } }
+      if (l.node) { const k = by.get(l.node.id); if (k?.props.testId) l.node.testId = k.props.testId; }
       return l;
     },
     /** The node for a target: a testId (first in preorder) or a view id. */
@@ -537,7 +592,22 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       if (!node) throw new Error(`no view matches ${target}`);
       return node;
     },
-    /** A press on the target through the host's input path (an iframe target accepts guest `selector` or `x`/`y`); with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over). */
+    /**
+     * What this carrier's input actually is (LLP 1035.003 D2/D3): whether it
+     * can hold a contact across requests, and how each form is delivered —
+     * `platform` (a real input event through the platform's own path),
+     * `recognized` (an already-recognized event injected), `activation` (a
+     * hit-test and a direct call), or `unsupported`. iOS activates and
+     * injects; it synthesizes no touch (LLP 1008 §9).
+     */
+    input: host === 'ios'
+      ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : 'activation') }
+      : host === 'linux'
+        ? { contact: false, hold: false, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : 'platform') }
+        : { contact: true, hold: true, delivery: () => 'platform' },
+    /** The contact this session holds, `{x, y}` in the viewport's space, or null. */
+    contact: null,
+    /** A press on the target through the host's input path (an iframe target accepts guest `selector` or `x`/`y`); with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over); with `{ down: true[, at: [x, y]] }`, a contact goes down on it (at its centre, or at an offset from its corner) and stays down until `pointer('up')` (LLP 1035.003 D1). Every reply says how it was delivered (`delivery`), by which carrier, in which mode. */
     async tap(target, opts = {}) {
       const node = await s.find(target);
       // A gesture is the platform's, and only the AppKit carrier can phase
@@ -546,8 +616,32 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       // takes, so a driver must never be told it sent a gesture when it did
       // not (LLP 0382 — fail closed, loudly).
       if (opts.gesture && !(host === 'macos' || host === 'mac')) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
-      const r = await carrier.input(node.id, opts.wheel ? 'wheel' : opts.hover ? 'hover' : 'press', opts);
-      return { ...r, tapped: node.id, target };
+      if ((opts.contextmenu || opts.dblclick) && !['web', 'ios'].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
+      const kind = opts.down ? 'down' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.dblclick ? 'dblclick' : 'press';
+      if (kind === 'down' && s.contact) throw new Error('a contact is already down; up or cancel it first');
+      let at;
+      if (kind === 'down' && opts.at) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = { x: b.x + opts.at[0], y: b.y + opts.at[1] }; }
+      const r = await carrier.input(node.id, kind, { ...opts, ...at });
+      if (kind === 'down' && r.delivery !== 'unsupported') s.contact = { x: r.at[0], y: r.at[1] };
+      return { ...r, tapped: node.id, target, delivery: r.delivery ?? s.input.delivery(kind), carrier: host, mode: 'agent' };
+    },
+    /**
+     * The held contact's next phase (LLP 1035.003 D1): `move` to `{x, y}` in
+     * the viewport or `by` `{dx, dy}`, over `ms` of real time (the platform
+     * recognizes velocity from the steps); `hold` for `ms`; `up`; `cancel`.
+     * The platform owns hit-testing, recognition, scrolling and animation:
+     * the app receives whatever it delivers, and a carrier that cannot hold
+     * a contact answers `delivery: "unsupported"` rather than faking one.
+     */
+    async pointer(phase, opts = {}) {
+      if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new Error(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
+      if (!s.contact) throw new Error('no contact is down (tap <target> down first)');
+      const r = await carrier.input(null, phase, opts);
+      if (r.delivery !== 'unsupported') {
+        if (phase === 'move') s.contact = { x: r.at[0], y: r.at[1] };
+        if (phase === 'up' || phase === 'cancel') s.contact = null;
+      }
+      return { ...r, phase, delivery: r.delivery ?? s.input.delivery(phase), carrier: host, mode: 'agent' };
     },
     /** Set an input's text through the host's text input path; an iframe accepts `{text, selector}` or `{key, selector}` for its guest. */
     async type(target, text) {
@@ -555,7 +649,7 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       const options = typeof text === 'object' && text !== null ? text : { text };
       const key = options.key;
       const r = key != null ? await carrier.input(node.id, 'key', { ...options, key: String(key) }) : await carrier.input(node.id, 'type', { ...options, text: String(options.text ?? '') });
-      return { ...r, typed: node.id, target };
+      return { ...r, typed: node.id, target, delivery: r.delivery ?? s.input.delivery(key != null ? 'key' : 'type'), carrier: host, mode: 'agent' };
     },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle') {
@@ -613,7 +707,9 @@ export function render(op, r) {
       // stretched rubber band, which the offset alone cannot distinguish
       // from an ordinary scroll position. Printed only when there is one.
       const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
-      return [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`)).join('\n');
+      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`));
+      if (r.node) lines.push(...renderNode(r.node));
+      return lines.join('\n');
     }
     case 'logs':
       return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
@@ -622,6 +718,40 @@ export function render(op, r) {
     default:
       return q(r);
   }
+}
+
+/**
+ * The block `layout <target>` adds under the listing (LLP 1035.002 D1): the
+ * node's identity and site, one line per row with its source, its spaces,
+ * the chains above it, its visibility, and what the host mounted. Every
+ * part appears only when the host reported it — a space a host cannot
+ * observe is absent, never a zero.
+ *
+ *   node #{id} [{testId}] {Type} · site {n} · instance {keys} · epoch E · incarnation I
+ *     {row} = {value} ({authored | inherited from #id | initial}[, applied {…}])
+ *     space viewport X,Y W×H · frame X,Y W×H (kernel, in the parent) · window X,Y W×H · screen X,Y W×H · scale S
+ *     scroll [viewport | #id] sx,sy · … (outermost first)   clip #id overflow|clip-path · …
+ *     visible hidden=… inert=… inViewport=… clipped=…       native key=value …
+ *     browser {row}="{the browser's computed value}" …      (the web's oracle beside the kernel's answer)
+ */
+function renderNode(n) {
+  const q = JSON.stringify;
+  const box = (b) => (b ? `${b.x},${b.y} ${b.w}×${b.h}` : '—');
+  const instance = (n.instance ?? []).map((i) => (i.key !== undefined ? q(i.key) : `arm ${i.arm}`)).join(' / ');
+  const out = [`node #${n.id}${n.testId != null ? ` [${n.testId}]` : ''} ${n.type}${n.site != null ? ` · site ${n.site}` : ''}${instance ? ` · instance ${instance}` : ''} · epoch ${n.epoch} · incarnation ${n.incarnation}`];
+  // Rows and keys sort by name: a host that answers through a dictionary
+  // (AppKit, UIKit) has no order to offer, and the transcript must not
+  // depend on which host answered.
+  const sorted = (o) => Object.entries(o ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  for (const [row, v] of sorted(n.style)) out.push(`  ${row} = ${typeof v.value === 'string' ? v.value : q(v.value)} (${v.source}${v.from != null ? ` from #${v.from}` : ''}${v.applied != null ? `, applied ${v.applied}` : ''})`);
+  const sp = n.space ?? {};
+  out.push(`  space viewport ${box(sp.viewport)}${n.frame ? ` · frame ${box(n.frame)} (kernel, in the parent)` : ''}${sp.window ? ` · window ${box(sp.window)}` : ''}${sp.screen ? ` · screen ${box(sp.screen)}` : ''}${sp.capture?.scale != null ? ` · scale ${sp.capture.scale}` : ''}`);
+  if (n.scroll?.length) out.push(`  scroll ${n.scroll.map((c) => `${c.id != null ? `#${c.id}` : 'viewport'} ${c.sx},${c.sy}`).join(' · ')}`);
+  if (n.clip?.length) out.push(`  clip ${n.clip.map((c) => `#${c.id} ${c.kind}`).join(' · ')}`);
+  if (n.visible) out.push(`  visible ${sorted(n.visible).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+  if (n.native) out.push(`  native ${sorted(n.native).map(([k, v]) => `${k}=${typeof v === 'string' ? v : q(v)}`).join(' ')}`);
+  if (n.browser) out.push(`  browser ${sorted(n.browser).map(([k, v]) => `${k}=${q(v)}`).join(' ')}`);
+  return out;
 }
 
 /**
@@ -720,7 +850,7 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone });
@@ -729,9 +859,23 @@ async function main(argv) {
       const [op, ...args] = line.trim().split(/\s+/);
       let r;
       switch (op) {
-        case 'tree': case 'state': case 'logs': case 'layout': r = await s[op](); break;
+        case 'tree': case 'state': case 'logs': r = await s[op](); break;
+        case 'layout': r = await s.layout(args[0]); break;
         case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[1] === 'window'); break;
-        case 'tap': r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : await s.tap(args[0]); break;
+        case 'tap':
+          // The contact's phases (LLP 1035.003 D1) read as `tap move …`,
+          // `tap hold`, `tap up`, `tap cancel` only while a contact is down;
+          // with none down those words are targets like any other.
+          if (s.contact && args[0] === 'move') {
+            const by = args[1] === 'by';
+            const over = args.indexOf('over');
+            const [a, b] = by ? [args[2], args[3]] : [args[1], args[2]];
+            r = await s.pointer('move', { ...(by ? { dx: Number(a), dy: Number(b) } : { x: Number(a), y: Number(b) }), ms: over > 0 ? Number(args[over + 1]) : 0 });
+          } else if (s.contact && args[0] === 'hold') r = await s.pointer('hold', { ms: Number(args[1] ?? 0) });
+          else if (s.contact && (args[0] === 'up' || args[0] === 'cancel')) r = await s.pointer(args[0]);
+          else if (args[1] === 'down') r = await s.tap(args[0], { down: true, at: args[2] === 'at' ? [Number(args[3]), Number(args[4])] : undefined });
+          else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
+          break;
         case 'type': r = args[1] === 'key' && args[2] ? await s.type(args[0], { key: args[2] }) : await s.type(args[0], args.slice(1).join(' ')); break;
         case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
         default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock)`);

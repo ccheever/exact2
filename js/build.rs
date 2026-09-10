@@ -65,6 +65,12 @@ fn main() {
     } else {
         engine.join("macos-static")
     };
+    // Provisioning an iOS engine after a stub build must invalidate it.
+    // macOS's external SDK archives are captured in OUT_DIR below, not
+    // traversed as repository source directories by the bake receipt.
+    if target_os == "ios" {
+        println!("cargo:rerun-if-changed={}", static_dir.display());
+    }
     let lean = static_dir.join("libhermesvmlean_a.a");
     if !matches!(target_os.as_str(), "macos" | "ios") || !headers.is_dir() || !lean.is_file() {
         println!(

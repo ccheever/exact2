@@ -50,6 +50,11 @@ appearance on macOS, the window's interface style on iOS). The batch ends with `
 has any) and `motion` (the engine is not quiescent): the presenter runs its
 250 ms clock only for the first and its display link only for the second.
 
+A clock advance can collect several receipts against the final kernel tree.
+The host creates all surviving views before emitting their final `children`
+lists, so an early timer cannot attach a child that a later timer has not yet
+created in the presenter. Motion still consumes each receipt at its own time.
+
 The root lays out under `Offer::definite(viewport)`, and a root that is a
 block is as tall as its content — so, as in a browser, **the window is a
 viewport over a document**: the presenter's window content is an
@@ -69,8 +74,19 @@ numbers. The four motion targets are never in it — a presenter applies their
 presentation values from `present` ops — and `transition` is the engine's.
 Gradient and grid rows are named as skipped. The presenter carries CSS's
 defaults for the rows it paints (`font_size` 16, `font_weight` 400, black
-text, no background, no border): only set rows cross, and the kernel's
-defaults are CSS's.
+text, no background, no border). Effective overflow and CSS inheritance
+also cross even without an own row (LLP 1035.000, landed 2026-09-09): a
+`text` node or an editor gets every inherited row's computed value — the
+font rows, alignment and colour it measures and paints with — and any other
+node its computed colour, through `NodeRef::computed_style` (LLP 1001 §6); a
+row resolved to its initial value stays out of the dictionary (the presenter
+carries CSS's defaults), colour excepted. A light/dark pair stays a pair. The
+kernel touches the descendants an inherited change reaches, so the ordinary
+update path re-sends them and the host never re-derives per frame.
+UIKit/AppKit containment therefore cannot break CSS inheritance;
+`host/apple/tests/host.rs` holds colour and the text rows (a paragraph's size
+reaching its runs and a field, an override never re-sent, a resize sending
+no style).
 
 ## 3. Text: one engine (`host/apple/src/measure.rs`, `macos/…/Text.swift`)
 
@@ -83,11 +99,16 @@ unconstrained offers). No `unsafe` on the Rust side: calling a safe
 
 The Swift side is CoreText and nothing else. A **`Paragraph`** is a
 width-specific snapshot — the wrapped `CTLine`s from a `CTTypesetter`, each
-line's baseline from the top, the size with the same `ceil` the kernel
-receives — cached by `(spec, width)`. The measure callback answers from it,
-and `NodeView.draw` paints from it: one `CTLineDraw` per line, baselines
-snapped to the point grid, flush by alignment. What was measured is what is
-painted, by construction. `line-height: normal` is the font's ascent +
+line's baseline from the top, and its layout dimensions — cached by `(spec,
+width)`. An authored line height retains the fractional sum of its line boxes,
+including empty and clamped paragraphs. Intrinsic width and `normal` paragraph
+height retain their existing whole-point ceiling: changing those measurements
+requires a separate wrapping/host-parity comparison. The measure callback answers
+from the paragraph, and `NodeView.draw` paints those same lines: one `CTLineDraw`
+per line, flush by alignment. Painting still snaps baselines to the logical point
+grid, independently of the reported fractional baseline; that remaining raster
+placement difference is separate from an authored line box's height.
+`line-height: normal` is the font's ascent +
 descent + leading; a set line height centers the glyphs in the box; the
 first baseline is reported so Taffy's baseline alignment works; `line_clamp`
 truncates the last line with `…`; min-content is the widest unbreakable
@@ -190,8 +211,23 @@ the same rows as `input`. Contract lowers it to `TextInput` with the existing
 `semanticTag="textarea"`, emitted as a real `<textarea>` on the web. The
 HTML `readonly` lowers to the inverse of the existing `editable` prop,
 keeping the text selectable while refusing edits. The app gives this bounded
-editor its width and height; rich text and automatic
-height growth are outside this control. An `input` node carries an `NSTextField`; a `scroll`/`list` node an
+editor its width and height; rich text is outside this control.
+`field-sizing="content"` (2026-09-09, Messages) instead measures the current
+value/placeholder, constrained by CSS min/max dimensions. Fixed controls use a
+preferred size independent of value; explicit dimensions still win. The browser
+receives the CSS property itself. Changed `scrollTop` and `scrollLeft` props are DOM-style
+assignments after the complete batch’s geometry/children are mounted. Each
+axis clamps independently to its content extent; an unchanged axis retains its
+offset. These are not permanent scroll locks: unrelated patches do not reapply
+them. A pending offset that already equals the live position (including a
+UIKit overscroll) is not reapplied or clamped; this preserves an active pan or
+deceleration when the producer mirrors a scroll event into its binding.
+A `display: none` ancestor or scroll container retains the position from before
+its box disappeared. Hidden offset assignments are ignored, and collapsing its
+native extent emits no scroll event. On restoration, the saved position clamps
+to the new extent. Browser/iOS/macOS fixtures cover both axes, manual scrolling,
+self/ancestor hiding and content shrinkage while hidden.
+An `input` node carries an `NSTextField`; a `scroll`/`list` node an
 `NSScrollView` whose flipped document view holds the children and takes the
 `content` size. Frames are set from `frame` ops; `present` ops set an
 affine transform about the bounds' center (translate · rotate · scale) and
@@ -231,6 +267,37 @@ existing focus event; web uses the element's focus. The command takes one
 string, does not select text, and does not activate the target. macOS and iOS
 handle it inside the session before forwarding external delegate commands.
 
+`copyText(text)` (2026-09-10, Messages) is also handled inside the session,
+after its committed batch. Exactly one string is required. iOS assigns it to
+`UIPasteboard.general.string`; macOS clears the general pasteboard and writes
+the string representation, reporting failure on stderr. There is no clipboard
+read, editor selection, synthetic key event or focus change. The application
+separately dismisses its menu and restores its prior editing state. The command
+adds no agent operation or clipboard-read API.
+
+`autocapitalize` and `autocorrect` (2026-09-09, Messages) configure both
+UIKit editor types. Capitalization accepts HTML's case-insensitive `none`/`off`,
+`sentences`/`on`, `words` and `characters`; absent, empty or invalid values use
+the host's sentence-entry default. Correction is off only for `off`; otherwise
+UIKit's default respects user preferences. Email, URL and password **input**
+states force both off even when explicitly enabled; textarea has no such type
+state. Changed hints reload a focused editor's input views. AppKit applies
+correction to the textarea or active shared field editor, restoring the setting
+when a different field starts editing; it has no virtual-keyboard capitalization
+projection. Web uses the actual HTML attributes. Autocorrection off does not
+guarantee UIKit removes the predictive strip: on iOS 26.5 it can remain empty.
+
+`spellcheck` independently controls spelling checking. The kernel resolves the
+nearest explicit hint under [HTML’s checking algorithm](https://html.spec.whatwg.org/multipage/interaction.html#spelling-and-grammar-checking),
+leaving authored props intact. The Apple host propagates ancestor changes and
+reparenting to otherwise untouched editors; removing the last hint clears the
+projected prop. UIKit uses `.yes`, `.no`, or `.default` for both input and textarea,
+reloading input views if a focused editor’s hint changes. AppKit enables continuous
+spelling checks unless explicitly disabled, including on shared field-editor
+handoffs. Correction remains a separate setting. On the recorded iOS 26.5
+recipient keyboard, disabling both correction and spelling removes the empty
+27-point strip; this is observed platform behavior, not a promised keyboard height.
+
 The browser handles chords it receives, including while an input or textarea
 is focused; a browser-reserved chord such as Command-N may never reach the
 page. This binds the declaration explicitly; ARIA alone does not install a
@@ -257,6 +324,13 @@ auto`). The AppKit-first fallback this paragraph once described is gone
 (a nested `NSScrollView` may move the enclosing view or animate later, so
 "did it move?" can double a delta); see LLP 1010 §3–§4 for the rule and
 the smoke that holds it.
+
+**Clipping.** `clip_path` carries validated absolute path commands from the
+kernel (LLP 1001 §1). The shared `ClipPath.swift` makes one `CGPath`; UIKit and
+AppKit apply it as a `CAShapeLayer` mask, clipping the node and its descendants.
+Their hit tests reject points outside that path before walking children. Clearing
+the row removes the mask. Coordinates are fixed CSS pixels from the border-box
+origin; the path does not scale on resize or change kernel geometry.
 
 **Images** (LLP 1011 §4 is the spec). An `image` node's `NodeView` loads
 and decodes its source off the main thread — an `http(s)` URL as is, a
@@ -416,6 +490,115 @@ them into their target (SwiftPM follows the link). `AgentMac.swift` is what
 remained of the macOS agent file. The macOS smoke is the regression check
 for the split and stayed green through it.
 
+**Short vertical scroll containers** (2026-09-09, Messages): effective vertical
+`overflow: scroll` enables UIKit's `alwaysBounceVertical`, so a list that fits
+still responds elastically to a finger drag. Non-scrolling axes remain locked;
+content size and programmatic offset clamping are unchanged. This is the host's
+native boundary affordance, which [CSS leaves to the user agent](https://drafts.csswg.org/css-overscroll/#boundary-default-actions),
+including containers without overflowing content. It adds no property or shared
+motion executor. Messages' full and filtered inboxes exercise held dragging,
+reversal and release. Exact's current drag-to-offset response still differs
+from the native Messages large-title list; enabling bounce does not establish
+matching native title motion.
+
+**Native swipe rows** (2026-09-10, Messages; `SwipeActionsIOS.swift`). An
+explicit `swipeContent` id on a scroll node requests a UIKit cell around that
+full-size descendant. `swipeLeading` and `swipeTrailing` list descendant press
+control ids, outermost first. Each action uses the control's accessible name,
+background colour and authored icon; `swipeDestructive=true` maps to the native
+destructive role. A completed action invokes the same live control id once.
+The first-child icon snapshot applies that child’s own affine transform to its
+image bounds and drawing context, preserving authored scale and rotation. Action
+colors and raster icons resolve appearance when opened; an already revealed
+action does not yet refresh its appearance.
+Input eligibility follows weak references to the original ancestor chain captured before mounting,
+including authored visibility, disabled state and inert containment. UIKit
+temporarily disables the cell while its action callback runs; that cell is not
+an authored ancestor and cannot suppress the action. Restoring a projection
+restores the original scroll visibility; session reset releases all projections.
+Disabled, hidden or inert controls do not become actions; when the first
+configured control is disabled, another control does not silently acquire the
+full-swipe gesture. UIKit owns recognition, progress, reversal and release.
+
+The parent authored scroll view retains vertical scrolling. The kernel retains
+row dimensions. Projection moves the content's wrapper subtree as a unit,
+retaining intermediate ancestors and their styles/input restrictions; before
+each batch it restores that subtree to its logical parent and frame, then
+remounts it after ordinary updates and navigation. Authored fallback action
+controls are hidden only during projection. Native cell chrome supplies the
+content node's background while it is mounted. Other rows close when a new row
+starts editing; a size change or inactive route closes its native surface.
+Invalid or ambiguous references, missing accessible names and nonmatching row
+dimensions retain the authored fallback with a diagnostic.
+
+Agent inspection observes the native action's public UIKit button and descendant
+image, never a private class name or a guessed offset. A revealed action reports
+its actual local, viewport, window and screen frame and accessible name. An
+unrevealed or ambiguous target reports unavailable native geometry. Agent `tap`
+requires a uniquely resolved, visible, unobscured button and invokes UIKit's
+control action; it reports `host-activation`, not finger delivery. The native
+button's accessible name is attached during presentation, not by inspection.
+
+**Horizontal scroll snap** (2026-09-09, Messages): the admitted CSS subset is
+`scroll-snap-type: none | x mandatory` and `scroll-snap-align: none | start`.
+The browser executes these as CSS. UIKit's `scrollViewWillEndDragging` finds
+the nearest captured start position to its projected destination and adjusts
+`targetContentOffset`; UIKit owns dragging and deceleration, using its fast
+rate for mandatory snapping (normal otherwise). Oversized snap
+areas remain freely scrollable while they cover the viewport; nested scroll
+containers capture their own snap areas. This first native binding handles
+touch release, not programmatic re-snapping or layout-change re-snapping.
+AppKit and Linux snapping remain unimplemented. Messages' single resting
+position and vertical-scroll coexistence have been driven on web and iOS;
+matching Messages' exact settling curve remains open.
+
+**Scroll events** (2026-09-09, Messages): a declared `scroll` handler receives
+`scrollLeft` and `scrollTop` as two numbers. UIKit delivers tracked/decelerating
+user offsets synchronously outside a presenter batch, before painting: deferring
+these made authored scroll-linked positions visibly lag the scrolling surface.
+A reentrant dispatch or layout-generated change queues one callback on the main
+queue and reads the latest actual position after layout. AppKit's clip-bounds
+notifications use that queued path. An unchanged position or
+a removed view dispatches nothing; events do not bubble. Programmatic offset
+changes use the same path. Browser/iOS/macOS drives cover both axes, clamping,
+independent resets and unrelated updates. Messages uses this event to highlight
+the revealed inbox row and reset the other rows without resetting the active drag,
+and to resist timestamp travel while keeping date labels stationary.
+
+**Following the end** (2026-09-09, Messages): `scrollFollowEnd=true` records
+whether a scroll view is at its bottom (within one point) before a batch and
+restores the new bottom after layout. Above it, iOS records the first visible
+descendant, descending into partially visible boxes, and compensates for its
+movement in content coordinates. It retains the chosen anchor across batches
+until the reader scrolls, as [CSS anchor invalidation](https://drafts.csswg.org/css-scroll-anchoring/#anchor-invalidation)
+requires. If that node disappears, later visible candidates captured before the
+batch can preserve the reading position. Only when none survives is the old
+offset clamped. The top stays at zero. A browser/iPhone fixture covers deletion,
+hiding, restoration, manual scrolling and empty content; the chat drive retains
+the next bubble and active draft when the clipped top message is deleted.
+An inactive navigation route may gain height when the foreground route hides
+the keyboard. If that clamps an unpinned reader, iOS retains the intended offset
+until the returning viewport can accommodate it. This covers both a detached
+route and one still attached during a push animation. A new drag or explicit
+vertical scroll assignment discards that saved intent. Anchoring remembers the
+offset UIKit actually stored, so its fractional quantization cannot masquerade
+as a user scroll. Messages contact-details Back now preserves the reading
+position with the keyboard restored, including ordinary-launch button returns
+and cancelled/completed native swipes; top/end following remains intact.
+macOS retains the numeric offset. Explicit `scrollTop`
+assignments apply afterwards and win. Web’s end-following code lets the browser
+anchor an unpinned reader. A shared fixture first demonstrated a 100-point jump
+on both hosts, then verified stable content after growth and shrink above the
+reader, plus explicit and automatic end following. This remains an opt-in
+application policy, not the full CSS anchoring selection/suppression algorithm. The iOS transcript may also
+request `keyboardDismissMode="interactive"`; UIKit owns the drag and dismissal.
+Zero-duration keyboard frame changes during that drag bypass the focus-switch
+debounce. Notifications omit intermediate interactive frames, so a zero-size
+dependent on `UIKeyboardLayoutGuide` requests layout as the guide moves; while
+dragging, the viewport uses that local guide edge. Ordinary show/hide changes
+keep the keyboard notification's duration/curve. Real Simulator dragging has
+verified that the composer remains adjacent to the keyboard during the gesture.
+
 **UIKit, where it differs from AppKit.** Nothing flips (UIKit's origin is
 the top-left). The viewport is a `UIScrollView` over a content-sized
 document, framed to the **safe area** — where a browser lays a page out on
@@ -431,13 +614,21 @@ the frame set untransformed first (UIKit's `frame` is undefined under a
 transform). **A press is a touch down and up inside the bounds**; a node
 without a handler forwards the touch up the responder chain, so a touch on a
 button's text reaches the button as a DOM click bubbles; a pan cancels it
-(`canCancelContentTouches`) — scroll always wins. The events beyond press
+(`canCancelContentTouches`) — scroll always wins. `contextmenu` and `dblclick`
+(2026-09-09, Messages) are a UIKit long-press recognizer and two-tap recognizer;
+only nodes declaring the handler install one, and removed handlers remove their
+recognizer. No app gesture arena is introduced. The browser receives the DOM
+events; AppKit secondary/double clicks deliver the same payload-free actions.
+The events beyond press
 and change (§5's list): `hover` is a `UIHoverGestureRecognizer`, so a pointer
 hovers and a finger never does; `focus`/`blur` are first-responder changes (a
 field's begin/end editing; a node with such a handler `canBecomeFirstResponder`
 and takes it on touch-up); `key` is `pressesBegan`'s `UIKey` by web name, or
-inside a text field `textFieldShouldReturn` → `Enter` only (typed characters
-are `change`, §5's deviation), which is also a `submit` handler's event and
+inside a text field `textFieldShouldReturn` → `Enter` and
+`deleteBackward` → `Backspace`, including an empty field. Backspace reaches
+the nearest authored key handler before UIKit performs its normal deletion;
+the iOS agent calls that same editor method. Typed characters are `change`
+(§5's deviation). Enter is also a `submit` handler's event and
 sets the return key to *Go*. `type="password"` is `isSecureTextEntry` (with
 the password content type); `inputMode` (`email`, `numeric`, `decimal`,
 `tel`, `url`, `search`) picks the keyboard, and `type` alone does the same
@@ -543,7 +734,14 @@ it. `layout` then reports the shrunken viewport (as `innerHeight` shrinks
 under this mode in Chrome) and, as `keyboard-inset-height` still, the
 keyboard's overlap with the viewport the controller would frame without
 one (measured against the shrunken frame it read 0 — the first bug the
-Weird Castle bar found). **A focus moving from one field to another** comes
+Weird Castle bar found). If removing a focused view announces a keyboard change
+synchronously during a presenter batch, that change waits until the batch ends.
+Otherwise the older batch can overwrite the newer viewport frames while the
+runtime already believes them applied. The deferred change retains the keyboard's
+animation duration and curve; it is independent of the removed view's lifetime.
+The Messages forwarding-cancel/Back drive verifies the inbox's painted search
+position returns to its original full-height position.
+**A focus moving from one field to another** comes
 as a burst of `keyboardWillChangeFrame`s with no duration, over a few
 turns — the height jittering between the two keyboards (335, 308, 335 on
 the simulator; the email keyboard and the default) — and laying out for
@@ -578,7 +776,18 @@ screens. Not built: `env(keyboard-inset-*)`, the `overlays-content` mode.
 (under 104 bytes; the driver makes it in the temp dir) and speaks the same
 JSON lines; `ready` carries the app's pid. `layout` is the viewport's
 content space less its offset, transforms carried by UIKit's `convert`
-(the motion fixture's 75 and 86.55 hold). **`tap` is the one declared
+(the motion fixture's 75 and 86.55 hold). `layout` with an `id`
+(2026-09-09, LLP 1035.002 D1) adds `node`: the runner's rows and their
+sources (the library's `node` message) merged with what UIKit knows — the
+box in the viewport, the window and the screen's coordinate space, the
+capture scale, the scroll chain from the viewport in, the `overflow` and
+`clip-path` clippers above it, `hidden`/`inert`/`inViewport`/`clipped`
+from the actual superview chain (a sheet's inert source reads `inert`),
+and what was mounted: the view class, an inline run's paragraph, the
+editor and whether it is first responder, the material, the containing
+controller and the route key (`NavigationHost.routeKey`). macOS reports
+the same with AppKit's window and screen spaces flipped to y-down and
+`inert` false (AppKit has none). A stale id is refused by name. **`tap` is the one declared
 deviation from §1's contract**: UIKit offers no public touch synthesis, so
 a tap hit-tests through the window (UIKit's own, placements included) and
 delivers the press by the responder-chain rule a touch gets
@@ -755,3 +964,184 @@ the Keychain (ibex LLP 0069): the login keychain on macOS,
 with the first Apple Development identity in the keychain (`EXACT_IDENTITY`
 names one) so the item's ACL survives a rebuild; ad-hoc otherwise, and the
 keychain asks on every rebuild, before the first frame (LLP 1018 D7).
+
+**Native navigation** (2026-09-09, Messages): the first root's `navigationKey`
+and `navigationBack` project its keyed direct child routes into a UIKit
+navigation controller, contained by the nearest owning view controller. The
+kernel still lays out the same Contract views. UIKit owns push/pop animation
+and interactive pop recognition, progress, cancellation and scroll arbitration.
+The completed pop presses the active route's named back control; a cancelled
+swipe leaves Contract slots, drafts and mounted views intact. Both gesture
+recognizers refuse to begin when the named Back control is missing or disabled;
+the completion callback uses that same enabled-control lookup. Messages disables
+its conversation Back while the forwarding sheet is open. Previously an edge
+swipe could pop the source route underneath that sheet. The presenter
+freezes outgoing pixels only when a button's action deletes its route before
+UIKit can animate it. In agent mode, programmatic navigation settles immediately;
+physical gesture verification must also run outside that mode. There is no
+Exact transition-progress value, gesture arena or native route source override.
+
+**Modal routes** (2026-09-09, Messages): `navigationPresentation="modal"`
+on the selected keyed route uses UIKit's large page sheet. The owning `ExactView`
+stays in its embedder; its viewport and contained navigation controller move
+into the sheet with the controller containment callbacks, and return on close.
+After its source route receives the batch, the source controller moves from the
+navigation stack into the presenting controller, with its live view in the owning
+`ExactView`. Only the modal route remains in the navigation stack moved into the
+sheet. The source retains its pre-sheet geometry; frame/content updates caused
+by the sheet's viewport are deferred and replayed before restoring normal layout.
+Scroll assignments on that source wait with its geometry and apply after the
+deferred frames and content extents. In particular, a scroll created while the
+sheet is open must not consume its initial offset against a zero-size extent
+(Messages' new inbox row, verified on iOS and the browser).
+Style updates and UIKit appearance propagation still reach its actual controls,
+fixing the stale light/dark background caused by the former screenshot. Source
+interaction and accessibility are disabled while covered and restored on close.
+Forwarding's backdrop shows selection already closed. UIKit owns presentation,
+interactive dismissal and spring-back.
+The sheet's local keyboard guide supplies its available layout height; the
+horizontal-pop viewport freeze does not apply to modal transitions. Focus
+commands arriving before the sheet's field is mounted wait for that mounting.
+The modal controller and route use the system's secondary grouped surface
+behind transparent authored corners. UIKit supplies the dimming outside it;
+painting an app backdrop inside this surface had left a dark corner seam.
+
+The route's `closedby="none"` prevents platform close requests through
+`isModalInPresentation`; `closerequest` permits the sheet gesture. Explicit
+Close still invokes the authored control in either state. A completed gesture
+invokes the root's named Back control, while a reversal leaves the route and its
+inputs mounted. Messages allows gesture dismissal for an empty new draft and
+resists it for populated forwarding, following the native fixture captures.
+The browser projects the same modal route and close-request policy (LLP 1007).
+There is no Exact gesture-progress value or second layout engine.
+
+For an initially interactive navigation transition, keyboard notifications do
+not resize the viewport until UIKit finishes or cancels: its keyboard is moving
+sideways with the route. Both completion and cancellation with a populated draft
+were driven through Simulator touches. A competing horizontal transcript scroll
+still takes rightward gestures in its content area; that arbitration remains an
+open limitation, not a completed iMessage parity claim.
+
+**Emoji selection** (2026-09-09, Messages): an `input` with `emojiPicker=true`
+uses the existing text field with an enabled emoji `textInputMode` preferred on
+iOS. The system owns Search Emoji and its results. The delegate and the
+editing-changed path (also used by driver insertion) share `EmojiSelection`:
+one accepted emoji grapheme emits `change`, ordinary text and multi-grapheme
+input do not, and the field remains empty. AppKit applies the same selection
+gate to field changes; it does not automatically open Character Viewer.
+The policy changes reload a focused iOS input's views. UIKit still permits
+switching keyboard modes: this public field retains ABC/dictation controls
+that native Messages' reaction grid omits. Messages keeps its composer draft
+separate and captures its entry focus state. Close restores the reaction strip
+without actions; double-tap entry restores a previously active composer,
+long-press entry keeps it closed until selection or final dismissal.
+
+**Context previews** (2026-09-09, Messages): `contextTarget` on a preview node
+references the original content's HTML `id`. After layout and navigation
+projection, the presenter finds the preview's nearest enclosing absolute panel.
+iOS magnifies the preview without reflow by 15%, capped at 26 added points of
+width (the public UIKit fixture recorded in `apps/messages/README.md`). It
+uses scale 1 instead when the preview declares `contextMagnify=false`, as
+Messages does for badge and double-tap entry. Absence or true retains the
+default enlargement. Both modes share placement, clamping, focus retention and
+the authored transform; selecting a mode does not change kernel geometry. It
+preserves the source's outside edge and vertical center. Top-aligned immediate
+side siblings move horizontally by the corresponding enlarged-edge displacement,
+so an authored side control keeps its gap without changing balloon measurement.
+Following siblings at
+each enclosing level move by half the added height, counteracting the panel's
+upward shift so receipts keep their source-relative position (a direct Messages
+capture confirms that the receipt stays still while its balloon enlarges).
+It then clamps the complete projected panel, including the farther extent of
+the enlarged preview or following controls, inside the
+safe viewport above the keyboard, intersected with the panel parent's bounds.
+Messages uses that authored region to reserve the participant popover and its
+24-point gap above the palette; AppKit's alignment uses the same region.
+The projection composes with the authored
+transform and is recomputed from unprojected geometry each batch; it never
+changes kernel frames or text measurement. AppKit aligns the nested preview
+without magnification. The panel's controls and preview are
+ordinary Contract content. Long press and double tap continue through the
+platform recognizers; outside dismissal is a declared press control. Navigation
+swipes are disabled while a context preview is present. This custom presentation
+does not claim UIKit's final pixel rounding/clipping, preview animation or the
+complete emoji picker of Messages.
+
+iOS captures the source's rectangle in session viewport coordinates before
+entry-batch commands can dismiss the keyboard. It retains that entry rectangle
+through height changes and recaptures on width changes. The source's vertical
+scroll contents translate with the preview's retained position and clamp. A
+scroll region that itself moved, such as the centered focused reply thread,
+retains its entry clip position; the remaining displacement applies to its
+contents. This keeps neighboring messages visible through keyboard dismissal.
+The panel must be outside that content subtree for the source projection to
+apply. Projection resets before each batch's calculation and after dismissal;
+no authored scroll offset or kernel frame is written. The cache is bounded by
+the mounted source identity, preview lifetime and target value. AppKit retains
+its existing live-source alignment.
+
+Context actions retain the active editor's focus. UIKit and the browser do not
+blur it before reaction/reply dispatch, because keyboard dismissal would move
+an anchored panel away from the same tap. The native touch path and agent's hit
+path share this rule. `retainFocus` on a node or ancestor also keeps unhandled
+touches from the scroll container’s blank-ground keyboard dismissal, including
+the first tap of a double-tap recognizer and a swipe released on a sheet header. Actual blank-ground taps still dismiss.
+An authored `focus` command can deliberately transfer focus to a menu with a
+key handler; Messages uses this for long-press while double-tap retains its
+editor. No recognition or scroll arbitration moves into the runner.
+Visible overflow also participates in iOS hit testing:
+children painted beyond a row's width can be selected after scrolling them
+into view, while each non-visible overflow axis still clips hit participation.
+
+The Messages inline reply surface now consumes `backgroundMaterial="ultra-thin"`
+(LLP 1001): a non-interactive `UIVisualEffectView` underneath authored children.
+The presenter restores that underlay order after child-list reconciliation;
+removing the prop removes the effect. UIKit supplies its appearance changes.
+A material does not change focus, navigation, or hit-testing policy. The
+`glass` value supplies an iOS 26 `UIGlassEffect` with the authored uniform corner
+radius, with ultra-thin blur as the pre-26 fallback. A changed material value
+replaces the effect; later radius changes update its corner configuration. Glass
+holds authored children in its `contentView` and enables UIKit’s interactive effect
+for a node with an enabled press handler. Material changes move those children
+into the replacement container. An actual held Back press in the Messages
+simulator enlarges the glass, and releasing it still dispatches navigation.
+
+Textarea placeholders use UIKit’s placeholder color and repaint when the
+field style changes. A root appearance change also refreshes the host canvas
+color, including the window area exposed around the keyboard’s rounded corners.
+
+A native press resolves its target before ending the previous editing session.
+Keyboard dismissal can resize the viewport synchronously; the release must not
+be re-tested at the old window point against the control's new frame. A target
+removed by the focus change is still refused. The iOS agent uses the same order and focuses both UITextField and UITextView
+when a tap reaches their owning node. Its responder walk stops at the resolved
+press target, after considering that target's own focusability, as a native
+pressed node handles `touchesEnded` without forwarding it. A containing node's
+key handler therefore cannot take focus from an editor retained by a reaction
+button. Unhandled taps still traverse ancestors; ordinary blank-ground taps
+still end editing. The Insets fixture checks retained-button activation under
+a key handler and the editor's actual UIKit first-responder state (2026-09-09).
+
+### Right-swipe actions
+
+`swiperight` is a recognized event (dispatch kind 12), authored by Messages as
+`openReplies(message.replyRoot)`. UIKit uses a one-finger `UIPanGestureRecognizer`;
+vertical and leftward gestures are left to scrolling. A right drag follows the
+bubble, with resistance beyond 64 points; release beyond that threshold invokes
+the action, while reversing or cancelling returns without invoking it. Crossing
+the threshold requests selection feedback (device feel remains unverified).
+The navigation content-pop recognizer yields when the hit bubble owns this
+right swipe; the first 20 window points remain available for edge navigation.
+
+`exact_drag_x` holds translate through the existing motion engine, leaving the
+kernel target and layout unchanged. Release observes the authored target with
+the gesture velocity. Messages currently authors a 180ms ease-out return;
+this is not a claim that its curve and threshold match Messages. Browser
+pointer events hold CSS translate and return under the same CSS transition.
+Its `pointercancel` ends the observation when the browser takes scrolling.
+Direct children marked `swipeIndicator` also hold their authored opacity and
+scale toward 1 with the offset (LLP 1001). Release observes both authored targets
+through the same engine. Messages draws the reply arrow in Contract;
+neither host adds a view or a separate animation executor for the indicator.
+The drag remains host presentation state; only the completed action enters
+Contract. No gesture arena or per-frame app code is introduced.

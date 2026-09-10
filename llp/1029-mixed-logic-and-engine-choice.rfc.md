@@ -5,9 +5,20 @@
 **Systems:** Runner (the executor slot: a third executor, `exact-wasm` on wasmtime, beside the native crate and `exact-js`; routing by source name and by digest), Build (bake compiles the data crate to wasm once and to precompiled code per target; per-source digests; the app template scaffolds both languages), Apple host and Linux host (which executors a binary links, chosen per app in one line), Delivery (LLP 1026's module card becomes per target; the runtime version carries the wasmtime version; Level A stays the default for the Rust half), Agent API (`state` reports which sources are interpreted), Contract (unchanged above the seam)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-09-03
+**Revised:** 2026-09-09
 **Related:** LLP 1028 (the measurements and the engine landscape this proposal rests on — F1–F4 the sizes and speeds, F6 the per-source idea, F7–F8 what is out of scope and why), LLP 1026 D2/D3/D4/D5/D10/D12 and §9 item 3 (the wasm executor as designed: kept whole, with wasmtime in D2's slot and D10 keyed per source — §D8 here lists every edit), LLP 1027 D3/D8/§8 (the lean VM, `Either`, and the trade that took the wasm module off staging — the last is reversed here, with the measurement that reverses it), LLP 1004 D4 (the seam: "expressions call the roster; data comes from a data source; nothing else crosses" — unchanged), LLP 1016 D1/D6 and LLP 1018 D4/D5 (the runner never does I/O; state is the Store; the properties per-source routing depends on), LLP 1012 (`state` and `logs`, where "interpreted" becomes visible), LLP 1023 D2/D3 (the envelope and the transactional swap the per-target card rides), `rules/RULES.md` §Scope (the boot path compiles nothing; modules ship as bytecode — precompiled code and Pulley bytecode both satisfy it) and §Budgets, `rules/NOT-DOING.md` §Authoring models (the sentence 1027 added stands; §6 here says what this document takes off), `CLAUDE.md` (optional capability is a separate artifact or another executor, never a cargo feature on a core crate), `QUEUE.md` (the 2026-09-03 line this document replaces). External: wasmtime 47 (Cranelift, Pulley, `Module::serialize`), Shorebird's link percentage (the precedent for D4).
 
 ## Summary
+
+**Development refinement (2026-09-09):**
+[LLP 1029.000](1029.000-rust-development-reload.rfc.md) records Charlie's
+request for live Rust edits: native initially, native shared-library
+replacement on desktop, browser Wasm, and Pulley replacements on physical
+iOS. It proposes replacing this draft's development portions of D2–D5/§7,
+starting with whole modules and separating development from release engine
+selection. Production Rust delivery and automatic per-source digests move
+behind that work. Both documents remain Draft; the mixed-language direction
+below is unchanged and is not part of the child implementation scope.
 
 Three rulings from Charlie on 2026-09-03, in his words, after LLP 1028's
 numbers were on the table:

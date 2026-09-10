@@ -585,6 +585,9 @@ fn lint<D: DataSource>(runner: &mut Runner<D>) -> Result<(), BakeError> {
         match node.node_type {
             NodeType::ScrollView => {
                 let s = node.style;
+                if matches!(s.overflow_y, exact_kernel::Overflow::Hidden) {
+                    continue;
+                }
                 let unbounded = matches!(s.height, Dimension::Auto)
                     && matches!(s.max_height, Dimension::Auto)
                     && s.flex_grow == 0.0;

@@ -175,6 +175,10 @@ final class Presenter {
     var onFocus: ((UInt32) -> Void)?
     var onBlur: ((UInt32) -> Void)?
     var onKey: ((UInt32, String) -> Void)?
+    var onContextmenu: ((UInt32) -> Void)?
+    var onDblclick: ((UInt32) -> Void)?
+    var onSwiperight: ((UInt32) -> Void)?
+    var onScroll: ((UInt32, Double, Double) -> Void)?
     var onSubmit: ((UInt32) -> Void)?
     var onLoad: ((UInt32) -> Void)?
     var onMessage: ((UInt32, String) -> Void)?
@@ -213,12 +217,17 @@ final class Presenter {
     func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
     func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
     func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
+    func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
+    func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
+    func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
+    func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
     func message(_ id: UInt32, _ value: String) { send(id) { [self] in onMessage?(id, value) } }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
+        for node in views.values { node.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         let outermost = !applying
         applying = true
@@ -311,11 +320,34 @@ final class Presenter {
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.captureIfNeeded()
+        for node in views.values { node.restoreScrollPosition(); node.applyPendingScroll() }
         menus.sync()
+        positionContexts()
         shortcuts.sync()
         if structureChanged { selection.structureChanged() }
         refreshVisibleText()
         if structureChanged || batch.ops.contains(where: { $0["op"] as? String == "props" }) { syncKeyViewLoop() }
+    }
+
+    /// Align an enclosing context panel's preview with its source, while
+    /// keeping the panel inside the visible viewport.
+    private func positionContexts() {
+        for preview in views.values {
+            guard let target = preview.props["contextTarget"],
+                  let source = views.values.first(where: { $0.props["id"] == target }),
+                  source.window != nil else { continue }
+            var ancestor = preview.superview as? NodeView
+            while let node = ancestor, node.style["position_type"] as? String != "absolute" {
+                ancestor = node.superview as? NodeView
+            }
+            guard let panel = ancestor, let parent = panel.superview else { continue }
+            let sourceBox = source.convert(source.bounds, to: parent)
+            let port = viewport.convert(viewport.bounds, to: parent)
+            let minimum = max(parent.bounds.minY, port.minY + 8)
+            let maximum = min(parent.bounds.maxY, port.maxY - 8) - panel.bounds.height
+            let top = max(minimum, min(sourceBox.minY - preview.convert(preview.bounds, to: panel).minY, maximum))
+            if panel.frame.origin.y != top { panel.setFrameOrigin(CGPoint(x: panel.frame.minX, y: top)) }
+        }
     }
 
     /// The view that takes Tab for this node: an input's field, else itself.

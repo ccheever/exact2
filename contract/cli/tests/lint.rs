@@ -103,6 +103,12 @@ fn bake_refuses_a_scroll_that_only_a_row_could_have_bounded_and_did_not() {
 }
 
 #[test]
+fn a_horizontal_scroll_can_grow_vertically_with_its_contents() {
+    let src = "component A\n  view\n    column width=200\n      scroll width=200 overflow-x=\"scroll\" overflow-y=\"hidden\" scroll-snap-type=\"x mandatory\"\n        row width=400\n          box width=200 height=80 scroll-snap-align=\"start\"\n          box width=200 height=80\n";
+    contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+}
+
+#[test]
 fn bake_refuses_a_pressable_with_zero_area() {
     let src = "component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    column\n      button press=go width=0 height=0 testId=\"go\"\n";
     let plan = contract::compile(src).unwrap();

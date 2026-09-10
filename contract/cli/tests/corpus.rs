@@ -6,6 +6,50 @@ use exact_plan::{EventKind, Plan, Value};
 use exact_runner::{DataError, DataSource, Event, Runner};
 use std::path::Path;
 
+#[test]
+fn dynamic_auto_keeps_the_meaning_of_its_style_row() {
+    let plan = contract::compile(
+        r#"component AutoRows
+  state sizing = "auto"
+  state bars = "auto"
+  action choose(value: string) writes bars
+    bars = value
+  view
+    scroll testId="reader" height=100 width=sizing overscroll-behavior-x=sizing align-self=sizing scrollbar-width=bars
+      box width=600 height=100
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+    )
+    .unwrap();
+    let key = r.kernel().find_by_test_id("reader")[0];
+    let node = r.kernel().node_by_key(key).unwrap();
+    assert_eq!(node.style.width, Dimension::Auto);
+    assert_eq!(
+        node.style.overscroll_behavior_x,
+        exact_kernel::OverscrollBehavior::Auto
+    );
+    assert_eq!(node.style.align_self, exact_kernel::AlignSelf::Auto);
+    assert_eq!(
+        node.style.scrollbar_width,
+        exact_kernel::ScrollbarWidth::Auto
+    );
+    for (value, expected) in [
+        ("none", exact_kernel::ScrollbarWidth::None),
+        ("thin", exact_kernel::ScrollbarWidth::Thin),
+        ("auto", exact_kernel::ScrollbarWidth::Auto),
+    ] {
+        r.act("choose", vec![Value::str(value)]).unwrap();
+        let node = r.kernel().node_by_key(key).unwrap();
+        assert_eq!(node.style.scrollbar_width, expected);
+        assert_eq!(node.style.width, Dimension::Auto);
+    }
+}
+
 fn corpus(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../corpus")
@@ -230,4 +274,219 @@ fn the_iframe_fixture_lowers_and_records_its_events() {
     r.dispatch(id, Event::Message("deck-ready".into())).unwrap();
     assert_eq!(r.slot("loaded"), Some(&Value::Bool(true)));
     assert_eq!(r.slot("received"), Some(&Value::str("deck-ready")));
+}
+
+#[test]
+fn contextmenu_and_double_click_keep_their_authored_arguments_and_do_not_take_a_press() {
+    let src = r#"component App
+  state selected = ""
+  state magnify = false
+  action choose(value: string) writes selected, magnify
+    selected = value
+    magnify = value == "context"
+  view
+    column
+      button contextmenu=choose("context") dblclick=choose("double") swiperight=choose("right") testId="bubble"
+        text "A message"
+      column contextTarget="bubble" contextMagnify=magnify testId="preview"
+        text "A message"
+"#;
+    let plan = contract::compile(src).unwrap();
+    let plan = Plan::decode(&plan.encode()).unwrap();
+    let mut r = Runner::boot(plan, Schedule, Kernel::with_monospace()).unwrap();
+    let node = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("bubble")[0])
+        .unwrap()
+        .id;
+    assert_eq!(
+        r.handlers_of(node),
+        vec![
+            EventKind::Contextmenu,
+            EventKind::Dblclick,
+            EventKind::Swiperight
+        ]
+    );
+    assert!(r.dispatch(node, Event::Press).is_err());
+    assert_eq!(r.slot("selected"), Some(&Value::str("")));
+    let preview = r.kernel().find_by_test_id("preview")[0];
+    let magnifies = |r: &Runner<Schedule>| {
+        r.kernel()
+            .node_by_key(preview)
+            .unwrap()
+            .props
+            .bool(PropId::ContextMagnify)
+    };
+    assert_eq!(magnifies(&r), Some(false));
+    r.dispatch(node, Event::Contextmenu).unwrap();
+    assert_eq!(r.slot("selected"), Some(&Value::str("context")));
+    assert_eq!(magnifies(&r), Some(true));
+    r.dispatch(node, Event::Dblclick).unwrap();
+    assert_eq!(r.slot("selected"), Some(&Value::str("double")));
+    assert_eq!(magnifies(&r), Some(false));
+    r.dispatch(node, Event::Swiperight).unwrap();
+    assert_eq!(r.slot("selected"), Some(&Value::str("right")));
+}
+
+#[test]
+fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
+    let source = r#"component App
+  state draft = ""
+  action write(value) writes draft
+    draft = value
+  view
+    column width=200 height=400 testId="root"
+      textarea value=draft field-sizing="fixed" width=70 testId="fixed-composer"
+      textarea value=draft change=write field-sizing="content" font-size=16 line-height=20 width=160 min-height=28 max-height=88 testId="composer"
+"#;
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+    )
+    .unwrap();
+    let root = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("root")[0])
+        .unwrap()
+        .id;
+    let input = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("composer")[0])
+        .unwrap()
+        .id;
+    let height = |r: &mut Runner<Schedule>| {
+        r.kernel_mut()
+            .compute_layout(root, exact_kernel::Offer::definite(200.0, 400.0))
+            .unwrap();
+        r.kernel().node(input).unwrap().frame.height
+    };
+    let empty = height(&mut r);
+    let fixed = r.kernel().find_by_test_id("fixed-composer")[0];
+    let fixed_height = r.kernel().node_by_key(fixed).unwrap().frame.height;
+    r.dispatch(input, Event::Change("one\ntwo\nthree".into()))
+        .unwrap();
+    let lines = height(&mut r);
+    assert!(lines > empty, "{empty} -> {lines}");
+    r.dispatch(
+        input,
+        Event::Change("A long message that must wrap onto several lines. ".repeat(12)),
+    )
+    .unwrap();
+    assert_eq!(height(&mut r), 88.0);
+    assert_eq!(
+        r.kernel().node_by_key(fixed).unwrap().frame.height,
+        fixed_height
+    );
+    r.dispatch(input, Event::Change(String::new())).unwrap();
+    assert_eq!(height(&mut r), empty);
+}
+
+#[test]
+fn scroll_events_append_two_numeric_offsets_after_authored_arguments() {
+    let src = r#"component App
+  state name = ""
+  state left = 0
+  state top = 0
+  action moved(id: string, x, y) writes name, left, top
+    name = id
+    left = x
+    top = y
+  view
+    scroll height=100 scroll=moved("row") testId="port"
+      box width=600 height=600
+"#;
+    let plan = contract::compile(src).unwrap();
+    let mut r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+    )
+    .unwrap();
+    let id = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("port")[0])
+        .unwrap()
+        .id;
+    r.dispatch(id, Event::scroll_payload("12.5,-3.25").unwrap())
+        .unwrap();
+    assert_eq!(r.slot("name"), Some(&Value::str("row")));
+    assert_eq!(r.slot("left"), Some(&Value::Number(12.5)));
+    assert_eq!(r.slot("top"), Some(&Value::Number(-3.25)));
+    for bad in ["NaN,0", "0,inf", "0", "1,2,3", "bad,2"] {
+        assert!(Event::scroll_payload(bad).is_none());
+    }
+    for params in [
+        "id: string, x: string, y: number",
+        "id: string, x: number, y: bool",
+    ] {
+        let bad = src.replace("id: string, x, y", params);
+        assert_eq!(
+            contract::compile(&bad).unwrap_err().id,
+            "type-handler-payload"
+        );
+    }
+    assert_eq!(
+        contract::compile(&src.replace("scroll=moved(\"row\")", "scroll=moved"))
+            .unwrap_err()
+            .id,
+        "analyze-handler-arity"
+    );
+}
+
+#[test]
+fn native_swipe_bindings_keep_authored_ids_through_plan_roundtrip_and_updates() {
+    let src = r#"component App
+  state alternate = false
+  action choose writes alternate
+    alternate = not alternate
+  view
+    scroll swipeContent="row" swipeLeading=(alternate ? "second" : "first") swipeTrailing="delete" width=300 height=80
+      row
+        button id="first" press=choose aria-label="First" width=50 height=50
+        button id="second" press=choose aria-label="Second" width=50 height=50
+        button id="row" press=choose width=300 height=80 testId="row"
+          text "Row"
+        button id="delete" press=choose aria-label="Delete" swipeDestructive=true testId="delete" width=50 height=50
+"#;
+    let plan = contract::compile(src).unwrap();
+    let plan = Plan::decode(&plan.encode()).unwrap();
+    let mut r = Runner::boot(plan, Schedule, Kernel::with_monospace()).unwrap();
+    let row = r.kernel().find_by_test_id("row")[0];
+    let id = r.kernel().node_by_key(row).unwrap().id;
+    let root = r.kernel().roots()[0];
+    assert_eq!(
+        r.kernel()
+            .node(root)
+            .unwrap()
+            .props
+            .str(PropId::SwipeContent),
+        Some("row")
+    );
+    assert_eq!(
+        r.kernel()
+            .node(root)
+            .unwrap()
+            .props
+            .str(PropId::SwipeLeading),
+        Some("first")
+    );
+    r.dispatch(id, Event::Press).unwrap();
+    assert_eq!(
+        r.kernel()
+            .node(root)
+            .unwrap()
+            .props
+            .str(PropId::SwipeLeading),
+        Some("second")
+    );
+    let delete = r.kernel().find_by_test_id("delete")[0];
+    assert_eq!(
+        r.kernel()
+            .node_by_key(delete)
+            .unwrap()
+            .props
+            .bool(PropId::SwipeDestructive),
+        Some(true)
+    );
 }

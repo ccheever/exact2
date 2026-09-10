@@ -261,6 +261,10 @@ fonts' own advances (Book 98.6, Bold 111.1 for "Change station" at 13 pt).
 
 ## 4. The presenter (`host/linux/src/presenter.rs`, `image.rs`)
 
+The headless/DRM host has no system clipboard. `copyText(text)` is recognized
+and reports `unsupported` on stderr; it neither saves a pretend clipboard nor
+adds an agent operation (2026-09-10; Apple/web behavior: LLP 1008 §5, 1007 §4).
+
 What a painter holds beyond the kernel, and the operations that touch it.
 **Scroll offsets** are host state per scroll container, clamped after
 every layout to the content extent (LLP 1010's floor, ported); the page's
@@ -467,3 +471,11 @@ Rust 1.97.0, the CPU painter) in 0.9 s and on macOS 26.6 (the GPU painter
 on Metal) in 7 s (the canvas reference step aside, §5), 2026-08-29; the
 peer lane's motion step (LLP 1012 r2's fixture) gives the same numbers as
 the other hosts. Under the five checks the same day.
+
+**`layout <node>`** (2026-09-09, LLP 1035.002 D1): `layout` with an `id`
+adds `node` — the runner's rows and sources (`Host::agent`'s `node`
+message) plus what a painter knows: the painted box as `space.viewport`
+and a 1:1 capture scale. No window, no screen, no scroll or clip chain
+yet, and `native` is `{"unavailable": true}` rather than a guess; the
+inherited colour and font rows the painter now reads through
+`NodeRef::computed_style` (LLP 1035.000) are what it reports.

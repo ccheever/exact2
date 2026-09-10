@@ -550,12 +550,37 @@ impl<D: DataSource> Bridge<D> {
             7 => Event::Submit,
             8 => Event::Load,
             9 => Event::Message(payload),
+            10 => Event::Contextmenu,
+            11 => Event::Dblclick,
+            12 => Event::Swiperight,
+            13 => {
+                let Some(event) = Event::scroll_payload(&payload) else {
+                    return self
+                        .emit(r#"{"ops":[],"error":"invalid scroll coordinates"}"#.to_string());
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
             Some(h) => h.dispatch_at(view, event, now_ms),
             None => not_booted(),
         };
+        self.emit(out)
+    }
+
+    /// Feed a recognized horizontal drag to the motion engine.
+    pub fn drag_x(
+        &mut self,
+        view: u32,
+        delta: f64,
+        velocity: f64,
+        release: bool,
+        now_ms: f64,
+    ) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.drag_x(view, delta, velocity, release, now_ms)
+        });
         self.emit(out)
     }
 
@@ -971,6 +996,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_dispatch(rt: u32, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.dispatch(view, kind, len, now_ms), |n| n)
+        }
+
+        /// A platform drag: hold or release the authored translate target.
+        #[no_mangle]
+        pub extern "C" fn exact_drag_x(rt: u32, view: u32, delta: f64, velocity: f64, release: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.drag_x(view, delta, velocity, release != 0, now_ms), |n| n)
         }
 
         /// Move the clock; returns the batch's length.

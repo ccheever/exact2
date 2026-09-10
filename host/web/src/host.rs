@@ -322,12 +322,20 @@ impl<D: DataSource> Host<D> {
                     if r.touched.contains(key) {
                         self.update(id, &mut batch);
                     }
-                    self.emit_children(id, &mut batch);
                 }
             }
             // This commit's springs, at its own time: the style (the target)
             // is in the page before the frames that approach it start playing.
             self.emit_springs(&mut batch, std::slice::from_ref(r), t.at_ms / 1000.0);
+        }
+        // Earlier receipts also read the final tree, whose children can be
+        // created by a later receipt in this seek. Attach only after all creates.
+        for t in receipts {
+            for key in t.receipt.created.iter().chain(t.receipt.touched.iter()) {
+                if let Some(node) = self.runner.kernel().node_by_key(*key) {
+                    self.emit_children(node.id, &mut batch);
+                }
+            }
         }
         let roots = self.runner.roots();
         if roots != self.roots {
@@ -425,6 +433,10 @@ impl<D: DataSource> Host<D> {
                 EventKind::Submit => "submit",
                 EventKind::Load => "load",
                 EventKind::Message => "message",
+                EventKind::Contextmenu => "contextmenu",
+                EventKind::Dblclick => "dblclick",
+                EventKind::Swiperight => "swiperight",
+                EventKind::Scroll => "scroll",
             })
             .collect();
         let pairs: Vec<(&str, String)> =
@@ -643,7 +655,27 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::Placeholder => "placeholder",
             PropId::Type => "type",
             PropId::InputMode => "inputmode",
+            PropId::Autocapitalize => "autocapitalize",
+            PropId::Autocorrect => "autocorrect",
+            PropId::Spellcheck => "spellcheck",
             PropId::Value => "value",
+            PropId::ScrollTop => "scrollTop",
+            PropId::ScrollLeft => "scrollLeft",
+            PropId::ScrollFollowEnd => "scrollFollowEnd",
+            PropId::NavigationKey => "navigationKey",
+            PropId::NavigationBack => "navigationBack",
+            PropId::NavigationPresentation => "navigationPresentation",
+            PropId::Closedby => "closedby",
+            PropId::ContextTarget => "contextTarget",
+            PropId::ContextMagnify => "contextMagnify",
+            PropId::SwipeContent => "swipeContent",
+            PropId::SwipeLeading => "swipeLeading",
+            PropId::SwipeTrailing => "swipeTrailing",
+            PropId::SwipeDestructive => "swipeDestructive",
+            PropId::EmojiPicker => "emojiPicker",
+            PropId::BackgroundMaterial => "backgroundMaterial",
+            PropId::RetainFocus => "retainFocus",
+            PropId::SwipeIndicator => "swipeIndicator",
             PropId::Href if text.is_empty() => continue,
             PropId::Href => "href",
             PropId::Disabled => "disabled",

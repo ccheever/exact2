@@ -472,6 +472,7 @@ impl<D: DataSource> Presenter<D> {
                     self.brush.dark =
                         matches!(c.args.first(), Some(exact_plan::Value::Str(s)) if &**s == "dark");
                 }
+                "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
                 other => eprintln!("exact: unknown command {other}"),
             }
         }
@@ -725,8 +726,12 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The agent's `layout`: every node's box in the viewport (scroll
-    /// folded in), scroll containers with their offsets, by id.
-    pub fn layout_json(&mut self) -> String {
+    /// folded in), scroll containers with their offsets, by id. With a
+    /// `node`, the runner's explanation of that node (LLP 1035.002 D1) plus
+    /// what a painter knows — its painted box and a 1:1 capture; no window,
+    /// no screen, nothing mounted, and the reply says so rather than
+    /// guessing.
+    pub fn layout_json(&mut self, node: Option<u32>) -> String {
         let clock = self.host.now();
         let (vw, vh) = self.viewport;
         let mut boxes: Vec<PaintedBox> = self.boxes().to_vec();
@@ -759,7 +764,40 @@ impl<D: DataSource> Presenter<D> {
             }
             s.push('}');
         }
-        s.push_str("]}");
+        s.push(']');
+        if let Some(id) = node {
+            let detail = self.host.agent(&format!("{{\"op\":\"node\",\"id\":{id}}}"));
+            if detail.starts_with("{\"error\"") {
+                return detail;
+            }
+            // Reopen the runner's object: exactly its last brace, never the
+            // inner object's before it.
+            let mut detail = detail;
+            if detail.ends_with('}') {
+                detail.pop();
+            }
+            match boxes.iter().find(|b| b.id == id) {
+                Some(b) => {
+                    let _ = write!(
+                        detail,
+                        ",\"space\":{{\"viewport\":{{\"x\":{},\"y\":{},\"w\":{},\"h\":{}}},\"capture\":{{\"scale\":1}}}}",
+                        num(r2(b.rect.0)),
+                        num(r2(b.rect.1)),
+                        num(r2(b.rect.2)),
+                        num(r2(b.rect.3))
+                    );
+                }
+                None => detail.push_str(",\"space\":{\"capture\":{\"scale\":1}}"),
+            }
+            let _ = write!(
+                detail,
+                ",\"native\":{{\"unavailable\":true}},\"observed\":{{\"clock\":{}}}}}",
+                num(clock)
+            );
+            s.push_str(",\"node\":");
+            s.push_str(&detail);
+        }
+        s.push('}');
         s
     }
 
@@ -922,6 +960,9 @@ impl<D: DataSource> Presenter<D> {
         }
         if node.props.bool(PropId::Editable) == Some(false) {
             return Err(format!("view {id} is readonly"));
+        }
+        if node.props.bool(PropId::EmojiPicker) == Some(true) {
+            return Err("emoji selection is not supported on the Linux host".into());
         }
         self.focus = Some(id);
         let now = self.host.now();

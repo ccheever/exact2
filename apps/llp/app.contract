@@ -339,19 +339,19 @@ component Blocks
   view
     when block.kind == "heading"
       column width="100%" padding-top=22 padding-bottom=4 testId=`block-${block.id}`
-        text aria-level=block.depth
-          Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700), color=theme.strongInk, line=(block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21))
+        text aria-level=block.depth color=theme.strongInk line-height=(block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21)
+          Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
     else
       when block.kind == "paragraph"
         view width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
-          text
-            Runs(runs=block.runs, size=16, weight=400, color=theme.ink, line=26)
+          text color=theme.ink line-height=26
+            Runs(runs=block.runs, size=16, weight=400)
       else
         when block.kind == "item"
           row width="100%" box-sizing="border-box" padding-top=2 padding-bottom=2 padding-left=(4 + block.depth * 22) testId=`block-${block.id}`
             text block.marker font-size=16 line-height=26 color=theme.softInk width=26
-            text flex=1
-              Runs(runs=block.runs, size=16, weight=400, color=theme.ink, line=26)
+            text flex=1 color=theme.ink line-height=26
+              Runs(runs=block.runs, size=16, weight=400)
         else
           when block.kind == "code"
             view width="100%" padding-top=8 padding-bottom=8 testId=`block-${block.id}`
@@ -362,8 +362,8 @@ component Blocks
               row width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
                 view width=3 background-color=theme.quoteEdge border-radius=2
                 view flex=1 padding-left=16
-                  text
-                    Runs(runs=block.runs, size=16, weight=400, color=theme.quoteInk, line=26)
+                  text color=theme.quoteInk line-height=26
+                    Runs(runs=block.runs, size=16, weight=400)
             else
               when block.kind == "rule"
                 view width="100%" height=1 background-color=theme.edge margin-top=22 margin-bottom=22 testId=`block-${block.id}`
@@ -373,11 +373,11 @@ component Blocks
                     each c in block.cells key=c.id
                       view flex=1 padding=8
                         when block.header
-                          text
-                            Runs(runs=c.runs, size=13, weight=700, color=theme.strongInk, line=20)
+                          text color=theme.strongInk line-height=20
+                            Runs(runs=c.runs, size=13, weight=700)
                         else
-                          text
-                            Runs(runs=c.runs, size=13, weight=400, color=theme.ink, line=20)
+                          text color=theme.ink line-height=20
+                            Runs(runs=c.runs, size=13, weight=400)
                 else
                   when block.kind == "image"
                     column width="100%" padding-top=10 padding-bottom=10 gap=6 testId=`block-${block.id}`
@@ -395,14 +395,12 @@ component Runs
     runs: list<Run>
     size: number
     weight: number
-    color: string
-    line: number
   view
     each r in runs key=r.id
       when r.mono
-        text r.text font-family="ui-monospace" font-size=(size * 0.92) font-weight=(r.weight > weight ? r.weight : weight) font-style=r.slant line-height=line color=theme.code href=r.href
+        text r.text font-family="ui-monospace" font-size=(size * 0.92) font-weight=(r.weight > weight ? r.weight : weight) font-style=r.slant color=theme.code href=r.href
       else
-        text r.text font-size=size font-weight=(r.weight > weight ? r.weight : weight) font-style=r.slant line-height=line color=color href=r.href
+        text r.text font-size=size font-weight=(r.weight > weight ? r.weight : weight) font-style=r.slant href=r.href
 
 // One appearance choice. The icon is a fixed grey, so which one is chosen is
 // said with a pill and with opacity rather than by tinting the artwork — a

@@ -82,6 +82,7 @@ fn describe(e: &StyleValueError) -> String {
         StyleValueError::AutoNotAdmitted { .. } => "`auto` is not admitted here".into(),
         StyleValueError::OutOfRange { .. } => "out of the row's range".into(),
         StyleValueError::BadColor { .. } => "a color is `#rgb`, `#rrggbb`, or `#rrggbbaa`".into(),
+        StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
     }
@@ -745,7 +746,14 @@ impl<'a> Lowerer<'a> {
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
                 let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));
-                if tag == "scroll" && parent_stacks && !has(&["height", "max-height", "flex"]) {
+                let clips_y = expanded.iter().any(|a| {
+                    a.name == "overflow-y" && matches!(&a.value, Expr::Str(v, _) if v == "hidden")
+                });
+                if tag == "scroll"
+                    && !clips_y
+                    && parent_stacks
+                    && !has(&["height", "max-height", "flex"])
+                {
                     return err(
                         "lower-scroll-unbounded",
                         "`scroll` has no `height`, `max-height`, or `flex`, and its parent stacks it top to bottom, so it will grow with its content and never scroll",
@@ -1237,7 +1245,7 @@ impl<'a> Lowerer<'a> {
                 | (_, Some(Ty::Unknown))
                 | (tags::PropTy::Str, Some(Ty::String))
                 | (tags::PropTy::Bool, Some(Ty::Bool))
-                | (tags::PropTy::Int, Some(Ty::Number))
+                | (tags::PropTy::Int | tags::PropTy::Float, Some(Ty::Number))
         );
         if !ok {
             return err(
@@ -1249,6 +1257,7 @@ impl<'a> Lowerer<'a> {
                         tags::PropTy::Str => "a string",
                         tags::PropTy::Bool => "a bool",
                         tags::PropTy::Int => "a whole number",
+                        tags::PropTy::Float => "a number",
                     },
                     ty.unwrap_or(Ty::Unknown)
                 ),
@@ -1416,7 +1425,11 @@ impl<'a> Lowerer<'a> {
                 // prop names the real action here: its arity is checked now,
                 // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
                 let params = self.root.actions[ai].params.len();
-                let payload = usize::from(matches!(event, "change" | "key" | "hover" | "message"));
+                let payload = if event == "scroll" {
+                    2
+                } else {
+                    usize::from(matches!(event, "change" | "key" | "hover" | "message"))
+                };
                 if args.len() + payload != params {
                     return err(
                         "lower-handler-arity",
@@ -1428,6 +1441,7 @@ impl<'a> Lowerer<'a> {
                                 "key" => " plus the key's name",
                                 "change" => " plus the new value",
                                 "message" => " plus the guest's message",
+                                "scroll" => " plus scrollLeft and scrollTop",
                                 _ => "",
                             }
                         ),
@@ -1448,6 +1462,10 @@ impl<'a> Lowerer<'a> {
                     "key" => EventKind::Key,
                     "load" => EventKind::Load,
                     "message" => EventKind::Message,
+                    "contextmenu" => EventKind::Contextmenu,
+                    "dblclick" => EventKind::Dblclick,
+                    "swiperight" => EventKind::Swiperight,
+                    "scroll" => EventKind::Scroll,
                     _ => unreachable!("tag table admitted an unknown handler"),
                 };
                 handlers.push((kind, self.actions[ai], codes));

@@ -14,12 +14,12 @@ mod kept;
 mod settlement;
 pub use carry::Carried;
 
-use crate::instance::{Ids, InstanceError, SurfaceUpdate, Tree, Update};
+use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Outcome, Request, RequestOut};
 use crate::store::{Store, StoreWrite};
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
 use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
-use exact_plan::{ActionsId, Code, EventKind, MutationsId, Plan, PlanError, Value};
+use exact_plan::{ActionsId, Code, EventKind, MutationsId, NodesId, Plan, PlanError, Value};
 use std::fmt::Write as _;
 
 /// A host-facing effect an action asked for; executed after commit, in order.
@@ -78,6 +78,23 @@ pub enum Event {
     Load,
     /// An iframe guest posted a string to its parent (@ref LLP 1020 D2).
     Message(String),
+    /// The platform requested a context menu (secondary click or long press).
+    Contextmenu,
+    /// A double click, or the platform’s double tap.
+    Dblclick,
+    /// A platform-recognized right swipe.
+    Swiperight,
+    /// A changed scroll position, in CSS pixels (left, top).
+    Scroll(f64, f64),
+}
+
+impl Event {
+    /// Decode the scroll event's two finite CSS-pixel coordinates.
+    pub fn scroll_payload(payload: &str) -> Option<Self> {
+        let (left, top) = payload.split_once(',')?;
+        let (left, top) = (left.parse::<f64>().ok()?, top.parse::<f64>().ok()?);
+        (left.is_finite() && top.is_finite()).then_some(Self::Scroll(left, top))
+    }
 }
 
 /// Why the runner refused. The kernel is unchanged.
@@ -648,6 +665,13 @@ impl<D: DataSource> Runner<D> {
         self.now_ms
     }
 
+    /// The plan site a view was instantiated from and the instance path to
+    /// it — the `each` keys and active arms crossed — for `layout <node>`
+    /// (LLP 1035.002 D6). `None` for a view the instance tree does not own.
+    pub fn site_of(&self, view: ViewId) -> Option<(NodesId, Vec<InstanceStep>)> {
+        self.tree.as_ref().and_then(|t| t.site(view))
+    }
+
     /// The event kinds a view handles, for a host that attaches listeners.
     pub fn handlers_of(&self, view: ViewId) -> Vec<EventKind> {
         let Some((node, _)) = self.tree.as_ref().and_then(|t| t.find(view)) else {
@@ -735,6 +759,10 @@ impl<D: DataSource> Runner<D> {
                 Event::Submit => "submit",
                 Event::Load => "load",
                 Event::Message(_) => "message",
+                Event::Contextmenu => "contextmenu",
+                Event::Dblclick => "dblclick",
+                Event::Swiperight => "swiperight",
+                Event::Scroll(_, _) => "scroll",
             }
         );
         let was_poisoned = self.poisoned;
@@ -764,6 +792,10 @@ impl<D: DataSource> Runner<D> {
             Event::Submit => (EventKind::Submit, None, "submit"),
             Event::Load => (EventKind::Load, None, "load"),
             Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),
+            Event::Contextmenu => (EventKind::Contextmenu, None, "contextmenu"),
+            Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
+            Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
+            Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
         };
         let row = self.plan.node(node);
         let handler = row
@@ -780,6 +812,9 @@ impl<D: DataSource> Runner<D> {
         }
         if let Some(p) = payload {
             args.push(p);
+        }
+        if let Event::Scroll(left, top) = event {
+            args.extend([Value::Number(left), Value::Number(top)]);
         }
         let _ = write!(
             what,

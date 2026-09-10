@@ -155,6 +155,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
+    var clipPath: CGPath?
     var handlers: Set<String> = []
     var translate = CGPoint.zero
     var scale: CGFloat = 1
@@ -337,7 +338,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if handlers.contains("key") { presenter?.key(id, name) }
         return name == "Enter"
     }
-    func controlTextDidBeginEditing(_ obj: Notification) { if handlers.contains("focus") { presenter?.focus(id) } }
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        (field?.currentEditor() as? NSTextView)?.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
+        (field?.currentEditor() as? NSTextView)?.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
+        if handlers.contains("focus") { presenter?.focus(id) }
+    }
     func controlTextDidEndEditing(_ obj: Notification) { if handlers.contains("blur") { presenter?.blur(id) } }
 
     /// Where an image source resolves, as a page resolves `src`: an `http(s)`
@@ -480,7 +485,21 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         canvases?.scheduleCapture()
     }
 
-    @objc func clipScrolled() { repaintThrough(); presenter?.refreshVisibleText() }
+    @objc func clipScrolled() { repaintThrough(); presenter?.refreshVisibleText(); queueScrollEvent() }
+    private var scrollEventQueued = false
+    private var lastScrollEvent = CGPoint.zero
+    private func queueScrollEvent() {
+        guard handlers.contains("scroll"), !scrollEventQueued else { return }
+        scrollEventQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.scrollEventQueued = false
+            guard let point = self.scroll?.contentView.bounds.origin, point != self.lastScrollEvent,
+                  self.presenter?.views[self.id] === self, self.hasScrollLayoutBox else { return }
+            self.lastScrollEvent = point
+            self.presenter?.scroll(self.id, Double(point.x), Double(point.y))
+        }
+    }
 
     /// The direct child of a canvas this node is under, when that child is
     /// placed by the surface: the node whose `placement` maps this subtree.
@@ -540,6 +559,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// (children the surface left in place) is tested in AppKit's order
     /// without them, and then the canvas itself is the hit.
     override func hitTest(_ point: NSPoint) -> NSView? {
+        if let clipPath, !clipPath.contains(convert(point, from: superview)) { return nil }
         guard let overlay, let sup = superview else { return super.hitTest(point) }
         let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil }
         guard !placed.isEmpty else { return super.hitTest(point) }
@@ -676,7 +696,72 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         ])
     }
 
+    // display:none removes the CSS box, but retains its stored scroll position.
+    // UIKit/AppKit collapse the native extent; keep that transient reset out of
+    // scroll events and restore only when the box returns.
+    private var beforeLayoutScroll: CGPoint?
+    private var hiddenScroll: CGPoint?
+    private var hasScrollLayoutBox: Bool {
+        var ancestor: NSView? = self
+        while let current = ancestor {
+            if let node = current as? NodeView, node.style["display"] as? String == "none" { return false }
+            ancestor = current.superview
+        }
+        return true
+    }
+
+    var followedScroll: (top: CGFloat, end: Bool)?
+    func captureScrollPosition() {
+        beforeLayoutScroll = scroll?.contentView.bounds.origin
+        followedScroll = nil
+        guard props["scrollFollowEnd"] == "true", let sv = scroll, let doc = sv.documentView else { return }
+        let maximum = max(0, doc.bounds.height - sv.contentView.bounds.height)
+        followedScroll = (sv.contentView.bounds.minY, sv.contentView.bounds.minY >= maximum - 1)
+    }
+    func restoreScrollPosition() {
+        defer { followedScroll = nil }
+        guard props["scrollFollowEnd"] == "true", let sv = scroll, let doc = sv.documentView else { return }
+        let maximum = max(0, doc.bounds.height - sv.contentView.bounds.height)
+        let prior = followedScroll ?? (top: maximum, end: true)
+        let y = prior.end ? maximum : min(maximum, max(0, prior.top))
+        if sv.contentView.bounds.minY != y {
+            sv.contentView.scroll(to: NSPoint(x: sv.contentView.bounds.minX, y: y))
+            sv.reflectScrolledClipView(sv.contentView)
+        }
+    }
+    func applyPendingScroll() {
+        defer { pendingScrollTop = nil; pendingScrollLeft = nil }
+        guard let sv = scroll, let doc = sv.documentView else { return }
+        guard hasScrollLayoutBox else {
+            if hiddenScroll == nil { hiddenScroll = beforeLayoutScroll ?? .zero }
+            return
+        }
+        if let saved = hiddenScroll {
+            hiddenScroll = nil
+            let target = NSPoint(
+                x: min(max(saved.x, 0), max(0, doc.bounds.width - sv.contentView.bounds.width)),
+                y: min(max(saved.y, 0), max(0, doc.bounds.height - sv.contentView.bounds.height)))
+            if sv.contentView.bounds.origin != target {
+                sv.contentView.scroll(to: target)
+                sv.reflectScrolledClipView(sv.contentView)
+            }
+        }
+        guard pendingScrollTop != nil || pendingScrollLeft != nil else { return }
+        let y = pendingScrollTop.map { CGFloat($0) == sv.contentView.bounds.minY ? sv.contentView.bounds.minY : min(max(CGFloat($0), 0), max(0, doc.bounds.height - sv.contentView.bounds.height)) } ?? sv.contentView.bounds.minY
+        let x = pendingScrollLeft.map { CGFloat($0) == sv.contentView.bounds.minX ? sv.contentView.bounds.minX : min(max(CGFloat($0), 0), max(0, doc.bounds.width - sv.contentView.bounds.width)) } ?? sv.contentView.bounds.minX
+        let target = NSPoint(x: x, y: y)
+        if sv.contentView.bounds.origin != target {
+            sv.contentView.scroll(to: target)
+            sv.reflectScrolledClipView(sv.contentView)
+        }
+    }
+    var pendingScrollLeft: Double?
+    var pendingScrollTop: Double?
     func applyProps(set: [String: String], clear: [String]) {
+        if clear.contains("scrollLeft") { pendingScrollLeft = nil }
+        if let raw = set["scrollLeft"], let left = Double(raw), left.isFinite { pendingScrollLeft = left }
+        if clear.contains("scrollTop") { pendingScrollTop = nil }
+        if let raw = set["scrollTop"], let top = Double(raw), top.isFinite { pendingScrollTop = top }
         for k in clear { props.removeValue(forKey: k) }
         for (k, v) in set { props[k] = v }
         applyTextArea()
@@ -700,6 +785,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             applyPlaceholder(f)
             f.isEnabled = !disabled
             f.isEditable = !disabled && props["editable"] != "false"
+            (f.currentEditor() as? NSTextView)?.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
+            (f.currentEditor() as? NSTextView)?.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
         }
         setAccessibilityEnabled(!disabled)
         setAccessibilityIdentifier(props["testId"])
@@ -712,6 +799,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func applyStyle(_ s: [String: Any]) {
         style = s
+        clipPath = ClipPath.path(s["clip_path"])
+        wantsLayer = true
+        layer?.mask = ClipPath.mask(clipPath)
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
         // scroll container that scrolls that axis; `hidden` clips.
@@ -757,8 +847,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let ey: NSScrollView.Elasticity = by == "contain" ? .allowed : by == "none" ? .none : .automatic
         if let sv = scroll, sv.horizontalScrollElasticity != ex { sv.horizontalScrollElasticity = ex }
         if let sv = scroll, sv.verticalScrollElasticity != ey { sv.verticalScrollElasticity = ey }
-        scroll?.hasHorizontalScroller = ox == "scroll"
-        scroll?.hasVerticalScroller = oy == "scroll"
+        let scrollbarWidth = s["scrollbar_width"] as? String ?? "auto"
+        scroll?.hasHorizontalScroller = ox == "scroll" && scrollbarWidth != "none"
+        scroll?.hasVerticalScroller = oy == "scroll" && scrollbarWidth != "none"
+        scroll?.horizontalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
+        scroll?.verticalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         clipsToBounds = ox == "hidden" || oy == "hidden"
         styleTextArea()
         if let f = field, let t = text {
@@ -920,7 +1013,22 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
     }
+    override func rightMouseUp(with event: NSEvent) {
+        guard !disabled, handlers.contains("contextmenu") else { return super.rightMouseUp(with: event) }
+        presenter?.contextmenu(id)
+    }
     override func mouseUp(with event: NSEvent) {
+        if event.clickCount == 2 {
+            var next: NSView? = self
+            while let view = next {
+                if let node = view as? NodeView, !node.disabled, node.handlers.contains("dblclick") {
+                    node.pressed = false
+                    node.presenter?.dblclick(node.id)
+                    return
+                }
+                next = view.superview
+            }
+        }
         if isParagraph && !hasPressableAncestor { presenter?.selection.end(self, event: event); return }
         guard !disabled else { pressed = false; return }
         guard pressed else { return super.mouseUp(with: event) }
@@ -928,6 +1036,12 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if bounds.contains(local(event.locationInWindow)) { presenter?.press(id) }
     }
     func controlTextDidChange(_ obj: Notification) {
+        if props["emojiPicker"] == "true", let field {
+            let value = field.stringValue
+            field.stringValue = ""
+            if !disabled, handlers.contains("change"), EmojiSelection.accepts(value) { presenter?.change(id, value) }
+            return
+        }
         if !disabled, handlers.contains("change") { presenter?.change(id, field?.stringValue ?? "") }
     }
 }

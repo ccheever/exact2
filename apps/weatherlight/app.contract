@@ -187,7 +187,7 @@ component Weatherlight
             column gap=6 flex=1 min-width=0
               text city testId="city-name" font-family="serif" font-size=34 letter-spacing=-1 color="#ffffff"
               text region font-size=12 color="#d5e3e9"
-            button press=toggleMotion testId="pause-sky" aria-label=(animated ? "Pause sky animation" : "Play sky animation") padding=10 border-radius=20 background-color="#17374e"
+            button press=toggleMotion testId="pause-sky" aria-label=(animated ? "Pause sky animation" : "Play sky animation") width=40 height=40 border-radius=20 display="flex" align-items="center" justify-content="center" background-color="#17374e"
               text (animated ? "Ⅱ" : "▷") color="#e2eced" font-size=14
           column gap=3
             text (pending(forecast) ? "UPDATING FORECAST" : outlook.selectedLabel) testId="selected-label" font-size=10 font-weight=600 letter-spacing=2 color="#d5e3e9"

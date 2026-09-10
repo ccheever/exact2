@@ -15,6 +15,7 @@ public final class ExactView: UIView {
     public let session: ExactSession
     private var lastSize = CGSize.zero
     private var lastInsets = UIEdgeInsets.zero
+    private let keyboardProbe = UIView()
     /// The adapter's hook for the first root's `viewport-fit` and its
     /// canvas colour (the window's background under the safe areas is the
     /// window's business).
@@ -26,6 +27,17 @@ public final class ExactView: UIView {
         super.init(frame: .zero)
         backgroundColor = .white
         addSubview(session.presenter.viewport)
+        // A zero-size dependent makes UIKit lay this view out as its keyboard
+        // guide moves. Frame notifications alone omit interactive drag frames.
+        keyboardProbe.isHidden = true
+        keyboardProbe.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(keyboardProbe)
+        NSLayoutConstraint.activate([
+            keyboardProbe.topAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor),
+            keyboardProbe.leadingAnchor.constraint(equalTo: leadingAnchor),
+            keyboardProbe.widthAnchor.constraint(equalToConstant: 0),
+            keyboardProbe.heightAnchor.constraint(equalToConstant: 0),
+        ])
         session.view = self
         session.presenter.onViewportFit = { [weak self] in self?.setNeedsLayout(); self?.onViewportFit?() }
         session.presenter.onCanvasColor = { [weak self] color in self?.backgroundColor = color; self?.onCanvasColor?(color) }
@@ -58,12 +70,25 @@ public final class ExactView: UIView {
     /// the batch sets animate with the keyboard (LLP 1008 §9).
     func fit() {
         let presenter = session.presenter
-        let safe = safeAreaInsets
+        // UIKit moves the keyboard sideways with an interactive pop. Its
+        // hide notification is not a request to drop the composer below
+        // those moving keys; keep the current viewport until it settles.
+        guard !presenter.navigation.preservesKeyboardViewport else { return }
+        let container = presenter.modals.coordinateView ?? self
+        let safe = container.safeAreaInsets
         let cover = presenter.viewportFit == "cover"
-        var frame = cover ? bounds : bounds.inset(by: safe)
+        var frame = cover ? container.bounds : container.bounds.inset(by: safe)
         var insets = cover ? safe : .zero
         if presenter.interactiveWidget == "resizes-content" {
-            let top = presenter.keyboardTop ?? .infinity
+            let top: CGFloat
+            // A sheet's guide remains in its local coordinates as UIKit moves
+            // the sheet, including during interactive dismissal.
+            if presenter.interactiveKeyboardDrag || presenter.modals.active {
+                let guide = container.keyboardLayoutGuide.layoutFrame
+                top = guide.height > safe.bottom + 1 ? guide.minY : .infinity
+            } else if let edge = presenter.keyboardTop, let window {
+                top = container.convert(CGPoint(x: 0, y: edge), from: window).y
+            } else { top = .infinity }
             presenter.keyboardInset = min(max(0, frame.maxY - max(top, frame.minY)), frame.height)
             if top < frame.maxY {
                 frame.size.height = max(0, top - frame.minY)

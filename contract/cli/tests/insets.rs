@@ -53,7 +53,9 @@ fn viewport_fit_and_env_lengths_reach_the_kernel_and_follow_the_insets() {
     assert_eq!((f.x, f.y, f.width, f.height), (0.0, 62.0, 402.0, 778.0));
     // The input sits at the bottom of the content, above the home indicator.
     let note = k.node(id_of(k, "note")).unwrap().frame;
-    assert_eq!(note.y + note.height, 874.0 - 34.0 - 16.0);
+    // Flex placement accumulates f32 fractions as preceding rows change.
+    let bottom = note.y + note.height;
+    assert!((bottom - (874.0 - 34.0 - 16.0)).abs() < 0.001, "{bottom}");
 }
 
 #[test]

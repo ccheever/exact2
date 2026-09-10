@@ -509,6 +509,84 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
+    /// A horizontal platform drag holds translate; release returns to its
+    /// authored target under the authored transition, carrying velocity.
+    pub fn drag_x(
+        &mut self,
+        view: ViewId,
+        delta: f64,
+        velocity: f64,
+        release: bool,
+        now_ms: f64,
+    ) -> String {
+        let mut batch = Batch::new();
+        if ![delta, velocity, now_ms].iter().all(|v| v.is_finite()) {
+            return self.finish(batch, Some("drag requires finite values".into()));
+        }
+        let Some(node) = self.runner.kernel().node(view) else {
+            return self.finish(batch, Some("drag target is gone".into()));
+        };
+        let key = motion_node(node.key);
+        let target = targets(node.style)
+            .into_iter()
+            .find(|(p, _)| *p == Property::Translate)
+            .unwrap()
+            .1;
+        // The app authors the indicator as a direct child. The gesture holds
+        // its existing style rows; it owns no additional visual/state graph.
+        let indicators: Vec<_> = node
+            .children()
+            .into_iter()
+            .filter_map(|id| {
+                let child = self.runner.kernel().node(id)?;
+                (child.props.bool(PropId::SwipeIndicator) == Some(true))
+                    .then(|| (motion_node(child.key), targets(child.style)))
+            })
+            .collect();
+        self.now_ms = now_ms.max(self.now_ms);
+        let result = self.engine.advance(self.now_ms / 1000.0).and_then(|()| {
+            if release {
+                self.engine.observe(Change {
+                    node: key,
+                    property: Property::Translate,
+                    value: target,
+                    velocity: Some(exact_motion::Value::new(velocity, 0.0)),
+                })
+            } else {
+                self.engine.hold(
+                    key,
+                    Property::Translate,
+                    exact_motion::Value::new(target.x + delta, target.y),
+                )
+            }?;
+            let progress = (delta / 64.0).clamp(0.0, 1.0);
+            for (indicator, values) in &indicators {
+                for &(property, value) in values {
+                    if !matches!(property, Property::Opacity | Property::Scale) {
+                        continue;
+                    }
+                    if release {
+                        self.engine.observe(Change {
+                            node: *indicator,
+                            property,
+                            value,
+                            velocity: None,
+                        })?;
+                    } else {
+                        self.engine.hold(
+                            *indicator,
+                            property,
+                            exact_motion::Value::scalar(value.x + (1.0 - value.x) * progress),
+                        )?;
+                    }
+                }
+            }
+            Ok(())
+        });
+        self.present(&mut batch, false);
+        self.finish(batch, result.err().map(|e| format!("drag: {e:?}")))
+    }
+
     /// A motion frame: seek the engine to `now_ms` and report every
     /// presentation value that changed. Nothing else moves.
     pub fn tick(&mut self, now_ms: f64) -> String {
@@ -551,7 +629,16 @@ impl<D: DataSource> Host<D> {
                     if r.touched.contains(key) {
                         self.update(id, &mut batch);
                     }
-                    self.emit_children(id, &mut batch);
+                }
+            }
+        }
+        // Receipts share the final kernel tree. A parent touched by an early
+        // timer can already name a child created by a later timer in this seek.
+        // All surviving views must exist before any final child list is attached.
+        for t in receipts {
+            for key in t.receipt.created.iter().chain(t.receipt.touched.iter()) {
+                if let Some(node) = self.runner.kernel().node_by_key(*key) {
+                    self.emit_children(node.id, &mut batch);
                 }
             }
         }
@@ -614,6 +701,21 @@ impl<D: DataSource> Host<D> {
                 != (Overflow::Visible, Overflow::Visible))
                 .then(|| content_size(&node, kernel));
             let m = self.mirror.entry(id).or_default();
+            // An ancestor hint may change without touching the editor. Pass
+            // its effective value through native containment, or clear it to
+            // restore the platform default when the last declaration disappears.
+            if node.node_type == NodeType::TextInput {
+                let spelling = node.spellcheck().map(|value| value.to_string());
+                if m.props.get("spellcheck") != spelling.as_ref() {
+                    if let Some(value) = spelling {
+                        batch.props(id, &[("spellcheck", value.clone())], &[]);
+                        m.props.insert("spellcheck".into(), value);
+                    } else {
+                        batch.props(id, &[], &["spellcheck"]);
+                        m.props.remove("spellcheck");
+                    }
+                }
+            }
             if m.frame != Some(rel) {
                 m.frame = Some(rel);
                 batch.frame(id, rel.0, rel.1, rel.2, rel.3);
@@ -688,6 +790,10 @@ impl<D: DataSource> Host<D> {
                 EventKind::Submit => "submit",
                 EventKind::Load => "load",
                 EventKind::Message => "message",
+                EventKind::Contextmenu => "contextmenu",
+                EventKind::Dblclick => "dblclick",
+                EventKind::Swiperight => "swiperight",
+                EventKind::Scroll => "scroll",
             })
             .collect();
         let pairs: Vec<(&str, String)> =
@@ -810,6 +916,12 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         };
         let _: PropId = id;
         out.insert(id.name().to_string(), text);
+    }
+    if node.node_type == NodeType::TextInput {
+        out.remove("spellcheck");
+        if let Some(value) = node.spellcheck() {
+            out.insert("spellcheck".into(), value.to_string());
+        }
     }
     out
 }

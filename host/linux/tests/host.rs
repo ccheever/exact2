@@ -149,7 +149,7 @@ fn the_tree_lays_out_with_real_text_and_every_node_has_a_box() {
 #[test]
 fn layout_json_is_the_agent_api_shape() {
     let mut p = boot();
-    let l = p.layout_json();
+    let l = p.layout_json(None);
     assert!(
         l.starts_with("{\"clock\":0,\"viewport\":{\"w\":390,\"h\":844},\"env\":{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0},\"nodes\":["),
         "{}",
@@ -232,6 +232,35 @@ fn disabled_controls_refuse_pointer_and_text_input() {
         presenter.host().runner().slot("value"),
         Some(&Value::str("kept"))
     );
+}
+
+#[test]
+fn unsupported_emoji_picker_does_not_dispatch_a_fake_selection() {
+    let plan = contract::compile(
+        r#"component Picker
+  state value = "kept"
+  action change(next: string) writes value
+    value = next
+  view
+    column
+      input emojiPicker=true change=change testId="picker"
+      input change=change testId="text"
+"#,
+    )
+    .unwrap();
+    let (mut p, error) =
+        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+    assert!(error.is_none());
+    let picker = view(&p, "picker");
+    assert!(p
+        .type_text(picker, "☕️")
+        .unwrap_err()
+        .contains("not supported"));
+    assert_eq!(p.focus(), None);
+    assert_eq!(p.host().runner().slot("value"), Some(&Value::str("kept")));
+    let input = view(&p, "text");
+    p.type_text(input, "☕️").unwrap();
+    assert_eq!(p.host().runner().slot("value"), Some(&Value::str("☕️")));
 }
 
 #[test]

@@ -101,12 +101,140 @@ extension Agent {
         return ["clock": session.now(), "viewport": viewport, "env": env, "nodes": nodes]
     }
 
+    /// `layout <node>` (LLP 1035.002 D1): the runner's rows and their sources
+    /// for one node, then what AppKit knows about it — its box in the
+    /// viewport, the window and the screen (both reported y-down from the
+    /// top, as every space here is), the scroll and clip chains above it,
+    /// whether it is hidden, in the viewport or clipped away, and what was
+    /// mounted for it. AppKit has no `inert`, so it is reported false, never
+    /// guessed. A stale id is refused by name.
+    func layout(_ req: [String: Any]) -> [String: Any] {
+        var reply = layout()
+        guard let id = req["id"] as? Int else { return reply }
+        guard let v = presenter.views[UInt32(id)] else { return ["error": "stale node #\(id)"] }
+        guard let d = session.agent("{\"op\":\"node\",\"id\":\(id)}").data(using: .utf8),
+              var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
+        if let e = node["error"] { return ["error": e] }
+        let host = v.paragraphOwner
+        let clipView = presenter.viewport.contentView
+        let rect = { (r: NSRect) -> [String: Any] in ["x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)] }
+        let b = box(host)
+        var space: [String: Any] = ["viewport": rect(b), "local": ["w": Agent.r2(host.bounds.width), "h": Agent.r2(host.bounds.height)],
+                                    "capture": ["scale": Agent.r2(host.window?.backingScaleFactor ?? 1)]]
+        if let w = host.window, let content = w.contentView {
+            let inWindow = host.convert(host.bounds, to: nil)
+            space["window"] = rect(NSRect(x: inWindow.origin.x, y: content.frame.height - inWindow.maxY, width: inWindow.width, height: inWindow.height))
+            let onScreen = w.convertToScreen(inWindow)
+            let top = NSScreen.screens.first?.frame.maxY ?? onScreen.maxY
+            space["screen"] = rect(NSRect(x: onScreen.origin.x, y: top - onScreen.maxY, width: onScreen.width, height: onScreen.height))
+        }
+        node["space"] = space
+        var clipped = b.isEmpty
+        var chain: [[String: Any]] = []
+        var clippers: [(NodeView, String)] = []
+        var above = host.superview
+        while let s = above {
+            if let n = s as? NodeView {
+                if let sv = n.scroll { let o = sv.contentView.bounds.origin; chain.append(["id": Int(n.id), "sx": Agent.r2(o.x), "sy": Agent.r2(o.y)]) }
+                if n.clipsToBounds { clippers.append((n, "overflow")) }
+                if n.clipPath != nil { clippers.append((n, "clip-path")) }
+            }
+            above = s.superview
+        }
+        let page = clipView.bounds.origin
+        var scroll: [[String: Any]] = [["viewport": true, "sx": Agent.r2(page.x), "sy": Agent.r2(page.y)]]
+        scroll.append(contentsOf: chain.reversed())
+        var clip: [[String: Any]] = []
+        for (n, kind) in clippers.reversed() {
+            clip.append(["id": Int(n.id), "kind": kind])
+            if host.window != nil, !host.convert(host.bounds, to: nil).intersects(n.convert(n.bounds, to: nil)) { clipped = true }
+        }
+        node["scroll"] = scroll
+        node["clip"] = clip
+        var visible: [String: Any] = ["hidden": host.isHiddenOrHasHiddenAncestor, "inert": false, "inViewport": b.intersects(NSRect(origin: .zero, size: clipView.bounds.size)), "clipped": clipped]
+        if host.isHiddenOrHasHiddenAncestor {
+            // Name the ancestor that hides it, never leave a reader guessing.
+            var s: NSView? = host
+            while let v = s, !v.isHidden { s = v.superview }
+            if let v = s { visible["hiddenBy"] = (v as? NodeView).map { "#\($0.id)" } ?? String(describing: Swift.type(of: v)) }
+        }
+        node["visible"] = visible
+        var native: [String: Any] = ["view": String(describing: Swift.type(of: v)), "sheet": false]
+        if v !== host { native["inline"] = true }
+        if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.currentEditor() != nil }
+        if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
+        node["native"] = native
+        node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]
+        reply["node"] = node
+        return reply
+    }
+
     func view(_ req: [String: Any]) -> NodeView? {
         guard let id = req["id"] as? Int else { return nil }
         return presenter.views[UInt32(id)]?.paragraphOwner
     }
 
+    /// A contact held across requests (LLP 1035.003 D1): the mouse button
+    /// down at a point in the viewport, dragged along a declared path,
+    /// held, released — each phase a real `NSEvent` through `sendEvent`,
+    /// the path a click takes, with the run loop turning between the steps
+    /// of a timed move so AppKit tracks them as it would a hand's. Every
+    /// other operation answers while the button is down. AppKit has no
+    /// cancel for a mouse: `cancel` is reported unsupported and the contact
+    /// stays down, never faked as a release.
+    func contact(_ phase: String, _ req: [String: Any]) -> [String: Any] {
+        guard let win = presenter.viewport.window else { return ["error": "no window"] }
+        let clip = presenter.viewport.contentView
+        let toWindow = { (p: CGPoint) -> NSPoint in clip.convert(NSPoint(x: p.x + clip.bounds.origin.x, y: p.y + clip.bounds.origin.y), to: nil) }
+        let send = { (type: NSEvent.EventType, p: CGPoint) in
+            let t = ProcessInfo.processInfo.systemUptime
+            if let e = NSEvent.mouseEvent(with: type, location: toWindow(p), modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
+                win.sendEvent(e)
+            }
+        }
+        let at = { (p: CGPoint) -> [Double] in [Agent.r2(p.x), Agent.r2(p.y)] }
+        switch phase {
+        case "down":
+            guard contact == nil else { return ["error": "a contact is already down; up it first"] }
+            guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+            let b = box(v)
+            let p = CGPoint(x: req["x"] as? Double ?? b.midX, y: req["y"] as? Double ?? b.midY)
+            send(.leftMouseDown, p)
+            contact = p
+            return ["contact": Int(v.id), "phase": "down", "at": at(p), "delivery": "platform"]
+        case "move":
+            guard let from = contact else { return ["error": "no contact is down"] }
+            let to = CGPoint(x: req["x"] as? Double ?? from.x + (req["dx"] as? Double ?? 0), y: req["y"] as? Double ?? from.y + (req["dy"] as? Double ?? 0))
+            guard to.x.isFinite, to.y.isFinite else { return ["error": "move needs finite coordinates"] }
+            let ms = max(0, req["ms"] as? Double ?? 0)
+            let steps = max(1, Int(ms / 16))
+            for i in 1...steps {
+                let t = CGFloat(i) / CGFloat(steps)
+                send(.leftMouseDragged, CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t))
+                if ms > 0 { RunLoop.main.run(until: Date(timeIntervalSinceNow: ms / 1000 / Double(steps))) }
+            }
+            contact = to
+            return ["phase": "move", "at": at(to), "delivery": "platform"]
+        case "hold":
+            guard let p = contact else { return ["error": "no contact is down"] }
+            let ms = max(0, req["ms"] as? Double ?? 0)
+            if ms > 0 { RunLoop.main.run(until: Date(timeIntervalSinceNow: ms / 1000)) }
+            return ["phase": "hold", "at": at(p), "delivery": "platform"]
+        case "up":
+            guard let p = contact else { return ["error": "no contact is down"] }
+            send(.leftMouseUp, p)
+            contact = nil
+            return ["phase": "up", "at": at(p), "delivery": "platform"]
+        case "cancel":
+            guard let p = contact else { return ["error": "no contact is down"] }
+            return ["phase": "cancel", "at": at(p), "delivery": "unsupported", "reason": "AppKit has no cancel for a mouse; the contact is still down — send up"]
+        default:
+            return ["error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
+        }
+    }
+
     func tap(_ req: [String: Any]) -> [String: Any] {
+        if let phase = req["phase"] as? String { return contact(phase, req) }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let b = box(v)
         // The middle of the box as seen — through a surface's placement when
@@ -176,13 +304,8 @@ extension Agent {
               let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)
         else { return ["error": "no mouse event"] }
         win.sendEvent(down)
-        if let drag = req["drag"] as? [Double], drag.count == 2, drag.allSatisfy(\.isFinite) {
-            let point = clip.convert(NSPoint(x: drag[0] + clip.bounds.origin.x, y: drag[1] + clip.bounds.origin.y), to: nil)
-            if let move = NSEvent.mouseEvent(with: .leftMouseDragged, location: point, modifierFlags: [], timestamp: t + 0.01,
-                windowNumber: win.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1) { win.sendEvent(move) }
-        }
         win.sendEvent(up)
-        return ["tapped": Int(v.id), "at": at]
+        return ["tapped": Int(v.id), "at": at, "delivery": "platform"]
     }
 
     /// Set an input's text as typing does: the field editor, all selected,

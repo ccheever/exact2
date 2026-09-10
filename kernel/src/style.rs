@@ -457,6 +457,8 @@ impl Color {
 /// for consumers that lower rows generically (a web host emitting CSS).
 #[derive(Debug, Clone, PartialEq)]
 pub enum RowValue<'a> {
+    /// A validated CSS clipping path.
+    ClipPath(&'a crate::clip::ClipPath),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).

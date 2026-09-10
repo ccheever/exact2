@@ -103,6 +103,83 @@ fn column_layout_stacks_children_and_stretches_width() {
 }
 
 #[test]
+fn fractional_frames_and_updates_survive_publication_and_rehydration() {
+    // Browser DOM boxes retain these binary-exact CSS pixel fractions. A
+    // native point-grid round lost the inset and turned a half-point edit
+    // into a whole-point move of the following sibling.
+    let mut k = build();
+    let mut root = size(200.5, 400.75);
+    root.display = Display::Flex;
+    root.mask.set(StyleId::Display);
+    root.flex_direction = FlexDirection::Column;
+    root.mask.set(StyleId::FlexDirection);
+    root.padding_left = Dimension::Points(0.25);
+    root.mask.set(StyleId::PaddingLeft);
+    root.padding_top = Dimension::Points(80.125);
+    root.mask.set(StyleId::PaddingTop);
+    root.row_gap = 0.375;
+    root.mask.set(StyleId::RowGap);
+    let mut positioned = size(33.25, 14.75);
+    positioned.position_type = exact_kernel::PositionType::Absolute;
+    positioned.mask.set(StyleId::PositionType);
+    positioned.left = Dimension::Points(0.375);
+    positioned.mask.set(StyleId::Left);
+    positioned.top = Dimension::Points(0.125);
+    positioned.mask.set(StyleId::Top);
+    k.apply(
+        0,
+        2,
+        &[
+            Op::SetStyle { id: 1, patch: root },
+            Op::SetStyle {
+                id: 2,
+                patch: size(120.5, 86.625),
+            },
+            Op::SetStyle {
+                id: 3,
+                patch: size(120.5, 86.625),
+            },
+            Op::SetStyle {
+                id: 4,
+                patch: positioned,
+            },
+            Op::SetChildren {
+                id: 3,
+                children: vec![],
+            },
+            Op::SetChildren {
+                id: 2,
+                children: vec![4],
+            },
+        ],
+    )
+    .unwrap();
+    let offer = Offer::definite(402.0, 874.0);
+    k.compute_layout(1, offer).unwrap();
+    assert_eq!(frame(&k, 2), (0.25, 80.125, 120.5, 86.625));
+    assert_eq!(frame(&k, 3), (0.25, 167.125, 120.5, 86.625));
+    assert_eq!(frame(&k, 4), (0.625, 80.25, 33.25, 14.75));
+    k.apply(
+        0,
+        3,
+        &[Op::SetStyle {
+            id: 2,
+            patch: height(87.125),
+        }],
+    )
+    .unwrap();
+    let receipt = k.compute_layout(1, offer).unwrap();
+    assert!(!receipt.changed.is_empty());
+    assert_eq!(frame(&k, 3), (0.25, 167.625, 120.5, 86.625));
+    assert!(k.compute_layout(1, offer).unwrap().changed.is_empty());
+    let mut fresh = k.rehydrate(Box::new(exact_kernel::MonospaceMeasurer::default()));
+    fresh.compute_layout(1, offer).unwrap();
+    for id in 1..=4 {
+        assert_eq!(frame(&fresh, id), frame(&k, id));
+    }
+}
+
+#[test]
 fn layout_receipt_names_only_the_nodes_that_moved() {
     let mut k = build();
     k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
@@ -823,4 +900,285 @@ fn clear_style_restores_defaults() {
         (0.0, 50.0, 200.0, 20.0),
         "b now sizes to its child"
     );
+}
+
+#[test]
+fn text_color_inherits_through_reparenting_and_cleared_overrides() {
+    use exact_kernel::{Color, ColorValue, StyleMask};
+    let mut k = build();
+    let pair = ColorValue::LightDark(Color(0x112233ff), Color(0xeeddccff));
+    let red = ColorValue::Fixed(Color(0xff0000ff));
+    let ink = |value| {
+        style(|s| {
+            s.text_color = value;
+            s.mask.set(StyleId::TextColor);
+        })
+    };
+    k.apply(
+        0,
+        2,
+        &[
+            Op::SetStyle {
+                id: 1,
+                patch: ink(pair),
+            },
+            Op::SetStyle {
+                id: 2,
+                patch: ink(red),
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(k.node(4).unwrap().text_color(), pair);
+    assert!(!k.node(4).unwrap().style.mask.has(StyleId::TextColor));
+    k.apply(
+        0,
+        3,
+        &[
+            Op::SetChildren {
+                id: 3,
+                children: vec![],
+            },
+            Op::SetChildren {
+                id: 2,
+                children: vec![4],
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(k.node(4).unwrap().text_color(), red);
+    let mut mask = StyleMask::EMPTY;
+    mask.set(StyleId::TextColor);
+    k.apply(0, 4, &[Op::ClearStyle { id: 2, mask }]).unwrap();
+    assert_eq!(k.node(4).unwrap().text_color(), pair);
+    k.apply(0, 5, &[Op::ClearStyle { id: 1, mask }]).unwrap();
+    assert_eq!(
+        k.node(4).unwrap().text_color(),
+        StyleProps::default().text_color
+    );
+}
+
+#[test]
+fn spelling_hint_inherits_without_losing_authored_values() {
+    let mut k = build();
+    let hint = |id, value: &str| Op::SetProp {
+        id,
+        prop: PropId::Spellcheck,
+        value: value.into(),
+    };
+    assert_eq!(k.node(4).unwrap().spellcheck(), None);
+    k.apply(0, 2, &[hint(1, "FaLsE"), hint(2, ""), hint(4, " true")])
+        .unwrap();
+    assert_eq!(k.node(4).unwrap().spellcheck(), Some(false));
+    assert_eq!(
+        k.node(4).unwrap().props.str(PropId::Spellcheck),
+        Some(" true")
+    );
+    k.apply(
+        0,
+        3,
+        &[
+            Op::SetChildren {
+                id: 3,
+                children: vec![],
+            },
+            Op::SetChildren {
+                id: 2,
+                children: vec![4],
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(k.node(4).unwrap().spellcheck(), Some(true));
+    k.apply(0, 4, &[hint(4, "false")]).unwrap();
+    assert_eq!(k.node(4).unwrap().spellcheck(), Some(false));
+    k.apply(
+        0,
+        5,
+        &[Op::ClearProp {
+            id: 4,
+            prop: PropId::Spellcheck,
+        }],
+    )
+    .unwrap();
+    assert_eq!(k.node(4).unwrap().spellcheck(), Some(true));
+    k.apply(
+        0,
+        6,
+        &[
+            Op::ClearProp {
+                id: 2,
+                prop: PropId::Spellcheck,
+            },
+            Op::ClearProp {
+                id: 1,
+                prop: PropId::Spellcheck,
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(k.node(4).unwrap().spellcheck(), None);
+}
+
+#[test]
+fn text_rows_inherit_into_runs_and_a_change_touches_only_the_runs_that_follow_it() {
+    use exact_kernel::{StyleMask, TextStyle};
+    let mut k = Kernel::with_monospace();
+    let text = |id, s: &str| Op::SetProp {
+        id,
+        prop: PropId::Text,
+        value: s.into(),
+    };
+    let font_size = |id, size: f32| Op::SetStyle {
+        id,
+        patch: style(|s| {
+            s.font_size = size;
+            s.mask.set(StyleId::FontSize);
+        }),
+    };
+    k.apply(
+        0,
+        1,
+        &[
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            // A paragraph with three runs: bare, bold, small.
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::Text,
+            },
+            Op::CreateView {
+                id: 3,
+                node_type: NodeType::Text,
+            },
+            Op::CreateView {
+                id: 4,
+                node_type: NodeType::Text,
+            },
+            Op::CreateView {
+                id: 5,
+                node_type: NodeType::Text,
+            },
+            // A second, 14-point paragraph.
+            Op::CreateView {
+                id: 6,
+                node_type: NodeType::Text,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: style(|s| {
+                    s.flex_direction = FlexDirection::Row;
+                    s.mask.set(StyleId::FlexDirection);
+                }),
+            },
+            Op::SetStyle {
+                id: 2,
+                patch: style(|s| {
+                    s.font_size = 20.0;
+                    s.mask.set(StyleId::FontSize);
+                    s.line_height = 24.0;
+                    s.mask.set(StyleId::LineHeight);
+                }),
+            },
+            Op::SetStyle {
+                id: 4,
+                patch: style(|s| {
+                    s.font_weight = 700;
+                    s.mask.set(StyleId::FontWeight);
+                }),
+            },
+            font_size(5, 12.0),
+            font_size(6, 14.0),
+            text(3, "aa"),
+            text(4, "bb"),
+            text(5, "cc"),
+            Op::SetChildren {
+                id: 2,
+                children: vec![3, 4, 5],
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 6],
+            },
+            Op::AttachRoot { id: 1 },
+        ],
+    )
+    .unwrap();
+    // Computed: the bare run takes its paragraph's size and line height, the
+    // bold run keeps its weight and takes the size, the small run keeps its
+    // size and takes the line height. Presence stays the author's.
+    let initial = TextStyle::from_style(&StyleProps::default());
+    assert_eq!(
+        k.node(3).unwrap().text_style(),
+        TextStyle {
+            font_size: 20.0,
+            line_height: 24.0,
+            ..initial
+        }
+    );
+    assert_eq!(k.node(4).unwrap().text_style().font_weight, 700);
+    assert_eq!(k.node(4).unwrap().text_style().font_size, 20.0);
+    assert_eq!(k.node(5).unwrap().text_style().font_size, 12.0);
+    assert_eq!(k.node(5).unwrap().text_style().line_height, 24.0);
+    assert!(!k.node(3).unwrap().style.mask.has(StyleId::FontSize));
+    assert_eq!(k.node(3).unwrap().source_of(StyleId::FontSize), Some(2));
+    assert_eq!(k.node(5).unwrap().source_of(StyleId::FontSize), Some(5));
+    assert_eq!(k.node(3).unwrap().source_of(StyleId::LetterSpacing), None);
+    assert_eq!(
+        k.node(3).unwrap().source_of(StyleId::Width),
+        None,
+        "a box row never inherits"
+    );
+    // Measured with the computed styles: 0.6 em per glyph, so
+    // 2×12 + 2×12 + 2×7.2 = 62.4 wide, in the authored 24-point line box.
+    k.compute_layout(1, Offer::MAX_CONTENT).unwrap();
+    let f = frame(&k, 2);
+    assert!(
+        (f.2 - 62.4).abs() < 1e-3 && (f.3 - 24.0).abs() < 1e-3,
+        "{f:?}"
+    );
+    // A changed ancestor touches the runs that follow it and none that
+    // override it: the receipt names them, no host re-derives per frame.
+    let ids = |k: &Kernel, keys: &[exact_kernel::NodeKey]| -> Vec<u32> {
+        keys.iter()
+            .map(|key| k.node_by_key(*key).unwrap().id)
+            .collect()
+    };
+    let receipt = k.apply(0, 2, &[font_size(2, 24.0)]).unwrap();
+    assert_eq!(ids(&k, &receipt.touched), vec![2, 3, 4]);
+    k.compute_layout(1, Offer::MAX_CONTENT).unwrap();
+    assert!((frame(&k, 2).2 - 72.0).abs() < 1e-3, "{:?}", frame(&k, 2));
+    // A reparented run follows its new paragraph.
+    let receipt = k
+        .apply(
+            0,
+            3,
+            &[
+                Op::SetChildren {
+                    id: 2,
+                    children: vec![4, 5],
+                },
+                Op::SetChildren {
+                    id: 6,
+                    children: vec![3],
+                },
+            ],
+        )
+        .unwrap();
+    assert!(ids(&k, &receipt.touched).contains(&3));
+    assert_eq!(k.node(3).unwrap().text_style().font_size, 14.0);
+    assert_eq!(k.node(3).unwrap().text_style().line_height, 0.0);
+    assert_eq!(k.node(3).unwrap().source_of(StyleId::FontSize), Some(6));
+    // Clearing falls back to the initial value, and touches only followers.
+    let mut mask = StyleMask::EMPTY;
+    mask.set(StyleId::FontSize);
+    let receipt = k.apply(0, 4, &[Op::ClearStyle { id: 2, mask }]).unwrap();
+    assert_eq!(ids(&k, &receipt.touched), vec![2, 4]);
+    assert_eq!(k.node(4).unwrap().text_style().font_size, 16.0);
+    assert_eq!(k.node(4).unwrap().source_of(StyleId::FontSize), None);
+    // An identical write is no change at all.
+    let receipt = k.apply(0, 5, &[font_size(6, 14.0)]).unwrap();
+    assert!(receipt.touched.is_empty());
 }

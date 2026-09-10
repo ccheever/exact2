@@ -260,6 +260,54 @@ fn count(batch: &str, op: &str) -> usize {
 }
 
 #[test]
+fn inherited_text_color_reaches_untouched_descendants_as_an_unresolved_pair() {
+    let src = r##"component Ink
+  state changed = false
+  action toggle writes changed
+    changed = not changed
+  view
+    column color=(changed ? "light-dark(#123456, #abcdef)" : "light-dark(#000000, #ffffff)")
+      button press=toggle testId="toggle"
+        text "Toggle"
+      column
+        text "Inherited" testId="inherited"
+        input testId="field" value="Input"
+        column color="#ff0000"
+          text "Override" testId="override"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let inherited = view(&host, "inherited");
+    let field = view(&host, "field");
+    let overridden = view(&host, "override");
+    let op = |batch: &str, id: u32| -> String {
+        batch
+            .split("{\"op\":")
+            .find(|part| part.contains(&format!("\"id\":{id},")))
+            .unwrap_or_else(|| panic!("missing {id} in {batch}"))
+            .to_owned()
+    };
+    for id in [inherited, field] {
+        assert!(op(&first, id).contains("\"text_color\":[[0,0,0,255],[255,255,255,255]]"));
+    }
+    assert!(op(&first, overridden).contains("\"text_color\":[255,0,0,255]"));
+    let toggle = view(&host, "toggle");
+    let changed = host.dispatch_at(toggle, Event::Press, 0.0);
+    for id in [inherited, field] {
+        assert!(op(&changed, id).contains("\"text_color\":[[18,52,86,255],[171,205,239,255]]"));
+    }
+    assert!(!changed.contains(&format!("\"op\":\"style\",\"id\":{overridden},")));
+    assert_eq!(count(&host.resize(402.0, 874.0), "style"), 0);
+}
+
+#[test]
 fn the_first_batch_creates_places_and_sizes_the_whole_tree() {
     let (host, batch) = boot();
     assert!(batch.starts_with("{\"ops\":["));
@@ -507,8 +555,8 @@ fn text_is_measured_through_the_registered_callback() {
     // item stretches, as a div does).
     let f = frame_of(&batch, id);
     assert!(
-        (f.3 - 16.25).abs() <= 0.5,
-        "16.25, rounded to the point grid: {f:?}"
+        (f.3 - 16.25).abs() < 1e-3,
+        "16.25 exactly: the kernel keeps fractional frames (LLP 1001 §5): {f:?}"
     );
     assert!(f.2 >= 104.0, "{f:?}");
     // The bridge's other calls answer too.
@@ -1212,4 +1260,181 @@ fn an_analysis_archive_refuses_both_boot_and_prepare_but_exposes_its_receipt() {
         let refusal = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
         assert!(refusal.contains("no prepared plan"), "{refusal}");
     }
+}
+
+#[test]
+fn a_platform_drag_holds_then_returns_to_the_authored_translate_without_layout() {
+    let plan = contract::compile(
+        r#"component Drag
+  view
+    button testId="bubble" width=100 height=40 transition="translate 180ms ease-out"
+      box testId="indicator" swipeIndicator=true opacity=0 scale=0.5 transition="opacity 180ms ease-out, scale 180ms ease-out"
+      text "Message"
+"#,
+    )
+    .unwrap();
+    let (mut host, _) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.,
+        844.,
+    )
+    .unwrap();
+    let bubble = view(&host, "bubble");
+    let held = host.drag_x(bubble, 48., 0., false, 0.);
+    assert!(
+        held.contains("\"property\":\"translate\",\"x\":48,\"y\":0"),
+        "{held}"
+    );
+    assert!(!held.contains("\"op\":\"frame\""));
+    assert!(
+        held.contains("\"property\":\"opacity\",\"x\":0.75"),
+        "{held}"
+    );
+    assert!(
+        held.contains("\"property\":\"scale\",\"x\":0.875,\"y\":0"),
+        "{held}"
+    );
+    let armed = host.drag_x(bubble, 80., 0., false, 0.);
+    assert!(
+        armed.contains("\"property\":\"opacity\",\"x\":1"),
+        "{armed}"
+    );
+    let reversed = host.drag_x(bubble, 0., 0., false, 0.);
+    assert!(
+        reversed.contains("\"property\":\"opacity\",\"x\":0"),
+        "{reversed}"
+    );
+    host.drag_x(bubble, 48., 0., false, 0.);
+    assert_eq!(
+        host.runner().kernel().node(bubble).unwrap().style.translate,
+        exact_kernel::Vec2 { x: 0., y: 0. }
+    );
+    let release = host.drag_x(bubble, 0., -120., true, 0.);
+    assert!(release.contains("\"motion\":true"));
+    let middle = host.tick(90.);
+    assert!(middle.contains("\"property\":\"translate\""));
+    let done = host.tick(180.);
+    assert!(done.contains("\"x\":0,\"y\":0"), "{done}");
+    assert!(done.contains("\"motion\":false"));
+    assert!(done.contains("\"property\":\"opacity\",\"x\":0"), "{done}");
+    assert!(
+        done.contains("\"property\":\"scale\",\"x\":0.5,\"y\":0"),
+        "{done}"
+    );
+    assert!(host
+        .drag_x(bubble, f64::NAN, 0., false, 180.)
+        .contains("requires finite"));
+}
+
+#[test]
+fn a_multi_timer_advance_creates_children_before_attaching_them() {
+    let plan = contract::compile(
+        r#"component App
+  state phase = 0
+  action tick writes phase
+    phase = phase + 1
+  task clock mount
+    every(100, tick)
+  view
+    column testId="parent"
+      when phase == 1
+        text "typing"
+      when phase >= 2
+        text "reply" testId="reply"
+"#,
+    )
+    .unwrap();
+    let (mut host, _) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let advance = host.advance(200.0);
+    let kernel = host.runner().kernel();
+    let reply = kernel
+        .node_by_key(kernel.find_by_test_id("reply")[0])
+        .unwrap()
+        .id;
+    let parent = kernel
+        .node_by_key(kernel.find_by_test_id("parent")[0])
+        .unwrap()
+        .id;
+    let creation = advance
+        .find(&format!("\"op\":\"create\",\"id\":{reply},"))
+        .unwrap();
+    let attachment = advance
+        .find(&format!(
+            "\"op\":\"children\",\"id\":{parent},\"ids\":[{reply}]"
+        ))
+        .unwrap();
+    assert!(
+        creation < attachment,
+        "child attached before creation: {advance}"
+    );
+}
+
+#[test]
+fn inherited_spelling_hint_updates_editors_and_returns_to_default() {
+    let plan = contract::compile(
+        r#"component App
+  state hint = "false"
+  action enable writes hint
+    hint = "true"
+  action reset writes hint
+    hint = "invalid"
+  view
+    column spellcheck=hint
+      button "Enable" press=enable testId="enable"
+      button "Reset" press=reset testId="reset"
+      column
+        input testId="field" value="hello"
+        textarea testId="area" value="hello" spellcheck="invalid"
+        input testId="override" spellcheck="FALSE"
+"#,
+    )
+    .unwrap();
+    let (mut host, initial) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let ids = [view(&host, "field"), view(&host, "area")];
+    let overridden = view(&host, "override");
+    for id in ids {
+        let op = initial
+            .split("{\"op\":")
+            .find(|part| part.contains(&format!("\"id\":{id},")))
+            .unwrap();
+        assert!(op.contains("\"spellcheck\":\"false\""), "{op}");
+    }
+    let enable = view(&host, "enable");
+    let changed = host.dispatch_at(enable, Event::Press, 0.0);
+    for id in ids {
+        assert!(
+            changed.contains(&format!(
+                "\"op\":\"props\",\"id\":{id},\"set\":{{\"spellcheck\":\"true\"}}"
+            )),
+            "{changed}"
+        );
+    }
+    assert!(!changed.contains(&format!("\"op\":\"props\",\"id\":{overridden},")));
+    let reset = view(&host, "reset");
+    let cleared = host.dispatch_at(reset, Event::Press, 1.0);
+    for id in ids {
+        assert!(
+            cleared.contains(&format!(
+                "\"op\":\"props\",\"id\":{id},\"set\":{{}},\"clear\":[\"spellcheck\"]"
+            )),
+            "{cleared}"
+        );
+    }
+    assert_eq!(count(&host.resize(402.0, 874.0), "props"), 0);
 }

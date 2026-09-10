@@ -13,7 +13,9 @@
 //! Rows a presenter cannot use yet are named, not guessed.
 
 use exact_kernel::style::ColorValue;
-use exact_kernel::{Dimension, Env, NodeRef, Overflow, RowValue, StyleId, StyleProps};
+use exact_kernel::{
+    Dimension, Env, NodeRef, NodeType, Overflow, RowValue, StyleId, StyleMask, StyleProps,
+};
 use std::fmt::Write as _;
 
 /// A row this host does not lower (and why).
@@ -61,6 +63,17 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                 d.b(),
                 d.a()
             ),
+            RowValue::ClipPath(p) => {
+                let commands: Vec<_> = p
+                    .commands()
+                    .iter()
+                    .map(|(command, values)| {
+                        let values = values.iter().map(|n| num(*n)).collect::<Vec<_>>().join(",");
+                        format!("[\"{command}\",[{values}]]")
+                    })
+                    .collect();
+                format!("[{}]", commands.join(","))
+            }
             RowValue::Enum(e) => format!("\"{e}\""),
             RowValue::Vec2(v) => format!("[{},{}]", num(v.x), num(v.y)),
             RowValue::Number(n) => num(n as f32),
@@ -116,11 +129,24 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     (x, y)
 }
 
-/// The style dictionary with the effective overflow written in when it is
-/// not `visible` — a derived value the presenter must see even when no row
-/// is set.
+/// The style dictionary with CSS inheritance resolved and effective
+/// overflow: derived values that must reach the presenter even when no row
+/// is set. A text node or an editor gets every inherited row's computed
+/// value — the font rows, alignment and colour it measures and paints with,
+/// as a `<span>` in a `<div>` would — and any other node its computed colour.
+/// A row resolved to its initial value stays out (the presenter carries
+/// CSS's defaults), except colour, which always crosses. The kernel touches
+/// the descendants an inherited change reaches (LLP 1035.000 D4), so this is
+/// re-sent by the ordinary update path, never re-derived per frame.
 pub fn style_json_for(node: &NodeRef<'_>, env: &Env) -> (String, Vec<Skipped>) {
-    let (mut json, skipped) = style_json(node.style, env);
+    let rows = if matches!(node.node_type, NodeType::Text | NodeType::TextInput) {
+        StyleMask::INHERITED
+    } else {
+        StyleMask::of(StyleId::TextColor)
+    };
+    let mut computed = node.computed_style(rows);
+    computed.mask.set(StyleId::TextColor);
+    let (mut json, skipped) = style_json(&computed, env);
     let (x, y) = effective_overflow(node);
     let name = |o: Overflow| match o {
         Overflow::Visible => "visible",

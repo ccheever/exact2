@@ -115,8 +115,11 @@ extension Agent {
         let vp = presenter.viewport
         var nodes: [[String: Any]] = []
         for (id, v) in presenter.views.sorted(by: { $0.key < $1.key }) where v.window != nil {
-            let r = box(v)
+            let nativeAction = presenter.swipeActions.ownsAction(id)
+            let actionView = presenter.swipeActions.actionView(id)
+            let r = nativeAction ? actionView.map { box($0) } ?? .zero : box(v)
             var n: [String: Any] = ["id": Int(id), "x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)]
+            if nativeAction { n["presentation"] = "native-swipe-action"; n["visible"] = actionView != nil }
             if let sv = v.scroll {
                 n["sx"] = Agent.r2(sv.contentOffset.x)
                 n["sy"] = Agent.r2(sv.contentOffset.y)
@@ -143,12 +146,131 @@ extension Agent {
         return ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)], "env": env, "nodes": nodes]
     }
 
+    /// `layout <node>` (LLP 1035.002 D1): the runner's rows and their sources
+    /// for one node, then what UIKit knows about it — its box in the viewport,
+    /// the window and the screen, the scroll and clip chains above it, whether
+    /// it is hidden, inert, in the viewport or clipped away, and what was
+    /// mounted for it. Observations, never a second model; a stale id is
+    /// refused by name. An inline run's geometry is its paragraph's.
+    func layout(_ req: [String: Any]) -> [String: Any] {
+        var reply = layout()
+        guard let id = req["id"] as? Int else { return reply }
+        guard let v = presenter.views[UInt32(id)] else { return ["error": "stale node #\(id)"] }
+        guard let d = session.agent("{\"op\":\"node\",\"id\":\(id)}").data(using: .utf8),
+              var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
+        if let e = node["error"] { return ["error": e] }
+        if presenter.swipeActions.ownsAction(UInt32(id)) {
+            let button = presenter.swipeActions.actionView(UInt32(id))
+            func rect(_ r: CGRect) -> [String: Any] { ["x": Agent.r2(r.minX), "y": Agent.r2(r.minY), "w": Agent.r2(r.width), "h": Agent.r2(r.height)] }
+            var space: [String: Any] = ["capture": ["scale": Agent.r2(presenter.viewport.traitCollection.displayScale)]]
+            if let button, let window = button.window {
+                let frame = button.convert(button.bounds, to: window)
+                space["viewport"] = rect(box(button)); space["window"] = rect(frame)
+                space["screen"] = rect(window.convert(frame, to: window.screen.coordinateSpace))
+                space["local"] = ["w": Agent.r2(button.bounds.width), "h": Agent.r2(button.bounds.height)]
+            } else { space["unavailable"] = "native swipe action is not revealed or cannot be uniquely resolved" }
+            node["space"] = space
+            node["visible"] = ["hidden": button == nil, "inert": v.disabled, "inViewport": button != nil]
+            node["native"] = ["view": "UIKit swipe action", "accessibilityLabel": button?.accessibilityLabel ?? "", "geometryAvailable": button != nil, "activationEvents": button?.allControlEvents.rawValue ?? 0]
+            node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]
+            reply["node"] = node
+            return reply
+        }
+        let host = v.paragraphOwner
+        let vp = presenter.viewport
+        let rect = { (r: CGRect) -> [String: Any] in ["x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)] }
+        let b = box(host)
+        var space: [String: Any] = ["viewport": rect(b), "local": ["w": Agent.r2(host.bounds.width), "h": Agent.r2(host.bounds.height)],
+                                    "capture": ["scale": Agent.r2(vp.window?.screen.scale ?? vp.traitCollection.displayScale)]]
+        if let w = host.window {
+            let inWindow = host.convert(host.bounds, to: w)
+            space["window"] = rect(inWindow)
+            space["screen"] = rect(w.convert(inWindow, to: w.screen.coordinateSpace))
+        }
+        node["space"] = space
+        // Who hides or inerts it is named: a reader must not guess which
+        // ancestor did.
+        let describe = { (view: UIView) -> String in (view as? NodeView).map { "#\($0.id)" } ?? String(describing: Swift.type(of: view)) }
+        var hiddenBy: String? = host.isHidden || host.alpha == 0 ? describe(host) : nil
+        var inertBy: String? = host.isUserInteractionEnabled ? nil : describe(host)
+        var clipped = b.isEmpty
+        var chain: [[String: Any]] = []
+        var clippers: [(NodeView, String)] = []
+        var canvas: NodeView? = nil
+        var above = host.superview
+        while let s = above {
+            // A canvas child's overlay is transparent on purpose: the child
+            // is painted through the canvas's capture (LLP 1014 D5) and only
+            // hit here. That is not hidden; it is named.
+            if let o = s as? PlainView, let c = o.superview as? NodeView, c.overlay === o {
+                canvas = c
+                above = s.superview
+                continue
+            }
+            if hiddenBy == nil, s.isHidden || s.alpha == 0 { hiddenBy = describe(s) }
+            if inertBy == nil, !s.isUserInteractionEnabled { inertBy = describe(s) }
+            if let n = s as? NodeView {
+                if let sv = n.scroll { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y)]) }
+                if n.clipsToBounds { clippers.append((n, "overflow")) }
+                if n.clipPath != nil { clippers.append((n, "clip-path")) }
+            }
+            above = s.superview
+        }
+        var scroll: [[String: Any]] = [["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)]]
+        scroll.append(contentsOf: chain.reversed())
+        var clip: [[String: Any]] = []
+        for (n, kind) in clippers.reversed() {
+            clip.append(["id": Int(n.id), "kind": kind])
+            if let w = host.window, !host.convert(host.bounds, to: w).intersects(n.convert(n.bounds, to: w)) { clipped = true }
+        }
+        node["scroll"] = scroll
+        node["clip"] = clip
+        var visible: [String: Any] = ["hidden": hiddenBy != nil, "inert": inertBy != nil, "inViewport": b.intersects(CGRect(origin: .zero, size: vp.bounds.size)), "clipped": clipped]
+        if let hiddenBy { visible["hiddenBy"] = hiddenBy }
+        if let inertBy { visible["inertBy"] = inertBy }
+        node["visible"] = visible
+        var native: [String: Any] = ["view": String(describing: Swift.type(of: v)), "sheet": presenter.modals.active]
+        if v !== host { native["inline"] = true }
+        if let canvas { native["canvas"] = "#\(canvas.id)" }
+        if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.isFirstResponder }
+        if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = t.isFirstResponder }
+        if let m = host.materialKind { native["effect"] = m }
+        var responder: UIResponder? = host
+        while let current = responder {
+            if let vc = current as? UIViewController { native["controller"] = String(describing: Swift.type(of: vc)); break }
+            responder = current.next
+        }
+        if let key = presenter.navigation.routeKey(containing: host) { native["route"] = key }
+        node["native"] = native
+        node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]
+        reply["node"] = node
+        return reply
+    }
+
     func view(_ req: [String: Any]) -> NodeView? {
         guard let id = req["id"] as? Int else { return nil }
         return presenter.views[UInt32(id)]?.paragraphOwner
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        // A held contact (LLP 1035.003 D1) needs a touch UIKit does not
+        // offer publicly: the iOS carrier says so rather than activating a
+        // node and calling it a finger (D3).
+        if let phase = req["phase"] as? String {
+            return ["phase": phase, "delivery": "unsupported", "reason": "the iOS carrier synthesizes no touch (LLP 1008 §9); a contact needs the Simulator backend of LLP 1035.003 §3"]
+        }
+        if let id = req["id"] as? Int, presenter.swipeActions.ownsAction(UInt32(id)),
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil {
+            guard let button = presenter.swipeActions.actionView(UInt32(id)), let window = button.window,
+                  let source = presenter.views[UInt32(id)], !source.disabled else {
+                return ["error": "native swipe action #\(id) is not revealed or cannot be uniquely resolved"]
+            }
+            let b = box(button), point = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: window)
+            guard let hit = window.hitTest(point, with: nil), hit === button || hit.isDescendant(of: button) else { return ["error": "native swipe action #\(id) is occluded"] }
+            let event: UIControl.Event = button.allControlEvents.contains(.primaryActionTriggered) ? .primaryActionTriggered : .touchUpInside
+            button.sendActions(for: event)
+            return ["tapped": id, "at": [Agent.r2(b.midX), Agent.r2(b.midY)], "delivery": "host-activation", "native": "swipe-action"]
+        }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let b = box(v)
         // The middle of the box as seen — through a surface's placement when
@@ -157,6 +279,18 @@ extension Agent {
         let p = vp.convert(CGPoint(x: b.midX + vp.contentOffset.x, y: b.midY + vp.contentOffset.y), to: nil)
         let at = [Agent.r2(b.midX), Agent.r2(b.midY)]
         let hit = win.hitTest(p, with: nil) ?? v
+        if req["contextmenu"] as? Bool == true || req["dblclick"] as? Bool == true {
+            let event = req["contextmenu"] as? Bool == true ? "contextmenu" : "dblclick"
+            var next: UIView? = hit
+            while let node = next {
+                if let target = node as? NodeView, target.handlers.contains(event), !target.disabled {
+                    if event == "contextmenu" { presenter.contextmenu(target.id) } else { presenter.dblclick(target.id) }
+                    return ["tapped": Int(target.id), "event": event, "injected": true, "at": at]
+                }
+                next = node.superview
+            }
+            return ["error": "no \(event) handler at view \(v.id)"]
+        }
         if req["hover"] as? Bool == true {
             // The pointer onto the target: the node with a hover handler at
             // the hit point enters, whatever was hovered leaves (UIKit
@@ -179,17 +313,21 @@ extension Agent {
         // responder chain): the nearest node that takes the focus takes it
         // — an input's field, a node with a focus/blur/key handler — and
         // whatever had it (a field, and the keyboard with it) lets go.
+        let action = (n as? NodeView)?.activationTarget(at: p)
         var f: UIView? = n
         var took = false
         while let cur = f {
-            if let node = cur as? NodeView, let field = node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
+            if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
             if cur.canBecomeFirstResponder { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; took = true; break }
+            // A pressed node handles touchesEnded without forwarding it to
+            // its parent. An enclosing key handler must not steal the editor.
+            if cur === action { break }
             f = cur.superview
         }
         // Nothing took the focus: the field being edited loses it (a page
         // blurs its input on a click anywhere else), and the keyboard goes.
-        if !took { win.endEditing(true) }
-        (n as? NodeView)?.activate(at: p)
+        if !took && !presenter.contextRetainsFocus(n ?? v) { win.endEditing(true) }
+        if let action, presenter.views[action.id] === action { presenter.press(action.id) }
         return ["tapped": Int(v.id), "at": at]
     }
 
@@ -242,6 +380,10 @@ extension Agent {
             if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } } else if v.canBecomeFirstResponder { if !v.isFirstResponder { _ = v.becomeFirstResponder() } } else { return ["error": "view \(v.id) takes no key"] }
             // Enter at a field is what its delegate would hear: a submit,
             // and a key for a `key` handler (the field's own or an ancestor's).
+            if key == "Backspace", let field = v.field {
+                field.deleteBackward()
+                return ["typed": Int(v.id), "key": key, "value": field.text ?? ""]
+            }
             if key == "Enter", v.field != nil, v.handlers.contains("submit") { presenter.submit(v.id) }
             var n: UIView? = v
             while let cur = n, !((cur as? NodeView)?.handlers.contains("key") ?? false) { n = cur.superview }

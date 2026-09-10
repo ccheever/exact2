@@ -15,7 +15,7 @@ use taffy::tree::MeasureOutput;
 
 use crate::arena::NodeArena;
 use crate::error::LayoutError;
-use crate::generated::NodeType;
+use crate::generated::{FieldSizing, NodeType, StyleMask};
 use crate::id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer};
 use crate::style::taffy_style;
 use crate::text::{Paragraph, TextMeasureRequest, TextMeasurer, TextRun};
@@ -62,10 +62,11 @@ impl Default for LayoutTree {
 impl LayoutTree {
     /// An empty tree.
     pub fn new() -> Self {
-        LayoutTree {
-            taffy: TaffyTree::new(),
-            fault: None,
-        }
+        // Frames are CSS pixel geometry, not a host's raster grid. Rounding
+        // here loses subpixel edits and snaps Retina views to whole points.
+        let mut taffy = TaffyTree::new();
+        taffy.disable_rounding();
+        LayoutTree { taffy, fault: None }
     }
 
     fn note(&mut self, what: &str, result: Result<impl Sized, taffy::TaffyError>) {
@@ -187,17 +188,29 @@ impl LayoutTree {
                 if runs.is_empty() {
                     return MeasureOutput::ZERO;
                 }
-                let width = known
-                    .width
-                    .map(AxisOffer::Definite)
-                    .unwrap_or_else(|| from_available(space.width));
+                let width = if arena.node_type(slot) == NodeType::TextInput
+                    && arena.style(slot).field_sizing == FieldSizing::Fixed
+                {
+                    // A control's preferred row count does not increase when
+                    // CSS constrains its width below the preferred columns.
+                    AxisOffer::MaxContent
+                } else {
+                    known
+                        .width
+                        .map(AxisOffer::Definite)
+                        .unwrap_or_else(|| from_available(space.width))
+                };
                 let height = known
                     .height
                     .map(AxisOffer::Definite)
                     .unwrap_or_else(|| from_available(space.height));
+                // Direction and alignment inherit (a paragraph inside a
+                // centred column centres, as in CSS); the rest are its own.
                 let metrics = measurer.measure(&TextMeasureRequest {
                     runs: &runs,
-                    paragraph: Paragraph::from_style(arena.style(slot)),
+                    paragraph: Paragraph::from_style(
+                        &arena.computed_style(slot, StyleMask::INHERITED),
+                    ),
                     width,
                     height,
                 });

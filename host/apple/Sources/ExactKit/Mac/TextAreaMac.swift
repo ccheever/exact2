@@ -16,6 +16,13 @@ final class TextArea: NSTextView {
 }
 
 extension NodeView {
+    var allowsInputCorrection: Bool {
+        if textArea == nil, ["email", "url", "password"].contains((props["type"] ?? "").lowercased()) { return false }
+        return (props["autocorrect"] ?? "").lowercased() != "off"
+    }
+
+    var allowsInputSpellChecking: Bool { props["spellcheck"] != "false" }
+
     func makeTextArea() {
         let f = TextArea(frame: .zero)
         f.isRichText = false
@@ -42,6 +49,8 @@ extension NodeView {
         if f.string != value { f.string = value }
         f.isEditable = !disabled && props["editable"] != "false"
         f.isSelectable = !disabled
+        f.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
+        f.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
         f.setAccessibilityLabel(props["accessibilityLabel"])
         f.setAccessibilityIdentifier(props["testId"])
         (f as? TextArea)?.placeholder = props["placeholder"] ?? ""

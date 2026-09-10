@@ -4,7 +4,7 @@
 //! @ref `rules/RULES.md` §Scope (the web is the standard: every row here is a
 //! CSS property or an HTML attribute by its CSS/HTML name)
 //! @ref LLP 1017 §8.1 (the literal CSS names, hyphens as grammar, no aliases;
-//! `testId` the one Exact-named attribute)
+//! `testId` and explicitly declared host-policy props aside)
 //!
 //! A tag names a kernel node type plus fixed rows (`column` is a `View` with
 //! `flex-direction: column`); an attribute names one or more kernel style rows
@@ -150,14 +150,17 @@ pub enum PropTy {
     Bool,
     /// A whole number.
     Int,
+    /// A finite number, including a fractional pixel.
+    Float,
 }
 
 /// The type a prop attribute takes, by the kernel prop's name.
 pub fn prop_ty(prop: PropId) -> PropTy {
-    match prop.name() {
-        "disabled" | "editable" | "accessibilityChecked" => PropTy::Bool,
-        "accessibilityHeadingLevel" => PropTy::Int,
-        _ => PropTy::Str,
+    match prop.kind() {
+        exact_kernel::PropKind::Bool => PropTy::Bool,
+        exact_kernel::PropKind::Int => PropTy::Int,
+        exact_kernel::PropKind::Float => PropTy::Float,
+        exact_kernel::PropKind::Str => PropTy::Str,
     }
 }
 
@@ -175,10 +178,24 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "submit" => AttrTarget::Handler("submit"),
         "load" => AttrTarget::Handler("load"),
         "message" => AttrTarget::Handler("message"),
+        "contextmenu" => AttrTarget::Handler("contextmenu"),
+        "dblclick" => AttrTarget::Handler("dblclick"),
+        "swiperight" => AttrTarget::Handler("swiperight"),
+        "scroll" => AttrTarget::Handler("scroll"),
         // the canvas's surface (LLP 1009 D3)
         "surface" => AttrTarget::Surface,
         // props (HTML and ARIA attribute names; `testId` is Exact's)
         "testId" => AttrTarget::Prop(p("testId")),
+        "navigationKey" => AttrTarget::Prop(p("navigationKey")),
+        "navigationBack" => AttrTarget::Prop(p("navigationBack")),
+        "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
+        "closedby" => AttrTarget::Prop(p("closedby")),
+        "contextTarget" => AttrTarget::Prop(p("contextTarget")),
+        "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
+        "emojiPicker" => AttrTarget::Prop(p("emojiPicker")),
+        "backgroundMaterial" => AttrTarget::Prop(p("backgroundMaterial")),
+        "retainFocus" => AttrTarget::Prop(p("retainFocus")),
+        "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),
         "aria-keyshortcuts" => AttrTarget::Prop(p("accessibilityKeyShortcuts")),
         "aria-description" => AttrTarget::Prop(p("accessibilityHint")),
@@ -189,6 +206,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // HTML's attribute is `inputmode`; the kernel's prop keeps the DOM
         // property's spelling, as the schema does for every prop.
         "inputmode" => AttrTarget::Prop(p("inputMode")),
+        "autocapitalize" => AttrTarget::Prop(p("autocapitalize")),
+        "autocorrect" => AttrTarget::Prop(p("autocorrect")),
+        "spellcheck" => AttrTarget::Prop(p("spellcheck")),
         // The viewport meta's `viewport-fit=cover`, read from the first root
         // (LLP 1008 §9): the layout viewport becomes the whole screen and
         // `env(safe-area-inset-*)` lengths carry the insets.
@@ -199,6 +219,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // it; the default, `resizes-visual`, insets the viewport instead.
         "interactive-widget" => AttrTarget::Prop(p("interactiveWidget")),
         "value" => AttrTarget::Prop(p("value")),
+        "scrollTop" => AttrTarget::Prop(p("scrollTop")),
+        "scrollLeft" => AttrTarget::Prop(p("scrollLeft")),
+        "swipeContent" => AttrTarget::Prop(p("swipeContent")),
+        "swipeLeading" => AttrTarget::Prop(p("swipeLeading")),
+        "swipeTrailing" => AttrTarget::Prop(p("swipeTrailing")),
+        "swipeDestructive" => AttrTarget::Prop(p("swipeDestructive")),
+        "scrollFollowEnd" => AttrTarget::Prop(p("scrollFollowEnd")),
+        "keyboardDismissMode" => AttrTarget::Prop(p("keyboardDismissMode")),
         "href" => AttrTarget::Prop(p("href")),
         "disabled" => AttrTarget::Prop(p("disabled")),
         "readonly" => AttrTarget::InvertedBoolProp(p("editable")),
@@ -218,6 +246,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-checked" => AttrTarget::Prop(p("accessibilityChecked")),
         // style rows, by their CSS property names
         "white-space" => styles(&["white_space"]),
+        "field-sizing" => styles(&["field_sizing"]),
+        "scroll-snap-type" => styles(&["scroll_snap_type"]),
+        "scrollbar-width" => styles(&["scrollbar_width"]),
+        "touch-action" => styles(&["touch_action"]),
+        "clip-path" => styles(&["clip_path"]),
+        "scroll-snap-align" => styles(&["scroll_snap_align"]),
+        "line-clamp" => styles(&["line_clamp"]),
+        "text-overflow" => styles(&["text_overflow"]),
         "text-decoration-line" => styles(&["text_decoration_line"]),
         "font-size" => styles(&["font_size"]),
         "font-weight" => styles(&["font_weight"]),
@@ -253,6 +289,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
             "border_radius_bottom_right",
             "border_radius_bottom_left",
         ]),
+        "border-top-left-radius" => styles(&["border_radius_top_left"]),
+        "border-top-right-radius" => styles(&["border_radius_top_right"]),
+        "border-bottom-left-radius" => styles(&["border_radius_bottom_left"]),
+        "border-bottom-right-radius" => styles(&["border_radius_bottom_right"]),
         "border-width" => styles(&[
             "border_width_top",
             "border_width_right",

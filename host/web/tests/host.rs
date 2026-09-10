@@ -132,8 +132,13 @@ fn style_rows_lower_to_css_by_their_names() {
         &StyleValue::Text("calc(env(safe-area-inset-left) - 2px)".into()),
     )
     .unwrap();
+    s.set_dynamic(StyleId::LineClamp, &StyleValue::Number(2.0))
+        .unwrap();
     let (css, skipped) = css_text(&s, &[]);
     for expected in [
+        "display:-webkit-box;",
+        "-webkit-box-orient:vertical;",
+        "-webkit-line-clamp:2;",
         "width:100%;",
         "max-width:640px;",
         "height:auto;",
@@ -430,6 +435,39 @@ fn an_iframe_is_the_element_with_html_props_and_handlers() {
 }
 
 #[test]
+fn scroll_offsets_are_dom_properties_sent_only_when_their_bindings_change() {
+    let plan = contract::compile(
+        r#"component App
+  state top = 0
+  state note = ""
+  action bottom writes top
+    top = 1000000
+  action edit(value) writes note
+    note = value
+  view
+    column
+      scroll scrollTop=top scrollLeft=top height=100
+        text note
+      input value=note change=edit testId="note"
+      button press=bottom testId="bottom"
+        text "Bottom"
+"#,
+    )
+    .unwrap();
+    let (mut host, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    assert!(batch.contains("\"scrollTop\":\"0\""), "{batch}");
+    assert!(batch.contains("\"scrollLeft\":\"0\""), "{batch}");
+    let bottom = view_with_test_id(&host, "bottom");
+    let batch = host.dispatch(bottom, Event::Press);
+    assert!(batch.contains("\"scrollTop\":\"1000000\""), "{batch}");
+    assert!(batch.contains("\"scrollLeft\":\"1000000\""), "{batch}");
+    let note = view_with_test_id(&host, "note");
+    let batch = host.dispatch(note, Event::Change("Reading history".into()));
+    assert!(!batch.contains("scrollTop"), "{batch}");
+    assert!(!batch.contains("scrollLeft"), "{batch}");
+}
+
+#[test]
 fn textarea_preserves_multiline_values_through_the_change_seam() {
     let plan = contract::compile(
         r#"component App
@@ -558,4 +596,84 @@ fn a_light_dark_colour_reaches_the_browser_as_the_function() {
         !css.contains("light-dark("),
         "a fixed colour is a colour: {css}"
     );
+}
+
+#[test]
+fn a_multi_timer_advance_creates_children_before_attaching_them() {
+    let plan = contract::compile(
+        r#"component App
+  state phase = 0
+  action tick writes phase
+    phase = phase + 1
+  task clock mount
+    every(100, tick)
+  view
+    column testId="parent"
+      when phase == 1
+        text "typing"
+      when phase >= 2
+        text "reply" testId="reply"
+"#,
+    )
+    .unwrap();
+    let (mut host, _) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let advance = host.advance(200.0);
+    let kernel = host.runner().kernel();
+    let reply = kernel
+        .node_by_key(kernel.find_by_test_id("reply")[0])
+        .unwrap()
+        .id;
+    let parent = kernel
+        .node_by_key(kernel.find_by_test_id("parent")[0])
+        .unwrap()
+        .id;
+    let creation = advance
+        .find(&format!("\"op\":\"create\",\"id\":{reply},"))
+        .unwrap();
+    let attachment = advance
+        .find(&format!(
+            "\"op\":\"children\",\"id\":{parent},\"ids\":[{reply}]"
+        ))
+        .unwrap();
+    assert!(
+        creation < attachment,
+        "child attached before creation: {advance}"
+    );
+}
+
+#[test]
+fn editor_hints_and_picker_policy_reach_the_dom_and_update() {
+    let plan = contract::compile(
+        r#"component App
+  state enabled = false
+  action toggle writes enabled
+    enabled = not enabled
+  view
+    column
+      button "Toggle" press=toggle testId="toggle"
+      input emojiPicker=enabled autocapitalize=(enabled ? "words" : "none") autocorrect=(enabled ? "on" : "off") spellcheck=(enabled ? "true" : "false")
+      column contextTarget="source" contextMagnify=enabled
+      textarea autocapitalize=(enabled ? "characters" : "off") autocorrect=(enabled ? "on" : "off") spellcheck=(enabled ? "true" : "false")
+"#,
+    )
+    .unwrap();
+    let (mut host, initial) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    assert!(initial.contains("\"autocapitalize\":\"none\""));
+    assert!(initial.contains("\"autocapitalize\":\"off\""));
+    assert_eq!(initial.matches("\"autocorrect\":\"off\"").count(), 2);
+    assert!(!initial.contains("data-autocapitalize"));
+    assert!(!initial.contains("data-autocorrect"));
+    assert_eq!(initial.matches("\"spellcheck\":\"false\"").count(), 2);
+    assert!(!initial.contains("data-spellcheck"));
+    assert!(initial.contains("\"emojiPicker\":\"false\""));
+    assert!(initial.contains("\"contextMagnify\":\"false\""));
+    assert!(!initial.contains("data-emojipicker"));
+    let id = view_with_test_id(&host, "toggle");
+    let changed = host.dispatch(id, Event::Press);
+    assert!(changed.contains("\"autocapitalize\":\"words\""));
+    assert!(changed.contains("\"autocapitalize\":\"characters\""));
+    assert_eq!(changed.matches("\"autocorrect\":\"on\"").count(), 2);
+    assert_eq!(changed.matches("\"spellcheck\":\"true\"").count(), 2);
+    assert!(changed.contains("\"emojiPicker\":\"true\""));
+    assert!(changed.contains("\"contextMagnify\":\"true\""));
 }

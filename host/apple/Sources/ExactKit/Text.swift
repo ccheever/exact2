@@ -394,7 +394,11 @@ final class TextEngine {
             baselines.append(f0.ascender + (lineHeight > 0 ? (lineHeight - natural) / 2 : 0))
             y = box
         }
-        return Paragraph(lines: lines, baselines: baselines, width: ceil(maxWidth), height: ceil(y))
+        // An authored CSS line height fixes the line box, including fractions.
+        // Keep intrinsic width and `normal` height measurement separate: changing
+        // their rounding also changes wrapping and the established host parity.
+        return Paragraph(lines: lines, baselines: baselines, width: ceil(maxWidth),
+                         height: lineHeight > 0 ? y : ceil(y))
     }
 
     /// As narrow as the content can be: the longest unbreakable piece.
@@ -413,8 +417,8 @@ final class TextEngine {
     }
 
     /// Paint a paragraph into a y-down context (a flipped NSView's, a
-    /// UIView's): one CTLineDraw per line, baselines snapped to device
-    /// pixels, flush by alignment.
+    /// UIView's): one CTLineDraw per line, baselines currently rounded to
+    /// logical points, flush by alignment.
     static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext, dirty: CGRect? = nil) {
         ctx.saveGState()
         ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)

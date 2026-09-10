@@ -238,17 +238,12 @@
     },
     {
       "id": 36,
-      "name": "scrollCommand",
-      "kind": "str"
+      "name": "scrollTop",
+      "kind": "float"
     },
     {
       "id": 37,
       "name": "virtualized",
-      "kind": "bool"
-    },
-    {
-      "id": 38,
-      "name": "initialFocus",
       "kind": "bool"
     },
     {
@@ -300,6 +295,106 @@
       "id": 48,
       "name": "accessibilityKeyShortcuts",
       "kind": "str"
+    },
+    {
+      "id": 49,
+      "name": "scrollFollowEnd",
+      "kind": "bool"
+    },
+    {
+      "id": 50,
+      "name": "keyboardDismissMode",
+      "kind": "str"
+    },
+    {
+      "id": 51,
+      "name": "navigationKey",
+      "kind": "str"
+    },
+    {
+      "id": 52,
+      "name": "navigationBack",
+      "kind": "str"
+    },
+    {
+      "id": 53,
+      "name": "contextTarget",
+      "kind": "str"
+    },
+    {
+      "id": 54,
+      "name": "backgroundMaterial",
+      "kind": "str"
+    },
+    {
+      "id": 55,
+      "name": "retainFocus",
+      "kind": "bool"
+    },
+    {
+      "id": 56,
+      "name": "swipeIndicator",
+      "kind": "bool"
+    },
+    {
+      "id": 57,
+      "name": "autocapitalize",
+      "kind": "str"
+    },
+    {
+      "id": 58,
+      "name": "autocorrect",
+      "kind": "str"
+    },
+    {
+      "id": 59,
+      "name": "scrollLeft",
+      "kind": "float"
+    },
+    {
+      "id": 60,
+      "name": "navigationPresentation",
+      "kind": "str"
+    },
+    {
+      "id": 61,
+      "name": "closedby",
+      "kind": "str"
+    },
+    {
+      "id": 62,
+      "name": "spellcheck",
+      "kind": "str"
+    },
+    {
+      "id": 63,
+      "name": "emojiPicker",
+      "kind": "bool"
+    },
+    {
+      "id": 64,
+      "name": "contextMagnify",
+      "kind": "bool"
+    },
+    {
+      "id": 65,
+      "name": "swipeContent",
+      "kind": "str"
+    },
+    {
+      "id": 66,
+      "name": "swipeLeading",
+      "kind": "str"
+    },
+    {
+      "id": 67,
+      "name": "swipeTrailing",
+      "kind": "str"
+    },
+    {
+      "id": 68,
+      "name": "swipeDestructive",
+      "kind": "bool"
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -468,9 +563,56 @@
         "none"
       ],
       "default": "auto"
+    },
+    "FieldSizing": {
+      "values": [
+        "fixed",
+        "content"
+      ],
+      "default": "fixed"
+    },
+    "ScrollSnapType": {
+      "values": [
+        "none",
+        "x mandatory"
+      ],
+      "default": "none"
+    },
+    "ScrollSnapAlign": {
+      "values": [
+        "none",
+        "start"
+      ],
+      "default": "none"
+    },
+    "ScrollbarWidth": {
+      "values": [
+        "auto",
+        "thin",
+        "none"
+      ],
+      "default": "auto"
+    },
+    "TouchAction": {
+      "values": [
+        "auto",
+        "none",
+        "pan-x",
+        "pan-y",
+        "pan-left",
+        "pan-right",
+        "pan-up",
+        "pan-down",
+        "pan-left pan-y",
+        "pan-right pan-y",
+        "pan-x pan-up",
+        "pan-x pan-down",
+        "manipulation"
+      ],
+      "default": "auto"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance — a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
   "styles": [
     {
       "bit": 0,
@@ -771,6 +913,7 @@
       "bit": 42,
       "field": "direction",
       "codec": "enum:Direction",
+      "inherited": true,
       "layout": true,
       "text": true
     },
@@ -931,6 +1074,7 @@
       "bit": 67,
       "field": "font_size",
       "codec": "f32",
+      "inherited": true,
       "text": true,
       "layout": true,
       "default": 16
@@ -939,6 +1083,7 @@
       "bit": 68,
       "field": "font_weight",
       "codec": "u16",
+      "inherited": true,
       "text": true,
       "layout": true,
       "default": 400
@@ -947,6 +1092,7 @@
       "bit": 69,
       "field": "font_style",
       "codec": "enum:FontStyle",
+      "inherited": true,
       "text": true,
       "layout": true
     },
@@ -954,6 +1100,7 @@
       "bit": 70,
       "field": "font_family",
       "codec": "u16",
+      "inherited": true,
       "text": true,
       "layout": true,
       "default": 0
@@ -961,12 +1108,14 @@
     {
       "bit": 71,
       "field": "text_align",
-      "codec": "enum:TextAlign"
+      "codec": "enum:TextAlign",
+      "inherited": true
     },
     {
       "bit": 72,
       "field": "line_height",
       "codec": "f32",
+      "inherited": true,
       "text": true,
       "layout": true,
       "default": 0
@@ -975,6 +1124,7 @@
       "bit": 73,
       "field": "letter_spacing",
       "codec": "f32",
+      "inherited": true,
       "text": true,
       "layout": true,
       "default": 0
@@ -988,6 +1138,7 @@
       "bit": 75,
       "field": "font_variant_numeric",
       "codec": "u8",
+      "inherited": true,
       "text": true,
       "layout": true,
       "default": 0
@@ -1009,6 +1160,7 @@
       "bit": 78,
       "field": "text_color",
       "codec": "color",
+      "inherited": true,
       "default": 255
     },
     {
@@ -1020,6 +1172,7 @@
       "bit": 80,
       "field": "white_space",
       "codec": "enum:WhiteSpace",
+      "inherited": true,
       "text": true,
       "layout": true
     },
@@ -1032,6 +1185,38 @@
       "bit": 82,
       "field": "overscroll_behavior_y",
       "codec": "enum:OverscrollBehavior"
+    },
+    {
+      "bit": 83,
+      "field": "field_sizing",
+      "codec": "enum:FieldSizing",
+      "text": true,
+      "layout": true
+    },
+    {
+      "bit": 84,
+      "field": "scroll_snap_type",
+      "codec": "enum:ScrollSnapType"
+    },
+    {
+      "bit": 85,
+      "field": "scroll_snap_align",
+      "codec": "enum:ScrollSnapAlign"
+    },
+    {
+      "bit": 86,
+      "field": "touch_action",
+      "codec": "enum:TouchAction"
+    },
+    {
+      "bit": 87,
+      "field": "clip_path",
+      "codec": "clip-path"
+    },
+    {
+      "bit": 88,
+      "field": "scrollbar_width",
+      "codec": "enum:ScrollbarWidth"
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

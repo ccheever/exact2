@@ -14,17 +14,23 @@
 //! in the runtime): a request is `{"op":"…"}` with at most a couple of flat
 //! fields, so [`field_str`] and [`field_num`] are the whole parser.
 
+use crate::instance::InstanceStep;
 use crate::runner::{DataSource, Runner};
-use exact_kernel::PropValue;
+use exact_kernel::{Color, ColorValue, Dimension, Edge, NodeRef, PropValue, RowValue, StyleId};
 use exact_plan::{EventKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
 
-/// Answer one request: `{"op":"tree"}`, `{"op":"state"}`, or
-/// `{"op":"logs","since":N}`. Anything else is an `{"error":…}`.
+/// Answer one request: `{"op":"tree"}`, `{"op":"state"}`,
+/// `{"op":"logs","since":N}`, or `{"op":"node","id":V}` — the runner's half
+/// of `layout <node>` (LLP 1035.002 D1). Anything else is an `{"error":…}`.
 pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     match field_str(request, "op").as_deref() {
         Some("tree") => tree(runner),
         Some("state") => state(runner),
+        Some("node") => match field_num(request, "id") {
+            Some(n) if n >= 0.0 && n == n.trunc() => node(runner, n as u32),
+            _ => error("node needs an id"),
+        },
         Some("logs") => match (after_key(request, "since"), field_num(request, "since")) {
             (None, _) => logs(runner, 0),
             (Some(_), Some(n)) if n >= 0.0 => logs(runner, n as usize),
@@ -79,21 +85,7 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
         let _ = write!(s, ",\"depth\":{},\"type\":", row.depth);
         quote(node.node_type.name(), &mut s);
         s.push_str(",\"props\":{");
-        for (i, (id, value)) in node.props.iter().enumerate() {
-            if i > 0 {
-                s.push(',');
-            }
-            quote(id.name(), &mut s);
-            s.push(':');
-            match value {
-                PropValue::Str(t) => quote(t, &mut s),
-                PropValue::Bool(b) => s.push_str(if *b { "true" } else { "false" }),
-                PropValue::Int(i) => {
-                    let _ = write!(s, "{i}");
-                }
-                PropValue::Float(f) => s.push_str(&num(*f)),
-            }
-        }
+        props_json(&node, &mut s);
         s.push_str("},\"handlers\":[");
         for (i, e) in runner.handlers_of(node.id).into_iter().enumerate() {
             if i > 0 {
@@ -110,6 +102,10 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
                     EventKind::Submit => "submit",
                     EventKind::Load => "load",
                     EventKind::Message => "message",
+                    EventKind::Contextmenu => "contextmenu",
+                    EventKind::Dblclick => "dblclick",
+                    EventKind::Swiperight => "swiperight",
+                    EventKind::Scroll => "scroll",
                 },
                 &mut s,
             );
@@ -120,6 +116,190 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
     }
     s.push_str("]}");
     s
+}
+
+/// A node's own props by their schema names, as JSON object members.
+fn props_json(node: &NodeRef<'_>, s: &mut String) {
+    for (i, (id, value)) in node.props.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        quote(id.name(), s);
+        s.push(':');
+        match value {
+            PropValue::Str(t) => quote(t, s),
+            PropValue::Bool(b) => s.push_str(if *b { "true" } else { "false" }),
+            PropValue::Int(i) => {
+                let _ = write!(s, "{i}");
+            }
+            PropValue::Float(f) => s.push_str(&num(*f)),
+        }
+    }
+}
+
+/// One node, explained (LLP 1035.002 D1): every row it sets or inherits with
+/// where the value came from — `authored` (the own row), `inherited` from
+/// the ancestor whose own row won (CSS inheritance, LLP 1035.000 D1), or
+/// `initial` — its props, the plan site it was instantiated from with the
+/// instance path to it (D6), and the kernel's frames: `frame` relative to
+/// the parent, `absolute` in the root's space, `content` when it scrolls.
+/// Observations of the runner's memory, tagged with the epoch and
+/// incarnation; a host adds the spaces and what it mounted. An id that is
+/// not a live node in this incarnation is refused by name.
+pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
+    let kernel = runner.kernel();
+    let Some(node) = kernel.node(id) else {
+        return error(&format!(
+            "stale node #{id} (incarnation {})",
+            kernel.incarnation()
+        ));
+    };
+    let mut s = String::new();
+    let _ = write!(
+        s,
+        "{{\"epoch\":{},\"incarnation\":{},\"clock\":{},\"id\":{id},\"type\":",
+        kernel.epoch(),
+        kernel.incarnation(),
+        num(runner.now_ms())
+    );
+    quote(node.node_type.name(), &mut s);
+    s.push_str(",\"parent\":");
+    match node.parent {
+        Some(p) => {
+            let _ = write!(s, "{p}");
+        }
+        None => s.push_str("null"),
+    }
+    if let Some((site, path)) = runner.site_of(id) {
+        let _ = write!(s, ",\"site\":{},\"instance\":[", site.0);
+        for (i, step) in path.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            match step {
+                InstanceStep::Row { region, key } => {
+                    let _ = write!(s, "{{\"region\":{},\"key\":", region.0);
+                    untyped_json(key, &mut s);
+                    s.push('}');
+                }
+                InstanceStep::Arm { region, arm } => {
+                    let _ = write!(s, "{{\"region\":{},\"arm\":", region.0);
+                    match arm {
+                        Some(a) => {
+                            let _ = write!(s, "{a}");
+                        }
+                        None => s.push_str("null"),
+                    }
+                    s.push('}');
+                }
+            }
+        }
+        s.push(']');
+    }
+    s.push_str(",\"style\":{");
+    let mut first = true;
+    for row in StyleId::ALL {
+        let own = node.style.mask.has(row);
+        if !own && !row.inherited() {
+            continue;
+        }
+        if !first {
+            s.push(',');
+        }
+        first = false;
+        quote(row.name(), &mut s);
+        s.push_str(":{\"value\":");
+        row_json(node.computed(row), &mut s);
+        if own {
+            s.push_str(",\"source\":\"authored\"}");
+        } else {
+            match node.source_of(row) {
+                Some(from) => {
+                    let _ = write!(s, ",\"source\":\"inherited\",\"from\":{from}}}");
+                }
+                None => s.push_str(",\"source\":\"initial\"}"),
+            }
+        }
+    }
+    s.push_str("},\"props\":{");
+    props_json(&node, &mut s);
+    let f = node.frame;
+    let (px, py) = node
+        .parent
+        .and_then(|p| kernel.node(p))
+        .map_or((0.0, 0.0), |p| (p.frame.x, p.frame.y));
+    let _ = write!(
+        s,
+        "}},\"frame\":{{\"x\":{},\"y\":{},\"w\":{},\"h\":{}}},\"absolute\":{{\"x\":{},\"y\":{},\"w\":{},\"h\":{}}}",
+        num((f.x - px) as f64),
+        num((f.y - py) as f64),
+        num(f.width as f64),
+        num(f.height as f64),
+        num(f.x as f64),
+        num(f.y as f64),
+        num(f.width as f64),
+        num(f.height as f64)
+    );
+    if node.content != (0.0, 0.0) {
+        let _ = write!(
+            s,
+            ",\"content\":{{\"w\":{},\"h\":{}}}",
+            num(node.content.0 as f64),
+            num(node.content.1 as f64)
+        );
+    }
+    s.push('}');
+    s
+}
+
+/// A row's value as JSON, in CSS's spellings where CSS has one: a length as
+/// a number of CSS pixels, `"auto"`, `"50%"`, `"env(safe-area-inset-top)"`;
+/// a colour as `"#rrggbb"` (`"#rrggbbaa"` when translucent) or
+/// `"light-dark(#…, #…)"`; an enum by its CSS name; a vector as `[x, y]`; a
+/// clip path as its canonical text. The engine's and the grid's rows are
+/// named, not spelled — nothing reads them here.
+fn row_json(v: RowValue<'_>, out: &mut String) {
+    let hex = |c: Color| -> String {
+        if c.a() == 255 {
+            format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b())
+        } else {
+            format!("#{:02x}{:02x}{:02x}{:02x}", c.r(), c.g(), c.b(), c.a())
+        }
+    };
+    match v {
+        RowValue::Dimension(Dimension::Auto) => out.push_str("\"auto\""),
+        RowValue::Dimension(Dimension::Points(p)) => out.push_str(&num(p as f64)),
+        RowValue::Dimension(Dimension::Percent(p)) => quote(&format!("{}%", num(p as f64)), out),
+        RowValue::Dimension(Dimension::Env(edge, offset)) => {
+            let edge = match edge {
+                Edge::Top => "top",
+                Edge::Right => "right",
+                Edge::Bottom => "bottom",
+                Edge::Left => "left",
+            };
+            let text = if offset == 0.0 {
+                format!("env(safe-area-inset-{edge})")
+            } else {
+                format!(
+                    "calc(env(safe-area-inset-{edge}) + {}px)",
+                    num(offset as f64)
+                )
+            };
+            quote(&text, out)
+        }
+        RowValue::Number(n) => out.push_str(&num(n)),
+        RowValue::Color(c) | RowValue::ColorValue(ColorValue::Fixed(c)) => quote(&hex(c), out),
+        RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
+            quote(&format!("light-dark({}, {})", hex(l), hex(d)), out)
+        }
+        RowValue::Enum(name) => quote(name, out),
+        RowValue::Vec2(v) => {
+            let _ = write!(out, "[{},{}]", num(v.x as f64), num(v.y as f64));
+        }
+        RowValue::ClipPath(p) => quote(&p.css(), out),
+        RowValue::Transitions(_) => quote("(transition)", out),
+        RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => quote("(grid)", out),
+    }
 }
 
 /// The state: the clock and every slot, derive, and resource by the name the

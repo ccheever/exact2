@@ -22,7 +22,7 @@
 use crate::text::{Paragraph, Run, Shared, Spec, TextEngine};
 use exact_kernel::{
     Dimension, Display, FontStyle, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId,
-    StyleProps, ViewId,
+    StyleMask, StyleProps, ViewId,
 };
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -419,13 +419,15 @@ impl Painter {
             }
             NodeType::Text => {
                 if let Some(text) = node.props.str(PropId::Text) {
-                    let spec = text_spec(s, text);
+                    // Painted with the computed rows: what the kernel measured
+                    // with, inherited font and colour included (LLP 1035.000).
+                    let spec = text_spec(&node.computed_style(StyleMask::INHERITED), text);
                     let paragraph = self.text.borrow_mut().paragraph(&spec, Some(content.2));
                     let mut engine = self.text.borrow_mut();
                     self.backend.text(
                         &mut engine,
                         &paragraph,
-                        rgba(s.text_color.resolve(self.dark)),
+                        rgba(node.text_color().resolve(self.dark)),
                         (content.0, content.1),
                         ts,
                     );
@@ -439,7 +441,8 @@ impl Painter {
                 } else {
                     value
                 };
-                let spec = text_spec(s, shown);
+                let computed = node.computed_style(StyleMask::INHERITED);
+                let spec = text_spec(&computed, shown);
                 let multiline = node.props.str(PropId::SemanticTag) == Some("textarea");
                 let paragraph = self
                     .text
@@ -454,7 +457,7 @@ impl Painter {
                 let ink = if placeholder {
                     [0x75, 0x75, 0x75, 0xff]
                 } else {
-                    rgba(s.text_color.resolve(self.dark))
+                    rgba(node.text_color().resolve(self.dark))
                 };
                 {
                     let mut engine = self.text.borrow_mut();
@@ -466,11 +469,11 @@ impl Painter {
                     let caret_h = if paragraph.height > 0.0 {
                         paragraph.height
                     } else {
-                        s.font_size * 1.2
+                        computed.font_size * 1.2
                     };
                     self.backend.fill(
                         &Shape::rect((caret_x, oy, 1.0, caret_h)),
-                        rgba(s.text_color.resolve(self.dark)),
+                        rgba(node.text_color().resolve(self.dark)),
                         ts,
                     );
                 }

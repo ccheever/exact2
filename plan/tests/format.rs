@@ -156,8 +156,14 @@ fn font_sources_are_portable_local_relative_paths() {
 }
 
 #[test]
-fn iframe_event_kinds_round_trip_through_the_enum_codec() {
-    for event in [EventKind::Load, EventKind::Message] {
+fn host_event_kinds_round_trip_through_the_enum_codec() {
+    for event in [
+        EventKind::Load,
+        EventKind::Message,
+        EventKind::Contextmenu,
+        EventKind::Dblclick,
+        EventKind::Swiperight,
+    ] {
         let mut plan = sample();
         plan.handlers[0].event = event;
         let decoded = Plan::decode(&plan.encode()).unwrap();

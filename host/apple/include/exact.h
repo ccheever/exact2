@@ -131,10 +131,13 @@ void exact_discard_plan(ExactRuntime rt);
 uint32_t exact_pump(ExactRuntime rt, double now_ms);
 
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
- * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message.
+ * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
+ * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop).
  * A change's text, key's name, or guest message is the payload in the input
  * buffer's first len bytes. */
 uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t len, double now_ms);
+/* A horizontal drag offset in points; release returns to authored translate. */
+uint32_t exact_drag_x(ExactRuntime rt, uint32_t view, double delta, double velocity, uint32_t release, double now_ms);
 uint32_t exact_advance(ExactRuntime rt, double now_ms);   /* the runner's clock: timers */
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* The safe-area insets (points) under viewport-fit=cover — what

@@ -78,8 +78,15 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let id = || field_num(line, "id").map(|n| n as u32);
     match field_str(line, "op").as_deref() {
         Some("tree") => unavailable_tree(p),
-        Some("layout") => p.layout_json(),
+        Some("layout") => p.layout_json(id()),
         Some("tap") => {
+            // A held contact (LLP 1035.003 D1) rides evdev when that carrier
+            // lands (LLP 1015's lane); until then it is unsupported, said so.
+            if field_str(line, "phase").is_some() {
+                return error(
+                    "unsupported: the Linux carrier cannot hold a contact yet (LLP 1035.003 D3)",
+                );
+            }
             let Some(id) = id() else {
                 return error("tap needs an id");
             };
