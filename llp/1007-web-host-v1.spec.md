@@ -227,6 +227,13 @@ set so driver settlement can wait for the write. Invalid arguments, an absent
 secure-context clipboard API, and rejected writes are logged as errors; there
 is no fallback that selects text or moves focus. It never reads the clipboard.
 
+`selectText("html-id")` uses the same post-batch target and eligibility checks
+as `focus`, then focuses the input/textarea and calls its native `select()`.
+It selects the complete value, including UTF-16 surrogate pairs, and reads no
+clipboard. Read-only editors remain selectable; their own pointer, double-click
+and context-menu behavior takes precedence over a containing reply/Tapback
+handler. A non-editor target is refused in the journal.
+
 An input with `emojiPicker=true` carries that explicit DOM policy attribute.
 Its input handler waits for composition to finish, clears the field, and sends
 `change` only for a single emoji grapheme, using `Intl.Segmenter` and the gate
@@ -442,3 +449,15 @@ of every inherited row (`color`, the font rows, `line-height`,
 `letter-spacing`, `text-align`, `direction`, `white-space`), the oracle
 beside the kernel's answer. No window or screen space is reported: the
 page has none.
+
+**`state`** (2026-09-10, LLP 1035.002 D2): the glue appends `focus` from
+`document.activeElement` (the view's id, the editor when it is an input or
+textarea, the element's tag as the responder), `keyboard` from
+`visualViewport`'s height against `innerHeight` with the root's
+`interactiveWidget` as the policy, and `navigation` from the
+`[navigationBack]` container's routes (the stack is the prefix through the
+route it names; `modal` and `closedby` from the selected route's
+attributes); the browser has no interactive pop, so the transition is
+always `idle`. The glue tags its `layout` and `clock` replies with the
+runner's `epoch`/`incarnation`/`clock` (D3, `tagged`); the driver tags the
+input and capture it delivers through CDP.

@@ -313,6 +313,15 @@ impl<D: DataSource> Bridge<D> {
         };
         self.emit(out)
     }
+
+    /// A page line into the runner's journal (`exact_log`).
+    pub fn log(&mut self, len: usize) -> u32 {
+        let line = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        if let Some(h) = self.host.as_mut() {
+            h.log(&line);
+        }
+        0
+    }
 }
 
 impl<D: DataSource> Default for Bridge<D> {
@@ -461,6 +470,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_agent(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().agent(len as usize))
+        }
+
+        /// A page line for the runner's journal (LLP 1012 §3; LLP 1035.001
+        /// D6): the input buffer's first `len` bytes. Returns 0.
+        #[no_mangle]
+        pub extern "C" fn exact_log(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().log(len as usize))
         }
     };
 }

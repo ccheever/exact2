@@ -44,9 +44,11 @@ public final class Agent {
                 pending.removeSubrange(pending.startIndex...i)
                 // A synchronous main-queue block prevents nested run-loop waits
                 // from servicing main-queue completions (notably WK snapshots on
-                // a device). Enter through the run loop, still one request at a time.
+                // a device). Common modes also service requests while UIKit or
+                // AppKit tracks a held gesture; default-only waits for its release.
+                // Still one request at a time, including inside nested run loops.
                 let completed = DispatchSemaphore(value: 0)
-                CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+                CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
                     handle(line)
                     completed.signal()
                 }
@@ -87,15 +89,31 @@ public final class Agent {
         }
         switch op {
         case "tree": Agent.reply(session.webviews.tree())
-        case "layout": Agent.reply(layout(req))
+        case "layout": Agent.reply(tagged(layout(req)))
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
         // after a frame, so the frame is rendered here, not left to the
         // display link to get to between two calls).
-        case "tap": let r = tap(req); session.canvases.settle(now: session.now()); Agent.reply(r)
-        case "type": let r = type(req); session.canvases.settle(now: session.now()); Agent.reply(r)
-        case "clock": let r = clock(req); session.canvases.settle(now: session.now()); Agent.reply(r)
-        case "screenshot": Agent.reply(screenshot(req))
+        case "tap": let r = tap(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
+        case "type": let r = type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
+        case "clock": let r = clock(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
+        case "screenshot": Agent.reply(tagged(screenshot(req)))
+        case "state":
+            // The runner's state, in its own order, then what this host
+            // observes for the session (LLP 1035.002 D2): the focus, the
+            // keyboard and the navigation — observations, never a second
+            // model, appended by text so the runner's order is kept.
+            var forward = req
+            forward.removeValue(forKey: "session")
+            let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
+            var reply = session.agent(json)
+            if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
+               let sections = try? JSONSerialization.data(withJSONObject: stateSections()) {
+                reply.removeLast()
+                let tail = String(decoding: sections, as: UTF8.self)
+                reply += "," + tail.dropFirst()
+            }
+            Agent.raw(reply)
         default:
             // The library's operations take the request without the
             // carrier's routing field.
@@ -104,6 +122,19 @@ public final class Agent {
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
             Agent.raw(session.agent(json))
         }
+    }
+
+    /// Every reply carries the runner's `epoch`, `incarnation` and `clock`
+    /// (LLP 1035.002 D3) — read after the operation, so a reply's tags name
+    /// the world it left behind; a reply's own `clock` (where a `clock` call
+    /// landed) is kept. An error is left alone.
+    func tagged(_ r: [String: Any]) -> [String: Any] {
+        guard r["error"] == nil,
+              let d = session.agent("{\"op\":\"tags\"}").data(using: .utf8),
+              let tags = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return r }
+        var out = r
+        for (key, value) in tags where out[key] == nil { out[key] = value }
+        return out
     }
 
     public static func reply(_ obj: [String: Any]) {
@@ -159,7 +190,17 @@ public final class Agent {
                 continue
             }
             let next = max(landed, self.settle() ?? landed)
-            if next <= landed { return ["clock": landed, "settled": true] }
+            if next <= landed {
+                // Under platform timing (LLP 1035.003 D5) a native transition
+                // is in flight on UIKit's clock, which no seek moves: wait
+                // for it, bounded, and say so when the bound is hit.
+                if ExactEnv.agentTiming == "platform" {
+                    let deadline = Date(timeIntervalSinceNow: 2)
+                    while nativeInFlight() && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+                    if nativeInFlight() { return ["clock": landed, "settled": false, "reason": "transition"] }
+                }
+                return ["clock": landed, "settled": true]
+            }
             rounds += 1
             if rounds >= 16 { return ["clock": landed, "settled": false] }
             to = next

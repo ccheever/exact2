@@ -53,6 +53,32 @@ t=4990000 advance → 1 timer fired, epoch 9
         "at": 1
       }
     ]
+  },
+  "focus": {
+    "logical": 7,
+    "editor": 7,
+    "responder": "UITextField",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": true,
+    "overlap": 335,
+    "top": 539,
+    "guide": 539,
+    "policy": "resizes-content",
+    "interactive": false
+  },
+  "navigation": {
+    "route": "compose",
+    "stack": [
+      "compose"
+    ],
+    "presentation": "modal",
+    "closedby": "closerequest",
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
   }
 }
 

@@ -41,6 +41,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var routeIDs: [UInt32] = []
     private var controllers: [UInt32: RouteController] = [:]
     private var changing = false
+    /// The root key last journaled as matching no route, so a refusal is one
+    /// line, not one per batch (LLP 1035.001 D6).
+    private var refusedKey: String?
 
     init(presenter: Presenter) { self.presenter = presenter }
 
@@ -66,8 +69,19 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             routeIDs = (op["ids"] as? [Int] ?? []).map { UInt32($0) }
         }
         let routes = routeIDs.compactMap { presenter.views[$0] }.filter { $0.props["navigationKey"] != nil }
-        guard let selected = routes.firstIndex(where: { $0.props["navigationKey"] == root.props["navigationKey"] }) else { return }
-        let wanted = routes[...selected].map { node -> RouteController in
+        // D1: the stack is the prefix through the route the root names; a
+        // key that names none leaves the stack alone, and says so once.
+        let rootKey = root.props["navigationKey"] ?? ""
+        guard let range = NavigationRules.stack(routeKeys: routes.map { $0.props["navigationKey"] ?? "" }, selected: rootKey) else {
+            if refusedKey != rootKey {
+                refusedKey = rootKey
+                presenter.session?.log("navigationKey \"\(rootKey)\" matches no route; the stack is unchanged")
+            }
+            return
+        }
+        refusedKey = nil
+        let selected = range.upperBound - 1
+        let wanted = routes[range].map { node -> RouteController in
             let c = controllers[node.id] ?? RouteController(node)
             controllers[node.id] = c
             c.mount()
@@ -110,7 +124,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let stack = modal ? [wanted[selected]] : wanted
         let same = nav.viewControllers.count == stack.count && zip(nav.viewControllers, stack).allSatisfy { $0 === $1 }
         if !same {
-            nav.setViewControllers(stack, animated: !modal && !presenter.modals.active && !ExactEnv.agentMode && nav.view.window != nil)
+            nav.setViewControllers(stack, animated: !modal && !presenter.modals.active && !ExactEnv.agentFreezes && nav.view.window != nil)
         }
         nav.view.layoutIfNeeded()
         controllers = controllers.filter { routeIDs.contains($0.key) }
@@ -118,6 +132,24 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     var owner: UIViewController? { navigation?.parent }
+
+    /// A push or pop UIKit is animating: what `clock settle` waits for under
+    /// platform timing (LLP 1035.003 D5), bounded.
+    var inTransition: Bool { changing }
+    /// How the last transition ended — `completed` (the Back control was
+    /// pressed), `cancelled` (an interactive pop returned), `idle` (a
+    /// programmatic change, or nothing yet) — for `state.navigation`.
+    private var lastTransition = "idle"
+    private var interactiveTransition = false
+
+    /// For `state.navigation` (LLP 1035.002 D2): the route the root names,
+    /// UIKit's stack by key, and the transition's phase — observations.
+    func observation() -> [String: Any] {
+        let stack = (navigation?.viewControllers ?? []).compactMap { ($0 as? RouteController)?.key }
+        let transition: [String: Any] = ["interactive": navigation?.transitionCoordinator?.isInteractive ?? false,
+                                         "phase": changing ? "in-progress" : lastTransition]
+        return ["route": container?.props["navigationKey"] ?? NSNull(), "stack": stack, "transition": transition]
+    }
 
     func move(to parent: UIViewController, mount: () -> Void) {
         guard let nav = navigation, nav.parent !== parent else { mount(); return }
@@ -136,7 +168,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     var preservesKeyboardViewport: Bool {
-        !presenter.modals.active && changing && navigation?.transitionCoordinator?.initiallyInteractive == true
+        NavigationRules.freezesViewport(modalActive: presenter.modals.active, changing: changing,
+                                        initiallyInteractive: navigation?.transitionCoordinator?.initiallyInteractive == true)
     }
 
     /// The key of the route a view is mounted under, for `layout <node>`
@@ -156,44 +189,55 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         return key != selected
     }
 
+    /// D1: resolved at use, by HTML id, among live enabled press controls —
+    /// never captured at a gesture's start (`NavigationRules.backControl`).
     private var backControl: NodeView? {
-        guard let target = container?.props["navigationBack"] else { return nil }
-        return presenter.views.values.first {
-            $0.props["id"] == target && $0.handlers.contains("press") && !$0.disabled
-        }
+        NavigationRules.backControl(named: container?.props["navigationBack"], among: Array(presenter.views.values),
+                                    id: \.id, htmlID: { $0.props["id"] }, pressable: { $0.handlers.contains("press") }, disabled: \.disabled)
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard (navigation?.viewControllers.count ?? 0) > 1, !changing, !presenter.modals.active, backControl != nil,
-              !presenter.views.values.contains(where: { $0.props["contextTarget"] != nil }) else { return false }
+        let depth = navigation?.viewControllers.count ?? 0
+        let control = backControl
+        guard NavigationRules.popMayBegin(depth: depth, changing: changing, modalActive: presenter.modals.active,
+                                          hasBackControl: control != nil,
+                                          contextPreviewActive: presenter.views.values.contains(where: { $0.props["contextTarget"] != nil })) else {
+            if depth > 1, !changing, !presenter.modals.active, control == nil {
+                presenter.session?.log("back gesture refused: no enabled navigationBack control in the active route")
+            }
+            return false
+        }
         if let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view {
             let location = pan.location(in: view), delta = pan.translation(in: view)
             let start = CGPoint(x: location.x - delta.x, y: location.y - delta.y)
-            if start.x >= 20 {
-                var hit = view.hitTest(start, with: nil)
-                while let current = hit {
-                    if let node = current as? NodeView, node.handlers.contains("swiperight") { return false }
-                    if current === view { break }
-                    hit = current.superview
-                }
+            var overSwipeRight = false
+            var hit = view.hitTest(start, with: nil)
+            while let current = hit {
+                if let node = current as? NodeView, node.handlers.contains("swiperight") { overSwipeRight = true; break }
+                if current === view { break }
+                hit = current.superview
             }
-
-            let velocity = pan.velocity(in: pan.view)
-            return velocity.x > abs(velocity.y)
+            return NavigationRules.panMayBegin(startX: start.x, overSwipeRight: overSwipeRight, velocity: pan.velocity(in: pan.view))
         }
         return true
     }
 
     func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
         changing = animated && !presenter.modals.active
+        interactiveTransition = navigationController.transitionCoordinator?.initiallyInteractive == true
     }
 
     func navigationController(_ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
         changing = false
         defer { presenter.session?.view?.fit() }
-        guard !presenter.modals.active, let shown = viewController as? RouteController, let root = container,
-              shown.key != root.props["navigationKey"],
-              let control = backControl else { return }
+        // D2: once, on a key change only — a cancelled swipe shows the key
+        // the root still names; a programmatic Back already moved it.
+        let dispatches = (viewController as? RouteController).map {
+            NavigationRules.dispatchesBack(shownKey: $0.key, rootKey: container?.props["navigationKey"] ?? "", modalActive: presenter.modals.active)
+        } ?? false
+        lastTransition = dispatches ? "completed" : (interactiveTransition ? "cancelled" : "idle")
+        interactiveTransition = false
+        guard dispatches, let control = backControl else { return }
         presenter.press(control.id)
     }
 

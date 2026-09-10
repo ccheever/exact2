@@ -418,6 +418,13 @@ impl<D: DataSource> Host<D> {
         self.commit(&receipts, error)
     }
 
+    /// A presenter's line for the runner's journal (LLP 1012 §3): a refused
+    /// intent — a focus that could not be delivered, a route key that names
+    /// no route, a presentation the owner refused — with its reason.
+    pub fn log(&mut self, line: &str) {
+        self.runner.log(line);
+    }
+
     /// The agent API's read operations (LLP 1012): `tree`, `state`, and
     /// `logs` from the runner; `settle` — the clock at which the last
     /// transition in flight ends, milliseconds, `null` when quiescent — from

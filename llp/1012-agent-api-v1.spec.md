@@ -171,6 +171,15 @@ entering a synchronous main-dispatch-queue block. The latter starves main-queue
 WebKit snapshot completions during nested run-loop waits. Requests remain serial
 and main-thread-owned. Full TS Caltrain drives pass on macOS and the physical
 iPhone, including guest pixels in the copied screenshot (1020 D4).
+The block is scheduled in **common modes** (2026-09-10): default-mode-only
+requests stalled while UIKit tracked a held sheet drag and answered only after
+release. The reader still serializes requests and the main thread still owns
+them. A physical compose-sheet drag now permits `layout`, `state`, editor
+inspection and `screenshot` before reversal/release, with a visible software
+keyboard, at two Simulator window positions. Screen geometry reports the held
+sheet; a viewport-only screenshot retains its existing crop. This fixes reads
+during native tracking, not the iOS carrier's still-unsupported synthetic contact
+phases (LLP 1035.003). Evidence: `/tmp/messages-held-inspection/`.
 An OS-opened macOS bundle also exposed a startup ordering bug: becoming key can
 synchronously announce agent readiness before the later global initializer reset
 its guard, starting two stdin readers. The guard now initializes before ordering
@@ -187,15 +196,25 @@ host only ever sees a view id.
 | op | request to the host | reply | who answers |
 |---|---|---|---|
 | `tree` | `{"op":"tree"}` | `epoch`, `incarnation`, `clock`, `roots`, `nodes[]` in preorder: `id`, `parent`, `depth`, `type` (schema name), `props` by schema name, `handlers` (`press`/`change`/`hover`/`focus`/`blur`/`key`), `children` | runner (`Kernel::rows` + props) |
-| `state` | `{"op":"state"}` | `clock`; `slots`, `derives`, `resources` by declared name as typed JSON: records keyed by field name, `none`/unit `null` | runner (the plan's type table) |
+| `state` | `{"op":"state"}` | `epoch`, `incarnation`, `clock`; `slots`, `derives`, `resources` by declared name as typed JSON: records keyed by field name, `none`/unit `null`. **Then the host's three sections (2026-09-10, LLP 1035.002 D2)** — observations of its view tree, never a second model: `focus{logical, editor, responder, pending}` (the node holding the platform's focus, the editor when it is one, the responder's class, a focus a sheet is still holding for its presentation), `keyboard{visible, overlap, top?, guide?, policy, interactive}` (the software keyboard's overlap with the viewport, its top edge and the layout guide in the viewport's space where the host has them, the `interactiveWidget` policy, a drag dismissing it), `navigation{route, stack[], presentation, closedby, transition{interactive, phase}}` (the route the root names, the platform's stack by key, `modal` or null, the close policy, and `idle`｜`in-progress`｜`cancelled`｜`completed`). UIKit reports its first responder, keyboard and navigation controller; AppKit its first responder, no keyboard, the stack as the rule's prefix; the page `activeElement`, `visualViewport` and the DOM's routes; Linux each section as `{"unavailable": true}`, present so "no keyboard" reads apart from "no report" | runner (the plan's type table) + host (the sections) |
 | `logs` | `{"op":"logs","since":N}` | `next`, `from`, `lines[]` — the journal from `since` (§3); the driver adds `host[]` (page console / app stderr) and `dropped` | runner |
 | `layout` | `{"op":"layout"}` / `{…,"id":V}` | `clock`, `viewport{w,h}`, `env{…}` (2026-08-30: the page's environment by the web's `env()` names — `safe-area-inset-top/right/bottom/left`, the insets the host gave the kernel under `viewport-fit=cover`, and `keyboard-inset-height`, a software keyboard's overlap with the screen's viewport; under `interactive-widget="resizes-content"` `viewport` itself shrinks to the keyboard's top, as Chrome's `innerHeight` does; zeros on macOS and Linux, the browser's own on the web), `nodes[]`: `id`, `x`, `y`, `w`, `h` (+ `sx`, `sy` on scroll containers); the driver adds `type` and `testId`. **With `id` (2026-09-09, LLP 1035.002 D1, `layout <target>` on the CLI): `node{…}` explains that one node** — the runner's half (`epoch`, `incarnation`, `site`, `instance`, every row it sets or inherits as `{value, source: authored | inherited (+from) | initial}`, `props`, the kernel's `frame` in the parent and `absolute`) merged with the host's (`space{viewport, local, window?, screen?, capture{scale}}`, the `scroll` and `clip` chains outermost first, `visible{hidden, inert, inViewport, clipped}`, `native{…}` — what was mounted; the web adds `browser{…}`, its own computed values for the inherited rows). A space a host cannot observe is absent; a stale id is refused by name | runner (the node's rows and sources, the private `node` message) + host (the spaces) |
-| `tap` | `{"op":"tap","id":V}` / `{…,"wheel":[dx,dy]}` / `{…,"hover":true}` / **a contact's phases** (2026-09-09, LLP 1035.003 D1): `{…,"phase":"down"[,"x","y"]}`, then `{"op":"tap","phase":"move","x","y"｜"dx","dy"[,"ms"]}`, `"hold"[,"ms"]`, `"up"`, `"cancel"` — CLI `tap <target> down [at <x> <y>]`, `tap move <x> <y>｜by <dx> <dy> [over <ms>]`, `tap hold [<ms>]`, `tap up`, `tap cancel`, the phase words read as phases only while a contact is down | `tapped`, `at` (+ `hover`); a phase replies `phase`, `at`; **every input reply carries `delivery`** — `platform` (a real input event through the platform's path: CDP mouse/touch, `NSWindow.sendEvent`), `recognized` (an already-recognized event injected: iOS `contextmenu`/`dblclick`/`hover`), `activation` (a hit-test and a direct call: iOS `tap`), or `unsupported` — plus `carrier` and `mode`, added by the driver from the host's answer and its own table (D2); the driver adds `target`. On iOS (2026-08-30) a tap also does what a touch up does first: the nearest node that takes the focus takes it, and when none does the field being edited is blurred (LLP 1008 §9); a phase on iOS or Linux is `unsupported`, never an activation dressed as a finger | host input path (the web: CDP touch events under touch emulation, switched on by the first contact; macOS: the mouse button held across requests, a timed move as dragged events with the run loop turning between them, `cancel` unsupported because AppKit has none) |
+| `tap` | `{"op":"tap","id":V}` / `{…,"wheel":[dx,dy]}` / `{…,"hover":true}` / **a contact's phases** (2026-09-09, LLP 1035.003 D1): `{…,"phase":"down"[,"x","y"]}`, then `{"op":"tap","phase":"move","x","y"｜"dx","dy"[,"ms"]}`, `"hold"[,"ms"]`, `"up"`, `"cancel"` — CLI `tap <target> down [at <x> <y>]`, `tap move <x> <y>｜by <dx> <dy> [over <ms>]`, `tap hold [<ms>]`, `tap up`, `tap cancel`, the phase words read as phases only while a contact is down | `tapped`, `at` (+ `hover`); a phase replies `phase`, `at`; **every input reply carries `delivery`** — `platform` (a real input event through the platform's path: CDP mouse/touch, `NSWindow.sendEvent`), `recognized` (an already-recognized event injected: iOS `contextmenu`/`dblclick`/`hover`), `activation` (a hit-test and a direct call: iOS `tap`), or `unsupported` — plus `carrier` and `mode`, added by the driver from the host's answer and its own table (D2); the driver adds `target`. On iOS (2026-08-30) a tap also does what a touch up does first: the nearest node that takes the focus takes it, and when none does the field being edited is blurred (LLP 1008 §9); a phase on iOS or Linux is `unsupported`, never an activation dressed as a finger | host input path (the web: CDP touch events under touch emulation, switched on by the first contact; macOS: the mouse button held across requests, a timed move as dragged events with the run loop turning between them, `cancel` unsupported because AppKit has none; the simulator (2026-09-10): a real mouse on the Mac's desktop posted into the Simulator's window by `host/apple/pointer.swift`, the mapping calibrated by hovering at two desktop points and reading `layout.pointer`, refused with the covering app's name when the Simulator's window is not topmost at the point; a phone: unsupported) |
 | `type` | `{"op":"type","id":V,"text":…}` / `{…,"key":"Enter"}` | `typed` (+ `value` on macOS) / `key`; the driver adds `target` | host text path |
-| `clock` | `{"op":"clock","to":ms}` / `{…,"settle":true}` | `clock` (where it landed), `settled` for `settle` | host, both clocks |
+| `clock` | `{"op":"clock","to":ms}` / `{…,"settle":true}` | `clock` (where it landed), `settled` for `settle`; under `EXACT_AGENT_TIMING=platform` (2026-09-10, LLP 1035.003 D5 — `open({timing:'platform'})`, `--timing platform`: UIKit's push/pop, sheet and keyboard animations keep their natural timing while the driver still owns the runner's clock) `settle` also waits, bounded at two seconds, for the iOS navigation and modal hosts to leave a transition, and replies `settled: false, reason: "transition"` past the bound | host, both clocks |
 | `screenshot` | `{"op":"screenshot","path":…}` (+`"window":true` on macOS) | `screenshot`, `w`, `h` (viewport points / CSS px, not PNG pixels; `scale` for a window capture) | host |
 
 Errors are `{"error":"…"}` on the wire; the session throws `"<op>: <message>"`.
+
+**Every reply but `logs` is tagged** (2026-09-10, LLP 1035.002 D3): `epoch`,
+`incarnation` and `clock` — the runner's own replies at their source, a
+host's (`layout`, `tap`, `type`, `clock`, `screenshot`) read after the
+operation through the runner's `{"op":"tags"}` message, so the tags name
+the world the reply left behind; a `clock` reply keeps its own `clock`. The
+driver stamps the web carrier's CDP-delivered input and captures the same
+way (`tagged` on the session). `logs` is the journal, whose lines carry
+their own `t=` clocks; an error carries no tags. A targeted read of an id
+that is not live in the current incarnation is refused by name.
 
 **The contract a host implements** (macOS is the worked example, `Agent.swift`;
 the Linux host implements this list, not that file):
@@ -208,7 +227,10 @@ the Linux host implements this list, not that file):
 - **Membership and order.** Every view attached to the document (web:
   `isConnected`; macOS: in a window), whether or not it lies inside the
   viewport, in ascending id order. `sx`/`sy` present only on scroll
-  containers.
+  containers. On iOS, `ox`/`oy` measure elastic displacement beyond the
+  scroll view's adjusted inset bounds. A valid negative resting offset is not
+  overscroll. Wheel routing uses those same bounds, including reachable top,
+  left, bottom and right insets; an exhausted child chains to its ancestor.
 - **`tap`** presses at the box's center through the platform's own hit-test
   and dispatch — CDP `Input.dispatchMouseEvent` mousePressed/Released on the
   web (Chrome synthesizes the click), `NSWindow.sendEvent` mouse down/up on
@@ -257,7 +279,9 @@ the Linux host implements this list, not that file):
 **Private messages** are not operations: `focus` (web `type`'s first half),
 `settle` (the engine's end time, read by `clock`), `node` (the runner's half
 of `layout <target>`, 2026-09-09), `quit` (macOS stdio), and the `at` op
-inside a batch (§2). `exact.reload` / `EXACT_PLAN` boot a plan —
+inside a batch (§2). **`exact_log`** (2026-09-10, LLP 1035.001 D6) is the
+ABI entry beside `exact_agent` through which a host appends a line to the
+journal (§3): what it refused and why. `exact.reload` / `EXACT_PLAN` boot a plan —
 session setup, not a drive. `Runner::act` runs an action by name for **tests**
 (LLP 1005 §6 now says so); an agent never takes it.
 
@@ -336,8 +360,15 @@ a reload); each `dispatch`/`act` with its outcome — `press view 12
 say `refused: Poisoned`); each command an action emitted, journaled once the
 update committed (`command setScheme("dark")`); each advance that fired
 timers (`advance → 60 timers fired, epoch 5`) and each timer that refused
-(`timer 0 (tick) refused: …`). Hosts may append with `Runner::log`; none
-does today.
+(`timer 0 (tick) refused: …`). Hosts append with `Runner::log` through
+`exact_log` (2026-09-10, LLP 1035.001 D6): the iOS presenter journals a
+`focus("id")` it could not deliver with its reason (`focus "to" refused:
+not mounted | disabled | zero size | hidden ancestor | inert ancestor | no
+live node with that id`), a root `navigationKey` that names no route (once
+per key), a back gesture refused for want of an enabled `navigationBack`
+control, and a modal route refused because the owner already presents
+(once per route); the web page journals a `focus` whose element is missing.
+Nothing a host refuses is silent.
 
 `logs` replies `{"next":N,"from":M,"lines":[…]}` with `from = clamp(since,
 journal_start, next)`: a reader whose cursor the ring has passed gets the

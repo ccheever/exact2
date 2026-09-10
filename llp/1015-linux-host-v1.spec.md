@@ -479,3 +479,10 @@ and a 1:1 capture scale. No window, no screen, no scroll or clip chain
 yet, and `native` is `{"unavailable": true}` rather than a guess; the
 inherited colour and font rows the painter now reads through
 `NodeRef::computed_style` (LLP 1035.000) are what it reports.
+
+**`state`** (2026-09-10, LLP 1035.002 D2): the painter appends `focus`,
+`keyboard` and `navigation` as `{"unavailable": true}` each — present, so a
+reader can tell "no keyboard" from "no report" — and tags every reply it
+answers itself (`layout`, `tap`, `type`, `clock`, `screenshot`) with the
+runner's `epoch`/`incarnation`/`clock` through its `tags` message (D3,
+`agent::tagged`).

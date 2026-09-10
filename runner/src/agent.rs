@@ -17,16 +17,19 @@
 use crate::instance::InstanceStep;
 use crate::runner::{DataSource, Runner};
 use exact_kernel::{Color, ColorValue, Dimension, Edge, NodeRef, PropValue, RowValue, StyleId};
-use exact_plan::{EventKind, Plan, TypeKind, TypesId, Value};
+use exact_plan::{BindingKind, EventKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
 
 /// Answer one request: `{"op":"tree"}`, `{"op":"state"}`,
-/// `{"op":"logs","since":N}`, or `{"op":"node","id":V}` — the runner's half
-/// of `layout <node>` (LLP 1035.002 D1). Anything else is an `{"error":…}`.
+/// `{"op":"logs","since":N}`, `{"op":"node","id":V}` — the runner's half
+/// of `layout <node>` (LLP 1035.002 D1) — or `{"op":"tags"}`, the identity
+/// a host stamps on its own replies (D3). Anything else is an
+/// `{"error":…}`.
 pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     match field_str(request, "op").as_deref() {
         Some("tree") => tree(runner),
         Some("state") => state(runner),
+        Some("tags") => tags(runner),
         Some("node") => match field_num(request, "id") {
             Some(n) if n >= 0.0 && n == n.trunc() => node(runner, n as u32),
             _ => error("node needs an id"),
@@ -39,6 +42,19 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         Some(other) => error(&format!("unknown op: {other}")),
         None => error("no op"),
     }
+}
+
+/// `{"epoch":E,"incarnation":I,"clock":C}`: what every reply carries (LLP
+/// 1035.002 D3). The runner's own replies are tagged where they are built;
+/// a host asks for this after an operation it answered itself.
+pub fn tags<D: DataSource>(runner: &Runner<D>) -> String {
+    let kernel = runner.kernel();
+    format!(
+        "{{\"epoch\":{},\"incarnation\":{},\"clock\":{}}}",
+        kernel.epoch(),
+        kernel.incarnation(),
+        num(runner.now_ms())
+    )
 }
 
 /// `{"error":"…"}`.
@@ -170,7 +186,8 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         }
         None => s.push_str("null"),
     }
-    if let Some((site, path)) = runner.site_of(id) {
+    let site = runner.site_of(id);
+    if let Some((site, path)) = &site {
         let _ = write!(s, ",\"site\":{},\"instance\":[", site.0);
         for (i, step) in path.iter().enumerate() {
             if i > 0 {
@@ -196,6 +213,20 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         }
         s.push(']');
     }
+    // An own row the plan binds by an expression is `dynamic` (D5); one it
+    // binds by a literal — or that a class expansion or the runner set — is
+    // `authored`. The plan's bindings for this node's site say which.
+    let plan = runner.plan();
+    let dynamic = |row: StyleId| -> bool {
+        site.as_ref().is_some_and(|(site, _)| {
+            plan.node(*site).bindings.iter().any(|b| {
+                let b = plan.binding(b);
+                b.kind == BindingKind::Style
+                    && StyleId::from_bit(b.id as u32) == Some(row)
+                    && !crate::vm::is_literal(plan.code(b.expr))
+            })
+        })
+    };
     s.push_str(",\"style\":{");
     let mut first = true;
     for row in StyleId::ALL {
@@ -210,7 +241,9 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         quote(row.name(), &mut s);
         s.push_str(":{\"value\":");
         row_json(node.computed(row), &mut s);
-        if own {
+        if own && dynamic(row) {
+            s.push_str(",\"source\":\"dynamic\"}");
+        } else if own {
             s.push_str(",\"source\":\"authored\"}");
         } else {
             match node.source_of(row) {
@@ -308,7 +341,13 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
 pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     let plan = runner.plan();
     let mut s = String::new();
-    let _ = write!(s, "{{\"clock\":{},\"slots\":{{", num(runner.now_ms()));
+    let _ = write!(
+        s,
+        "{{\"epoch\":{},\"incarnation\":{},\"clock\":{},\"slots\":{{",
+        runner.kernel().epoch(),
+        runner.kernel().incarnation(),
+        num(runner.now_ms())
+    );
     let mut first = true;
     for row in plan.slots.iter() {
         if row.owner.is_some() {

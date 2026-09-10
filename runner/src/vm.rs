@@ -142,6 +142,43 @@ pub struct Outcome {
     pub store_dependent: bool,
 }
 
+/// Whether `code` is a literal — pushes of values and `Return`, nothing
+/// read — so a binding can be told from an expression without running it
+/// (LLP 1035.002 D5: a row bound by an expression is `dynamic`). Malformed
+/// code is not a literal.
+pub fn is_literal(code: &[u8]) -> bool {
+    let mut r = Reader::new(code);
+    while !r.is_empty() {
+        let Some(op) = r.u8().ok().and_then(Opcode::from_wire) else {
+            return false;
+        };
+        if !matches!(
+            op,
+            Opcode::Number
+                | Opcode::Bool
+                | Opcode::Str
+                | Opcode::None
+                | Opcode::Unit
+                | Opcode::Some
+                | Opcode::Return
+        ) {
+            return false;
+        }
+        for operand in op.operands() {
+            let skipped = match operand {
+                Operand::U8 | Operand::Enum(_) => r.u8().map(|_| ()),
+                Operand::U16 => r.u16().map(|_| ()),
+                Operand::U32 | Operand::Str | Operand::Idx(_) => r.u32().map(|_| ()),
+                Operand::F64 => r.f64().map(|_| ()),
+            };
+            if skipped.is_err() {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// Evaluate `code` in `env`. `allowed_writes` bounds `StoreSlot`; an action
 /// passes its `writes` range, an expression passes nothing.
 pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcome, Trap> {

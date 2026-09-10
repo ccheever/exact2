@@ -158,6 +158,10 @@ uint32_t exact_intrinsic(ExactRuntime rt, uint32_t view, float width, float heig
  * buffer — JSON, not a batch. */
 uint32_t exact_agent(ExactRuntime rt, size_t len);
 
+/* A host line for the runner's journal (LLP 1012 §3; LLP 1035.001 D6): the
+ * input buffer's first len bytes — a refused intent and its reason. Returns 0. */
+uint32_t exact_log(ExactRuntime rt, size_t len);
+
 /* Optional delivery composition (LLP 1030 D4). L=0 returns NULL: no store,
  * keys, selection, check or networking implementation is linked. The higher
  * update adapter supplies these calls only when the app chooses L=A. */

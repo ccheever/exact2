@@ -49,10 +49,29 @@ final class Presenter {
     /// keyboard.
     var keyboardInset: CGFloat = 0
 
+    /// Where the platform's pointer last hovered over the viewport, in its
+    /// content space — kept only under the agent (LLP 1035.003 §3): the
+    /// driver calibrates its desktop-to-device mapping by hovering the Mac's
+    /// pointer at known desktop points and reading where the app saw it,
+    /// which no window frame can tell it (a Simulator window carries a
+    /// bezel and a scale of its own).
+    private(set) var lastPointer: CGPoint?
+
     init() {
         viewport.addSubview(root)
         viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .white
+        if ExactEnv.agentMode {
+            let hover = UIHoverGestureRecognizer(target: self, action: #selector(pointerMoved(_:)))
+            hover.delaysTouchesBegan = false
+            hover.delaysTouchesEnded = false
+            hover.cancelsTouchesInView = false
+            viewport.addGestureRecognizer(hover)
+        }
+    }
+
+    @objc func pointerMoved(_ gesture: UIHoverGestureRecognizer) {
+        lastPointer = gesture.location(in: viewport)
     }
 
     func observeKeyboard() {
@@ -68,6 +87,11 @@ final class Presenter {
     /// never a frame behind it.
     @objc func keyboardChanged(_ n: Notification) {
         guard let info = n.userInfo, let window = viewport.window, viewport.superview != nil else { return }
+        // A keyboard is this session's business only for its own editor, or
+        // while it still holds an inset it applied; another session's editor
+        // in the same window is not (LLP 1035.001 D5, two-session host).
+        let ownEditor = editing != nil || views.values.contains { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
+        guard NavigationRules.keyboardConcerns(editing: ownEditor, holdsInset: keyboardTop != nil) else { return }
         let end = (info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
         let hiding = n.name == UIResponder.keyboardWillHideNotification
         // The keyboard's frame is the screen's; the viewport's, the window's.
@@ -135,7 +159,7 @@ final class Presenter {
         // agent's wheel scrolls at once: its world is settled between calls,
         // and UIKit hit-tests a scroll view at its presentation offset while
         // the keyboard's spring is still settling — a tap there would miss.
-        if ExactEnv.agentMode || duration <= 0 { change(); return }
+        if ExactEnv.agentFreezes || duration <= 0 { change(); return }
         UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState], animations: change)
     }
 
@@ -215,20 +239,43 @@ final class Presenter {
     var onCommand: ((String, [Any]) -> Void)?
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
-    func focusElement(_ args: [Any]) {
-        if modals.deferFocus(args) { return }
-        guard args.count == 1, let name = args.first as? String,
-              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
-              let window = target.window, !target.disabled,
-              target.bounds.width > 0, target.bounds.height > 0 else { return }
+    /// A focus that cannot be delivered is refused with its reason in the
+    /// runner's journal (LLP 1035.001 D3/D6, `NavigationRules.focusRefusal`),
+    /// never silently.
+    func focusElement(_ args: [Any], selectText: Bool = false) {
+        if modals.deferFocus(args, selectText: selectText) { return }
+        guard args.count == 1, let name = args.first as? String else {
+            session?.log("focus refused: one string argument expected")
+            return
+        }
+        guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else {
+            session?.log("focus \"\(name)\" refused: no live node with that id")
+            return
+        }
+        var hidden = false, inert = false
         var ancestor: UIView? = target
         while let view = ancestor {
-            if view.isHidden || (view as? NodeView)?.props["inert"] == "true" { return }
+            if view.isHidden { hidden = true }
+            if (view as? NodeView)?.props["inert"] == "true" { inert = true }
             ancestor = view.superview
         }
+        // The mounted window is a prerequisite, never another session's.
+        if let reason = NavigationRules.focusRefusal(mounted: target.window != nil, disabled: target.disabled,
+                                                     zeroSize: target.bounds.width == 0 || target.bounds.height == 0,
+                                                     hiddenAncestor: hidden, inertAncestor: inert) {
+            session?.log("focus \"\(name)\" refused: \(reason)")
+            return
+        }
         let responder: UIView = target.textArea ?? target.field ?? target
+        if selectText, target.textArea == nil, target.field == nil {
+            session?.log("selectText \"\(name)\" refused: not a text editor")
+            return
+        }
         if responder.canBecomeFirstResponder { _ = responder.becomeFirstResponder() }
-        _ = window // The mounted window is a prerequisite, never another session's.
+        if selectText, responder.isFirstResponder {
+            if let editor = target.textArea { editor.selectAll(editor) }
+            else if let editor = target.field { editor.selectAll(editor) }
+        }
     }
 
     /// The events beyond press and change (LLP 1005 §3).

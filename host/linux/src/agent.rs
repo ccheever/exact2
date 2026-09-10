@@ -71,6 +71,41 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
         let _ = p.frame();
     }
     p.first_pixel();
+    tagged(p, line, reply)
+}
+
+/// Every reply carries the runner's `epoch`, `incarnation` and `clock`
+/// (LLP 1035.002 D3), read after the operation; a reply that already has a
+/// `clock` (where a `clock` call landed) keeps it. The runner's own replies
+/// (`tree`, `state`, `node`) are tagged at the source; an error is left
+/// alone.
+fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> String {
+    let op = field_str(line, "op");
+    let host_reply = matches!(
+        op.as_deref(),
+        Some("layout" | "tap" | "type" | "clock" | "screenshot")
+    );
+    if !host_reply || !reply.ends_with('}') || reply.starts_with("{\"error\"") {
+        return reply;
+    }
+    let tags = p.host().agent("{\"op\":\"tags\"}");
+    let (Some(epoch), Some(incarnation), Some(clock)) = (
+        field_num(&tags, "epoch"),
+        field_num(&tags, "incarnation"),
+        field_num(&tags, "clock"),
+    ) else {
+        return reply;
+    };
+    reply.pop();
+    reply.push_str(&format!(
+        ",\"epoch\":{},\"incarnation\":{}",
+        num(epoch),
+        num(incarnation)
+    ));
+    if !reply.contains("\"clock\":") {
+        reply.push_str(&format!(",\"clock\":{}", num(clock)));
+    }
+    reply.push('}');
     reply
 }
 
@@ -78,6 +113,17 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let id = || field_num(line, "id").map(|n| n as u32);
     match field_str(line, "op").as_deref() {
         Some("tree") => unavailable_tree(p),
+        Some("state") => {
+            // The runner's state, then the sections a painter cannot observe
+            // (LLP 1035.002 D2): present as `unavailable`, never absent, so a
+            // reader can tell "no keyboard" from "no report".
+            let mut s = p.host().agent(line);
+            if s.ends_with('}') && !s.starts_with("{\"error\"") {
+                s.pop();
+                s.push_str(",\"focus\":{\"unavailable\":true},\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}");
+            }
+            s
+        }
         Some("layout") => p.layout_json(id()),
         Some("tap") => {
             // A held contact (LLP 1035.003 D1) rides evdev when that carrier

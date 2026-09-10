@@ -67,7 +67,18 @@ final class ScrollView: UIScrollView {
             target = view.superview
         }
         super.touchesEnded(touches, with: event)
-        if let t = touches.first, bounds.contains(t.location(in: self)) { window?.endEditing(true) }
+        // A blur is the session's (LLP 1035.001 D5): its viewport's, never the
+        // window's — found through the nearest node above a nested scroller;
+        // the viewport itself has none above it and is its own.
+        if let t = touches.first, bounds.contains(t.location(in: self)) {
+            var viewport: UIView = self
+            var above = superview
+            while let current = above {
+                if let node = current as? NodeView, let owned = node.presenter?.viewport { viewport = owned; break }
+                above = current.superview
+            }
+            viewport.endEditing(true)
+        }
     }
 }
 
@@ -150,9 +161,20 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     var contextRecognizer: UILongPressGestureRecognizer?
     var doubleRecognizer: UITapGestureRecognizer?
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // A nested editor owns its selection gestures, including read-only
+        // text. A containing bubble's reply/Tapback recognizers must yield.
+        var hit = touch.view
+        while let current = hit, current !== self {
+            if current is UITextView || current is UITextField { return false }
+            hit = current.superview
+        }
+        return true
+    }
     func updateContextGestures() {
         if handlers.contains("contextmenu"), contextRecognizer == nil {
             let g = UILongPressGestureRecognizer(target: self, action: #selector(openContext(_:)))
+            g.delegate = self
             // Recognition and scroll arbitration remain UIKit's.
             g.delaysTouchesEnded = false
             addGestureRecognizer(g)
@@ -164,6 +186,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
         if handlers.contains("dblclick"), doubleRecognizer == nil {
             let g = UITapGestureRecognizer(target: self, action: #selector(doubleClicked(_:)))
+            g.delegate = self
             g.numberOfTapsRequired = 2
             g.delaysTouchesEnded = false
             addGestureRecognizer(g)
@@ -831,7 +854,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         updateMaterial()
         applyTextArea()
         if let f = field {
-            f.tintColor = props["emojiPicker"] == "true" ? .clear : nil
+            f.tintColor = props["emojiPicker"] == "true" ? .clear : caretColor
             if (set["emojiPicker"] != nil || clear.contains("emojiPicker")), f.isFirstResponder { f.reloadInputViews() }
             if let v = props["value"], f.text != v { f.text = v }
             applyPlaceholder(f)
@@ -913,6 +936,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         clipsToBounds = ox == "hidden" || oy == "hidden"
         styleTextArea()
         if let f = field, let t = text {
+            f.tintColor = props["emojiPicker"] == "true" ? .clear : caretColor
             f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic")
             f.textColor = color("text_color", .black)
             applyPlaceholder(f)
@@ -1078,7 +1102,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // A pressed node that did not take the focus: the field being edited
         // loses it, as a click on a button blurs a page's input.
         let inside = touches.first.map { bounds.contains(local($0.location(in: nil))) } ?? false
-        if !isFirstResponder && presenter?.contextRetainsFocus(self) != true { window?.endEditing(true) }
+        if !isFirstResponder && presenter?.contextRetainsFocus(self) != true { presenter?.viewport.endEditing(true) }
         if inside, presenter?.views[id] === self { presenter?.press(id) }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -1127,7 +1151,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // The keyboard is already up (another field had it): it will not
         // move, so this field is revealed here, as a browser scrolls a
         // newly focused field into view.
-        if let p = presenter, p.keyboardInset > 0 { if ExactEnv.agentMode { p.reveal(self) } else { UIView.animate(withDuration: 0.25) { p.reveal(self) } } }
+        if let p = presenter, p.keyboardInset > 0 { if ExactEnv.agentFreezes { p.reveal(self) } else { UIView.animate(withDuration: 0.25) { p.reveal(self) } } }
         if handlers.contains("focus") { presenter?.focus(id) }
     }
     func textFieldDidEndEditing(_ textField: UITextField) { if presenter?.editing === self { presenter?.editing = nil }; if handlers.contains("blur") { presenter?.blur(id) } }

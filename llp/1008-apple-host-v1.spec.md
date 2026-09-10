@@ -275,6 +275,17 @@ read, editor selection, synthetic key event or focus change. The application
 separately dismisses its menu and restores its prior editing state. The command
 adds no agent operation or clipboard-read API.
 
+`selectText("html-id")` (2026-09-10, Messages) focuses a mounted, enabled
+text editor after its batch, then selects its whole value using UIKit's
+`selectAll(editor)` or AppKit's `selectAll`. It shares `focus`'s visibility,
+inert and modal deferral checks; non-editor targets are refused. A read-only
+textarea permits selection without opening the keyboard, and its native
+selection handles and edit menu own range adjustment and Copy. Parent reply,
+long-press and double-tap recognizers yield to touches inside an editor.
+Read-only UIKit selection sessions emit `blur` on first-responder resignation,
+as their editing delegate otherwise omits it. No clipboard read or new agent
+operation is involved. The app decides when to remove its selection surface.
+
 `autocapitalize` and `autocorrect` (2026-09-09, Messages) configure both
 UIKit editor types. Capitalization accepts HTML's case-insensitive `none`/`off`,
 `sentences`/`on`, `words` and `characters`; absent, empty or invalid values use
@@ -771,6 +782,15 @@ a 335 keyboard, the bar's bottom 840 → 539, the bottom inset 34 → 0, all
 back on dismiss; Weird Castle's root uses it, with a yellow bar under its
 screens. Not built: `env(keyboard-inset-*)`, the `overlays-content` mode.
 
+**A contact on the simulator** (LLP 1035.003 §3 candidate 1, 2026-09-10):
+the app synthesizes no touch. The driver posts a real mouse into the
+Simulator's window (`host/apple/pointer.swift`), calibrated by hovering at
+two desktop points and reading where the viewport saw the pointer
+(`layout.pointer`, a hover recognizer the presenter installs only under the
+agent), and refuses — naming the covering app — when the Simulator's window
+is not the topmost at the point. `layout` also reports `screen` (the
+device's size and scale, and the viewport's origin on it).
+
 **The agent (LLP 1012) on iOS.** A simulator app has no stdin, so
 `EXACT_AGENT=1` with `EXACT_AGENT_SOCKET=<path>` listens on a Unix socket
 (under 104 bytes; the driver makes it in the temp dir) and speaks the same
@@ -787,7 +807,23 @@ and what was mounted: the view class, an inline run's paragraph, the
 editor and whether it is first responder, the material, the containing
 controller and the route key (`NavigationHost.routeKey`). macOS reports
 the same with AppKit's window and screen spaces flipped to y-down and
-`inert` false (AppKit has none). A stale id is refused by name. **`tap` is the one declared
+`inert` false (AppKit has none). A stale id is refused by name. `state`
+(2026-09-10, LLP 1035.002 D2, `stateSections` in `AgentIOS.swift` /
+`AgentMac.swift`, appended to the library's reply by `Agent.swift`) adds what
+UIKit knows: `focus` — the first responder's node and its editor, the
+responder's class, and a focus the sheet is still holding for its
+presentation (`ModalHost.pendingFocusTarget`); `keyboard` — visible, the
+overlap, the keyboard's top edge and the layout guide in the viewport's space,
+the resize policy, an interactive dismissal in flight; `navigation` — the
+route the root names, `UINavigationController`'s stack by key
+(`NavigationHost.observation`), the presentation and its close policy, and
+the transition's phase (`in-progress` while UIKit animates, `completed` after
+a pop that pressed Back, `cancelled` after an interactive pop returned,
+`idle` otherwise). macOS reports the first responder through a field's
+editor, `keyboard.visible` false, the stack as `NavigationRules.stack`'s
+prefix and `idle`. Every reply the host answers itself (`layout`, `tap`,
+`type`, `clock`, `screenshot`) is tagged `epoch`/`incarnation`/`clock` through
+the runner's `tags` message (D3, `Agent.tagged`). **`tap` is the one declared
 deviation from §1's contract**: UIKit offers no public touch synthesis, so
 a tap hit-tests through the window (UIKit's own, placements included) and
 delivers the press by the responder-chain rule a touch gets
@@ -964,6 +1000,28 @@ the Keychain (ibex LLP 0069): the login keychain on macOS,
 with the first Apple Development identity in the keychain (`EXACT_IDENTITY`
 names one) so the item's ACL survives a rebuild; ad-hoc otherwise, and the
 keychain asks on every rebuild, before the first frame (LLP 1018 D7).
+
+**The contract behind the projection** (LLP 1035.001 slice 1, 2026-09-10):
+the rules the navigation, modal, keyboard and focus code below applies are
+pure functions in `NavigationRules.swift`, held by
+`ExactKitTests/NavigationRulesTests.swift`: the stack is the prefix through
+the route the root's key names, and a key naming none leaves the stack alone
+and journals once; a completed transition presses the Back control exactly
+once, on a key change only (a cancelled swipe shows the key the root still
+names; a programmatic Back already moved it); the Back control is resolved
+at use, by HTML `id`, lowest view id among enabled press controls, never
+captured at a gesture's start; a pop begins only with a stack to pop, no
+transition in flight, no sheet, a Back control and no context preview, and a
+pan past the 20-point edge yields to a `swiperight` node under its start;
+`closedby="none"` refuses the sheet gesture; deferred geometry replays frames
+before contents, ids ascending; a keyboard notification is a session's only
+for its own editor or while it holds an inset it applied; the viewport
+freeze is for an initially interactive pop, never a sheet; a `focus` that
+cannot be delivered names its reason. Refusals are journal lines through
+`exact_log` (LLP 1012 §3). A blur is the session's viewport's, never the
+window's, so two sessions in one window keep their editors apart (the
+two-session smoke's step 3b). `EXACT_AGENT_TIMING=platform` keeps the
+animations natural under the agent (LLP 1035.003 D5).
 
 **Native navigation** (2026-09-09, Messages): the first root's `navigationKey`
 and `navigationBack` project its keyed direct child routes into a UIKit

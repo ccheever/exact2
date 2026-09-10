@@ -94,7 +94,7 @@ const step = (name, f) => { const t = Date.now(); const v = f(); out[`_${name}_s
 step('native', () => {
   const source = resolve(app.dir, 'web/src/bin/metrics.rs');
   if (!existsSync(source)) {
-    Object.assign(out, Object.fromEntries(['compile_ms', 'bake_ms', 'decode_ms', 'plan_bytes', 'baked_bytes', 'boot_ms', 'nodes', 'text_nodes', 'layout_ms', 'update_ms', 'tick_ms', 'web_boot_ms', 'web_first_batch_bytes', 'web_update_ms', 'web_update_batch_bytes'].map((key) => [key, NaN])));
+    Object.assign(out, Object.fromEntries(['compile_ms', 'bake_ms', 'decode_ms', 'plan_bytes', 'baked_bytes', 'boot_ms', 'nodes', 'text_nodes', 'layout_ms', 'update_ms', 'inherit_ms', 'inherit_touched', 'tick_ms', 'web_boot_ms', 'web_first_batch_bytes', 'web_update_ms', 'web_update_batch_bytes'].map((key) => [key, NaN])));
     out.native_note = `${app.name} has no web/src/bin/metrics.rs`; // the browser/dev rows below still measure the resolved app
     return;
   }
@@ -517,6 +517,7 @@ const rows = [
   ['runner boot → first frame', ms(out.boot_ms), Number.isFinite(out.nodes) ? `${out.nodes} nodes, ${out.text_nodes} text` : ''],
   ['layout 390×844 (Taffy)', ms(out.layout_ms), ''],
   ['update: screen swap (press)', ms(out.update_ms), `budget ${budget('Dev restart')}`],
+  ['update: inherited row on the root', ms(out.inherit_ms), Number.isFinite(out.inherit_touched) ? `${out.inherit_touched} nodes re-derived (text-color; LLP 1035.000 D2)` : ''],
   ['tick: advance 1 s', ms(out.tick_ms), ''],
   ['web host first batch', ms(out.web_boot_ms), `${kib(out.web_first_batch_bytes)} JSON`],
   ['web host update batch', ms(out.web_update_ms), `${kib(out.web_update_batch_bytes)} JSON`],

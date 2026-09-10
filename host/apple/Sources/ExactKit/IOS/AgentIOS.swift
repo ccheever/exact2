@@ -90,6 +90,43 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
+    /// A push, pop, presentation or dismissal UIKit is still animating —
+    /// what `clock settle` waits for under platform timing (LLP 1035.003 D5).
+    func nativeInFlight() -> Bool { presenter.navigation.inTransition || presenter.modals.inTransition }
+
+    /// What UIKit knows for `state` (LLP 1035.002 D2): which node holds the
+    /// focus and through which responder, a focus still waiting on a
+    /// presentation; the keyboard's visibility, overlap, top edge and guide
+    /// in the viewport's space, the resize policy, whether a drag is
+    /// dismissing it; the route the root names, UIKit's stack by key, the
+    /// presentation and its close policy, and the transition's phase.
+    func stateSections() -> [String: Any] {
+        let vp = presenter.viewport
+        var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull()]
+        let responding = presenter.views.values
+            .filter { $0.isFirstResponder || $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
+            .min { $0.id < $1.id }
+        if let node = responding ?? presenter.editing {
+            focus["logical"] = Int(node.id)
+            if node.field != nil || node.textArea != nil { focus["editor"] = Int(node.id) }
+            let responder: UIResponder = node.textArea ?? node.field ?? node
+            focus["responder"] = String(describing: Swift.type(of: responder))
+        }
+        if let target = presenter.modals.pendingFocusTarget {
+            focus["pending"] = ["target": target, "reason": "the sheet is still presenting"]
+        }
+        var keyboard: [String: Any] = ["visible": presenter.keyboardTop != nil, "overlap": Agent.r2(presenter.keyboardInset),
+                                       "policy": presenter.interactiveWidget ?? "resizes-visual", "interactive": presenter.interactiveKeyboardDrag]
+        if let top = presenter.keyboardTop, let w = vp.window {
+            keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: w).y - vp.contentOffset.y)
+        }
+        if let view = presenter.session?.view { keyboard["guide"] = Agent.r2(view.keyboardLayoutGuide.layoutFrame.minY) }
+        var navigation = presenter.navigation.observation()
+        navigation["presentation"] = presenter.modals.active ? "modal" : NSNull()
+        navigation["closedby"] = presenter.modals.closedby ?? NSNull()
+        return ["focus": focus, "keyboard": keyboard, "navigation": navigation]
+    }
+
     /// A view's box in the viewport: the viewport's content space less its
     /// offset — every enclosing scroll node's offset folded in — with the
     /// presentation transform applied (UIKit's conversion carries `transform`),
@@ -125,14 +162,14 @@ extension Agent {
                 n["sy"] = Agent.r2(sv.contentOffset.y)
                 // How far past its own ends it sits: a stretched bounce is a
                 // state a driver cannot read from the offset alone.
-                let past = { (value: CGFloat, limit: CGFloat) -> CGFloat in
-                    let end = max(0, limit)
-                    if value < -0.5 { return value }
+                let past = { (value: CGFloat, start: CGFloat, end: CGFloat) -> CGFloat in
+                    if value < start - 0.5 { return value - start }
                     if value > end + 0.5 { return value - end }
                     return 0
                 }
-                let ox = past(sv.contentOffset.x, sv.contentSize.width - sv.bounds.width)
-                let oy = past(sv.contentOffset.y, sv.contentSize.height - sv.bounds.height)
+                let i = sv.adjustedContentInset
+                let ox = past(sv.contentOffset.x, -i.left, max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
+                let oy = past(sv.contentOffset.y, -i.top, max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
                 if ox != 0 { n["ox"] = Agent.r2(ox) }
                 if oy != 0 { n["oy"] = Agent.r2(oy) }
             }
@@ -143,7 +180,22 @@ extension Agent {
         // `env()` names.
         let i = presenter.insets
         let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": Agent.r2(presenter.keyboardInset)]
-        return ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)], "env": env, "nodes": nodes]
+        var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)], "env": env, "nodes": nodes]
+        // The device's screen and where the viewport sits on it (LLP 1035.002
+        // D4's `screen` space): what a desktop pointer into the Simulator
+        // window needs to map a viewport point (LLP 1035.003 §3).
+        if let w = vp.window, let container = vp.superview {
+            let screen = w.screen
+            let origin = container.convert(vp.frame.origin, to: screen.coordinateSpace)
+            reply["screen"] = ["w": Agent.r2(screen.bounds.width), "h": Agent.r2(screen.bounds.height), "scale": Agent.r2(screen.scale),
+                               "x": Agent.r2(origin.x), "y": Agent.r2(origin.y)]
+        }
+        // Where the platform's pointer last hovered, in the same space as the
+        // boxes above: the driver's calibration reads it (LLP 1035.003 §3).
+        if let p = presenter.lastPointer {
+            reply["pointer"] = ["x": Agent.r2(p.x - vp.contentOffset.x), "y": Agent.r2(p.y - vp.contentOffset.y)]
+        }
+        return reply
     }
 
     /// `layout <node>` (LLP 1035.002 D1): the runner's rows and their sources
@@ -186,6 +238,13 @@ extension Agent {
             let inWindow = host.convert(host.bounds, to: w)
             space["window"] = rect(inWindow)
             space["screen"] = rect(w.convert(inWindow, to: w.screen.coordinateSpace))
+        }
+        // While the node's own layer animates, the frame on screen is the
+        // presentation layer's, reported beside the model's (LLP 1035.002
+        // D4) and never fabricated: absent when nothing is in flight.
+        if let shown = host.layer.presentation()?.frame, shown != host.layer.frame {
+            let d = CGPoint(x: shown.minX - host.layer.frame.minX, y: shown.minY - host.layer.frame.minY)
+            space["presented"] = rect(CGRect(x: b.minX + d.x, y: b.minY + d.y, width: shown.width, height: shown.height))
         }
         node["space"] = space
         // Who hides or inerts it is named: a reader must not guess which
@@ -241,6 +300,7 @@ extension Agent {
             responder = current.next
         }
         if let key = presenter.navigation.routeKey(containing: host) { native["route"] = key }
+        if let sheet = presenter.modals.coordinateView, host.isDescendant(of: sheet) { native["presentation"] = "sheet" }
         node["native"] = native
         node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]
         reply["node"] = node
@@ -326,7 +386,7 @@ extension Agent {
         }
         // Nothing took the focus: the field being edited loses it (a page
         // blurs its input on a click anywhere else), and the keyboard goes.
-        if !took && !presenter.contextRetainsFocus(n ?? v) { win.endEditing(true) }
+        if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
         if let action, presenter.views[action.id] === action { presenter.press(action.id) }
         return ["tapped": Int(v.id), "at": at]
     }
@@ -340,12 +400,16 @@ extension Agent {
         var v: UIView? = hit
         while let cur = v {
             if let sv = cur as? ScrollView {
-                let maxX = max(0, sv.contentSize.width - sv.bounds.width), maxY = max(0, sv.contentSize.height - sv.bounds.height)
+                // Native bars and keyboard avoidance can make the resting
+                // start negative. Their insets are part of the usable range.
+                let i = sv.adjustedContentInset
+                let minX = -i.left, minY = -i.top
+                let maxX = max(minX, sv.contentSize.width + i.right - sv.bounds.width), maxY = max(minY, sv.contentSize.height + i.bottom - sv.bounds.height)
                 let o = sv.contentOffset
-                let takeX = sv.scrollsX && dx != 0 && maxX > 0 && ((dx > 0 && o.x < maxX) || (dx < 0 && o.x > 0))
-                let takeY = sv.scrollsY && dy != 0 && maxY > 0 && ((dy > 0 && o.y < maxY) || (dy < 0 && o.y > 0))
+                let takeX = sv.scrollsX && dx != 0 && maxX > minX && ((dx > 0 && o.x < maxX) || (dx < 0 && o.x > minX))
+                let takeY = sv.scrollsY && dy != 0 && maxY > minY && ((dy > 0 && o.y < maxY) || (dy < 0 && o.y > minY))
                 if abs(dy) >= abs(dx) ? takeY : takeX {
-                    let target = CGPoint(x: takeX ? min(max(o.x + dx, 0), maxX) : o.x, y: takeY ? min(max(o.y + dy, 0), maxY) : o.y)
+                    let target = CGPoint(x: takeX ? min(max(o.x + dx, minX), maxX) : o.x, y: takeY ? min(max(o.y + dy, minY), maxY) : o.y)
                     sv.setContentOffset(target, animated: false)
                     return
                 }

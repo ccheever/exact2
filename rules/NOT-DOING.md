@@ -134,9 +134,18 @@ from `tree`, `state`, or `layout`. The old repo's six primitives grew eighty wir
 one reasonable "view" at a time; the count is the cost. (Charlie, 2026-08-29.)
 
 Not shipping: session record/replay, causal trace, behavior diff and verify, mutation
-dry-run, contract witness / dataflow / source-map / bindings, accessibility audit, plan
+dry-run, contract witness / dataflow / ~~source-map~~ / bindings, accessibility audit, plan
 drag, correlate, visual query, network, perf, preferences, pasteboard, onboarding,
 revalidate, code grant/resume/cancel.
+
+Admitted 2026-09-10 (Charlie, LLP 1035 §5; 1035.002 D6, 1035.005 D3): **a
+development-only map from plan node to its declaration and component call-site
+chain**, emitted by the compiler beside the plan, keyed by the plan's digest, read by
+the driver and never by a host, never in a bake. It unblocks jumping from a failing
+node to its source. The take: no new Contract syntax until formatting and navigation
+have landed (1035.005 §1's order), and `contract` blocks as executable assertions
+(LLP 1006 §8) stay off the doing-list. The witness, dataflow and any general
+provenance explorer stay refused.
 
 `clock` replaces a `wait` operation on purpose. If the motion graph is closed-form under
 a virtual clock, an agent advances time and reads the result; it never sleeps waiting for

@@ -644,6 +644,15 @@ impl<D: DataSource> Bridge<D> {
         };
         self.emit(out)
     }
+
+    /// A host line into the runner's journal (`exact_log`).
+    pub fn log(&mut self, len: usize) -> u32 {
+        let line = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        if let Some(h) = self.host.as_mut() {
+            h.log(&line);
+        }
+        0
+    }
 }
 
 impl<D: DataSource> Default for Bridge<D> {
@@ -1038,6 +1047,14 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_agent(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.agent(len), |n| n)
+        }
+
+        /// A host line for the runner's journal (LLP 1012 §3; LLP 1035.001
+        /// D6 — a refused intent is a line, never silence): the input
+        /// buffer's first `len` bytes. Returns 0.
+        #[no_mangle]
+        pub extern "C" fn exact_log(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.log(len), |_| 0)
         }
     };
 }

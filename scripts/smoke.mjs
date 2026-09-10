@@ -356,6 +356,26 @@ if (host === 'host' || host === 'host-ios') {
     const laBack = await s.layout();
     hcheck(laBack.nodes.length > 0 && laBack.viewport.w > 200, `a remounted and laid out again (${laBack.nodes.length} boxes, ${laBack.viewport.w} wide)`);
     hcheck(byTestId(await s.tree(), 'change-station') != null, 'a kept its state across unmount and remount');
+    // 3b. A blur is the session's (LLP 1035.001 D5): b edits its search
+    // field with the keyboard up; a is tapped on its own ground, which ends
+    // a's editing and nobody else's; b is still editing, its inset intact.
+    if (host === 'host-ios') {
+      s.session = 'b';
+      if (byTestId(await s.tree(), 'station-search')) {
+        await s.type('station-search', 'Pa');
+        // UIKit's keyboard notification lands asynchronously (LLP 1008 §9): poll for the inset.
+        let shown = 0;
+        for (let i = 0; i < 40 && !(shown > 0); i++) { await sleep(50); shown = (await s.layout()).env['keyboard-inset-height']; }
+        s.session = 'a';
+        await s.tap('caltrain-main');
+        s.session = 'b';
+        const kept = (await s.layout()).env['keyboard-inset-height'];
+        const sb3 = await s.state();
+        hcheck(shown > 0 && kept === shown && sb3.slots.searchFocused === true, `a's blur reached b: keyboard ${shown} → ${kept}, searchFocused ${sb3.slots.searchFocused}`);
+        await s.tap('stations-back');
+      }
+      s.session = 'a';
+    }
     // 4. A bad candidate plan is refused; both keep their running apps.
     const bad = resolve(dir, 'bad.plan');
     writeFileSync(bad, 'not an Exact plan');
@@ -563,7 +583,21 @@ try {
   check(byTestId(tree, 'station-search')?.props.value === 'Palo', `typing left the field at ${JSON.stringify(byTestId(tree, 'station-search')?.props.value)}`);
   state = await s.state();
   check(state.slots.query === 'Palo', `the query slot did not hear the change (${JSON.stringify(state.slots.query)})`);
+  // 2c. `state`'s host sections (LLP 1035.002 D2) are present on every host
+  // (Linux says `unavailable`, never nothing); where the host has a focus,
+  // the field just typed into is the editor; on iOS the keyboard comes up
+  // (its notification lands asynchronously, so poll). Every reply is
+  // tagged with the runner's epoch and incarnation (D3).
+  check(state.focus && state.keyboard && state.navigation, `state lacks a host section: ${Object.keys(state).join(', ')}`);
+  check(Number.isInteger(state.epoch) && Number.isInteger(state.incarnation), `state is untagged: epoch ${state.epoch}, incarnation ${state.incarnation}`);
+  check(Number.isInteger((await s.layout()).epoch), 'the layout reply is untagged');
   if (host !== 'linux') {
+    const field = byTestId(tree, 'station-search')?.id;
+    check(state.focus.editor === field && state.focus.logical === field, `the typed field is not the focus: ${JSON.stringify(state.focus)}`);
+    if (host === 'ios') {
+      for (let i = 0; i < 40 && !state.keyboard.visible; i++) { await sleep(50); state = await s.state(); }
+      check(state.keyboard.visible === true && state.keyboard.overlap > 0, `the keyboard is not up: ${JSON.stringify(state.keyboard)}`);
+    }
     check(state.slots.searchFocused === true, `typing did not focus the field (searchFocused ${state.slots.searchFocused})`);
     await s.type('station-search', { key: 'Enter' });
     state = await s.state();
@@ -577,6 +611,28 @@ try {
   tree = await s.tree();
   check(byTestId(tree, 'station-name')?.props.text === 'Palo Alto', `after picking Palo Alto the station is ${byTestId(tree, 'station-name')?.props.text}`);
   check(byTestId(tree, 'home-screen'), 'picking a station did not return home');
+  // 4c. A held contact on the simulator (LLP 1035.003 §3, candidate 1): a
+  // desktop pointer into the Simulator's window, mapped by the driver; a
+  // finger down on the title, dragged up while the page is read
+  // mid-gesture, held still, lifted. A machine without Accessibility for
+  // this terminal reports `unsupported` with the reason — printed, not
+  // failed and not faked — so the step stays visibly unverified there.
+  if (host === 'ios') {
+    const down = await s.tap('station-name', { down: true });
+    if (down.delivery === 'unsupported') {
+      console.log(`ios contact: unsupported — ${down.reason}`);
+    } else {
+      await s.pointer('move', { dx: 0, dy: -200, ms: 200 });
+      const held = await s.layout();
+      const page = held.nodes.find((n) => n.type === 'ScrollView' && n.sy != null);
+      check(page && page.sy > 50, `a held drag of 200 up scrolled the page by ${page?.sy} (delivery ${down.delivery}, desktop ${JSON.stringify(down.desktop)})`);
+      await s.pointer('hold', { ms: 300 });
+      const up = await s.pointer('up');
+      check(up.delivery === 'platform' && !s.contact, 'the simulator contact was not released');
+      const after = (await s.layout()).nodes.find((n) => n.type === 'ScrollView' && n.sy != null);
+      if (after?.sy) await s.tap('station-name', { wheel: [0, -after.sy] });
+    }
+  }
   // 4b. A held contact (LLP 1035.003 D1) on the AppKit carrier: the button
   // goes down on Change station, leaves it, and comes up — a press AppKit
   // cancels, so nothing navigates; down and up in place navigates. AppKit

@@ -21,6 +21,41 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
+    /// AppKit animates nothing here that a seek does not move.
+    func nativeInFlight() -> Bool { false }
+
+    /// What AppKit knows for `state` (LLP 1035.002 D2): the node holding
+    /// the focus (a field through its field editor), no software keyboard,
+    /// and the routes as the props declare them — macOS projects nothing
+    /// natively, so the stack is the rule's prefix and the phase is idle.
+    func stateSections() -> [String: Any] {
+        var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull()]
+        let responder = presenter.viewport.window?.firstResponder
+        if let node = presenter.views.values.filter({ n in
+            responder === n || responder === n.textArea || (n.field.flatMap { f in f.currentEditor().map { responder === $0 } } ?? false)
+        }).min(by: { $0.id < $1.id }) {
+            focus["logical"] = Int(node.id)
+            if node.field != nil || node.textArea != nil { focus["editor"] = Int(node.id) }
+            focus["responder"] = responder.map { String(describing: Swift.type(of: $0)) } ?? NSNull()
+        }
+        let keyboard: [String: Any] = ["visible": false, "overlap": 0, "policy": "resizes-visual", "interactive": false]
+        var navigation: [String: Any] = ["route": NSNull(), "stack": [] as [String], "presentation": NSNull(), "closedby": NSNull(),
+                                         "transition": ["interactive": false, "phase": "idle"]]
+        if let container = presenter.views.values.filter({ $0.props["navigationBack"] != nil }).min(by: { $0.id < $1.id }) {
+            let key = container.props["navigationKey"] ?? ""
+            let routes = presenter.views.values.filter { $0 !== container && $0.props["navigationKey"] != nil }.sorted { $0.id < $1.id }
+            let keys = routes.map { $0.props["navigationKey"] ?? "" }
+            navigation["route"] = key
+            if let range = NavigationRules.stack(routeKeys: keys, selected: key) {
+                navigation["stack"] = Array(keys[range])
+                let selected = routes[range.upperBound - 1]
+                navigation["presentation"] = selected.props["navigationPresentation"] == "modal" ? "modal" : NSNull()
+                navigation["closedby"] = selected.props["closedby"] ?? NSNull()
+            }
+        }
+        return ["focus": focus, "keyboard": keyboard, "navigation": navigation]
+    }
+
     /// A view's box in the viewport: the clip view's space, less its scroll
     /// origin — every enclosing scroll node's offset folded in — with the
     /// presentation transform (translate/scale/rotate on the layer) applied,

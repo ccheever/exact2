@@ -47,7 +47,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { connect, createServer as createTCPServer } from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -512,13 +512,129 @@ async function openIOS({ plan, app, env: extra = {}, session, bundle = appBundle
     // The sample host routes by label, as the macOS one does over stdio.
     const state = { session: session ?? null };
     const ask = (req) => lines.ask(state.session ? { ...req, session: state.session } : req);
+    // A held contact on a simulator (LLP 1035.003 §3, candidate 1 — decided
+    // 2026-09-10): UIKit synthesizes no touch, so the contact is a real
+    // mouse on the Mac's desktop, posted into the Simulator's window by
+    // `host/apple/pointer.swift` (built here with swiftc on first use). The
+    // window-to-device mapping lives in this one place: the app reports its
+    // screen and where its viewport sits on it (`layout.screen`), the helper
+    // reports the Simulator window's frame, and a viewport point maps
+    // through both. The app receives whatever UIKit delivers from that
+    // input; nothing is activated in its place. What this needs from the
+    // machine — Accessibility for this terminal, the Simulator window on
+    // screen and unobscured — is reported as `unsupported` with the reason
+    // when it is missing, never faked.
+    let pointer = null;
+    let contact = null;
+    let contactDesktop = null;
+    // The mapping from a viewport point to the desktop, found by observation
+    // — a Simulator window carries a bezel and a scale of its own that no
+    // frame arithmetic knows: the Mac's pointer is hovered at two desktop
+    // points inside the window and the app reports where its viewport saw
+    // each (`layout.pointer`); the uniform scale and offset follow. Redone
+    // whenever the window's frame changes.
+    let mapping = null;
+    const calibrate = async (p) => {
+      const w = await p.ask({ op: 'window', title: dev.name });
+      if (w.error) return { error: w.error };
+      const key = `${w.x},${w.y},${w.w},${w.h}`;
+      if (mapping?.key === key) return mapping;
+      const probe = async (x, y) => {
+        const r = await p.ask({ op: 'hover', x, y });
+        if (r.error) return { error: r.error };
+        await sleep(120);
+        const l = await ask({ op: 'layout' });
+        return l.pointer ?? null;
+      };
+      const a = { x: w.x + w.w * 0.5, y: w.y + w.h * 0.45 };
+      const b = { x: a.x + w.w * 0.15, y: a.y + w.h * 0.2 };
+      const pa = await probe(a.x, a.y);
+      if (pa?.error) return pa;
+      const pb = await probe(b.x, b.y);
+      if (pb?.error) return pb;
+      if (!pa || !pb || pa.x === pb.x || pa.y === pb.y) return { error: 'the app saw no pointer hover; is the Simulator window on screen and unobscured?' };
+      const sx = (b.x - a.x) / (pb.x - pa.x), sy = (b.y - a.y) / (pb.y - pa.y);
+      if (!(sx > 0 && sy > 0) || Math.abs(sx - sy) / sx > 0.1) return { error: `calibration disagrees between axes (${sx.toFixed(3)} vs ${sy.toFixed(3)})` };
+      const scale = (sx + sy) / 2;
+      mapping = { key, scale, ox: a.x - pa.x * scale, oy: a.y - pa.y * scale, window: w };
+      return mapping;
+    };
+    const helper = async () => {
+      if (pointer) return pointer;
+      const src = resolve(ROOT, 'host/apple/pointer.swift');
+      const bin = resolve(ROOT, 'host/apple/.build/pointer');
+      if (!existsSync(bin) || statSync(bin).mtimeMs < statSync(src).mtimeMs) {
+        mkdirSync(resolve(ROOT, 'host/apple/.build'), { recursive: true });
+        const built = spawnSync('swiftc', ['-O', '-o', bin, src], { encoding: 'utf8' });
+        if (built.status !== 0) throw new Error('the desktop pointer did not build: ' + (built.stderr || built.error));
+      }
+      const child = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+      child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('pointer: ' + l); });
+      const io = jsonLines(child.stdout, child.stdin, hostLines);
+      pointer = { ask: (req) => io.ask(req), child };
+      return pointer;
+    };
+    const phaseSim = async (kind, id, opts) => {
+      const p = await helper();
+      const unsupported = (reason) => ({ phase: kind, delivery: 'unsupported', reason });
+      if (kind === 'down') {
+        if (contact) throw new Error('a contact is already down; up it first');
+        const trusted = await p.ask({ op: 'trusted' });
+        if (!trusted.trusted) return unsupported('the desktop pointer needs Accessibility permission for this terminal (System Settings › Privacy & Security › Accessibility)');
+        await p.ask({ op: 'activate' });
+        await sleep(200);
+      } else if (!contact) throw new Error('no contact is down');
+      if (kind === 'hold') { if (opts.ms) await sleep(opts.ms); return { phase: 'hold', at: [contact.x, contact.y], delivery: 'platform' }; }
+      if (kind === 'cancel') return { phase: 'cancel', at: [contact.x, contact.y], delivery: 'unsupported', reason: 'a desktop pointer has no cancel; the contact is still down — send up' };
+      const m = await calibrate(p);
+      if (m.error) return unsupported(m.error);
+      const map = (x, y) => ({ x: m.ox + x * m.scale, y: m.oy + y * m.scale });
+      if (kind === 'down') {
+        const l = await ask({ op: 'layout' });
+        const b = l.nodes.find((n) => n.id === id);
+        if (!b || (b.w === 0 && b.h === 0)) throw new Error(`view ${id} has no box on screen`);
+        const x = opts.x ?? b.x + b.w / 2, y = opts.y ?? b.y + b.h / 2;
+        contactDesktop = map(x, y);
+        await p.ask({ op: 'down', ...contactDesktop });
+        contact = { x, y };
+        return { contact: id, phase: 'down', at: [x, y], delivery: 'platform', desktop: [contactDesktop.x, contactDesktop.y] };
+      }
+      if (kind === 'move') {
+        const to = { x: opts.x ?? contact.x + (opts.dx ?? 0), y: opts.y ?? contact.y + (opts.dy ?? 0) };
+        const ms = Math.max(0, opts.ms ?? 0);
+        const steps = Math.max(1, Math.round(ms / 16));
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps;
+          contactDesktop = map(contact.x + (to.x - contact.x) * t, contact.y + (to.y - contact.y) * t);
+          await p.ask({ op: 'move', ...contactDesktop });
+          if (ms) await sleep(ms / steps);
+        }
+        contact = to;
+        return { phase: 'move', at: [to.x, to.y], delivery: 'platform' };
+      }
+      contactDesktop = map(contact.x, contact.y);
+      await p.ask({ op: 'up', ...contactDesktop });
+      const at = [contact.x, contact.y];
+      contact = null;
+      contactDesktop = null;
+      return { phase: 'up', at, delivery: 'platform' };
+    };
+    const closeWithPointer = async () => {
+      if (pointer) {
+        // Never leave the operator's mouse button down.
+        if (contact && contactDesktop) { try { await Promise.race([pointer.ask({ op: 'up', ...contactDesktop }), sleep(1000)]); } catch {} }
+        try { pointer.child.stdin.end(); pointer.child.kill('SIGTERM'); } catch {}
+      }
+      await close();
+    };
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
+      pointer: true,
       ask,
       async input(id, kind, opts) {
         const guest = { selector: opts.selector, x: opts.x, y: opts.y };
-        const phase = ['down', 'move', 'hold', 'up', 'cancel'].includes(kind);
-        const r = phase ? await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms }) : kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
+        if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) return phaseSim(kind, id, opts);
+        const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -527,7 +643,7 @@ async function openIOS({ plan, app, env: extra = {}, session, bundle = appBundle
         if (r.error) throw new Error(r.error);
         return r;
       },
-      close,
+      close: closeWithPointer,
     };
   } catch (e) {
     await close();
@@ -540,8 +656,16 @@ async function openIOS({ plan, app, env: extra = {}, session, bundle = appBundle
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({ host, plan, size, env, app, session, url, webDist, device = false, phone: pick } = {}) {
+export async function open({ host, plan, size, env, app, session, url, webDist, device = false, phone: pick, timing = 'agent' } = {}) {
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
+  // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and
+  // the driver still owns the runner's clock, but UIKit's own transitions,
+  // sheet presentations and keyboard animations run at their natural
+  // timing — the ordinary app with a socket, for observing an interactive
+  // gesture's native motion. The frozen clock is the default the smoke
+  // depends on. Replies say `mode: "platform"`.
+  if (!['agent', 'platform'].includes(timing)) throw new Error(`timing: agent or platform, not ${timing}`);
+  if (timing === 'platform') env = { ...(env ?? {}), EXACT_AGENT_TIMING: 'platform' };
   if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'host', 'host-ios'].includes(host)) {
     if (plan) throw new Error('a native session takes either --url or --plan, not both');
     env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
@@ -600,8 +724,8 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
      * hit-test and a direct call), or `unsupported`. iOS activates and
      * injects; it synthesizes no touch (LLP 1008 §9).
      */
-    input: host === 'ios'
-      ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : 'activation') }
+    input: host === 'ios' || host === 'host-ios'
+      ? { contact: carrier.pointer === true, hold: carrier.pointer === true, delivery: (kind) => (['contextmenu', 'dblclick', 'hover'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? (carrier.pointer ? 'platform' : 'unsupported') : 'activation') }
       : host === 'linux'
         ? { contact: false, hold: false, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },
@@ -623,7 +747,7 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       if (kind === 'down' && opts.at) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = { x: b.x + opts.at[0], y: b.y + opts.at[1] }; }
       const r = await carrier.input(node.id, kind, { ...opts, ...at });
       if (kind === 'down' && r.delivery !== 'unsupported') s.contact = { x: r.at[0], y: r.at[1] };
-      return { ...r, tapped: node.id, target, delivery: r.delivery ?? s.input.delivery(kind), carrier: host, mode: 'agent' };
+      return s.tagged({ ...r, tapped: node.id, target, delivery: r.delivery ?? s.input.delivery(kind), carrier: host, mode: timing });
     },
     /**
      * The held contact's next phase (LLP 1035.003 D1): `move` to `{x, y}` in
@@ -641,7 +765,7 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
         if (phase === 'move') s.contact = { x: r.at[0], y: r.at[1] };
         if (phase === 'up' || phase === 'cancel') s.contact = null;
       }
-      return { ...r, phase, delivery: r.delivery ?? s.input.delivery(phase), carrier: host, mode: 'agent' };
+      return s.tagged({ ...r, phase, delivery: r.delivery ?? s.input.delivery(phase), carrier: host, mode: timing });
     },
     /** Set an input's text through the host's text input path; an iframe accepts `{text, selector}` or `{key, selector}` for its guest. */
     async type(target, text) {
@@ -649,7 +773,7 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       const options = typeof text === 'object' && text !== null ? text : { text };
       const key = options.key;
       const r = key != null ? await carrier.input(node.id, 'key', { ...options, key: String(key) }) : await carrier.input(node.id, 'type', { ...options, text: String(options.text ?? '') });
-      return { ...r, typed: node.id, target, delivery: r.delivery ?? s.input.delivery(key != null ? 'key' : 'type'), carrier: host, mode: 'agent' };
+      return s.tagged({ ...r, typed: node.id, target, delivery: r.delivery ?? s.input.delivery(key != null ? 'key' : 'type'), carrier: host, mode: timing });
     },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle') {
@@ -663,7 +787,20 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       return r;
     },
     /** The pixels, as a PNG at `path`. On macOS `window: true` asks the window server (Metal layers included). */
-    screenshot: (path, window = false) => carrier.screenshot(resolve(path), window),
+    screenshot: async (path, window = false) => s.tagged(await carrier.screenshot(resolve(path), window)),
+    /**
+     * Every reply carries the runner's `epoch`, `incarnation` and `clock`
+     * (LLP 1035.002 D3). A host that answered the operation itself stamps
+     * them; the web carrier's input and capture are the driver's own (CDP),
+     * so the driver reads the tags after the operation and adds what the
+     * reply lacks. An error is left alone.
+     */
+    async tagged(r) {
+      if (r == null || r.error != null || r.epoch != null) return r;
+      const tags = await s.op({ op: 'tags' });
+      for (const key of Object.keys(tags)) if (r[key] === undefined) r[key] = tags[key];
+      return r;
+    },
     close: carrier.close,
   };
   return s;
@@ -836,6 +973,7 @@ async function main(argv) {
     else if (argv[i] === '--session') flags.session = argv[++i];
     else if (argv[i] === '--url') flags.url = argv[++i];
     else if (argv[i] === '--device') flags.device = true;
+    else if (argv[i] === '--timing') flags.timing = argv[++i];
     else if (argv[i] === '--phone') flags.phone = argv[++i];
     else rest.push(argv[i]);
   }
@@ -853,7 +991,7 @@ async function main(argv) {
     console.error('usage: node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone });
+  const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });
   try {
     for (const line of ops) {
       const [op, ...args] = line.trim().split(/\s+/);

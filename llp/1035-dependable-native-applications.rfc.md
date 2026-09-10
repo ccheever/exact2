@@ -268,23 +268,33 @@ If implementing a child turns out to need a genuinely excluded capability
 beyond these amendments, acceptance must name the precise amendment and its
 take. Draft status is not an exception to the rules.
 
-## 6. Decisions still needed (Charlie's)
+## 6. Decisions — decided (Charlie, 2026-09-10: "do all your recs")
 
-1. Confirm the priorities and the first-slice selection in §Summary's table,
-   or reorder.
-2. The native input backend after 1035.003's feasibility proof (D4 there):
-   desktop-pointer injection into the Simulator window, an XCTest runner, or
-   both; a physical iPhone stays "unsupported, reported" until a backend
-   exists for it.
-3. Accept or narrow the source-map amendment (§5, row 2) — and name the take
-   if the proposed one is wrong.
-4. The symbol access shape after the six-role prototype (1035.004 D1): roles
-   only, platform names with a declared fallback, or both.
-5. The minimal editor state guaranteed across a retained route (1035.001
-   D7): selection and composition on a retained view, nothing on a destroyed
-   one, is the recommendation.
-6. Whether the continuation-line grammar 1035.005 D1 needs is admitted, or
-   the formatter must live inside the grammar as it is.
+1. The priorities and first slices in §Summary's table stand.
+2. **The native input backend:** prove desktop-pointer injection into the
+   Simulator window first, with the window-to-device mapping in one place in
+   the driver; an XCTest bundle only if the pointer cannot hold a contact or
+   cannot run headless on the fleet; a physical iPhone stays "unsupported,
+   reported" until an XCTest bundle exists. The ordinary-app launch under the
+   socket is opt-in, `EXACT_AGENT_TIMING=platform` (1035.003 D5), never the
+   default. The helper this needs is approved as apparatus.
+3. **The source-map amendment:** accepted as written in `rules/NOT-DOING.md`
+   §Agent API — the development-only map, the driver its only reader; the
+   take is no new Contract syntax before formatting and navigation land, and
+   `contract` blocks as executable assertions stay off.
+4. **Symbol access:** roles only (`image "symbol:<role>"`); the web fallback
+   is host glue, not an app asset; a platform name is never admitted without
+   a role row; `search` is the seventh role.
+5. **The editor-state guarantee** (1035.001 D7): a retained view keeps text,
+   selection and composition; a destroyed one keeps nothing the app did not
+   save; reveal never moves a sibling scroll container; focus restoration
+   stays the app's `focus` command. Title intent reaches UIKit through a
+   header-shaped route after a prototype (D9); the back swipe over a
+   horizontal scroller is UIKit's answer (D1).
+6. **The continuation-line grammar** (1035.005 D1): admitted — continuation
+   lines indented deeper than the element and beginning with `name=`. The
+   action-prop arity check is a refusal (D2). The `path` asset waits for a
+   third app (D5).
 
 ## 7. Review notes on r1 (r2, 2026-09-09)
 

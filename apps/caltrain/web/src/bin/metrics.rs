@@ -100,6 +100,37 @@ fn main() {
         samples.push(ms);
     }
     let update_ms = p50(samples);
+    // An inherited row changed on the root (LLP 1035.000 D2): the kernel
+    // re-derives the computed value down the tree, stopping under any node
+    // that sets its own — the invalidation's whole cost, and how far it
+    // reached, alternating two inks so every change is a change.
+    let (inherit_ms, inherit_touched) = {
+        use exact_kernel::{Color, ColorValue, Op, StyleId, StyleMask, StyleProps};
+        let root = runner.roots()[0];
+        let mut samples = Vec::new();
+        let mut touched = 0;
+        for i in 0..20 {
+            let mut mask = StyleMask::default();
+            mask.set(StyleId::TextColor);
+            let patch = StyleProps {
+                text_color: ColorValue::Fixed(Color(if i % 2 == 0 {
+                    0x112233ff
+                } else {
+                    0x445566ff
+                })),
+                mask,
+                ..StyleProps::default()
+            };
+            let op = Op::SetStyle {
+                id: root,
+                patch: Box::new(patch),
+            };
+            let (receipt, ms) = time(|| runner.kernel_mut().apply(0, 0, &[op]).unwrap());
+            touched = receipt.touched.len();
+            samples.push(ms);
+        }
+        (p50(samples), touched)
+    };
     let mut now = runner.now_ms();
     let (_, tick_ms) = repeat(20, || {
         now += 1000.0;
@@ -127,7 +158,7 @@ fn main() {
     let (batch, web_update_ms) = time(|| host.dispatch(change, Event::Press));
 
     println!(
-        "{{\"compile_ms\":{compile_ms:.3},\"bake_ms\":{bake_ms:.3},\"decode_ms\":{decode_ms:.3},\"plan_bytes\":{plan_bytes},\"baked_bytes\":{baked_bytes},\"boot_ms\":{boot_ms:.3},\"nodes\":{nodes},\"text_nodes\":{text_nodes},\"layout_ms\":{layout_ms:.3},\"update_ms\":{update_ms:.3},\"tick_ms\":{tick_ms:.3},\"web_boot_ms\":{web_boot_ms:.3},\"web_first_batch_bytes\":{},\"web_update_ms\":{web_update_ms:.3},\"web_update_batch_bytes\":{}}}",
+        "{{\"compile_ms\":{compile_ms:.3},\"bake_ms\":{bake_ms:.3},\"decode_ms\":{decode_ms:.3},\"plan_bytes\":{plan_bytes},\"baked_bytes\":{baked_bytes},\"boot_ms\":{boot_ms:.3},\"nodes\":{nodes},\"text_nodes\":{text_nodes},\"layout_ms\":{layout_ms:.3},\"update_ms\":{update_ms:.3},\"inherit_ms\":{inherit_ms:.3},\"inherit_touched\":{inherit_touched},\"tick_ms\":{tick_ms:.3},\"web_boot_ms\":{web_boot_ms:.3},\"web_first_batch_bytes\":{},\"web_update_ms\":{web_update_ms:.3},\"web_update_batch_bytes\":{}}}",
         first_batch.len(),
         batch.len()
     );

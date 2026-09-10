@@ -53,9 +53,17 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     private var deferredGeometry: [UInt32: (node: NodeView, ops: [String: [String: Any]])] = [:]
     private var closing = false
     private var presenting = false
-    private var pendingFocus: [Any]?
+    private var pendingFocus: (args: [Any], selectText: Bool)?
     private var deliveringFocus = false
+    /// The route last journaled as refused, so a refusal is one line.
+    private var refusedRoute: UInt32?
     var active: Bool { controller != nil || closing }
+    /// A presentation or dismissal UIKit is animating (LLP 1035.003 D5).
+    var inTransition: Bool { presenting || closing }
+    /// The focus still waiting for the sheet to finish presenting, by id,
+    /// and the modal route's close policy — for `state` (LLP 1035.002 D2).
+    var pendingFocusTarget: String? { pendingFocus?.args.first as? String }
+    var closedby: String? { controller.flatMap { presenter.views[$0.routeID]?.props["closedby"] } }
     var coordinateView: UIView? { controller?.viewIfLoaded }
 
     init(presenter: Presenter) { self.presenter = presenter }
@@ -106,12 +114,11 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         let geometry = deferredGeometry
         deferredGeometry = [:]
         // Catch the views up to the kernel's latest geometry before the normal
-        // viewport resize. Apply frames before content sizes, as a batch does.
-        for kind in ["frame", "content"] {
-            for id in geometry.keys.sorted() {
-                if let saved = geometry[id], presenter.views[id] === saved.node,
-                   let op = saved.ops[kind] { presenter.applyGeometry(op) }
-            }
+        // viewport resize: frames before content sizes, ids ascending, as a
+        // batch applies them (LLP 1035.001 D4, `NavigationRules.replayOrder`).
+        for (id, kind) in NavigationRules.replayOrder(deferred: geometry.mapValues { Set($0.ops.keys) }) {
+            if let saved = geometry[id], presenter.views[id] === saved.node,
+               let op = saved.ops[kind] { presenter.applyGeometry(op) }
         }
         for saved in geometry.values where presenter.views[saved.node.id] === saved.node {
             saved.node.restoreScrollPosition()
@@ -122,16 +129,24 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func sync(_ route: NodeView?) {
         guard !closing else { return }
         guard let route else {
-            if controller != nil { finish(animated: !ExactEnv.agentMode) }
+            if controller != nil { finish(animated: !ExactEnv.agentFreezes) }
             return
         }
         if let controller {
-            controller.isModalInPresentation = route.props["closedby"] == "none"
+            controller.isModalInPresentation = NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"])
             return
         }
         guard let exactView = presenter.session?.view,
-              let parent = presenter.navigation.owner,
-              parent.presentedViewController == nil else { return }
+              let parent = presenter.navigation.owner else { return }
+        guard parent.presentedViewController == nil else {
+            // D6: a refused intent is a journal line, not silence.
+            if refusedRoute != route.id {
+                refusedRoute = route.id
+                presenter.session?.log("modal route #\(route.id) refused: the owning controller already presents")
+            }
+            return
+        }
+        refusedRoute = nil
         home = presenter.viewport.superview
         owner = parent
         if let background {
@@ -144,12 +159,12 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         }
         let sheet = ModalController(host: self, routeID: route.id)
         controller = sheet
-        sheet.isModalInPresentation = route.props["closedby"] == "none"
+        sheet.isModalInPresentation = NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"])
         sheet.loadViewIfNeeded()
         presenter.navigation.move(to: sheet) { sheet.view.addSubview(presenter.viewport) }
         sheet.presentationController?.delegate = self
         presenting = true
-        parent.present(sheet, animated: !ExactEnv.agentMode) { [weak self] in
+        parent.present(sheet, animated: !ExactEnv.agentFreezes) { [weak self] in
             self?.presenting = false
             self?.fit()
         }
@@ -162,20 +177,20 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         flushFocus()
     }
 
-    func deferFocus(_ args: [Any]) -> Bool {
+    func deferFocus(_ args: [Any], selectText: Bool = false) -> Bool {
         guard presenting, !deliveringFocus else { return false }
-        pendingFocus = args
+        pendingFocus = (args, selectText)
         flushFocus()
         return true
     }
 
     private func flushFocus() {
-        guard let args = pendingFocus, let name = args.first as? String,
+        guard let pending = pendingFocus, let name = pending.args.first as? String,
               let node = presenter.views.values.first(where: { $0.props["id"] == name }),
               node.window != nil, node.bounds.width > 0, node.bounds.height > 0 else { return }
         pendingFocus = nil
         deliveringFocus = true
-        presenter.focusElement(args)
+        presenter.focusElement(pending.args, selectText: pending.selectText)
         deliveringFocus = false
     }
 

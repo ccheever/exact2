@@ -473,6 +473,7 @@ impl<D: DataSource> Presenter<D> {
                         matches!(c.args.first(), Some(exact_plan::Value::Str(s)) if &**s == "dark");
                 }
                 "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
+                "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
                 other => eprintln!("exact: unknown command {other}"),
             }
         }

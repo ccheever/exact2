@@ -20,6 +20,15 @@ import QuartzCore
 public enum ExactEnv {
     public static let environment = ProcessInfo.processInfo.environment
     public static let agentMode = environment["EXACT_AGENT"] == "1"
+    /// `EXACT_AGENT_TIMING=platform` (LLP 1035.003 D5, opt-in): under the
+    /// agent carrier, UIKit's own transitions, presentations and keyboard
+    /// animations keep their natural timing — the ordinary app with a
+    /// socket, for observing a gesture's native motion. The default freezes
+    /// them, which the smoke depends on.
+    public static let agentTiming = environment["EXACT_AGENT_TIMING"] ?? "agent"
+    /// Whether the agent's world is settled between calls: native animation
+    /// applies at once. False under `platform` timing.
+    public static let agentFreezes = agentMode && agentTiming != "platform"
     public static let smoke = environment["EXACT_SMOKE"] == "1"
     /// Baked host metadata: a bundle normally; the existing product sidecar in bare development builds.
     nonisolated(unsafe) public static let appMetadata: [String: Any] = {
@@ -556,8 +565,8 @@ public final class ExactSession {
                     #endif
                     continue
                 }
-                if name == "focus" {
-                    app.deliver { [weak self] in self?.presenter.focusElement(args) }
+                if name == "focus" || name == "selectText" {
+                    app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
                     continue
                 }
                 if app.handleCommand(name) { continue }
@@ -593,6 +602,9 @@ public final class ExactSession {
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
     /// The agent API's runner half (LLP 1012): `tree`, `state`, `logs`, `settle`.
     public func agent(_ request: String) -> String { runtime.agent(request) }
+    /// A line for the runner's journal (LLP 1012 §3; LLP 1035.001 D6): a
+    /// refused intent and its reason, read back through `logs`.
+    public func log(_ line: String) { runtime.log(line) }
     /// Deliver an embedder's value through a declared change handler. The
     /// selector must name exactly one live node; file contents stay data.
     @discardableResult public func change(testId: String, value: String) -> Bool {

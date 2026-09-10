@@ -422,6 +422,7 @@ function attach(el, id, handlers) {
       let drag = null, suppressClick = false;
       on("pointerdown", (e) => {
         if (!e.isPrimary || e.button !== 0 || el.matches(":disabled") || el.closest("[inert]")) return;
+        if (e.target.closest("input,textarea,[contenteditable]")) return;
         // The CSS touch-action decides which touch directions the browser
         // keeps for scrolling. A scrolling pointer cancels this observation.
         e.preventDefault(); e.stopPropagation();
@@ -477,6 +478,7 @@ function attach(el, id, handlers) {
     } else if (kind === "contextmenu" || kind === "dblclick") {
       on(kind, (e) => {
         if (el.matches(":disabled") || el.closest("[inert]")) return;
+        if (e.target.closest("input,textarea,[contenteditable]")) return;
         e.preventDefault(); e.stopPropagation();
         send(wasm.exact_dispatch(id, kind === "contextmenu" ? 10 : 11, 0, now()));
       });
@@ -687,7 +689,7 @@ function apply(batch) {
         // user's preference decides, which is what "follow the system" is on
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; }
-        else if (op.name === "focus") focusCommands.push(op.args);
+        else if (op.name === "focus" || op.name === "selectText") focusCommands.push({ args: op.args, selectText: op.name === "selectText" });
         else if (op.name === "copyText") {
           if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
             console.error("exact: copyText requires one string");
@@ -754,12 +756,18 @@ function apply(batch) {
   pendingScrolls.clear();
   // Focusing can dispatch an action; every node/value in this batch must be
   // committed before its focus handler runs.
-  for (const args of focusCommands) {
+  for (const { args, selectText } of focusCommands) {
     if (args?.length !== 1 || typeof args[0] !== "string" || !inputReady) continue;
     const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
-    if (!el || !el.isConnected || el.matches(":disabled") || el.closest("[inert]")
-        || !el.getClientRects().length || getComputedStyle(el).visibility !== "visible") continue;
+    // A focus that cannot be delivered is a journal line with its reason,
+    // never silence (LLP 1035.001 D6); the reasons are the iOS host's.
+    const reason = !el ? "no live node with that id" : !el.isConnected ? "not mounted" : el.matches(":disabled") ? "disabled"
+      : el.closest("[inert]") ? "inert ancestor" : !el.getClientRects().length ? "zero size"
+      : getComputedStyle(el).visibility !== "visible" ? "hidden ancestor" : null;
+    if (reason) { log(`focus "${args[0]}" refused: ${reason}`); continue; }
+    if (selectText && typeof el.select !== "function") { log(`selectText "${args[0]}" refused: not a text editor`); continue; }
     el.focus();
+    if (selectText && document.activeElement === el) el.select();
   }
   positionContexts();
   return batch.timers;
@@ -875,6 +883,11 @@ function deferFulfill(...args) {
 function ask(request) {
   const n = writeIn(JSON.stringify(request));
   return JSON.parse(readOut(wasm.exact_agent(n)));
+}
+
+// A line for the runner's journal (LLP 1012 §3): what the page refused, and why.
+function log(line) {
+  if (wasm) wasm.exact_log(writeIn(line));
 }
 
 // `layout <node>` (LLP 1035.002 D1): the runner's rows and their sources
@@ -1078,6 +1091,34 @@ function agent(request) {
   try {
     if (!wasm) return { error: "not booted" };
     switch (request.op) {
+      case "state": {
+        // The runner's state, then what the page observes (LLP 1035.002
+        // D2): the focused element, the software keyboard as the visual
+        // viewport reports it, and the routes as the DOM declares them.
+        const st = ask(request);
+        if (st.error) return st;
+        const r2 = (x) => Math.round(x * 100) / 100;
+        const idOf = (e) => { for (const [i, v] of views) if (v === e) return i; return null; };
+        const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+        const editor = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? idOf(active) : null;
+        st.focus = { logical: active ? idOf(active) : null, editor, responder: active ? active.localName : null, pending: null };
+        const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));
+        const policy = document.querySelector("[interactiveWidget]")?.getAttribute("interactiveWidget") ?? "resizes-visual";
+        st.keyboard = { visible: overlap > 0, overlap: r2(overlap), policy, interactive: false };
+        const nav = document.querySelector("[navigationBack]");
+        const routes = nav ? [...nav.children].filter((r) => r.hasAttribute("navigationKey")) : [];
+        const key = nav?.getAttribute("navigationKey") ?? null;
+        const index = routes.findIndex((r) => r.getAttribute("navigationKey") === key);
+        const selected = index >= 0 ? routes[index] : null;
+        st.navigation = {
+          route: key,
+          stack: index >= 0 ? routes.slice(0, index + 1).map((r) => r.getAttribute("navigationKey")) : [],
+          presentation: selected?.getAttribute("navigationPresentation") === "modal" ? "modal" : null,
+          closedby: selected?.getAttribute("closedby") ?? null,
+          transition: { interactive: false, phase: "idle" },
+        };
+        return st;
+      }
       case "layout": {
         // Every view in the document (attached, whether or not it lies in
         // the viewport), by id, in the viewport's space with every scroll
@@ -1101,7 +1142,7 @@ function agent(request) {
           if (detail.error) return detail;
           reply.node = detail;
         }
-        return reply;
+        return tagged(reply);
       }
       case "focus": {
         const el = views.get(request.id);
@@ -1120,15 +1161,29 @@ function agent(request) {
         return frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false };
       }
       case "clock":
-        return clock(request);
+        return tagged(clock(request));
       case "tree":
         return tree();
+      case "tags":
+        return ask(request);
       default:
         return ask(request);
     }
   } catch (e) {
     return { error: String(e) };
   }
+}
+
+// Every reply carries the runner's `epoch`, `incarnation` and `clock` (LLP
+// 1035.002 D3), read after the operation; a reply's own `clock` (where a
+// `clock` call landed) is kept, and an error is left alone. The driver
+// tags the input replies it delivers through CDP the same way.
+function tagged(reply) {
+  if (!reply || reply.error != null) return reply;
+  const tags = ask({ op: "tags" });
+  if (tags.error != null) return reply;
+  for (const key of Object.keys(tags)) if (reply[key] === undefined) reply[key] = tags[key];
+  return reply;
 }
 
 // To `to`, or to `settle`: a fixed point — advance to when the last thing

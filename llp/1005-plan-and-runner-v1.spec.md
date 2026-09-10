@@ -196,6 +196,9 @@ no presenter knows is refused on its stderr. `copyText(text)` writes one string
 to the host clipboard after commit (Apple: LLP 1008 §5; web: LLP 1007 §4).
 It has no return value and neither reads clipboard contents nor changes focus.
 Invalid arguments and unsupported/denied writes are reported by the host.
+`selectText(html-id)` focuses and selects an editor after commit using the
+host’s native selection API; it accepts one string (LLP 1007 §4, 1008 §5).
+Linux reports this unsupported; it does not emulate a text selection surface.
 Keyed rows use one key rule:
 strings, finite numbers (`-0` is `0`), bools; NaN is refused (`KeyKind`).
 

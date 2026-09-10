@@ -475,16 +475,22 @@ fn agent_requests_answer_on_the_wire() {
         &mut p,
         &format!("{{\"op\":\"type\",\"id\":{field},\"text\":\"Sunny\"}}"),
     );
-    assert_eq!(ty, format!("{{\"typed\":{field},\"value\":\"Sunny\"}}"));
-    assert_eq!(
-        handle(&mut p, "{\"op\":\"clock\",\"to\":1000}"),
-        "{\"clock\":1000}"
+    // Every host reply is tagged with the runner's epoch and incarnation
+    // (LLP 1035.002 D3); a `clock` reply keeps its own `clock`.
+    assert!(
+        ty.starts_with(&format!(
+            "{{\"typed\":{field},\"value\":\"Sunny\",\"epoch\":"
+        )),
+        "{ty}"
     );
+    assert!(ty.contains(",\"incarnation\":"), "{ty}");
+    assert!(ty.contains(",\"clock\":"), "{ty}");
+    let c = handle(&mut p, "{\"op\":\"clock\",\"to\":1000}");
+    assert!(c.starts_with("{\"clock\":1000,\"epoch\":"), "{c}");
+    assert_eq!(c.matches("\"clock\":").count(), 1, "{c}");
     assert!(handle(&mut p, "{\"op\":\"clock\",\"to\":500}").contains("backwards"));
-    assert_eq!(
-        handle(&mut p, "{\"op\":\"clock\",\"settle\":true}"),
-        "{\"clock\":1000,\"settled\":true}"
-    );
+    assert!(handle(&mut p, "{\"op\":\"clock\",\"settle\":true}")
+        .starts_with("{\"clock\":1000,\"settled\":true,\"epoch\":"));
     let path = std::env::temp_dir().join(format!("exact-linux-{}.png", std::process::id()));
     let shot = handle(
         &mut p,

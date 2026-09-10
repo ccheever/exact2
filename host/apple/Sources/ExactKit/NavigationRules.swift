@@ -1,0 +1,108 @@
+// The rules UIKit's navigation, sheet, keyboard and focus projection
+// follows (LLP 1035.001 D1–D5, D8), as pure functions of what the
+// presenter knows — no controller, no window, no run loop, no clock — so
+// the macOS test target can hold every one of them and a reader finds the
+// contract in one place. `NavigationIOS.swift`, `ModalIOS.swift` and
+// `PresenterIOS.swift` apply them; nothing here decides what UIKit owns
+// (recognition, progress, cancellation, animation).
+//
+// @ref LLP 1035.001 §3; LLP 1008 §9
+import Foundation
+
+enum NavigationRules {
+    /// D1: the routes are the first root's children carrying a
+    /// `navigationKey`, in tree order, and the stack is the prefix through
+    /// the one whose key is the root's. `nil` when the root's key matches
+    /// no route: the stack is left alone and the refusal is journaled.
+    static func stack(routeKeys: [String], selected: String) -> Range<Int>? {
+        guard let index = routeKeys.firstIndex(of: selected) else { return nil }
+        return 0..<(index + 1)
+    }
+
+    /// D2: a completed transition presses the Back control exactly once —
+    /// only when the route UIKit now shows carries a key other than the
+    /// root's current one. A cancelled swipe shows the same key and
+    /// dispatches nothing; a programmatic Back has already moved the key
+    /// and dispatches nothing more. A sheet's dismissal has its own path.
+    static func dispatchesBack(shownKey: String, rootKey: String, modalActive: Bool) -> Bool {
+        !modalActive && shownKey != rootKey
+    }
+
+    /// D1: the Back control is resolved at use, never captured at a
+    /// gesture's start: the lowest view id among live controls whose HTML
+    /// `id` is the container's `navigationBack`, that handle `press`, and are
+    /// enabled. `nil` when the container names none or none is live — and
+    /// then no gesture may begin and no dismissal may complete.
+    static func backControl<Control>(
+        named target: String?,
+        among controls: [Control],
+        id: (Control) -> UInt32,
+        htmlID: (Control) -> String?,
+        pressable: (Control) -> Bool,
+        disabled: (Control) -> Bool
+    ) -> Control? {
+        guard let target else { return nil }
+        return controls
+            .filter { htmlID($0) == target && pressable($0) && !disabled($0) }
+            .min { id($0) < id($1) }
+    }
+
+    /// D1: whether an interactive pop may begin at all — a stack to pop, no
+    /// transition in flight, no sheet, a resolvable Back control, and no
+    /// context preview anywhere in the session.
+    static func popMayBegin(depth: Int, changing: Bool, modalActive: Bool, hasBackControl: Bool, contextPreviewActive: Bool) -> Bool {
+        depth > 1 && !changing && !modalActive && hasBackControl && !contextPreviewActive
+    }
+
+    /// D1's arbitration for a pan: past the 20-point edge a pan that starts
+    /// over a `swiperight` node is that node's; otherwise the pan must be
+    /// more horizontal than vertical. The edge itself stays navigation's.
+    static func panMayBegin(startX: CGFloat, overSwipeRight: Bool, velocity: CGPoint) -> Bool {
+        if startX >= 20 && overSwipeRight { return false }
+        return velocity.x > abs(velocity.y)
+    }
+
+    /// D1: `closedby="none"` refuses the platform's dismissal gesture and
+    /// Escape; anything else (`closerequest`, absent) permits them. Explicit
+    /// Close is the app's own control either way.
+    static func modalRefusesDismissal(closedby: String?) -> Bool {
+        closedby == "none"
+    }
+
+    /// D4: geometry deferred behind a sheet replays as a batch would apply
+    /// it — every frame before any content size, node ids ascending.
+    static func replayOrder(deferred: [UInt32: Set<String>]) -> [(id: UInt32, kind: String)] {
+        var out: [(id: UInt32, kind: String)] = []
+        for kind in ["frame", "content"] {
+            for id in deferred.keys.sorted() where deferred[id]?.contains(kind) == true {
+                out.append((id, kind))
+            }
+        }
+        return out
+    }
+
+    /// D5: a keyboard notification is a session's business only when one of
+    /// its own editors is editing, or it still holds an inset from a show it
+    /// applied; another session's keyboard in the same window is not.
+    static func keyboardConcerns(editing: Bool, holdsInset: Bool) -> Bool {
+        editing || holdsInset
+    }
+
+    /// D5: the viewport freeze that keeps a composer beside a sideways-moving
+    /// keyboard applies only to an initially interactive navigation
+    /// transition outside a sheet — never to a sheet's vertical dismissal.
+    static func freezesViewport(modalActive: Bool, changing: Bool, initiallyInteractive: Bool) -> Bool {
+        !modalActive && changing && initiallyInteractive
+    }
+
+    /// D3 (as it stands): why a `focus(id)` command cannot be delivered now,
+    /// or `nil` when it can. The reason is journaled, never silent.
+    static func focusRefusal(mounted: Bool, disabled: Bool, zeroSize: Bool, hiddenAncestor: Bool, inertAncestor: Bool) -> String? {
+        if !mounted { return "not mounted" }
+        if disabled { return "disabled" }
+        if zeroSize { return "zero size" }
+        if hiddenAncestor { return "hidden ancestor" }
+        if inertAncestor { return "inert ancestor" }
+        return nil
+    }
+}

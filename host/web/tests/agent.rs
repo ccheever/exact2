@@ -42,7 +42,10 @@ fn tree_lists_every_live_node_in_preorder_with_props_and_handlers() {
 fn state_is_typed_json_with_field_names() {
     let host = boot();
     let state = host.agent(r#"{"op":"state"}"#);
-    assert!(state.starts_with("{\"clock\":0,\"slots\":{"), "{state}");
+    // Tagged with the epoch and incarnation (LLP 1035.002 D3), then the
+    // clock, then the slots in the plan's order.
+    assert!(state.starts_with("{\"epoch\":"), "{state}");
+    assert!(state.contains(",\"clock\":0,\"slots\":{"), "{state}");
     // Every slot by name, typed (LLP 1014 added the sky's material, the
     // deck, and its focus).
     for slot in [

@@ -127,4 +127,8 @@ final class Runtime {
         let len = exact_agent(rt, n)
         return String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
     }
+    /// A line for the runner's journal (LLP 1012 §3): what this host refused, and why.
+    func log(_ line: String) {
+        _ = exact_log(rt, write(line))
+    }
 }

@@ -249,6 +249,12 @@ impl<D: DataSource> Host<D> {
         &self.springs
     }
 
+    /// The page's line for the runner's journal (LLP 1012 §3): a refused
+    /// intent and its reason.
+    pub fn log(&mut self, line: &str) {
+        self.runner.log(line);
+    }
+
     /// The agent API's read operations (LLP 1012): `tree`, `state`, and
     /// `logs` from the runner; `settle` — the clock at which the last spring
     /// in flight ends, milliseconds, `null` when none — from the engine here.
