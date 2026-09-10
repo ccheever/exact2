@@ -1,6 +1,6 @@
 //! Component checks that require recursive action or view traversal.
 
-use super::{err, infer, types_scope, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
+use super::{err, infer, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
 use contract_syntax::{Component, Expr, File, Node, Span, Stmt, TypeExpr};
 use std::collections::BTreeMap;
 
@@ -68,137 +68,11 @@ fn shape_names<'a>(ty: &'a TypeExpr, out: &mut Vec<&'a str>) {
     }
 }
 
-/// The lexical scope at each expanded `each` tag.
-fn owner_scopes(
-    c: &Component,
-    ct: &ComponentTypes,
-    types: &Types,
-) -> Result<BTreeMap<u32, Scope>, TypeError> {
-    let mut scopes = BTreeMap::new();
-    collect_owner_scopes(
-        &c.view,
-        &types_scope(c, ct, types),
-        &types.shapes,
-        &mut scopes,
-    )?;
-    Ok(scopes)
-}
-
-/// Infer lifted row-slot initializers in the region frames that own them.
-pub(super) fn infer_owned_state_initializers(
-    c: &Component,
-    ct: &mut ComponentTypes,
-    types: &Types,
-    owners: Option<&[Option<u32>]>,
-) -> Result<(), TypeError> {
-    let Some(owners) = owners else {
-        return Ok(());
-    };
-    let scopes = owner_scopes(c, ct, types)?;
-    let mut names: Vec<(String, Ref, Ty)> = c
-        .props
-        .iter()
-        .enumerate()
-        .map(|(i, p)| (p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()))
-        .collect();
-    for (j, p) in c.injects.iter().enumerate() {
-        let i = c.props.len() + j;
-        names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));
-    }
-    for (i, state) in c.states.iter().enumerate() {
-        if let Some(tag) = owners.get(i).copied().flatten() {
-            let Some(owner_scope) = scopes.get(&tag) else {
-                return err(
-                    "type-row-slot",
-                    format!("row state `{}` has no owning `each`", state.name),
-                    state.span,
-                );
-            };
-            let mut scope = Scope::default();
-            scope.frames_reset(&names);
-            scope.frames.extend(
-                owner_scope
-                    .frames
-                    .iter()
-                    .filter(|frame| frame.region)
-                    .cloned(),
-            );
-            ct.slots[i] = infer(&state.expr, &scope, &types.shapes)?;
-        }
-        names.push((state.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()));
-    }
-    Ok(())
-}
-
-fn collect_owner_scopes(
-    nodes: &[Node],
-    scope: &Scope,
-    shapes: &Shapes,
-    scopes: &mut BTreeMap<u32, Scope>,
-) -> Result<(), TypeError> {
-    for node in nodes {
-        match node {
-            Node::Element { children, .. } | Node::Use { children, .. } => {
-                collect_owner_scopes(children, scope, shapes, scopes)?;
-            }
-            Node::Provide { body, .. } => collect_owner_scopes(body, scope, shapes, scopes)?,
-            Node::Children { .. } => {}
-            Node::When {
-                then, otherwise, ..
-            } => {
-                collect_owner_scopes(then, scope, shapes, scopes)?;
-                collect_owner_scopes(otherwise, scope, shapes, scopes)?;
-            }
-            Node::Each {
-                tag,
-                var,
-                list,
-                body,
-                ..
-            } => {
-                let ty = infer(list, scope, shapes)?;
-                let Ty::List(item) = ty else {
-                    return err(
-                        "type-each-list",
-                        format!("`each` needs a list, given `{ty}`"),
-                        list.span(),
-                    );
-                };
-                let mut inner = scope.clone();
-                inner.push_region(Some((var.clone(), Ref::Item(0), *item)));
-                scopes.insert(*tag, inner.clone());
-                collect_owner_scopes(body, &inner, shapes, scopes)?;
-            }
-            Node::Match {
-                subject,
-                some,
-                none,
-                ..
-            } => {
-                let ty = infer(subject, scope, shapes)?;
-                let Ty::Option(item) = ty else {
-                    return err(
-                        "type-match-subject",
-                        format!("`match` needs an option, given `{ty}`"),
-                        subject.span(),
-                    );
-                };
-                let mut inner = scope.clone();
-                inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                collect_owner_scopes(&some.1, &inner, shapes, scopes)?;
-                let mut none_scope = scope.clone();
-                none_scope.push_region(None);
-                collect_owner_scopes(none, &none_scope, shapes, scopes)?;
-            }
-        }
-    }
-    Ok(())
-}
-
 #[derive(Clone)]
 struct Fill {
     nodes: Vec<Node>,
     scope: Scope,
+    outer: Option<Box<Fill>>,
 }
 
 /// Check the concrete provider path to every inject after component typing.
@@ -223,6 +97,11 @@ fn check_inject_nodes(
 ) -> Result<(), TypeError> {
     for node in nodes {
         match node {
+            Node::Scope { body, .. } => {
+                let mut inner = scope.clone();
+                inner.push_region(None);
+                check_inject_nodes(body, &inner, types, file, provides, fill, depth)?;
+            }
             Node::Element { children, .. } => {
                 check_inject_nodes(children, scope, types, file, provides, fill, depth)?;
             }
@@ -270,6 +149,7 @@ fn check_inject_nodes(
                 let child_fill = target_c.slot.then(|| Fill {
                     nodes: children.clone(),
                     scope: scope.clone(),
+                    outer: fill.cloned().map(Box::new),
                 });
                 check_inject_nodes(
                     &target_c.view,
@@ -299,7 +179,7 @@ fn check_inject_nodes(
                         types,
                         file,
                         provides,
-                        None,
+                        fill.outer.as_deref(),
                         depth,
                     )?;
                 }
@@ -476,6 +356,11 @@ pub(super) fn check_stmts(
 pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Result<(), TypeError> {
     for n in nodes {
         match n {
+            Node::Scope { body, .. } => {
+                let mut inner = scope.clone();
+                inner.push_region(None);
+                check_view(body, &inner, shapes)?;
+            }
             Node::Provide { expr, body, .. } => {
                 infer(expr, scope, shapes)?;
                 check_view(body, scope, shapes)?;

@@ -272,6 +272,8 @@ pub struct ResourceDecl {
     pub args: Vec<Expr>,
     /// The declared shape.
     pub shape: TypeExpr,
+    /// Typed first-pending value, evaluated in the owner's lexical scope.
+    pub fallback: Option<Expr>,
     /// Where.
     pub span: Span,
 }
@@ -392,6 +394,15 @@ pub struct Task {
 /// A view node.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
+    /// A compiler-created, nonvisual component lifetime.
+    Scope {
+        /// Unique expanded owner tag.
+        tag: u32,
+        /// The component view.
+        body: Vec<Node>,
+        /// Use site.
+        span: Span,
+    },
     /// `tag positional attr=expr …` with children.
     Element {
         /// The tag.
@@ -481,7 +492,8 @@ impl Node {
     /// Where.
     pub fn span(&self) -> Span {
         match self {
-            Node::Element { span, .. }
+            Node::Scope { span, .. }
+            | Node::Element { span, .. }
             | Node::Use { span, .. }
             | Node::Provide { span, .. }
             | Node::Children { span }
@@ -546,6 +558,8 @@ pub enum UnOp {
 /// An expression.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
+    /// A list literal; an empty list is typed by its context.
+    List(Vec<Expr>, Span),
     /// A number literal.
     Number(f64, Span),
     /// A string literal.
@@ -598,7 +612,8 @@ impl Expr {
     /// Where.
     pub fn span(&self) -> Span {
         match self {
-            Expr::Number(_, s)
+            Expr::List(_, s)
+            | Expr::Number(_, s)
             | Expr::Str(_, s)
             | Expr::Template(_, s)
             | Expr::Bool(_, s)

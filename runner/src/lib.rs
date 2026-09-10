@@ -35,6 +35,7 @@ pub mod delivery;
 pub mod instance;
 pub mod request;
 pub mod runner;
+mod scope;
 pub mod stdlib;
 pub mod store;
 pub mod vm;
@@ -44,8 +45,8 @@ pub use exact_plan::Value;
 pub use instance::SurfaceUpdate;
 pub use request::{Answer, FailureKind, Outcome, Request, RequestOut, Response};
 pub use runner::{
-    Advanced, Carried, Command, DataError, DataSource, Event, Runner, RunnerError, Timed,
-    JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
+    Advanced, Carried, Command, DataError, DataSource, Event, OwnedResourceSnapshot, Runner,
+    RunnerError, Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use vm::Trap;

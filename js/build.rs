@@ -2,20 +2,17 @@
 //! test fixture (`tests/fixtures/caltrain.ts`) to bytecode with the bake's
 //! own toolchain: Rolldown, then `hermesc` (LLP 1027 D5).
 //!
-//! The engine is the vanilla Hermes build the ibex repo produces
-//! (`ios/Frameworks-vanilla/`, receipt beside it): the bytecode-only
-//! `hermesvmlean` archive, JSI, and the headers. iOS uses matching lean CMake
-//! builds under `target/hermes-ios` (EXACT_HERMES_IOS_DIR overrides; LLP 1027 D6).
-//! All linked engine archives are captured in OUT_DIR for the bake receipt.
-//! Without the target archives — a Linux
-//! builder today, or a checkout without `../ibex` — this crate still builds,
-//! as a stub whose `Module::load` refuses by name, so `cargo build
-//! --workspace` is green everywhere and the executor is honest about where
-//! it can run. `EXACT_HERMES_DIR`, `EXACT_HERMESC`, and `EXACT_ROLLDOWN`
-//! point at the three tools when they are somewhere else.
+//! Provision the vanilla bytecode-only Hermes archives and headers with
+//! `EXACT_HERMES_DIR`, and its matching compiler with `EXACT_HERMESC`.
+//! iOS uses matching lean CMake builds under `target/hermes-ios`
+//! (`EXACT_HERMES_IOS_DIR` overrides; LLP 1027 D6). Linked archives are
+//! captured in OUT_DIR for the bake receipt. Without the target archives this
+//! crate builds as a stub whose `Module::load` refuses by name. Ibex binding
+//! sources come from the pinned Cargo dependency, never a sibling checkout.
 
+use ibex2::bindings::{HARDEN_SOURCE, JSI_HEADER, JSI_SOURCE, SQLITE_SOURCE, TYPESCRIPT};
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
@@ -32,19 +29,13 @@ fn main() {
     println!("cargo:rerun-if-changed=src/prelude.js");
 
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let ibex = manifest.join("../../ibex");
-    let bindings = ibex.join("crates/ibex2");
-    for file in [
-        "include/ibex2_jsi.h",
-        "src/engine/ibex2_jsi.cc",
-        "src/bindings/harden.js",
-        "src/bindings/sqlite.js",
-    ] {
-        println!("cargo:rerun-if-changed={}", bindings.join(file).display());
+    for file in [JSI_HEADER, JSI_SOURCE, HARDEN_SOURCE, SQLITE_SOURCE] {
+        println!("cargo:rerun-if-changed={file}");
     }
-    let engine = env::var("EXACT_HERMES_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| ibex.join("ios/Frameworks-vanilla"));
+    let Some(engine) = env::var_os("EXACT_HERMES_DIR").map(PathBuf::from) else {
+        println!("cargo:warning=exact-js: EXACT_HERMES_DIR is unset — the executor is a stub that refuses to load");
+        return;
+    };
     let headers = engine.join("hermes-headers");
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target = env::var("TARGET").unwrap_or_default();
@@ -91,13 +82,12 @@ fn main() {
     // The normal bake receipt inventories OUT_DIR archives. Capture all three
     // actual linked inputs there, including the engine, not just our shim.
     for source in library_paths {
-        if target_os == "ios" {
-            println!("cargo:rerun-if-changed={}", source.display());
-        }
+        println!("cargo:rerun-if-changed={}", source.display());
         std::fs::copy(&source, out.join(source.file_name().expect("archive name")))
             .unwrap_or_else(|e| panic!("cannot capture {}: {e}", source.display()));
     }
 
+    println!("cargo:rerun-if-changed={}", headers.display());
     let mut shim = cc::Build::new();
     if target_os == "macos" {
         // Cargo builds the bake's host dependency in the iOS invocation too.
@@ -112,8 +102,12 @@ fn main() {
     }
     shim.cpp(true)
         .file("src/shim.cc")
-        .file(bindings.join("src/engine/ibex2_jsi.cc"))
-        .include(bindings.join("include"))
+        .file(JSI_SOURCE)
+        .include(
+            Path::new(JSI_HEADER)
+                .parent()
+                .expect("JSI include directory"),
+        )
         .include(&headers)
         .flag("-std=c++17")
         .flag("-stdlib=libc++")
@@ -130,19 +124,16 @@ fn main() {
     // The prelude and the fixtures: the prelude straight through hermesc;
     // each fixture TypeScript → one script (Rolldown) → bytecode (hermesc),
     // the bake's own two steps, into OUT_DIR for the crate and its tests.
-    let arch = match env::consts::ARCH {
-        "aarch64" => "arm64",
-        _ => "x64",
-    };
-    let hermesc = env::var("EXACT_HERMESC")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| ibex.join(format!("tools/hermes-vanilla/hermesc-macos-{arch}")));
+    let hermesc = PathBuf::from(
+        env::var_os("EXACT_HERMESC")
+            .expect("exact-js: set EXACT_HERMESC to the compiler matching EXACT_HERMES_DIR"),
+    );
     let rolldown = env::var("EXACT_ROLLDOWN")
         .map(PathBuf::from)
         .unwrap_or_else(|_| manifest.join("../node_modules/.bin/rolldown"));
     assert!(
         hermesc.is_file(),
-        "exact-js: hermesc not found at {} (EXACT_HERMESC, or ibex: ./scripts/build-hermes.sh --vanilla)",
+        "exact-js: hermesc not found at {} (set EXACT_HERMESC to the matching Hermes compiler)",
         hermesc.display()
     );
     assert!(
@@ -150,7 +141,11 @@ fn main() {
         "exact-js: rolldown not found at {} (run `npm install` at the repo root, or set EXACT_ROLLDOWN)",
         rolldown.display()
     );
-    let compile = |script: &PathBuf, bytecode: &PathBuf| {
+    // The fixture bundler runs from its staging directory so emitted source
+    // labels do not contain Cargo's OUT_DIR hash or checkout location.
+    let rolldown = rolldown.canonicalize().expect("Rolldown executable path");
+    println!("cargo:rerun-if-changed={}", hermesc.display());
+    let compile = |script: &Path, bytecode: &Path| {
         let status = Command::new(&hermesc)
             .args(["-O", "-emit-binary", "-out"])
             .arg(bytecode)
@@ -164,19 +159,26 @@ fn main() {
         );
     };
     compile(&manifest.join("src/prelude.js"), &out.join("prelude.hbc"));
-    compile(
-        &bindings.join("src/bindings/harden.js"),
-        &out.join("storage-harden.hbc"),
-    );
-    compile(
-        &bindings.join("src/bindings/sqlite.js"),
-        &out.join("storage-sqlite.hbc"),
-    );
-    for name in ["caltrain", "castle", "inputs", "ambient-init", "storage"] {
+    compile(Path::new(HARDEN_SOURCE), &out.join("storage-harden.hbc"));
+    compile(Path::new(SQLITE_SOURCE), &out.join("storage-sqlite.hbc"));
+    // Stage fixtures beside the public binding declarations. Type-only imports
+    // resolve to the same Ibex revision as the shim; no generated source-tree files.
+    let fixtures = out.join("fixtures");
+    std::fs::create_dir_all(&fixtures).expect("fixture directory");
+    std::fs::write(fixtures.join("ibex-storage.d.ts"), TYPESCRIPT)
+        .expect("write Ibex fixture declarations");
+    let names = ["caltrain", "castle", "inputs", "ambient-init", "storage"];
+    for name in names {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());
+        std::fs::copy(&source, fixtures.join(format!("{name}.ts")))
+            .expect("stage TypeScript fixture");
+    }
+    for name in names {
+        let source = fixtures.join(format!("{name}.ts"));
         let script = out.join(format!("{name}.js"));
         let status = Command::new(&rolldown)
+            .current_dir(&fixtures)
             .arg(&source)
             .args(["--format", "iife", "--file"])
             .arg(&script)

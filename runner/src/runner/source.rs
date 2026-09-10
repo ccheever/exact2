@@ -81,6 +81,42 @@ pub trait DataSource {
         self.query(source, args).map(Answer::Now)
     }
 
+    /// Answer one distinct runner call. `context` is fresh for each call,
+    /// including equal-argument siblings and superseding requests; it remains
+    /// the same across every subsequent `parse_scoped` continuation.
+    /// Adapters with parked executor work use it as their call identity.
+    fn answer_scoped(
+        &mut self,
+        context: u64,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        let _ = context;
+        self.answer(store, source, args)
+    }
+
+    /// Parse a reply for the exact call that produced it. Chained `Later`
+    /// answers keep this context while receiving a fresh host ticket.
+    fn parse_scoped(
+        &mut self,
+        context: u64,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let _ = context;
+        self.parse(store, source, args, outcome)
+    }
+
+    /// Release the executor state for a completed, superseded, unmounted,
+    /// or refused call. Cancellation of previous calls waits for commit so
+    /// a pre-walk refusal can restore the previous pending request.
+    fn cancel_scoped(&mut self, context: u64) {
+        let _ = context;
+    }
+
     /// The value of a resource or mutation from what the host brought back
     /// for a request `answer` handed out, in the shape the declaration
     /// names — or one more request (LLP 1027 D1a: a TypeScript `answer`

@@ -10,7 +10,7 @@ publish = false
 exact-apple = { path = "../apple" }
 exact-runner = { path = "../../runner" }
 exact-update = { path = "../../update" }
-ibex2 = { path = "../../../ibex/crates/ibex2", default-features = false }
+ibex2 = { workspace = true }
 
 [dev-dependencies]
 caltrain = { path = "../../apps/caltrain" }

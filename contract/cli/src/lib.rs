@@ -26,7 +26,7 @@ pub use typescript::typescript;
 use contract_syntax::{Expr, File, Step, TestDecl, UseDecl};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
 use exact_plan::builder::PlanBuilder;
-use exact_plan::{Plan, ResourcesId};
+use exact_plan::{Plan, ResourcesId, Value};
 use exact_runner::{Runner, RunnerError};
 use std::path::{Path, PathBuf};
 
@@ -488,8 +488,15 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
     delivery_shape(&plan)?;
     let mut runner = Runner::boot(plan.clone(), data, Kernel::with_monospace())?;
     lint(&mut runner)?;
+    // Re-baking replaces the finite first-frame snapshots, never appends a
+    // second answer for the same declaration/keyed path.
+    plan.resource_boot.clear();
     let mut b = PlanBuilder::from_plan(plan);
+    let pending = runner.pending();
     for i in 0..runner.plan().resources.len() {
+        if runner.plan().resources[i].owner.is_some() {
+            continue;
+        }
         let name = runner
             .plan()
             .str(runner.plan().resources[i].name)
@@ -502,12 +509,24 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
         // so the runner treats that value as a placeholder: a kept answer
         // from the device beats it, and a data source not ready at boot is
         // asked again at `data_ready`.
-        if runner.resource_reads_store(&name) {
+        // A first-pending fallback is a placeholder too: runtime must ask
+        // again rather than mistaking the compiled loading UI for an answer.
+        if runner.resource_reads_store(&name) || pending.iter().any(|(n, _)| n == &name) {
             b.set_resource_reader(ResourcesId(i as u32), true);
         }
         if let Some(v) = runner.resource(&name) {
             b.set_resource_initial(ResourcesId(i as u32), v);
         }
+    }
+    for snapshot in runner.owned_resource_snapshots() {
+        b.resource_boot(
+            snapshot.resource,
+            &Value::list(snapshot.path),
+            &Value::list(snapshot.args),
+            &snapshot.value,
+            snapshot.reader,
+            snapshot.pending,
+        );
     }
     b.finish()
         .map_err(|e| BakeError::Runner(RunnerError::Plan(e)))

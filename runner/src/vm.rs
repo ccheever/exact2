@@ -9,6 +9,7 @@
 //! trusted. There is no closure, no heap of the VM's own, no ambient read that
 //! is not an operand: `now()` reads the clock the runner passes in.
 
+pub use crate::scope::{ScopeRef, ScopeState};
 use crate::stdlib;
 use exact_plan::bytes::Reader;
 use exact_plan::{Opcode, Operand, Plan, Stdlib, Value};
@@ -33,9 +34,22 @@ pub struct Frame {
     pub region: Option<u32>,
     /// The row's slots, when this scope is a row.
     pub row: Option<RowSlots>,
+    /// The authored key, used only for baked resource identity.
+    pub key: Option<Value>,
+    /// The component cell, present only on a scope frame.
+    pub scope: Option<ScopeRef>,
 }
 
 impl Frame {
+    /// The mounted cell belonging to a scope region.
+    pub fn scope_of(frames: &[Frame], region: u32) -> Option<&ScopeRef> {
+        frames
+            .iter()
+            .rev()
+            .find(|f| f.region == Some(region))
+            .and_then(|f| f.scope.as_ref())
+    }
+
     /// The row slots of the innermost frame belonging to `region`.
     pub fn row_of(frames: &[Frame], region: u32) -> Option<&RowSlots> {
         frames
@@ -135,9 +149,9 @@ pub struct Outcome {
     /// `(name, args)` commands in execution order.
     pub commands: Vec<(String, Vec<Value>)>,
     /// `(mutation, source, args)` sends in execution order (LLP 1016).
-    pub sends: Vec<(u32, String, Vec<Value>)>,
+    pub sends: Vec<(u32, String, Vec<Value>, Option<u64>)>,
     /// Resources to re-request with their current arguments.
-    pub refreshes: Vec<u32>,
+    pub refreshes: Vec<(u32, Option<u64>)>,
     /// The evaluated path read a value derived from the durable store.
     pub store_dependent: bool,
 }
@@ -224,18 +238,33 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
             }
             Opcode::LoadResource => {
                 let resource = args[0] as usize;
-                let value = env
-                    .resources
-                    .get(resource)
-                    .ok_or(malformed(pc))?
-                    .clone()
-                    .ok_or(Trap::Pending { pc })?;
-                out.store_dependent |= env
-                    .store_dependent_resources
-                    .get(resource)
-                    .copied()
-                    .unwrap_or(false);
-                stack.push(value);
+                if let Some(owner) = env.plan.resources.get(resource).ok_or(malformed(pc))?.owner {
+                    let scope = Frame::scope_of(env.frames, owner.0)
+                        .ok_or(Trap::BadScope { pc, depth: 0 })?
+                        .borrow();
+                    let res = scope.resources.get(&resource).ok_or(Trap::Pending { pc })?;
+                    stack.push(
+                        res.state
+                            .as_ref()
+                            .ok_or(Trap::Pending { pc })?
+                            .value
+                            .clone(),
+                    );
+                    out.store_dependent |= res.reader;
+                } else {
+                    stack.push(
+                        env.resources
+                            .get(resource)
+                            .ok_or(malformed(pc))?
+                            .clone()
+                            .ok_or(Trap::Pending { pc })?,
+                    );
+                    out.store_dependent |= env
+                        .store_dependent_resources
+                        .get(resource)
+                        .copied()
+                        .unwrap_or(false);
+                }
             }
             Opcode::LoadParam => stack.push(env.params.get(args[0] as usize).cloned().ok_or(
                 Trap::BadParam {
@@ -414,25 +443,61 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     return Err(Trap::StackUnderflow { pc });
                 }
                 let sargs = stack.split_off(stack.len() - n);
-                out.sends.push((m, source, sargs));
+                let owner = env.plan.slots[slot as usize].owner;
+                let lifetime = owner
+                    .map(|r| {
+                        Frame::scope_of(env.frames, r.0)
+                            .map(|s| s.borrow().lifetime)
+                            .ok_or(Trap::BadScope { pc, depth: 0 })
+                    })
+                    .transpose()?;
+                out.sends.push((m, source, sargs, lifetime));
             }
-            Opcode::Refresh => out.refreshes.push(args[0] as u32),
-            Opcode::PendingResource => {
-                // Known once the resource settled this pass, like its value.
+            Opcode::Refresh => {
                 let i = args[0] as usize;
-                if env.resources.get(i).is_none_or(Option::is_none) {
-                    return Err(Trap::Pending { pc });
-                }
-                stack.push(Value::Bool(
-                    env.pending_resources.get(i).copied().unwrap_or(false),
-                ));
+                let owner = env.plan.resources[i].owner;
+                let lifetime = owner
+                    .map(|r| {
+                        Frame::scope_of(env.frames, r.0)
+                            .map(|s| s.borrow().lifetime)
+                            .ok_or(Trap::BadScope { pc, depth: 0 })
+                    })
+                    .transpose()?;
+                out.refreshes.push((i as u32, lifetime));
             }
-            Opcode::PendingMutation => stack.push(Value::Bool(
-                env.pending_mutations
-                    .get(args[0] as usize)
-                    .copied()
-                    .unwrap_or(false),
-            )),
+            Opcode::PendingResource => {
+                let i = args[0] as usize;
+                let pending = if let Some(owner) = env.plan.resources[i].owner {
+                    let scope = Frame::scope_of(env.frames, owner.0)
+                        .ok_or(Trap::BadScope { pc, depth: 0 })?
+                        .borrow();
+                    scope
+                        .resources
+                        .get(&i)
+                        .filter(|r| r.state.is_some())
+                        .ok_or(Trap::Pending { pc })?
+                        .pending
+                } else {
+                    if env.resources.get(i).is_none_or(Option::is_none) {
+                        return Err(Trap::Pending { pc });
+                    }
+                    env.pending_resources.get(i).copied().unwrap_or(false)
+                };
+                stack.push(Value::Bool(pending));
+            }
+            Opcode::PendingMutation => {
+                let i = args[0] as usize;
+                let owner = env.plan.slots[env.plan.mutations[i].slot.0 as usize].owner;
+                let pending = if let Some(owner) = owner {
+                    let scope = Frame::scope_of(env.frames, owner.0)
+                        .ok_or(Trap::BadScope { pc, depth: 0 })?
+                        .borrow();
+                    scope.mutations.get(&i).copied().unwrap_or(false)
+                } else {
+                    env.pending_mutations.get(i).copied().unwrap_or(false)
+                };
+                stack.push(Value::Bool(pending));
+            }
             Opcode::Pop => {
                 pop!(pc);
             }

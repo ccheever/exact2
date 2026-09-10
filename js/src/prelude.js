@@ -129,6 +129,7 @@
   global.fetch = function (url, init) {
     var call = currentCall;
     if (!call) return Promise.reject(new Error("fetch called outside an answer"));
+    if (call.cancelled) return new Promise(function () {});
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
     var headers = new Headers(init && init.headers).entries();
     var body = init && init.body != null ? String(init.body) : "";
@@ -139,10 +140,11 @@
   };
 
   // --- the store (LLP 1018): reads counted, writes grant-checked, in Rust -
+  function liveStore() { if (currentCall && currentCall.cancelled) throw new Error("answer was cancelled"); }
   var store = {
-    get: function (name) { var v = host(2, String(name), ""); return v === undefined ? null : v; },
-    set: function (name, value) { var e = host(3, String(name), String(value)); if (e !== undefined) throw new Error(e); },
-    forget: function (name) { var e = host(4, String(name), ""); if (e !== undefined) throw new Error(e); },
+    get: function (name) { liveStore(); var v = host(2, String(name), ""); return v === undefined ? null : v; },
+    set: function (name, value) { liveStore(); var e = host(3, String(name), String(value)); if (e !== undefined) throw new Error(e); },
+    forget: function (name) { liveStore(); var e = host(4, String(name), ""); if (e !== undefined) throw new Error(e); },
   };
 
   // Storage is a capability argument, never an ambient global. Native hosts
@@ -171,10 +173,12 @@
     try { promise = receiver[method].apply(receiver, args); }
     catch (e) { promise = Promise.reject(e); }
     return promise.then(function (value) {
+      if (call.cancelled) return new Promise(function () {});
       currentCall = call;
       call.storage--;
       return convert ? convert(value) : value;
     }, function (error) {
+      if (call.cancelled) return new Promise(function () {});
       currentCall = call;
       call.storage--;
       throw error && error.kind ? error : storageError(error.message || String(error));
@@ -245,6 +249,15 @@
     currentCall = null;
     var call = calls.get(Number(id));
     return call ? settle(call) : fail(new Error("no such call"));
+  };
+  global.__exact_cancel = function (id) {
+    var call = calls.get(Number(id));
+    if (!call) return "[]";
+    call.cancelled = true;
+    calls.delete(call.id);
+    for (var i = 0; i < call.tickets.length; i++) pending.delete(call.tickets[i]);
+    if (currentCall === call) currentCall = null;
+    return JSON.stringify(call.tickets);
   };
   global.__exact_storage_failed = function (id, outcomeJson) {
     var call = calls.get(Number(id));

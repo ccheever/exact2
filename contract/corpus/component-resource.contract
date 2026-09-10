@@ -1,0 +1,10 @@
+// A resource-owning child is a nonvisual scope, including at the root.
+shape S
+  id: string
+component A
+  view
+    Row()
+component Row
+  resource s = s() as shape S
+  view
+    text s.id

@@ -18,14 +18,13 @@
 #![deny(missing_docs)]
 
 mod checks;
+mod effects;
 
 use contract_syntax::{BinOp, Component, Expr, File, Node, Span, TemplatePart, TypeExpr, UnOp};
 use exact_plan::Stdlib;
 use std::collections::BTreeMap;
 
-use checks::{
-    check_injects, check_shape_cycles, check_stmts, check_view, infer_owned_state_initializers,
-};
+use checks::{check_injects, check_shape_cycles, check_stmts, check_view};
 
 /// A closed type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -416,6 +415,18 @@ impl Types {
 /// Infer an expression's type in `scope`.
 pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
     Ok(match e {
+        Expr::List(items, span) => {
+            let mut ty = Ty::Unknown;
+            for item in items {
+                let got = infer(item, scope, shapes)?;
+                ty = ty.unify(&got).ok_or_else(|| TypeError {
+                    id: "type-list-item",
+                    message: format!("list mixes `{ty}` and `{got}`"),
+                    span: *span,
+                })?;
+            }
+            Ty::List(Box::new(ty))
+        }
         Expr::Number(..) => Ty::Number,
         Expr::Str(..) => Ty::String,
         Expr::Bool(..) => Ty::Bool,
@@ -709,6 +720,11 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
 /// Every function name an expression calls, for the `fn` cycle check.
 fn calls_in(e: &Expr, out: &mut Vec<String>) {
     match e {
+        Expr::List(items, _) => {
+            for item in items {
+                calls_in(item, out);
+            }
+        }
         Expr::Call(n, args, _) => {
             out.push(n.clone());
             for a in args {
@@ -888,35 +904,21 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
         message: e.message,
         span: e.span,
     })?;
-    // A child may own `state`, `derive`, and `action` (LLP 1017 P4c: its
-    // instances' own), never a `resource`, `mutation`, or `task` — a row
-    // must not open N requests, and only the root has a clock. Checked
-    // before the root, whose inlined view would otherwise trip on the
-    // child's unknown name first.
-    for c in file.components.iter().skip(1) {
-        if !c.resources.is_empty() || !c.mutations.is_empty() || !c.tasks.is_empty() {
-            let span = c
-                .resources
-                .first()
-                .map(|r| r.span)
-                .or(c.mutations.first().map(|m| m.span))
-                .or(c.tasks.first().map(|t| t.span))
-                .unwrap_or(c.span);
-            return err(
-                "type-child-resource",
-                format!("component `{}` takes props: a resource, mutation, or task lives in the root (a child may own state, derives, and actions)", c.name),
-                span,
-            );
-        }
-    }
     for (i, c) in file.components.iter().enumerate() {
         let ct = if i == 0 {
-            check_component(&expanded.root, &types, Some(&expanded.owners))?
+            check_component(&expanded.root, &types, Some(&expanded))?
         } else {
             check_component(c, &types, None)?
         };
         types.components.push(ct);
     }
+    let mut sources = ComponentTypes::default();
+    for (c, ct) in file.components.iter().zip(&types.components) {
+        for (name, (args, result)) in &ct.sources {
+            record_source(&mut sources, name, args.clone(), result.clone(), c.span)?;
+        }
+    }
+    types.components[0].sources = sources.sources;
     // Component uses: arguments must match props.
     for c in &file.components {
         let ct = &types.components[file
@@ -982,6 +984,11 @@ fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Resu
                     }
                 }
             }
+            Node::Scope { body, .. } => {
+                let mut inner = scope.clone();
+                inner.push_region(None);
+                check_uses(body, &inner, types, file)?;
+            }
             Node::Element { children, .. } => check_uses(children, scope, types, file)?,
             Node::Provide { expr, body, .. } => {
                 infer(expr, scope, &types.shapes)?;
@@ -1038,8 +1045,10 @@ fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Resu
 fn check_component(
     c: &Component,
     types: &Types,
-    owners: Option<&[Option<u32>]>,
+    expanded: Option<&contract_syntax::Expanded>,
 ) -> Result<ComponentTypes, TypeError> {
+    let owners = expanded.map(|ex| ex.owners.as_slice());
+    effects::check_cycles(c)?;
     let shapes = &types.shapes;
     let mut ct = ComponentTypes {
         name: c.name.clone(),
@@ -1177,12 +1186,8 @@ fn check_component(
             );
         }
     }
-    for r in &c.resources {
-        for arg in &r.args {
-            infer(arg, &scope, shapes)?;
-        }
-    }
-    infer_owned_state_initializers(c, &mut ct, types, owners)?;
+    effects::infer_owned_state_initializers(c, &mut ct, types, owners)?;
+    let scope = types_scope(c, &ct, types);
     // Handler call sites give untyped parameters their types.
     refine_params_from_view(&c.view, &scope, c, &mut ct, shapes)?;
     // Action bodies: writes refine slots; assignments must unify.
@@ -1203,20 +1208,7 @@ fn check_component(
         );
         check_stmts(&a.body, &scope, c, &mut ct, shapes)?;
     }
-    // The seam's signatures (LLP 1027 D2): every resource's arguments against
-    // the final scope, unified with the sends' (recorded as their bodies were
-    // checked). One source, one signature.
-    {
-        let scope = types_scope(c, &ct, types);
-        for (i, r) in c.resources.iter().enumerate() {
-            let mut params = Vec::with_capacity(r.args.len());
-            for arg in &r.args {
-                params.push(infer(arg, &scope, shapes)?);
-            }
-            let result = ct.resources[i].clone();
-            record_source(&mut ct, &r.source, params, result, r.span)?;
-        }
-    }
+    effects::check_resources_and_tasks(c, &mut ct, types, expanded)?;
     for (i, s) in c.states.iter().enumerate() {
         if !ct.slots[i].is_complete() {
             return err(
@@ -1239,15 +1231,6 @@ fn check_component(
     // The view types.
     let scope = types_scope(c, &ct, types);
     check_view(&c.view, &scope, shapes)?;
-    for t in &c.tasks {
-        if infer(&t.every.0, &scope, shapes)? != Ty::Number {
-            return err(
-                "type-timer",
-                "`every` needs a number of milliseconds",
-                t.every.2,
-            );
-        }
-    }
     Ok(ct)
 }
 
@@ -1279,6 +1262,11 @@ fn refine_params_from_view(
 ) -> Result<(), TypeError> {
     for n in nodes {
         match n {
+            Node::Scope { body, .. } => {
+                let mut inner = scope.clone();
+                inner.push_region(None);
+                refine_params_from_view(body, &inner, c, ct, shapes)?;
+            }
             Node::Provide { body, .. } => refine_params_from_view(body, scope, c, ct, shapes)?,
             Node::Children { .. } => {}
             Node::Element {

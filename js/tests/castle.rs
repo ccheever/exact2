@@ -119,6 +119,57 @@ fn later(a: Answer) -> exact_runner::Request {
 const LOGIN_OK: &str = r#"{"data":{"loginV2":{"token":"t0k","username":"ada"}}}"#;
 
 #[test]
+fn scoped_equal_argument_calls_reverse_chains_and_cancel_only_their_owner() {
+    let mut m = module();
+    let mut a = store();
+    let mut b = store();
+    let args = [Value::str("same"), Value::str("pw")];
+    for (context, store) in [(11, &mut a), (12, &mut b)] {
+        later(m.answer_scoped(context, store, "login", &args).unwrap());
+    }
+    assert_eq!(m.in_flight(), 2);
+    for (context, store, who) in [(12, &mut b, "second"), (11, &mut a, "first")] {
+        let body = format!(r#"{{"data":{{"loginV2":{{"token":"{who}","username":"{who}"}}}}}}"#);
+        let value = now(m
+            .parse_scoped(context, store, "login", &args, response(200, &body))
+            .unwrap());
+        assert_eq!(session(&value).1, who);
+        assert!(store.get("castle.session").unwrap().contains(who));
+    }
+    for (context, store) in [(21, &mut a), (22, &mut b)] {
+        assert_eq!(
+            later(m.answer_scoped(context, store, "profile", &[]).unwrap()).url,
+            "https://api.castle.xyz/me"
+        );
+    }
+    for (context, store, who) in [(22, &mut b, "second"), (21, &mut a, "first")] {
+        let request = later(
+            m.parse_scoped(
+                context,
+                store,
+                "profile",
+                &[],
+                response(200, &format!(r#"{{"username":"{who}"}}"#)),
+            )
+            .unwrap(),
+        );
+        assert_eq!(request.url, format!("https://api.castle.xyz/profile/{who}"));
+    }
+    m.cancel_scoped(21);
+    assert!(m
+        .parse_scoped(21, &mut a, "profile", &[], response(200, "stale"))
+        .is_err());
+    let value = now(m
+        .parse_scoped(22, &mut b, "profile", &[], response(200, "second profile"))
+        .unwrap());
+    assert_eq!(
+        session(&value),
+        (true, "second".into(), "second profile".into())
+    );
+    assert_eq!(m.in_flight(), 0);
+}
+
+#[test]
 fn parallel_fetches_keep_every_request_and_binary_response() {
     let mut m = module();
     let mut s = store();
@@ -287,6 +338,60 @@ fn has(r: &Runner<Module>, test_id: &str) -> bool {
 fn view_of(r: &Runner<Module>, test_id: &str) -> u32 {
     let k = r.kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+}
+
+#[test]
+fn hermes_children_with_equal_arguments_own_resources_mutations_and_chains() {
+    let plan = contract::compile(include_str!("fixtures/scoped.contract")).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Module::new(HBC.to_vec(), APP, GRANTS),
+        Kernel::with_monospace(),
+    )
+    .unwrap();
+    assert!(!r.data().is_loaded(), "first frame does not load Hermes");
+    assert!(r.take_requests().is_empty());
+    r.data().load().unwrap();
+    r.data_ready().unwrap();
+    let first = r.take_requests();
+    assert_eq!(first.len(), 2);
+    for (i, who) in [(1, "B"), (0, "A")] {
+        r.fulfill(first[i].ticket, response(200, who)).unwrap();
+        let next = r.take_requests();
+        assert_eq!(next.len(), 1);
+        assert_eq!(
+            next[0].request.url,
+            format!("https://api.castle.xyz/child/{who}")
+        );
+        r.fulfill(next[0].ticket, response(200, "profile")).unwrap();
+    }
+    assert_eq!(text_of(&r, "value-a").as_deref(), Some("A"));
+    assert_eq!(text_of(&r, "value-b").as_deref(), Some("B"));
+    // Same source and arguments for a resource and a mutation at the same time.
+    r.dispatch(view_of(&r, "refresh-a"), Event::Press).unwrap();
+    let stale = r.take_requests();
+    r.dispatch(view_of(&r, "save-b"), Event::Press).unwrap();
+    let saved = r.take_requests();
+    assert_eq!(stale.len(), 1);
+    assert_eq!(saved.len(), 1);
+    r.dispatch(view_of(&r, "refresh-a"), Event::Press).unwrap();
+    let fresh = r.take_requests();
+    assert_eq!(fresh.len(), 1);
+    assert!(r
+        .fulfill(stale[0].ticket, response(200, "STALE"))
+        .unwrap()
+        .is_none());
+    for (ticket, who) in [(saved[0].ticket, "saved B"), (fresh[0].ticket, "new A")] {
+        r.fulfill(ticket, response(200, who)).unwrap();
+        let next = r.take_requests();
+        assert_eq!(next.len(), 1);
+        r.fulfill(next[0].ticket, response(200, "done")).unwrap();
+    }
+    assert_eq!(text_of(&r, "saved-b").as_deref(), Some("saved B"));
+    assert_eq!(text_of(&r, "saved-a").as_deref(), Some("none"));
+    assert_eq!(text_of(&r, "value-a").as_deref(), Some("new A"));
+    assert_eq!(text_of(&r, "value-b").as_deref(), Some("B"));
+    assert_eq!(r.data().in_flight(), 0);
 }
 
 #[test]

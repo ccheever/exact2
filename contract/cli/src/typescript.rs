@@ -19,11 +19,9 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
         "// @generated from Contract source signatures; do not edit.\n\
          // Static types do not replace runtime shape, identity, or grant checks.\n\n",
     );
-    // Ibex2 owns the storage surface. Include its declaration source directly:
-    // this compiler needs neither its Rust runtime nor a JavaScript engine.
-    out.push_str(include_str!(
-        "../../../../ibex/crates/ibex2/src/bindings/storage.d.ts"
-    ));
+    // Ibex2 owns the storage surface. The build copies its public declaration
+    // text; this compiler links neither its Rust runtime nor a JavaScript engine.
+    out.push_str(include_str!(concat!(env!("OUT_DIR"), "/storage.d.ts")));
     out.push('\n');
     for (i, row) in plan.types.iter().enumerate() {
         write!(out, "type T{i} = ").unwrap();

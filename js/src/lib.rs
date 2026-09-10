@@ -80,8 +80,14 @@ struct Sig {
     result: Shape,
 }
 
-/// An answer that awaited a fetch: the prelude's call id, and the fetch
-/// ticket the runner's request stands for.
+// Context zero preserves direct-call source/argument addressing.
+#[derive(PartialEq, Eq)]
+enum CallKey {
+    Raw(String, Vec<u8>),
+    Scoped(u64),
+}
+
+/// An answer's prelude call and the fetch ticket its host request represents.
 struct Parked {
     call: u64,
     ticket: u64,
@@ -110,7 +116,7 @@ pub struct Module {
     directories: Option<storage::Directories>,
     host: Box<HostState>,
     sigs: HashMap<String, Sig>,
-    parked: Vec<((String, Vec<u8>), Parked)>,
+    parked: Vec<(CallKey, Parked)>,
     budget_ms: f64,
     max_heap: u32,
     logs: Vec<String>,
@@ -477,17 +483,37 @@ impl Module {
         Some(self.host.requests.remove(pos).1)
     }
 
-    fn key(source: &str, args: &[Value]) -> (String, Vec<u8>) {
+    fn key(context: u64, source: &str, args: &[Value]) -> CallKey {
+        if context != 0 {
+            return CallKey::Scoped(context);
+        }
         let mut bytes = Vec::new();
         for a in args {
             bytes.extend(a.to_bytes());
         }
-        (source.to_string(), bytes)
+        CallKey::Raw(source.to_string(), bytes)
+    }
+
+    fn cancel_key(&mut self, key: &CallKey) {
+        let Some(pos) = self.parked.iter().position(|(k, _)| k == key) else {
+            return;
+        };
+        let call = self.parked.remove(pos).1.call;
+        if let Some(engine) = self.engine.as_mut() {
+            if let Ok(text) = engine.call("__exact_cancel", [&call.to_string(), "", ""]) {
+                if let Ok(tickets) = serde_json::from_str::<Vec<u64>>(&text) {
+                    self.host
+                        .requests
+                        .retain(|(ticket, _)| !tickets.contains(ticket));
+                }
+            }
+        }
     }
 
     /// Begin an answer: marshal, call, drain, settle.
     fn begin(
         &mut self,
+        context: u64,
         store: Option<&mut Store>,
         source: &str,
         args: &[Value],
@@ -515,6 +541,7 @@ impl Module {
             );
         }
         let args_text = Json::Array(json_args).to_string();
+        self.cancel_key(&Self::key(context, source, args));
         self.host.store = store.map(|s| s as *mut Store);
         let started = Instant::now();
         let result: Result<String, DataError> = (|| {
@@ -562,7 +589,7 @@ impl Module {
                         DataError::Unavailable(format!("`{source}` awaits a fetch it never made"))
                     })?
                 };
-                let key = Module::key(source, args);
+                let key = Module::key(context, source, args);
                 self.parked.retain(|(k, _)| *k != key);
                 self.parked.push((
                     key,
@@ -580,6 +607,7 @@ impl Module {
     /// Continue an answer: fulfil its fetch, drain, settle.
     fn resume(
         &mut self,
+        context: u64,
         store: &mut Store,
         source: &str,
         args: &[Value],
@@ -590,7 +618,7 @@ impl Module {
                 "exact-js: the engine is not loaded".into(),
             ));
         }
-        let key = Module::key(source, args);
+        let key = Module::key(context, source, args);
         let Some(pos) = self.parked.iter().position(|(k, _)| *k == key) else {
             return Err(DataError::Unavailable(format!(
                 "`{source}`: a reply for an answer not in flight"
@@ -761,10 +789,10 @@ impl DataSource for Module {
     /// The bake's path and the in-process path: no store, and an answer that
     /// awaits a fetch cannot be given now.
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
-        match self.begin(None, source, args)? {
+        match self.begin(0, None, source, args)? {
             Answer::Now(v) => Ok(v),
             Answer::Later(_) => {
-                self.parked.retain(|(k, _)| *k != Module::key(source, args));
+                self.cancel_key(&Module::key(0, source, args));
                 Err(DataError::Unavailable(format!(
                     "`{source}` fetches, and there is no host to run it here"
                 )))
@@ -778,7 +806,7 @@ impl DataSource for Module {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        self.begin(Some(store), source, args)
+        self.begin(0, Some(store), source, args)
     }
 
     fn parse(
@@ -788,7 +816,33 @@ impl DataSource for Module {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
-        self.resume(store, source, args, outcome)
+        self.resume(0, store, source, args, outcome)
+    }
+    fn answer_scoped(
+        &mut self,
+        context: u64,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.begin(context, Some(store), source, args)
+    }
+
+    fn parse_scoped(
+        &mut self,
+        context: u64,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.resume(context, store, source, args, outcome)
+    }
+
+    fn cancel_scoped(&mut self, context: u64) {
+        if context != 0 {
+            self.cancel_key(&CallKey::Scoped(context));
+        }
     }
 }
 

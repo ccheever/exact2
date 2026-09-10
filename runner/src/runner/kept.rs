@@ -57,7 +57,7 @@ impl<D: DataSource> Runner<D> {
     /// Keep a store-reading resource's fresh answer for the next boot's
     /// first frame (LLP 1027 D4), when this source may not be ready then.
     pub(super) fn keep_answer(&mut self, i: usize, args: &[Value], value: &Value) {
-        if !self.keeps_answers || !self.store_readers[i] {
+        if self.plan.resources[i].owner.is_some() || !self.keeps_answers || !self.store_readers[i] {
             return;
         }
         let encoded = encode(args, value);

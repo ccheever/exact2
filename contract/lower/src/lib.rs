@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod declarations;
 pub mod expr;
 pub mod tags;
 
@@ -127,10 +128,10 @@ pub(crate) struct Lowerer<'a> {
     /// The file's `fn` declarations, by name, expanded inline at each call
     /// (LLP 1017 P5).
     pub fns: BTreeMap<String, FnDecl>,
-    /// The region each `each` lowered to, by the inliner's tag (LLP 1017 P4c).
-    pub each_regions: BTreeMap<u32, exact_plan::RegionsId>,
-    /// The item/binding scope at each expanded `each`, for row-slot initializers.
-    pub each_scopes: BTreeMap<u32, Scope>,
+    /// Scope regions by the inliner's owner tag.
+    pub owner_regions: BTreeMap<u32, exact_plan::RegionsId>,
+    /// The lexical frames at each owning Scope, including the Scope frame.
+    pub owner_scopes: BTreeMap<u32, Scope>,
     /// Every generic and declared family name to its stack id.
     pub font_stacks: BTreeMap<String, StacksId>,
     /// Declared families, for the literal weight/style synthesis diagnostic.
@@ -188,8 +189,8 @@ pub fn lower(
             .map(|f| (f.name.clone(), f.clone()))
             .collect(),
         fn_depth: 0,
-        each_regions: BTreeMap::new(),
-        each_scopes: BTreeMap::new(),
+        owner_regions: BTreeMap::new(),
+        owner_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
         declared_fonts: BTreeMap::new(),
     };
@@ -295,71 +296,7 @@ pub fn lower(
         let id = l.b.action(&a.name, &params_ref, &writes, placeholder);
         l.actions.push(id);
     }
-    // Bodies.
     let scope = types.component_scope(root, root_types);
-    for (i, s) in root.states.iter().enumerate() {
-        if ex.owners[i].is_none() {
-            let code = l.expr_code(&s.expr, &scope, 0)?;
-            l.b.set_slot_init(l.slots[i], code);
-        }
-    }
-    for (i, d) in root.derives.iter().enumerate() {
-        let code = l.expr_code(&d.expr, &scope, 0)?;
-        l.b.set_derive_body(l.derives[i], code);
-    }
-    for (i, r) in root.resources.iter().enumerate() {
-        let mut args = Vec::new();
-        for a in &r.args {
-            args.push(l.expr_code(a, &scope, 0)?);
-        }
-        let range = l.b.args(&args);
-        l.b.set_resource_args(l.resources[i], range);
-    }
-    for (i, a) in root.actions.iter().enumerate() {
-        let mut inner = scope.clone();
-        inner.push(
-            a.params
-                .iter()
-                .enumerate()
-                .map(|(pi, p)| {
-                    (
-                        p.name.clone(),
-                        Ref::Param(pi as u32),
-                        root_types.actions[i][pi].clone(),
-                    )
-                })
-                .collect(),
-        );
-        let mut asm = Asm::new();
-        let mut locals = 0u16;
-        for stmt in &a.body {
-            l.stmt(&mut asm, stmt, &inner, &mut locals)?;
-        }
-        let code = l.b.code(asm);
-        l.b.set_action_body(l.actions[i], code);
-    }
-    for t in &root.tasks {
-        let Expr::Number(ms, _) = &t.every.0 else {
-            return err(
-                "lower-timer-literal",
-                "`every` needs a literal number of milliseconds",
-                t.every.2,
-            );
-        };
-        if !(ms.is_finite() && ms.fract() == 0.0 && *ms >= 1.0 && *ms <= u32::MAX as f64) {
-            return err(
-                "lower-timer-interval",
-                format!("`every` needs a whole number of milliseconds, at least 1; given {ms}"),
-                t.every.2,
-            );
-        }
-        let action = l.actions[root
-            .actions
-            .iter()
-            .position(|a| a.name == t.every.1)
-            .unwrap()];
-        l.b.timer(*ms as u32, action);
-    }
     // The view, inlined (by `expand`, above).
     let view = &root.view;
     if view.len() != 1 {
@@ -372,7 +309,7 @@ pub fn lower(
             root.span,
         );
     }
-    if !matches!(view[0], Node::Element { .. }) {
+    if !declarations::one_visual_root(view) {
         return err(
             "lower-root-region",
             "the root of a view is a node; a `when`, `each`, or `match` cannot be the root (LLP 1010 §1: a keyed root could not reorder) — put it inside a `column` or a `main`",
@@ -380,31 +317,7 @@ pub fn lower(
         );
     }
     l.nodes(view, None, None, &scope, 0, None)?;
-    // Row slots: each lifted state owned by an `each` names its region now
-    // that the regions exist (LLP 1017 P4c).
-    for (i, owner) in ex.owners.iter().enumerate() {
-        if let Some(tag) = owner {
-            let region = *l.each_regions.get(tag).ok_or_else(|| LowerError {
-                id: "lower-row-slot",
-                message: format!(
-                    "row slot `{}` names an `each` that was not lowered",
-                    root.states[i].name
-                ),
-                span: root.states[i].span,
-            })?;
-            let item_scope = l.each_scopes.get(tag).cloned().ok_or_else(|| LowerError {
-                id: "lower-row-slot",
-                message: format!(
-                    "row slot `{}` names an `each` with no item scope",
-                    root.states[i].name
-                ),
-                span: root.states[i].span,
-            })?;
-            let init = l.expr_code(&root.states[i].expr, &item_scope, 0)?;
-            l.b.set_slot_init(l.slots[i], init);
-            l.b.set_slot_owner(l.slots[i], region);
-        }
-    }
+    l.declaration_bodies(&ex, &scope)?;
     l.b.finish().map_err(|e| LowerError {
         id: "lower-invalid-plan",
         message: format!("{e:?}"),
@@ -864,10 +777,13 @@ impl<'a> Lowerer<'a> {
                     fn run(c: &Node) -> bool {
                         match c {
                             Node::Element { tag, .. } => tag == "text",
-                            Node::Each { body, .. } => body.iter().all(run),
+                            Node::Each { body, .. } | Node::Scope { body, .. } => {
+                                body.iter().all(run)
+                            }
                             Node::When {
                                 then, otherwise, ..
                             } => then.iter().chain(otherwise).all(run),
+                            Node::Match { some, none, .. } => some.1.iter().chain(none).all(run),
                             _ => false,
                         }
                     }
@@ -900,6 +816,17 @@ impl<'a> Lowerer<'a> {
                 "`provide` and `children` are inlined away before lowering",
                 *span,
             ),
+            Node::Scope { tag, body, .. } => {
+                let unit = self.b.constant(&Value::Unit);
+                let (region, arms) =
+                    self.b
+                        .region(RegionKind::Scope, parent, arm, order, unit, unit, 1);
+                let mut inner = scope.clone();
+                inner.push_region(None);
+                self.owner_regions.insert(*tag, region);
+                self.owner_scopes.insert(*tag, inner.clone());
+                self.nodes(body, None, Some(arms[0]), &inner, locals, parent_tag)
+            }
             Node::When {
                 cond,
                 then,
@@ -935,8 +862,8 @@ impl<'a> Lowerer<'a> {
                 let (r, arms) =
                     self.b
                         .region(RegionKind::Each, parent, arm, order, subject, key, 1);
-                self.each_regions.insert(*tag, r);
-                self.each_scopes.insert(*tag, inner.clone());
+                self.owner_regions.insert(*tag, r);
+                self.owner_scopes.insert(*tag, inner.clone());
                 self.nodes(body, None, Some(arms[0]), &inner, locals, parent_tag)
             }
             Node::Match {

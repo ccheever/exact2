@@ -34,3 +34,7 @@ exact-gpu-reflect = { path = "../../gpu/reflect" }
 
 # The build validates publisher receipt signatures using the client parser.
 exact-update = { path = "../../update" }
+
+[build-dependencies]
+# Copy the canonical declarations at build time; no Ibex runtime in the compiler.
+ibex2 = { workspace = true }

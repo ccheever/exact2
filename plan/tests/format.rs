@@ -263,7 +263,7 @@ fn loading_is_a_validation_pass() {
 }
 
 #[test]
-fn mutations_require_a_global_option_slot_of_their_result_type() {
+fn mutations_require_an_option_slot_of_their_result_type_and_valid_owner() {
     let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
     let number = b.primitive(TypeKind::Number);
     let string = b.primitive(TypeKind::String);

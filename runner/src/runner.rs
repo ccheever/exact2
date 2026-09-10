@@ -9,10 +9,16 @@
 mod carry;
 mod source;
 pub use source::{DataError, DataSource};
+mod actions;
 mod delivery;
+mod effects;
 mod kept;
+mod requests;
 mod settlement;
+mod timers;
+mod transaction;
 pub use carry::Carried;
+pub use effects::OwnedResourceSnapshot;
 
 use crate::instance::{Ids, InstanceError, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Outcome, Request, RequestOut};
@@ -133,7 +139,8 @@ pub enum RunnerError {
     TimerFireLimit {
         limit: usize,
     },
-    /// A region sits at the plan root; v1 requires one root node.
+    /// A structural region sits at the plan root; only a chain of component
+    /// scopes ending at one visual root is permitted.
     RootRegion,
     /// A slot initializer or write does not conform to the slot's declared type.
     SlotType {
@@ -160,6 +167,7 @@ impl From<InstanceError> for RunnerError {
     fn from(e: InstanceError) -> Self {
         match e {
             InstanceError::SlotType { slot } => RunnerError::SlotType { slot },
+            InstanceError::Effect(error) => *error,
             other => RunnerError::Instance(other),
         }
     }
@@ -171,12 +179,12 @@ impl From<KernelError> for RunnerError {
     }
 }
 
-#[derive(Clone)]
-struct ResourceState {
-    args: Vec<Value>,
-    value: Value,
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ResourceState {
+    pub(crate) args: Vec<Value>,
+    pub(crate) value: Value,
     /// Store revision this answer observed; checked only for known readers.
-    store_revision: u64,
+    pub(crate) store_revision: u64,
 }
 
 /// A resource or a mutation, as the target of a request in flight.
@@ -184,6 +192,8 @@ struct ResourceState {
 enum Target {
     Resource(usize),
     Mutation(usize),
+    OwnedResource(usize, u64),
+    OwnedMutation(usize, u64),
 }
 
 /// A request the host is running: the ticket its reply carries, what it
@@ -191,6 +201,9 @@ enum Target {
 #[derive(Clone)]
 struct PendingReq {
     ticket: u64,
+    context: u64,
+    /// Same-action send + assignment dispatches once but discards its reply.
+    publish: bool,
     target: Target,
     source: String,
     args: Vec<Value>,
@@ -202,11 +215,12 @@ struct Timer {
 
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
-    plan: Plan,
+    plan: std::rc::Rc<Plan>,
     data: D,
     kernel: Kernel,
     slots: Vec<Value>,
     derives: Vec<Option<Value>>,
+    derive_readers: Vec<bool>,
     resources: Vec<Option<ResourceState>>,
     resource_values: Vec<Option<Value>>,
     tree: Option<Tree>,
@@ -222,6 +236,9 @@ pub struct Runner<D: DataSource> {
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
     next_ticket: u64,
+    next_context: u64,
+    /// Live executor calls, including tentative replacements until commit.
+    contexts: std::collections::BTreeSet<u64>,
     /// Requests for the host, since the last take.
     requests: Vec<RequestOut>,
     /// Resources an action asked to re-request; consumed by the next settle.
@@ -239,6 +256,7 @@ pub struct Runner<D: DataSource> {
     /// next boot: only for a source that may not be ready at boot.
     keeps_answers: bool,
     poisoned: bool,
+    booting: bool,
     /// What this binary and its update store know about delivery (LLP 1030
     /// D4, D7): the embedded answer until a host says otherwise.
     delivery: crate::delivery::Delivery,
@@ -307,7 +325,7 @@ impl<D: DataSource> Runner<D> {
                 .iter()
                 .zip(&self.resources)
                 .enumerate()
-                .filter(|(i, _)| !self.pending_res[*i])
+                .filter(|(i, (row, _))| row.owner.is_none() && !self.pending_res[*i])
                 .filter_map(|(_, (r, s))| {
                     s.as_ref().map(|s| {
                         (
@@ -323,7 +341,7 @@ impl<D: DataSource> Runner<D> {
                 .resources
                 .iter()
                 .enumerate()
-                .filter(|(i, _)| self.store_readers[*i])
+                .filter(|(i, row)| row.owner.is_none() && self.store_readers[*i])
                 .map(|(_, resource)| self.plan.str(resource.name).to_string())
                 .collect(),
             now_ms: self.now_ms,
@@ -377,11 +395,9 @@ impl<D: DataSource> Runner<D> {
         if roots != 1 {
             return Err(RunnerError::NotOneRoot(roots));
         }
-        if plan
-            .regions
-            .iter()
-            .any(|r| r.parent.is_none() && r.arm.is_none())
-        {
+        if plan.regions.iter().any(|r| {
+            r.parent.is_none() && r.arm.is_none() && r.kind != exact_plan::RegionKind::Scope
+        }) {
             return Err(RunnerError::RootRegion);
         }
         let same_logic = carried.is_none_or(|c| c.data_revision.as_deref() == data.revision());
@@ -401,11 +417,12 @@ impl<D: DataSource> Runner<D> {
             })
             .collect();
         let mut runner = Runner {
-            plan,
+            plan: std::rc::Rc::new(plan),
             data,
             kernel,
             slots: Vec::new(),
             derives: Vec::new(),
+            derive_readers: Vec::new(),
             resources: Vec::new(),
             resource_values: Vec::new(),
             tree: None,
@@ -419,6 +436,8 @@ impl<D: DataSource> Runner<D> {
             pending_res: Vec::new(),
             pending_mut: Vec::new(),
             next_ticket: 1,
+            next_context: 1,
+            contexts: Default::default(),
             requests: Vec::new(),
             refresh_next: Vec::new(),
             store,
@@ -427,6 +446,7 @@ impl<D: DataSource> Runner<D> {
             keeps_answers: false,
             delivery,
             poisoned: false,
+            booting: true,
             journal: std::collections::VecDeque::new(),
             journal_start: 0,
         };
@@ -463,7 +483,7 @@ impl<D: DataSource> Runner<D> {
             .map(|i| {
                 let name = runner.plan.str(runner.plan.resources[i].name);
                 carried
-                    .filter(|_| same_logic)
+                    .filter(|_| same_logic && runner.plan.resources[i].owner.is_none())
                     .and_then(|c| c.resources.iter().find(|(n, _, _)| n == name))
                     .filter(|(_, _, value)| runner.check_shape(i, value).is_ok())
                     .map(|(_, args, value)| ResourceState {
@@ -484,7 +504,7 @@ impl<D: DataSource> Runner<D> {
         runner.stale = vec![false; runner.plan.resources.len()];
         if !ready {
             for i in 0..runner.plan.resources.len() {
-                if !runner.plan.resources[i].reader {
+                if runner.plan.resources[i].owner.is_some() || !runner.plan.resources[i].reader {
                     continue;
                 }
                 runner.stale[i] = true;
@@ -519,23 +539,20 @@ impl<D: DataSource> Runner<D> {
             .timers
             .iter()
             .map(|t| Timer {
-                next_ms: now + t.interval_ms as f64,
+                next_ms: if t.owner.is_none() {
+                    now + t.interval_ms as f64
+                } else {
+                    f64::INFINITY
+                },
             })
             .collect();
-        // First frame.
-        let mut ids = std::mem::take(&mut runner.ids);
-        let (tree, ops, surfaces) = {
-            let mut u = Update {
-                env: runner.env(&[], &[]),
-                ids: &mut ids,
-                ops: Vec::new(),
-                surfaces: Vec::new(),
-            };
-            let tree = Tree::create(&mut u)?;
-            (tree, u.ops, u.surfaces)
-        };
-        runner.ids = ids;
-        runner.tree = Some(tree);
+        // Scope resources settle during the same tree walk as their children.
+        let (ops, surfaces) = runner.walk()?;
+        runner.booting = false;
+        let roots = runner.roots().len();
+        if roots != 1 {
+            return Err(RunnerError::NotOneRoot(roots));
+        }
         let receipt = runner.apply(ops)?;
         runner.surfaces = surfaces;
         let line = format!(
@@ -810,336 +827,15 @@ impl<D: DataSource> Runner<D> {
         result
     }
 
-    /// Move the clock to `now_ms`, firing every timer due, in order — the
-    /// commits alone, or the refusal that stopped it. Tests use this; a host
-    /// uses [`Runner::advance_timed`], which keeps the commits before a
-    /// refusal and the time each was made.
-    pub fn advance(&mut self, now_ms: f64) -> Result<Vec<CommitReceipt>, RunnerError> {
-        let a = self.advance_timed(now_ms);
-        match a.error {
-            Some(e) => Err(e),
-            None => Ok(a.receipts.into_iter().map(|t| t.receipt).collect()),
-        }
-    }
-
-    /// Move the clock to `now_ms`, firing every timer due, in order, each at
-    /// its own due time. A refusal stops the advance there: the commits so
-    /// far are returned with their times, the clock stays at the refusing
-    /// timer's due time, and the refusal rides along.
-    pub fn advance_timed(&mut self, now_ms: f64) -> Advanced {
-        let mut receipts = Vec::new();
-        if !now_ms.is_finite() {
-            return Advanced {
-                receipts,
-                now_ms: self.now_ms,
-                error: Some(RunnerError::NonFiniteClock),
-            };
-        }
-        if now_ms < self.now_ms {
-            return Advanced {
-                receipts,
-                now_ms: self.now_ms,
-                error: None,
-            };
-        }
-        if now_ms > MAX_CLOCK_MS {
-            return Advanced {
-                receipts,
-                now_ms: self.now_ms,
-                error: Some(RunnerError::ClockOutOfRange),
-            };
-        }
-        loop {
-            // The earliest due timer, deterministic by index on ties.
-            let due = self
-                .timers
-                .iter()
-                .enumerate()
-                .filter(|(_, t)| t.next_ms <= now_ms)
-                .min_by(|(ia, a), (ib, b)| {
-                    a.next_ms.partial_cmp(&b.next_ms).unwrap().then(ia.cmp(ib))
-                })
-                .map(|(i, t)| (i, t.next_ms));
-            let Some((i, at)) = due else { break };
-            if receipts.len() == TIMER_FIRE_LIMIT {
-                return Advanced {
-                    receipts,
-                    now_ms: self.now_ms,
-                    error: Some(RunnerError::TimerFireLimit {
-                        limit: TIMER_FIRE_LIMIT,
-                    }),
-                };
-            }
-            let interval = self.plan.timers[i].interval_ms as f64;
-            let next_ms = at + interval;
-            if !next_ms.is_finite() || next_ms <= at {
-                return Advanced {
-                    receipts,
-                    now_ms: self.now_ms,
-                    error: Some(RunnerError::ClockDidNotAdvance { timer: i }),
-                };
-            }
-            self.now_ms = at;
-            self.timers[i].next_ms = next_ms;
-            let action = self.plan.timers[i].action;
-            let was_poisoned = self.poisoned;
-            let result = self.run_action(action, Vec::new(), &[]);
-            match result {
-                Ok(receipt) => receipts.push(Timed { at_ms: at, receipt }),
-                Err(e) => {
-                    let what = format!(
-                        "timer {} ({})",
-                        i,
-                        self.plan.str(self.plan.action(action).name)
-                    );
-                    let failed = Err(e);
-                    self.log_outcome(&what, &failed, was_poisoned);
-                    return Advanced {
-                        receipts,
-                        now_ms: self.now_ms,
-                        error: failed.err(),
-                    };
-                }
-            }
-        }
-        self.now_ms = now_ms;
-        if !receipts.is_empty() {
-            let line = format!(
-                "advance → {} timer{} fired, epoch {}",
-                receipts.len(),
-                if receipts.len() == 1 { "" } else { "s" },
-                receipts.last().map_or(0, |t| t.receipt.epoch)
-            );
-            self.log(line);
-        }
-        Advanced {
-            receipts,
-            now_ms,
-            error: None,
-        }
-    }
-
-    /// Run an action: its body, its sends, its writes, settlement, the
-    /// update — one commit. What it kept in the store is journaled once the
-    /// commit stands and rolled back with everything else when it does not
-    /// (LLP 1018 D1): nothing reaches the host from a refused action.
-    fn run_action(
-        &mut self,
-        action: ActionsId,
-        args: Vec<Value>,
-        frames: &[Frame],
-    ) -> Result<CommitReceipt, RunnerError> {
-        let kept = self.store.checkpoint();
-        let since = kept.writes;
-        let result = self.run_action_inner(action, args, frames);
-        match &result {
-            Ok(_) => self.log_store_writes(since),
-            Err(_) => self.store.restore(kept),
-        }
-        result
-    }
-
-    /// Journal the store's writes from index `since`: the names, never the
-    /// values.
-    fn log_store_writes(&mut self, since: usize) {
-        let writes = self.store.writes();
-        let lines: Vec<String> = writes[since.min(writes.len())..]
-            .iter()
-            .map(|w| match &w.value {
-                Some(_) => format!("store {}", w.name),
-                None => format!("forget {}", w.name),
-            })
-            .collect();
-        for line in lines {
-            self.log(line);
-        }
-    }
-
-    fn run_action_inner(
-        &mut self,
-        action: ActionsId,
-        args: Vec<Value>,
-        frames: &[Frame],
-    ) -> Result<CommitReceipt, RunnerError> {
-        if self.poisoned {
-            return Err(RunnerError::Poisoned);
-        }
-        let row = self.plan.action(action).clone();
-        let expected = row.params.len as usize;
-        if args.len() != expected {
-            return Err(RunnerError::Arity {
-                action: self.plan.str(row.name).to_string(),
-                expected,
-                actual: args.len(),
-            });
-        }
-        for (i, p) in row.params.iter().enumerate() {
-            let param = self.plan.param(p);
-            if !args[i].conforms(&self.plan, param.ty) {
-                return Err(RunnerError::ArgumentType {
-                    action: self.plan.str(row.name).to_string(),
-                    param: self.plan.str(param.name).to_string(),
-                });
-            }
-        }
-        let allowed: Vec<u32> = row
-            .writes
-            .iter()
-            .map(|w| self.plan.write(w).slot.0)
-            .collect();
-        let outcome = {
-            // The frames in force at the view the event hit (LLP 1017 P4c):
-            // a row action reads and writes its row through them.
-            let env = self.env(&args, frames);
-            vm::eval(self.plan.code(row.body), &env, &allowed)?
-        };
-        // Sends (LLP 1016 §4): each asks the source now. An answer lands in
-        // the mutation's slot inside this commit; a request goes to the host
-        // once the commit stands.
-        let mut later: Vec<(usize, String, Vec<Value>, Request)> = Vec::new();
-        let mut answered: Vec<(u32, Value)> = Vec::new();
-        for (m, source, sargs) in &outcome.sends {
-            let m = *m as usize;
-            let mrow = self.plan.mutations[m].clone();
-            let name = self.plan.str(mrow.name).to_string();
-            let answer = self
-                .data
-                .answer(&mut self.store, source, sargs)
-                .map_err(|error| RunnerError::Data {
-                    resource: name.clone(),
-                    error,
-                })?;
-            match answer {
-                Answer::Now(v) => {
-                    if !v.conforms(&self.plan, mrow.ty) {
-                        return Err(RunnerError::Shape { resource: name });
-                    }
-                    let slot = self.mutation_slot(m)?;
-                    answered.push((slot as u32, Value::some(v)));
-                }
-                Answer::Later(request) => later.push((m, source.clone(), sargs.clone(), request)),
-            }
-        }
-        // Commit the writes, then everything downstream. If settlement refuses
-        // (a data source or shape refusal), the writes and commands roll back
-        // and the kernel is exactly as it was.
-        for (slot, value) in outcome
-            .writes
-            .iter()
-            .map(|(s, v)| (s, v))
-            .chain(outcome.row_writes.iter().map(|(s, v, _)| (s, v)))
-        {
-            if !value.conforms(&self.plan, self.plan.slots[*slot as usize].ty) {
-                return Err(RunnerError::SlotType {
-                    slot: self
-                        .plan
-                        .str(self.plan.slots[*slot as usize].name)
-                        .to_string(),
-                });
-            }
-        }
-        // Row writes land in their rows now, remembered for a rollback.
-        let mut row_undo: Vec<(RowSlots, u32, Option<Value>)> = Vec::new();
-        for (slot, value, rows) in outcome.row_writes {
-            let old = rows.borrow_mut().insert(slot, value);
-            row_undo.push((rows, slot, old));
-        }
-        let saved_slots = self.slots.clone();
-        let saved_commands = self.commands.len();
-        let saved_pending_mut = self.pending_mut.clone();
-        for (slot, value) in answered {
-            self.slots[slot as usize] = value;
-        }
-        let written: Vec<u32> = outcome.writes.iter().map(|(s, _)| *s).collect();
-        for (slot, value) in outcome.writes {
-            self.slots[slot as usize] = value;
-        }
-        for (name, args) in outcome.commands {
-            self.commands.push(Command { name, args });
-        }
-        // An assignment to a mutation's slot tentatively makes it not
-        // pending. The pending map is changed only after settlement stands:
-        // a refused assignment did not change what reply the view wants.
-        let assigned: Vec<usize> = (0..self.plan.mutations.len())
-            .filter(|m| written.contains(&self.plan.mutations[*m].slot.0))
-            .collect();
-        for m in &assigned {
-            self.pending_mut[*m] = false;
-        }
-        for (m, _, _, _) in &later {
-            if !assigned.contains(m) {
-                self.pending_mut[*m] = true;
-            }
-        }
-        self.refresh_next = outcome.refreshes.iter().map(|r| *r as usize).collect();
-        if let Err(e) = self.settle(false) {
-            self.slots = saved_slots;
-            for (rows, slot, old) in row_undo.into_iter().rev() {
-                match old {
-                    Some(v) => rows.borrow_mut().insert(slot, v),
-                    None => rows.borrow_mut().remove(&slot),
-                };
-            }
-            self.commands.truncate(saved_commands);
-            self.pending_mut = saved_pending_mut;
-            return Err(e);
-        }
-        for m in &assigned {
-            self.forget(Target::Mutation(*m));
-        }
-        for (m, source, args, request) in later {
-            self.enqueue(Target::Mutation(m), source, args, request, false);
-            if assigned.contains(&m) {
-                self.forget(Target::Mutation(m));
-            }
-        }
-        let commands: Vec<String> = self.commands[saved_commands..]
-            .iter()
-            .map(|c| {
-                let mut s = format!("command {}(", c.name);
-                for (i, a) in c.args.iter().enumerate() {
-                    if i > 0 {
-                        s.push_str(", ");
-                    }
-                    crate::agent::untyped_json(a, &mut s);
-                }
-                s.push(')');
-                s
-            })
-            .collect();
-        let result = self.update();
-        // Commands are journaled only once the update committed: a failure
-        // there poisons the runner and clears them.
-        if result.is_ok() {
-            for line in commands {
-                self.log(line);
-            }
-        }
-        result
-    }
-
     /// Re-evaluate every site and apply one batch. A failure here means the
     /// instance tree and the kernel may disagree; the runner is poisoned and
     /// the host restarts it — never a half-applied frame.
     fn update(&mut self) -> Result<CommitReceipt, RunnerError> {
-        let mut tree = self.tree.take().expect("booted");
-        let mut ids = std::mem::take(&mut self.ids);
-        let result = {
-            let mut u = Update {
-                env: self.env(&[], &[]),
-                ids: &mut ids,
-                ops: Vec::new(),
-                surfaces: Vec::new(),
-            };
-            tree.update(&mut u).map(|_| (u.ops, u.surfaces))
-        };
-        self.ids = ids;
-        self.tree = Some(tree);
-        let (ops, surfaces) = match result {
-            Ok(x) => x,
-            Err(e) => {
+        let (ops, surfaces) = match self.walk() {
+            Ok(out) => out,
+            Err(error) => {
                 self.poison();
-                return Err(e.into());
+                return Err(error);
             }
         };
         match self.apply(ops) {
@@ -1159,6 +855,17 @@ impl<D: DataSource> Runner<D> {
         self.commands.clear();
         self.requests.clear();
         self.pending.clear();
+        self.flush_contexts();
+        self.refresh_next.clear();
+        for frames in self.scope_frames() {
+            let mut cell = frames.last().unwrap().scope.as_ref().unwrap().borrow_mut();
+            for resource in cell.resources.values_mut() {
+                resource.pending = false;
+                resource.refresh = false;
+            }
+            cell.mutations.clear();
+            cell.timers.clear();
+        }
         self.sync_pending_flags();
     }
 
@@ -1170,7 +877,9 @@ impl<D: DataSource> Runner<D> {
 
     fn apply(&mut self, ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
         self.batch += 1;
-        Ok(self.kernel.apply(0, self.batch, &ops)?)
+        let receipt = self.kernel.apply(0, self.batch, &ops)?;
+        self.flush_contexts();
+        Ok(receipt)
     }
 
     fn env<'a>(&'a self, params: &'a [Value], frames: &'a [Frame]) -> Env<'a> {
@@ -1184,8 +893,8 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             pending_resources: &self.pending_res,
             pending_mutations: &self.pending_mut,
-            store_dependent_derives: &[],
-            store_dependent_resources: &[],
+            store_dependent_derives: &self.derive_readers,
+            store_dependent_resources: &self.store_readers,
         }
     }
 
@@ -1194,7 +903,7 @@ impl<D: DataSource> Runner<D> {
         Ok(vm::eval(self.plan.code(code), &env, &[])?.value)
     }
 
-    fn query(&mut self, i: usize, args: &[Value]) -> Result<Answer, RunnerError> {
+    fn query(&mut self, i: usize, args: &[Value]) -> Result<(Answer, u64), RunnerError> {
         let row = &self.plan.resources[i];
         let source = self.plan.str(row.source).to_string();
         let resource = self.plan.str(row.name).to_string();
@@ -1203,11 +912,10 @@ impl<D: DataSource> Runner<D> {
         if source == crate::delivery::SOURCE {
             return self
                 .delivery_answer(i)
-                .map(Answer::Now)
+                .map(|v| (Answer::Now(v), 0))
                 .map_err(|error| RunnerError::Data { resource, error });
         }
-        self.data
-            .answer(&mut self.store, &source, args)
+        self.answer_call(&source, args)
             .map_err(|error| RunnerError::Data { resource, error })
     }
 
@@ -1220,181 +928,12 @@ impl<D: DataSource> Runner<D> {
             .map_err(RunnerError::Plan)?;
         Ok(self.plan.mutation(mutation).slot.0 as usize)
     }
+}
 
-    fn target_name(&self, t: Target) -> String {
-        match t {
-            Target::Resource(i) => self.plan.str(self.plan.resources[i].name).to_string(),
-            Target::Mutation(m) => self.plan.str(self.plan.mutations[m].name).to_string(),
+impl<D: DataSource> Drop for Runner<D> {
+    fn drop(&mut self) {
+        for context in std::mem::take(&mut self.contexts) {
+            self.data.cancel_scoped(context);
         }
-    }
-
-    /// Drop the request in flight for `target`, if any: its reply, when it
-    /// comes, is dropped too (a `POST` already sent is not unsent — LLP 1016 D5).
-    fn forget(&mut self, target: Target) {
-        if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
-            let t = self.pending.remove(pos).ticket;
-            self.log(format!("forget request {t} ({})", self.target_name(target)));
-        }
-        self.sync_pending_flags();
-    }
-
-    /// Hand `request` to the host under a fresh ticket, replacing any
-    /// request in flight for the same target.
-    fn enqueue(
-        &mut self,
-        target: Target,
-        source: String,
-        args: Vec<Value>,
-        request: Request,
-        forced: bool,
-    ) {
-        if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
-            let t = self.pending.remove(pos).ticket;
-            self.log(format!("forget request {t} ({})", self.target_name(target)));
-        }
-        let ticket = self.next_ticket;
-        self.next_ticket += 1;
-        let name = self.target_name(target);
-        self.log(match request.continuation {
-            Some(token) => format!("continuation {ticket} ({name}): executor token {token}"),
-            None => format!(
-                "request {ticket} ({name}): {} {}",
-                request.method, request.url
-            ),
-        });
-        self.pending.push(PendingReq {
-            ticket,
-            target,
-            source,
-            args,
-        });
-        self.requests.push(RequestOut {
-            ticket,
-            target: name,
-            request,
-            forced,
-        });
-        self.sync_pending_flags();
-    }
-
-    fn sync_pending_flags(&mut self) {
-        self.pending_res = vec![false; self.plan.resources.len()];
-        self.pending_mut = vec![false; self.plan.mutations.len()];
-        for p in &self.pending {
-            match p.target {
-                Target::Resource(i) => self.pending_res[i] = true,
-                Target::Mutation(m) => self.pending_mut[m] = true,
-            }
-        }
-    }
-
-    /// The requests the host is to run since the last take (LLP 1016 D2).
-    pub fn take_requests(&mut self) -> Vec<RequestOut> {
-        std::mem::take(&mut self.requests)
-    }
-
-    /// Every request in flight: the resource's or mutation's name and its ticket.
-    pub fn pending(&self) -> Vec<(String, u64)> {
-        self.pending
-            .iter()
-            .map(|p| (self.target_name(p.target), p.ticket))
-            .collect()
-    }
-
-    /// Whether any request is in flight (the agent's `settle` waits on it).
-    pub fn has_pending(&self) -> bool {
-        !self.pending.is_empty()
-    }
-
-    /// The host brought back the outcome of request `ticket`: the source
-    /// parses it, the resource takes its value or the mutation's slot its
-    /// `some`, and everything downstream settles as after an action — one
-    /// commit. A ticket no longer held (forgotten, D5) is dropped with a
-    /// journal line and no commit.
-    pub fn fulfill(
-        &mut self,
-        ticket: u64,
-        outcome: Outcome,
-    ) -> Result<Option<CommitReceipt>, RunnerError> {
-        let Some(pos) = self.pending.iter().position(|p| p.ticket == ticket) else {
-            self.log(format!("reply {ticket} dropped: no such request in flight"));
-            return Ok(None);
-        };
-        let saved_pending = self.pending.clone();
-        let p = self.pending.remove(pos);
-        self.sync_pending_flags();
-        let what = format!("fulfil {ticket} ({})", self.target_name(p.target));
-        let was_poisoned = self.poisoned;
-        let kept = self.store.checkpoint();
-        let since = kept.writes;
-        let result = self.fulfill_inner(p, outcome);
-        if result.is_err() && !self.poisoned {
-            self.pending = saved_pending;
-            self.sync_pending_flags();
-        }
-        match &result {
-            Ok(_) => self.log_store_writes(since),
-            Err(_) => self.store.restore(kept),
-        }
-        self.log_outcome(&what, &result, was_poisoned);
-        result.map(Some)
-    }
-
-    fn fulfill_inner(
-        &mut self,
-        p: PendingReq,
-        outcome: Outcome,
-    ) -> Result<CommitReceipt, RunnerError> {
-        if self.poisoned {
-            return Err(RunnerError::Poisoned);
-        }
-        let name = self.target_name(p.target);
-        let ty = match p.target {
-            Target::Resource(i) => self.plan.resources[i].ty,
-            Target::Mutation(m) => self.plan.mutations[m].ty,
-        };
-        let value = match self
-            .data
-            .parse(&mut self.store, &p.source, &p.args, outcome)
-            .map_err(|error| RunnerError::Data {
-                resource: name.clone(),
-                error,
-            })? {
-            Answer::Now(value) => value,
-            Answer::Later(request) => {
-                // One more round (LLP 1027 D1a): the target keeps its value,
-                // a new ticket goes out for the same arguments, and this
-                // commit changes nothing but the pending set.
-                self.log(format!("{name}: the reply asks for one more request"));
-                self.enqueue(p.target, p.source, p.args, request, false);
-                return self.update();
-            }
-        };
-        if !value.conforms(&self.plan, ty) {
-            return Err(RunnerError::Shape { resource: name });
-        }
-        let saved_slots = self.slots.clone();
-        let saved_resources = self.resources.clone();
-        match p.target {
-            Target::Resource(i) => {
-                self.stale[i] = false;
-                self.keep_answer(i, &p.args, &value);
-                self.resources[i] = Some(ResourceState {
-                    args: p.args,
-                    value,
-                    store_revision: self.store.revision(),
-                });
-            }
-            Target::Mutation(m) => {
-                let slot = self.mutation_slot(m)?;
-                self.slots[slot] = Value::some(value);
-            }
-        }
-        if let Err(e) = self.settle(false) {
-            self.slots = saved_slots;
-            self.resources = saved_resources;
-            return Err(e);
-        }
-        self.update()
     }
 }

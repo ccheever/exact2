@@ -16,6 +16,12 @@ pub(crate) fn compile(
     locals: &mut u16,
 ) -> Result<(), LowerError> {
     match e {
+        Expr::List(items, _) => {
+            for item in items {
+                compile(l, asm, item, scope, locals)?;
+            }
+            asm.list(items.len() as u32);
+        }
         Expr::Number(n, _) => {
             asm.number(*n);
         }

@@ -154,19 +154,6 @@ component A
     button press=set
       text "a"
 ---
-== type-child-resource
-# A child may own state, derives, and actions (LLP 1017 P4c) — never a
-# resource, mutation, or task: a row must not open N requests.
-shape S
-  id: string
-component A
-  view
-    Row()
-component Row
-  resource s = s() as shape S
-  view
-    text s.id
----
 == type-derive-cycle
 component A
   derive a = b + 1
@@ -594,4 +581,38 @@ component A
   resource two = same(1) as shape S
   view
     text one.a
+---
+== type-resource-fallback
+component App
+  resource value = read() as shape string else 0
+  view
+    text value
+---
+== type-resource-cycle
+component App
+  resource value = read() as shape string else value
+  view
+    text value
+---
+== type-resource-cycle
+component App
+  resource value = read() as shape string else other
+  derive other = value
+  view
+    text value
+---
+== type-source-signature
+component App
+  view
+    column
+      First()
+      Second()
+component First
+  resource value = read("id") as shape string else ""
+  view
+    text value
+component Second
+  resource value = read(1) as shape string else ""
+  view
+    text value
 ---

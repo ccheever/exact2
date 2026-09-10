@@ -790,12 +790,19 @@ impl Parser {
         self.expect_word("as")?;
         self.expect_word("shape")?;
         let shape = self.type_expr()?;
+        let fallback = if self.at_ident("else") {
+            self.next();
+            Some(self.expr()?)
+        } else {
+            None
+        };
         self.newline()?;
         Ok(ResourceDecl {
             name,
             source,
             args,
             shape,
+            fallback,
             span,
         })
     }
@@ -1296,6 +1303,17 @@ impl Parser {
         let t = self.next();
         let span = t.span;
         match t.kind {
+            TokenKind::Punct("[") => {
+                let mut items = Vec::new();
+                while !self.eat_punct("]") {
+                    items.push(self.expr()?);
+                    if !self.eat_punct(",") {
+                        self.expect_punct("]")?;
+                        break;
+                    }
+                }
+                Ok(Expr::List(items, span))
+            }
             TokenKind::Number(n) => Ok(Expr::Number(n, span)),
             TokenKind::Str(s) => Ok(Expr::Str(s, span)),
             TokenKind::Template(raw) => self.template(&raw, span),

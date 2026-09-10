@@ -268,6 +268,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "exact-update",
+ "ibex2",
  "serde_json",
  "sha2",
 ]
@@ -646,6 +647,7 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-runner",
+ "ibex2",
  "serde_json",
  "sha2",
 ]
@@ -1128,6 +1130,7 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 [[package]]
 name = "ibex2"
 version = "0.1.0"
+source = "git+https://github.com/expo/ibex.git?rev=4a544eeb22237c942a0a4b10ae8a0f647cff68da#4a544eeb22237c942a0a4b10ae8a0f647cff68da"
 dependencies = [
  "base64 0.22.1",
  "cc",
@@ -1145,6 +1148,7 @@ dependencies = [
 [[package]]
 name = "ibex2-sqlite"
 version = "0.1.0"
+source = "git+https://github.com/expo/ibex.git?rev=4a544eeb22237c942a0a4b10ae8a0f647cff68da#4a544eeb22237c942a0a4b10ae8a0f647cff68da"
 dependencies = [
  "ibex2",
  "rusqlite",
