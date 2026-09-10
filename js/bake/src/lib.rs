@@ -67,18 +67,10 @@ impl Default for Tools {
         let tool = |key: &str, fallback: PathBuf| {
             std::env::var_os(key).map(PathBuf::from).unwrap_or(fallback)
         };
-        let arch = if std::env::consts::ARCH == "aarch64" {
-            "arm64"
-        } else {
-            "x64"
-        };
         Self {
             tsc: tool("EXACT_TSC", root.join("node_modules/.bin/tsc")),
             rolldown: tool("EXACT_ROLLDOWN", root.join("node_modules/.bin/rolldown")),
-            hermesc: tool(
-                "EXACT_HERMESC",
-                root.join(format!("../ibex/tools/hermes-vanilla/hermesc-macos-{arch}")),
-            ),
+            hermesc: tool("EXACT_HERMESC", PathBuf::from("hermesc")),
         }
     }
 }

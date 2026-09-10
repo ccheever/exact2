@@ -17,6 +17,15 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
         .args(["--input-type=module", "-e", PROBE])
         .env("CHROME", chrome)
         .env(
+            "EXACT_SCOPED_PLAN",
+            serde_json::to_string(
+                &contract::compile(include_str!("../../tests/fixtures/scoped.contract"))
+                    .unwrap()
+                    .encode(),
+            )
+            .unwrap(),
+        )
+        .env(
             "EXACT_PARITY",
             serde_json::to_string(&caltrain::oracle()).unwrap(),
         )
@@ -36,11 +45,16 @@ const PROBE: &str = r#"
 import { Cdp } from './scripts/agent.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import assert from 'node:assert/strict';
-const routes = {'/module-glue.js':'host/web/module-glue.js','/module-prelude.js':'js/src/prelude.js'};
+const messages=execFileSync('cargo',['build','--locked','--offline','-p','exact-js-web','--target','wasm32-unknown-unknown','--message-format=json'],{encoding:'utf8',maxBuffer:16*1024*1024}).trim().split('\n').map(line=>JSON.parse(line));
+const artifacts=new Map(messages.filter(m=>m.reason==='compiler-artifact').map(m=>[m.target.name,m.filenames.find(f=>f.endsWith('.rlib'))]));
+const wasmDir=mkdtempSync(resolve(tmpdir(),'exact-scoped-wasm-'));
+writeFileSync(resolve(wasmDir,'app.plan'),new Uint8Array(JSON.parse(process.env.EXACT_SCOPED_PLAN)));
+execFileSync('rustc',['--edition=2021','--crate-type=cdylib','--target','wasm32-unknown-unknown','js/web/tests/support/scoped.rs','--out-dir',wasmDir,'-L',`dependency=${dirname(artifacts.get('exact_runner'))}`,...['exact_js_web','exact_kernel','exact_runner','exact_plan','serde_json'].flatMap(name=>['--extern',`${name}=${artifacts.get(name)}`])],{env:{...process.env,EXACT_SCOPED_PLAN_FILE:resolve(wasmDir,'app.plan')}});
+const routes = {'/module-glue.js':'host/web/module-glue.js','/module-prelude.js':'js/src/prelude.js','/scoped.wasm':resolve(wasmDir,'scoped.wasm')};
 routes['/startup/glue.js']='host/web/glue.js';
 const hostPage=readFileSync('host/web/index.html','utf8');
 const modulePage=hostPage.replace(/<script type="module" src="\.\/glue\.js"><\/script>/,'');
@@ -104,6 +118,47 @@ try {
     globalThis.exact ??= {};
     const {prepare,call,run} = await import('/module-glue.js');
     const checkpoint=async result=>{for(let i=0;result.continuation&&i<20;i++)result=await run(result.continuation);return result;};
+    {
+      const bytes=s=>new TextEncoder().encode(s), text=b=>new TextDecoder().decode(b);
+      const script=bytes(fixtures.castle), identity={appId:'xyz.castle.test',grants:'net.fetch https://api.castle.xyz\nsecret.keep castle.session\n'};
+      const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',script)),b=>b.toString(16).padStart(2,'0')).join('');
+      const receipt=bytes(JSON.stringify({version:1,abi:1,...identity,module:{sha256:'a'.repeat(64)},web:{file:'app.js',bytes:script.length,sha256:digest}}));
+      let wasm, reply, beforePixel=true;
+      ({instance:wasm}=await WebAssembly.instantiate(await (await fetch('/scoped.wasm')).arrayBuffer(),{exact_js:{call(op,ptr,len){
+        if(beforePixel)throw new Error('wasm called JavaScript before first pixel');
+        if(op===0){reply=bytes(JSON.stringify(call(JSON.parse(text(new Uint8Array(wasm.exports.memory.buffer,ptr,len))))));return reply.length;}
+        new Uint8Array(wasm.exports.memory.buffer,ptr,len).set(reply);return len;
+      }}}));
+      const step=(op,ticket=0,body='')=>{const input=bytes(body), ptr=wasm.exports.input(input.length);new Uint8Array(wasm.exports.memory.buffer,ptr,input.length).set(input);const len=wasm.exports.step(op,BigInt(ticket));return JSON.parse(text(new Uint8Array(wasm.exports.memory.buffer,wasm.exports.output(),len)));};
+      const boot=step(0);if(boot.requests.length)throw new Error('first frame requested JS work');
+      beforePixel=false;
+      const realm=await prepare({script,receipt},identity,0);
+      const advance=async rows=>{const http=[];for(const row of rows){if(row.continuation){const ready=await run(row.continuation);http.push(...await advance(step(2,row.ticket,JSON.stringify(ready)).requests));}else http.push(row);}return http;};
+      const first=await advance(step(1).requests);
+      if(first.length!==2||first.some(r=>r.url!=='https://api.castle.xyz/child'))throw new Error('wasm siblings did not both request equal arguments');
+      let state;
+      for(const [index,who] of [[1,'B'],[0,'A']]) {
+        const chain=await advance(step(2,first[index].ticket,who).requests);
+        if(chain.length!==1||chain[0].url!==`https://api.castle.xyz/child/${who}`)throw new Error('wasm chained caller changed');
+        state=step(2,chain[0].ticket,'done');await advance(state.requests);
+      }
+      const value=(tree,id)=>tree.nodes.find(n=>n.props?.testId===id||n.testId===id)?.props?.text;
+      // Read rendered values through the real kernel's tree, after checkpoints.
+      state=step(4);
+      if(value(state.tree,'value-a')!=='A'||value(state.tree,'value-b')!=='B')throw new Error('wasm sibling values differ: '+JSON.stringify(state.tree));
+      const stale=await advance(step(3,0,'refresh-a').requests);
+      const saved=await advance(step(3,0,'save-b').requests);
+      const fresh=await advance(step(3,0,'refresh-a').requests);
+      if(stale.length!==1||saved.length!==1||fresh.length!==1)throw new Error('wasm resource/mutation did not remain separate');
+      if(step(2,stale[0].ticket,'STALE').requests.length)throw new Error('stale wasm child resumed');
+      for(const [request,who] of [[saved[0],'saved B'],[fresh[0],'new A']]) {
+        const chain=await advance(step(2,request.ticket,who).requests);
+        await advance(step(2,chain[0].ticket,'done').requests);
+      }
+      state=step(4);
+      if(value(state.tree,'value-a')!=='new A'||value(state.tree,'value-b')!=='B'||value(state.tree,'saved-b')!=='saved B'||value(state.tree,'saved-a')!=='none')throw new Error('wasm scoped cancellation crossed child owners');
+      realm.dispose();
+    }
     const oldDate=Date, oldNow=Date.now, oldRandom=Math.random;
     const guest=document.createElement('iframe');document.getElementById('exact-root').append(guest);
     const guestBox=guest.getBoundingClientRect(), pageHeight=document.documentElement.scrollHeight;
@@ -203,6 +258,33 @@ try {
     if((await ask('parallel',[],response('\u0000\u00ff'))).request.url!=='https://api.castle.xyz/b')throw new Error('parallel second request');
     if((await ask('parallel',[],response('ok'))).value.error!=='0,255/ok')throw new Error('parallel binary body');
     if((await ask('logout')).writes[0][1]!==null)throw new Error('forget');
+    {
+    // Distinct u64 contexts cross the JSON bridge as strings, including values
+    // beyond JavaScript's exact-integer range. Equal arguments remain independent.
+    const scoped=(context,source,args=[],outcome)=>checkpoint(call({id:castle.id,context,op:outcome?'resume':'answer',source,args,store,grants,outcome}));
+    const first='18446744073709551614', second='18446744073709551615';
+    const same=['same','pw'];
+    const starts=await Promise.all([scoped(first,'login',same),scoped(second,'login',same)]);
+    if(starts.some(r=>r.tag!==1))throw new Error('equal-argument scoped starts did not park');
+    for(const [context,who] of [[second,'second'],[first,'first']]) {
+      const result=await scoped(context,'login',same,response(JSON.stringify({data:{loginV2:{token:who,username:who}}})));
+      if(result.value?.username!==who||!result.writes[0][1].includes(who))throw new Error('scoped response reached another caller');
+    }
+    await Promise.all([scoped('201','profile'),scoped('202','profile')]);
+    for(const [context,who] of [['202','second'],['201','first']]) {
+      const result=await scoped(context,'profile',[],response(JSON.stringify({username:who})));
+      if(result.request?.url!==`https://api.castle.xyz/profile/${who}`)throw new Error('scoped chain lost its caller');
+    }
+    call({id:castle.id,op:'cancel',context:'201'});
+    if(!(await scoped('201','profile',[],response('stale'))).error)throw new Error('cancelled call still resumed');
+    if((await scoped('202','profile',[],response('second profile'))).value?.error!=='second profile')throw new Error('cancelling sibling cancelled survivor');
+    const scopedAbandoned=call({id:castle.id,op:'answer',context:'301',source:'login',args:same,store,grants});
+    const survivor=call({id:castle.id,op:'answer',context:'302',source:'login',args:same,store,grants});
+    call({id:castle.id,op:'cancel',context:'301'});
+    let cancelled=false;try{await run(scopedAbandoned.continuation);}catch{cancelled=true;}
+    if(!cancelled||(await checkpoint(survivor)).tag!==1)throw new Error('checkpoint cancellation lost sibling');
+    if((await scoped('302','login',same,response('{"data":{"loginV2":{"token":"live","username":"live"}}}'))).value?.username!=='live')throw new Error('surviving queued call lost');
+    }
     castle.dispose();
     const NativeWorker=globalThis.Worker;
     let workersCreated=0, workersTerminated=0;
@@ -339,12 +421,12 @@ try {
       if(canonical(actual)!==canonical(test.expected))throw new Error(`Caltrain parity ${test.source}: ${JSON.stringify({actual,expected:test.expected})}`);
     }
     train.dispose();
-    return {guards:forms.length,caltrain:fixtures.oracle.length,store:true,isolated:true,refusals:true,async:true,storage:true,sqliteReload:{coldMs,warmMs}};
+    return {scopedWasm:true,scopedContexts:true,guards:forms.length,caltrain:fixtures.oracle.length,store:true,isolated:true,refusals:true,async:true,storage:true,sqliteReload:{coldMs,warmMs}};
   };
   const result=await call('Runtime.evaluate',{expression:`(${probe.toString()})(${JSON.stringify(fixtures)})`,returnByValue:true,awaitPromise:true});
   assert.equal(result.exceptionDetails,undefined,JSON.stringify(result.exceptionDetails));
   console.log(JSON.stringify(result.result.value.sqliteReload));delete result.result.value.sqliteReload;
-  assert.deepEqual(result.result.value,{guards:25,caltrain:20,store:true,isolated:true,refusals:true,async:true,storage:true});
+  assert.deepEqual(result.result.value,{scopedWasm:true,scopedContexts:true,guards:25,caltrain:20,store:true,isolated:true,refusals:true,async:true,storage:true});
   await call('Page.reload');
   const persisted=await call('Runtime.evaluate',{expression:`(async()=>{
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
@@ -426,6 +508,6 @@ try {
   }
   console.log('startup: private iframe layout, pre-activation scroll, input gating, successful and failed activation');
 } finally {
-  process.kill(-child.pid,'SIGKILL');await exited;server.closeAllConnections();await new Promise(r=>server.close(r));rmSync(profile,{recursive:true,force:true,maxRetries:3,retryDelay:100});
+  process.kill(-child.pid,'SIGKILL');await exited;server.closeAllConnections();await new Promise(r=>server.close(r));rmSync(wasmDir,{recursive:true,force:true});rmSync(profile,{recursive:true,force:true,maxRetries:3,retryDelay:100});
 }
 "#;

@@ -1,0 +1,29 @@
+shape Session
+  ok: bool
+  username: string
+  error: string
+component App
+  view
+    column
+      Card(id="a")
+      Card(id="b")
+component Card
+  props
+    id: string
+  state tick = 0
+  resource value = child() as shape string else "loading"
+  mutation saved as shape string
+  action refreshValue writes tick
+    refresh value
+  action save writes saved
+    send saved = child()
+  view
+    column
+      text value testId=`value-${id}`
+      button "Refresh" press=refreshValue testId=`refresh-${id}`
+      button "Save" press=save testId=`save-${id}`
+      match saved
+        case some(result)
+          text result testId=`saved-${id}`
+        case none
+          text "none" testId=`saved-${id}`

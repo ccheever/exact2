@@ -15,6 +15,31 @@ Start here:
 The predecessor repo is research, not authority: cite it for how something worked,
 never to block. Its design documents are imported under `llp/research/`.
 
+## Component-owned effects
+
+Child components can own state, resources, mutations, and periodic tasks. Each
+mounted instance gets independent values and pending work; keyed reorder keeps
+that instance, while unmount and whole-plan reload reset child state and stop its
+tasks. Root state keeps its existing reload behavior.
+
+```text
+component UsageDetails
+  props
+    account: string
+  resource usage = fleetUsage(account) as shape string else "Loading…"
+  action refreshUsage
+    refresh usage
+  task poll mount
+    every(300000, refreshUsage)
+  view
+    text usage
+```
+
+The typed `else` value handles a first asynchronous answer, including a dialog
+opened after bake. `pending(usage)` remains available for loading UI. Keep shared
+requests or animation clocks in the parent when children should share work;
+there is no automatic cross-instance request cache. See [LLP 1017.003](llp/1017.003-component-owned-effects.rfc.md).
+
 ## What exists
 
 | Crate | What it is | Spec |
@@ -126,7 +151,7 @@ so closed databases can be copied or exported through `storage.fs`. SQLite integ
 are `bigint`: convert them to a Contract-compatible value before returning.
 
 Build an app-local `app.ts` module and bake its Contract through the resulting
-Hermes bytecode (currently a macOS producer with the sibling ibex toolchain):
+Hermes bytecode (currently a macOS producer):
 
 ```sh
 cargo run -q -p exact-js-bake -- path/to/app --out path/to/new-generation
@@ -137,7 +162,21 @@ captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
 bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
 types, and an `app.module.json` pairing receipt into a **new** directory; it
 never overwrites an existing generation. npm dependencies are not captured yet.
-`EXACT_TSC`, `EXACT_ROLLDOWN`, and `EXACT_HERMESC` override producer tools.
+Ibex's Rust crates, JSI sources, and storage declarations come from the exact Git
+revision in the workspace `Cargo.toml` and `Cargo.lock`. No sibling Ibex checkout
+is required. Run `cargo fetch --locked` once before the scripts' offline builds;
+for an external app, generate and commit its own lockfile, then fetch from its
+workspace. `npm ci` at the Exact2 root installs the pinned TypeScript/Rolldown tools.
+
+Hermes is provisioned separately: set `EXACT_HERMES_DIR` to the directory containing
+`hermes-headers/` and `macos-static/` (`libhermesvmlean_a.a`, `libjsi.a`, and
+`libboost_context.a`), and `EXACT_HERMESC` to its matching bytecode compiler.
+These may live anywhere. Without engine archives, `exact-js` builds a refusing
+stub; TypeScript baking needs the real engine. The Contract compiler only copies
+Ibex's public declaration text at build time and links no Ibex runtime or engine.
+`EXACT_TSC` and `EXACT_ROLLDOWN` override the repo tools; the producer also accepts
+`hermesc` on PATH when `EXACT_HERMESC` is unset. App JavaScript still starts after
+first pixel; only the producer executes it to bake the initial values.
 
 Native module clients can supply a `Module` factory to `exact_apple::host!`
 (the sixth argument) and apply an `ExactGeneration` containing an `ExactModule`

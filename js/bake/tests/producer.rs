@@ -361,6 +361,13 @@ fn cli_refuses_bad_arguments() {
 }
 
 #[test]
+fn compiler_emits_the_pinned_ibex_declarations_without_baking() {
+    let plan = contract::compile(CONTRACT).unwrap();
+    let declarations = contract::typescript(&plan).unwrap();
+    assert!(declarations.contains(ibex2::bindings::TYPESCRIPT));
+}
+
+#[test]
 fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
     if !exact_js::ENGINE_LINKED {
         return;
@@ -372,9 +379,7 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
     );
     f.write("app.ts", &source);
     let baked = f.bake();
-    assert!(baked.declarations.contains(include_str!(
-        "../../../../ibex/crates/ibex2/src/bindings/storage.d.ts"
-    )));
+    assert!(baked.declarations.contains(ibex2::bindings::TYPESCRIPT));
     let candidate = paired(&baked);
     let live = Runner::boot(candidate.plan, candidate.module, Kernel::with_monospace()).unwrap();
     assert_eq!(live.resource("message"), Some(&Value::str("old: 0")));

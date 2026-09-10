@@ -288,6 +288,8 @@ impl PlanBuilder {
             ty,
             initial,
             reader: false,
+            owner: None,
+            fallback: Code::default(),
         });
         ResourcesId(self.plan.resources.len() as u32 - 1)
     }
@@ -369,6 +371,8 @@ impl PlanBuilder {
         self.plan.timers.push(TimersRow {
             interval_ms,
             action,
+            owner: None,
+            args: ArgsRange::default(),
         });
         TimersId(self.plan.timers.len() as u32 - 1)
     }
@@ -477,6 +481,53 @@ impl PlanBuilder {
     /// Replace a resource's arguments.
     pub fn set_resource_args(&mut self, id: ResourcesId, args: ArgsRange) {
         self.plan.resources[id.0 as usize].args = args;
+    }
+
+    /// Bind a resource to its component lifetime scope.
+    pub fn set_resource_owner(&mut self, id: ResourcesId, owner: RegionsId) {
+        self.plan.resources[id.0 as usize].owner = Some(owner);
+    }
+
+    /// Set the typed expression used on the first pending answer.
+    pub fn set_resource_fallback(&mut self, id: ResourcesId, fallback: Code) {
+        self.plan.resources[id.0 as usize].fallback = fallback;
+    }
+
+    /// Bind a periodic registration to its component lifetime scope.
+    pub fn set_timer_owner(&mut self, id: TimersId, owner: RegionsId) {
+        self.plan.timers[id.0 as usize].owner = Some(owner);
+    }
+
+    /// Set the live argument expressions passed to a timer's action.
+    pub fn set_timer_args(&mut self, id: TimersId, args: ArgsRange) {
+        self.plan.timers[id.0 as usize].args = args;
+    }
+
+    /// Seed one owned resource at its full keyed path and actual arguments.
+    /// A pending seed is a fallback whose real work must launch at runtime.
+    #[allow(clippy::too_many_arguments)]
+    pub fn resource_boot(
+        &mut self,
+        resource: ResourcesId,
+        path: &Value,
+        args: &Value,
+        value: &Value,
+        reader: bool,
+        pending: bool,
+    ) -> ResourceBootId {
+        let path = self.data(path);
+        let args = self.data(args);
+        let value = self.data(value);
+        let id = ResourceBootId(self.plan.resource_boot.len() as u32);
+        self.plan.resource_boot.push(ResourceBootRow {
+            resource,
+            path,
+            args,
+            value,
+            reader,
+            pending,
+        });
+        id
     }
 
     /// Replace a resource's compiled initial value.

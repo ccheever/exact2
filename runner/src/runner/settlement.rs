@@ -1,5 +1,6 @@
 //! Resource and derive settlement, split from the runner's commit shell.
 
+use super::requests::DeferredAnswer;
 use super::{DataError, DataSource, ResourceState, Runner, RunnerError, Target};
 use crate::request::{Answer, Request};
 use crate::vm::{self, Env, Trap};
@@ -14,6 +15,7 @@ enum RequestEffect {
         args: Vec<Value>,
         request: Request,
         forced: bool,
+        context: u64,
     },
 }
 
@@ -29,16 +31,48 @@ impl<D: DataSource> Runner<D> {
         which: Vec<usize>,
         what: &str,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
-        if which.is_empty() {
+        let scoped: Vec<_> = self
+            .scope_frames()
+            .into_iter()
+            .filter(|frames| {
+                frames
+                    .last()
+                    .unwrap()
+                    .scope
+                    .as_ref()
+                    .unwrap()
+                    .borrow()
+                    .resources
+                    .iter()
+                    .any(|(i, r)| which.contains(i) || (r.stale && self.data.ready()))
+            })
+            .collect();
+        let root: Vec<_> = which
+            .iter()
+            .copied()
+            .filter(|i| self.plan.resources[*i].owner.is_none())
+            .collect();
+        if root.is_empty() && scoped.is_empty() {
             return Ok(None);
         }
-        let what = format!("{what} ({} asked again)", which.len());
+        let what = format!(
+            "{what} ({} root, {} scopes asked again)",
+            root.len(),
+            scoped.len()
+        );
         let was_poisoned = self.poisoned;
-        let kept = self.store.checkpoint();
-        let since = kept.writes;
-        let saved_slots = self.slots.clone();
-        let saved_resources = self.resources.clone();
-        self.refresh_next.extend(which);
+        let frames: Vec<_> = scoped.iter().flatten().cloned().collect();
+        let kept = self.checkpoint(&frames);
+        let since = self.store.writes().len();
+        self.refresh_next.extend(root);
+        for frames in scoped {
+            let mut scope = frames.last().unwrap().scope.as_ref().unwrap().borrow_mut();
+            for (i, resource) in &mut scope.resources {
+                if which.contains(i) || (resource.stale && self.data.ready()) {
+                    resource.refresh = true;
+                }
+            }
+        }
         let result = if self.poisoned {
             Err(RunnerError::Poisoned)
         } else {
@@ -46,11 +80,7 @@ impl<D: DataSource> Runner<D> {
         };
         match &result {
             Ok(_) => self.log_store_writes(since),
-            Err(_) => {
-                self.store.restore(kept);
-                self.slots = saved_slots;
-                self.resources = saved_resources;
-            }
+            Err(_) => self.restore(kept),
         }
         self.log_outcome(&what, &result, was_poisoned);
         result.map(Some)
@@ -83,6 +113,7 @@ impl<D: DataSource> Runner<D> {
         // the whole pass succeeds, so a failure leaves every cache as it was.
         let mut states: Vec<Option<ResourceState>> = self.resources.clone();
         let mut effects = vec![RequestEffect::None; states.len()];
+        let mut deferred: Vec<Option<DeferredAnswer>> = vec![None; states.len()];
         let mut passes = 0usize;
         loop {
             passes += 1;
@@ -100,7 +131,12 @@ impl<D: DataSource> Runner<D> {
                     RequestEffect::Later { .. } => pending_res[i] = true,
                 }
             }
-            let mut settled_res = vec![false; states.len()];
+            let mut settled_res: Vec<bool> = self
+                .plan
+                .resources
+                .iter()
+                .map(|r| r.owner.is_some())
+                .collect();
             loop {
                 let mut progress = false;
                 let mut all = true;
@@ -186,7 +222,8 @@ impl<D: DataSource> Runner<D> {
                     // resource query, including through derives. Such a
                     // resource is device data just like a direct reader.
                     self.store_readers[i] |= store_dependent;
-                    let forced = force.contains(&i);
+                    let mut forced = force.contains(&i);
+                    let mut observed_revision = self.store.revision();
                     // A store-reading resource is reusable only at the exact
                     // store revision it observed. `answer` and `parse` both
                     // write through Store, so this is the one dirtying point.
@@ -220,14 +257,25 @@ impl<D: DataSource> Runner<D> {
                             // A resource that consults the store is the device's,
                             // not the build's: bake gives it no compiled value
                             // (LLP 1018 D4).
-                            let reads_before = self.store.reads();
                             effects[i] = RequestEffect::None;
                             pending_res[i] = self.pending_res[i];
-                            let answer = self.query(i, &args)?;
+                            let (answer, context) =
+                                match deferred[i].take().filter(|pending| pending.args == args) {
+                                    Some(pending) => {
+                                        self.store_readers[i] |= pending.reader;
+                                        observed_revision = pending.revision;
+                                        forced |= pending.forced;
+                                        (Answer::Later(pending.request), pending.context)
+                                    }
+                                    None => {
+                                        let reads_before = self.store.reads();
+                                        let answer = self.query(i, &args)?;
+                                        self.store_readers[i] |= self.store.reads() > reads_before;
+                                        observed_revision = self.store.revision();
+                                        answer
+                                    }
+                                };
                             force.retain(|forced| *forced != i);
-                            if self.store.reads() > reads_before {
-                                self.store_readers[i] = true;
-                            }
                             match answer {
                                 Answer::Now(v) => {
                                     if pending_res[i] {
@@ -241,6 +289,7 @@ impl<D: DataSource> Runner<D> {
                                     v
                                 }
                                 Answer::Later(request) => {
+                                    self.stale[i] = false;
                                     // The host will run it. Meanwhile the resource
                                     // keeps the value it had — its last answer, or
                                     // its compiled boot value (LLP 1016 D3).
@@ -253,19 +302,31 @@ impl<D: DataSource> Runner<D> {
                                                 })
                                                 .flatten()
                                         });
-                                    let Some(kept) = kept else {
-                                        return Err(RunnerError::Data {
-                                            resource: self.plan.str(row.name).to_string(),
-                                            error: DataError::Unavailable(
-                                                "answers later at boot: declare boot arguments the source answers now"
-                                                    .into(),
-                                            ),
-                                        });
+                                    let kept = match kept {
+                                        Some(value) => value,
+                                        None if row.fallback.len > 0 => {
+                                            let env = Env { plan: &self.plan, slots: &self.slots, derives: &derives, resources: &resources, params: &[], frames: &[], now_ms: self.now_ms,
+                                                pending_resources: &pending_res, pending_mutations: &self.pending_mut,
+                                                store_dependent_derives: &derive_store_dependent, store_dependent_resources: &self.store_readers };
+                                            let out = match vm::eval(self.plan.code(row.fallback), &env, &[]) {
+                                                Ok(out) => out,
+                                                Err(Trap::Pending { .. }) => {
+                                                    deferred[i] = Some(DeferredAnswer { args: args.clone(), request, context, reader: self.store_readers[i], revision: observed_revision, forced });
+                                                    all = false;
+                                                    continue;
+                                                }
+                                                Err(error) => return Err(error.into()),
+                                            };
+                                            self.store_readers[i] |= out.store_dependent;
+                                            out.value
+                                        }
+                                        None => return Err(RunnerError::Data { resource: self.plan.str(row.name).to_string(), error: DataError::Unavailable("first pending resource has no boot value or explicit fallback".into()) }),
                                     };
                                     effects[i] = RequestEffect::Later {
                                         args: args.clone(),
                                         request,
                                         forced,
+                                        context,
                                     };
                                     pending_res[i] = true;
                                     kept
@@ -278,7 +339,7 @@ impl<D: DataSource> Runner<D> {
                     states[i] = Some(ResourceState {
                         args,
                         value,
-                        store_revision: self.store.revision(),
+                        store_revision: observed_revision,
                     });
                     settled_res[i] = true;
                     progress = true;
@@ -297,7 +358,8 @@ impl<D: DataSource> Runner<D> {
             // the writer's state already carries the new revision, so it
             // does not refresh itself.
             let stale_store_reader = states.iter().enumerate().any(|(i, state)| {
-                self.store_readers[i]
+                self.plan.resources[i].owner.is_none()
+                    && self.store_readers[i]
                     && state
                         .as_ref()
                         .is_none_or(|state| state.store_revision != revision)
@@ -307,6 +369,7 @@ impl<D: DataSource> Runner<D> {
             }
 
             self.derives = derives;
+            self.derive_readers = derive_store_dependent;
             self.resource_values = resources;
             self.resources = states;
             for (i, effect) in effects.iter().enumerate() {
@@ -319,10 +382,11 @@ impl<D: DataSource> Runner<D> {
                     args,
                     request,
                     forced,
+                    context,
                 } = effect
                 {
                     let source = self.plan.str(self.plan.resources[i].source).to_string();
-                    self.enqueue(Target::Resource(i), source, args, request, forced);
+                    self.enqueue(Target::Resource(i), source, args, request, forced, context);
                 }
             }
             return Ok(());

@@ -37,6 +37,8 @@ struct Table {
 struct Field {
     name: String,
     codec: String,
+    #[serde(default)]
+    optional: bool,
 }
 
 #[derive(Deserialize)]
@@ -132,7 +134,7 @@ fn rust_type(c: &Codec) -> String {
 
 fn validate(schema: &Schema) {
     assert_eq!(
-        schema.format_version, 4,
+        schema.format_version, 5,
         "format: unsupported formatVersion"
     );
     for f in &schema.header {
@@ -152,6 +154,10 @@ fn validate(schema: &Schema) {
                 "format: duplicate field `{}` in `{}`",
                 f.name,
                 t.name
+            );
+            assert!(
+                !f.optional || matches!(parse_codec(&f.codec), Codec::Code),
+                "format: only a code field can be optional"
             );
             match parse_codec(&f.codec) {
                 Codec::Idx(r) | Codec::Opt(r) | Codec::Range(r) => {
@@ -652,7 +658,7 @@ fn main() {
                 Codec::Idx(tt) => format!("if r.{f}.0 as usize >= self.{tt}.len() {{ return Err(at(\"{f}\")); }}", f = f.name),
                 Codec::Opt(tt) => format!("if let Some(v) = r.{f} {{ if v.0 as usize >= self.{tt}.len() {{ return Err(at(\"{f}\")); }} }}", f = f.name),
                 Codec::Range(tt) => format!("if r.{f}.start as u64 + r.{f}.len as u64 > self.{tt}.len() as u64 {{ return Err(at(\"{f}\")); }}", f = f.name),
-                Codec::Code => format!("if r.{f}.offset as u64 + r.{f}.len as u64 > code_len {{ return Err(at(\"{f}\")); }} self.check_code(r.{f}).map_err(|e| e.at(\"{}\", i as u32, \"{f}\"))?;", t.name, f = f.name),
+                Codec::Code => format!("if r.{f}.offset as u64 + r.{f}.len as u64 > code_len {{ return Err(at(\"{f}\")); }} if {required} || r.{f}.len != 0 {{ self.check_code(r.{f}).map_err(|e| e.at(\"{}\", i as u32, \"{f}\"))?; }}", t.name, f = f.name, required = !f.optional),
                 Codec::Bytes => format!("if r.{f}.offset as u64 + r.{f}.len as u64 > data_len {{ return Err(at(\"{f}\")); }}", f = f.name),
                 Codec::F64 => format!("if !r.{f}.is_finite() {{ return Err(at(\"{f}\")); }}", f = f.name),
                 _ => String::new(),

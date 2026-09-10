@@ -12,7 +12,8 @@
 //! in the *use site's* scope.
 
 use crate::ast::{
-    Action, Attr, Binding, Component, Expr, File, Node, Param, Stmt, TemplatePart, TypeExpr,
+    Action, Attr, Binding, Component, Expr, File, MutationDecl, Node, Param, ResourceDecl, Stmt,
+    Task, TemplatePart, TypeExpr,
 };
 use crate::parser::SyntaxError;
 use std::collections::{BTreeMap, BTreeSet};
@@ -34,17 +35,22 @@ pub fn inline(file: &File) -> Result<Vec<Node>, SyntaxError> {
     Ok(expand(file)?.root.view)
 }
 
-/// The root as the plan sees it (LLP 1017 P4c): its view inlined, plus the
-/// `state`s and `action`s of every stateful child use, renamed apart with
-/// the use's number — a root slot for a use outside any `each`, a row slot
-/// (owned by the innermost enclosing `each`, named by its tag) inside one;
-/// a child's `derive` is an expression substituted at each read.
+/// The expanded root and owner metadata for its lifted declarations.
 pub struct Expanded {
     /// The root, with the children's declarations appended.
     pub root: Component,
-    /// For each of `root.states`, the tag of the `each` that owns it, or
-    /// `None` for a root slot.
+    /// For each state, the owning Scope tag; root declarations have no owner.
     pub owners: Vec<Option<u32>>,
+    /// Owning Scope tags, in expanded resource order.
+    pub resource_owners: Vec<Option<u32>>,
+    /// Owning Scope tags, in expanded mutation order.
+    pub mutation_owners: Vec<Option<u32>>,
+    /// Owning Scope tags, in expanded action order.
+    pub action_owners: Vec<Option<u32>>,
+    /// Owning Scope tags, in expanded task order.
+    pub task_owners: Vec<Option<u32>>,
+    /// Live hidden capture expressions passed by each timer.
+    pub task_args: Vec<Vec<Expr>>,
 }
 
 /// Expand the file's root: inline every use and lift every child's own
@@ -57,10 +63,12 @@ pub fn expand(file: &File) -> Result<Expanded, SyntaxError> {
         depth: 0,
         provides: Vec::new(),
         fill: None,
-        each_stack: Vec::new(),
         next_tag: 1,
         extra_states: Vec::new(),
         extra_actions: Vec::new(),
+        extra_resources: Vec::new(),
+        extra_mutations: Vec::new(),
+        extra_tasks: Vec::new(),
     };
     let view = inline_nodes(&file.components[0].view, &BTreeMap::new(), &mut ctx)?;
     let mut root = file.components[0].clone();
@@ -70,8 +78,37 @@ pub fn expand(file: &File) -> Result<Expanded, SyntaxError> {
         root.states.push(b);
         owners.push(owner);
     }
-    root.actions.extend(ctx.extra_actions);
-    Ok(Expanded { root, owners })
+    let mut action_owners = vec![None; root.actions.len()];
+    for (action, owner) in ctx.extra_actions {
+        root.actions.push(action);
+        action_owners.push(owner);
+    }
+    let mut resource_owners = vec![None; root.resources.len()];
+    for (resource, owner) in ctx.extra_resources {
+        root.resources.push(resource);
+        resource_owners.push(owner);
+    }
+    let mut mutation_owners = vec![None; root.mutations.len()];
+    for (mutation, owner) in ctx.extra_mutations {
+        root.mutations.push(mutation);
+        mutation_owners.push(owner);
+    }
+    let mut task_owners = vec![None; root.tasks.len()];
+    let mut task_args = vec![Vec::new(); root.tasks.len()];
+    for (task, owner, args) in ctx.extra_tasks {
+        root.tasks.push(task);
+        task_owners.push(owner);
+        task_args.push(args);
+    }
+    Ok(Expanded {
+        root,
+        owners,
+        resource_owners,
+        mutation_owners,
+        action_owners,
+        task_owners,
+        task_args,
+    })
 }
 
 /// What inlining carries down the tree besides the substitution.
@@ -84,15 +121,23 @@ struct Ctx<'a> {
     provides: Vec<(String, Expr)>,
     /// The nodes that fill `children` here: `Some` inside a `slot`
     /// component's view (possibly empty), `None` elsewhere.
-    fill: Option<Vec<Node>>,
-    /// The tags of the `each`es enclosing the current site, outermost first.
-    each_stack: Vec<u32>,
+    fill: Option<Box<Fill>>,
     /// The next `each` tag.
     next_tag: u32,
     /// The children's `state`s lifted into the root, with their owners.
     extra_states: Vec<(Binding, Option<u32>)>,
     /// The children's `action`s lifted into the root.
-    extra_actions: Vec<Action>,
+    extra_actions: Vec<(Action, Option<u32>)>,
+    extra_resources: Vec<(ResourceDecl, Option<u32>)>,
+    extra_mutations: Vec<(MutationDecl, Option<u32>)>,
+    extra_tasks: Vec<(Task, Option<u32>, Vec<Expr>)>,
+}
+
+#[derive(Clone)]
+struct Fill {
+    nodes: Vec<Node>,
+    subst: BTreeMap<String, Expr>,
+    outer: Option<Box<Fill>>,
 }
 
 fn inline_nodes(
@@ -103,6 +148,11 @@ fn inline_nodes(
     let mut out = Vec::with_capacity(nodes.len());
     for n in nodes {
         match n {
+            Node::Scope { tag, body, span } => out.push(Node::Scope {
+                tag: *tag,
+                body: inline_nodes(body, subst, ctx)?,
+                span: *span,
+            }),
             Node::Use {
                 name,
                 args,
@@ -153,10 +203,26 @@ fn inline_nodes(
                 // root — a derive as an expression substituted at each read.
                 *ctx.counter += 1;
                 let n = *ctx.counter;
-                let owner = ctx.each_stack.last().copied();
+                let owner = if !c.states.is_empty()
+                    || !c.resources.is_empty()
+                    || !c.mutations.is_empty()
+                    || !c.tasks.is_empty()
+                {
+                    let tag = ctx.next_tag;
+                    ctx.next_tag += 1;
+                    Some(tag)
+                } else {
+                    None
+                };
                 let mut names: BTreeMap<String, String> = BTreeMap::new();
                 for st in &c.states {
                     names.insert(st.name.clone(), format!("{}__{n}", st.name));
+                }
+                for r in &c.resources {
+                    names.insert(r.name.clone(), format!("{}__{n}", r.name));
+                }
+                for m in &c.mutations {
+                    names.insert(m.name.clone(), format!("{}__{n}", m.name));
                 }
                 for a in &c.actions {
                     names.insert(a.name.clone(), format!("{}__{n}", a.name));
@@ -164,6 +230,12 @@ fn inline_nodes(
                 for st in &c.states {
                     child_subst
                         .insert(st.name.clone(), Expr::Ident(names[&st.name].clone(), *span));
+                }
+                for r in &c.resources {
+                    child_subst.insert(r.name.clone(), Expr::Ident(names[&r.name].clone(), r.span));
+                }
+                for m in &c.mutations {
+                    child_subst.insert(m.name.clone(), Expr::Ident(names[&m.name].clone(), m.span));
                 }
                 // Closure-convert child props/injects into hidden action
                 // parameters. A handler evaluates these curried arguments
@@ -221,6 +293,45 @@ fn inline_nodes(
                         owner,
                     ));
                 }
+                for r in &c.resources {
+                    ctx.extra_resources.push((
+                        ResourceDecl {
+                            name: names[&r.name].clone(),
+                            source: r.source.clone(),
+                            args: r
+                                .args
+                                .iter()
+                                .map(|arg| subst_expr(arg, &child_subst))
+                                .collect(),
+                            shape: r.shape.clone(),
+                            fallback: r
+                                .fallback
+                                .as_ref()
+                                .map(|expr| subst_expr(expr, &child_subst)),
+                            span: r.span,
+                        },
+                        owner,
+                    ));
+                }
+                for m in &c.mutations {
+                    let mut mutation = m.clone();
+                    mutation.name = names[&m.name].clone();
+                    ctx.extra_mutations.push((mutation, owner));
+                }
+                for t in &c.tasks {
+                    let mut task = t.clone();
+                    task.name = format!("{}__{n}", t.name);
+                    task.every.0 = subst_expr(&t.every.0, &child_subst);
+                    task.every.1 = names
+                        .get(&t.every.1)
+                        .cloned()
+                        .unwrap_or_else(|| t.every.1.clone());
+                    ctx.extra_tasks.push((
+                        task,
+                        owner,
+                        captures.iter().map(|(_, value, _)| value.clone()).collect(),
+                    ));
+                }
                 for a in &c.actions {
                     let mut action_subst = BTreeMap::new();
                     for (param, _, source_name) in &captures {
@@ -235,6 +346,14 @@ fn inline_nodes(
                             Expr::Ident(names[&st.name].clone(), st.span),
                         );
                     }
+                    for r in &c.resources {
+                        action_subst
+                            .insert(r.name.clone(), Expr::Ident(names[&r.name].clone(), r.span));
+                    }
+                    for m in &c.mutations {
+                        action_subst
+                            .insert(m.name.clone(), Expr::Ident(names[&m.name].clone(), m.span));
+                    }
                     for (derive, expr) in resolved_derives(c)? {
                         action_subst.insert(derive.name.clone(), subst_expr(&expr, &action_subst));
                     }
@@ -243,23 +362,26 @@ fn inline_nodes(
                     for param in &a.params {
                         action_subst.remove(&param.name);
                     }
-                    ctx.extra_actions.push(Action {
-                        name: names[&a.name].clone(),
-                        params: captures
-                            .iter()
-                            .map(|(param, _, _)| param.clone())
-                            .chain(a.params.iter().cloned())
-                            .collect(),
-                        writes: a
-                            .writes
-                            .iter()
-                            .map(|(w, sp)| {
-                                (names.get(w).cloned().unwrap_or_else(|| w.clone()), *sp)
-                            })
-                            .collect(),
-                        body: subst_stmts(&a.body, &action_subst, &names),
-                        span: a.span,
-                    });
+                    ctx.extra_actions.push((
+                        Action {
+                            name: names[&a.name].clone(),
+                            params: captures
+                                .iter()
+                                .map(|(param, _, _)| param.clone())
+                                .chain(a.params.iter().cloned())
+                                .collect(),
+                            writes: a
+                                .writes
+                                .iter()
+                                .map(|(w, sp)| {
+                                    (names.get(w).cloned().unwrap_or_else(|| w.clone()), *sp)
+                                })
+                                .collect(),
+                            body: subst_stmts(&a.body, &action_subst, &names),
+                            span: a.span,
+                        },
+                        owner,
+                    ));
                 }
                 if !children.is_empty() && !c.slot {
                     return err(
@@ -270,7 +392,11 @@ fn inline_nodes(
                 }
                 // The fill is the use site's: inlined here, in this scope.
                 let fill = if c.slot {
-                    Some(inline_nodes(children, subst, ctx)?)
+                    Some(Box::new(Fill {
+                        nodes: children.clone(),
+                        subst: subst.clone(),
+                        outer: ctx.fill.clone(),
+                    }))
                 } else {
                     None
                 };
@@ -280,7 +406,16 @@ fn inline_nodes(
                 let body = inline_nodes(&renamed.view, &child_subst, ctx);
                 ctx.depth -= 1;
                 ctx.fill = outer_fill;
-                out.extend(body?);
+                let body = body?;
+                if let Some(tag) = owner {
+                    out.push(Node::Scope {
+                        tag,
+                        body,
+                        span: *span,
+                    });
+                } else {
+                    out.extend(body);
+                }
             }
             Node::Provide {
                 name, expr, body, ..
@@ -291,7 +426,13 @@ fn inline_nodes(
                 out.extend(inner?);
             }
             Node::Children { span } => match &ctx.fill {
-                Some(fill) => out.extend(fill.iter().cloned()),
+                Some(fill) => {
+                    let fill = fill.clone();
+                    let old = std::mem::replace(&mut ctx.fill, fill.outer);
+                    let body = inline_nodes(&fill.nodes, &fill.subst, ctx);
+                    ctx.fill = old;
+                    out.extend(body?);
+                }
                 None => {
                     return err(
                         "syntax-children-without-slot",
@@ -341,9 +482,7 @@ fn inline_nodes(
             } => {
                 let tag = ctx.next_tag;
                 ctx.next_tag += 1;
-                ctx.each_stack.push(tag);
                 let body = inline_nodes(body, subst, ctx);
-                ctx.each_stack.pop();
                 out.push(Node::Each {
                     tag,
                     var: var.clone(),
@@ -439,6 +578,11 @@ fn derive_dependencies(
     out: &mut BTreeSet<usize>,
 ) {
     match expr {
+        Expr::List(items, _) => {
+            for item in items {
+                derive_dependencies(item, indices, bound, out);
+            }
+        }
         Expr::Ident(name, _) => {
             if !bound.contains(name) {
                 if let Some(i) = indices.get(name.as_str()) {
@@ -497,6 +641,10 @@ fn derive_dependencies(
 /// becomes `f(a…, args)`.
 fn subst_expr(e: &Expr, subst: &BTreeMap<String, Expr>) -> Expr {
     match e {
+        Expr::List(items, span) => Expr::List(
+            items.iter().map(|item| subst_expr(item, subst)).collect(),
+            *span,
+        ),
         Expr::Ident(n, _) => match subst.get(n) {
             Some(r) => r.clone(),
             None => e.clone(),
@@ -571,6 +719,11 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
     nodes
         .iter()
         .map(|node| match node {
+            Node::Scope { tag, body, span } => Node::Scope {
+                tag: *tag,
+                body: rename_nodes(body, map, n),
+                span: *span,
+            },
             Node::Element {
                 tag,
                 positional,
@@ -707,13 +860,13 @@ fn subst_stmts(
                 args,
                 span,
             } => Stmt::Send {
-                target: target.clone(),
+                target: names.get(target).cloned().unwrap_or_else(|| target.clone()),
                 source: source.clone(),
                 args: args.iter().map(|a| subst_expr(a, subst)).collect(),
                 span: *span,
             },
             Stmt::Refresh { target, span } => Stmt::Refresh {
-                target: target.clone(),
+                target: names.get(target).cloned().unwrap_or_else(|| target.clone()),
                 span: *span,
             },
             Stmt::If {

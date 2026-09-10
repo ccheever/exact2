@@ -22,9 +22,10 @@ use std::rc::Rc;
 
 /// Why an instance could not be realized.
 #[allow(missing_docs)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub enum InstanceError {
     Trap(Trap),
+    Effect(Box<crate::runner::RunnerError>),
     Bridge(bridge::BridgeError),
     UnknownNodeType(u8),
     SubjectKind { region: RegionsId },
@@ -96,9 +97,14 @@ struct Row {
 #[derive(Debug, Default)]
 pub struct Ids {
     next: ViewId,
+    lifetime: u64,
 }
 
 impl Ids {
+    fn lifetime(&mut self) -> u64 {
+        self.lifetime += 1;
+        self.lifetime
+    }
     fn fresh(&mut self) -> ViewId {
         self.next += 1;
         self.next
@@ -129,6 +135,8 @@ pub struct Update<'a> {
     pub ops: Vec<Op>,
     /// Surface inputs that changed, in tree order.
     pub surfaces: Vec<SurfaceUpdate>,
+    /// Settle the mounted cell before its dependent sites.
+    pub settle_scope: &'a mut dyn FnMut(&[Frame]) -> Result<(), crate::runner::RunnerError>,
 }
 
 impl<'a> Update<'a> {
@@ -377,8 +385,66 @@ impl RegionInst {
     fn update(&mut self, u: &mut Update<'_>, frames: &[Frame]) -> Result<(), InstanceError> {
         let plan = u.env.plan;
         let row = plan.region(self.region);
-        let subject = u.eval(row.subject, frames)?;
+        let subject = if row.kind == RegionKind::Scope {
+            Value::Unit
+        } else {
+            u.eval(row.subject, frames)?
+        };
         match (&row.kind, &mut self.active) {
+            (RegionKind::Scope, Active::Arm { arm, frame, roots }) => {
+                let fresh = frame.scope.is_none();
+                if fresh {
+                    let scope = Rc::new(RefCell::new(crate::scope::ScopeState::new(
+                        u.ids.lifetime(),
+                        self.region,
+                        frames.iter().filter_map(|f| f.key.clone()).collect(),
+                    )));
+                    *frame = Frame {
+                        region: Some(self.region.0),
+                        row: Some(scope.borrow().slots.clone()),
+                        scope: Some(scope.clone()),
+                        ..Default::default()
+                    };
+                    let mut inner = frames.to_vec();
+                    inner.push(frame.clone());
+                    for (i, slot) in plan
+                        .slots
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, s)| s.owner == Some(self.region))
+                    {
+                        let value = u.eval(slot.init, &inner)?;
+                        if !value.conforms(plan, slot.ty) {
+                            return Err(InstanceError::SlotType {
+                                slot: plan.str(slot.name).to_string(),
+                            });
+                        }
+                        scope.borrow().slots.borrow_mut().insert(i as u32, value);
+                    }
+                    for (i, timer) in plan
+                        .timers
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, t)| t.owner == Some(self.region))
+                    {
+                        scope
+                            .borrow_mut()
+                            .timers
+                            .insert(i, u.env.now_ms + timer.interval_ms as f64);
+                    }
+                }
+                let mut inner = frames.to_vec();
+                inner.push(frame.clone());
+                (u.settle_scope)(&inner).map_err(|e| InstanceError::Effect(Box::new(e)))?;
+                if fresh {
+                    *arm = Some(0);
+                    *roots = realize(u, None, row.arms.iter().next(), &inner)?;
+                } else {
+                    update_all(u, roots, &inner)?;
+                }
+                Ok(())
+            }
+
             (RegionKind::When, Active::Arm { arm, frame, roots }) => {
                 let want = match subject {
                     Value::Bool(true) => Some(0),
@@ -475,6 +541,7 @@ impl RegionInst {
                 for (key_text, key, mut frame) in keyed {
                     let existing = by_key.get(&key_text).and_then(|i| old[*i].take());
                     frame.region = Some(self.region.0);
+                    frame.key = Some(key.clone());
                     match existing {
                         Some(mut r) => {
                             frame.row = Some(r.slots.clone());
@@ -655,6 +722,37 @@ impl Tree {
         live.extend(gone);
         u.ops = live;
         Ok(())
+    }
+
+    /// Mounted component frame chains, in deterministic tree order.
+    pub(crate) fn scopes(&self) -> Vec<Vec<Frame>> {
+        fn visit(children: &[Child], frames: &mut Vec<Frame>, out: &mut Vec<Vec<Frame>>) {
+            for child in children {
+                match child {
+                    Child::Node(node) => visit(&node.children, frames, out),
+                    Child::Region(region) => match &region.active {
+                        Active::Arm { frame, roots, .. } => {
+                            frames.push(frame.clone());
+                            if frame.scope.is_some() {
+                                out.push(frames.clone());
+                            }
+                            visit(roots, frames, out);
+                            frames.pop();
+                        }
+                        Active::Rows { rows } => {
+                            for row in rows {
+                                frames.push(row.frame.clone());
+                                visit(&row.roots, frames, out);
+                                frames.pop();
+                            }
+                        }
+                    },
+                }
+            }
+        }
+        let mut out = Vec::new();
+        visit(&self.children, &mut Vec::new(), &mut out);
+        out
     }
 
     /// Listener declarations for every live view in one walk, without

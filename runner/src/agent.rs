@@ -161,7 +161,12 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         }
     }
     s.push_str("},\"resources\":{");
-    for (i, row) in plan.resources.iter().enumerate() {
+    for (i, row) in plan
+        .resources
+        .iter()
+        .filter(|r| r.owner.is_none())
+        .enumerate()
+    {
         let name = plan.str(row.name);
         if i > 0 {
             s.push(',');
@@ -190,10 +195,89 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         }
         quote(name, &mut s);
     }
-    s.push_str("],\"delivery\":");
+    s.push_str("],\"instances\":");
+    instances(runner, &mut s);
+    s.push_str(",\"delivery\":");
     delivery(runner, &mut s);
     s.push('}');
     s
+}
+
+/// Component cells reached through the current tree, without another registry.
+fn instances<D: DataSource>(runner: &Runner<D>, out: &mut String) {
+    let plan = runner.plan();
+    out.push('[');
+    for (n, frames) in runner.scope_frames().iter().enumerate() {
+        if n > 0 {
+            out.push(',');
+        }
+        let scope = frames.last().unwrap().scope.as_ref().unwrap().borrow();
+        let _ = write!(
+            out,
+            "{{\"lifetime\":{},\"scope\":{},\"path\":",
+            scope.lifetime, scope.region.0
+        );
+        untyped_json(&Value::list(scope.path.clone()), out);
+        out.push_str(",\"slots\":{");
+        for (j, (i, v)) in scope.slots.borrow().iter().enumerate() {
+            if j > 0 {
+                out.push(',');
+            }
+            let slot = &plan.slots[*i as usize];
+            quote(plan.str(slot.name), out);
+            out.push(':');
+            typed_json(plan, slot.ty, v, out);
+        }
+        out.push_str("},\"resources\":{");
+        for (j, (i, r)) in scope.resources.iter().enumerate() {
+            if j > 0 {
+                out.push(',');
+            }
+            let row = &plan.resources[*i];
+            quote(plan.str(row.name), out);
+            out.push_str(":{\"value\":");
+            if let Some(s) = &r.state {
+                typed_json(plan, row.ty, &s.value, out);
+            } else {
+                out.push_str("null");
+            }
+            let _ = write!(out, ",\"pending\":{},\"reader\":{}}}", r.pending, r.reader);
+        }
+        out.push_str("},\"mutations\":{");
+        for (j, (i, row)) in plan
+            .mutations
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| plan.slots[row.slot.0 as usize].owner == Some(scope.region))
+            .enumerate()
+        {
+            if j > 0 {
+                out.push(',');
+            }
+            quote(plan.str(row.name), out);
+            out.push_str(":{\"value\":");
+            let slots = scope.slots.borrow();
+            if let Some(value) = slots.get(&row.slot.0) {
+                typed_json(plan, plan.slots[row.slot.0 as usize].ty, value, out);
+            } else {
+                out.push_str("null");
+            }
+            let _ = write!(
+                out,
+                ",\"pending\":{}}}",
+                scope.mutations.get(&i).copied().unwrap_or(false)
+            );
+        }
+        out.push_str("},\"timers\":[");
+        for (j, (i, at)) in scope.timers.iter().enumerate() {
+            if j > 0 {
+                out.push(',');
+            }
+            let _ = write!(out, "{{\"timer\":{i},\"due\":{}}}", num(*at));
+        }
+        out.push_str("]}");
+    }
+    out.push(']');
 }
 
 /// `state.delivery` (LLP 1030 D7): the `delivery` resource's own fields,

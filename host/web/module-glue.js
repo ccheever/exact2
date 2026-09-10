@@ -76,8 +76,19 @@ export async function prepare(payload, admitted, id = nextId++) {
       }
     }
     if (win.exact?.abi !== 1 || win.exact.appId !== admitted.appId || win.exact.grants?.trim() !== admitted.grants.trim() || typeof win.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
-    const pending = new Map();
-    const key = r => JSON.stringify([r.source,r.args]);
+    const pending = new Map(), jobs = new Map();
+    const key = r => r.context && r.context !== '0' ? `context:${r.context}` : JSON.stringify([r.source,r.args]);
+    const cancel = request => {
+      const k = key(request), job = jobs.get(k);
+      if (!job) return {ok:true};
+      job.cancelled = true;
+      if (job.call) win.__exact_cancel(String(job.call));
+      storage.retire(job.owner);
+      pending.delete(k); jobs.delete(k);
+      for (const [token,turn] of turns) if (turn.job === job) turns.delete(token);
+      if (context?.job === job && !job.running) { context = null; busy = false; }
+      return {ok:true};
+    };
     const finish = (answer, request) => {
       const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead};
       if (answer.tag === 1) {
@@ -86,15 +97,19 @@ export async function prepare(payload, admitted, id = nextId++) {
         context.requests.delete(answer.ticket);
         pending.set(key(request), {call:answer.call,ticket:answer.ticket,requests:context.requests,owner:context.owner});
       }
-      if (answer.tag !== 1) storage.retire(context.owner);
+      if (answer.tag !== 1) { storage.retire(context.owner); jobs.delete(key(request)); }
       context = null; busy = false;
       return result;
     };
-    const begin = request => {
-      if (disposed) throw new Error('module environment disposed');
+    const begin = (request, job) => {
+      if (disposed || job.cancelled) throw new Error('module answer cancelled or disposed');
       busy = true;
-      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,requests:new Map()};
-      if (request.op === 'answer') return JSON.parse(win.__exact_call(request.source,JSON.stringify(request.args)));
+      context = {job,owner:job.owner,store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,requests:new Map()};
+      if (request.op === 'answer') {
+        const answer = JSON.parse(win.__exact_call(request.source,JSON.stringify(request.args)));
+        job.call = answer.call;
+        return answer;
+      }
       const parked = pending.get(key(request));
       if (!parked) throw new Error('reply for an answer not in flight');
       pending.delete(key(request));
@@ -103,16 +118,17 @@ export async function prepare(payload, admitted, id = nextId++) {
       win.__exact_fulfill(String(parked.ticket),JSON.stringify(request.outcome));
       return {tag:3,call:parked.call};
     };
-    const defer = (request, started = null) => {
+    const defer = (request, job, started = null) => {
       const token = nextTurn++;
-      turns.set(token, {id, run: () => {
+      turns.set(token, {id, job, run: () => {
         const run = tail.then(async () => {
-          if (disposed) throw new Error('module environment disposed');
+          if (disposed || job.cancelled) throw new Error('module answer cancelled or disposed');
+          job.running = true;
           try {
-            let answer = started || begin(request);
+            let answer = started || begin(request, job);
             if (answer.tag === 3) {
               await checkpoint();
-              if (disposed) throw new Error('module environment disposed');
+              if (disposed || job.cancelled) throw new Error('module answer cancelled or disposed');
               answer = JSON.parse(win.__exact_settle(String(answer.call)));
             }
             // Keep this answer's store context while its storage is pending.
@@ -120,26 +136,32 @@ export async function prepare(payload, admitted, id = nextId++) {
             while (answer.tag === 1 && answer.ticket === 0) {
               await storage.deliver(context.owner);
               await checkpoint();
-              if (disposed) throw new Error('module environment disposed');
+              if (disposed || job.cancelled) throw new Error('module answer cancelled or disposed');
               answer = JSON.parse(win.__exact_settle(String(answer.call)));
             }
             return finish(answer,request);
-          } catch (error) { storage.retire(context?.owner); context = null; busy = false; throw error; }
+          } catch (error) { storage.retire(job.owner); if (jobs.get(key(request)) === job) jobs.delete(key(request)); context = null; busy = false; throw error; }
+          finally { job.running = false; }
         });
         tail = run.catch(() => {}); return run;
       }});
       return {continuation:token};
     };
     const realm = { frame, meta, id,
+      cancel,
       invoke(request) {
-        if (busy) return defer(request);
+        if (request.op === 'answer') cancel(request);
+        let job = jobs.get(key(request));
+        if (!job && request.op === 'resume') return {error:'reply for an answer not in flight'};
+        if (!job) { job = {owner:{},cancelled:false,running:false}; jobs.set(key(request),job); }
+        if (busy) return defer(request,job);
         try {
-          const answer = begin(request);
-          return answer.tag === 3 ? defer(request,answer) : finish(answer,request);
-        } catch (error) { const {reads,writes,externalRead} = context || {}; storage.retire(context?.owner); context = null; busy = false; return {error:String(error),reads,writes,externalRead}; }
+          const answer = begin(request,job);
+          return answer.tag === 3 ? defer(request,job,answer) : finish(answer,request);
+        } catch (error) { const {reads,writes,externalRead} = context || {}; storage.retire(job.owner); jobs.delete(key(request)); context = null; busy = false; return {error:String(error),reads,writes,externalRead}; }
       },
       dispose() {
-        disposed = true; storage.dispose(); pending.clear(); realms.delete(id); frame.remove();
+        disposed = true; storage.dispose(); pending.clear(); jobs.clear(); realms.delete(id); frame.remove();
         for (const [token,turn] of turns) if (turn.id === id) turns.delete(token);
       },
     };
@@ -151,6 +173,7 @@ export function call(request) {
   if (!realm) return { error: 'browser module not loaded' };
   if (request.op === 'activate') return realm.meta.appId === request.appId && realm.meta.grants.trim() === request.grants.trim() && realm.meta.module.sha256 === request.revision
     ? { ok: true } : { error: 'browser module admission mismatch' };
+  if (request.op === 'cancel') return realm.cancel(request);
   if (request.op === 'answer' || request.op === 'resume') return realm.invoke(request);
   return { error: 'unknown browser module operation' };
 }

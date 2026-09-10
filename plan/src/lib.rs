@@ -27,6 +27,7 @@
 pub mod asm;
 pub mod builder;
 pub mod bytes;
+mod effects;
 pub mod value;
 
 /// Generated from `tables/format.json`.
@@ -110,7 +111,7 @@ pub enum PlanError {
     ZeroInterval {
         timer: u32,
     },
-    /// A mutation's result slot is row-owned, but mutation results are global.
+    /// A mutation's result slot names a region other than a component scope.
     MutationSlotOwned {
         mutation: u32,
         slot: u32,
@@ -208,7 +209,7 @@ impl Plan {
         for (i, r) in self.regions.iter().enumerate() {
             let want = match r.kind {
                 RegionKind::When | RegionKind::Match => 2,
-                RegionKind::Each => 1,
+                RegionKind::Each | RegionKind::Scope => 1,
             };
             if r.arms.len != want {
                 return Err(PlanError::RegionArms {
@@ -223,6 +224,7 @@ impl Plan {
                 }
             }
         }
+        self.validate_effects()?;
         for (i, t) in self.timers.iter().enumerate() {
             if t.interval_ms == 0 {
                 return Err(PlanError::ZeroInterval { timer: i as u32 });
@@ -305,7 +307,10 @@ impl Plan {
     pub fn validate_mutation_slot(&self, mutation: MutationsId) -> Result<(), PlanError> {
         let row = self.mutation(mutation);
         let slot = self.slot(row.slot);
-        if slot.owner.is_some() {
+        if slot
+            .owner
+            .is_some_and(|owner| self.region(owner).kind != RegionKind::Scope)
+        {
             return Err(PlanError::MutationSlotOwned {
                 mutation: mutation.0,
                 slot: row.slot.0,

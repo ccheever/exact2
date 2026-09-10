@@ -217,9 +217,10 @@ function unitDepInfo(message, workspace, named) {
   throw new Error(`no matching rustc unit dep-info for ${message.target.name}; rebuild the stale Cargo unit or use a private target directory`);
 }
 function completeBuild(app, platform, target, graph, messages, roots, env) {
-  const scripts = messages.filter((m) => m.reason === 'build-script-executed' && graph.roles.has(m.package_id));
+  const allScripts = messages.filter((m) => m.reason === 'build-script-executed');
+  const scripts = allScripts.filter((m) => graph.roles.has(m.package_id));
   const roleOf = (path) => under(resolve(app.target, target), path) ? target : 'host';
-  const generated = scripts.map((m) => ({ path: resolve(m.out_dir), pkg: graph.packages.get(m.package_id), role: roleOf(m.out_dir) })).sort((a,b) => b.path.length-a.path.length);
+  const generated = allScripts.map((m) => ({ path: resolve(m.out_dir), pkg: graph.packages.get(m.package_id), role: roleOf(m.out_dir) })).sort((a,b) => b.path.length-a.path.length);
   const rootOutput = generated.find((g) => g.pkg.id === graph.root.id && g.role === target)?.path;
   if (!rootOutput) throw new Error('Cargo did not report the selected target bake output');
   const compat = JSON.parse(readFileSync(resolve(rootOutput, 'compat.json'), 'utf8'));
@@ -227,22 +228,23 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   const bundleGraph = JSON.parse(readFileSync(resolve(rootOutput, 'artifacts.json'), 'utf8'));
   const replaced = new Set(['app.plan','compat.json','artifacts.json'].map((n) => resolve(rootOutput,n)));
   const packages = [...graph.roles.keys()].map((id) => graph.packages.get(id));
-  const locations = packages.map((p) => ({ path: dirname(p.manifest_path), name:`crate:${p.name}@${p.version}` })).sort((a,b) => b.path.length-a.path.length);
-  // contract-cli includes the canonical declaration as text without linking
-  // ibex2 into the compiler. It is therefore a compiler input even on targets
-  // whose Cargo graph correctly omits the native runtime crate. Its bytes are
-  // hashed below exactly like every other input; only this file is admitted.
-  const storageTypes = resolve(ROOT, '../ibex/crates/ibex2/src/bindings/storage.d.ts');
+  // Build-only dependencies can supply source to native shims or declarations
+  // without belonging to the runtime graph. Cargo identifies their checkout;
+  // only files actually used below enter the receipt.
+  const locations = graph.metadata.packages.map((p) => ({ path: dirname(p.manifest_path), name:`crate:${p.name}@${p.version}` }));
+  for (const [key, name] of [['EXACT_HERMES_DIR', 'tool:hermes'], ['EXACT_HERMES_IOS_DIR', 'tool:hermes-ios'], ['EXACT_HERMESC', 'tool:hermesc']]) {
+    if (env[key]) locations.push({path: resolve(env[key]), name});
+  }
+  locations.sort((a,b) => b.path.length-a.path.length);
   const nameOf = (path) => {
     path = resolve(path);
     const made = generated.find((g) => under(g.path,path));
     if (made) return `generated:${made.pkg.name}:${made.role}/${relative(made.path,path)}`;
     const pkg = locations.find((p) => under(p.path,path));
-    if (pkg) return `${pkg.name}/${relative(pkg.path,path)}`;
+    if (pkg) return path === pkg.path ? pkg.name : `${pkg.name}/${relative(pkg.path,path)}`;
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
     if (under(ROOT,path)) return `exact/${relative(ROOT,path)}`;
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;
-    if (path === storageTypes) return 'included:ibex2/src/bindings/storage.d.ts';
     throw new Error(`compiler input has no captured source identity: ${path}`);
   };
   const inputs = new Map(), absent = new Map(), directories = new Map();
@@ -307,9 +309,11 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   if(platform==='web') {
     for(const path of ['host/web/glue.js','host/web/gpu-glue.js','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
     if (existsSync(resolve(app.dir, 'app.ts'))) {
-      // The TS producer is a build dependency, outside the runtime Cargo graph.
-      // Its canonical API declaration still determines the accepted app module.
-      add(storageTypes);
+      // Hash the declaration bytes the compiler actually used, copied from
+      // Ibex's public TYPESCRIPT API by its build script. No checkout layout.
+      const compiler = generated.find((g) => g.pkg.name === 'contract' && g.role === 'host');
+      if (!compiler) throw new Error('Cargo did not report the Contract declaration output');
+      add(resolve(compiler.path, 'storage.d.ts'));
       for (const path of ['host/web/module-glue.js', 'js/src/prelude.js',
         'host/web/storage.js', 'host/web/storage-fs.js', 'host/web/storage-sqlite.js', 'host/web/storage-worker.js',
         'package.json', 'package-lock.json', 'node_modules/@sqlite.org/sqlite-wasm/package.json',

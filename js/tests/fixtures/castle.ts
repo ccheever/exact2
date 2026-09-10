@@ -65,6 +65,15 @@ async function login(who: string, password: string, store: Store): Promise<Sessi
 
 // Two fetches in a row: who am I, then that user's profile — the second
 // request depends on the first reply (LLP 1027 D1a, `parse` → `Later`).
+// Equal-argument component calls remain distinct across both fetches.
+async function child(): Promise<string> {
+  const first = await fetch("https://api.castle.xyz/child");
+  const username = await first.text();
+  const second = await fetch("https://api.castle.xyz/child/" + username);
+  await second.text();
+  return username;
+}
+
 async function profile(store: Store): Promise<Session> {
   const kept = store.get(SECRET);
   if (kept === null) return { ...idle, error: "Not signed in" };
@@ -106,6 +115,7 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case "remember": return remember(store);
     case "login": return login(text(args, 0), text(args, 1), store);
     case "profile": return profile(store);
+    case "child": return child();
     case "logout": return logout(store);
     case "stuck": return stuck();
     case "refused": return refused();

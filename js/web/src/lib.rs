@@ -62,6 +62,7 @@ impl Module {
     }
     fn invoke(
         &mut self,
+        context: u64,
         store: &mut Store,
         source: &str,
         args: &[Value],
@@ -94,8 +95,12 @@ impl Module {
             .into_iter()
             .filter(|(name, _)| !name.starts_with(Store::KEPT))
             .collect();
-        let key = json!([source, args]).to_string();
-        let mut input = json!({"op":"answer", "id":self.id, "source":source, "args":args, "store":snapshot, "grants":store.granted()});
+        let key = if context == 0 {
+            json!([source, args]).to_string()
+        } else {
+            format!("context:{context}")
+        };
+        let mut input = json!({"op":"answer", "id":self.id, "context":context.to_string(), "source":source, "args":args, "store":snapshot, "grants":store.granted()});
         let response = match outcome {
             None => call(input)?,
             Some(outcome) => {
@@ -267,6 +272,7 @@ impl DataSource for Module {
     }
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         match self.invoke(
+            0,
             &mut Store::new(&self.grants.clone(), []),
             source,
             args,
@@ -282,7 +288,7 @@ impl DataSource for Module {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        self.invoke(store, source, args, None)
+        self.invoke(0, store, source, args, None)
     }
     fn parse(
         &mut self,
@@ -291,7 +297,34 @@ impl DataSource for Module {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
-        self.invoke(store, source, args, Some(outcome))
+        self.invoke(0, store, source, args, Some(outcome))
+    }
+    fn answer_scoped(
+        &mut self,
+        context: u64,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.invoke(context, store, source, args, None)
+    }
+    fn parse_scoped(
+        &mut self,
+        context: u64,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.invoke(context, store, source, args, Some(outcome))
+    }
+    fn cancel_scoped(&mut self, context: u64) {
+        if context != 0 {
+            self.waiting.remove(&format!("context:{context}"));
+            if self.ready {
+                let _ = call(json!({"op":"cancel", "id":self.id, "context":context.to_string()}));
+            }
+        }
     }
 }
 

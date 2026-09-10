@@ -66,9 +66,9 @@ fn a_use_owns_its_state_and_a_row_owns_its_own_which_follows_its_key() {
     r.dispatch(a, Event::Press).unwrap();
     assert_eq!(text_of(&r, "count-text-a"), "a 2 4");
     assert_eq!(text_of(&r, "count-text-b"), "b 0 0");
-    // A singleton's state is a root slot by its lifted name; carried by name.
-    assert_eq!(r.slot("n__1"), Some(&Value::Number(2.0)));
-    assert!(r.carry().slots.iter().any(|(n, _)| n == "n__1"));
+    // Every child owns its state in a mount scope; whole-plan reload resets it.
+    assert_eq!(r.slot("n__1"), None);
+    assert!(!r.carry().slots.iter().any(|(n, _)| n == "n__1"));
     // Rows: `label` initialized from the row item, then hover one while the
     // other is untouched.
     let mv = view_of(&r, "station-mv");
@@ -95,10 +95,28 @@ fn a_use_owns_its_state_and_a_row_owns_its_own_which_follows_its_key() {
 }
 
 #[test]
-fn a_child_may_not_own_a_resource() {
-    let src = "shape S\n  id: string\ncomponent A\n  view\n    Row()\ncomponent Row\n  resource s = s() as shape S\n  view\n    text s.id\n";
-    let e = contract::compile(src).unwrap_err();
-    assert_eq!(e.id, "type-child-resource");
+fn a_child_owns_a_resource_and_renders_its_answer() {
+    let src = r#"shape Station
+  id: string
+  name: string
+component App
+  view
+    StationList()
+component StationList
+  resource stations = stations("asc") as shape list<Station>
+  view
+    column
+      each station in stations key=station.id
+        text station.name testId=`name-${station.id}`
+"#;
+    let plan = contract::compile(src).unwrap();
+    assert!(plan.resources[0].owner.is_some());
+    let baked = contract::bake(plan, Stations).unwrap();
+    assert_eq!(baked.resource_boot.len(), 1);
+    let runner = Runner::boot(baked, Stations, Kernel::with_monospace()).unwrap();
+    assert_eq!(text_of(&runner, "name-mv"), "Mountain View");
+    assert_eq!(text_of(&runner, "name-pa"), "Palo Alto");
+    assert_eq!(runner.resource("stations__1"), None);
 }
 
 #[test]

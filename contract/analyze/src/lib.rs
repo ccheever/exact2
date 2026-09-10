@@ -64,9 +64,6 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
             root.span,
         );
     }
-    // A child may own `state`, `derive`, and `action` (LLP 1017 P4c); that it
-    // owns no `resource`, `mutation`, or `task` is the type pass's refusal
-    // (`type-child-resource`), made before its view is checked.
     for (ci, c) in file.components.iter().enumerate() {
         let ct = &types.components[ci];
         let scope = types.component_scope(c, ct);
@@ -180,6 +177,11 @@ pub fn handler_payload(attr: &str) -> Option<&'static str> {
 fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeError> {
     for n in nodes {
         match n {
+            Node::Scope { body, .. } => {
+                let mut inner = scope.clone();
+                inner.push_region(None);
+                check_view(body, &inner, file)?;
+            }
             Node::Provide { body, .. } => check_view(body, scope, file)?,
             Node::Children { .. } => {}
             Node::Element {
