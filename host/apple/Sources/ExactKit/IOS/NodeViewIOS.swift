@@ -854,7 +854,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         updateMaterial()
         applyTextArea()
         if let f = field {
-            f.tintColor = props["emojiPicker"] == "true" ? .clear : caretColor
+            f.tintColor = props["emojiPicker"] == "true" ? .clear : nil
             if (set["emojiPicker"] != nil || clear.contains("emojiPicker")), f.isFirstResponder { f.reloadInputViews() }
             if let v = props["value"], f.text != v { f.text = v }
             applyPlaceholder(f)
@@ -936,7 +936,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         clipsToBounds = ox == "hidden" || oy == "hidden"
         styleTextArea()
         if let f = field, let t = text {
-            f.tintColor = props["emojiPicker"] == "true" ? .clear : caretColor
             f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic")
             f.textColor = color("text_color", .black)
             applyPlaceholder(f)
