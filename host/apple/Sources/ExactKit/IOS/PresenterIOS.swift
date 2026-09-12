@@ -17,6 +17,7 @@ final class Presenter {
     /// The native menu arm (LLP 1021 D3).
     lazy var swipeActions = SwipeActionsHost(self)
     lazy var menus = MenuHost(presenter: self)
+    lazy var segments = SegmentHost(self)
     lazy var navigation = NavigationHost(presenter: self)
     lazy var modals = ModalHost(presenter: self)
     /// The input being edited, if any (UIKit exposes no first responder):
@@ -226,6 +227,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        segments.reset()
         menus.reset()
         swipeActions.reset()
         modals.reset()
@@ -497,6 +499,7 @@ final class Presenter {
             if let material = node.materialView { node.sendSubviewToBack(material) }
         }
         navigation.sync(batch)
+        segments.sync()
         menus.sync()
         swipeActions.sync()
         positionContexts()

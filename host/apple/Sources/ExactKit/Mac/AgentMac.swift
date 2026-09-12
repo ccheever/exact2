@@ -198,6 +198,7 @@ extension Agent {
         if v !== host { native["inline"] = true }
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.currentEditor() != nil }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
+        if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         if let leaf = host.symbolView {
             let size = leaf.image?.size ?? .zero
             native["symbol"] = ["renderer": String(describing: Swift.type(of: leaf)), "name": host.props["symbolName"] ?? "", "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
@@ -274,6 +275,12 @@ extension Agent {
 
     func tap(_ req: [String: Any]) -> [String: Any] {
         if let phase = req["phase"] as? String { return contact(phase, req) }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let activated = presenter.segments.activate(node) {
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
+                : ["error": "native segment #\(id) is unavailable"]
+        }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let b = box(v)
         // The middle of the box as seen — through a surface's placement when

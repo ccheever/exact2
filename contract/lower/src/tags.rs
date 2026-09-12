@@ -255,6 +255,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "commandfor" => AttrTarget::Prop(p("commandfor")),
         "command" => AttrTarget::Prop(p("command")),
         "aria-checked" => AttrTarget::Prop(p("accessibilityChecked")),
+        "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         // style rows, by their CSS property names
         "white-space" => styles(&["white_space"]),
         "overflow-wrap" => styles(&["overflow_wrap"]),

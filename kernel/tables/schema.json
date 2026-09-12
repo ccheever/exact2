@@ -1385,6 +1385,16 @@
       "forward",
       "arrowshape.turn.up.right",
       "M14 4v5C6 9 3 13 3 21c3-6 6-7 11-7v6l8-8-8-8Z"
+    ],
+    [
+      "home",
+      "house",
+      "M3 10 12 3l9 7M5 9v12h5v-7h4v7h5V9"
+    ],
+    [
+      "person",
+      "person.crop.circle",
+      "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM15 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM6 19v-1a6 4 0 0 1 12 0v1"
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. Generated once; hosts never admit platform names directly."

@@ -21,9 +21,12 @@ fn symbols_admit_roles_and_refuse_platform_names_or_misspellings() {
         "more",
         "delete",
         "forward",
+        "home",
+        "person",
     ] {
         contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
     }
+    contract::compile("component App\n  state selected = true\n  view\n    button role=\"tab\" aria-selected=selected\n      text \"Questions\"\n").unwrap();
     for role in ["", "chevron.backward", "sf/plus", "Search", "serach"] {
         let error = contract::compile(&format!(
             "component App\n  view\n    image \"symbol:{role}\"\n"

@@ -361,6 +361,7 @@ extension Agent {
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.isFirstResponder }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = t.isFirstResponder }
         if let m = host.materialKind { native["effect"] = m }
+        if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         var responder: UIResponder? = host
         while let current = responder {
             if let vc = current as? UIViewController { native["controller"] = String(describing: Swift.type(of: vc)); break }
@@ -395,6 +396,12 @@ extension Agent {
            let activated = presenter.menus.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "confirmation"]
                 : ["error": "confirmation #\(id) is unavailable, transitioning, or its source is no longer active"]
+        }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let activated = presenter.segments.activate(node) {
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
+                : ["error": "native segment #\(id) is unavailable"]
         }
         if let id = req["id"] as? Int, presenter.swipeActions.ownsAction(UInt32(id)),
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil {

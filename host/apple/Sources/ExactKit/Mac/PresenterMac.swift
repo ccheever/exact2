@@ -64,6 +64,7 @@ final class Presenter {
     private var visibleText: [UInt32: NSRect] = [:]
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
+    lazy var segments = SegmentHost(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
     /// last batch; `onViewportFit` fires when it changes. macOS maps `cover`
@@ -127,6 +128,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        segments.reset()
         session?.canvases.reset()
         views.values.forEach { $0.forget() }
         root.subviews.forEach { $0.removeFromSuperview() }
@@ -333,6 +335,7 @@ final class Presenter {
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.captureIfNeeded()
         for node in views.values { node.restoreScrollPosition(); node.applyPendingScroll() }
+        segments.sync()
         menus.sync()
         positionContexts()
         shortcuts.sync()

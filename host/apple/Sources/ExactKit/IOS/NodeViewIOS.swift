@@ -959,6 +959,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if disabled { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
         accessibilityIdentifier = props["testId"]
         accessibilityLabel = props["accessibilityLabel"]
+        if kind == "button" {
+            isAccessibilityElement = true
+            accessibilityTraits.insert(.button)
+            if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) }
+            else { accessibilityTraits.remove(.selected) }
+        }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
         if kind == "iframe" { presenter?.session?.webviews.update(self) }
