@@ -5,8 +5,8 @@
 **Systems:** Kernel (measured leaves, intrinsic size, aspect ratio; Taffy patch 5), Contract (`image` tag), Web host, Apple host (C ABI: `exact_intrinsic`), Build (assets)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-08-29 (r2: after the round-1 reviews and the code review — rehydration, units, the constraint table, content-box `object-fit`, `alt`, the source policy, what §5 actually holds)
-**Implementer:** Claude (Fable 5); landed 2026-08-29 (this document transcribes it)
+**Revised:** 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
+**Implementer:** Claude (Fable 5), image landing 2026-08-29; Codex, symbol integration 2026-09-10 and replaced-content extent 2026-09-11
 **Related:** LLP 1001 §1 (the `Image` replaced-element rule and its declared block-flow deviation), §6 (measured leaves), LLP 1007 (the web host: `<img>`), LLP 1008 §5 (the Apple presenter: loading, `object-fit`), LLP 1010 (the sibling spec whose shape this follows), `vendor/taffy/EXACT-PATCHES.md` patch 5, `rules/RULES.md` §The web is the standard
 
 ## Summary
@@ -36,7 +36,10 @@ tests are the authority.
   never divided by a backing scale, so a 2× asset lays out (and paints) at
   half its pixels per point, as the web does without `srcset`. That is the
   contract every host implements: report `pixelsWide × pixelsHigh`, not a
-  platform image's point size.
+  platform image's point size. **Configured symbols** (LLP 1035.004) instead
+  report the native symbol's point size at its computed font size and weight;
+  they are generated glyphs, not density-unaware bitmap assets. The browser's
+  generic SVG fallback has a square intrinsic size equal to `font-size`.
 - **`Kernel::set_intrinsic_size(view, Option<(w, h)>)`** sets it. It
   refuses an unknown view (`LayoutError::UnknownView`), a node that is not
   an `Image` (`NotAnImage`), and a size that is not finite and positive on
@@ -52,6 +55,17 @@ tests are the authority.
   no intrinsic size measures `0×0` (each *unknown* axis is 0 — a `width`
   row still sizes the box, so the Caltrain logo is `96×0` before it
   loads); with one, each unknown dimension is the intrinsic one.
+- **Scrollable extent** (Codex, 2026-09-11; patch 5 extension). The image's
+  natural pixels size unknown axes; once its box is sized, replaced content
+  cannot enlarge scrollable overflow. Taffy's existing replaced-item marker is
+  now set for `Image`, and its leaf reports the used padding box as content.
+  A 132×132 Tapback displayed at 32×32 previously enlarged a short reply's
+  scroll extent and clipped its top when following the end. Source replacement,
+  both scaling directions, padding/borders and all five `object-fit` values are
+  covered by `kernel/tests/image.rs`; text retains its measured overflow.
+  The same marker permits CSS's compressed automatic grid minimum for images.
+  [CSS Overflow §2.1](https://www.w3.org/TR/css-overflow-3/#ink-overflow)
+  distinguishes replaced-content ink overflow from scrollable overflow.
 - **The ratio.** `taffy_style` gives an `Image` with an intrinsic size and
   no `aspect_ratio` row a Taffy `aspect_ratio` of `w / h`; a set row wins.
   That is what makes `width=96` yield `96×36` for a 320×120 picture and an
@@ -74,9 +88,9 @@ tests are the authority.
 - The rows an image uses: `width`/`height`/`min_*`/`max_*` (its box),
   `aspect_ratio` (the ratio, over the intrinsic one), `object_fit` (how
   the picture fills the content box: `fill | contain | cover | none |
-  scale-down`, default `fill` — paint, not layout), `tint_color` (a row
-  that exists; the web host skips it, the Apple host transports it in the
-  style dictionary and the presenter ignores it — not painted anywhere).
+  scale-down`, default `fill` — paint, not layout), `tint_color` (opaque
+  black initially, not inherited; Apple and web apply it to `symbol:` images,
+  including `light-dark()` pairs; raster-image tint remains unsupported).
 
 ## 2. Contract
 
@@ -89,6 +103,15 @@ the app's asset root (§3, §4). The Caltrain app: `image
 "assets/caltrain.png" width=96 fit="contain" label="A Caltrain train"` at
 the top of the header; `apps/caltrain/assets/caltrain.png` is a generated
 320×120 PNG (a train), the only asset today.
+
+**Symbol sources (2026-09-10, LLP 1035.004).** `image "symbol:back"
+font-size=17 font-weight=600 tint-color="#007aff"` uses one of the seven
+schema roles: back, close, compose, add, microphone, send and search. Literal
+unknown roles are `lower-attr-value`; a dynamic unknown role paints empty,
+clears intrinsic size and logs a refusal. Symbols are decorative: the surrounding
+control carries its accessible name, the symbol does not carry another one.
+No network or asset load resolves a symbol. Definite dimensions still size its
+box; inherited font size/weight configure its natural glyph dimensions.
 
 ## 3. The web host
 
@@ -107,6 +130,12 @@ lays out. `host/web/build.mjs` replaces `dist/assets/` with
 a relative source resolves against the page's URL, as `src` does; the
 servers (`serve`, `dev`, `smoke`, `metrics`) know `image/png`.
 
+For `symbol:` sources, the host supplies the schema's generic SVG path and
+`alt=""`; the glue uses a transparent SVG for intrinsic size and a CSS mask
+for the glyph. Computed font size/weight update the SVG; `tint-color` supplies
+the mask's colour. The mask follows the content box and `object-fit`. These
+paths express the roles without copying Apple's artwork.
+
 ## 4. The Apple host
 
 - **The source policy** (`NodeView.resolveSource`): an `http`/`https`
@@ -114,7 +143,8 @@ servers (`serve`, `dev`, `smoke`, `metrics`) know `image/png`.
   resolves under the asset root — `EXACT_ASSETS`, the app's directory
   (`build.mjs --run` and the smoke set it; the current directory
   otherwise) — and must stay inside it after standardization (`..` that
-  escapes does not load); any other scheme (`file:` included) does not
+  escapes does not load); `symbol:` resolves the generated role mapping
+  locally (below); any other scheme (`file:` included) does not
   load. A source that does not load is reported as `nil` with a line on
   stderr.
 - **Loading** (`NodeView.loadImage`): when an `image` node's
@@ -133,6 +163,14 @@ servers (`serve`, `dev`, `smoke`, `metrics`) know `image/png`.
   and reports `nil`; a cleared source clears both. `destroy` and `reset`
   call `forget()` (generation bumped, source and picture dropped), and
   `reset` clears the smoke's `imagesLoaded` list.
+- **Symbols** use a noninteractive, decorative `UIImageView` / `NSImageView`
+  inside the existing kernel-owned image leaf. Native symbol configuration uses
+  computed font size and the nearest of nine CSS weights; native tint updates
+  with appearance. Intrinsic reports run on the next main-queue turn and require
+  the original view identity and load generation, so a replaced source or retired
+  node cannot receive them. `object-fit`, padding and rounded clipping apply to
+  the content box; symbols bypass the bitmap drawing path. `layout <node>` reports
+  `native.symbol` with renderer class, generated name, intrinsic size and frame.
 - **The ABI** (`exact_intrinsic(view, width, height)`, `exact.h`): a
   finite size with either dimension ≤ 0 clears; a non-finite value reaches
   the kernel and comes back as an `error` (`InvalidIntrinsicSize`), as does
@@ -182,10 +220,21 @@ image, a changed source, or the broken-image presentation; the author
 viewed both hosts' screenshots on 2026-08-29 and found the train in the
 same place — an observation, not a check.
 
+**Symbol verification (2026-09-10):** the compiler corpus and Apple/web host
+tests cover literal refusal, generated mappings, inherited font configuration,
+decorative images and scheme-aware tint. Temporary iOS/macOS/browser drives
+cover natural/fixed sizing, changed size/weight/source, unknown/cleared/restored
+sources and a symbol button. The iOS native-leaf prototype matches 210
+`UIImageView` raster comparisons. Production Messages passes public-XCTest
+button taps in light/dark; Fieldnotes uses Add and Close through the same
+boundary. AppKit geometry and interaction pass, but its saved captures are
+transparent, so AppKit pixels remain unverified. Receipt and limits:
+`/tmp/messages-symbol-integration/verification.json`.
+
 ## 6. Not in v1 (each declared here)
 
-`srcset`/density selection and `image-rendering`; `tint_color` (row
-exists, not painted); loading states and errors visible to the app (the
+`srcset`/density selection and `image-rendering`; raster-image `tint_color`
+(symbol tint is implemented on Apple/web); Linux symbols; loading states and errors visible to the app (the
 kernel measures an unknown axis as 0; macOS paints nothing and writes a
 line on stderr; the browser paints its own broken-image icon and the
 `alt` text — no `onError`, no placeholder); a size cap or a timeout of

@@ -393,8 +393,23 @@
     },
     {
       "id": 68,
-      "name": "swipeDestructive",
+      "name": "destructive",
       "kind": "bool"
+    },
+    {
+      "id": 69,
+      "name": "commandfor",
+      "kind": "str"
+    },
+    {
+      "id": 70,
+      "name": "command",
+      "kind": "str"
+    },
+    {
+      "id": 71,
+      "name": "navigationSource",
+      "kind": "str"
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -610,9 +625,25 @@
         "manipulation"
       ],
       "default": "auto"
+    },
+    "OverflowWrap": {
+      "values": [
+        "normal",
+        "break-word",
+        "anywhere"
+      ],
+      "default": "normal"
+    },
+    "BorderStyle": {
+      "values": [
+        "none",
+        "hidden",
+        "solid"
+      ],
+      "default": "none"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance — a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
   "styles": [
     {
       "bit": 0,
@@ -922,28 +953,28 @@
       "field": "border_width_top",
       "codec": "f32",
       "layout": true,
-      "default": 0
+      "default": 3
     },
     {
       "bit": 44,
       "field": "border_width_right",
       "codec": "f32",
       "layout": true,
-      "default": 0
+      "default": 3
     },
     {
       "bit": 45,
       "field": "border_width_bottom",
       "codec": "f32",
       "layout": true,
-      "default": 0
+      "default": 3
     },
     {
       "bit": 46,
       "field": "border_width_left",
       "codec": "f32",
       "layout": true,
-      "default": 0
+      "default": 3
     },
     {
       "bit": 47,
@@ -984,26 +1015,26 @@
     {
       "bit": 53,
       "field": "border_color_top",
-      "codec": "color",
-      "default": 0
+      "codec": "current-color",
+      "default": "currentcolor"
     },
     {
       "bit": 54,
       "field": "border_color_right",
-      "codec": "color",
-      "default": 0
+      "codec": "current-color",
+      "default": "currentcolor"
     },
     {
       "bit": 55,
       "field": "border_color_bottom",
-      "codec": "color",
-      "default": 0
+      "codec": "current-color",
+      "default": "currentcolor"
     },
     {
       "bit": 56,
       "field": "border_color_left",
-      "codec": "color",
-      "default": 0
+      "codec": "current-color",
+      "default": "currentcolor"
     },
     {
       "bit": 57,
@@ -1034,9 +1065,10 @@
     },
     {
       "bit": 61,
-      "field": "tint_color",
-      "codec": "color",
-      "default": 0
+      "field": "caret_color",
+      "codec": "auto-color",
+      "inherited": true,
+      "default": "auto"
     },
     {
       "bit": 62,
@@ -1114,11 +1146,11 @@
     {
       "bit": 72,
       "field": "line_height",
-      "codec": "f32",
+      "codec": "line-height",
       "inherited": true,
       "text": true,
       "layout": true,
-      "default": 0
+      "default": "normal"
     },
     {
       "bit": 73,
@@ -1217,6 +1249,44 @@
       "bit": 88,
       "field": "scrollbar_width",
       "codec": "enum:ScrollbarWidth"
+    },
+    {
+      "bit": 89,
+      "field": "tint_color",
+      "codec": "color",
+      "default": 255
+    },
+    {
+      "bit": 90,
+      "field": "overflow_wrap",
+      "codec": "enum:OverflowWrap",
+      "inherited": true,
+      "text": true,
+      "layout": true
+    },
+    {
+      "bit": 91,
+      "field": "border_style_top",
+      "codec": "enum:BorderStyle",
+      "layout": true
+    },
+    {
+      "bit": 92,
+      "field": "border_style_right",
+      "codec": "enum:BorderStyle",
+      "layout": true
+    },
+    {
+      "bit": 93,
+      "field": "border_style_bottom",
+      "codec": "enum:BorderStyle",
+      "layout": true
+    },
+    {
+      "bit": 94,
+      "field": "border_style_left",
+      "codec": "enum:BorderStyle",
+      "layout": true
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
@@ -1254,5 +1324,68 @@
       "id": 8,
       "name": "AttachRoot"
     }
-  ]
+  ],
+  "symbols": [
+    [
+      "back",
+      "chevron.backward",
+      "M15 5 8 12l7 7"
+    ],
+    [
+      "close",
+      "xmark",
+      "m6 6 12 12M18 6 6 18"
+    ],
+    [
+      "compose",
+      "square.and.pencil",
+      "M12 5H5v14h14v-7M10 14l1-4 8-8 3 3-8 8-4 1Z"
+    ],
+    [
+      "add",
+      "plus",
+      "M12 5v14M5 12h14"
+    ],
+    [
+      "microphone",
+      "mic",
+      "M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V5ZM6 11v1a6 6 0 0 0 12 0v-1M12 18v4M8 22h8"
+    ],
+    [
+      "send",
+      "arrow.up",
+      "M12 20V4m-7 7 7-7 7 7"
+    ],
+    [
+      "search",
+      "magnifyingglass",
+      "M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0Zm-1 5 6 6"
+    ],
+    [
+      "copy",
+      "doc.on.doc",
+      "M8 7V3h7l5 5v9h-5M15 3v5h5M4 7h7l4 4v10H4V7Zm7 0v4h4"
+    ],
+    [
+      "select-text",
+      "selection.pin.in.out",
+      "M6 4v13a2 2 0 0 0 2 2h10V9a2 2 0 0 0-2-2H6m12 12v2M7 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm12 19a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"
+    ],
+    [
+      "more",
+      "ellipsis.circle",
+      "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM7.5 12h.01M12 12h.01M16.5 12h.01"
+    ],
+    [
+      "delete",
+      "trash",
+      "M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7"
+    ],
+    [
+      "forward",
+      "arrowshape.turn.up.right",
+      "M14 4v5C6 9 3 13 3 21c3-6 6-7 11-7v6l8-8-8-8Z"
+    ]
+  ],
+  "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. Generated once; hosts never admit platform names directly."
 }

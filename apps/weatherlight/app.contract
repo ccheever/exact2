@@ -154,13 +154,13 @@ component Weatherlight
               button press=setUnits("F") testId="unit-f" aria-label="Fahrenheit" padding=8 border-radius=18 background-color=(units == "F" ? "#ffffff" : "#e6ebe7")
                 text "°F" font-size=13 color="#183444" font-weight=600
         when searching
-          column padding=20 gap=14 background-color="#ffffff" border-radius=18 border-width=1 border-color="#dce3de" testId="search-panel"
+          column padding=20 gap=14 background-color="#ffffff" border-radius=18 border-style="solid" border-width=1 border-color="#dce3de" testId="search-panel"
             row justify-content="space-between" align-items="center"
               text "Where shall we go?" font-family="serif" font-size=24
               button press=closeSearch testId="close-search" aria-label="Close city search" padding=8
                 text "Close ×" color="#536b78"
             row gap=8
-              input id="city-query" testId="city-query" value=query change=changeQuery key=searchKey placeholder="City or postal code" aria-label="City or postal code" flex=1 min-width=0 padding=12 border-radius=8 border-width=1 border-color="#c7d2ce" font-size=16
+              input id="city-query" testId="city-query" value=query change=changeQuery key=searchKey placeholder="City or postal code" aria-label="City or postal code" flex=1 min-width=0 padding=12 border-radius=8 border-style="solid" border-width=1 border-color="#c7d2ce" font-size=16
               button press=search testId="search-city" padding=12 border-radius=8 background-color="#183444"
                 text "Search" color="#ffffff"
             when pending(places)
@@ -191,7 +191,7 @@ component Weatherlight
               text (animated ? "Ⅱ" : "▷") color="#e2eced" font-size=14
           column gap=3
             text (pending(forecast) ? "UPDATING FORECAST" : outlook.selectedLabel) testId="selected-label" font-size=10 font-weight=600 letter-spacing=2 color="#d5e3e9"
-            text (outlook.ready ? outlook.temp : "—°") testId="temperature" font-size=92 font-weight=300 letter-spacing=-6 line-height=100 color="#ffffff"
+            text (outlook.ready ? outlook.temp : "—°") testId="temperature" font-size=92 font-weight=300 letter-spacing=-6 line-height="100px" color="#ffffff"
             text (outlook.ready ? outlook.condition : "Finding your patch of sky…") testId="condition" font-size=22 font-family="serif" color="#ffffff"
             text outlook.range font-size=13 color="#d5e3e9" margin-top=8
           row justify-content="space-between" align-items="center" flex-wrap="wrap" gap=12

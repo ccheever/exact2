@@ -101,7 +101,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     let _ = write!(out, "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{n};overflow:hidden;");
                 }
             }
-            ("font_variant_numeric", _) | ("tint_color", _) => skipped.push(Skipped {
+            ("font_variant_numeric", _) => skipped.push(Skipped {
                 row: id,
                 reason: "not lowered in v1",
             }),
@@ -180,6 +180,7 @@ fn css_string(value: &str) -> String {
 fn declaration(name: &str, value: &RowValue<'_>) -> Option<(String, String)> {
     let prop = match name {
         "text_color" => "color".to_string(),
+        "tint_color" => "--exact-tint".to_string(),
         "position_type" => "position".to_string(),
         n if n.starts_with("border_radius_") => format!(
             "border-{}-radius",
@@ -187,6 +188,9 @@ fn declaration(name: &str, value: &RowValue<'_>) -> Option<(String, String)> {
         ),
         n if n.starts_with("border_width_") => {
             format!("border-{}-width", n.trim_start_matches("border_width_"))
+        }
+        n if n.starts_with("border_style_") => {
+            format!("border-{}-style", n.trim_start_matches("border_style_"))
         }
         n if n.starts_with("border_color_") => {
             format!("border-{}-color", n.trim_start_matches("border_color_"))
@@ -205,6 +209,7 @@ fn declaration(name: &str, value: &RowValue<'_>) -> Option<(String, String)> {
         RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
             format!("light-dark({}, {})", rgba(*l), rgba(*d))
         }
+        RowValue::LineHeight(v) => v.css(),
         RowValue::Enum(e) => e.to_string(),
         RowValue::ClipPath(p) => p.css(),
         RowValue::Vec2(v) => match name {

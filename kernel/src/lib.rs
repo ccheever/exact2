@@ -55,7 +55,7 @@ pub use motion::{motion_node, MotionSync};
 pub use props::{PropList, PropValue};
 pub use style::{
     uses_env, Color, ColorValue, Dimension, Edge, Env, GridLine, GridPlacement, GridTrack,
-    GridTracks, RowValue, StyleValue, Transitions, Vec2,
+    GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
 };
 pub use text::{
     MonospaceMeasurer, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle,

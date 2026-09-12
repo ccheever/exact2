@@ -13,6 +13,7 @@ import UIKit
 
 public final class ExactView: UIView {
     public let session: ExactSession
+    private var fitPending = false
     private var lastSize = CGSize.zero
     private var lastInsets = UIEdgeInsets.zero
     private let keyboardProbe = UIView()
@@ -55,8 +56,28 @@ public final class ExactView: UIView {
         fit()
     }
 
+    public override func willMove(toWindow newWindow: UIWindow?) {
+        // Child didMoveToWindow callbacks can retry focus before our own
+        // didMoveToWindow. Wait until their native owners have been installed.
+        if newWindow != nil { session.presenter.navigation.willMount() }
+        super.willMove(toWindow: newWindow)
+    }
+
     public override func didMoveToWindow() {
         super.didMoveToWindow()
+        if window == nil {
+            session.presenter.menus.unmounted()
+            session.presenter.modals.unmounted()
+            session.presenter.navigation.unmounted()
+        } else {
+            // Install native ownership after UIKit finishes attaching this
+            // view. A retained session may return under a different controller.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, window != nil, session.state != .destroyed else { return }
+                fit()
+                session.presenter.navigation.mounted()
+            }
+        }
         // Mounted and visible participate in frame demand (D3): an unmounted
         // view wants no frames; a mounted one asks again.
         session.frames.run(window != nil && (session.frames.motion || session.canvases.wantsFrames))
@@ -70,6 +91,19 @@ public final class ExactView: UIView {
     /// the batch sets animate with the keyboard (LLP 1008 §9).
     func fit() {
         let presenter = session.presenter
+        // Containment may synchronously lay us out during a partial batch.
+        // Let the next layout read the fully mounted tree before resizing it.
+        if presenter.applying {
+            if !fitPending {
+                fitPending = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.fitPending = false
+                    self.fit()
+                }
+            }
+            return
+        }
         // UIKit moves the keyboard sideways with an interactive pop. Its
         // hide notification is not a request to drop the composer below
         // those moving keys; keep the current viewport until it settles.
@@ -83,7 +117,12 @@ public final class ExactView: UIView {
             let top: CGFloat
             // A sheet's guide remains in its local coordinates as UIKit moves
             // the sheet, including during interactive dismissal.
-            if presenter.interactiveKeyboardDrag || presenter.modals.active {
+            // A focused editor uses that same local guide. After rotation the
+            // notification can include margin above the keys; after a cancelled
+            // pop it can still announce hiding. Neither replaces the guide's
+            // occupied geometry while this session retains its editor.
+            if presenter.interactiveKeyboardDrag || presenter.modals.active ||
+                presenter.hasKeyboardEditor {
                 let guide = container.keyboardLayoutGuide.layoutFrame
                 top = guide.height > safe.bottom + 1 ? guide.minY : .infinity
             } else if let edge = presenter.keyboardTop, let window {

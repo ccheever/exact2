@@ -18,6 +18,7 @@ use crate::id::ViewId;
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StyleDomainError {
+    InvalidLineHeight,
     NonFinite(StyleId),
     AutoNotAdmitted(StyleId),
     TooManyTracks { style: StyleId, count: usize },
@@ -29,6 +30,8 @@ pub enum StyleDomainError {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodeError {
+    /// Invalid line-height tag, negative length or ratio.
+    InvalidLineHeight,
     /// Fewer bytes remained than the field needs.
     Truncated { needed: usize, available: usize },
     /// A colour row's tag byte named neither a fixed colour nor a
@@ -146,6 +149,8 @@ pub enum DecodeError {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApplyError {
+    /// An authored line height was negative.
+    InvalidLineHeight { op_index: usize },
     /// The op targets an id that is not live.
     UnknownView { op_index: usize, id: ViewId },
     /// `CreateView` on a live id of a different type.
@@ -269,6 +274,7 @@ impl From<DecodeError> for KernelError {
 impl From<StyleDomainError> for DecodeError {
     fn from(error: StyleDomainError) -> Self {
         match error {
+            StyleDomainError::InvalidLineHeight => DecodeError::InvalidLineHeight,
             StyleDomainError::NonFinite(style) => DecodeError::NonFinite(style),
             StyleDomainError::AutoNotAdmitted(style) => DecodeError::AutoNotAdmitted { style },
             StyleDomainError::TooManyTracks { count, .. } => DecodeError::TooManyTracks(count),

@@ -49,6 +49,19 @@ final class Presenter {
     /// keyboard.
     var keyboardInset: CGFloat = 0
 
+    var hasKeyboardEditor: Bool {
+        views.values.contains { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
+    }
+
+    /// A notification describes the keyboard's target, not its current
+    /// presence: UIKit announces hiding even during a cancelled sideways pop.
+    /// The guide observes the keyboard in its owning container's coordinates.
+    func keyboardGuideTop(in container: UIView) -> CGFloat? {
+        guard hasKeyboardEditor || keyboardInset > 0 else { return nil }
+        let guide = container.keyboardLayoutGuide.layoutFrame
+        return guide.height > container.safeAreaInsets.bottom + 1 ? guide.minY : nil
+    }
+
     /// Where the platform's pointer last hovered over the viewport, in its
     /// content space — kept only under the agent (LLP 1035.003 §3): the
     /// driver calibrates its desktop-to-device mapping by hovering the Mac's
@@ -90,7 +103,7 @@ final class Presenter {
         // A keyboard is this session's business only for its own editor, or
         // while it still holds an inset it applied; another session's editor
         // in the same window is not (LLP 1035.001 D5, two-session host).
-        let ownEditor = editing != nil || views.values.contains { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
+        let ownEditor = editing != nil || hasKeyboardEditor
         guard NavigationRules.keyboardConcerns(editing: ownEditor, holdsInset: keyboardTop != nil) else { return }
         let end = (info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
         let hiding = n.name == UIResponder.keyboardWillHideNotification
@@ -122,6 +135,7 @@ final class Presenter {
     }
     /// The last no-duration keyboard change, waiting to be applied.
     private var keyboardDebounce: DispatchWorkItem?
+    var hasPendingKeyboardResize: Bool { keyboardDebounce != nil }
     var interactiveKeyboardDrag: Bool {
         views.values.contains { node in
             guard let sv = node.scroll else { return false }
@@ -212,6 +226,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        menus.reset()
         swipeActions.reset()
         modals.reset()
         navigation.reset()
@@ -238,18 +253,55 @@ final class Presenter {
     /// A capability an action called (LLP 1005 §3), after its commit.
     var onCommand: ((String, [Any]) -> Void)?
 
+    /// One native focus intent, bound to the actual editor across controller
+    /// transitions. Replacing a node with the same HTML id cannot inherit it.
+    private var pendingFocus: (node: NodeView, args: [Any], selectText: Bool, reason: String)?
+    private var deliveringFocus = false
+    var pendingFocusObservation: [String: String]? {
+        guard let pending = pendingFocus, let name = pending.args.first as? String else { return nil }
+        return ["target": name, "reason": pending.reason]
+    }
+
+    func cancelPendingFocus() { pendingFocus = nil }
+
+    func flushPendingFocus() {
+        guard let pending = pendingFocus, !applying, !navigation.defersFocus, !modals.defersFocus else { return }
+        guard views[pending.node.id] === pending.node,
+              pending.node.props["id"] == pending.args.first as? String,
+              !navigation.isInactiveRoute(containing: pending.node) else {
+            pendingFocus = nil
+            session?.log("pending focus cancelled: its target or route was replaced")
+            return
+        }
+        guard pending.node.window != nil, pending.node.bounds.width > 0, pending.node.bounds.height > 0 else { return }
+        pendingFocus = nil
+        deliveringFocus = true
+        focusElement(pending.args, selectText: pending.selectText)
+        deliveringFocus = false
+    }
+
     /// The action's focus(html-id), delivered only after the batch is mounted.
     /// A focus that cannot be delivered is refused with its reason in the
     /// runner's journal (LLP 1035.001 D3/D6, `NavigationRules.focusRefusal`),
     /// never silently.
     func focusElement(_ args: [Any], selectText: Bool = false) {
-        if modals.deferFocus(args, selectText: selectText) { return }
+        if !deliveringFocus { pendingFocus = nil }
         guard args.count == 1, let name = args.first as? String else {
             session?.log("focus refused: one string argument expected")
             return
         }
         guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else {
             session?.log("focus \"\(name)\" refused: no live node with that id")
+            return
+        }
+        // UIKit may not announce its next transition until after the outgoing
+        // sheet starts dismissing. The selected route's editor already exists,
+        // but cannot receive focus until its controller mounts it in a window.
+        if !deliveringFocus, navigation.defersFocus || modals.defersFocus || target.window == nil {
+            pendingFocus = (target, args, selectText, navigation.defersFocus
+                ? "navigation is still transitioning" : modals.defersFocus
+                ? "the sheet is still presenting" : "the target is not mounted")
+            flushPendingFocus()
             return
         }
         var hidden = false, inert = false
@@ -324,6 +376,16 @@ final class Presenter {
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
+    /// Removing a route cancels its recognizers before every child has been
+    /// forgotten. Motion follows the same post-batch lifetime rule as events;
+    /// a retired view cannot release into a successor with the same numeric id.
+    func dragX(_ view: NodeView, delta: Double, velocity: Double, release: Bool, commit: Bool = false) {
+        send(view.id) { [weak self, weak view] in
+            guard let self, let view, views[view.id] === view, let session else { return }
+            session.apply(session.runtime.dragX(view.id, delta: delta, velocity: velocity, release: release, now: session.now()))
+            if commit { swiperight(view.id) }
+        }
+    }
     func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
@@ -345,10 +407,23 @@ final class Presenter {
                 let q = waiting
                 waiting = []
                 for (id, f) in q where id.map({ views[$0] != nil }) ?? true { f() }
+                flushPendingFocus()
             }
         }
+        var beganGeometry = false
         for op in batch.ops {
             guard let kind = op["op"] as? String else { continue }
+            if !beganGeometry && (kind == "frame" || kind == "content") {
+                beganGeometry = true
+                // Mount the native owner under the root's available box before
+                // content geometry lets UIKit settle its scroll relationship.
+                if let first = root.subviews.first as? NodeView {
+                    for frame in batch.ops where frame["op"] as? String == "frame" && frame["id"] as? Int == Int(first.id) {
+                        applyGeometry(frame)
+                    }
+                }
+                navigation.installInitialOwner(batch)
+            }
             let id = UInt32(op["id"] as? Int ?? 0)
             if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id, textChanged: kind == "props" || kind == "style" || kind == "destroy") }
             switch kind {
@@ -368,11 +443,14 @@ final class Presenter {
                 if parent.kind == "text" { parent.setTextChildren(want); continue }
                 for child in want { child.textParent = nil }
                 let container = parent.container
-                for child in container.subviews where !(want as [UIView]).contains(child) && child is NodeView { child.removeFromSuperview() }
+                for case let child as NodeView in container.subviews where !(want as [UIView]).contains(child) {
+                    if !modals.retainsRemovedView(child) { child.removeFromSuperview() }
+                }
                 // In order, below anything else in the container (a scroll
                 // view's indicators): inserting a subview at an index moves
                 // it when it is already there.
-                for (i, child) in want.enumerated() { container.insertSubview(child, at: i) }
+                let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) }
+                for (i, child) in contained.enumerated() { container.insertSubview(child, at: i) }
             case "surface":
                 if let v = views[id] { session?.canvases.surface(view: v, name: op["name"] as? String ?? "", values: op["values"] as? [Any] ?? []) }
             case "command":
@@ -383,7 +461,7 @@ final class Presenter {
                 // Out of the map before out of the window: the editing-ended
                 // notification removal fires finds no view to send for.
                 let gone = views.removeValue(forKey: id)
-                gone?.removeFromSuperview()
+                if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
             case "roots":
                 root.subviews.forEach { $0.removeFromSuperview() }
                 for r in (op["ids"] as? [Int] ?? []).compactMap({ views[UInt32($0)] }) { root.addSubview(r) }
@@ -418,8 +496,8 @@ final class Presenter {
             }
             if let material = node.materialView { node.sendSubviewToBack(material) }
         }
-        menus.sync()
         navigation.sync(batch)
+        menus.sync()
         swipeActions.sync()
         positionContexts()
     }
@@ -436,7 +514,7 @@ final class Presenter {
             v.transform = .identity
             v.frame = CGRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
             v.scroll?.frame = v.bounds
-            v.field?.frame = v.fieldBox()
+            v.field?.frame = v.contentBox()
             v.layoutTextArea()
             v.metal?.frame = v.bounds
             v.overlay?.frame = v.bounds
@@ -551,7 +629,7 @@ final class Presenter {
             let content = preview.convert(preview.bounds, to: parent)
             let port = viewport.convert(viewport.bounds, to: parent)
             // Public UIKit target-preview fixture, iPhone 17 / iOS 26.5.
-            let scale = preview.props["contextMagnify"] == "false" ? 1 : min(1.15, 1 + 26 / content.width)
+            let scale = preview.props["contextMagnify"] == "false" ? 1 : min(1.15, 1 + 26 / max(content.width, content.height))
             let extra = content.height * (scale - 1)
             let dx = sourceBox.midX > port.midX
                 ? sourceBox.maxX - content.maxX - content.width * (scale - 1) / 2
@@ -586,6 +664,24 @@ final class Presenter {
             let wanted = sourceBox.midY - (content.minY - panel.frame.minY) - content.height * scale / 2
             let top = max(minimum, min(wanted, maximum))
             if panel.frame.origin.y != top { panel.frame.origin.y = top }
+            // A tall preview can fill the available region. Keep the trailing
+            // control group inside it, even when that overlaps the preview
+            // (the native 24-line Messages reference does this).
+            var branch: UIView = preview
+            while let owner = branch.superview, owner !== panel { branch = owner }
+            let trailing = panel.subviews.compactMap { $0 as? NodeView }.filter {
+                $0 !== branch && $0.frame.minY >= branch.frame.maxY - 0.01
+            }
+            let bottom = min(parent.bounds.maxY, port.maxY - insets.bottom - 8)
+            if let last = trailing.map({ $0.convert($0.bounds, to: parent).maxY }).max(),
+               let first = trailing.map({ $0.convert($0.bounds, to: parent).minY }).min() {
+                let overflow = min(max(0, last - bottom), max(0, first - minimum))
+                if overflow > 0 {
+                    for node in trailing {
+                        project(node, node.contextTransform.concatenating(CGAffineTransform(translationX: 0, y: -overflow)))
+                    }
+                }
+            }
             if let context = contextContent(source), !panel.isDescendant(of: context.content) {
                 // A centered, content-sized scroller moves when the keyboard
                 // closes. Retain its clip position too, or neighbors disappear.

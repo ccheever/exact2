@@ -116,6 +116,120 @@ fn an_image_is_nothing_until_it_loads_then_its_intrinsic_size() {
 }
 
 #[test]
+fn scaled_image_pixels_do_not_enlarge_scrollable_overflow() {
+    // A 132px Tapback displayed at 32px contributed its unscaled bitmap to
+    // Messages' reply scroll extent, scrolling the short reply out of view.
+    // CSS Overflow §2.1: replaced content overflow is ink, never scrollable.
+    for fit in [
+        exact_kernel::ObjectFit::Fill,
+        exact_kernel::ObjectFit::Contain,
+        exact_kernel::ObjectFit::Cover,
+        exact_kernel::ObjectFit::None,
+        exact_kernel::ObjectFit::ScaleDown,
+    ] {
+        for extent in [32.0, 160.0] {
+            for decorated in [false, true] {
+                let mut style = image_style(&[(StyleId::Width, extent), (StyleId::Height, extent)]);
+                style.object_fit = fit;
+                style.mask.set(StyleId::ObjectFit);
+                if decorated {
+                    for id in [
+                        StyleId::BorderStyleTop,
+                        StyleId::BorderStyleRight,
+                        StyleId::BorderStyleBottom,
+                        StyleId::BorderStyleLeft,
+                    ] {
+                        style
+                            .set_dynamic(id, &exact_kernel::StyleValue::Text("solid".into()))
+                            .unwrap();
+                    }
+                    for id in [
+                        StyleId::PaddingLeft,
+                        StyleId::PaddingRight,
+                        StyleId::PaddingTop,
+                        StyleId::PaddingBottom,
+                    ] {
+                        style
+                            .set_dynamic(id, &exact_kernel::StyleValue::Number(3.0))
+                            .unwrap();
+                    }
+                    for id in [
+                        StyleId::BorderWidthLeft,
+                        StyleId::BorderWidthRight,
+                        StyleId::BorderWidthTop,
+                        StyleId::BorderWidthBottom,
+                    ] {
+                        style
+                            .set_dynamic(id, &exact_kernel::StyleValue::Number(2.0))
+                            .unwrap();
+                    }
+                }
+                let (mut kernel, image) = tree_with(style, false);
+                // Replacement changes the natural ratio and pixel dimensions,
+                // but two authored dimensions still determine the displayed box.
+                for intrinsic in [(132.0, 132.0), (264.0, 132.0)] {
+                    kernel.set_intrinsic_size(image, Some(intrinsic)).unwrap();
+                    let outer = extent + if decorated { 10.0 } else { 0.0 };
+                    assert_eq!(frame(&mut kernel, image), (outer, outer));
+                    let padding_box = extent + if decorated { 6.0 } else { 0.0 };
+                    near(
+                        kernel.node(image).unwrap().content,
+                        (padding_box, padding_box),
+                        "image's used padding box",
+                    );
+                    near(
+                        kernel.node(1).unwrap().content,
+                        (outer, outer),
+                        "ancestor overflow uses displayed image",
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_grid_image_can_compress_below_its_natural_width() {
+    // The existing Taffy replaced-item marker also controls the automatic
+    // grid minimum. A percentage maximum must allow this 132px image to
+    // fit the 60px left after the fixed 20px track (CSS Sizing §5.2.2).
+    let mut image = StyleProps::default();
+    image.max_width = Dimension::Percent(100.0);
+    image.mask.set(StyleId::MaxWidth);
+    let (mut kernel, id) = tree_with(image, false);
+    let mut grid = StyleProps::default();
+    grid.display = Display::Grid;
+    grid.mask.set(StyleId::Display);
+    grid.width = Dimension::Points(80.0);
+    grid.mask.set(StyleId::Width);
+    grid.grid_template_columns = exact_kernel::GridTracks(vec![
+        exact_kernel::GridTrack::Auto,
+        exact_kernel::GridTrack::Points(20.0),
+    ]);
+    grid.mask.set(StyleId::GridTemplateColumns);
+    kernel
+        .apply(
+            0,
+            2,
+            &[Op::SetStyle {
+                id: 1,
+                patch: Box::new(grid),
+            }],
+        )
+        .unwrap();
+    kernel.set_intrinsic_size(id, Some((132.0, 132.0))).unwrap();
+    near(
+        frame(&mut kernel, id),
+        (60.0, 60.0),
+        "compressed grid image",
+    );
+    // The kernel reports natural extent; a host floors scrollWidth by the
+    // client width. The empty fixed track must not create extra scrolling.
+    let root = kernel.node(1).unwrap();
+    assert_eq!(root.content.0.max(root.frame.width), 80.0);
+}
+
+#[test]
 fn one_dimension_set_gives_the_other_by_the_intrinsic_ratio() {
     let (mut kernel, image) = tree(Some(96.0));
     kernel

@@ -21,8 +21,8 @@
 
 use crate::text::{Paragraph, Run, Shared, Spec, TextEngine};
 use exact_kernel::{
-    Dimension, Display, FontStyle, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId,
-    StyleMask, StyleProps, ViewId,
+    Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
+    StyleProps, ViewId,
 };
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -283,7 +283,9 @@ impl Painter {
         let Some(node) = walk.scene.kernel.node(id) else {
             return;
         };
-        if node.style.display == Display::None {
+        if node.style.display == Display::None
+            || node.props.str(PropId::SemanticTag) == Some("dialog")
+        {
             return;
         }
         let f = node.frame;
@@ -350,18 +352,11 @@ impl Painter {
         // Borders: a uniform border with a radius is a stroke inset by half
         // its width; anything else is four side rectangles (as the Apple
         // presenter draws them).
-        let widths = [
-            s.border_width_top,
-            s.border_width_right,
-            s.border_width_bottom,
-            s.border_width_left,
-        ];
-        let colors = [
-            s.border_color_top,
-            s.border_color_right,
-            s.border_color_bottom,
-            s.border_color_left,
-        ];
+        let widths = s.border_widths();
+        let current = node
+            .computed_style(StyleMask::of(StyleId::TextColor))
+            .text_color;
+        let colors = s.border_colors(current);
         if widths.iter().any(|b| *b > 0.0) {
             let uniform =
                 widths.iter().all(|b| *b == widths[0]) && colors.iter().all(|c| *c == colors[0]);
@@ -473,7 +468,12 @@ impl Painter {
                     };
                     self.backend.fill(
                         &Shape::rect((caret_x, oy, 1.0, caret_h)),
-                        rgba(node.text_color().resolve(self.dark)),
+                        rgba(
+                            computed
+                                .caret_color
+                                .unwrap_or(node.text_color())
+                                .resolve(self.dark),
+                        ),
                         ts,
                     );
                 }
@@ -545,17 +545,14 @@ pub fn object_fit(img: &Pixmap, fit: ObjectFit, content: Rect4) -> Option<Rect4>
 /// CSS's, so every row reads directly).
 pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
     Spec {
-        runs: vec![Run {
-            text: text.to_string(),
-            size: s.font_size,
-            weight: s.font_weight,
-            family: s.font_family,
-            italic: s.font_style != FontStyle::Normal,
-            line_height: s.line_height,
-            letter_spacing: s.letter_spacing,
-        }],
+        strut: Run::from_style("", exact_kernel::TextStyle::from_style(s)),
+        runs: vec![Run::from_style(
+            text,
+            exact_kernel::TextStyle::from_style(s),
+        )],
         align: s.text_align,
         line_clamp: s.line_clamp,
+        overflow_wrap: s.overflow_wrap,
     }
 }
 

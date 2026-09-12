@@ -6,6 +6,96 @@ use exact_kernel::{
 };
 
 #[test]
+fn border_defaults_clear_and_wire_preserve_authored_width_separately_from_used_width() {
+    use exact_kernel::{wire, Kernel, NodeType, Op, StyleMask};
+    let mut style = StyleProps::default();
+    assert_eq!(style.border_width_top, 3.0);
+    assert_eq!(style.border_widths(), [0.0; 4]);
+    assert_eq!(style.border_color_top, None);
+    style
+        .set_dynamic(StyleId::BorderWidthTop, &StyleValue::Number(8.0))
+        .unwrap();
+    style
+        .set_dynamic(StyleId::BorderStyleTop, &StyleValue::Text("solid".into()))
+        .unwrap();
+    style
+        .set_dynamic(StyleId::BorderStyleRight, &StyleValue::Text("solid".into()))
+        .unwrap();
+    style
+        .set_dynamic(
+            StyleId::BorderColorTop,
+            &StyleValue::Text("currentColor".into()),
+        )
+        .unwrap();
+    style
+        .set_dynamic(
+            StyleId::BorderColorRight,
+            &StyleValue::Text("#00000000".into()),
+        )
+        .unwrap();
+    assert_eq!(style.border_widths(), [8.0, 3.0, 0.0, 0.0]);
+    assert!(style
+        .set_dynamic(StyleId::BorderColorTop, &StyleValue::Auto)
+        .is_err());
+    assert!(style
+        .set_dynamic(StyleId::BorderStyleTop, &StyleValue::Text("dashed".into()))
+        .is_err());
+    let mut k = Kernel::with_monospace();
+    k.apply_frame(&wire::encode(
+        0,
+        1,
+        &[
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(style),
+            },
+        ],
+    ))
+    .unwrap();
+    assert_eq!(
+        k.node(1).unwrap().style.border_colors(Color::WHITE.into()),
+        [
+            Color::WHITE.into(),
+            Color::TRANSPARENT.into(),
+            Color::WHITE.into(),
+            Color::WHITE.into()
+        ]
+    );
+    let mut hidden = StyleProps::default();
+    hidden
+        .set_dynamic(StyleId::BorderStyleTop, &StyleValue::Text("hidden".into()))
+        .unwrap();
+    k.apply(
+        0,
+        2,
+        &[Op::SetStyle {
+            id: 1,
+            patch: Box::new(hidden),
+        }],
+    )
+    .unwrap();
+    assert_eq!(
+        k.node(1).unwrap().style.border_widths(),
+        [0.0, 3.0, 0.0, 0.0]
+    );
+    assert_eq!(k.node(1).unwrap().style.border_width_top, 8.0);
+    k.apply(
+        0,
+        3,
+        &[Op::ClearStyle {
+            id: 1,
+            mask: StyleMask::of(StyleId::BorderStyleRight),
+        }],
+    )
+    .unwrap();
+    assert_eq!(k.node(1).unwrap().style.border_widths(), [0.0; 4]);
+}
+
+#[test]
 fn every_dynamic_codec_fills_its_row_and_marks_the_mask() {
     let mut s = StyleProps::default();
     s.set_dynamic(StyleId::Width, &StyleValue::Percent(50.0))
@@ -151,4 +241,153 @@ fn hex_colors_parse_in_all_four_css_forms() {
     );
     assert_eq!(Color::parse_hex("ff0000"), None);
     assert_eq!(Color::parse_hex("#gg0000"), None);
+}
+
+#[test]
+fn caret_auto_and_transparent_are_distinct_and_survive_the_wire() {
+    use exact_kernel::{wire, DecodeError, RowValue};
+    for value in [
+        StyleValue::Auto,
+        StyleValue::Text("auto".into()),
+        StyleValue::Text("#00000000".into()),
+        StyleValue::Text("#ffffff".into()),
+        StyleValue::Text("light-dark(#ffffff, #112233)".into()),
+    ] {
+        let mut style = StyleProps::default();
+        style.set_dynamic(StyleId::CaretColor, &value).unwrap();
+        let mut bytes = wire::codec::Writer::new();
+        bytes.optional_color(style.caret_color);
+        let mut reader = wire::codec::Reader::new(bytes.as_slice());
+        assert_eq!(reader.optional_color().unwrap(), style.caret_color);
+        match value {
+            StyleValue::Auto => assert_eq!(style.get(StyleId::CaretColor), RowValue::Enum("auto")),
+            StyleValue::Text(ref text) if text == "#00000000" => {
+                assert_eq!(style.caret_color, Some(Color::TRANSPARENT.into()));
+            }
+            _ => {}
+        }
+        let before = style.clone();
+        assert!(style
+            .set_dynamic(StyleId::CaretColor, &StyleValue::Text("not-a-color".into()))
+            .is_err());
+        assert_eq!(
+            style, before,
+            "a refused update preserves the authored caret"
+        );
+    }
+    assert_eq!(
+        wire::codec::Reader::new(&[2]).optional_color(),
+        Err(DecodeError::BadColorValue(2))
+    );
+    assert!(wire::codec::Reader::new(&[1]).optional_color().is_err());
+}
+
+#[test]
+fn clearing_a_caret_override_restores_inheritance_not_auto() {
+    use exact_kernel::{wire, Kernel, NodeType, Op, StyleMask};
+    let caret = |value| {
+        let mut s = StyleProps::default();
+        s.set_dynamic(StyleId::CaretColor, &value).unwrap();
+        Box::new(s)
+    };
+    let mut k = Kernel::with_monospace();
+    let mask = StyleMask::of(StyleId::CaretColor);
+    k.apply_frame(&wire::encode(
+        0,
+        1,
+        &[
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::TextInput,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: caret(StyleValue::Text("#ffffff".into())),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2],
+            },
+            Op::AttachRoot { id: 1 },
+        ],
+    ))
+    .unwrap();
+    assert_eq!(
+        k.node(2).unwrap().computed_style(mask).caret_color,
+        Some(Color::WHITE.into())
+    );
+    k.apply(
+        0,
+        2,
+        &[Op::SetStyle {
+            id: 2,
+            patch: caret(StyleValue::Auto),
+        }],
+    )
+    .unwrap();
+    assert_eq!(
+        k.node(2).unwrap().computed_style(mask).caret_color,
+        None,
+        "explicit auto stops inheritance"
+    );
+    k.apply(0, 3, &[Op::ClearStyle { id: 2, mask }]).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().computed_style(mask).caret_color,
+        Some(Color::WHITE.into())
+    );
+    k.apply(0, 4, &[Op::ClearStyle { id: 1, mask }]).unwrap();
+    assert_eq!(k.node(2).unwrap().computed_style(mask).caret_color, None);
+}
+
+#[test]
+fn line_height_preserves_kinds_through_dynamic_changes_wire_and_refusal() {
+    use exact_kernel::{wire, Kernel, LineHeight, NodeType, Op};
+    let mut style = StyleProps::default();
+    assert_eq!(style.line_height, LineHeight::Normal);
+    for (input, expected) in [
+        (StyleValue::Number(1.5), LineHeight::Number(1.5)),
+        (StyleValue::Text("24px".into()), LineHeight::Length(24.0)),
+        (StyleValue::Text("normal".into()), LineHeight::Normal),
+        (StyleValue::Number(0.0), LineHeight::Number(0.0)),
+        (StyleValue::Text("0px".into()), LineHeight::Length(0.0)),
+    ] {
+        style.set_dynamic(StyleId::LineHeight, &input).unwrap();
+        assert_eq!(style.line_height, expected);
+        let mut kernel = Kernel::with_monospace();
+        kernel
+            .apply_frame(&wire::encode(
+                0,
+                1,
+                &[
+                    Op::CreateView {
+                        id: 1,
+                        node_type: NodeType::Text,
+                    },
+                    Op::SetStyle {
+                        id: 1,
+                        patch: Box::new(style.clone()),
+                    },
+                ],
+            ))
+            .unwrap();
+        assert_eq!(kernel.node(1).unwrap().style.line_height, expected);
+    }
+    for invalid in [
+        StyleValue::Number(-1.0),
+        StyleValue::Number(f64::NAN),
+        StyleValue::Number(f64::INFINITY),
+        StyleValue::Text("-2px".into()),
+        StyleValue::Text("NaNpx".into()),
+        StyleValue::Text("1em".into()),
+        StyleValue::Text("150%".into()),
+        StyleValue::Text("24".into()),
+    ] {
+        let before = style.clone();
+        assert!(style.set_dynamic(StyleId::LineHeight, &invalid).is_err());
+        assert_eq!(style, before);
+    }
 }

@@ -11,6 +11,30 @@ fn boot() -> (Host<caltrain_data::Caltrain>, String) {
     Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap()
 }
 
+#[test]
+fn symbol_roles_carry_host_paths_and_decorative_images() {
+    let plan = contract::compile(
+        r##"component App
+  state source = "symbol:search"
+  action change writes source
+    source = "symbol:unknown"
+  view
+    column font-size=22
+      button "Change" press=change testId="change"
+      image source aria-label="Ignored decorative label" tint-color="light-dark(#007aff,#0a84ff)"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    assert!(first.contains("\"src\":\"symbol:search\""));
+    assert!(first.contains("\"data-symbol-path\":\"M16 10"));
+    assert!(first.contains("\"alt\":\"\""));
+    assert!(!first.contains("Ignored decorative label"));
+    assert!(first.contains("--exact-tint:light-dark("), "{first}");
+    let changed = host.dispatch(view_with_test_id(&host, "change"), Event::Press);
+    assert!(changed.contains("\"data-symbol-path\":\"\""), "{changed}");
+}
+
 fn view_with_test_id(host: &Host<caltrain_data::Caltrain>, test_id: &str) -> u32 {
     let k = host.runner().kernel();
     let key = k.find_by_test_id(test_id)[0];
@@ -105,6 +129,16 @@ fn style_rows_lower_to_css_by_their_names() {
         .unwrap();
     s.set_dynamic(StyleId::BorderWidthBottom, &StyleValue::Number(1.0))
         .unwrap();
+    s.set_dynamic(
+        StyleId::BorderStyleBottom,
+        &StyleValue::Text("solid".into()),
+    )
+    .unwrap();
+    s.set_dynamic(
+        StyleId::BorderColorBottom,
+        &StyleValue::Text("currentColor".into()),
+    )
+    .unwrap();
     s.set_dynamic(StyleId::AlignSelf, &StyleValue::Text("center".into()))
         .unwrap();
     s.set_dynamic(StyleId::PositionType, &StyleValue::Text("absolute".into()))
@@ -146,6 +180,8 @@ fn style_rows_lower_to_css_by_their_names() {
         "color:rgba(192,57,43,1);",
         "border-top-left-radius:16px;",
         "border-bottom-width:1px;",
+        "border-bottom-style:solid;",
+        "border-bottom-color:currentcolor;",
         "align-self:center;",
         "position:absolute;",
         "rotate:45deg;",
@@ -539,6 +575,49 @@ fn readonly_uses_existing_editable_prop_and_reacts_to_changes() {
 }
 
 #[test]
+fn inert_is_a_boolean_dom_attribute_without_removing_its_subtree() {
+    let plan = contract::compile(
+        r#"component App
+  state blocked = true
+  action flip writes blocked
+    blocked = not blocked
+  view
+    column
+      button press=flip testId="flip"
+        text "Toggle"
+      column inert=blocked testId="region"
+        input value="Kept draft" testId="editor"
+"#,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    assert!(first.contains("\"inert\":\"true\""), "{first}");
+    assert!(!first.contains("data-inert"), "{first}");
+    let region = view_with_test_id(&host, "region");
+    let editor = view_with_test_id(&host, "editor");
+    let flip = view_with_test_id(&host, "flip");
+    for expected in [false, true] {
+        let batch = host.dispatch(flip, Event::Press);
+        assert!(
+            batch.contains(&format!("\"inert\":\"{expected}\"")),
+            "{batch}"
+        );
+        assert_eq!(view_with_test_id(&host, "region"), region);
+        assert_eq!(view_with_test_id(&host, "editor"), editor);
+        assert_eq!(
+            host.runner()
+                .kernel()
+                .node(editor)
+                .unwrap()
+                .props
+                .str(exact_kernel::PropId::Value),
+            Some("Kept draft")
+        );
+    }
+    assert!(contract::compile("component App\n  view\n    column inert=\"yes\"\n").is_err());
+}
+
+#[test]
 fn declared_keyboard_shortcuts_are_standard_aria_attributes() {
     let plan = contract::compile(
         r#"component App
@@ -559,6 +638,37 @@ fn declared_keyboard_shortcuts_are_standard_aria_attributes() {
     let id = view_with_test_id(&host, "save");
     let batch = host.dispatch(id, Event::Press);
     assert!(batch.contains("\"disabled\":\"true\""), "{batch}");
+}
+
+#[test]
+fn dialog_invokers_preserve_html_commands_and_live_action_labels() {
+    let plan = contract::compile(
+        r#"component App
+  state count = 1
+  action prepare writes count
+    count = 2
+  action confirm writes count
+    count = 0
+  view
+    column
+      button press=prepare commandfor="confirm" command="show-modal" testId="open"
+        text "Delete"
+      dialog id="confirm" closedby="any" role="alertdialog"
+        button press=confirm commandfor="confirm" command="close"
+          text `Delete ${count} messages`
+        button commandfor="confirm" command="close"
+          text "Cancel"
+"#,
+    )
+    .unwrap();
+    let (mut host, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    assert!(batch.contains("\"tag\":\"dialog\""), "{batch}");
+    assert!(batch.contains("\"closedby\":\"any\""), "{batch}");
+    assert!(batch.contains("\"commandfor\":\"confirm\""), "{batch}");
+    assert!(batch.contains("\"command\":\"show-modal\""), "{batch}");
+    let id = view_with_test_id(&host, "open");
+    let batch = host.dispatch(id, Event::Press);
+    assert!(batch.contains("Delete 2 messages"), "{batch}");
 }
 
 /// A scheme-aware colour is handed to the browser, not resolved here.
@@ -676,4 +786,42 @@ fn editor_hints_and_picker_policy_reach_the_dom_and_update() {
     assert_eq!(changed.matches("\"spellcheck\":\"true\"").count(), 2);
     assert!(changed.contains("\"emojiPicker\":\"true\""));
     assert!(changed.contains("\"contextMagnify\":\"true\""));
+}
+
+#[test]
+fn caret_color_is_css_including_auto_transparency_and_scheme_pairs() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    for (authored, expected) in [
+        ("auto", "caret-color:auto"),
+        ("#ffffff", "caret-color:rgba(255,255,255,1)"),
+        ("#00000000", "caret-color:rgba(0,0,0,0)"),
+        (
+            "light-dark(#ffffff, #112233)",
+            "caret-color:light-dark(rgba(255,255,255,1), rgba(17,34,51,1))",
+        ),
+    ] {
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::CaretColor, &StyleValue::Text(authored.into()))
+            .unwrap();
+        let (css, skipped) = css_text(&style, &[]);
+        assert!(skipped.is_empty());
+        assert!(css.contains(expected), "{authored}: {css}");
+    }
+}
+
+#[test]
+fn css_line_height_retains_ratio_length_normal_and_zero() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    let mut style = StyleProps::default();
+    for (value, css) in [
+        (StyleValue::Number(1.5), "line-height:1.5;"),
+        (StyleValue::Text("24px".into()), "line-height:24px;"),
+        (StyleValue::Text("normal".into()), "line-height:normal;"),
+        (StyleValue::Number(0.0), "line-height:0;"),
+        (StyleValue::Text("0px".into()), "line-height:0px;"),
+    ] {
+        style.set_dynamic(StyleId::LineHeight, &value).unwrap();
+        assert_eq!(exact_web::css::css_text(&style, &[]).0, css);
+    }
 }

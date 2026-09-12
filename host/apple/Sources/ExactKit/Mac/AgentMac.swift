@@ -198,6 +198,10 @@ extension Agent {
         if v !== host { native["inline"] = true }
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.currentEditor() != nil }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
+        if let leaf = host.symbolView {
+            let size = leaf.image?.size ?? .zero
+            native["symbol"] = ["renderer": String(describing: Swift.type(of: leaf)), "name": host.props["symbolName"] ?? "", "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
+        }
         node["native"] = native
         node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]
         reply["node"] = node

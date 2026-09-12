@@ -565,8 +565,8 @@ public final class ExactSession {
                     #endif
                     continue
                 }
-                if name == "focus" {
-                    app.deliver { [weak self] in self?.presenter.focusElement(args) }
+                if name == "focus" || name == "selectText" {
+                    app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
                     continue
                 }
                 if app.handleCommand(name) { continue }

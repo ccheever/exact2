@@ -4,14 +4,16 @@
 import UIKit
 
 private final class ModalController: UIViewController {
-    unowned let host: ModalHost
+    weak var host: ModalHost?
     let routeID: UInt32
-    init(host: ModalHost, routeID: UInt32) {
+    var retiringRoot: NodeView?
+    var retiringNavigation: UIViewController?
+    init(host: ModalHost, routeID: UInt32, fullscreen: Bool) {
         self.host = host
         self.routeID = routeID
         super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .pageSheet
-        sheetPresentationController?.detents = [.large()]
+        modalPresentationStyle = fullscreen ? .overFullScreen : .pageSheet
+        if !fullscreen { sheetPresentationController?.detents = [.large()] }
     }
     required init?(coder: NSCoder) { nil }
     override func loadView() {
@@ -30,7 +32,7 @@ private final class ModalController: UIViewController {
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        host.fit()
+        host?.fit()
     }
     func freeze() {
         guard isViewLoaded, let pixels = view.snapshotView(afterScreenUpdates: false) else { return }
@@ -40,82 +42,111 @@ private final class ModalController: UIViewController {
     }
 }
 
+// Each boundary owns its presenting geometry and native controller. The
+// viewport belongs to the top boundary; covered owners remain mounted.
+private final class Presentation {
+    let controller: ModalController
+    let route: NodeView
+    let kind: String
+    let navigation: UIViewController
+    weak var home: UIView?
+    weak var owner: UIViewController?
+    let background: UIViewController
+    let backgroundNode: NodeView?
+    weak var backgroundHome: UIView?
+    let backgroundHomeFrame: CGRect
+    let backgroundInteraction: Bool
+    let backgroundAccessibility: Bool
+    var geometry: [UInt32: (node: NodeView, ops: [String: [String: Any]])] = [:]
+    var presenting = true
+    var animated = false
+    var alreadyDismissed = false
+
+    init(host: ModalHost, route: NodeView, navigation: UIViewController,
+         background: UIViewController, node: NodeView?, home: UIView, owner: UIViewController) {
+        self.route = route
+        kind = route.props["navigationPresentation"] ?? "modal"
+        controller = ModalController(host: host, routeID: route.id, fullscreen: kind == "fullscreen")
+        self.navigation = navigation
+        self.background = background
+        backgroundNode = node
+        backgroundHome = background.view.superview
+        backgroundHomeFrame = background.view.frame
+        backgroundInteraction = background.view.isUserInteractionEnabled
+        backgroundAccessibility = background.view.accessibilityElementsHidden
+        self.home = home
+        self.owner = owner
+    }
+}
+
 final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     unowned let presenter: Presenter
-    private var controller: ModalController?
-    private weak var home: UIView?
-    private weak var owner: UIViewController?
-    private var background: UIViewController?
-    private weak var backgroundNode: NodeView?
-    private var backgroundFrame = CGRect.zero
-    private var backgroundInteraction = true
-    private var backgroundAccessibility = false
-    private var deferredGeometry: [UInt32: (node: NodeView, ops: [String: [String: Any]])] = [:]
+    private var layers: [Presentation] = []
+    // Native dismissal outlives logical removal and reload. Retire from the
+    // top down, without letting an old completion touch a new owner.
+    private var retiring: [Presentation] = []
+    private var dismissing: Presentation?
     private var closing = false
-    private var presenting = false
-    private var pendingFocus: (args: [Any], selectText: Bool)?
-    private var deliveringFocus = false
-    /// The route last journaled as refused, so a refusal is one line.
     private var refusedRoute: UInt32?
-    var active: Bool { controller != nil || closing }
-    /// A presentation or dismissal UIKit is animating (LLP 1035.003 D5).
-    var inTransition: Bool { presenting || closing }
-    /// The focus still waiting for the sheet to finish presenting, by id,
-    /// and the modal route's close policy — for `state` (LLP 1035.002 D2).
-    var pendingFocusTarget: String? { pendingFocus?.args.first as? String }
-    var closedby: String? { controller.flatMap { presenter.views[$0.routeID]?.props["closedby"] } }
-    var coordinateView: UIView? { controller?.viewIfLoaded }
+    var active: Bool { !layers.isEmpty || !retiring.isEmpty || closing }
+    var inTransition: Bool {
+        defersFocus || isDismissing || layers.contains { $0.controller.isBeingPresented || $0.controller.isBeingDismissed }
+    }
+    var isDismissing: Bool { !retiring.isEmpty }
+    var defersFocus: Bool { closing || layers.contains { $0.presenting } }
+    var closedby: String? { layers.last?.route.props["closedby"] }
+    var presentation: String? { layers.last?.kind }
+    var coordinateView: UIView? { layers.last?.controller.viewIfLoaded }
+    var owner: UIViewController? { layers.last?.controller }
+    var routes: [(node: NodeView, kind: String)] { layers.map { ($0.route, $0.kind) } }
 
     init(presenter: Presenter) { self.presenter = presenter }
 
     func prepare(_ batch: Batch) {
-        if let controller {
-            if batch.ops.contains(where: { $0["op"] as? String == "destroy" && $0["id"] as? Int == Int(controller.routeID) }) {
-                controller.freeze()
-            }
+        for layer in layers where batch.ops.contains(where: {
+            $0["op"] as? String == "destroy" && $0["id"] as? Int == Int(layer.route.id)
+        }) {
+            let controller = layer.controller
+            controller.freeze()
+            controller.retiringRoot = layer.route
+            controller.retiringNavigation = presenter.navigation.preserveModalContent(in: controller)
         }
     }
 
-    // Retain the source's actual views after its batch (selection has ended),
-    // before navigation removes its controller. Geometry stays in the presenting
-    // surface's coordinates; dynamic colors and native materials remain live.
-    func prepareBackground(_ source: UIViewController, node: NodeView) {
-        guard background == nil, let exactView = presenter.session?.view else { return }
-        background = source
-        backgroundNode = node
-        backgroundFrame = source.view.convert(source.view.bounds, to: exactView)
-        backgroundInteraction = source.view.isUserInteractionEnabled
-        backgroundAccessibility = source.view.accessibilityElementsHidden
+    func retainsRemovedView(_ node: NodeView) -> Bool {
+        (layers + retiring).contains { layer in
+            guard let root = layer.controller.retiringRoot else { return false }
+            return node === root || node.isDescendant(of: root)
+        }
     }
 
-    func defersGeometry(for node: NodeView) -> Bool {
-        guard let source = backgroundNode else { return false }
-        return node === source || node.isDescendant(of: source)
+    private func background(for node: NodeView) -> Presentation? {
+        layers.first { layer in
+            guard let source = layer.backgroundNode else { return false }
+            return node === source || node.isDescendant(of: source)
+        }
     }
+
+    func defersGeometry(for node: NodeView) -> Bool { background(for: node) != nil }
 
     func deferGeometry(_ op: [String: Any], for node: NodeView) -> Bool {
-        guard defersGeometry(for: node), let kind = op["op"] as? String else { return false }
-        var saved = deferredGeometry[node.id] ?? (node, [:])
+        guard let layer = background(for: node), let kind = op["op"] as? String else { return false }
+        var saved = layer.geometry[node.id] ?? (node, [:])
         saved.ops[kind] = op
-        deferredGeometry[node.id] = saved
+        layer.geometry[node.id] = saved
         return true
     }
 
-    func releaseBackground() {
-        if let background {
-            background.willMove(toParent: nil)
-            background.view.removeFromSuperview()
-            background.removeFromParent()
-            background.view.isUserInteractionEnabled = backgroundInteraction
-            background.view.accessibilityElementsHidden = backgroundAccessibility
-        }
-        background = nil
-        backgroundNode = nil
-        let geometry = deferredGeometry
-        deferredGeometry = [:]
-        // Catch the views up to the kernel's latest geometry before the normal
-        // viewport resize: frames before content sizes, ids ascending, as a
-        // batch applies them (LLP 1035.001 D4, `NavigationRules.replayOrder`).
+    private func releaseBackground(_ layer: Presentation) {
+        let background = layer.background
+        layer.backgroundHome?.addSubview(background.view)
+        background.view.frame = layer.backgroundHomeFrame
+        background.view.isUserInteractionEnabled = layer.backgroundInteraction
+        background.view.accessibilityElementsHidden = layer.backgroundAccessibility
+        // Frames precede content extents, as in a normal batch. A retired
+        // identity cannot replay geometry into its replacement.
+        let geometry = layer.geometry
+        layer.geometry = [:]
         for (id, kind) in NavigationRules.replayOrder(deferred: geometry.mapValues { Set($0.ops.keys) }) {
             if let saved = geometry[id], presenter.views[id] === saved.node,
                let op = saved.ops[kind] { presenter.applyGeometry(op) }
@@ -126,47 +157,65 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         }
     }
 
-    func sync(_ route: NodeView?) {
-        guard !closing else { return }
-        guard let route else {
-            if controller != nil { finish(animated: !ExactEnv.agentFreezes) }
-            return
-        }
-        if let controller {
-            controller.isModalInPresentation = NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"])
-            return
-        }
-        guard let exactView = presenter.session?.view,
-              let parent = presenter.navigation.owner else { return }
+    func updatePermissions() {
+        for layer in layers { layer.controller.isModalInPresentation = refusesDismissal(of: layer.route) }
+    }
+
+    func canPresent(from parent: UIViewController, route: NodeView) -> Bool {
         guard parent.presentedViewController == nil else {
-            // D6: a refused intent is a journal line, not silence.
             if refusedRoute != route.id {
                 refusedRoute = route.id
                 presenter.session?.log("modal route #\(route.id) refused: the owning controller already presents")
             }
-            return
+            return false
         }
         refusedRoute = nil
-        home = presenter.viewport.superview
-        owner = parent
-        if let background {
-            parent.addChild(background)
-            background.view.frame = backgroundFrame
-            background.view.isUserInteractionEnabled = false
-            background.view.accessibilityElementsHidden = true
-            exactView.addSubview(background.view)
-            background.didMove(toParent: parent)
+        return true
+    }
+
+    func present(_ route: NodeView, navigation: UIViewController, from background: UIViewController,
+                 node: NodeView?, preceding: NodeView?, owner: UIViewController) {
+        guard let home = presenter.viewport.superview else { return }
+        let layer = Presentation(host: self, route: route, navigation: navigation,
+                                 background: background, node: node, home: home, owner: owner)
+        let frame = background.view.convert(background.view.bounds, to: home)
+        background.view.isUserInteractionEnabled = false
+        background.view.accessibilityElementsHidden = true
+        home.addSubview(background.view)
+        background.view.frame = frame
+        let controller = layer.controller
+        if #available(iOS 18.0, *), layer.kind == "fullscreen", route.props["navigationSource"] != nil {
+            let options = UIViewController.Transition.ZoomOptions()
+            options.interactiveDismissShouldBegin = { [weak self, weak route] context in
+                guard let self, let route, context.willBegin else { return false }
+                return !self.refusesDismissal(of: route)
+            }
+            controller.preferredTransition = .zoom(options: options, sourceViewProvider: { [weak self, weak route, weak preceding] _ in
+                guard let self, let route, let preceding,
+                      presenter.views[preceding.id] === preceding,
+                      let name = route.props["navigationSource"] else { return nil }
+                return presenter.views.values.filter {
+                    $0.props["id"] == name && $0.window != nil &&
+                        ($0 === preceding || $0.isDescendant(of: preceding))
+                }.min(by: { $0.id < $1.id })
+            })
         }
-        let sheet = ModalController(host: self, routeID: route.id)
-        controller = sheet
-        sheet.isModalInPresentation = NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"])
-        sheet.loadViewIfNeeded()
-        presenter.navigation.move(to: sheet) { sheet.view.addSubview(presenter.viewport) }
-        sheet.presentationController?.delegate = self
-        presenting = true
-        parent.present(sheet, animated: !ExactEnv.agentFreezes) { [weak self] in
-            self?.presenting = false
-            self?.fit()
+        layers.append(layer)
+        controller.isModalInPresentation = refusesDismissal(of: route)
+        controller.loadViewIfNeeded()
+        presenter.navigation.move(to: controller) { controller.view.addSubview(presenter.viewport) }
+        controller.presentationController?.delegate = self
+        owner.present(controller, animated: !ExactEnv.agentFreezes) { [weak self, weak layer] in
+            guard let self, let layer else { return }
+            layer.presenting = false
+            DispatchQueue.main.async { [weak self, weak layer] in
+                guard let self, let layer else { return }
+                if layers.contains(where: { $0 === layer }) {
+                    fit()
+                    presenter.navigation.modalDidDismiss()
+                }
+                drainRetired()
+            }
         }
         fit()
     }
@@ -174,66 +223,95 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func fit() {
         guard !closing else { return }
         presenter.session?.view?.fit()
-        flushFocus()
+        presenter.flushPendingFocus()
     }
 
-    func deferFocus(_ args: [Any], selectText: Bool = false) -> Bool {
-        guard presenting, !deliveringFocus else { return false }
-        pendingFocus = (args, selectText)
-        flushFocus()
-        return true
-    }
-
-    private func flushFocus() {
-        guard let pending = pendingFocus, let name = pending.args.first as? String,
-              let node = presenter.views.values.first(where: { $0.props["id"] == name }),
-              node.window != nil, node.bounds.width > 0, node.bounds.height > 0 else { return }
-        pendingFocus = nil
-        deliveringFocus = true
-        presenter.focusElement(pending.args, selectText: pending.selectText)
-        deliveringFocus = false
-    }
-
-    private func restoreViewport() {
-        if let owner, let home {
-            presenter.navigation.move(to: owner) { home.addSubview(presenter.viewport) }
-        }
-        releaseBackground()
-    }
-
-    private func finish(animated: Bool, refit: Bool = true) {
-        guard let sheet = controller else { return }
+    func closeTop(animated: Bool = !ExactEnv.agentFreezes, refit: Bool = true) {
+        guard let layer = layers.last else { return }
         closing = true
-        pendingFocus = nil
-        presenting = false
-        restoreViewport()
-        controller = nil
+        if !layer.alreadyDismissed { presenter.cancelPendingFocus() }
+        let controller = layer.controller
+        if let owner = layer.owner, let home = layer.home {
+            if controller.retiringNavigation != nil {
+                home.addSubview(presenter.viewport)
+            } else {
+                presenter.navigation.move(to: owner) { home.addSubview(presenter.viewport) }
+            }
+        }
+        presenter.navigation.retireNavigation(layer.navigation, preserving: controller.retiringNavigation != nil)
+        layers.removeLast()
+        releaseBackground(layer)
+        layer.animated = animated
+        retiring.append(layer)
         if refit { presenter.session?.view?.fit() }
-        sheet.dismiss(animated: animated)
         closing = false
-        home = nil
-        owner = nil
+        // Post-batch focus transfers before dismissal releases the old editor.
+        DispatchQueue.main.async { [weak self] in self?.drainRetired() }
+    }
+
+    private func drainRetired() {
+        guard dismissing == nil, let layer = retiring.first, !layer.presenting else { return }
+        dismissing = layer
+        let completion = { [weak self, layer] in
+            guard let self, dismissing === layer else { return }
+            dismissing = nil
+            retiring.removeAll { $0 === layer }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                drainRetired()
+                guard let session = presenter.session, session.state != .destroyed else { return }
+                presenter.navigation.modalDidDismiss()
+                fit()
+            }
+        }
+        if layer.alreadyDismissed || layer.controller.presentingViewController == nil { completion() }
+        else { layer.controller.dismiss(animated: layer.animated, completion: completion) }
+    }
+
+    private func refusesDismissal(of route: NodeView) -> Bool {
+        presenter.views[route.id] !== route || presenter.navigation.isInactiveRoute(containing: route) ||
+            NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) || !presenter.navigation.canInvokeBack
+    }
+
+    func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool {
+        guard let layer = layers.last, layer.controller === presentationController.presentedViewController else { return false }
+        return !refusesDismissal(of: layer.route)
+    }
+
+    func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
+        guard layers.last?.controller === presentationController.presentedViewController,
+              !presenter.navigation.canInvokeBack else { return }
+        presenter.session?.log("modal dismissal refused: no enabled navigationBack control in the active route")
     }
 
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-        guard controller === presentationController.presentedViewController else { return }
+        guard let layer = layers.last, layer.controller === presentationController.presentedViewController else { return }
         closing = true
-        pendingFocus = nil
-        presenting = false
-        restoreViewport()
-        controller = nil
-        presenter.navigation.invokeBack()
-        presenter.session?.view?.fit()
-        closing = false
-        home = nil
-        owner = nil
+        presenter.cancelPendingFocus()
+        layer.presenting = false
+        layer.alreadyDismissed = true
+        // UIKit still uses this hierarchy on its callback stack. Remove its
+        // owner before dispatch, so an action may safely keep the same route.
+        DispatchQueue.main.async { [weak self, layer] in
+            guard let self, layers.last === layer else { return }
+            closeTop(animated: false, refit: false)
+            presenter.navigation.invokeBack(from: layer.route)
+            presenter.navigation.modalDidDismiss()
+            fit()
+        }
     }
 
+    func unmounted() { reset() }
+
     func reset() {
-        // A reload has replaced the runtime, but its initial batch is not
-        // mounted yet. ExactView.rebooted() refits after that batch is applied.
-        if controller != nil { finish(animated: false, refit: false) }
-        releaseBackground()
+        // Restore the viewport immediately, then dismiss native owners from
+        // the top down. New projection waits until all retired owners finish.
+        for layer in layers.reversed() {
+            layer.controller.freeze()
+            layer.controller.retiringRoot = layer.route
+            layer.controller.retiringNavigation = presenter.navigation.preserveModalContent(in: layer.controller)
+            closeTop(animated: false, refit: false)
+        }
     }
 }
 #endif

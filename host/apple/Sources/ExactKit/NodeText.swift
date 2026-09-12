@@ -2,6 +2,19 @@
 import Foundation
 
 extension NodeView {
+    /// Resolve the computed tagged row after inheritance, using this node's font.
+    var usedLineHeight: CGFloat? {
+        if let ratio = style["line_height"] as? Double { return CGFloat(ratio) * number("font_size", 16) }
+        if let length = style["line_height"] as? String, length.hasSuffix("px"), let n = Double(length.dropLast(2)) { return CGFloat(n) }
+        return nil
+    }
+
+    func textRun(_ value: String) -> Run {
+        Run(text: value, size: number("font_size", 16), weight: Int(number("font_weight", 400)),
+            family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic",
+            lineHeight: usedLineHeight, letterSpacing: number("letter_spacing"))
+    }
+
     var isParagraph: Bool { kind == "text" && textParent == nil && (superview as? NodeView)?.kind != "text" }
 
     /// Inline nodes retain identity in the presenter map, but only their paragraph
@@ -19,9 +32,12 @@ extension NodeView {
     var paragraphOwner: NodeView { textParent?.paragraphOwner ?? self }
 
     func paragraphLayout() -> Paragraph? {
-        if let cached = cachedTextLayout, cached.width == bounds.width { return cached.paragraph }
-        guard let paragraph = text?.paragraph(paragraphSpec(), width: bounds.width) else { return nil }
-        cachedTextLayout = (bounds.width, paragraph)
+        // The kernel measures the CSS content box; borders and padding must
+        // not become extra wrapping room when that paragraph is painted.
+        let width = contentBox().width
+        if let cached = cachedTextLayout, cached.width == width { return cached.paragraph }
+        guard let paragraph = text?.paragraph(paragraphSpec(), width: width) else { return nil }
+        cachedTextLayout = (width, paragraph)
         return paragraph
     }
 
@@ -50,7 +66,7 @@ extension NodeView {
                 runs.append(Run(text: value, size: node.number("font_size", 16),
                     weight: Int(node.number("font_weight", 400)), family: Int(node.number("font_family")),
                     italic: (node.style["font_style"] as? String) == "italic",
-                    lineHeight: node.number("line_height"), letterSpacing: node.number("letter_spacing"),
+                    lineHeight: node.usedLineHeight, letterSpacing: node.number("letter_spacing"),
                     color: node.channels("text_color", dark: night),
                     decoration: node.style["text_decoration_line"] as? String ?? "",
                     href: node.props["href"] ?? ""))
@@ -60,7 +76,8 @@ extension NodeView {
         }
         collect(self)
         let spec = Spec(runs: runs, align: align, lineClamp: Int(number("line_clamp")),
-                        color: channels("text_color", dark: night) ?? [0, 0, 0, 255])
+                        color: channels("text_color", dark: night) ?? [0, 0, 0, 255],
+                        overflowWrap: style["overflow_wrap"] as? String == "anywhere" ? 2 : style["overflow_wrap"] as? String == "break-word" ? 1 : 0, strut: textRun(""))
         cachedTextSpec = spec
         return spec
     }

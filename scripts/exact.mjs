@@ -32,13 +32,14 @@ import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, r
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { resolveApp } from './app.mjs';
+import { appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
 import { builtAppMatches } from '../host/web/serve.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const APPLICATIONS = resolve(homedir(), 'Applications');
 
 /** The app's assembled bundle in this repo — `host/apple/build.mjs --bundle`'s one stable output. */
-export const bundleOf = (app) => resolve(app.target, 'clients', app.id, 'macos', `${app.displayName}.app`);
+export const bundleOf = (app) => appleArtifacts(app).bundle;
 /** The executable inside a bundle: what a terminal launches to keep stdio. */
 export const executableIn = (bundle) => resolve(bundle, 'Contents/MacOS/ExactMac');
 /** The name this app answers to on the command line (`app.command`, else its directory's name). */
@@ -57,29 +58,9 @@ export function binDirectory() {
 const writable = (dir) => { try { accessSync(dir, constants.W_OK); return true; } catch { return false; } };
 const onPath = (dir) => (process.env.PATH ?? '').split(':').some((p) => p && resolve(p) === dir);
 
-/** Refuse a bundle that is not this app's.
- *
- * `host/apple/build.mjs` links every app's `ExactMac` into one shared
- * product path and then copies it into that app's bundle, so two builds of
- * different apps running at once — two terminals, two agents — race, and the
- * loser ships a bundle whose Info.plist says one app and whose executable is
- * another. It launches, it looks wrong, and nothing says why.
- *
- * The app's identity is compiled into its archive (the baked compatibility
- * id), so the executable carries its own id and no other app's. Signing adds
- * this bundle's id to any binary, which is why presence alone proves
- * nothing: a foreign id is the tell. Cheap, and it turns a silent wrong app
- * into a sentence. */
+/** Cheap assertion on the executable's baked identity, shared with the driver. */
 function refuseForeignBundle(app, bundle) {
-  const executable = executableIn(bundle);
-  const bytes = readFileSync(executable, 'latin1');
-  const others = readdirSync(resolve(ROOT, 'apps'))
-    .filter((name) => name !== app.name && existsSync(resolve(ROOT, 'apps', name, 'app.contract')))
-    .map((name) => { try { return resolveApp(name).id; } catch { return null; } })
-    .filter((id) => id && id !== app.id);
-  const foreign = others.filter((id) => bytes.includes(id));
-  if (!bytes.includes(app.id)) throw new Error(`${executable.replace(ROOT + '/', '')} does not carry ${app.id}; another build raced this one — run it again with nothing else building`);
-  if (foreign.length) throw new Error(`${executable.replace(ROOT + '/', '')} carries ${foreign.join(', ')}, not just ${app.id}: another app's build raced this one (host/apple/build.mjs links every app into one product path). Wait for it to finish and run this again.`);
+  assertAppleIdentity(app, executableIn(bundle));
 }
 
 /** Build the app's macOS bundle. Cargo and SwiftPM decide what is stale; this always asks them. */

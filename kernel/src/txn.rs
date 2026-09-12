@@ -217,6 +217,9 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                 staged.require(op_index, *id)?;
                 if let Err(error) = patch.validate_domain() {
                     return Err(match error {
+                        StyleDomainError::InvalidLineHeight => {
+                            ApplyError::InvalidLineHeight { op_index }
+                        }
                         StyleDomainError::NonFinite(style) => {
                             ApplyError::NonFiniteStyle { op_index, style }
                         }

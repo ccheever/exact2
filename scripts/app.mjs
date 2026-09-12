@@ -117,9 +117,11 @@ export function developmentBuildEnv() {
 /** An app-specific OS opening action, not the app URL or an authentication credential. */
 export const developmentURLScheme = (appId) => 'exact2-' + createHash('sha256').update(appId).digest('hex').slice(0, 32);
 
+/** Canonical source ownership, including external apps and shared targets. */
+export const appSourceKey = (app) => createHash('sha256').update(realpathSync(app.dir)).digest('hex').slice(0, 24);
 /** The private directory receiving documents emitted by actual app build scripts. */
 export function bakeOutput(app, env = process.env) {
-  return env.EXACT_BAKE_OUTPUT ?? resolve(app.target, 'bake', app.id, env.EXACT_UPDATE_TRUST ?? 'production');
+  return env.EXACT_BAKE_OUTPUT ?? resolve(app.target, 'bake', appSourceKey(app), app.id, env.EXACT_UPDATE_TRUST ?? 'production');
 }
 
 /** Read and validate the receipt emitted by the app's actual target/grants bake. */
@@ -324,6 +326,27 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   return {version:1,trust:env.EXACT_UPDATE_TRUST??'production',compat,graph:bundleGraph,binary:{sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
 }
 
+/** Ephemeral output ownership shared by Apple builders and Cargo bakes.
+ * Never steal a stale claim: the operator must verify its PID first. */
+export function claimBuildOutput(app, path) {
+  mkdirSync(resolve(path, '..'), { recursive: true });
+  try { writeFileSync(path, JSON.stringify({ pid: process.pid, app: app.id, source: realpathSync(app.dir), started: new Date().toISOString() }) + '\n', { flag: 'wx' }); }
+  catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    throw new Error(`Apple build busy for ${app.id}: ${readFileSync(path, 'utf8').trim()} (${path}); remove this lock explicitly only after verifying the owner is no longer running`);
+  }
+  let held = true;
+  const release = () => { if (held) { held = false; rmSync(path); process.removeListener('exit', release); } };
+  process.once('exit', release);
+  return release;
+}
+
+/** Cargo library filenames use the selected target name, with hyphens
+ * normalized to underscores, even when the package has another name. */
+export const cargoLibraryTarget = (pkg) => pkg.targets.find(t => t.kind.some(k => ['cdylib','staticlib','rlib','lib'].includes(k)));
+export const appleCargoClaims = (app, target, units) => [...new Set(units.map(unit =>
+  resolve(app.target, '.apple-cargo-locks', target, `lib${unit.name.replace(/-/g, '_')}.lock`)))].sort();
+
 /** One actual target build, including the optional GPU artifact. Consumers
  * classify its completed receipt; compatibility is never recomputed in JS. */
 export function buildBake(app, platform, target, options = {}) {
@@ -332,9 +355,17 @@ export function buildBake(app, platform, target, options = {}) {
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
   const graph=buildGraph(app,target,kind,env,platform!=='linux'&&existsSync(resolve(app.dir,'gpu/Cargo.toml'))),messages=[],roots=[];
-  for(const pkg of [graph.surface,graph.root].filter(Boolean)) {
-    const unit=pkg.targets.find((t)=>pkg.id===graph.root.id&&kind==='linux'?t.kind.includes('bin'):t.kind.some((k)=>['cdylib','staticlib','rlib','lib'].includes(k)));
-    if(!unit)throw new Error(`Cargo has no buildable target for ${pkg.name}`);
+  const selected = [graph.surface,graph.root].filter(Boolean).map(pkg => {
+    const unit = pkg.id === graph.root.id && kind === 'linux' ? pkg.targets.find(t => t.kind.includes('bin')) : cargoLibraryTarget(pkg);
+    if (!unit) throw new Error(`Cargo has no buildable target for ${pkg.name}`);
+    return {pkg, unit};
+  });
+  const releases = [];
+  try {
+    if (kind === 'apple') for (const path of appleCargoClaims(app, target, selected.map(({unit}) => unit))) {
+      releases.push(claimBuildOutput(app, path));
+    }
+  for(const {pkg,unit} of selected) {
     const dep=resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}-${pkg.name}.d`);
     const args=['rustc','--locked','--offline','-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(pkg.id===graph.surface?.id?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json','--',`--emit=dep-info=${dep}`];
     const result=buildCommand('cargo',args,app,env);if(result.stderr)process.stderr.write(result.stderr);
@@ -342,7 +373,10 @@ export function buildBake(app, platform, target, options = {}) {
     for(const message of output)if(message.reason==='compiler-message'&&message.message.rendered)process.stderr.write(message.message.rendered);
   }
   const receipt=completeBuild(app,platform,target,graph,messages,roots,env);
-  writeFileSync(resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}.build.json`),JSON.stringify(receipt)+'\n');return receipt;
+  writeFileSync(resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}.build.json`),JSON.stringify(receipt)+'\n');
+  options.capture?.(receipt);
+  return receipt;
+  } finally { for (const release of releases.reverse()) release(); }
 }
 
 /** Read completed binary-producing receipts only; absent platforms remain

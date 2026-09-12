@@ -1201,13 +1201,15 @@ fn determine_container_main_size(
                                 //
                                 // Ultimately, this was not found by reading the spec, but by trial and error fixing tests to align with Webkit/Firefox output.
                                 // (see the `flex_basis_unconstraint_row` and `flex_basis_uncontraint_column` generated tests which demonstrate this)
+                                // EXACT PATCH (LLP 1001): the container's inset is added
+                                // after summing items. Flooring each item's contribution
+                                // by that same inset counts it twice for small content.
                                 if constants.is_row {
-                                    content_main_size.maybe_clamp(style_min, style_max).max(main_content_box_inset)
+                                    content_main_size.maybe_clamp(style_min, style_max)
                                 } else {
                                     content_main_size
                                         .max(item.flex_basis)
                                         .maybe_clamp(style_min, style_max)
-                                        .max(main_content_box_inset)
                                 }
                             }
                         };

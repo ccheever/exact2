@@ -31,7 +31,7 @@ struct Run: Hashable {
     var weight: Int
     var family: Int
     var italic: Bool
-    var lineHeight: CGFloat
+    var lineHeight: CGFloat?
     var letterSpacing: CGFloat
     var color: [Double]? = nil
     var decoration: String = ""
@@ -44,6 +44,8 @@ struct Spec: Hashable {
     var align: Int // 0 left, 1 center, 2 right, 3 justify
     var lineClamp: Int
     var color: [Double] // r g b a, 0–255
+    var overflowWrap: Int = 0 // CSS: normal, break-word, anywhere
+    var strut: Run? = nil // paragraph minimum line box, including smaller inline runs
 }
 
 /// A wrapped paragraph at one width: what is measured is what is painted.
@@ -53,8 +55,10 @@ final class Paragraph {
     let baselines: [CGFloat]
     let width: CGFloat
     let height: CGFloat
+    let lineBottoms: [CGFloat]
     var firstBaseline: CGFloat { baselines.first ?? 0 }
-    init(lines: [CTLine], baselines: [CGFloat], width: CGFloat, height: CGFloat) {
+    init(lines: [CTLine], baselines: [CGFloat], width: CGFloat, height: CGFloat, lineBottoms: [CGFloat] = []) {
+        self.lineBottoms = lineBottoms
         self.lines = lines
         self.baselines = baselines
         self.width = width
@@ -351,13 +355,36 @@ final class TextEngine {
             typesetters.put(spec, typesetter)
         }
         let length = spec.runs.reduce(0) { $0 + ($1.text as NSString).length }
-        let lineHeight = spec.runs.map(\.lineHeight).max() ?? 0
+        let strut = spec.strut ?? spec.runs.first
+        func extents(_ run: Run) -> (CGFloat, CGFloat) {
+            let f = font(size: run.size, weight: run.weight, family: run.family, italic: run.italic)
+            let natural = f.ascender - f.descender + f.leading
+            let half = ((run.lineHeight ?? natural) - natural) / 2
+            return (f.ascender + half, -f.descender + f.leading + half)
+        }
+        let minimum = strut.map(extents) ?? (0, 0)
+        var explicit = false
+        var lineBottoms: [CGFloat] = []
         var lines: [CTLine] = []
         var baselines: [CGFloat] = []
         var maxWidth: CGFloat = 0
         var y: CGFloat = 0
         var start = 0
         let limit = width.isFinite ? Double(width) : Double.greatestFiniteMagnitude
+        // CoreText breaks a word when it cannot fit; CSS normal instead lets
+        // that word overflow. Public Unicode line boundaries distinguish those
+        // emergency breaks from ordinary opportunities (including CJK).
+        var boundaries: [Int] = []
+        var boundaryIndex = 0
+        if spec.overflowWrap == 0 && width.isFinite && breaks == nil {
+            let text = spec.runs.map(\.text).joined() as NSString
+            let tokenizer = CFStringTokenizerCreate(nil, text as CFString, CFRange(location: 0, length: length), kCFStringTokenizerUnitLineBreak, nil)!
+            while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
+                let range = CFStringTokenizerGetCurrentTokenRange(tokenizer)
+                boundaries.append(range.location + range.length)
+            }
+            if boundaries.last != length { boundaries.append(length) }
+        }
         while start < length {
             if spec.lineClamp > 0 && lines.count == spec.lineClamp { break }
             var count: Int
@@ -365,46 +392,118 @@ final class TextEngine {
                 count = CTLineGetStringRange(breaks.lines[lines.count]).length
             } else {
                 count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
+                while boundaryIndex < boundaries.count && boundaries[boundaryIndex] < start + count {
+                    boundaryIndex += 1
+                }
+                if boundaryIndex < boundaries.count {
+                    count = boundaries[boundaryIndex] - start
+                }
             }
             if count <= 0 { count = length - start }
             var line = CTTypesetterCreateLine(typesetter, CFRangeMake(start, count))
-            if spec.lineClamp > 0 && lines.count + 1 == spec.lineClamp && start + count < length,
-               let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributed(spec).attributes(at: start, effectiveRange: nil))) as CTLine?,
-               let truncated = CTLineCreateTruncatedLine(line, limit, .end, token) {
-                line = truncated
+            if spec.lineClamp > 0 && lines.count + 1 == spec.lineClamp && start + count < length {
+                line = ellipsizedLine(spec, range: NSRange(location: start, length: count), width: limit) ?? line
             }
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
             let w = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
-            // CSS: `line-height: normal` is the font's ascent + descent +
-            // line gap; a set line-height centers the glyphs in the box.
-            let natural = ascent + descent + leading
-            let box = lineHeight > 0 ? lineHeight : natural
-            let half = lineHeight > 0 ? (lineHeight - natural) / 2 : 0
-            baselines.append(y + half + ascent)
-            y += box
+            // CSS inline boxes share a baseline. Include the paragraph strut
+            // and only the runs on this line, preserving each font's half-leading.
+            var above = minimum.0, below = minimum.1
+            var aboveExplicit = strut?.lineHeight != nil, belowExplicit = aboveExplicit
+            func include(_ a: CGFloat, _ b: CGFloat, explicit: Bool) {
+                if a > above { above = a; aboveExplicit = explicit }
+                else if a == above { aboveExplicit = aboveExplicit && explicit }
+                if b > below { below = b; belowExplicit = explicit }
+                else if b == below { belowExplicit = belowExplicit && explicit }
+            }
+            for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
+                let range = CTRunGetStringRange(glyphRun)
+                var offset = 0
+                var matched = false, includesNormal = false
+                // CoreText can coalesce adjacent spans with the same glyph
+                // attributes even when their authored line heights differ.
+                for authored in spec.runs {
+                    let end = offset + (authored.text as NSString).length
+                    defer { offset = end }
+                    guard offset < range.location + range.length && end > range.location else { continue }
+                    matched = true
+                    if authored.lineHeight != nil {
+                        // Explicit boxes use authored metrics; fallback ink
+                        // can overflow without enlarging the inline box.
+                        let (a, b) = extents(authored)
+                        include(a, b, explicit: true)
+                    } else {
+                        includesNormal = true
+                    }
+                }
+                if !matched, let strut, strut.lineHeight != nil {
+                    let (a, b) = extents(strut)
+                    include(a, b, explicit: true)
+                    continue
+                }
+                if matched && !includesNormal { continue }
+                let attributes = CTRunGetAttributes(glyphRun) as NSDictionary
+                let shapedFont = attributes[kCTFontAttributeName] as! CTFont
+                let a = CTFontGetAscent(shapedFont), d = CTFontGetDescent(shapedFont), l = CTFontGetLeading(shapedFont)
+                // Normal line height includes the actual emoji/fallback face's
+                // metrics, as CTLine measurement did before typed line heights.
+                include(a, d + l, explicit: false)
+            }
+            explicit = explicit || aboveExplicit || belowExplicit
+            baselines.append(y + above)
+            y += above + below
+            lineBottoms.append(y)
             maxWidth = max(maxWidth, w)
             lines.append(line)
             start += count
         }
         if lines.isEmpty {
-            // Empty text still has a line box.
-            let f0 = spec.runs.first.map { font(size: $0.size, weight: $0.weight, family: $0.family, italic: $0.italic) } ?? PlatformFont.systemFont(ofSize: 16)
-            let natural = f0.ascender - f0.descender + f0.leading
-            let box = lineHeight > 0 ? lineHeight : natural
-            baselines.append(f0.ascender + (lineHeight > 0 ? (lineHeight - natural) / 2 : 0))
-            y = box
+            // Empty editors retain the paragraph's own line box.
+            baselines.append(minimum.0)
+            y = minimum.0 + minimum.1
+            explicit = strut?.lineHeight != nil
         }
         // An authored CSS line height fixes the line box, including fractions.
         // Keep intrinsic width and `normal` height measurement separate: changing
         // their rounding also changes wrapping and the established host parity.
         return Paragraph(lines: lines, baselines: baselines, width: ceil(maxWidth),
-                         height: lineHeight > 0 ? y : ceil(y))
+                         height: explicit ? y : ceil(y), lineBottoms: lineBottoms)
+    }
+
+    private func ellipsizedLine(_ spec: Spec, range: NSRange, width: Double) -> CTLine? {
+        let source = attributed(spec)
+        let string = source.string as NSString
+        var end = NSMaxRange(range)
+        // A wrapped line already fits. Include the ellipsis before asking
+        // CoreText to make room for it, removing the line's trailing break/space.
+        while end > range.location && [9, 10, 13, 32, 0x2028, 0x2029].contains(Int(string.character(at: end - 1))) { end -= 1 }
+        let candidate = NSMutableAttributedString(attributedString: source.attributedSubstring(from: NSRange(location: 0, length: end)))
+        candidate.append(NSAttributedString(string: "…", attributes: source.attributes(at: max(range.location, end - 1), effectiveRange: nil)))
+        let typesetter = CTTypesetterCreateWithAttributedString(candidate)
+        let line = CTTypesetterCreateLine(typesetter, CFRange(location: range.location, length: end - range.location + 1))
+        // Keep paragraph-global indices, including the token, for AppKit hits.
+        let token = CTTypesetterCreateLine(typesetter, CFRange(location: end, length: 1))
+        // If even the token cannot fit, retain the first clipped character,
+        // as the browser does, rather than replacing it with a partial ellipsis.
+        return CTLineCreateTruncatedLine(line, width, .end, token)
     }
 
     /// As narrow as the content can be: the longest unbreakable piece.
     func minContentWidth(_ spec: Spec) -> CGFloat {
         if let width = minimums.get(spec) { return width }
         var widest: CGFloat = 0
+        if spec.overflowWrap == 2 {
+            let source = attributed(spec), value = source.string as NSString
+            var start = 0
+            while start < value.length {
+                let range = value.rangeOfComposedCharacterSequence(at: start)
+                let line = CTLineCreateWithAttributedString(source.attributedSubstring(from: range))
+                widest = max(widest, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+                start = NSMaxRange(range)
+            }
+            minimums.put(spec, ceil(widest))
+            return ceil(widest)
+        }
         for r in spec.runs {
             for word in r.text.split(whereSeparator: { $0.isWhitespace }) {
                 var one = spec
@@ -442,11 +541,12 @@ final class TextEngine {
     /// paints.
     func measure(_ request: ExactMeasureRequest) -> ExactMetrics {
         measureCount += 1
-        let runs = UnsafeBufferPointer(start: request.runs, count: request.count).map { run in
-            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: CGFloat(run.line_height), letterSpacing: CGFloat(run.letter_spacing))
+        func run(_ run: ExactTextRun) -> Run {
+            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing))
         }
+        let runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
         // Metric-only keys match the geometry used by the colored presenter.
-        let spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255])
+        let spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), strut: run(request.strut))
         let started = CACurrentMediaTime()
         let width: CGFloat = request.width == EXACT_MIN_CONTENT ? minContentWidth(spec) : request.width < 0 ? .infinity : CGFloat(request.width)
         let key = ParagraphKey(spec: spec, width: width)

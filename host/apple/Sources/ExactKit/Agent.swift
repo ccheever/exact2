@@ -14,6 +14,10 @@ import Foundation
 import CoreFoundation
 
 public final class Agent {
+    #if os(iOS)
+    // An agent-issued edit awaits its actual editor's native caret reveal.
+    weak var pendingTextReveal: TextArea?
+    #endif
     let session: ExactSession
     init(session: ExactSession) { self.session = session }
 
@@ -191,13 +195,20 @@ public final class Agent {
             }
             let next = max(landed, self.settle() ?? landed)
             if next <= landed {
-                // Under platform timing (LLP 1035.003 D5) a native transition
-                // is in flight on UIKit's clock, which no seek moves: wait
-                // for it, bounded, and say so when the bound is hit.
-                if ExactEnv.agentTiming == "platform" {
-                    let deadline = Date(timeIntervalSinceNow: 2)
-                    while nativeInFlight() && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
-                    if nativeInFlight() { return ["clock": landed, "settled": false, "reason": "transition"] }
+                // A responder or presentation completion can enqueue a keyboard
+                // resize before its animation exists. Require an idle native turn
+                // after work finishes, including work created by that completion.
+                let deadline = Date(timeIntervalSinceNow: 2)
+                var wasBusy = nativeInFlight()
+                while true {
+                    #if !os(iOS)
+                    if !wasBusy { break }
+                    #endif
+                    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+                    let busy = nativeInFlight()
+                    if !wasBusy && !busy { break }
+                    if Date() >= deadline { return ["clock": landed, "settled": false, "reason": "transition"] }
+                    wasBusy = busy
                 }
                 return ["clock": landed, "settled": true]
             }

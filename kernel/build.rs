@@ -1,26 +1,17 @@
 //! Generates the kernel's typed vocabulary from `tables/schema.json`.
 //!
-//! One declaration authority, generated code: node types, prop ids and their
-//! value kinds, every style row (its field, codec, mask bit, defaults, and
-//! layout/text effects), the enum vocabularies, the opcode list, and the
-//! schema digest that every EXWF frame must carry. The generated file is built
-//! into `OUT_DIR` and never committed.
+//! Generates node/prop/style vocabularies, symbols, opcodes and the schema
+//! digest into `OUT_DIR`; generated files are never committed.
 //!
-//! This generator fails closed: any table it cannot validate is a build error,
-//! never a skipped row.
-
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::env;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
-
-use serde::Deserialize;
-use sha2::{Digest, Sha256};
-
 const SCHEMA_PATH: &str = "tables/schema.json";
 const DIGEST_DOMAIN: &[u8] = b"exact-kernel-schema-v1\0";
-
 #[derive(Deserialize)]
 struct Schema {
     #[serde(rename = "schemaVersion")]
@@ -31,14 +22,13 @@ struct Schema {
     enums: std::collections::BTreeMap<String, EnumDef>,
     styles: Vec<StyleRow>,
     opcodes: Vec<OpcodeRow>,
+    symbols: Vec<[String; 3]>,
 }
-
 #[derive(Deserialize)]
 struct NodeTypeRow {
     id: u8,
     name: String,
 }
-
 #[derive(Deserialize)]
 struct PropRow {
     id: u16,
@@ -47,13 +37,11 @@ struct PropRow {
     #[serde(default)]
     measure: bool,
 }
-
 #[derive(Deserialize)]
 struct EnumDef {
     values: Vec<String>,
     default: String,
 }
-
 #[derive(Deserialize)]
 struct StyleRow {
     bit: u32,
@@ -71,13 +59,11 @@ struct StyleRow {
     #[serde(default)]
     default: serde_json::Value,
 }
-
 #[derive(Deserialize)]
 struct OpcodeRow {
     id: u16,
     name: String,
 }
-
 /// Convert CSS words, `snake_case`/`kebab-case`/`camelCase` to `PascalCase`.
 fn pascal(s: &str) -> String {
     let mut out = String::new();
@@ -96,25 +82,9 @@ fn pascal(s: &str) -> String {
     }
     out
 }
-
-/// Convert `camelCase` to `snake_case`.
-fn snake(s: &str) -> String {
-    let mut out = String::new();
-    for ch in s.chars() {
-        if ch.is_ascii_uppercase() {
-            out.push('_');
-            out.extend(ch.to_lowercase());
-        } else if ch == '-' {
-            out.push('_');
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
-
 enum Codec {
     Dimension,
+    LineHeight,
     F32,
     U8,
     U16,
@@ -122,6 +92,7 @@ enum Codec {
     I32,
     Rgba8,
     ColorValue,
+    KeywordColor(&'static str),
     Vec2,
     Color2,
     Tracks,
@@ -130,10 +101,10 @@ enum Codec {
     ClipPath,
     Enum(String),
 }
-
 fn parse_codec(s: &str) -> Codec {
     match s {
         "dimension" => Codec::Dimension,
+        "line-height" => Codec::LineHeight,
         "f32" => Codec::F32,
         "u8" => Codec::U8,
         "u16" => Codec::U16,
@@ -141,6 +112,8 @@ fn parse_codec(s: &str) -> Codec {
         "i32" => Codec::I32,
         "rgba8" => Codec::Rgba8,
         "color" => Codec::ColorValue,
+        "auto-color" => Codec::KeywordColor("auto"),
+        "current-color" => Codec::KeywordColor("currentcolor"),
         "vec2" => Codec::Vec2,
         "color2" => Codec::Color2,
         "tracks" => Codec::Tracks,
@@ -153,11 +126,11 @@ fn parse_codec(s: &str) -> Codec {
         },
     }
 }
-
 impl Codec {
     fn rust_type(&self) -> String {
         match self {
             Codec::Dimension => "Dimension".into(),
+            Codec::LineHeight => "LineHeight".into(),
             Codec::F32 => "f32".into(),
             Codec::U8 => "u8".into(),
             Codec::U16 => "u16".into(),
@@ -165,6 +138,7 @@ impl Codec {
             Codec::I32 => "i32".into(),
             Codec::Rgba8 => "Color".into(),
             Codec::ColorValue => "ColorValue".into(),
+            Codec::KeywordColor(_) => "Option<ColorValue>".into(),
             Codec::Vec2 => "Vec2".into(),
             Codec::Color2 => "[Color; 2]".into(),
             Codec::Tracks => "GridTracks".into(),
@@ -174,10 +148,10 @@ impl Codec {
             Codec::Enum(name) => name.clone(),
         }
     }
-
     fn variant(&self) -> &'static str {
         match self {
             Codec::Dimension => "Dimension",
+            Codec::LineHeight => "LineHeight",
             Codec::F32 => "F32",
             Codec::U8 => "U8",
             Codec::U16 => "U16",
@@ -185,6 +159,7 @@ impl Codec {
             Codec::I32 => "I32",
             Codec::Rgba8 => "Rgba8",
             Codec::ColorValue => "ColorValue",
+            Codec::KeywordColor(_) => "KeywordColor",
             Codec::Vec2 => "Vec2",
             Codec::Color2 => "Color2",
             Codec::Tracks => "Tracks",
@@ -194,14 +169,12 @@ impl Codec {
             Codec::Enum(_) => "Enum",
         }
     }
-
     fn default_expr(&self, value: &serde_json::Value, field: &str) -> String {
         let num = |v: &serde_json::Value| -> f64 {
             v.as_f64()
                 .unwrap_or_else(|| panic!("schema: style `{field}` default must be a number"))
         };
-        // Integer defaults must be integral and in range; saturating casts would
-        // silently turn a typo into a different default.
+        // Refuse out-of-range defaults instead of silently saturating.
         let int = |v: &serde_json::Value, lo: f64, hi: f64| -> i64 {
             let n = num(v);
             assert!(
@@ -219,6 +192,10 @@ impl Codec {
                 }
                 _ => panic!("schema: bad dimension default on `{field}`"),
             },
+            Codec::LineHeight => {
+                assert_eq!(value.as_str(), Some("normal"));
+                "LineHeight::Normal".into()
+            }
             Codec::F32 => format!("{}f32", num(value)),
             Codec::U8 => format!("{}u8", int(value, 0.0, u8::MAX as f64)),
             Codec::U16 => format!("{}u16", int(value, 0.0, u16::MAX as f64)),
@@ -229,6 +206,10 @@ impl Codec {
                 "ColorValue::Fixed(Color({}u32))",
                 int(value, 0.0, u32::MAX as f64)
             ),
+            Codec::KeywordColor(keyword) => {
+                assert_eq!(value.as_str(), Some(*keyword));
+                "None".into()
+            }
             Codec::Vec2 => {
                 let arr = value
                     .as_array()
@@ -274,11 +255,11 @@ impl Codec {
             },
         }
     }
-
     fn decode_expr(&self, style_id: &str, _admits_auto: bool) -> String {
         match self {
             // Row-specific admission is checked once by StyleProps::validate_domain.
             Codec::Dimension => format!("r.dimension(StyleId::{style_id}, true)?"),
+            Codec::LineHeight => "r.line_height()?".into(),
             Codec::F32 => "r.f32()?".into(),
             Codec::U8 => "r.u8()?".into(),
             Codec::U16 => "r.u16()?".into(),
@@ -286,6 +267,7 @@ impl Codec {
             Codec::I32 => "r.i32()?".into(),
             Codec::Rgba8 => "r.color()?".into(),
             Codec::ColorValue => "r.color_value()?".into(),
+            Codec::KeywordColor(_) => "r.optional_color()?".into(),
             Codec::Vec2 => "r.vec2()?".into(),
             Codec::Color2 => "r.color2()?".into(),
             Codec::Tracks => "r.tracks_for_style()?".into(),
@@ -297,10 +279,10 @@ impl Codec {
             ),
         }
     }
-
     fn encode_stmt(&self, access: &str) -> String {
         match self {
             Codec::Dimension => format!("w.dimension({access});"),
+            Codec::LineHeight => format!("w.line_height({access});"),
             Codec::F32 => format!("w.f32({access});"),
             Codec::U8 => format!("w.u8({access});"),
             Codec::U16 => format!("w.u16({access});"),
@@ -308,6 +290,7 @@ impl Codec {
             Codec::I32 => format!("w.i32({access});"),
             Codec::Rgba8 => format!("w.color({access});"),
             Codec::ColorValue => format!("w.color_value({access});"),
+            Codec::KeywordColor(_) => format!("w.optional_color({access});"),
             Codec::Vec2 => format!("w.vec2({access});"),
             Codec::Color2 => format!("w.color2({access});"),
             Codec::Tracks => format!("w.tracks(&{access});"),
@@ -317,19 +300,33 @@ impl Codec {
             Codec::Enum(_) => format!("w.u8({access} as u8);"),
         }
     }
-
     /// Whether the field type is `Copy` (so encode can pass by value).
     fn is_copy(&self) -> bool {
         !matches!(self, Codec::Tracks | Codec::Transitions | Codec::ClipPath)
     }
 }
-
 fn validate(schema: &Schema) {
+    let mut roles = BTreeSet::new();
+    for [role, apple, path] in &schema.symbols {
+        assert!(
+            !role.is_empty() && role.bytes().all(|c| c.is_ascii_lowercase() || c == b'-'),
+            "schema: invalid symbol role"
+        );
+        assert!(roles.insert(role), "schema: duplicate symbol role {role}");
+        assert!(
+            !apple.is_empty() && !path.is_empty(),
+            "schema: incomplete symbol {role}"
+        );
+        assert!(
+            path.bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b" .,-".contains(&c)),
+            "schema: invalid symbol path {role}"
+        );
+    }
     assert_eq!(
         schema.schema_version, 1,
         "schema: unsupported schemaVersion"
     );
-
     let mut ids = BTreeSet::new();
     for (i, row) in schema.node_types.iter().enumerate() {
         assert_eq!(
@@ -342,7 +339,6 @@ fn validate(schema: &Schema) {
             row.name
         );
     }
-
     let mut prop_ids = BTreeSet::new();
     let mut prop_names = BTreeSet::new();
     for row in &schema.props {
@@ -363,7 +359,6 @@ fn validate(schema: &Schema) {
             row.kind
         );
     }
-
     for (name, def) in &schema.enums {
         assert!(
             !def.values.is_empty(),
@@ -381,7 +376,6 @@ fn validate(schema: &Schema) {
             "schema: enum `{name}` default is not a member"
         );
     }
-
     let mut fields = BTreeSet::new();
     for (i, row) in schema.styles.iter().enumerate() {
         assert_eq!(
@@ -414,7 +408,6 @@ fn validate(schema: &Schema) {
         schema.styles.len() <= 64 * 4,
         "schema: more style rows than the mask can carry"
     );
-
     for row in &schema.styles {
         match parse_codec(&row.codec) {
             Codec::Enum(name) => match &row.default {
@@ -439,7 +432,6 @@ fn validate(schema: &Schema) {
             _ => {}
         }
     }
-
     let mut op_ids = BTreeSet::new();
     let mut op_names = BTreeSet::new();
     for row in &schema.opcodes {
@@ -452,7 +444,6 @@ fn validate(schema: &Schema) {
         );
     }
 }
-
 fn digest(canonical: &str) -> u64 {
     let mut hasher = Sha256::new();
     hasher.update(DIGEST_DOMAIN);
@@ -462,12 +453,31 @@ fn digest(canonical: &str) -> u64 {
     first.copy_from_slice(&bytes[..8]);
     u64::from_le_bytes(first)
 }
-
 fn generate(schema: &Schema, digest: u64) -> String {
     let mut o = String::new();
     let w = &mut o;
     let mask_words = schema.styles.len().div_ceil(64).max(1);
-
+    writeln!(w, "/// Portable symbol roles declared by the schema.").unwrap();
+    writeln!(
+        w,
+        "pub const SYMBOL_ROLES: &[&str] = &{:?};",
+        schema.symbols.iter().map(|row| &row[0]).collect::<Vec<_>>()
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "/// Resolve a role to its Apple name and browser path; never accepts a platform name."
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "pub fn symbol(role: &str) -> Option<(&'static str, &'static str)> {{ match role {{"
+    )
+    .unwrap();
+    for [role, apple, path] in &schema.symbols {
+        writeln!(w, "{role:?} => Some(({apple:?}, {path:?})),").unwrap();
+    }
+    writeln!(w, "_ => None, }} }}").unwrap();
     writeln!(
         w,
         "// Generated by build.rs from {SCHEMA_PATH}. Do not edit."
@@ -476,11 +486,10 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "use crate::error::{{DecodeError, StyleDomainError}};").unwrap();
     writeln!(
         w,
-        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Vec2, MAX_GRID_TRACKS}};"
+        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, LineHeight, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Vec2, MAX_GRID_TRACKS}};"
     )
     .unwrap();
     writeln!(w, "use crate::wire::codec::{{Reader, Writer}};").unwrap();
-    writeln!(w).unwrap();
     writeln!(
         w,
         "/// Domain-separated SHA-256 (first 8 bytes, little-endian) of the canonical schema."
@@ -494,8 +503,6 @@ fn generate(schema: &Schema, digest: u64) -> String {
         schema.schema_version
     )
     .unwrap();
-    writeln!(w).unwrap();
-
     // ---- NodeType --------------------------------------------------------
     writeln!(w, "/// Kernel node category. The closed v1 tag set.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
@@ -559,8 +566,6 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "}}").unwrap();
-    writeln!(w).unwrap();
-
     // ---- PropKind / PropId -----------------------------------------------
     writeln!(w, "/// Declared value type of a prop. The wire carries values typed; a mismatch is a decode rejection.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
@@ -576,7 +581,6 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        match value {{ 0 => Some(PropKind::Str), 1 => Some(PropKind::Bool), 2 => Some(PropKind::Int), 3 => Some(PropKind::Float), _ => None }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "}}").unwrap();
-    writeln!(w).unwrap();
     writeln!(
         w,
         "/// Interned property identifier. The discriminant is the wire id."
@@ -690,8 +694,6 @@ fn generate(schema: &Schema, digest: u64) -> String {
     }
     writeln!(w, "    }}").unwrap();
     writeln!(w, "}}").unwrap();
-    writeln!(w).unwrap();
-
     // ---- Enums -----------------------------------------------------------
     for (name, def) in &schema.enums {
         writeln!(
@@ -757,14 +759,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
         writeln!(w, "        }}").unwrap();
         writeln!(w, "    }}").unwrap();
         writeln!(w, "}}").unwrap();
-        writeln!(w).unwrap();
     }
-
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, F32, U8, U16, U32, I32, Rgba8, ColorValue, Vec2, Color2, Tracks, Placement, Transitions, ClipPath, Enum }}").unwrap();
-    writeln!(w).unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, ClipPath, Enum }}").unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
@@ -902,8 +901,6 @@ fn generate(schema: &Schema, digest: u64) -> String {
         writeln!(w, "    }}").unwrap();
     }
     writeln!(w, "}}").unwrap();
-    writeln!(w).unwrap();
-
     // ---- StyleMask -------------------------------------------------------
     writeln!(w, "/// Number of 64-bit words in the style mask.").unwrap();
     writeln!(w, "pub const STYLE_MASK_WORDS: usize = {mask_words};").unwrap();
@@ -1038,8 +1035,6 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "    /// Iterate the set rows in bit order.").unwrap();
     writeln!(w, "    pub fn iter(self) -> impl Iterator<Item = StyleId> {{ StyleId::ALL.into_iter().filter(move |id| self.has(*id)) }}").unwrap();
     writeln!(w, "}}").unwrap();
-    writeln!(w).unwrap();
-
     // ---- StyleProps ------------------------------------------------------
     writeln!(
         w,
@@ -1253,7 +1248,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
     for row in &schema.styles {
         let id = pascal(&row.field);
         let test = match parse_codec(&row.codec) {
-            Codec::F32 | Codec::Dimension | Codec::Tracks | Codec::Transitions => {
+            Codec::F32
+            | Codec::Dimension
+            | Codec::LineHeight
+            | Codec::Tracks
+            | Codec::Transitions => {
                 format!("self.{}.is_finite()", row.field)
             }
             Codec::Vec2 => format!(
@@ -1289,6 +1288,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
         let id = pascal(&row.field);
         let field = &row.field;
         match parse_codec(&row.codec) {
+            Codec::LineHeight => {
+                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidLineHeight); }}").unwrap();
+            }
             Codec::Dimension if !row.admits_auto => {
                 writeln!(w, "        if self.mask.has(StyleId::{id}) && matches!(self.{field}, Dimension::Auto) {{ return Err(StyleDomainError::AutoNotAdmitted(StyleId::{id})); }}").unwrap();
             }
@@ -1323,6 +1325,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
         let f = &row.field;
         let stmt = match parse_codec(&row.codec) {
             Codec::Dimension => format!("self.{f} = value.dimension(id, {})?;", row.admits_auto),
+            Codec::LineHeight => format!("self.{f} = value.line_height(id)?;"),
             Codec::F32 => format!("self.{f} = value.f32(id)?;"),
             Codec::U8 => format!("self.{f} = value.int(id, 0.0, u8::MAX as f64)? as u8;"),
             Codec::U16 => format!("self.{f} = value.int(id, 0.0, u16::MAX as f64)? as u16;"),
@@ -1330,6 +1333,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::I32 => format!("self.{f} = value.int(id, i32::MIN as f64, i32::MAX as f64)? as i32;"),
             Codec::Rgba8 => format!("self.{f} = value.color(id)?;"),
             Codec::ColorValue => format!("self.{f} = value.color_value(id)?;"),
+            Codec::KeywordColor(keyword) => format!("self.{f} = value.keyword_color(id, {keyword:?})?;"),
             Codec::Vec2 => format!("self.{f} = value.vec2(id)?;"),
             Codec::Enum(name) => format!(
                 "self.{f} = {name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?;"
@@ -1359,12 +1363,16 @@ fn generate(schema: &Schema, digest: u64) -> String {
         let id = pascal(&row.field);
         let f = &row.field;
         let expr = match parse_codec(&row.codec) {
+            Codec::LineHeight => format!("RowValue::LineHeight(self.{f})"),
             Codec::Dimension => format!("RowValue::Dimension(self.{f})"),
             Codec::F32 | Codec::U8 | Codec::U16 | Codec::U32 | Codec::I32 => {
                 format!("RowValue::Number(self.{f} as f64)")
             }
             Codec::Rgba8 => format!("RowValue::Color(self.{f})"),
             Codec::ColorValue => format!("RowValue::ColorValue(self.{f})"),
+            Codec::KeywordColor(keyword) => {
+                format!("self.{f}.map(RowValue::ColorValue).unwrap_or(RowValue::Enum({keyword:?}))")
+            }
             Codec::Vec2 => format!("RowValue::Vec2(self.{f})"),
             Codec::Color2 => format!("RowValue::Color2(self.{f})"),
             Codec::Enum(_) => format!("RowValue::Enum(self.{f}.name())"),
@@ -1384,8 +1392,6 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     writeln!(w, "}}").unwrap();
-    writeln!(w).unwrap();
-
     // ---- OpCode ----------------------------------------------------------
     writeln!(
         w,
@@ -1435,11 +1441,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "}}").unwrap();
-
-    let _ = snake; // reserved for future table columns
     o
 }
-
 /// Drop every object key that starts with `_`, recursively.
 fn strip_prose(value: serde_json::Value) -> serde_json::Value {
     match value {
@@ -1455,14 +1458,12 @@ fn strip_prose(value: serde_json::Value) -> serde_json::Value {
         other => other,
     }
 }
-
 fn main() {
     println!("cargo:rerun-if-changed={SCHEMA_PATH}");
     println!("cargo:rerun-if-changed=build.rs");
     let raw = fs::read_to_string(SCHEMA_PATH).expect("read tables/schema.json");
     let schema: Schema = serde_json::from_str(&raw).expect("parse tables/schema.json");
     validate(&schema);
-
     // Canonical form: serde_json's default map is ordered, so re-serializing the
     // parsed value sorts keys and normalizes whitespace.
     let value: serde_json::Value = serde_json::from_str(&raw).expect("parse tables/schema.json");
@@ -1471,7 +1472,6 @@ fn main() {
     let value = strip_prose(value);
     let canonical = serde_json::to_string(&value).expect("serialize canonical schema");
     let digest = digest(&canonical);
-
     let code = generate(&schema, digest);
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("schema.rs");
     fs::write(&out, code).expect("write generated schema.rs");

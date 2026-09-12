@@ -70,6 +70,13 @@ final class SwipeActionsHost {
         init(_ view: UIView) { self.view = view }
     }
 
+    private final class Cell: UITableViewCell {
+        weak var control: NodeView?
+        override func accessibilityActivate() -> Bool {
+            control?.accessibilityActivate() ?? super.accessibilityActivate()
+        }
+    }
+
     private final class Row: NSObject, UITableViewDataSource, UITableViewDelegate {
         unowned let host: SwipeActionsHost
         let owner: NodeView
@@ -86,7 +93,7 @@ final class SwipeActionsHost {
         private var logicalFrame = CGRect.zero
         private var priorSize = CGSize.zero
         private let table = UITableView(frame: .zero, style: .plain)
-        private let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        private let cell = Cell(style: .default, reuseIdentifier: nil)
         private var images: [UInt32: UIImage] = [:]
 
         init(owner: NodeView, body: NodeView, host: SwipeActionsHost) {
@@ -138,6 +145,22 @@ final class SwipeActionsHost {
             content.frame = CGRect(origin: CGPoint(x: -origin.x, y: -origin.y), size: logicalFrame.size)
             for control in leading + trailing { hiddenControls.append((control, control.isHidden)); control.isHidden = true }
             body.nativeSwipeBody = true; body.setNeedsDisplay()
+            // UIKit derives its cell label from native text controls; an
+            // authored button paints its own text. Preserve that button's
+            // explicit name and activation at the native presentation boundary.
+            if body.kind == "button", let label = body.accessibilityLabel, !label.isEmpty {
+                cell.control = body
+                cell.isAccessibilityElement = true
+                cell.accessibilityLabel = label
+                cell.accessibilityIdentifier = body.accessibilityIdentifier
+                cell.accessibilityTraits = body.accessibilityTraits.union(.button)
+            } else {
+                cell.control = nil
+                cell.isAccessibilityElement = false
+                cell.accessibilityLabel = nil
+                cell.accessibilityIdentifier = nil
+                cell.accessibilityTraits = []
+            }
             table.layoutIfNeeded()
         }
         func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 1 }
@@ -163,7 +186,7 @@ final class SwipeActionsHost {
         }
         private func configuration(_ controls: [NodeView]) -> UISwipeActionsConfiguration? {
             let actions = controls.filter(enabled).map { target in
-                let destructive = target.props["swipeDestructive"] == "true"
+                let destructive = target.props["destructive"] == "true"
                 let action = UIContextualAction(style: destructive ? .destructive : .normal, title: nil) { [weak self, weak target] _, _, complete in
                     guard let self, let target, self.host.presenter.views[target.id] === target, self.enabled(target) else { complete(false); return }
                     complete(true)
@@ -174,9 +197,19 @@ final class SwipeActionsHost {
                 if let glyph = target.container.subviews.first as? NodeView, !glyph.bounds.isEmpty {
                     func display(_ view: UIView) { view.layer.displayIfNeeded(); for child in view.subviews { display(child) } }
                     display(glyph)
-                    let image = UIGraphicsImageRenderer(size: glyph.bounds.size).image { glyph.layer.render(in: $0.cgContext) }.withRenderingMode(.alwaysOriginal)
-                    image.accessibilityLabel = host.label(target)
-                    images[target.id] = image; action.image = image
+                    // Layer rendering omits the root view's transform. Capture
+                    // its transformed box, so an authored icon scale/rotation
+                    // survives projection into UIKit's centered image slot.
+                    let bounds = glyph.bounds.applying(glyph.transform)
+                    if !bounds.isEmpty {
+                        let image = UIGraphicsImageRenderer(size: bounds.size).image { context in
+                            context.cgContext.translateBy(x: -bounds.minX, y: -bounds.minY)
+                            context.cgContext.concatenate(glyph.transform)
+                            glyph.layer.render(in: context.cgContext)
+                        }.withRenderingMode(.alwaysOriginal)
+                        image.accessibilityLabel = host.label(target)
+                        images[target.id] = image; action.image = image
+                    }
                 } else { action.title = host.label(target) }
                 return action
             }

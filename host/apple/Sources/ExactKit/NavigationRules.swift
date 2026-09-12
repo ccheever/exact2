@@ -19,19 +19,29 @@ enum NavigationRules {
         return 0..<(index + 1)
     }
 
+    /// D4: presentation boundaries split the selected prefix into retained
+    /// owners. A later push stays in the most recent presentation's stack.
+    static func segments(presentations: [String?]) -> [Range<Int>] {
+        var starts = [0]
+        for (index, kind) in presentations.enumerated() where kind == "modal" || kind == "fullscreen" {
+            starts.append(index)
+        }
+        return zip(starts, starts.dropFirst() + [presentations.count]).map { $0..<$1 }
+    }
+
     /// D2: a completed transition presses the Back control exactly once —
-    /// only when the route UIKit now shows carries a key other than the
-    /// root's current one. A cancelled swipe shows the same key and
-    /// dispatches nothing; a programmatic Back has already moved the key
-    /// and dispatches nothing more. A sheet's dismissal has its own path.
-    static func dispatchesBack(shownKey: String, rootKey: String, modalActive: Bool) -> Bool {
-        !modalActive && shownKey != rootKey
+    /// only for an interactive pop whose source is still selected. A
+    /// programmatic transition has no interactive source; its completion
+    /// must not dismiss a newer route selected while UIKit was animating.
+    /// A cancelled swipe shows the same key. Sheets have their own path.
+    static func dispatchesBack(shownKey: String, rootKey: String, sourceKey: String?, modalActive: Bool) -> Bool {
+        !modalActive && sourceKey == rootKey && shownKey != rootKey
     }
 
     /// D1: the Back control is resolved at use, never captured at a
     /// gesture's start: the lowest view id among live controls whose HTML
     /// `id` is the container's `navigationBack`, that handle `press`, and are
-    /// enabled. `nil` when the container names none or none is live — and
+    /// enabled and owned by the active route. `nil` when no such control is live — and
     /// then no gesture may begin and no dismissal may complete.
     static func backControl<Control>(
         named target: String?,
@@ -39,11 +49,12 @@ enum NavigationRules {
         id: (Control) -> UInt32,
         htmlID: (Control) -> String?,
         pressable: (Control) -> Bool,
-        disabled: (Control) -> Bool
+        disabled: (Control) -> Bool,
+        inActiveRoute: (Control) -> Bool
     ) -> Control? {
         guard let target else { return nil }
         return controls
-            .filter { htmlID($0) == target && pressable($0) && !disabled($0) }
+            .filter { htmlID($0) == target && pressable($0) && !disabled($0) && inActiveRoute($0) }
             .min { id($0) < id($1) }
     }
 

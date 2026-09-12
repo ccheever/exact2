@@ -298,6 +298,20 @@ which the extraction corrects: an unmounted view wants no frames.
 Backgrounding stops display links and applies the store's existing
 persistence; it invents no snapshot format.
 
+**iOS native-owner teardown (2026-09-10, LLP 1035.001 D2/D3):** unmount
+retires the session's sheets and navigation controllers without dispatching Back.
+The runner and surviving route nodes remain; offscreen updates mount no native
+controllers. Returning to a window projects current route intent and delivers
+focus commands issued offscreen only after controller installation. Physical
+unmount/destruction during a sheet drag and offscreen route replacement pass in
+the two-session host (`/tmp/messages-unmounted-owner/`). **Follow-up, 2026-09-11:**
+a different UIKit controller in the same window now acquires the current native
+owners after removal from the old parent. Messages sheet transfer and return,
+transfer during a physical sheet drag, and an offscreen replacement's queued
+focus pass (`/tmp/messages-reparent-owner/`, LLP 1035.001 D2). The other session
+remains usable. Existing focus ends at unmount; explicit pending focus survives.
+This does not establish continuous editing or moving between windows.
+
 ### D4 — Existing native services cross the existing seams; the transport and store crossings are the contract, not this landing's code
 
 A brownfield app must not rebuild its authentication, URL loading,
@@ -364,14 +378,23 @@ a kernel pointer and never mutates the tree behind a commit.
 
 ### D5 — Navigation and native interoperability are intentions, not ownership
 
-Unchanged from r1. Exact never reaches into a `UINavigationController`,
-window, scene, or AppKit controller hierarchy. A Contract action emits a
-command through the existing post-commit path; the session's delegate
-receives its name and arguments and decides. The SDK standardizes only
-meanings the web already has (navigating to a URL); product route names
-are the app's; no route registry, no platform-suffixed Contract. For
-content the other way, LLP 1024 stays the one mechanism; a native-module
-callback is scoped to its session and generation.
+The containing app owns its windows, scenes and existing controller hierarchy.
+Navigation outside the Exact surface remains a command through the existing
+post-commit path: the session's delegate receives its name and arguments and
+decides. The SDK standardizes meanings the web already has (navigating to a URL);
+product route names remain the app's, without a route registry or platform-suffixed
+Contract.
+
+**Clarified against the implemented native routes (2026-09-10, LLP 1035.001
+D1/D4):** the Apple presenter creates child navigation controllers for routes
+inside its surface, contained by the embedding controller. Exact manages those
+controllers and their route views; it does not rewrite the embedder's existing
+navigation stack. A sheet receives a separate Exact-owned navigation controller,
+while the presenting owner keeps its parent, stack and scroll relationship. The
+original blanket statement that Exact never reaches into a controller hierarchy
+predated this native projection; the boundary is which controllers Exact owns.
+For content the other way, LLP 1024 stays the mechanism; a native-module callback
+is scoped to its session and generation.
 
 ### D6 — What a brownfield app links: the app artifact, the Swift package, the optional artifacts
 
@@ -413,6 +436,9 @@ share two thin compositions, selected by `build.mjs` from Cargo's baked
 actual-target compatibility output. `EXACT_APP_COMPOSITION` is the SwiftPM
 build input it supplies (default `embedded` for direct package use), never a
 runtime switch; the two compositions keep independent Swift scratch directories.
+Those directories also include canonical app source, manifest id, destination and
+trust policy (LLP 1036.000). A `--host` build publishes both standalone and sample
+products; every driver resolves the selected app before opening either.
 `--embed` carries that same baked compatibility and records the composition.
 The lifecycle callback and complete asset provider in the core are generic;
 normal data networking and the debug dev connection remain usable at L=0.
@@ -440,7 +466,8 @@ delta of 2.44 MB, 1.04 MB gzip**; beside it the optional GPU module
 gzip, and the web arm 0.16 MB, 0.04 MB gzip — each reported apart, never
 folded in. `node host/apple/build.mjs --embed` (D10's promise) writes
 what a consumer without a Rust toolchain links under
-`target/embed/<app>/<platform>/`: the archive (`libcaltrain_apple.a`,
+the app-owned Apple namespace returned by `appleArtifacts(app).embed`
+(LLP 1036.000): the archive (`libcaltrain_apple.a`,
 30.6 MB unstripped — the linked delta above is what a binary pays), the
 C header, the GPU module, the shaders and assets, the cohort's
 `compat.json`, and a receipt; `ExactKit` is the package at `host/apple`.

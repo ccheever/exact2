@@ -19,6 +19,11 @@
   body { font: 16px system-ui, sans-serif; }
   button, input, textarea { all: unset; display: block; box-sizing: content-box; cursor: default; }
   input, textarea { cursor: text; -webkit-user-select: text; user-select: text; }
+  /* Keep the textarea's native long-word wrapping through the control reset. */
+  textarea { overflow-wrap: revert; }
+  /* Authored flex/grid display must not expose a closed native popover. */
+  [popover]:not(:popover-open) { display: none !important; }
+  dialog:not([open]) { display: none !important; }
   /* Gesture feedback is decorative, including when its opacity is zero. */
   [swipeIndicator="true"] { pointer-events: none; }
   /* Modal dimming belongs to the host; UIKit supplies its own backdrop. */

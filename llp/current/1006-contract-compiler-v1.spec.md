@@ -1,1 +1,0 @@
-../1006-contract-compiler-v1.spec.md

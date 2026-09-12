@@ -24,6 +24,34 @@ final class TextField: UITextField {
 }
 
 final class TextArea: UITextView {
+    weak var owner: NodeView?
+    override func resignFirstResponder() -> Bool {
+        let wasFirst = isFirstResponder
+        let resigned = super.resignFirstResponder()
+        // UITextView's editing delegate omits read-only selection sessions.
+        // They still blur in HTML, and the app must be able to remove its
+        // transient selection surface after focus moves elsewhere.
+        if resigned, wasFirst, !isEditable, let owner, owner.handlers.contains("blur") {
+            owner.presenter?.blur(owner.id)
+        }
+        return resigned
+    }
+    // Keep TextKit's line pitch equal to the authored CSS line box. Updating
+    // storage attributes preserves the value and selected range; replacing
+    // attributedText would reset a selection (including a read-only one).
+    func applyLineHeight(_ height: CGFloat?) {
+        let paragraph = NSMutableParagraphStyle()
+        if let height {
+            paragraph.minimumLineHeight = height
+            paragraph.maximumLineHeight = height
+            // TextKit's zero min/max mean unconstrained; its smallest positive
+            // multiple produces the explicit zero box at driver precision.
+            if height == 0 { paragraph.lineHeightMultiple = .leastNormalMagnitude }
+        }
+        let attributes: [NSAttributedString.Key: Any] = [.paragraphStyle: paragraph]
+        textStorage.addAttributes(attributes, range: NSRange(location: 0, length: textStorage.length))
+        typingAttributes.merge(attributes) { _, authored in authored }
+    }
     var placeholder = "" { didSet { setNeedsDisplay() } }
     override func draw(_ rect: CGRect) {
         super.draw(rect)
@@ -37,6 +65,10 @@ final class TextArea: UITextView {
 }
 
 extension NodeView {
+    // CSS auto leaves UIKit's editor tint alone. An explicit caret colour
+    // also colours UIKit's selection handles and highlight.
+    var caretColor: UIColor? { channels("caret_color").map { TextEngine.color($0) } }
+
     // HTML's hints apply to both editors. Email/URL/password input states
     // override author hints; textarea has no input type state or form owner.
     var inputCapitalization: UITextAutocapitalizationType {
@@ -64,6 +96,7 @@ extension NodeView {
 
     func makeTextArea() {
         let f = TextArea(frame: .zero)
+        f.owner = self
         f.backgroundColor = .clear
         f.textContainerInset = .zero
         f.textContainer.lineFragmentPadding = 0
@@ -90,10 +123,12 @@ extension NodeView {
         guard let f = textArea, let t = text else { return }
         f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic")
         f.textColor = color("text_color", .black)
+        f.tintColor = caretColor
+        (f as? TextArea)?.applyLineHeight(usedLineHeight)
         f.setNeedsDisplay()
         layoutTextArea()
     }
-    func layoutTextArea() { textArea?.frame = fieldBox() }
+    func layoutTextArea() { textArea?.frame = contentBox() }
     func textViewDidChange(_ textView: UITextView) {
         textView.setNeedsDisplay()
         if !disabled, handlers.contains("change") { presenter?.change(id, textView.text ?? "") }

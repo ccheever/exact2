@@ -143,19 +143,18 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         return super.gestureRecognizerShouldBegin(gesture)
     }
     @objc func swiping(_ gesture: UIPanGestureRecognizer) {
-        guard let session = presenter?.session else { return }
+        guard let presenter else { return }
         let distance = max(0, gesture.translation(in: window).x)
         let offset = min(distance, 64) + max(0, distance - 64) * 0.2
         switch gesture.state {
         case .began, .changed:
             let armed = distance >= 64
             if armed != swipeArmed { swipeFeedback.selectionChanged(); swipeArmed = armed }
-            session.apply(session.runtime.dragX(id, delta: Double(offset), velocity: 0, release: false, now: session.now()))
+            presenter.dragX(self, delta: Double(offset), velocity: 0, release: false)
         case .ended, .cancelled, .failed:
             let commit = gesture.state == .ended && distance >= 64
             swipeArmed = false
-            session.apply(session.runtime.dragX(id, delta: 0, velocity: Double(gesture.velocity(in: window).x), release: true, now: session.now()))
-            if commit { presenter?.swiperight(id) }
+            presenter.dragX(self, delta: 0, velocity: Double(gesture.velocity(in: window).x), release: true, commit: commit)
         default: break
         }
     }
@@ -238,6 +237,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// An image node's picture, once loaded (decoded off the main thread),
     /// the source it came from, and which load is current: a completion
     /// from an older load, or for a view that was destroyed, is dropped.
+    var symbolView: UIImageView?
+    var symbolKey: String?
+    var symbolRefusal: String?
     var image: UIImage?
     var imageSource: String?
     var loadGeneration = 0
@@ -245,6 +247,15 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var nativeSwipeBody = false
     var pressed = false
     var disabled: Bool { props["disabled"] == "true" }
+    /// HTML inertness covers the subtree, including direct agent activation.
+    var inert: Bool {
+        var ancestor: UIView? = self
+        while let view = ancestor {
+            if (view as? NodeView)?.props["inert"] == "true" { return true }
+            ancestor = view.superview
+        }
+        return false
+    }
     /// Images loaded since launch (smoke reporting).
     nonisolated(unsafe) static var imagesLoaded: [(String, CGSize)] = []
     /// The session's text engine (LLP 1031 D12: the catalog is the session's).
@@ -254,9 +265,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// A node with focus, blur, or key handlers takes the focus (an input's
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. Keys come from a hardware keyboard (`pressesBegan`).
-    override var canBecomeFirstResponder: Bool { !disabled && field == nil && textArea == nil && !handlers.isDisjoint(with: ["focus", "blur", "key"]) }
+    override var canBecomeFirstResponder: Bool { !disabled && !inert && field == nil && textArea == nil && !handlers.isDisjoint(with: ["focus", "blur", "key"]) }
     override func becomeFirstResponder() -> Bool {
-        guard !disabled else { return false }
+        guard !disabled, !inert else { return false }
         let ok = super.becomeFirstResponder()
         if ok, handlers.contains("focus") { presenter?.focus(id) }
         return ok
@@ -296,8 +307,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     /// A text field's Enter as a key (its characters are its `change`);
     /// the editing goes on, as on the web.
+    func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { !disabled && !inert }
+    func textViewShouldBeginEditing(_ textView: UITextView) -> Bool { !disabled && !inert }
+
     func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
-        guard !disabled, props["editable"] != "false" else { return false }
+        guard !disabled, !inert, props["editable"] != "false" else { return false }
         if props["emojiPicker"] == "true" {
             if EmojiSelection.accepts(string), handlers.contains("change") { presenter?.change(id, string) }
             return false
@@ -341,6 +355,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// size, and repaint.
     func loadImage(_ source: String) {
         imageSource = source
+        if source.hasPrefix("symbol:") { updateSymbol(); return }
+        clearSymbol()
         // The old picture (and its size in the kernel) stay until the new
         // one has loaded, as a browser keeps showing the old `src`.
         loadGeneration += 1
@@ -378,6 +394,55 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
 
+    // A symbol's box is Exact's; UIKit renders its glyph, including pixel alignment.
+    func clearSymbol() {
+        symbolView?.removeFromSuperview(); symbolView = nil; symbolKey = nil
+    }
+    func updateSymbol() {
+        guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
+        isAccessibilityElement = false
+        let name = props["symbolName"] ?? "", points = number("font_size", 16)
+        let weights: [UIImage.SymbolWeight] = [.ultraLight, .thin, .light, .regular, .medium, .semibold, .bold, .heavy, .black]
+        let index = min(8, max(0, Int((number("font_weight", 400) / 100).rounded()) - 1))
+        let key = "\(source):\(name):\(points):\(index)"
+        if symbolKey != key {
+            symbolKey = key; loadGeneration += 1
+            let generation = loadGeneration
+            image = name.isEmpty || points <= 0 ? nil : UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: points, weight: weights[index]))
+            if name.isEmpty, symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
+            if !name.isEmpty { symbolRefusal = nil }
+            let leaf = symbolView ?? UIImageView()
+            if symbolView == nil { symbolView = leaf; addSubview(leaf) }
+            leaf.image = image; leaf.isAccessibilityElement = false; leaf.isUserInteractionEnabled = false
+            let size = image?.size
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.loadGeneration == generation, let presenter = self.presenter,
+                      presenter.views[self.id] === self else { return }
+                presenter.intrinsic(self.id, size)
+            }
+        }
+        symbolView?.tintColor = color("tint_color", .black)
+        layoutSymbol()
+    }
+    func layoutSymbol() {
+        guard let leaf = symbolView else { return }
+        let uniform = number("border_width")
+        let content = bounds.insetBy(left: number("border_width_left", uniform) + number("padding_left"), top: number("border_width_top", uniform) + number("padding_top"), right: number("border_width_right", uniform) + number("padding_right"), bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+        leaf.frame = content; leaf.clipsToBounds = true
+        switch style["object_fit"] as? String ?? "fill" {
+        case "contain": leaf.contentMode = .scaleAspectFit
+        case "cover": leaf.contentMode = .scaleAspectFill
+        case "none": leaf.contentMode = .center
+        case "scale-down":
+            let size = image?.size ?? .zero
+            leaf.contentMode = size.width <= content.width && size.height <= content.height ? .center : .scaleAspectFit
+        default: leaf.contentMode = .scaleToFill
+        }
+        let path = roundedPath(in: bounds).cgPath
+        var transform = CGAffineTransform(translationX: -content.minX, y: -content.minY)
+        let mask = CAShapeLayer(); mask.path = path.copy(using: &transform); leaf.layer.mask = mask
+    }
+
     /// The view is gone: no load in flight may report for it.
     func forget() {
         textParent?.textChildren.removeAll { $0 === self }
@@ -386,6 +451,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         invalidateText()
         loadGeneration += 1
         imageSource = nil
+        clearSymbol()
         image = nil
         presenter?.session?.webviews.destroy(id: id)
         web = nil
@@ -437,6 +503,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     required init?(coder: NSCoder) { nil }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { presenter?.flushPendingFocus() }
+    }
 
     /// Glass content participates in UIKit's interactive effect. Other
     /// materials remain background siblings of the authored children.
@@ -667,7 +738,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// The input's content box: padding and border sit on the node, the
     /// field is the text inside — CSS's rule, so a placeholder lines up
     /// with a native one.
-    func fieldBox() -> CGRect {
+    func contentBox() -> CGRect {
         let uniform = number("border_width")
         return bounds.insetBy(
             left: number("border_width_left", uniform) + number("padding_left"),
@@ -850,6 +921,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let raw = set["scrollTop"], let top = Double(raw), top.isFinite { pendingScrollTop = top }
         for k in clear { props.removeValue(forKey: k) }
         for (k, v) in set { props[k] = v }
+        if set["inert"] != nil || clear.contains("inert") {
+            let ownInert = props["inert"] == "true"
+            if ownInert { endEditing(true) }
+            isUserInteractionEnabled = !ownInert
+            accessibilityElementsHidden = ownInert
+        }
         updateKeyboardDismissal()
         updateMaterial()
         applyTextArea()
@@ -883,7 +960,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         accessibilityIdentifier = props["testId"]
         accessibilityLabel = props["accessibilityLabel"]
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
-        if kind == "image", props["imageSource"] == nil, imageSource != nil { imageSource = nil; image = nil; presenter?.intrinsic(id, nil) }
+        if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
         if kind == "iframe" { presenter?.session?.webviews.update(self) }
         setNeedsDisplay()
     }
@@ -897,6 +974,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     func applyStyle(_ s: [String: Any]) {
         style = s
+        updateSymbol()
         clipPath = ClipPath.path(s["clip_path"])
         layer.mask = ClipPath.mask(clipPath)
         updateMaterial()
@@ -939,7 +1017,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic")
             f.textColor = color("text_color", .black)
             applyPlaceholder(f)
-            f.frame = fieldBox()
+            f.frame = contentBox()
         }
         layer.zPosition = number("z_index")
         setNeedsDisplay()
@@ -963,8 +1041,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func layoutSubviews() {
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layoutSubviews()
-        if field != nil { field?.frame = fieldBox() }
+        if field != nil { field?.frame = contentBox() }
         layoutTextArea()
+        layoutSymbol()
     }
 
     /// CSS reduces overlapping corner radii by one common factor.
@@ -1035,7 +1114,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 ctx.fill(r)
             }
         }
-        if kind == "image", let img = image {
+        if kind == "image", symbolView == nil, let img = image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the
@@ -1071,7 +1150,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if isParagraph {
             // The same paragraph the kernel measured at this width, painted.
             let spec = paragraphSpec()
-            if let paragraph = paragraphLayout() { TextEngine.draw(paragraph, spec: spec, in: bounds, context: ctx, dirty: rect) }
+            if let paragraph = paragraphLayout() { TextEngine.draw(paragraph, spec: spec, in: contentBox(), context: ctx, dirty: rect) }
         }
         if Capture.capturing, let picture = Capture.web[id] {
             // A capture that populated an arm snapshot draws that one WebKit
@@ -1121,6 +1200,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     /// Resolve before focus changes: a keyboard resize can move the control.
     func activationTarget(at windowPoint: CGPoint) -> NodeView? {
+        guard !inert else { return nil }
         var v: UIView? = self
         while let cur = v {
             if let n = cur as? NodeView, n.disabled { return nil }

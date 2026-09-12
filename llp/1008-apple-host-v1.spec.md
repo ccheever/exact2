@@ -50,6 +50,16 @@ appearance on macOS, the window's interface style on iOS). The batch ends with `
 has any) and `motion` (the engine is not quiescent): the presenter runs its
 250 ms clock only for the first and its display link only for the second.
 
+The `content` op carries natural scrollable overflow, including the end padding
+correction, without flooring it to the node's frame (2026-09-10). The platform
+presenter applies the ordinary client-size minimum: UIKit already does this;
+AppKit retains the extent and recomputes the document size on both content and
+frame changes. This preserves sub-client content changes for native containers
+with their own insets. A Rust regression holds the below-client updates; live
+iOS/macOS fixtures verify short content, growth, overflow, shrinking and client
+resizing (`/tmp/messages-content-extent/`). Native title projection remains
+unshipped under LLP 1035.001 D9.
+
 A clock advance can collect several receipts against the final kernel tree.
 The host creates all surviving views before emitting their final `children`
 lists, so an early timer cannot attach a child that a later timer has not yet
@@ -88,6 +98,15 @@ UIKit/AppKit containment therefore cannot break CSS inheritance;
 reaching its runs and a field, an override never re-sent, a resize sending
 no style).
 
+Border widths cross as the kernel's effective widths (LLP 1001 §1), so
+`none`/`hidden` consume no editor/image inset and paint nothing even if a width
+was authored. Visible borders supply their default 3-point width and resolve
+`currentcolor` against the node's computed text colour, preserving appearance
+pairs. Swift consumes those values through its existing layout and paint paths;
+it does not calculate border-style semantics independently. Live style and
+inherited-colour cases are held by `tests/inherited.rs` and the native fixture
+in `/tmp/messages-border-semantics/`.
+
 ## 3. Text: one engine (`host/apple/src/measure.rs`, `macos/…/Text.swift`)
 
 The kernel hands its measurer a paragraph as ordered runs with an offer
@@ -105,14 +124,37 @@ including empty and clamped paragraphs. Intrinsic width and `normal` paragraph
 height retain their existing whole-point ceiling: changing those measurements
 requires a separate wrapping/host-parity comparison. The measure callback answers
 from the paragraph, and `NodeView.draw` paints those same lines: one `CTLineDraw`
-per line, flush by alignment. Painting still snaps baselines to the logical point
+per line, flush by alignment inside the CSS content box. Borders and padding
+are excluded from the wrapping width and added to the painted origin; the
+paragraph cache keys that content width, even when its outer frame is unchanged.
+AppKit selection and link hits use the same origin and alignment. The padded
+paragraph/container comparison, padding mutation and recreation, and Messages
+quoted replies and empty results are recorded in `/tmp/messages-text-padding/`.
+Painting still snaps baselines to the logical point
 grid, independently of the reported fractional baseline; that remaining raster
 placement difference is separate from an authored line box's height.
 `line-height: normal` is the font's ascent +
 descent + leading; a set line height centers the glyphs in the box; the
 first baseline is reported so Taffy's baseline alignment works; `line_clamp`
-truncates the last line with `…`; min-content is the widest unbreakable
-word. Fonts are cached by (size, weight, italic).
+adds `…` when later text is hidden, then truncates the final visible line to
+make room. The candidate retains paragraph-global UTF-16 indices for selection;
+trailing breaks/spaces are removed before the token. A box narrower than the
+token keeps the clipped first character. Previously CoreText received an
+already-fitting line and omitted the token. The Swift regressions and iOS/web
+long-reply drive are in `/tmp/messages-line-clamp/verification.json`. Mixed-run
+token styling still differs from the browser's paragraph-styled ellipsis, and
+the browser fixture does not show the token on a right-aligned line; full text raster
+parity remains open. `overflow-wrap` travels through `ExactMeasureRequest`
+and the paragraph cache. Normal uses public Unicode line-break boundaries
+so CoreText's emergency word split becomes overflow; `break-word` retains
+that split. `anywhere` additionally measures min-content by composed-character
+clusters; the other modes retain the widest word. A forward cursor consumes
+line boundaries once rather than searching the whole list for every line.
+The normal/break-word/anywhere/restored fixture agrees with the browser's
+finite-width and flex minimum behavior (`/tmp/messages-overflow-wrap/`).
+Native editing controls keep their existing UIKit/AppKit wrapping policy;
+explicit overrides on those controls remain unverified. Fonts are cached by
+(size, weight, italic).
 
 Against the browser, measured 2026-08-30 with `layout` on all three hosts
 at 420 wide: the same departure rows wrap on the web and on macOS (the
@@ -212,10 +254,32 @@ the same rows as `input`. Contract lowers it to `TextInput` with the existing
 HTML `readonly` lowers to the inverse of the existing `editable` prop,
 keeping the text selectable while refusing edits. The app gives this bounded
 editor its width and height; rich text is outside this control.
+UIKit textarea line spacing uses the authored `line-height` through paragraph
+minimum/maximum heights; clearing it restores TextKit's natural spacing. Storage
+and typing attributes update in place, preserving text and selection. TextKit's
+baseline within each box still differs from CoreText's centered CSS baseline.
 `field-sizing="content"` (2026-09-09, Messages) instead measures the current
 value/placeholder, constrained by CSS min/max dimensions. Fixed controls use a
 preferred size independent of value; explicit dimensions still win. The browser
-receives the CSS property itself. Changed `scrollTop` and `scrollLeft` props are DOM-style
+receives the CSS property itself. A trailing textarea Return now measures its
+empty caret line without inserting content into the value (2026-09-10, kernel
+text measurement). Browser/iOS growth and shrink drives and public XCTest typing
+cover both Messages composers; physical typing and internal scrolling keep the
+last line visible (`/tmp/messages-composer-growth/`). The later real-Paste drive
+also keeps it visible. Driver bulk replacement's clipped capture was premature:
+UIKit continues revealing the caret after insertion returns. `clock settle` now
+observes that editor within its existing native bound, using its actual caret
+and reachable scroll range. Blur, logical removal/replacement, an inactive route
+or user tracking ends the observation; it holds the native editor weakly and
+never scrolls it (`/tmp/messages-editor-paste/`, LLP 1035.003 D5). A subsequent
+viewport repair observes geometry animations in the session's mounted view
+hierarchy, including groups, and requires an idle native turn after native work
+finishes. That turn catches keyboard work queued by responder or sheet completion.
+Immediate/later captures now remain stable; session isolation, the two-second
+bound and physical manual-scroll retention are exercised in
+`/tmp/messages-viewport-settle/`. Opacity-only animation and containing-app views
+are outside this geometry observation; the driver never seeks UIKit's clock.
+Changed `scrollTop` and `scrollLeft` props are DOM-style
 assignments after the complete batch’s geometry/children are mounted. Each
 axis clamps independently to its content extent; an unchanged axis retains its
 offset. These are not permanent scroll locks: unrelated patches do not reapply
@@ -285,6 +349,15 @@ long-press and double-tap recognizers yield to touches inside an editor.
 Read-only UIKit selection sessions emit `blur` on first-responder resignation,
 as their editing delegate otherwise omits it. No clipboard read or new agent
 operation is involved. The app decides when to remove its selection surface.
+The shared session dispatcher must consume this command before external delegate
+delivery. A current-build Messages drive found that branch missing: the editor
+appeared but selection never began (`unknown command selectText`). Restoring the
+branch selects the full value after mounting. A Swift batch regression covers
+creation before delivery and keeps product commands external; public XCTest covers
+an outgoing long press and range adjustment, plus Select, native Copy and outside
+dismissal on outgoing and incoming messages (`/tmp/messages-selection-geometry/`). The current
+17-point/20-point specimen retains glyph placement across selection; this does not
+establish native return-motion or general text-raster parity.
 
 `autocapitalize` and `autocorrect` (2026-09-09, Messages) configure both
 UIKit editor types. Capitalization accepts HTML's case-insensitive `none`/`off`,
@@ -342,6 +415,20 @@ AppKit apply it as a `CAShapeLayer` mask, clipping the node and its descendants.
 Their hit tests reject points outside that path before walking children. Clearing
 the row removes the mask. Coordinates are fixed CSS pixels from the border-box
 origin; the path does not scale on resize or change kernel geometry.
+
+**Symbol images** (LLP 1035.004, 2026-09-10) resolve seven portable roles
+from the kernel schema. `UIImageView` / `NSImageView` renders the configured
+native glyph inside the kernel-owned image leaf; computed inherited font size
+and weight configure its point size, while non-inherited `tint_color` supplies
+the template colour and follows appearance. CSS sizing, padding, clipping and
+`object-fit` retain their meaning. Native intrinsic reports are deferred beyond
+the current batch and checked against actual view identity and load generation.
+The native child is decorative and noninteractive; the containing control owns
+its label and hit target. `layout` reports `native.symbol` (renderer, generated
+name, intrinsic size and frame). Dynamic unknown roles paint empty and log a
+refusal. The iOS renderer and button interactions have saved pixel/touch evidence;
+AppKit geometry and actions pass, but its transparent captures do not prove paint
+(`/tmp/messages-symbol-integration/verification.json`).
 
 **Images** (LLP 1011 §4 is the spec). An `image` node's `NodeView` loads
 and decodes its source off the main thread — an `http(s)` URL as is, a
@@ -516,7 +603,7 @@ matching native title motion.
 explicit `swipeContent` id on a scroll node requests a UIKit cell around that
 full-size descendant. `swipeLeading` and `swipeTrailing` list descendant press
 control ids, outermost first. Each action uses the control's accessible name,
-background colour and authored icon; `swipeDestructive=true` maps to the native
+background colour and authored icon; `destructive=true` maps to the native
 destructive role. A completed action invokes the same live control id once.
 The first-child icon snapshot applies that child’s own affine transform to its
 image bounds and drawing context, preserving authored scale and rotation. Action
@@ -549,6 +636,17 @@ unrevealed or ambiguous target reports unavailable native geometry. Agent `tap`
 requires a uniquely resolved, visible, unobscured button and invokes UIKit's
 control action; it reports `host-activation`, not finger delivery. The native
 button's accessible name is attached during presentation, not by inspection.
+
+For a named button used as the row content, the native cell exposes that
+button's declared accessible name, identifier and button/disabled traits, and
+forwards accessibility activation to the live authored control. Without this
+projection, UIKit's cells around custom-painted content omitted all six Messages
+conversation names from public accessibility snapshots. Ordinary-launch captures
+now expose the names; direct public accessibility activation opens the intended
+conversation and refuses a retained cell after filtering removes its control.
+Eight physical swipe cases and eight ordinary Tapback entry/dismissal pairs pass
+with the projection (`/tmp/messages-swipe-accessibility/verification.json`).
+This verifies the named-button boundary, not a complete VoiceOver interaction.
 
 **Horizontal scroll snap** (2026-09-09, Messages): the admitted CSS subset is
 `scroll-snap-type: none | x mandatory` and `scroll-snap-align: none | start`.
@@ -752,13 +850,26 @@ runtime already believes them applied. The deferred change retains the keyboard'
 animation duration and curve; it is independent of the removed view's lifetime.
 The Messages forwarding-cancel/Back drive verifies the inbox's painted search
 position returns to its original full-height position.
+**Authored inertness (2026-09-11, LLP 1035.001 D3):** a node becoming inert
+ends editing within its subtree and excludes that subtree from UIKit input and
+accessibility. Direct activation checks the entire ancestor chain before choosing
+an action; editor delegates also refuse renewed editing. Clearing the prop
+restores participation without replacing the nodes or draft. Public-XCTest input
+and accessibility-tree checks verify this on iOS. A modal confirmation escapes
+inert ancestors and keeps its issued presentation when its invoker becomes inert;
+its own action eligibility and identity checks remain. AppKit's existing focus
+checks do not establish complete subtree input/accessibility support. Evidence:
+`/tmp/messages-inert-ownership/verification.json`.
+
 **A focus moving from one field to another** comes
 as a burst of `keyboardWillChangeFrame`s with no duration, over a few
 turns — the height jittering between the two keyboards (335, 308, 335 on
 the simulator; the email keyboard and the default) — and laying out for
 each flashed the page (the second bug it found). No-duration changes now
 wait 80 ms for the last of them (`keyboardDebounce`), which usually
-changes nothing; an animated change — the show, the hide — is applied at
+changes nothing. The agent's `clock settle` waits for this queued resize in
+both timing modes before claiming a settled viewport (LLP 1035.003 D5).
+An animated change — the show, the hide — is applied at
 once, in the keyboard's own transaction. What remains of a hand-off is the
 keyboard's own one-frame blink — its accessory bar torn down for the
 outgoing responder and rebuilt for the incoming one — and it is UIKit's,
@@ -832,8 +943,11 @@ a wheel applies LLP 1010's chaining rule from the hit view up. `type` is
 `becomeFirstResponder`, `selectAll`, `insertText` — one `editingChanged`
 with the whole value. `screenshot` is `drawHierarchy(afterScreenUpdates:)`
 at the screen's scale in the standard (8-bit sRGB) range — a wide-color
-screen would otherwise yield a 16-bit PNG — and sees Metal, so `window:
-true` is the same picture. The driver's `ios` carrier (`scripts/agent.mjs`
+screen would otherwise yield a 16-bit PNG — and sees Metal. By default it
+captures the session viewport. `window: true` captures the containing UIWindow,
+including native confirmations and other embedded sessions; separate system
+windows such as the keyboard are outside that capture. This distinction landed
+with LLP 1021 D2's confirmation integration (2026-09-10). The driver's `ios` carrier (`scripts/agent.mjs`
 `openIOS`) installs the bundle, launches it with `simctl launch --console
 --terminate-running-process` and keeps that attached for the app's stdout
 and stderr (simctl's `--stdout=`/`--stderr=` files stay empty on Xcode
@@ -874,7 +988,7 @@ laid out by the kernel.
 **A phone** (`--device`, 2026-08-30): the same script builds the archive
 and the GPU dylib for `aarch64-apple-ios`, the presenter for
 `arm64-apple-ios17.0` on the `iphoneos` SDK, and assembles a second bundle
-(`.build/device/ExactIOS.app`, `iPhoneOS` in its plist, the app's `assets/`
+(`appleArtifacts(app, { destination: 'ios' }).bundle`, `iPhoneOS` in its plist, the app's `assets/`
 inside — a phone reads no other machine's paths, so the presenter's asset
 root defaults to the bundle) signed for real: the phone `devicectl` knows
 (`--phone`/`EXACT_PHONE`, else the reachable one, else the only one), a
@@ -1023,15 +1137,45 @@ window's, so two sessions in one window keep their editors apart (the
 two-session smoke's step 3b). `EXACT_AGENT_TIMING=platform` keeps the
 animations natural under the agent (LLP 1035.003 D5).
 
+**Modal confirmation** (LLP 1021 D2, 2026-09-11): MenuHost also projects
+HTML `dialog` invoked through `commandfor` and `command="show-modal"` into its
+existing session-owned confirmation. Only the one-action/closing-Cancel grammar
+with `closedby="any"` is admitted. Open state stays native; cancellation retains
+the presenting editor, and completion revalidates the source, route and action.
+Reload, unmount and destruction retire that session's presentation. Messages
+physical checks and the two-session dialog fixture pass on the rebuilt host
+(`/tmp/messages-modal-confirmation/`). AppKit hides the declared dialog and
+journals that its projection is unsupported.
+
 **Native navigation** (2026-09-09, Messages): the first root's `navigationKey`
 and `navigationBack` project its keyed direct child routes into a UIKit
 navigation controller, contained by the nearest owning view controller. The
-kernel still lays out the same Contract views. UIKit owns push/pop animation
+kernel still lays out the same Contract views. Generic child-list reconciliation
+leaves retained keyed routes in their native controllers. Removing the root's
+navigation declaration returns surviving route content before detaching its
+controller, preserving the mounted editor and selection in the UIKit fixture
+(`/tmp/messages-route-ownership/`). UIKit owns push/pop animation
 and interactive pop recognition, progress, cancellation and scroll arbitration.
-The completed pop presses the active route's named back control; a cancelled
-swipe leaves Contract slots, drafts and mounted views intact. Both gesture
+Only an interactive pop from the still-live, still-selected source route presses
+its currently enabled named back control. A programmatic completion never presses
+Back; a cancelled swipe leaves Contract slots, drafts and mounted views intact.
+Callbacks from a retired navigation controller or a superseded shown controller
+are ignored. Intent received during a native transition is projected when it ends.
+An interactive sheet's completed callback returns to UIKit before restoring its
+viewport and releasing its modal-navigation slot. Only the same live, selected
+source may then invoke Back. Keeping that route selected or requesting another
+sheet rebuilds presentation ownership; reusing the old slot previously moved
+the primary view under a sheet with the wrong controller parent. The second
+candidate passes retained/replacement-route and mid-gesture permission cases
+(`/tmp/messages-dismissal-owner/`, LLP 1035.001 D2).
+This prevents a rapid Back → Compose from cancelling the new sheet; the iOS drive
+passes twice with recipient focus, keyboard, saved drafts and physical Back gestures
+(`/tmp/messages-navigation-completion/`). Both gesture
 recognizers refuse to begin when the named Back control is missing or disabled;
-the completion callback uses that same enabled-control lookup. Messages disables
+the completion callback uses that same enabled-control lookup, scoped to the
+selected route. A retained inactive route's control cannot authorize a pop or
+sheet dismissal; sheets check permission at sync and through UIKit's delegate
+(`/tmp/messages-back-owner/`, LLP 1035.001 D1). Messages disables
 its conversation Back while the forwarding sheet is open. Previously an edge
 swipe could pop the source route underneath that sheet. The presenter
 freezes outgoing pixels only when a button's action deletes its route before
@@ -1039,14 +1183,60 @@ UIKit can animate it. In agent mode, programmatic navigation settles immediately
 physical gesture verification must also run outside that mode. There is no
 Exact transition-progress value, gesture arena or native route source override.
 
-**Modal routes** (2026-09-09, Messages): `navigationPresentation="modal"`
-on the selected keyed route uses UIKit's large page sheet. The owning `ExactView`
-stays in its embedder; its viewport and contained navigation controller move
-into the sheet with the controller containment callbacks, and return on close.
-After its source route receives the batch, the source controller moves from the
-navigation stack into the presenting controller, with its live view in the owning
-`ExactView`. Only the modal route remains in the navigation stack moved into the
-sheet. The source retains its pre-sheet geometry; frame/content updates caused
+Unmounting ExactView retires its native sheet and navigation owners without Back,
+preserving the runner and surviving route nodes. Offscreen updates create no
+native presentation; remount installs owners from current intent. Focus requested
+offscreen stays bound to its actual editor and waits from window attachment
+through controller installation. Physical sheet-drag unmount/destruction and an
+offscreen route replacement verify retained state, remount, focus and independent
+session use (`/tmp/messages-unmounted-owner/`, LLP 1031 D3). A subsequent
+same-window transfer to a different UIKit controller also passes with the current
+host, including a physical sheet drag and offscreen replacement with queued focus
+(`/tmp/messages-reparent-owner/`, 2026-09-11). The old parent loses its navigation
+child and the new parent owns it. Unmount ends current focus; explicit queued
+focus reaches the new editor. Continuous editing and cross-window moves are not
+established by these checks.
+
+**Gesture retirement (2026-09-10, LLP 1035.001 D8):** removing a route can
+cancel a child's recognizer before that child's destroy operation reaches Swift.
+The kernel has already removed the target. A drag's motion update and final
+Reply dispatch therefore use the presenter's existing post-batch event queue,
+with the originating view's identity checked at delivery. A destroyed or replaced
+view receives neither. The production held-reply → Back reproduction previously
+reported `drag target is gone`; it now completes without that write. Public XCTest
+touches also verify a short release returning to rest and a completed Reply
+dispatching once, with draft and keyboard retained (`/tmp/messages-gesture-retirement/`).
+
+**Initial ownership and refits (2026-09-10, LLP 1035.001 D8/D9):** the presenter
+installs the initial native owner after logical mounting and the root's frame,
+before applying child geometry. Initial installation resolves the controller's
+layout, but does not present a sheet or flush focus. Initial and later updates
+share the route projection; containment is not a second route model. A refit
+requested while a batch applies is coalesced onto the next main-queue turn,
+avoiding a resize from an incompletely mounted tree. An initially selected modal
+leaves the primary route mounted until its first draw; the existing post-draw
+`dataReady` batch then presents the sheet. The production keyboard/Back drive and
+two-session reload/destruction fixture pass (`/tmp/messages-owner-install/`).
+Native title/header authoring and its CSS geometry mapping remain D9 work.
+
+**Presented routes** (2026-09-09; fullscreen extended 2026-09-11, LLP 1035.001 D4):
+`navigationPresentation="modal"` uses UIKit's large page sheet; `fullscreen`
+uses `.overFullScreen`. Every boundary in the selected route prefix retains its
+own navigation controller, including when a later push or nested sheet is active.
+`navigationSource` on a fullscreen route names an HTML id in its preceding route.
+On iOS 18+, UIKit's public zoom transition resolves that live source at use;
+removed or unmounted sources return nil, replacements resolve by their new identity.
+Without the prop, UIKit uses its ordinary fullscreen transition. The existing
+Back and `closedby` rules govern dismissal. R4 native owner/gesture verification
+and R5 browser verification are recorded under `/tmp/messages-fullscreen/`.
+Navigation tracks route transitions, excluding enclosing presentation appearance
+callbacks that have no corresponding route completion. The owning `ExactView`
+stays in its embedder. The presenting navigation controller keeps its parent,
+stack, bar and scroll relationship; its whole view stays in the owning `ExactView`.
+A separate navigation controller owns each presented segment and enters its owner with
+the session viewport, using the controller containment callbacks. Close restores
+the presenting view to its original container and retires that presentation’s navigation
+controller. Nested presentations retire from the top down. The source retains its pre-sheet geometry; frame/content updates caused
 by the sheet's viewport are deferred and replayed before restoring normal layout.
 Scroll assignments on that source wait with its geometry and apply after the
 deferred frames and content extents. In particular, a scroll created while the
@@ -1057,9 +1247,56 @@ fixing the stale light/dark background caused by the former screenshot. Source
 interaction and accessibility are disabled while covered and restored on close.
 Forwarding's backdrop shows selection already closed. UIKit owns presentation,
 interactive dismissal and spring-back.
+An outgoing sheet remains native-owned until UIKit's dismissal completion, even
+if its logical route or runtime is replaced. New route projection waits for that
+retirement and resumes from the current tree; an in-flight presentation finishes
+before a requested dismissal starts. Reset cancels old focus targets, not the
+native completion still needed to release the owner. Completion is identity-bound,
+does not reconcile a destroyed session, and a retained controller holds its host
+weakly. `state.navigation.transition` and `clock settle` include that retirement
+and pending projection. Focus readiness is separate: an already-mounted destination
+editor can focus while the outgoing sheet dismisses. Timed reopening, reload during
+dismissal/presentation, two-session destruction and nine physical sheet cases pass
+(`/tmp/messages-modal-retirement/`, LLP 1035.001 D3). The editor-retirement repair
+below subsequently addresses first-Send keyboard continuity.
 The sheet's local keyboard guide supplies its available layout height; the
 horizontal-pop viewport freeze does not apply to modal transitions. Focus
-commands arriving before the sheet's field is mounted wait for that mounting.
+commands during navigation, sheet presentation or native window mounting share the presenter's single
+pending slot, bound to the actual target node. Delivery waits until controller installation and sheet presentation finish;
+then mounting flushes it. Replacing the target or route cancels it. A later focus replaces the pending intent, and native
+owner reset clears it. The current production Messages drive passes rapid
+Back → Compose twice and a local send; the two-session host also destroys the
+presenting session with a filled sheet open while the other stays editable
+(`/tmp/messages-modal-owners/`). `state.focus.pending` reports its target and wait reason.
+An unmounted focus target stays in that identity-bound slot even before UIKit
+announces the next navigation transition. A window-mount callback and the end of
+the outermost batch retry delivery; a partially applied batch cannot focus it.
+The production physical New Message Send now focuses its conversation composer
+automatically. Reload and destruction with focus queued preserve the other
+session's editor (`/tmp/messages-send-focus/`). Selection leaving a sheet now
+installs the selected primary stack before starting dismissal. The conversation
+is mounted behind the departing sheet, removing the earlier inbox flash and
+subsequent push. Two real-touch first-Send drives focus the composer and send once;
+Back/sheet gestures, rapid Compose, reload and two-session destruction pass
+(`/tmp/messages-compose-handoff/`). Those runs still lacked keyboard continuity:
+three hidden samples span 247/204 ms in those runs, and recorded video shows the
+keyboard dropping and returning. This does not establish native first-Send motion.
+
+**Editor retirement (2026-09-10, LLP 1035.001 D3):** when a modal route is
+destroyed, its child navigation hierarchy stays in the retiring sheet. Each
+destroyed node is forgotten and removed from the live map immediately; its view
+stays mounted under the frozen outgoing surface until native dismissal completes.
+The retained hierarchy is hidden from accessibility. Disabling its interaction
+would itself resign its editor, so event retirement uses the existing presenter
+disconnect. The viewport returns to its primary owner independently. Dismissal
+starts on the next main-queue turn, after the batch's focus commands transfer the
+first responder to the mounted destination. Only the retired controller is held
+for cleanup; a disappeared host still dismisses that controller without reaching
+into another session. First/ordinary Send, physical Back/sheet gestures and
+two-session interruption checks pass. No hidden-keyboard samples or vertical
+keyboard movement appear in the uninstrumented first-Send check
+(`/tmp/messages-editor-retirement/`); native first-Send reference motion is still
+unestablished.
 The modal controller and route use the system's secondary grouped surface
 behind transparent authored corners. UIKit supplies the dimming outside it;
 painting an app backdrop inside this surface had left a dark corner seam.
@@ -1075,8 +1312,21 @@ There is no Exact gesture-progress value or second layout engine.
 
 For an initially interactive navigation transition, keyboard notifications do
 not resize the viewport until UIKit finishes or cancels: its keyboard is moving
-sideways with the route. Both completion and cancellation with a populated draft
-were driven through Simulator touches. A competing horizontal transcript scroll
+sideways with the route. A retained native first-responder editor uses its
+container's keyboard guide, including after cancellation or rotation. The latter
+can announce a notification edge four points above the guide; the guide owns the
+occupied geometry. Keyboard visibility and top-edge inspection use that active guide,
+scoped to the session's editor or retained inset; notifications supply animation
+timing. The production XCTest drive retains inset 335 and viewport height 539
+through a held and cancelled multiline draft, without the previous zero-inset
+sample. Completion still saves the draft and hides the keyboard; populated sheets
+and two-session focus/destruction also pass (`/tmp/messages-keyboard-guide/`).
+The rotation drive retains the draft and first responder in both landscape
+orientations: viewport 874×198 and composer y=141.667, matching native Messages'
+measured keyboard edge and composer position. Return to portrait restores 402×539
+and y=482.667. Initial composer and sheet keyboard captures remain geometrically
+stable in platform and agent timing (`/tmp/messages-rotation/`). This does not
+establish compact-header or keyboard-control parity. A competing horizontal transcript scroll
 still takes rightward gestures in its content area; that arbitration remains an
 open limitation, not a completed iMessage parity claim.
 
@@ -1097,8 +1347,9 @@ long-press entry keeps it closed until selection or final dismissal.
 **Context previews** (2026-09-09, Messages): `contextTarget` on a preview node
 references the original content's HTML `id`. After layout and navigation
 projection, the presenter finds the preview's nearest enclosing absolute panel.
-iOS magnifies the preview without reflow by 15%, capped at 26 added points of
-width (the public UIKit fixture recorded in `apps/messages/README.md`). It
+iOS magnifies the preview without reflow by 15%, capped at 26 added points on
+the larger dimension. The wide public UIKit fixtures and 12/24-line Messages
+captures are recorded in `apps/messages/README.md`. It
 uses scale 1 instead when the preview declares `contextMagnify=false`, as
 Messages does for badge and double-tap entry. Absence or true retains the
 default enlargement. Both modes share placement, clamping, focus retention and
@@ -1113,6 +1364,11 @@ capture confirms that the receipt stays still while its balloon enlarges).
 It then clamps the complete projected panel, including the farther extent of
 the enlarged preview or following controls, inside the
 safe viewport above the keyboard, intersected with the panel parent's bounds.
+If the entire panel is too tall, the trailing sibling group outside the preview's
+branch moves together to keep its controls inside that region. It may overlap
+the preview; native Messages does this for the 24-line sample. The receipt
+retains its source-relative position, including the overlap observed on tall
+native balloons. Kernel boxes and text measurement remain unchanged.
 Messages uses that authored region to reserve the participant popover and its
 24-point gap above the palette; AppKit's alignment uses the same region.
 The projection composes with the authored
@@ -1203,3 +1459,24 @@ through the same engine. Messages draws the reply arrow in Contract;
 neither host adds a view or a separate animation executor for the indicator.
 The drag remains host presentation state; only the completed action enters
 Contract. No gesture arena or per-frame app code is introduced.
+
+### Typed line-height seam (LLP 1035.000.000, 2026-09-11)
+
+Apple C ABI v5 adds `has_line_height` to `ExactTextRun` and a paragraph
+`strut` run to `ExactMeasureRequest`. A false flag means natural metrics;
+a true flag with zero is an explicit zero box. The style dictionary retains
+ratios as numbers, lengths as `"24px"`, and `"normal"`; Swift resolves each
+ratio using the receiving node's computed font, matching kernel projection.
+CoreText measurement and painting include the paragraph strut and the
+ascent/descent extrema of only the runs on each line. Normal line height
+includes the shaped fallback font's metrics; explicit lengths size the
+authored inline box while fallback glyph ink can overflow. Native textarea
+paragraph attributes receive the same resolved length; TextKit's zero
+min/max sentinel is bypassed with its smallest positive line-height multiple
+for an explicit zero (below driver precision).
+
+The same DejaVu face at 20/40px with inherited fixed 20px line-height gives
+26.92px from CoreText and 27px from Chrome's rounded font metrics. This is
+the retained D6 mixed-baseline rounding investigation, separate from explicit
+single-font boxes and the smaller-run paragraph minimum, which match within
+0.02 logical units. Baseline raster snapping remains unchanged.

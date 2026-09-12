@@ -335,6 +335,17 @@ impl<D: DataSource> Host<D> {
     /// error; the tree is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> Option<String> {
         self.now_ms = now_ms.max(self.now_ms);
+        if matches!(event, Event::Press)
+            && self
+                .runner
+                .kernel()
+                .node(view)
+                .is_some_and(|node| node.props.str(exact_kernel::PropId::Commandfor).is_some())
+        {
+            let refusal = "unsupported: Linux dialog presentation is not implemented";
+            self.log(refusal);
+            return Some(refusal.into());
+        }
         match self.runner.dispatch(view, event) {
             Ok(receipt) => self.commit(
                 &[Timed {

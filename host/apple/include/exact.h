@@ -1,4 +1,4 @@
-/* exact.h — the Apple host's C ABI, v4 (LLP 1008 §4; LLP 1031 D2).
+/* exact.h — the Apple host's C ABI, v5 (LLP 1008 §4; LLP 1031 D2).
  *
  * Every call takes a runtime handle: exact_create() hands one out (a u32,
  * never 0, never reused) and exact_destroy() frees everything attributable
@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 4
+#define EXACT_ABI_VERSION 5
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,17 +50,20 @@ typedef struct ExactTextRun {
     uint16_t font_weight;  /* CSS 100–900 */
     uint16_t font_family;  /* plan stack id */
     uint8_t italic;        /* 1 for italic */
-    float line_height;     /* points; 0 = the font's natural line height */
+    uint8_t has_line_height; /* 0 normal, 1 explicit used length */
+    float line_height;     /* points; zero is a real length */
     float letter_spacing;  /* points per glyph */
 } ExactTextRun;
 
 typedef struct ExactMeasureRequest {
     const ExactTextRun *runs;
     size_t count;
+    ExactTextRun strut;    /* paragraph minimum line box, empty text */
     float width;           /* points, or EXACT_MAX_CONTENT / EXACT_MIN_CONTENT */
     float height;          /* points, or EXACT_MAX_CONTENT / EXACT_MIN_CONTENT */
     uint8_t align;         /* 0 left, 1 center, 2 right, 3 justify */
     uint32_t line_clamp;   /* 0 = unlimited */
+    uint8_t overflow_wrap; /* 0 normal, 1 break-word, 2 anywhere */
 } ExactMeasureRequest;
 
 typedef struct ExactMetrics {

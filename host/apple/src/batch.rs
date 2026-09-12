@@ -183,7 +183,8 @@ impl Batch {
         ));
     }
 
-    /// `{"op":"content","id":…,"w":…,"h":…}` — a scroll container's content size.
+    /// `{"op":"content","id":…,"w":…,"h":…}` — natural scrollable extent;
+    /// the platform presenter applies its client-size minimum.
     pub fn content(&mut self, id: u32, w: f32, h: f32) {
         self.ops.push(format!(
             "{{\"op\":\"content\",\"id\":{id},\"w\":{},\"h\":{}}}",

@@ -320,6 +320,10 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
             };
             quote(&text, out)
         }
+        RowValue::LineHeight(v) => match v {
+            exact_kernel::LineHeight::Number(n) => out.push_str(&num(n as f64)),
+            _ => quote(&v.css(), out),
+        },
         RowValue::Number(n) => out.push_str(&num(n)),
         RowValue::Color(c) | RowValue::ColorValue(ColorValue::Fixed(c)) => quote(&hex(c), out),
         RowValue::ColorValue(ColorValue::LightDark(l, d)) => {

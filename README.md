@@ -60,6 +60,18 @@ it. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
 (LLP 1033 D3). `exact uninstall <app>` takes both halves away.
 
+Apple products and Swift caches live under the resolved app's target directory,
+scoped by canonical source directory, manifest id, destination, composition and
+trust policy. `--bundle` prints the stable Mac bundle at
+`<target>/clients/<source-key>/<id>/macos/<Name>.app`; `scripts/exact.mjs`,
+`agent --app` and metrics use that same resolver. `--host` leaves both standalone
+and sample products; simulator and device bundles have separate destinations.
+Two apps can build together. A second Apple build of the same source/app fails
+with its owner's PID and lock path before baking; remove a stale lock only after
+verifying that owner is no longer running. Failed packaging retains the previous
+complete product. `EXACT_MAC_BIN` remains an explicit diagnostic override, checked
+against the selected app's embedded identity before the driver launches it.
+
 ## Open the same development URL on Apple hosts
 
 Start `node host/web/dev.mjs` and open a printed URL in your browser. Build

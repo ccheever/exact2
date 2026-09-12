@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>LLP 1035.000.001 literal CSS reader regression</title>
+<style>
+body { margin: 0 }
+.root { height:800px }
+.panes {display:flex;flex-direction:column;width:100%;height:100%}
+.row {display:flex; width:100%;flex:1;min-height:0}
+.scroll { flex:1; height:100%; overflow-y:auto; overflow-x:hidden; scrollbar-width:none }
+.wrapper { display:flex; flex-direction:column; width:100%; align-items:center; padding-top:24px; padding-bottom:72px }
+.column { display:flex; flex-direction:column; padding-left:32px; padding-right:32px; row-gap:2px; font:16px/26px monospace; letter-spacing:calc(10px - 1ch) }
+.block { width:100% }
+.inset {width:100%;box-sizing:border-box;padding:14px}
+</style>
+<pre id="out"></pre>
+<script>
+const rows=[];
+const longText='abcdefghijklmnopqrstuvwxyz'.repeat(4)+'abcdefghijklmnop '+ 'reader '.repeat(10);
+for(const longWord of [false,true]) for(const workaround of [false,true]) for(const borderBox of [true,false]) for(const width of [360,720,1000]) {
+ const root=document.createElement('div'); root.className='root';root.style.width=width+'px';
+ root.innerHTML='<div class="panes"><div class="row"><div class="scroll"><div class="wrapper"><div class="column"></div></div></div></div></div>';
+ const column=root.querySelector('.column'),scroll=root.querySelector('.scroll');
+ column.style.cssText=`width:${workaround?'720px':'100%'};max-width:${workaround?'100%':'720px'};box-sizing:${borderBox?'border-box':'content-box'}`;
+ for(let i=0;i<12;i++){const p=document.createElement('div');p.className='block';p.innerHTML='<div class="inset"><div></div></div>';p.firstChild.firstChild.textContent=longWord?longText.repeat(6):'reader '.repeat(60);column.append(p)}
+ document.body.append(root);
+ const c=column.getBoundingClientRect(),last=column.lastChild.getBoundingClientRect();
+ rows.push({width,workaround,borderBox,longWord,columnWidth:c.width,columnHeight:c.height,lastBottom:last.bottom-c.top,scrollHeight:scroll.scrollHeight});root.remove();
+}
+document.querySelector('#out').textContent=JSON.stringify({browser:navigator.userAgent,rows});
+</script>

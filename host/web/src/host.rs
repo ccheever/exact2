@@ -608,6 +608,7 @@ fn tag_for(node: &NodeRef<'_>) -> &'static str {
             "footer" => return "footer",
             "article" => return "article",
             "aside" => return "aside",
+            "dialog" => return "dialog",
             _ => {}
         }
     }
@@ -671,13 +672,14 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::NavigationKey => "navigationKey",
             PropId::NavigationBack => "navigationBack",
             PropId::NavigationPresentation => "navigationPresentation",
+            PropId::NavigationSource => "navigationSource",
             PropId::Closedby => "closedby",
             PropId::ContextTarget => "contextTarget",
             PropId::ContextMagnify => "contextMagnify",
             PropId::SwipeContent => "swipeContent",
             PropId::SwipeLeading => "swipeLeading",
             PropId::SwipeTrailing => "swipeTrailing",
-            PropId::SwipeDestructive => "swipeDestructive",
+            PropId::Destructive => "data-destructive",
             PropId::EmojiPicker => "emojiPicker",
             PropId::BackgroundMaterial => "backgroundMaterial",
             PropId::RetainFocus => "retainFocus",
@@ -685,6 +687,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::Href if text.is_empty() => continue,
             PropId::Href => "href",
             PropId::Disabled => "disabled",
+            PropId::Inert => "inert",
             PropId::Lang => "lang",
             PropId::ImageSource => "src",
             PropId::Src => "src",
@@ -698,6 +701,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::Popover => "popover",
             PropId::Popovertarget => "popovertarget",
             PropId::Popovertargetaction => "popovertargetaction",
+            PropId::Commandfor => "commandfor",
+            PropId::Command => "command",
             PropId::AccessibilityChecked => "aria-checked",
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
@@ -713,6 +718,22 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     if node.node_type == NodeType::Toggle {
         out.entry("type".into())
             .or_insert_with(|| "checkbox".into());
+    }
+    if node.node_type == NodeType::Image {
+        if let Some(role) = node
+            .props
+            .str(PropId::ImageSource)
+            .and_then(|s| s.strip_prefix("symbol:"))
+        {
+            out.insert(
+                "data-symbol-path".into(),
+                exact_kernel::generated::symbol(role)
+                    .map(|s| s.1)
+                    .unwrap_or("")
+                    .into(),
+            );
+            out.insert("alt".into(), String::new());
+        }
     }
     out
 }

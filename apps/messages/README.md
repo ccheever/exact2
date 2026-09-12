@@ -29,9 +29,9 @@ invalidates a previously cached iOS engine-less stub when archives are provision
 Current behavior: searchable fixture conversations, native iOS controller navigation,
 native multiline text editing with a growing composer, per-conversation drafts,
 local sending, a dedicated recipient/compose sheet, focused inline reply threads, anchored Tapbacks with a scrollable reaction palette,
-message deletion, a contact page, and an emoji attachment tray. Safe areas and
-the keyboard-resizing viewport use the normal Exact2 host. The module test
-exercises real baked Hermes bytecode and verifies conversation isolation.
+message deletion, a contact page, and an emoji attachment tray. Safe areas and the keyboard-resizing viewport use the normal Exact2 host. The module test exercises real baked Hermes bytecode and verifies conversation isolation.
+Add and its emoji choices now retain the current editor: six physical iPhone cases and a browser comparison preserve the draft and keyboard, without focusing an idle composer (`/tmp/messages-attachment-menu/focus-corrected.json`, `web-focus.json`). An ordinary launch also preserves the focused composer and its frame through physical Add open/close (`ordinary/native-ordinary-r2.xcresult`); the initial button-category lookup failed before tapping and is not evidence.
+The native reference instead opens a 320 × 456.6-point scrollable popover, including over the focused keyboard. Three temporary public-UIKit prototypes do not establish that presentation: the ordinary popover moves above the keyboard; adjusted margins produce the right box but leave it behind the keyboard; a separate-window probe still moves it above. No popover implementation lands from this stopped loop (`/tmp/messages-attachment-menu/probe/`, LLP 1021 D2).
 
 The inbox starts with a large, left-aligned title and a Compose button beside bottom search,
 following [Apple’s iOS 26 guide](https://support.apple.com/guide/iphone/send-and-reply-to-messages-iph82fb73ba3/ios).
@@ -54,18 +54,19 @@ to their initial position on release. This points to navigation-bar ownership,
 not a different generic scroll resistance. A separate public scroll-edge fixture
 produced the soft edge with a native label; a custom-painted text view did not.
 Those mechanisms are not yet integrated into the app's header.
-An isolated prototype then mounted the real Messages list under a visible UIKit
-navigation bar, removed the authored title from a paired development generation,
-and associated the list with `setContentScrollView(_:for:)`. Explicitly restoring
-the list to its adjusted top inset kept its rows reachable and preserved an
-opened conversation's draft through Back. A true cold launch still produced a
-compact bar: adjusted top inset 116 and first row y=116, rather than the reference
-large-title position y=168. The prototype stopped after three integration rounds
-and is not in the app. Its wheel calls did not move the list: the existing iOS
-driver clamps against content size minus bounds and ignores adjusted insets.
-Those calls establish neither title collapse nor finger-gesture behavior. A
-future bounded attempt needs to resolve the controller/scroll initialization and
-native inset ownership, then verify actual drag, reversal, release and return.
+Native containment now installs before child geometry; a refit requested during
+that batch waits for completion, and an initially selected sheet waits for first draw.
+Separate presenting/sheet owners keep focus through installation and presentation;
+keyboard/Back and two-session reload/destruction pass (`/tmp/messages-owner-install/`).
+Public XCTest verifies Back cancel/complete and sheet cancel/dismiss/resistance
+(`/tmp/messages-xctouch/`). The production batch preserves natural content extent;
+iOS/macOS growth, shrink and resize checks pass (`/tmp/messages-content-extent/`).
+The temporary semantic-header projection removes the short-list gap and its third
+candidate passes isolated long-list collapse/expansion and held sheet cancellation.
+It still fails authored scroll assignments: requesting 80 reports 132; requesting
+zero reports -52. The same Contract reports the requested values in the browser.
+This three-round prototype is stopped (`/tmp/messages-header-origin/`, LLP 1035.001
+D9); general header geometry, native title integration and arbitrary reversal remain open.
 A left swipe on an inbox row reveals purple Hide Alerts and red Delete circles,
 measured against the installed iOS 26.5 Messages. Mute/Unmute closes that row
 and keeps its history; the muted marker appears beside its title. Deleting a
@@ -85,7 +86,7 @@ a whole-point move; its iPhone result now matches the browser within the driver'
 two-decimal reporting precision. Apple text measurement now also preserves explicitly authored fractional
 line-box heights, including empty, multiline and clamped text. Intrinsic widths,
 normal line heights and painted baselines still round independently. A native-label/CoreText/WebKit comparison found no universal
-baseline adjustment, so exact glyph placement remains a separate target.
+baseline adjustment, so exact glyph placement remains a separate target. Padded paragraphs now wrap and paint inside their content box: quoted replies keep the declared gap beside their border, and empty-result labels honor their top padding. The iOS/browser drives and AppKit selection regressions are in `/tmp/messages-text-padding/verification.json`; this does not establish exact native text rasterization. Long quotes now show their missing ellipsis at the two-line limit; the shared text fix retains selection offsets and adds nothing when all text fits (`/tmp/messages-line-clamp/verification.json`).
 The fractional line-height repair passes the Swift host regressions and an isolated
 iPhone action-dispatch flow covering two-line previews, stable rows, local send,
 compose cancellation, retained drafts, reactions and timestamp centers. Caltrain’s
@@ -124,7 +125,7 @@ currently reproducible leading-action failure; it does not establish where each
 older failed input landed. Captures, state snapshots and source hashes are under
 `/tmp/messages-leading-foreground/verification.json`.
 At that stage, full-swipe commit remained unfinished; the explicit native binding
-below now handles leading full swipes. Recently Deleted/recovery, symbol details
+below now handles leading full swipes. recovery styling, symbol details
 and exact reveal/close animation remain unfinished.
 `scrollLeft` closes an acted-on row through the normal post-layout property path;
 a browser/iPhone fixture verifies both axes, clamping after content growth,
@@ -216,7 +217,7 @@ incorrectly treated that projected cell as an authored input restriction. The
 host now captures each action's original ancestors before projection and tests
 those, preserving hidden/disabled/inert restrictions and the original scroll
 visibility. Reset releases the projections. The ordinary source uses explicit
-`swipeContent`, `swipeLeading`, `swipeTrailing` ids and `swipeDestructive`;
+`swipeContent`, `swipeLeading`, `swipeTrailing` ids and `destructive`;
 there is no test-id lookup or diagnostic tracing in the host.
 
 The production build passes physical full Read and Unread, reversal without a
@@ -231,7 +232,7 @@ keeps the authored controls and passes Read/Unread, Mute, draft retention and
 Delete. Evidence is in `/tmp/messages-swipe-activation/`.
 
 This closes the missing native leading full-swipe behavior, not the whole inbox
-parity gap. Trailing full-swipe confirmation, Recently Deleted/recovery, exact
+parity gap. Trailing full-swipe confirmation, recovery styling/filter coverage, exact
 symbol artwork and all native transition timings still need comparison. The
 initial binding captured the first-child icon with untransformed bounds; the
 scale correction is recorded below. Input tests still use a temporary
@@ -248,6 +249,67 @@ this is sampled shape evidence, not proof of the entire transition curve.
 All five repository checks pass for this binding; the workspace test run took
 552.97 seconds and ran asynchronously. The combined checks exceeded the shared
 blocking time budget on this run; the timing is recorded, not claimed compliant.
+
+**Inspection during a held native gesture (2026-09-10).** Apple agent requests
+now run in common run-loop modes. Previously a compose-sheet drag prevented even
+`layout` from answering until finger release: the request crossed a one-second
+probe deadline and returned after release at 1.22 seconds. With common modes,
+layout, state, native editor inspection and driver screenshots all answer while
+the contact stays down. The `compose-header` has a named driver target.
+
+The fixture maps the Simulator's `iOSContentGroup` accessibility frame to the
+reported iPhone screen coordinates; it has no window-chrome or sheet offsets.
+With the software keyboard visibly open, a 200-point downward path moves the
+header from screen y=62 to y=232, while the modal's keyboard inset changes from
+308 to 478. Reversing restores both positions and native first-responder status;
+the existing conversation's saved draft survives. The same test passes with the
+Simulator window at (20,55) and (180,65), then restores the window and hardware
+keyboard setting. Reads of geometry/state/editor status complete in milliseconds;
+the driver screenshot completes within 100 ms in the sampled runs. The initial
+hardware-keyboard run is retained separately and is not software-keyboard proof.
+A first attempt to show the software keyboard through Toggle Software Keyboard
+left the inset at zero and was excluded; the verified fixtures disconnect the
+hardware keyboard temporarily and check the 308-point inset before dragging.
+
+This is a native-inspection repair, not a shipped Simulator input backend: real
+contact delivery still uses the temporary guarded pointer helper, while the
+existing driver's iOS contact phases still report unsupported. Full driver-owned
+contact cleanup and backend selection remain LLP 1035.003 work. Captures,
+request timings and source versions are in `/tmp/messages-held-inspection/`.
+The native Messages reference was also relaunched: its pin placeholder cleared,
+but the simulator then showed blank previews and 12/31/00 dates. That fresh
+fixture is not evidence for a normal inbox or a reason to copy those omissions.
+
+**Conversation-deletion confirmation study (2026-09-10).** Native Messages on
+our iPhone 17 / iOS 26.5 simulator asks before deletion for both a revealed trash
+button and a completed full left swipe. The conversation remains until a second
+Delete; tapping outside dismisses the confirmation and closes the row. The card
+says “This conversation will be deleted.” above Delete, has no separate visible
+Cancel, and sits over the expanded action. Both native requests were cancelled;
+no native conversation was deleted. The full-swipe reference is
+`native-full-corrected-released.png` in `/tmp/messages-thread-deletion/`; the
+first full-swipe attempt used the old row position after the header collapsed
+and is excluded. The native card was also captured across a dark appearance
+change while open.
+
+A standalone public-UIKit fixture defers the `UIContextualAction` completion
+until an `UIAlertController(.actionSheet)` resolves. Outside dismissal invokes
+its cancel action, leaves the commit counter at zero, and closes the swipe row.
+A subsequent physical Delete in the fixture increments its commit counter exactly
+once; that fixture only counts, and does not delete native Messages data.
+It reproduces the wording and standard controls, but both `sourceView/sourceRect`
+and `sourceItem` leave a pointer and different positioning from Messages. A third
+candidate allowing overlap and suppressing the arrow did not build: its geometry
+logging used the obsolete `NSStringFromCGRect` spelling. The shell then installed
+the preceding binary, so the `overlap-*` captures are explicitly **not** evidence
+for that candidate. This loop stopped at three rounds; no confirmation UI or new
+Contract property was added to the app. Swipe Delete now moves a conversation
+into Recently Deleted immediately; its eventual confirmation still needs retained
+swipe completion, stale-target handling and the unresolved native anchoring.
+Recently Deleted now offers local recovery and permanent deletion through the existing menu/confirmation mechanisms, following [Apple’s iOS 26 guide](https://support.apple.com/guide/iphone/recover-deleted-messages-iph16ecebf48/ios).
+Deleted records retain message order, reactions and reply identity for 30 fixture-clock days; new activity does not erase that history. Selection deletion preserves the active draft. The ten baked-data tests pass after deletion callers gained the explicit clock argument.
+Browser/iOS activation passes recovery, cancellation and purge. Ordinary native touches reach recovery, but returning to Messages fails with a loading filter menu; the native flow remains unverified (`/tmp/messages-recovery/`).
+Recover action styling, filter-menu coverage, recovery-screen visual verification, agent-mode menu presentation and native motion remain unfinished. This screen was compared with Apple’s guide images, not a live native recovery capture.
 
 **Native swipe glyph sizing (2026-09-10).** The host now includes the first
 child’s own scale/rotation when rasterizing its icon for UIKit. A bare layer
@@ -270,11 +332,25 @@ render-only palette override remains in production. Passing action state tests
 was insufficient evidence for those attempts. The verified transform correction
 and app colors remain; captures and the rejected sources are preserved in
 `/tmp/messages-swipe-glyphs/` for an isolated rendering diagnosis.
-After removal, the unaffected inbox rows match the previous verified capture
-exactly (zero mean RGB difference). A separate native fixture measures 24×12
+After removal, the unaffected inbox rows match the previous verified light-mode
+capture exactly (zero mean RGB difference). A separate ordinary-launch control
+uses the prior, unscaled host with the same app palette: reveal and close in
+light appearance, switch to dark, then reveal again. Its surrounding rows are
+pixel-identical to the scaled host (screen y=255–795 points), including all four
+lettered avatars. The earlier visual suspicion about that ordinary dark capture
+is not evidence of a scale-induced repaint defect. The adaptive experiments
+remain removed; this control does not establish their failure mechanism.
+A separate native fixture measures 24×12
 points for a plain rectangle, 18×9 with scale 0.75, and 9×18 with that scale and
 90-degree rotation; every action activates. The rebuilt browser fallback and
 all five repository checks pass; the workspace test run took 195.66 seconds.
+The post-control rebuild and six-case native binding drive pass too. Its final
+ordinary light/dark reveals match the native background RGB values and retain
+pixel-identical surrounding rows against the control. The first ordinary-launch
+drag missed; the following body tap opened the conversation. Those captures are
+excluded, and the successful repeat checked each revealed surface before the
+next step. Input delivery for that first miss remains unexplained. Full evidence:
+`/tmp/messages-swipe-glyphs/verification.json`.
 
 New Message opens a dedicated sheet with a To field, close control, fixture
 recipient results and a separate draft. Selecting a recipient enables the
@@ -319,10 +395,10 @@ text. A separate browser/physical-iPhone fixture verifies one key event before
 normal deletion, emoji deletion, empty-field events and ancestor delivery. That
 comparison also fixed the browser driver selecting all text before a key press;
 key presses now preserve the existing cursor/selection.
+Typing now replaces a selected recipient while preserving other recipients and the draft; browser and physical iPhone keyboard drives verify first/last replacement, ordinary deletion, two-stage Backspace and cancellation (`/tmp/messages-recipient-replacement/`). Native software-keyboard capture confirms replacement and retained To focus.
 Token editing remains approximate: selection handles, caret movement between
-names, replacing a selected recipient by typing, and selection while a query is
-present remain unfinished. Native contact picker and sheet presentation/dismissal
-motion still need implementation/comparison.
+names and selection while a query is present remain unfinished. Native contact
+picker and sheet presentation/dismissal motion still need implementation/comparison.
 Phone numbers and email addresses can now be entered directly, as in
 [Apple’s documented compose flow](https://support.apple.com/en-ie/guide/iphone/iph82fb73ba3/ios).
 Return or focusing the composer commits a recognized address or exact contact name.
@@ -376,28 +452,28 @@ and physical Simulator drives verify these distinctions and focused-reply
 behavior. The keyboard split follows captures of the local simulated Messages
 fixture, including keyboard restoration after a long-press reaction. Normal-mode
 Simulator captures also show double-tap keyboard retention and long-press
-dismissal restoring an unsent draft and keyboard. One normal-mode sequence
-missed outside dismissal at the far-right point (390, 170), although that point
-passed in the agent drive; a left-side tap (30, 170) dismissed both presentations.
-The cause of that miss is not isolated, so outside hit coverage remains open.
+dismissal restoring an unsent draft and keyboard. The earlier far-right miss
+at (390, 170) is not reproduced by twelve current physical entry/dismissal pairs
+or eight ordinary-launch pairs: light/dark, both entry modes, prior focus, and
+existing reaction badges pass (`/tmp/messages-outside-dismiss/verification.json`).
 
 The palette and action card use the existing iOS glass material. The strip is
 64 points high with 49-point choice spacing and 11/16-point outer insets,
 measured from the native fixture. The preview keeps the transcript’s original
-16-point inset and group indentation. The two dimming layers match the sampled
-native light-mode background over white: RGB 229/229/229 for double-tap and
-206/206/210 for long-press. This is a sampled color match, not full compositing
-parity. The heart choice uses a pink emoji while retaining its saved ❤️ value;
-it still differs from the native artwork. Browser and physical iPhone checks
-cover incoming, outgoing, and group preview geometry, scrolling to later emoji,
-and focus restoration. Normal-mode captures cover light and dark materials.
+16-point inset and group indentation. Paired native captures now establish
+long-press dimming as #16152a at 21% opacity in both appearances; double-tap uses
+black at about 10% in light and 50% in dark. This is measured dimming, not full glass
+parity. The six standard reactions now use bundled resting artwork in the palette, badges and participant bubbles, retaining their saved values; other choices remain emoji. The selected choice uses a 44-point circle with sampled native light/dark fills #26aeff/#0065d3 inside contiguous 49×64-point hit cells. Browser/iOS replacement/removal, unchanged artwork frames and six physical edge/gap taps pass (`/tmp/messages-selected-tapback/verification.json`). The populated native reference is Simulator 4453C3E4-C3B2-4D3F-A961-21E7AAB88780; Exact runs separately on 49090EC4-F5C2-4CD0-A6AB-F661D027F64B. The existing native reaction was inspected without changing it.
+The reference images are Apple artwork from iOS 26.5 (23F77) ChatKit: final frames `heart_108`, `thumbsup_073`, `thumbsdown_069`, `haha-ENG_114`, `exclamation_103`, `question_080`, exported at 3× for this local UI study. The app loads six ordinary PNG assets (51,622 bytes), with no runtime framework lookup.
+`/tmp/messages-reaction-artwork/verification.json` records native light-reference comparisons, browser/iOS replacement/removal and light/dark captures, and 11 physical incoming/outgoing/group reaction, badge and outside taps with drafts and the other participant's reaction retained. An ordinary launch without a development asset override displays the bundled artwork; public XCTest selects HAHA, opens the shared participant view and dismisses it at (390, 170), without isolating the earlier outside miss. After alignment, opaque glyph RGB error falls from 30–113 to 1–9 levels; this excludes background, placement and animation parity.
+Browser and physical iPhone checks cover preview geometry, scrolling to later emoji and focus restoration. Normal-mode captures cover light and dark materials. The dimming repair passes twelve browser/iOS mode captures and seven physical selection/outside cases, retaining the draft, other participant’s reaction and editor focus; incoming/outgoing native pixel pairs and the one-level residual channel difference are in `/tmp/messages-tapback-compositing/verification.json`. A public UIKit backdrop comparison preserves regular glass: a tint, underlay or ultra-thin substitution does not improve both appearances. Stock-menu and cross-Simulator evidence, plus the stopped Exact fixture comparison and its missing viewport-fit setting, are in `/tmp/messages-glass-palette/verification.json`; complete action-card backdrop parity remains open.
 
 This remains a custom approximation: the remaining native actions (including
-Translate and Select), reaction-participant presentation, stickers,
-exact reaction artwork and compositing, haptics, final preview pixel rounding/clipping,
+Translate), reaction-participant presentation, stickers,
+animated reaction artwork, compositing, haptics, final preview pixel rounding/clipping,
 and presentation animation remain unfinished. Native double-tap also dims the
-system keyboard; this app’s dimming layer ends above it. The dark palette has
-been checked for rendering and interaction, but not matched to a native capture.
+system keyboard; this app’s dimming layer ends above it. A public non-key-window probe at normal + 1, status-bar and alert levels does not reproduce the keyboard dimming; editor focus survives, but touch interception is unmeasured (`/tmp/messages-keyboard-dimming/verification.json`). The selected fill matches
+the sampled native dark color; complete palette compositing remains unmatched.
 
 The native emoji-picker study (`/tmp/messages-emoji-picker/`) establishes a
 public platform input path, now integrated through `emojiPicker=true`. A public `UITextField`
@@ -529,7 +605,7 @@ fixture seeds Maya's heart on m7. Zero-width slots beside each balloon attach th
 badges without changing its percentage width basis; swipe-to-reply remains on
 the balloon. The participant popover groups identical emoji under one symbol
 with overlapping avatars. The later placement repair below separates it from
-the palette with the keyboard open. Flat blue, standard-reaction artwork, dots, glass,
+the palette with the keyboard open. Standard glyphs now share the bundled resting artwork; flat blue, dots, glass,
 transitions and badge travel during reply drags are not exact native matches.
 The physical Close control on the focused thread blurs the composer; its native
 reference policy still needs comparison. The passing badge-focus claim does not
@@ -699,9 +775,7 @@ picker return, source anchoring and draft retention. The two-group panel remains
 214×122 with 32-point avatars 98 points apart; light/dark changes, both owners'
 badge entry and removing only the current user's reaction preserve those
 invariants. The ordinary launch also shows the smooth shadow and retains the
-keyboard through badge entry and dismissal. All five workspace checks pass:
-build 16.3 s, tests 387.7 s, clippy 21.8 s, formatting 1.7 s, caps/boot 0.1 s
-each. These are full-run observations, not blocking-budget compliance.
+keyboard through badge entry and dismissal. All five workspace checks passed; full timings are in the evidence below.
 Build, runtime, pixel evidence and source hashes are under
 `/tmp/messages-popover-shadow/verification.json`.
 
@@ -721,36 +795,35 @@ the entire string, menu dismissal, draft retention and prior focus state.
 The browser passes the same cases; clipboard-read permission is granted only
 after the first copy for inspection, not to trigger the write.
 
-The menu keeps its 250-point width and now uses leading icon slots, 42-point
-action rows and ten-point top/bottom padding, following the native capture.
-Reply, Copy and More make its current height 146 points; Translate and Select
-remain owed. A first 19-point label candidate was too large by pixel ink
-measurement and was corrected to 17. More now has three dots in its circle;
-the Copy document outlines and Reply glyph still need native-symbol fidelity.
-The taller card passes the existing placement, receipt, picker and Reply/More
-regressions. The final Copy label's dark ink begins at x=201 points and measures
-38⅓ × 15⅓ points, matching the native capture; its vertical position follows the
-different selected balloon and row order. This measures the label, not the icon
-or the complete menu's fidelity.
+The menu keeps its 250-point width, leading icon slots, 42-point action rows
+and ten-point top/bottom padding. Reply, Copy, Select and More make its height
+188 points; direct Translate, Reply artwork and exact glyph rasterization remain owed. Native Translate first offers message/conversation scope, then opens the system half-height sheet; a public adapter matches its six measured controls and handles expansion/dismissal. Exact’s existing Select → native edit-menu Translate preserves the same editor and draft through Close and permits subsequent composer editing. First-use consent was cancelled; translated results and the direct-action integration remain open (`/tmp/messages-translation/verification.json`, LLP 1035.001 D4). The measured
+17-point Copy label matches the reference's 38⅓ × 15⅓-point dark ink.
+
+**Text selection (2026-09-10).** Select dismisses Tapbacks, restores the source
+bubble and selects its full text in a read-only editor. The retained text node
+keeps the bubble's layout; UIKit supplies draggable handles and Copy/Look Up/
+Translate. Actual simulator touches shorten an outgoing selection and Copy
+writes precisely `I’m in. Meet y`; outside dismissal retains the unsent draft.
+Web/iOS drives cover multiline Unicode, focused replies, groups and draft isolation.
+Browser selection uses the DOM's `select()`; Apple uses native `selectAll`. Both defer selection until the editor is mounted. Parent Tapback/reply gestures yield to the editor. Outgoing selection now requests white through inherited CSS `caret-color`; incoming keeps the system tint. Light/dark web/iPhone captures and physical handle/Copy/dismissal checks verify it (`/tmp/messages-selection-tint/`). Exact
+selected-text rasterization and the return animation remain. Transcript and Tapback text preserve newlines with CSS `pre-wrap`, keeping selection and preview line breaks consistent. Browser/iOS drives cover empty lines, focused replies, reactions and retained drafts (`/tmp/messages-preview-newlines/`). The iPhone selection editor now respects the bubble's 20-point line spacing; UIKit probes cover fractional spacing, reset, selection/Copy and typing; physical handle dragging and Copy preserve the selected newlines (`/tmp/messages-selection-lineheight/`).
+Reference/public UIKit probes, ordinary-launch selection/Copy, and integrated captures are under `/tmp/messages-text-selection/`. A current-build regression had disconnected `selectText` in the shared session dispatcher: Select created an editor without selection handles. The dispatch is restored and held by a batch-to-editor Swift test plus public XCTest long press, range shortening, outgoing/incoming Copy and dismissal with the draft retained (`/tmp/messages-selection-geometry/`). The current 17/20-point specimen has no measured glyph shift through selection; the return motion and broader native raster comparison remain open.
 
 An ordinary iOS launch, without agent flags, also passes a foreground-guarded
 long press and Copy tap. The pasteboard contains exactly `I’m in. Meet you there
 at 10?`; the keyboard returns, and the transcript crop from y=160 through 470
-points is pixel-identical before entry and after Copy. All five workspace checks
-pass: build 15.0 s, tests 267.9 s, clippy 21.1 s, formatting 1.8 s, caps/boot
-0.1 s each. These full-run timings do not establish the blocking time budget.
-All 21 Swift tests pass; AppKit's clipboard branch compiles but has not been
-driven through a macOS Copy interaction. Browser success is exercised; the
-permission-denial path is implemented but not yet driven. Source hashes, logs
-and captures are indexed in `/tmp/messages-copy-action/verification.json`.
+points is pixel-identical before entry and after Copy. All five workspace checks passed; their timings are in the linked evidence.
+All 21 Swift tests pass; AppKit's clipboard branch compiles but has not been driven through a macOS Copy interaction. Browser success is exercised; the permission-denial path is implemented but not yet driven. Source hashes, logs and captures are indexed in `/tmp/messages-copy-action/verification.json`.
 
+Named inbox buttons now retain their declared names and activation through the native swipe-cell projection. Ordinary accessibility snapshots expose all six conversations; public accessibility activation opens the intended thread, refuses a filtered-out retained cell, and activates its replacement. Eight physical swipe cases pass; full VoiceOver behavior remains unverified (`/tmp/messages-swipe-accessibility/verification.json`).
 More enters message selection with the pressed message already checked. The
 composer stays mounted with its draft while the selection toolbar replaces it;
-incoming bubbles move 44 points, and outgoing bubbles retain their width and
+incoming bubbles move 40⅔ points, and outgoing bubbles retain their width and
 right edge. Tapping a message or its circle toggles selection. Trash is disabled
 at zero selections and opens the native reference’s lower-left glass confirmation
 with “Delete Message” or “Delete N Messages”. Tapping outside cancels confirmation;
-the top-right X exits selection. Both cancellation and confirmed deletion leave
+the top-right X exits selection. Selected-message Delete now declares an HTML modal dialog, projected through ExactKit’s native confirmation owner, with no `confirmDelete` slot or authored cancellation overlay. The rebuilt iPhone action matches native (26,766,208,48) for one/two messages in light/dark; physical cancellation and deletion pass. Browser outside dismissal preserves selection, first Escape closes confirmation, and second Escape exits selection. The two-session dialog fixture passes editor retention, reload, unmount and destruction. Native Close/Forward dimming, browser visual polish and motion parity remain open (LLP 1021 D2; `/tmp/messages-modal-confirmation/`). Three standalone UIKit variants do not reproduce the dimming through native tint, configuration updates or disabled appearance; no production dimming change follows (`/tmp/messages-confirmation-dimming/`, LLP 1035.004 D6). Both cancellation and confirmed deletion leave
 the keyboard closed, as observed in the native selection capture. Bulk deletion
 updates the inbox preview, including empty history. Browser and physical iPhone
 drives cover preselection, toggles, disabled trash, confirmation/cancellation,
@@ -828,12 +901,12 @@ behind the sheet, with the keyboard/composer still in place. A populated sheet
 still springs back and accepts recipient typing after the appearance changes.
 Back and forwarding regressions pass; reloading the ordinary app with a live
 source behind an empty sheet restores the full-height inbox without runtime errors.
-An initially selected modal route is separate, unverified startup
-coverage; the normal application starts at the inbox.
+An initially selected modal fixture passes editing, dismissal refusal and Close; its corrected trace draws the source before presenting the sheet (LLP 1035.001 D8; `/tmp/messages-title-structure/startup-events-r2.json`).
+The normal application starts at the inbox; full startup motion parity remains unverified.
 Complete presentation/close timing still needs comparison; these captures do
 not prove every intermediate frame matches.
-Exact selection transition/scroll anchoring, native symbols, and deletion
-animation still need comparison.
+Selection now retains the hidden receipt’s layout space and reserves ten points above the toolbar. The same nine outgoing bodies move up 17⅔ points on iPhone versus native 17, replacing the previous downward jump; Cancel restores the baseline. Four physical iPhone and four browser individual/group light/dark cases preserve drafts, bubble widths, outgoing positions and selection controls (`/tmp/messages-selection-indent/verification.json`).
+The third/final candidate leaves about ⅔ point of displacement error; off-bottom anchoring, selection/deletion motion and exact symbol rasterization remain unfinished.
 
 The standard laugh reaction is now a separate `haha` value from the 😂 emoji,
 matching the distinct choices in [Apple’s Tapback reference](https://support.apple.com/guide/iphone/react-with-tapbacks-iph018d3c336/26/ios/26).
@@ -856,13 +929,13 @@ The later sibling-slot candidate was initially reverted too, then restored
 after the foreground-verified physical proof above. It supplies the inner-edge
 anchor; movement with reply drags remains unfinished.
 
-The composer uses CSS `field-sizing: content`, bounded at 138 points. Sending
-shrinks the cleared composer and requests the bottom of the updated transcript.
-The DOM `scrollTop` binding is applied after the batch's children/layout are
-mounted, once per changed value. The transcript's explicit `scrollFollowEnd`
-policy keeps the bottom visible through keyboard and composer resizing while
-reading the latest message. After scrolling up, the browser uses CSS scroll
-anchoring, and iOS retains a visible descendant’s position across the batch.
+Both composers use CSS `field-sizing: content`, 20-point lines and the available height, replacing the six-line cap. The measured 38×28 Send control and 5-point text/control gap leave 252.67 points for text on the pinned iPhone; the empty microphone stays in the trailing 28-point slot.
+Native reference and browser/iOS drives cover 1–32 lines, shrinkage and a trailing Return; 11 physical cases, ordinary-launch typing and final baked Send/navigation checks pass (`/tmp/messages-composer-growth/`). Six wrapping specimens now match native line counts/heights; 44 browser/iOS cases, eight physical wrapping/deletion/emoji cases and both baked Send/navigation drives pass (`/tmp/messages-wrapping/`). Glyph rasterization still differs.
+The conversation surface matches the measured 40.33-point first line and 365.67-point height limit; Compose caps two points above the native reference and remains open.
+A terminal Return reserves its caret line without changing the draft. Physical typing and Paste keep it visible. The driver now observes both caret scrolling and native viewport geometry through an idle turn after keyboard or sheet handoff; immediate/later captures and held manual scrolling pass (`/tmp/messages-editor-paste/`, `/tmp/messages-viewport-settle/`).
+Sending shrinks the cleared composer and requests the transcript bottom. Changed DOM `scrollTop` bindings apply once after the batch's children/layout are mounted.
+The transcript's explicit `scrollFollowEnd` policy keeps the bottom visible through keyboard and composer resizing while reading the latest message.
+After scrolling up, the browser uses CSS scroll anchoring, and iOS retains a visible descendant’s position across the batch.
 A shared fixture verifies that growing and shrinking content above the reader
 leaves the visible message in place; it previously jumped by the changed height.
 Physical Simulator taps also verify that adjustment and that the top stays at zero.
@@ -991,17 +1064,17 @@ under `/tmp/messages-timestamp-rates/`: `spring-video-comparison.json` and
 `pixel-comparison.png` contain the pixel comparison; `comparison.json` contains
 the separate scroll-delegate and presentation-layer measurements.
 
-The next implementation needs direct hold/release of the visible translation,
-using the existing motion engine while preserving vertical scroll arbitration,
-reversal, release velocity, stationary labels, and keyboard behavior. A temporary
-copy of Messages was prepared to test `dragX` with authored
-`translate spring(121, 22, 1)` on its rows. It did not reach runtime verification:
-three build attempts encountered a stale copied lockfile, a missing matching
-toolchain in the external app, then a copied app/data-module identity mismatch.
-The build loop stopped at the repository limit; its host modifications were
-restored. `/tmp/messages-timestamp-engine/` preserves the attempted fixture and
-final build error. No result from that unbuilt probe establishes Exact spring
-behavior, and the app still uses its existing scroll-snap path.
+A linked Exact spring prototype verifies direct hold/release through the existing motion engine, with the current archive and a paired baked generation.
+Actual iPhone drags retain the 58-point cap, stationary labels and draft. Pixel measurements give 19.7/39.3 points returned at 100/200 ms
+versus 17.9/37.5 in the interpolated native reference, settling within half a point in 0.615 s versus 0.602 s. RMS error over 20–700 ms is
+1.14 points, versus 7.70 for scroll snap. Frame phase and fitted parameters limit the claim. A separate drive preserves vertical scrolling and reversal.
+`/tmp/messages-timestamp-linked/` holds the input/video; its wrong-host recording and rejected unbaked-plan attempt are excluded.
+The app still uses scroll snap: the spring probe’s test-ID target lookup needs authored intent and a browser implementation. Charlie approved three further
+attempts on 2026-09-11. R4 reuses native editor exclusion and identity-bound Presenter.dragX delivery: physical selection drags move rows by 0 points
+(previously 44); Back during a held drag produces 0 gone-target writes (previously 11), retaining the draft. R5 fails compilation because inset() clip-path
+is unsupported; R6 margins/overflow hide rest labels, preserve 23 native node rectangles and pass 10 physical assertions. Browser geometry passes; gesture binding remains open (`/tmp/messages-timestamp-ownership/r6/`).
+The analogous production reply teardown error is repaired: motion and Reply dispatch use the presenter's post-batch queue and verify view identity.
+Public touches verify short release, completed Reply and Back while held, with no retired write and exactly one Reply dispatch (`/tmp/messages-gesture-retirement/`).
 
 The normal iPhone app also retains timestamp reversal and interactive
 keyboard dismissal/reversal with the composer tracking the keyboard. Regression
@@ -1070,8 +1143,8 @@ background is roughly 262 points wide versus Exact's 277; native Messages shrink
 that balloon to its wrapped text. Exact currently limits a border-box bubble to
 75% of the available row. A browser probe also keeps 277.5 points with flex,
 column, block, inline-block, fit-content and grid layout. Tightening to wrapped ink
-needs a separate sizing design; changing the native kernel’s CSS sizing alone would
-create a host disagreement. That intrinsic-sizing difference, fractional bubble
+needs a separate sizing design. UIKit `sizeThatFits` now reproduces 261⅔ points for the recorded sentence; Chrome 152 reports no support for the proposed [`max-content-sizing`](https://github.com/explainers-by-googlers/css-shrink-to-fit/blob/main/README.md) property, including with the named `CssMaxContentSizing` prototype flag; 64 browser cases retain the current widths (`/tmp/messages-intrinsic-width/`, `/tmp/messages-wrapped-sizing/`). Changing the native kernel’s CSS sizing alone would
+create a host disagreement. The comparison also exposed a separate defect: 45 unbroken W characters overflowed one web line. Messages now declares CSS `overflow-wrap: break-word`; both hosts show three lines at 80 points, with iOS preview, reaction and focused-reply activation checked (`/tmp/messages-overflow-wrap/`). A subsequent Taffy intrinsic-sizing repair restores H/Hi from 56 to 48 points without changing authored padding; 48 kernel cases, the browser fixture and rebuilt iPhone samples pass (`/tmp/messages-short-width/`). Scaled Tapback images now contribute their displayed box to scrollable overflow: the short focused reply has a 114.33-point extent and zero offset, with its full time label, badge and bubble visible in the rebuilt physical drive (`/tmp/messages-reply-overflow/`). That intrinsic-sizing difference, fractional bubble
 rasterization, and sender-name repetition after pauses remain fidelity work. The initial
 multiline native preview was narrower than its source; the final shared row
 layout gives main/reply/preview matching measured widths and indentation.
@@ -1087,21 +1160,21 @@ measurements, send/reset, and reactions retaining the draft and keyboard. Actual
 Simulator taps also verify focusing the composer, keyboard H, and Send in the
 ordinary app. A physical downward drag dismisses the keyboard and restores the
 28-point resting insets. Appearance changes also repaint the placeholder and the window
-background visible around the keyboard’s rounded corners. The microphone is now an
-outlined shape, also used in the inbox search; dictation is still inactive. The
+background visible around the keyboard’s rounded corners. The microphone is now a
+native symbol, also used in the inbox search; dictation is still inactive. The
 resting search bar shares the reference’s 28-point bottom inset. Glass-backed
 buttons hold their content in UIKit’s effect and enable its interactive response.
 A held Simulator Back press visibly enlarges the glass and release navigates back.
 Browser/iOS drives also check search filtering, contact details, and closing inline
 replies through the new material. A native fixture changes glass to blur, clears it,
 and restores glass while retaining child actions and physical taps on visible
-overflow. Native symbols and glass grouping remain unfinished.
+overflow. Exact native glyph sizing and glass grouping remain unfinished.
 
-Compose, Send, and Close use explicit clipped or rounded shapes instead of
-Unicode arrows and multiplication signs. The compose pencil includes transparent
-interior space; Send’s arrow stays centered in its 28-point button. Cancel gets a
-64-point text target while composing. These are authored shapes, not SF Symbols;
-exact symbol geometry remains part of the visual comparison.
+Back, Close, Compose, Add, Microphone, Send, Search, Copy, Select, More, Delete and Forward now use `symbol:` images.
+UIKit renders each glyph inside the kernel-owned box; the web uses generic masks, and Fieldnotes shares Add/Close.
+Physical iOS controls and browser actions pass in light/dark; the native renderer prototype matches 210 UIKit cases. Compose Close now uses 22/400, matching the native 50×50-pixel ink bounds; tint and one-pixel alignment still differ. Other glyph sizes, VoiceOver and macOS pixels remain open (LLP 1035.004 D4; `/tmp/messages-symbol-integration/verification.json`). Copy, Select and More now use 17/400 native image leaves with the reference’s measured intrinsic sizes. Their three schema roles replace seven further nodes; six physical glyph taps and six browser actions pass in light/dark, preserving drafts and existing menu frames. Shape overlap improves in all six reference crops, but remaining raster differences, Reply/Translate and material parity stay open (`/tmp/messages-action-symbols/verification.json`).
+
+Delete and Forward now use 22-point regular native images. Four iOS Simulator touch cases and four browser cases cover disabled controls, outside cancellation, local deletion and populated forwarding with draft retention. The final image offsets preserve all surrounding measured frames; fixed-crop shape overlap improves from 31–39% to 89–93%. Foreground/material and edge raster differences remain (`/tmp/messages-selection-symbols/verification.json`).
 
 Contact details now pushes a third keyed route with its own Back control, an
 80-point avatar, 48-point action circles, an address card and Hide Alerts. The
@@ -1125,35 +1198,35 @@ including while it is still attached during an animated push. It also records
 UIKit's actual stored offset: its fractional quantization had been mistaken
 for a user scroll, invalidating the retained position.
 
-The bounded repair passed on its third round after an earlier loop had stopped.
-Browser and iOS drives cover reading, a later manual scroll, top/end following,
-and returning without a previously focused composer. Physical native back
-swipes cancel and complete with the draft and anchor preserved. Ordinary launch
-also passes button Back and native swipe cancellation/completion with a typed
-H draft and live keyboard/navigation animations. Before/after transcript crops
-differ only in a few one-channel-level pixels (14 for button Back, 6 for swipe
-completion); the keyboard crop after the completed swipe is identical. Two
-pre-navigation captures confirm that scrolling had settled. The evidence is in
-`/tmp/messages-details-inspection/`, including the node inspections, native trace,
-driver results, ordinary-launch captures, and pixel comparisons.
-Calling, video, email,
-contact creation/editing and blocking controls remain disabled visual placeholders.
-Group details, shared-content sections, switch motion, exact symbols and the full
-native contact-card presentation remain unfinished.
+The bounded third-round repair covers browser/iOS reading, later manual scroll,
+top/end following, and returning without prior composer focus. Physical and ordinary-launch
+Back controls and cancelled/completed swipes preserve the draft and reading anchor.
+Settled transcript crops differ in only 14 one-channel pixels for button Back and six for
+swipe completion; the completed-swipe keyboard crop is identical (`/tmp/messages-details-inspection/`).
+Calling, video, email and existing-contact editing remain disabled. Local Block/Unblock works, with cancellation, draft restoration and pending fixture-reply suppression.
+`/tmp/messages-contact-actions/` records native Block/New Contact and their public-UIKit confirmation prototypes. Block's crop matches over a saved backdrop; Discard's material still differs.
+The integrated confirmation passes physical actions and two-session editor retention, exactly-once dispatch, reload refusal, unmount and destruction (`/tmp/messages-confirmation-integration/`). Explicit `destructive=true` gives Block/Discard native red (`/tmp/messages-destructive-actions/verification.json`). Correcting contact-row CSS sizes now matches Block's sheet/action rectangles and restores full-row hit areas; browser checks and 22 physical captures pass cancellation, local Save and swipe Delete (`/tmp/messages-contact-geometry/verification.json`, LLP 1021 D2). Red text bounds match native; material and browser placement remain open.
+New Contact now edits names, company, one phone/email and notes and saves only to the local fixture. Close confirms even before editing the prefilled address; cancellation retains the actual editor and typing continues. Browser Escape now closes that confirmation while retaining the form and focused editor; a second Escape respects the sheet’s dismissal refusal (`/tmp/messages-popover-escape/`). Discard returns to details; reopening starts fresh.
+iOS/browser activation checks cover local save, renamed inbox lookup and conversation draft/focus restoration. Real XCTest software keys and touches also cover outside cancellation, a downward sheet drag, scrolling, discard and local save (`/tmp/messages-new-contact/`).
+The contact model preserves existing thread identity/history/drafts, adds no empty inbox row and excludes address-less contacts from recipients; its baked-module test covers these cases.
+The form remains incomplete: additional addresses, photo/pronoun/tone controls, other native fields, contact editing and exact artwork are owed. Native Add to Existing Contact now has a captured reference: a searchable, surname-grouped chooser opens an untitled editor with the existing values plus the incoming address; Close → Discard returns directly to details. The three implementation candidates stopped at compilation (unsupported symbol, mixed number/string branches, numeric text); their unverified code is preserved under `/tmp/messages-existing-contact/r3/` and the prior app is restored. No chooser implementation lands from this attempt.
+Its sheet begins at y=62 versus native y=72. A public-UIKit container probe gets y=62 for the first sheet across styles and y=72 above an existing modal; Exact currently pushes details. Presentation ownership needs integration, not an app padding offset.
+The discard action rectangle matches native; full material, keyboard-transition and form parity remain open. The rebuilt-app repeat passes functionally but incurs 13 XCTest idle timeouts. Confirmation dispatch now waits until UIKit’s callback stack returns; two fresh physical runs and pending-action reload/destruction checks pass (`/tmp/messages-confirmation-completion/`). The original intermittent timeout’s cause remains unproven. No native Messages send or Contacts save was performed.
+Group/shared-content sections, switch motion, exact symbols and the full contact card remain unfinished.
 
-The inbox remains mounted behind the conversation. On iOS, UIKit presents the
-Contract routes through its navigation controller. Native back swipes in the
-header have passed cancellation and completion with a populated draft: cancelling
-keeps the conversation and draft; completion returns to the inbox and saves it.
-During an interactive pop, the viewport keeps its keyboard-sized height until
-UIKit settles, so the composer stays beside the keyboard as both move sideways.
-Programmatic back and reopening drafts also pass on iOS and web. The browser
-makes the inactive route hidden and inert, while retaining its nodes and state.
-
-The navigation integration took three fix rounds. Swipes over the horizontal
-timestamp scroll area still go to that scroll view rather than navigation; that
-arbitration remains unresolved. Header swipes have been driven as actual Simulator
-touches, including native transition frames; this is not full navigation parity.
+The inbox remains mounted behind the conversation; UIKit owns controller containment and navigation.
+Only a completed interactive pop from the still-live, selected source invokes Back. Its control must belong to that route; inactive/disabled controls cannot authorize a pop or sheet dismissal (`/tmp/messages-back-owner/`). A late programmatic
+completion cannot cancel a newer route. Deferred route intent and focus apply after the native handoff.
+`/tmp/messages-navigation-completion/` passes rapid Back → Compose with focus, keyboard, saved drafts and header Back cancel/complete.
+The XCTest drive in `/tmp/messages-keyboard-guide/` keeps the multiline composer, native first responder,
+335-point inset and 539-point viewport stable through cancellation. The guide also replaces a four-point-wrong landscape notification edge: `/tmp/messages-rotation/` matches native composer y=141.667 and viewport 874×198 in both landscape directions, then 482.667/402×539 in portrait, retaining the editor and draft.
+Completion saves the draft and hides the keyboard; sheet resistance, two-session focus/destruction and stable initial keyboard geometry pass. Landscape header and keyboard-control parity remain open. Web Back retains inactive routes as hidden/inert DOM nodes.
+Unmounted focus waits against the target editor's identity; First Send installs the selected conversation before sheet dismissal, removing the inbox flash (`/tmp/messages-compose-handoff/`).
+Both Send controls now declare `retainFocus`; browser focus/blur events disappear, and production ordinary Send retains its editor, visible keyboard and viewport (`/tmp/messages-keyboard-handoff/`).
+First Send's keyboard drop is repaired by retaining the outgoing native editor hierarchy and handing focus to the destination before dismissing its sheet. An uninstrumented physical drive has no hidden-keyboard samples, and sampled video keeps the Q key at its original height. Seven Back/sheet cases and two-session reload/unmount/destruction pass (`/tmp/messages-editor-retirement/`). Native Compose opens via `sms:`, but fixture recipients remain `No Name, Searching`; no native Send was issued, so native first-Send animation parity is still unestablished (`/tmp/messages-native-send-reference/verification.json`).
+The shared host now admits authored `inert` and preserves subtree geometry/drafts while excluding iOS/browser input; modal-owner and Messages regressions pass, including rebuilt browser modal focus/inspection, single dispatch and input restoration (`/tmp/messages-inert-ownership/`). This ownership repair changes no Messages markup. Native dismissal retains its owner until UIKit completes, including across reload, then projects current route intent (`/tmp/messages-modal-retirement/`). Completed sheet gestures now release the old modal-navigation slot after UIKit’s callback returns and dispatch only for the same live, selected source. Retained/replacement routes and mid-gesture permission changes pass six physical cases (`/tmp/messages-dismissal-owner/`). Revocation after native commitment re-presents the selected route with its keyboard closed; continuous editing through that outcome is not established. Unmount now retires native owners without invoking Back: physical drag unmount/destruction and offscreen route replacement pass, with retained Compose state and queued focus delivered after remount (`/tmp/messages-unmounted-owner/`). Moving to another UIKit controller in the same window now passes, including transfer during a physical sheet drag; the old completion leaves Compose intact and an offscreen replacement’s queued focus reaches its new editor (`/tmp/messages-reparent-owner/`). Unmount ends existing focus; this verifies explicit queued focus, not continuous keyboard editing through a move. A fresh native recording also shows contact details zooming from the photo, rather than the current horizontal push. A public UIKit fullscreen zoom and nested sheet reproduces New Contact’s y=416 first field; cancellation, refusal, completion and missing-source Back pass in the prototype. Charlie approved the fullscreen/source Messages exception and three additional attempts in LLP 1035.001. R4 fixes Compose by distinguishing route transitions from enclosing presentation callbacks; R5 handles browser Escape after the covered editor loses focus. Fullscreen details and nested New Contact now pass the iOS/browser flow, ten physical gesture cases, source removal/replacement, and nested host unmount/reload/transfer/destruction (`/tmp/messages-fullscreen/r4/`, `r5/`). The third additional attempt is unused. Native pixel/motion parity remains open; the physical ownership fixture had its software keyboard hidden at baseline, while the Messages activation drive verifies a visible-keyboard return. The earlier prototype remains in `/tmp/messages-presentation-ancestry/`.
+Timestamp-area swipes still go to that horizontal scroll view; arbitration remains unresolved.
+These checks do not establish full navigation or first-layout parity.
 
 A subsequent app-only probe added `touch-action="pan-right pan-y"` to the
 timestamp container, using the already-supported initial-direction policy.
@@ -1350,7 +1423,7 @@ fixture results do not establish Messages' animation curve or which surrounding
 badges and labels belong to its preview target.
 
 The existing Contract preview now magnifies on iOS and web by 15%, capped at
-26 added points of width. It keeps the source's outside edge and vertical
+26 added points on the larger dimension. It keeps the source's outside edge and vertical
 center until the panel needs to clamp to the safe viewport. Following content
 moves down within the panel by half the added height, counteracting the panel's
 upward shift: the receipt stays at its source-relative position while the
@@ -1378,22 +1451,22 @@ region is pixel-identical before, during and after the double-tap reaction.
 macOS retains unscaled positioning through the same nested preview structure,
 verified by opening the existing reaction badge and choosing a reaction.
 
-The receipt-anchor correction is checked separately in
-`/tmp/messages-delivery-spacing/`: native short and two-line previews keep
-the settled receipt's ink at the same position as the transcript. The first
-two-line capture caught its appearance animation (38⅔-point ink width);
-two later captures agree at 50 points and the preview's position, so the
-intermediate frame is not the geometry reference. Web/iOS drives cover
-outgoing, older outgoing, incoming, focused, group, double-tap and clamped
-previews, live Read updates and source restoration. Physical Simulator input
-covers both recognizers, reaction selection, a held palette drag, outside
-dismissal and retained keyboard/draft state on the corrected build.
-An ordinary launch with no agent mode verifies a physically typed/sent message:
-long-press grows its 200-point balloon to 226 points while the Read ink stays
-at x=339, y=712; outside dismissal restores the saved balloon and receipt crops
-pixel-for-pixel. A held timestamp drag moves the outgoing edge 386 → 328
-points and release restores its original blue-pixel mask. These captures and
-measurements are in the same directory (`ordinary-*`).
+Short and two-line native previews retain the receipt's settled source-relative ink position (`/tmp/messages-delivery-spacing/`). The initial two-line capture caught its appearance animation; two settled captures agree. Web/iOS geometry
+drives cover outgoing, older, incoming, focused and clamped previews, live receipts
+and source restoration. Physical Simulator input covers long/double taps, reactions,
+palette dragging and keyboard/draft retention; ordinary-launch captures verify
+pixel-identical balloon/receipt restoration and timestamp return in that directory.
+
+The subsequent long-message comparison (`/tmp/messages-preview-overlap/`) verifies
+complete 12- and 24-line native composer values before sending in the Simulator's
+built-in fixture. Both native previews retain all lines; their enlarged balloons
+also overlap the receipt. Exact therefore removes its eight-line preview cutoff,
+keeps the receipt anchor, and caps enlargement by the larger dimension. The tall
+native samples support 26-point height growth alongside the earlier width samples.
+The native 24-line action card overlaps the balloon but stays above the home indicator; Exact now clamps the trailing control group the same way, ending at
+832 points on the designated iPhone. Browser/iOS drives cover short, blank-line,
+12/24-line, double-tap and focused-reply previews, reactions and retained drafts.
+Public XCTest verifies the 12-line long press, reaction touch and focused draft restoration; native pixel rounding and complete lift/return motion remain unverified.
 
 The duplicate source is now removed through authored `opacity`, on the balloon
 and receipt in the active transcript only. The source stays mounted with the
@@ -1417,11 +1490,11 @@ verified in saved pixels on both hosts. This still does not reproduce
 UIKit's lift/return animation or establish Messages' exact treatment of surrounding
 reaction badges, group avatars and sender labels.
 
+Borders now declare solid explicitly. Shared effective widths and `currentColor` preserve the native conversation capture exactly while restoring the browser reaction border; seven native style/colour states and Fieldnotes border controls pass (`/tmp/messages-border-semantics/`).
+
 This is not yet iMessage parity. Remaining work includes resolving back-swiping
 over the transcript, matching the remaining Tapback presentation details,
 swipe reply motion matching, timestamp settling, scroll anchoring during animated changes, typing-indicator
-motion matching, message insertion motion, precise bubble
-geometry, native symbols and glass materials, dark appearance refinement, and direct
+motion matching, message insertion motion, precise bubble and fractional border geometry, native symbols and glass materials, dark appearance refinement, and direct
 visual/gesture comparison with Messages on the target iOS version. Contact actions, group details and
-attachment surfaces remain unfinished. Keyboard gesture/animation parity still
-needs direct comparison with Messages; text injection alone is not that proof.
+attachment surfaces remain unfinished. Keyboard gesture/animation parity still needs direct comparison with Messages; text injection alone is not that proof.

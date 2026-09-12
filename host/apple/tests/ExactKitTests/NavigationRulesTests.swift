@@ -19,31 +19,42 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(NavigationRules.stack(routeKeys: keys, selected: "elsewhere"))
     }
 
-    /// D2: completion dispatches once, on a key change only; a cancelled
-    /// swipe and a programmatic Back dispatch nothing.
-    func testACompletedPopDispatchesExactlyOnAKeyChange() {
-        XCTAssertTrue(NavigationRules.dispatchesBack(shownKey: "", rootKey: "thread", modalActive: false))
+    func testPresentationBoundariesRetainTheirOwnerThroughLaterRoutes() {
+        XCTAssertEqual(NavigationRules.segments(presentations: [nil, nil, "fullscreen", "modal"]), [0..<2, 2..<3, 3..<4])
+        XCTAssertEqual(NavigationRules.segments(presentations: [nil, "fullscreen", nil]), [0..<1, 1..<3])
+        XCTAssertEqual(NavigationRules.segments(presentations: [nil, nil]), [0..<2])
+        XCTAssertEqual(NavigationRules.segments(presentations: ["modal"]), [0..<0, 0..<1])
+    }
+
+    /// D2: only a completed gesture from the still-selected route may
+    /// dispatch. Finishing an old programmatic Back cannot cancel Compose.
+    func testACompletedPopBelongsToItsInteractiveSource() {
+        XCTAssertTrue(NavigationRules.dispatchesBack(shownKey: "", rootKey: "thread", sourceKey: "thread", modalActive: false))
         // Cancelled: UIKit shows the same route the root still names.
-        XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "thread", rootKey: "thread", modalActive: false))
+        XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "thread", rootKey: "thread", sourceKey: "thread", modalActive: false))
         // Programmatic: the key already moved when UIKit finished.
-        XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "", rootKey: "", modalActive: false))
+        XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "", rootKey: "", sourceKey: nil, modalActive: false))
+        XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "", rootKey: "compose", sourceKey: nil, modalActive: false))
+        // An interactive completion cannot dismiss a newly selected route.
+        XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "", rootKey: "compose", sourceKey: "thread", modalActive: false))
         // A sheet's dismissal has its own path.
-        XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "", rootKey: "compose", modalActive: true))
+        XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "", rootKey: "compose", sourceKey: "compose", modalActive: true))
     }
 
     /// D1: the Back control is resolved by id among enabled, pressable, live
     /// controls, lowest view id first; a disabled one blocks nothing but
     /// resolves to nothing.
     func testTheBackControlIsResolvedAtUseByHTMLId() {
-        struct C { let id: UInt32; let html: String?; let press: Bool; let disabled: Bool }
+        struct C { let id: UInt32; let html: String?; let press: Bool; let disabled: Bool; var active = true }
         let controls = [
+            C(id: 1, html: "back", press: true, disabled: false, active: false),
             C(id: 9, html: "back", press: true, disabled: true),
             C(id: 12, html: "back", press: true, disabled: false),
             C(id: 4, html: "back", press: false, disabled: false),
             C(id: 3, html: "close", press: true, disabled: false),
         ]
         let resolve = { (target: String?) -> UInt32? in
-            NavigationRules.backControl(named: target, among: controls, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled)?.id
+            NavigationRules.backControl(named: target, among: controls, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active)?.id
         }
         XCTAssertEqual(resolve("back"), 12)
         XCTAssertEqual(resolve("close"), 3)
@@ -51,7 +62,9 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(resolve(nil))
         // All disabled: nothing may begin.
         let disabled = [C(id: 1, html: "back", press: true, disabled: true)]
-        XCTAssertNil(NavigationRules.backControl(named: "back", among: disabled, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled))
+        XCTAssertNil(NavigationRules.backControl(named: "back", among: disabled, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
+        let inactive = controls.filter { !$0.active }
+        XCTAssertNil(NavigationRules.backControl(named: "back", among: inactive, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
     }
 
     /// D1: an interactive pop needs a stack to pop, no transition, no sheet,

@@ -109,7 +109,11 @@ mod tests {
             &mut module,
             &plan,
             "deleteMessages",
-            vec![Value::str(id), Value::str(rows[1]["id"].as_str().unwrap())],
+            vec![
+                Value::str(id),
+                Value::str(rows[1]["id"].as_str().unwrap()),
+                Value::Number(150_000.),
+            ],
         );
         assert_eq!(thread(&mut module, "")["messages"][0]["tail"], true);
         send(&mut module, "Focused later reply", root, 150_000.);
@@ -131,7 +135,11 @@ mod tests {
             &mut module,
             &plan,
             "deleteMessages",
-            vec![Value::str(id), Value::str(reply["id"].as_str().unwrap())],
+            vec![
+                Value::str(id),
+                Value::str(reply["id"].as_str().unwrap()),
+                Value::Number(210_000.),
+            ],
         );
         assert_eq!(inbox_time(&mut module), "9:44 AM");
     }
@@ -359,7 +367,7 @@ mod tests {
             &mut module,
             &plan,
             "deleteMessages",
-            vec![Value::str("maya"), Value::str(id)],
+            vec![Value::str("maya"), Value::str(id), Value::Number(0.)],
         );
         assert_eq!(thread(&mut module, "maya")["messages"], before["messages"]);
         let selection = call(
@@ -381,7 +389,11 @@ mod tests {
             &mut module,
             &plan,
             "deleteMessages",
-            vec![Value::str("maya"), Value::str("m1|m3|m1|dad-1|missing")],
+            vec![
+                Value::str("maya"),
+                Value::str("m1|m3|m1|dad-1|missing"),
+                Value::Number(0.),
+            ],
         );
         let remaining = thread(&mut module, "maya");
         assert_eq!(remaining["messages"].as_array().unwrap().len(), count - 2);
@@ -404,7 +416,7 @@ mod tests {
                     m,
                     &plan,
                     "deleteMessages",
-                    vec![Value::str("maya"), Value::str("m9")],
+                    vec![Value::str("maya"), Value::str("m9"), Value::Number(0.)],
                 )
             };
             if delete_before_send {
@@ -768,7 +780,7 @@ mod tests {
             &mut module,
             &plan,
             "deleteConversation",
-            vec![Value::str("maya")],
+            vec![Value::str("maya"), Value::Number(0.)],
         );
         assert_eq!(deleted["pending"], false);
         call(
@@ -813,6 +825,107 @@ mod tests {
             vec![Value::str("maya")],
         );
         assert_eq!(inbox(&mut module)["people"][0]["muted"], false);
+    }
+
+    #[test]
+    fn saved_contacts_rename_existing_threads_without_creating_unsent_conversations() {
+        let plan = Plan::decode(super::PLAN).unwrap();
+        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        module.bind(&plan);
+        module.activate().unwrap();
+        let inbox =
+            |m: &mut Module| call(m, &plan, "inbox", vec![Value::str(""), Value::Number(0.)]);
+        let recipients = |m: &mut Module, query: &str| {
+            call(
+                m,
+                &plan,
+                "recipients",
+                vec![
+                    Value::str(""),
+                    Value::str(query),
+                    Value::str("Hello"),
+                    Value::Number(0.),
+                ],
+            )
+        };
+        let save = |m: &mut Module, first: &str, last: &str, phone: &str, email: &str| {
+            call(
+                m,
+                &plan,
+                "createLocalContact",
+                [first, last, "Example", phone, email, "Local notes"]
+                    .into_iter()
+                    .map(Value::str)
+                    .collect(),
+            )
+        };
+        let phone = recipients(&mut module, "8885551212")["target"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        call(
+            &mut module,
+            &plan,
+            "sendMessage",
+            vec![
+                Value::str(&phone),
+                Value::str("Local conversation"),
+                Value::str(""),
+                Value::Number(0.),
+                Value::Number(0.),
+            ],
+        );
+        call(
+            &mut module,
+            &plan,
+            "saveDraft",
+            vec![
+                Value::str(&phone),
+                Value::str("Keep this draft"),
+                Value::str(""),
+            ],
+        );
+        let before = inbox(&mut module)["people"].as_array().unwrap().len();
+        save(
+            &mut module,
+            "Jordan",
+            "Avery",
+            "+1 (888) 555-1212",
+            "jordan@example.com",
+        );
+        let saved = inbox(&mut module);
+        let people = saved["people"].as_array().unwrap();
+        assert_eq!(people.len(), before);
+        let row = people.iter().find(|p| p["id"] == phone).unwrap();
+        assert_eq!(row["name"], "Jordan Avery");
+        assert_eq!(row["draft"], "Keep this draft");
+        let chat = call(
+            &mut module,
+            &plan,
+            "conversation",
+            vec![
+                Value::str(&phone),
+                Value::Number(0.),
+                Value::str(""),
+                Value::str(""),
+            ],
+        );
+        assert_eq!(chat["knownContact"], true);
+        assert_eq!(chat["messages"][0]["body"], "Local conversation");
+        assert_eq!(recipients(&mut module, "+18885551212")["target"], phone);
+        assert_eq!(
+            recipients(&mut module, "jordan@example.com")["people"][0]["name"],
+            "Jordan Avery"
+        );
+        save(&mut module, "Name", "Only", "", "");
+        let unavailable = recipients(&mut module, "Name Only");
+        assert_eq!(unavailable["canSend"], false);
+        assert_eq!(unavailable["target"], "");
+        assert!(unavailable["people"].as_array().unwrap().is_empty());
+        assert_eq!(
+            inbox(&mut module)["people"].as_array().unwrap().len(),
+            before
+        );
     }
 
     #[test]

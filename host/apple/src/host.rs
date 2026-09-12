@@ -862,9 +862,9 @@ fn relative(frame: Frame, parent: Option<Frame>) -> (f32, f32, f32, f32) {
     }
 }
 
-/// A scroll container's content extent: the kernel's scrollable overflow
-/// (Taffy's `content_size`, padding and every descendant included), never
-/// less than the box itself.
+/// Natural scrollable overflow, including padding and descendants. The
+/// presenter applies the CSS client-size minimum against its actual viewport;
+/// flooring here loses the extent a native container needs under its own insets.
 fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     // Taffy's block containers do not always count end-edge padding in
     // `content_size` (its flex containers do); CSS's `scrollHeight` does.
@@ -877,8 +877,8 @@ fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);
-    let mut w = node.frame.width.max(node.content.0);
-    let mut h = node.frame.height.max(node.content.1);
+    let mut w = node.content.0;
+    let mut h = node.content.1;
     for child in node.children() {
         if let Some(c) = kernel.node(child) {
             w = w.max(c.frame.x - node.frame.x + c.frame.width + pad_right);
@@ -928,6 +928,21 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         out.remove("spellcheck");
         if let Some(value) = node.spellcheck() {
             out.insert("spellcheck".into(), value.to_string());
+        }
+    }
+    if node.node_type == NodeType::Image {
+        if let Some(role) = node
+            .props
+            .str(PropId::ImageSource)
+            .and_then(|s| s.strip_prefix("symbol:"))
+        {
+            out.insert(
+                "symbolName".into(),
+                exact_kernel::generated::symbol(role)
+                    .map(|s| s.0)
+                    .unwrap_or("")
+                    .into(),
+            );
         }
     }
     out

@@ -1078,7 +1078,7 @@ fn text_rows_inherit_into_runs_and_a_change_touches_only_the_runs_that_follow_it
                 patch: style(|s| {
                     s.font_size = 20.0;
                     s.mask.set(StyleId::FontSize);
-                    s.line_height = 24.0;
+                    s.line_height = exact_kernel::LineHeight::Length(24.0);
                     s.mask.set(StyleId::LineHeight);
                 }),
             },
@@ -1114,14 +1114,14 @@ fn text_rows_inherit_into_runs_and_a_change_touches_only_the_runs_that_follow_it
         k.node(3).unwrap().text_style(),
         TextStyle {
             font_size: 20.0,
-            line_height: 24.0,
+            line_height: Some(24.0),
             ..initial
         }
     );
     assert_eq!(k.node(4).unwrap().text_style().font_weight, 700);
     assert_eq!(k.node(4).unwrap().text_style().font_size, 20.0);
     assert_eq!(k.node(5).unwrap().text_style().font_size, 12.0);
-    assert_eq!(k.node(5).unwrap().text_style().line_height, 24.0);
+    assert_eq!(k.node(5).unwrap().text_style().line_height, Some(24.0));
     assert!(!k.node(3).unwrap().style.mask.has(StyleId::FontSize));
     assert_eq!(k.node(3).unwrap().source_of(StyleId::FontSize), Some(2));
     assert_eq!(k.node(5).unwrap().source_of(StyleId::FontSize), Some(5));
@@ -1169,7 +1169,7 @@ fn text_rows_inherit_into_runs_and_a_change_touches_only_the_runs_that_follow_it
         .unwrap();
     assert!(ids(&k, &receipt.touched).contains(&3));
     assert_eq!(k.node(3).unwrap().text_style().font_size, 14.0);
-    assert_eq!(k.node(3).unwrap().text_style().line_height, 0.0);
+    assert_eq!(k.node(3).unwrap().text_style().line_height, None);
     assert_eq!(k.node(3).unwrap().source_of(StyleId::FontSize), Some(6));
     // Clearing falls back to the initial value, and touches only followers.
     let mut mask = StyleMask::EMPTY;
@@ -1181,4 +1181,120 @@ fn text_rows_inherit_into_runs_and_a_change_touches_only_the_runs_that_follow_it
     // An identical write is no change at all.
     let receipt = k.apply(0, 5, &[font_size(6, 14.0)]).unwrap();
     assert!(receipt.touched.is_empty());
+}
+
+#[test]
+fn inherited_line_height_resolves_per_font_and_invalidates_through_tree_changes() {
+    use exact_kernel::{LineHeight, StyleMask};
+    let mut k = Kernel::with_monospace();
+    let set = |id, font, lh| Op::SetStyle {
+        id,
+        patch: style(|s| {
+            s.font_size = font;
+            s.mask.set(StyleId::FontSize);
+            if let Some(lh) = lh {
+                s.line_height = lh;
+                s.mask.set(StyleId::LineHeight);
+            }
+        }),
+    };
+    k.apply(
+        0,
+        1,
+        &[
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::AttachRoot { id: 1 },
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::Text,
+            },
+            Op::CreateView {
+                id: 3,
+                node_type: NodeType::View,
+            },
+            set(1, 16.0, Some(LineHeight::Number(1.5))),
+            set(2, 20.0, None),
+            set(3, 18.0, Some(LineHeight::Length(24.0))),
+            Op::SetProp {
+                id: 2,
+                prop: PropId::Text,
+                value: "hello".into(),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 3],
+            },
+        ],
+    )
+    .unwrap();
+    let check = |k: &mut Kernel, height: f32| {
+        k.compute_layout(1, Offer::MAX_CONTENT).unwrap();
+        assert!((frame(k, 2).3 - height).abs() < 0.02, "{:?}", frame(k, 2));
+    };
+    check(&mut k, 30.0);
+    k.apply(0, 2, &[set(1, 30.0, None), set(2, 24.0, None)])
+        .unwrap();
+    check(&mut k, 36.0);
+    for (epoch, lh, height) in [
+        (3, LineHeight::Normal, 28.8),
+        (4, LineHeight::Number(0.0), 0.0),
+        (5, LineHeight::Length(0.0), 0.0),
+    ] {
+        k.apply(0, epoch, &[set(2, 24.0, Some(lh))]).unwrap();
+        check(&mut k, height);
+    }
+    k.apply(
+        0,
+        6,
+        &[Op::ClearStyle {
+            id: 2,
+            mask: StyleMask::of(StyleId::LineHeight),
+        }],
+    )
+    .unwrap();
+    check(&mut k, 36.0);
+    k.apply(
+        0,
+        7,
+        &[
+            Op::SetChildren {
+                id: 1,
+                children: vec![3],
+            },
+            Op::SetChildren {
+                id: 3,
+                children: vec![2],
+            },
+        ],
+    )
+    .unwrap();
+    check(&mut k, 24.0);
+    k.apply(0, 8, &[set(2, 40.0, None)]).unwrap();
+    check(&mut k, 24.0);
+    k.apply(0, 9, &[Op::DestroyView { id: 2 }]).unwrap();
+    k.apply(
+        0,
+        10,
+        &[
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::Text,
+            },
+            set(2, 20.0, None),
+            Op::SetProp {
+                id: 2,
+                prop: PropId::Text,
+                value: "new".into(),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![3, 2],
+            },
+        ],
+    )
+    .unwrap();
+    check(&mut k, 30.0);
 }

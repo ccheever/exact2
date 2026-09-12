@@ -72,6 +72,10 @@ pub fn tag(name: &str) -> Option<Tag> {
             vec![(s("display"), "flex"), (s("flex_direction"), "row")],
             vec![],
         ),
+        "dialog" => view(
+            vec![(s("position_type"), "absolute")],
+            vec![(p("semanticTag"), "dialog")],
+        ),
         "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" => {
             view(vec![], vec![(p("semanticTag"), leak(name))])
         }
@@ -101,7 +105,10 @@ pub fn tag(name: &str) -> Option<Tag> {
         },
         "textarea" => Tag {
             node_type: NodeType::TextInput,
-            fixed_styles: vec![(s("white_space"), "pre-wrap")],
+            fixed_styles: vec![
+                (s("white_space"), "pre-wrap"),
+                (s("overflow_wrap"), "break-word"),
+            ],
             fixed_props: vec![(p("semanticTag"), "textarea")],
             positional: None,
         },
@@ -189,6 +196,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationKey" => AttrTarget::Prop(p("navigationKey")),
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
         "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
+        "navigationSource" => AttrTarget::Prop(p("navigationSource")),
         "closedby" => AttrTarget::Prop(p("closedby")),
         "contextTarget" => AttrTarget::Prop(p("contextTarget")),
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
@@ -224,11 +232,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "swipeContent" => AttrTarget::Prop(p("swipeContent")),
         "swipeLeading" => AttrTarget::Prop(p("swipeLeading")),
         "swipeTrailing" => AttrTarget::Prop(p("swipeTrailing")),
-        "swipeDestructive" => AttrTarget::Prop(p("swipeDestructive")),
+        "destructive" => AttrTarget::Prop(p("destructive")),
         "scrollFollowEnd" => AttrTarget::Prop(p("scrollFollowEnd")),
         "keyboardDismissMode" => AttrTarget::Prop(p("keyboardDismissMode")),
         "href" => AttrTarget::Prop(p("href")),
         "disabled" => AttrTarget::Prop(p("disabled")),
+        "inert" => AttrTarget::Prop(p("inert")),
         "readonly" => AttrTarget::InvertedBoolProp(p("editable")),
         "lang" => AttrTarget::Prop(p("lang")),
         "src" => AttrTarget::Prop(p("src")),
@@ -243,9 +252,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "popover" => AttrTarget::Prop(p("popover")),
         "popovertarget" => AttrTarget::Prop(p("popovertarget")),
         "popovertargetaction" => AttrTarget::Prop(p("popovertargetaction")),
+        "commandfor" => AttrTarget::Prop(p("commandfor")),
+        "command" => AttrTarget::Prop(p("command")),
         "aria-checked" => AttrTarget::Prop(p("accessibilityChecked")),
         // style rows, by their CSS property names
         "white-space" => styles(&["white_space"]),
+        "overflow-wrap" => styles(&["overflow_wrap"]),
         "field-sizing" => styles(&["field_sizing"]),
         "scroll-snap-type" => styles(&["scroll_snap_type"]),
         "scrollbar-width" => styles(&["scrollbar_width"]),
@@ -261,6 +273,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "font-family" => styles(&["font_family"]),
         "color" => styles(&["text_color"]),
         "background-color" => styles(&["background_color"]),
+        "caret-color" => styles(&["caret_color"]),
+        "tint-color" => styles(&["tint_color"]),
         "opacity" => styles(&["opacity"]),
         "letter-spacing" => styles(&["letter_spacing"]),
         "line-height" => styles(&["line_height"]),
@@ -303,6 +317,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "border-right-width" => styles(&["border_width_right"]),
         "border-bottom-width" => styles(&["border_width_bottom"]),
         "border-left-width" => styles(&["border_width_left"]),
+        "border-style" => styles(&[
+            "border_style_top",
+            "border_style_right",
+            "border_style_bottom",
+            "border_style_left",
+        ]),
+        "border-top-style" => styles(&["border_style_top"]),
+        "border-right-style" => styles(&["border_style_right"]),
+        "border-bottom-style" => styles(&["border_style_bottom"]),
+        "border-left-style" => styles(&["border_style_left"]),
         "border-color" => styles(&[
             "border_color_top",
             "border_color_right",

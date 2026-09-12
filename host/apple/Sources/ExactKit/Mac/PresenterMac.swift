@@ -155,7 +155,7 @@ final class Presenter {
     var onCommand: ((String, [Any]) -> Void)?
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
-    func focusElement(_ args: [Any]) {
+    func focusElement(_ args: [Any], selectText: Bool = false) {
         guard args.count == 1, let name = args.first as? String,
               let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
               let window = target.window, !target.disabled,
@@ -165,9 +165,17 @@ final class Presenter {
             if view.isHidden || (view as? NodeView)?.props["inert"] == "true" { return }
             ancestor = view.superview
         }
-        if let field = target.field, window.firstResponder === field.currentEditor() { return }
+        if selectText, target.textArea == nil, target.field == nil { return }
+        if let field = target.field, window.firstResponder === field.currentEditor() {
+            if selectText { field.currentEditor()?.selectAll(nil) }
+            return
+        }
         let responder: NSView = target.textArea ?? target.field ?? target
         if responder.acceptsFirstResponder { window.makeFirstResponder(responder) }
+        if selectText {
+            if let editor = target.textArea, window.firstResponder === editor { editor.selectAll(nil) }
+            else { target.field?.currentEditor()?.selectAll(nil) }
+        }
     }
 
     /// The events beyond press and change (LLP 1005 §3).
@@ -289,14 +297,18 @@ final class Presenter {
                 guard let v = views[id] else { continue }
                 v.frame = NSRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
                 v.scroll?.frame = v.bounds
-                v.field?.frame = v.fieldBox()
+                v.field?.frame = v.contentBox()
                 v.layoutTextArea()
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
                 v.web?.frame = v.bounds
+                v.fitScroll()
                 v.applyTransform()
             case "content":
-                views[id]?.scroll?.documentView?.frame = NSRect(x: 0, y: 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
+                if let v = views[id] {
+                    v.content = CGSize(width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
+                    v.fitScroll()
+                }
             case "present":
                 guard let v = views[id] else { continue }
                 let x = CGFloat(op["x"] as? Double ?? 0)

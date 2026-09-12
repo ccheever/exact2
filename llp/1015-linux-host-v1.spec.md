@@ -35,6 +35,10 @@ the other two hosts, and its nested-scroll numbers are the macOS ones
 exactly (the node stops at 652, the page at 471). Where this document and
 the code disagree, the code and its tests are the authority.
 
+HTML dialogs have no Linux presentation yet (LLP 1021 D2, 2026-09-11).
+The painter excludes their subtree from pixels and hit boxes; a press reaching
+`Host::dispatch_at` with `commandfor` is refused before its application handler.
+
 ## 1. The host (`host/linux/src/host.rs`)
 
 **Requests (LLP 1016 D2, built 2026-08-30).** `host/linux/src/executor.rs`
@@ -89,7 +93,9 @@ premultiplied RGBA frame at the device scale. Per node, in order: **background**
 over the border box as a path with per-corner radii (CSS
 `background-clip: border-box`); **borders** — a uniform border with a
 radius is a stroke inset by half its width, anything else is four side
-rectangles (the Apple presenter's rule); an **image** by `object_fit`
+rectangles (the Apple presenter's rule). Widths are the kernel's effective
+border widths: `none`/`hidden` paint and reserve nothing, and `currentcolor`
+uses the node's computed text colour (LLP 1001 §1; `tests/paint.rs`). An **image** by `object_fit`
 (`fill`, `contain`, `cover`, `none`, `scale-down`) in the content box,
 clipped to it and to the border box's rounded path (LLP 1011 §4); a
 **text** node's paragraph — the one the kernel measured at this width,
@@ -189,15 +195,23 @@ baseline — cached by (spec, width), where a spec is the runs (text, size,
 weight, italic, line height, letter spacing) plus alignment and
 `line_clamp`. `Measurer` (the kernel's `TextMeasurer`) and the painter
 share the engine through an `Rc<RefCell<_>>`: what was measured is what is
-painted, by construction. Lines wrap at word boundaries only (`Wrap::Word`,
-CSS `overflow-wrap: normal`); **min-content is the widest word**, found by
+painted, by construction. Normal text wraps at word boundaries (`Wrap::Word`). CSS `overflow-wrap:
+break-word | anywhere` uses `WordOrGlyph`; only `anywhere` includes emergency
+breaks in min-content sizing. The policy participates in the paragraph cache
+key and applies to measurement and painting. For normal and break-word,
+**min-content is the widest word**, found by
 wrapping at width zero — the first Linux render broke every countdown
 "28" into "2" / "8" because the probe used glyph wrapping, so min-content
 was one glyph and the flex row shrank to it. `line-height: normal` is the
 font's ascent + descent + line gap at the size (skrifa metrics from the
 face the shaper picked; cached per size/weight/style); a set line height
-centres the glyphs in the box, which cosmic-text does itself (its half-
-leading is CSS's). `line_clamp` is `Ellipsize::End(Lines(n))`. Alignment
+centres each run's glyphs in its own box. The paragraph strut and
+per-run ascent/descent extrema determine shared baselines in the cached
+paragraph; both raster and GPU painters use those same baseline positions
+(LLP 1035.000.000). Ratios arrive resolved per font; `None` is normal and
+`Some(0)` is explicit zero. Cosmic-text requires positive shaping pitches
+for its scrolling loop, so glyph metadata maps those internal pitches back
+to the original CSS lengths before measurement or painting. `line_clamp` is `Ellipsize::End(Lines(n))`. Alignment
 is per line. An empty text has no line box (the web; the Apple presenter
 gives one). Glyphs are rasterized by swash once per (glyph, subpixel bin,
 color) into small premultiplied pixmaps, cached; painting is one blit per
@@ -391,6 +405,10 @@ Chrome's is `size=20`).
 
 ## 7. Not in v1 (and the trades taken)
 
+`inert` subtree input/focus enforcement is not implemented in this host. The
+compiler's existing-boolean admission and iOS/browser repair do not establish
+Linux support (LLP 1035.001 D3).
+
 **The painter is vello on the GPU (r2), with tiny-skia on the CPU as the
 fallback and the pixel oracle.** r1 took CPU raster for the reasons
 `QUEUE.md` §Open decisions named — boots with nothing compiled, runs on
@@ -428,7 +446,9 @@ raw, and nothing links); Wayland or X11 windows (DRM or headless only);
 a cursor blink, selection, IME; `text_decoration`, `font_family` (always
 sans-serif), RTL untested; shadows, gradients, grid (as on macOS); JPEG
 and other image formats (PNG only), image URLs (the executor of §1 exists;
-the image loader does not ask it yet); accessibility of
+the image loader does not ask it yet); `symbol:` images and symbol tint
+(LLP 1035.004: declared boxes paint no symbol until a Linux consumer earns the
+same schema paths in the painter); accessibility of
 any kind; HiDPI beyond `EXACT_SCALE`; a font cache for the scan;
 pixel fixtures against Chrome (the instrument exists — `screenshot`, the
 smoke's canvas reference, and the pinned font, §3 — the comparison itself

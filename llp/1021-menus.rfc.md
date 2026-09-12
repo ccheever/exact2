@@ -2,7 +2,7 @@
 
 **Type:** RFC
 **Status:** Draft
-**Systems:** Kernel (a top layer; the popover's box anchored to its invoker), Contract (four attributes, one tag — all by their HTML names), Web host (the Popover API by identity), Apple host (menu-shaped popovers presented as UIMenu/NSMenu), Linux host (a kernel-painted top layer), Agent API (no ninth operation), Weird Castle (the account switcher, first consumer)
+**Systems:** Kernel (a top layer; the popover's box anchored to its invoker), Contract (HTML popover and dialog declarations), Web host (the Popover API by identity), Apple host (menu-shaped popovers presented as UIMenu/NSMenu), Linux host (a kernel-painted top layer), Agent API (no ninth operation), Weird Castle (the account switcher, first consumer)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
 **Related:** LLP 1017 §8.1 (literal HTML/CSS names, no aliases — the rule that names every row here), LLP 1001 (where a deviation from the bare element is declared), LLP 1008 (host state that never enters the plan — scroll offset — and the native text field, the one native control so far), LLP 1012 (the eight operations; `tap` is a journal entry into the runner, never OS input), LLP 1014 (the canvas capture the top layer sits outside of), LLP 1018 (the `EXACT_AGENT` presentation-swap precedent: `MemoryStore` for the keychain), weird-castle e644c82 (the hand-rolled switcher overlay this replaces). Platform record: the HTML Popover API and invoker attributes; the WAI-ARIA menu pattern; Apple HIG "Menus" and "Pull-down buttons"; `UIMenu`/`UIButton.menu`/`showsMenuAsPrimaryAction` (iOS 14+), `NSMenu` (macOS).
@@ -127,13 +127,252 @@ over Weird Castle's night floats above the sky, not inside its texture
 (today's switcher is sampled into it, LLP 1014). Menus read as chrome on
 every platform; this makes it so here.
 
+**Messages attachment reference and probe (Codex, 2026-09-10):** public
+XCTest opens Add from an existing native conversation. The rich, scrolling
+popover is 320 × 456.6 points, at (10, 373) with the keyboard closed and
+(10, 274) over an open keyboard; the draft editor stays focused. The current
+Messages example still has an authored emoji tray. Its Add and emoji controls
+now declare `retainFocus`, verified physically and in the browser, but that
+repairs editing intent only. Rich content still needs D2's presentation owner.
+
+A temporary public-UIKit probe tests `UIPopoverPresentationController`, no
+arrow, source overlap allowed, and the reference's content size. The ordinary
+popover preserves focus but places its keyboard-open box at y=73. Extending
+its layout margins using the measured keyboard overlap moves the box to y=274,
+but pixels show the keyboard covering its lower rows. A third, separate-window
+probe with ordinary margins again places it at y=73. All three open/dismiss
+scripts finish; none proves the required keyboard-overlaid presentation. This
+three-round prototype is stopped without host integration. A future approach
+must prove painting and touch order as well as its rectangle, and respect
+LLP 1031's containing-app/session ownership boundary. Source, screenshots and
+XCTest records: `/tmp/messages-attachment-menu/` and its `probe/` directory.
+
+**Modal confirmation (Codex, 2026-09-11, implemented for Messages):** a
+`dialog` is invoked by a button's HTML `commandfor="id" command="show-modal"`;
+its action and explicit Cancel use `command="close"` for that same id. The
+browser supplies the real modal top layer, focus, Escape, outside dismissal
+when `closedby="any"`, and input exclusion. A closed dialog is hidden; its tag
+lowers the HTML absolute-position default so it consumes no ordinary flow.
+No application open-state slot or host script reproduces the browser's dialog.
+Root navigation Escape and global authored shortcuts respect its input owner.
+
+UIKit admits the existing confirmation grammar: direct explanatory text, one
+handled action, and one handlerless closing Cancel, with `closedby="any"`.
+Other dialog content and close policies are unsupported. The same session-owned
+`UIAlertController` used below extracts the live action data after the invoker's
+press, retains the presenting editor, and binds completion to the original
+source, route and action. The browser's explicit Cancel remains in the declared
+content; UIKit omits that row in its popover presentation. AppKit and Linux have
+no dialog projection yet and keep the subtree hidden; this is not general
+cross-platform dialog support. Existing contact popovers retain their separate
+nonmodal browser declaration and native confirmation projection.
+
+Messages removes `confirmDelete` and its authored cancellation overlay. Four
+physical cases on the rebuilt iPhone app cover one/two selections in light/dark:
+the action rectangle is (26,766,208,48), matching native Messages. Outside
+cancellation preserves selection and draft; confirmation deletes the selected
+local messages and exits selection with the keyboard closed. The browser passes
+the same cases, including an outside click over another selectable message;
+first Escape closes confirmation, second Escape exits selection. A two-session
+native fixture preserves the live editor through cancellation, dispatches confirm
+once, refuses a stale action after reload, and cannot revive the prompt after
+unmount/remount or destruction. These lifetime checks use agent activation;
+the Messages opening/outside-cancel/confirm cases use public XCTest taps.
+
+The earlier auto-popover prototype allowed outside dismissal to select the
+message underneath; the [HTML dialog model](https://html.spec.whatwg.org/multipage/interactive-elements.html#the-dialog-element)
+supplies the missing modality. Prototype failures remain in
+`/tmp/messages-selection-owner/`. Integrated candidates and evidence are in
+`/tmp/messages-modal-confirmation/`: R1 passed interaction checks but a bare
+closed dialog occupied flow; R2's default used the wrong internal style-row name
+and failed both bakes; R3 corrects it and passes both bakes and actual-app drives.
+Native Close/Forward foreground dimming, transition timing and browser visual
+polish remain owed. LLP 1035.004 D6's three-variant UIKit probe rules out ordinary
+tint adjustment and disabled-control appearance as exact dimming replacements. Geometry and interaction checks do not establish full pixel
+or motion parity.
+
+**Contact confirmation reference and probe (Codex, 2026-09-10):** native
+Messages' Block Contact opens a 240×190.333-point confirmation at (10,481),
+with one destructive action and outside-tap cancellation. New Contact's Close
+opens a 240×168.333 confirmation at (10,72), even before editing the prefilled
+contact. The first-name field and keyboard remain active beneath that prompt.
+Outside cancellation keeps the form; Discard Changes closes it. This is a
+presentation over its source, not a replacement page-sheet route.
+
+A temporary public-UIKit probe uses `UIAlertController(.actionSheet)` with a
+destructive action and a cancel action, presented without an arrow through
+`UIPopoverPresentationController`, allowing source overlap and refusing adaptive
+replacement. Anchoring Block to the full row centers it at x=81; using its text
+label's bounds gives native x=10, with every measured message/action rectangle
+matching. Close uses its own 44-point control bounds and matches the second
+confirmation. The Block crop is pixel-identical (411,120 pixels), with the saved
+native source screenshot as the prototype's backdrop. The Discard crop has a
+6.33/255 mean channel difference despite matching geometry; the bitmap backdrop
+does not establish native source rendering or exact material parity. A third
+probe uses an actual text field: public XCTest typing, opening, outside cancel,
+reopening and local discard retain editing until discard, then remove the field
+and keyboard. No native Messages send or contact save is performed. Native
+cleanup explicitly chooses Discard Changes and verifies the original conversation
+draft, `Short again`, with no remaining contact form or confirmation.
+
+The three standalone prototype candidates stopped here. At that point these
+APIs and results were not yet an Exact presentation: declared trigger/cancel/confirm actions, source anchoring,
+session lifetime, browser behavior and application integration remain work.
+The contact form therefore stays a named consumer alongside Block Contact;
+building its Close as unconditional dismissal would contradict the reference.
+Artifacts: `/tmp/messages-contact-actions/`, including failed native reference
+runs, successful cleanup, the standalone probe, XCTest records and pixel counts.
+
+**Subsequent integration (Codex, 2026-09-10):** Messages now uses a declared
+`popover="auto" role="alertdialog"` for local Block Contact. The iOS host
+recognizes direct explanatory text, one press button and one handlerless cancel;
+both buttons target that popover with `popovertargetaction="hide"`. The invoker's
+own press runs first, synchronously through the session, before extracting the
+updated content. Its direct text bounds anchor a labelled row; an icon invoker
+uses its whole box. The host adds no application open-state slot.
+
+This shape uses the same `UIAlertController` under normal and agent launches,
+an exception to D4's older menu swap. A session owns the presentation until
+native dismissal completes and its selection callback has returned. Confirm dispatches once only if the original source,
+route and action still exist; outside cancellation dispatches nothing. Reload,
+unmount and destruction dismiss that session's confirmation. The presenting
+editor remains mounted and focused during cancellation. The two-session Exact
+fixture verifies retained text/focus, confirm removing the editor, an old action
+refused after reload, unmount/remount without revival, and destruction leaving
+the other session editable. Destruction while the observed phase is still
+`transition` also leaves the other session editable. Public XCTest software keys
+then prove editing through open/outside cancel/reopen/Discard on the Exact
+fixture, with `autocorrect="off"` for literal retention (spellcheck alone does not
+disable correction). `state.navigation.popover` reports the owner/phase;
+agent action activation is identified as activation. `layout` reports unavailable
+native action geometry, since UIAlertAction exposes no public action view.
+`screenshot(path, true)` captures the containing app window and its presentation;
+it does not promise to capture separate system windows such as the keyboard.
+
+The browser keeps its native Popover API. `[popover]:not(:popover-open)` must
+remain `display: none` despite the authored container's flex display; the first
+browser drive exposed and repaired that override. Both hosts pass local
+block/unblock, cancel, draft restoration and suppression of pending fixture
+replies. Real UIKit touches pass open/outside cancel/confirm/unblock/return.
+
+**Limits at initial integration:** the iOS default action painted black despite
+the authored red tint; the explicit role repair below closes that gap.
+Browser placement remains its default centred popover. Window `drawHierarchy` includes
+the prompt but differs from the Simulator capture in its glass backdrop (the
+measured Block crop differs by 1.40/255 mean channel error); physical captures
+remain the pixel evidence. Rich
+attachment popovers, complete New Contact fidelity, adaptive placement,
+and the other native hosts remain separate work. Evidence and failed candidates:
+`/tmp/messages-confirmation-integration/verification.json`.
+
+**Browser dismissal ownership (Codex, 2026-09-11):** the New Contact sheet's
+`closedby="none"` handler also prevented the discard popover's default Escape
+dismissal. The modal handler now defers to the document's open auto/hint popover
+and respects an already-prevented key. Browser keystrokes close the confirmation
+while retaining the form, editor focus and draft; the next Escape leaves the
+protected sheet open. Dismissible Compose, a containing-page popover, manual
+popover behavior and consumed keys also pass. The selected-message toolbar's
+authored `key` handler remains a separate migration issue above. Evidence and
+the corrected populated-Compose fixture: `/tmp/messages-popover-escape/`.
+
+**New Contact consumer (Codex, 2026-09-10):** the Messages form now uses the
+same declared confirmation for Close. iOS/browser activation verifies unchanged
+prefill, edited cancellation, fresh reopening after Discard, local Save, renamed
+inbox lookup and restored conversation draft/focus. Public XCTest software keys
+continue typing into the same editor after outside cancellation; a downward sheet
+drag retains the form, Discard removes it, and local Save returns to details.
+The native action rectangle is (26,176.333,208,48), matching the reference.
+This did not clear the destructive-style/material limits above. The form itself
+starts ten points above native; the container probe in LLP 1035.001 D4 locates
+that difference in modal ancestry. Multiple addresses, photo/pronoun/tone controls,
+other native contact fields and editing remain unfinished. Source, versioned
+binaries, physical captures and the local data regression are recorded under
+`/tmp/messages-new-contact/`.
+
+**Recovery consumer (Codex, 2026-09-11):** Messages' filter menu now switches
+between Messages and Recently Deleted within the same inbox route. Recovery and
+permanent deletion use the existing alertdialog grammar. The invoker snapshots
+the selected conversation ids and message count before presentation; the app's
+local data source owns the archived records, ordering and expiration. No host
+property or application popup-open flag was added. Three application candidates
+corrected boolean ARIA values and made the popovers absolute so their logical
+boxes do not consume the inbox's layout space.
+
+Browser and iOS activation verify selected-message recovery/cancellation/purge
+with the conversation draft retained. Ordinary-launch public XCTest verifies
+swipe deletion, the native filter menu, outside cancellation and removal of the
+archived row after Recover. Returning to Messages then fails with a loading menu;
+the complete native recovery/purge flow is unverified. The three-candidate app
+loop stops here. `MenuHost.sync` replaces the deferred menu on every batch and
+this app requests time-dependent recovery data; their causal role in the observed
+failure has not been isolated. Apple's iOS 26 guide images supply the visual reference, not a live
+MobileSMS recovery capture. The native default Recover action remains black on
+gray, whereas the guide shows blue; filter-menu icons/coverage, browser selection
+outlines, agent-mode menu presentation and exact motion remain open. Source,
+versioned builds and the failed physical drive: `/tmp/messages-recovery/`.
+
+**Selection completion order (Codex, 2026-09-10):** the rebuilt New Contact
+physical flow passes all 16 functional captures but incurs 13 XCTest animation-idle
+timeouts after Discard (799 seconds). A small public-UIKit comparison does not
+reproduce those timeouts with any of its three dismissal strategies. It does
+observe native action handlers after the alert leaves its window, an explicit
+`dismiss` completing synchronously inside that handler, and the dismissal delegate
+arriving afterward. Starting parent teardown there precedes that final callback.
+
+MenuHost now retains its finishing owner through one main-queue turn after the
+completion, then rechecks the original identities/route before dispatching once.
+The subsequent native dismissal delegate cannot turn a selected action into
+cancellation. Reset still invalidates the pending owner. Block/Unblock, retained
+cancel, reload/unmount/destruction and destruction during presentation pass. A
+further two-session drive reloads and destroys while a selected action is actually
+pending: the old action never dispatches afterward and the other editor survives.
+Two fresh physical New Contact runs pass 16 captures each without idle timeouts
+(19.3 and 19.5 seconds). This supports the ordering repair but does not establish
+the cause of the earlier intermittent XCTest symptom. Source, binaries, callback
+trace and runs: `/tmp/messages-confirmation-completion/verification.json`.
+
+**Explicit action role (Codex, 2026-09-10):** Block and Discard now declare
+`destructive=true`. Schema row 68 is generalized from `swipeDestructive` to
+`destructive`, without another row or an alias. UIKit maps it to
+`UIAlertAction.Style.destructive`, `UIAction.Attributes.destructive` and the
+existing swipe-action role. The web emits `data-destructive`; authored CSS and
+dispatch stay unchanged. AppKit/Linux presentation of the role remains owed.
+`state.navigation.popover.actionStyle` reports the actual confirmation style.
+The native menu invoker also retains its authored accessible name, identifier
+and disabled state; the first physical menu fixture found an anonymous button.
+
+An ordinary-launch public-XCTest fixture presents an ordinary action authored
+red and a destructive action authored blue: only the latter paints native red,
+for both menus and confirmations. Physical selection updates the intended value
+and increments the confirmation count once. iOS activation and browser DOM
+checks also cover a changing flag, cancellation and dispatch. Two 22-capture
+Messages drives retain editing after cancellation, discard/save locally, restore
+the draft and delete the intended swipe row, without XCTest idle timeouts.
+Block and Discard have the reference's red text bounds and dominant RGB
+(255,56,60). Their action-crop mean channel differences are 1.06 and 6.73/255;
+That run leaves Block two points above native; Discard's rectangle matches.
+This establishes the action style, not complete material or geometry
+parity. Versioned binaries, failed fixtures and current evidence:
+`/tmp/messages-destructive-actions/verification.json`.
+
+**Contact source geometry (Codex, 2026-09-10):** correcting the authored
+name/address heights and two 52-point contact rows removes Block's two-point
+anchor error. The separator sits inside the first row, and each button owns
+the full 370-point width. The native sheet now matches the reference at
+(10,481,240,190.3), including its action at (26,607.3,208,48). Browser geometry
+and physical left-edge activation pass; all 22 contact-flow captures pass
+without idle timeouts. The raw full-sheet crop differs by 0.47/255 mean channel
+value, so material parity remains open. This uses existing CSS declarations;
+no presentation offset or host change. `/tmp/messages-contact-geometry/verification.json`.
+
 **D3 — menu-shaped popovers may present natively.** A popover whose
 children are exclusively `button` rows (each with optional
 `role="menuitem"`/`"menuitemradio"`, `aria-checked`, `disabled`, and text
 content) and `hr` rows is *menu-shaped*. An Apple host presenting one
 natively builds the platform menu from the **extracted data** — title:
 the row's concatenated text; `aria-checked` → `UIAction.state = .on`;
-`disabled` → `.disabled`; `hr` → an inline-section boundary — and renders
+`disabled` → `.disabled`; `destructive` → `.destructive` on iOS;
+`hr` → an inline-section boundary — and renders
 none of the subtree's own pixels; the invoker becomes the pull-down
 (`UIButton.menu`, `showsMenuAsPrimaryAction`; `NSMenu` on macOS).
 Selecting an item dispatches that row's `press` **by view id into the
@@ -183,11 +422,11 @@ agent flow and the seeded-book CDP recipe keep working unchanged.
 - **CSS anchor positioning rows** (`position-area`, `anchor-name`) — the
   first popover that cannot live at the invoker's bottom-left. D2's one
   rule until then.
-- **A destructive row** — the HIG renders Log out red; the web has no
-  name for it (`aria` has no destructive state, HTML no attribute). The
-  rule that every row is a web name outranks the red; Log out sits last,
-  behind an `hr`, undecorated natively. Earn-back: a web-standard name
-  appearing, or a consumer measuring the miss.
+- **A destructive row — earned back 2026-09-10:** the original return
+  condition was a web-standard name or a consumer measuring the miss.
+  Messages' black Block/Discard actions supply the measurement. The existing
+  swipe row is generalized as `destructive`; D2 records the native and web
+  behavior and LLP 1001 §1 declares the non-web presentation hint.
 - **Submenus** — `UIMenu` nests and ARIA allows it; nothing here needs
   it. First consumer brings the nesting rules.
 - **The menu keyboard contract** (arrow traversal, typeahead, `role=menu`

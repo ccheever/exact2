@@ -23,7 +23,7 @@ import { arch, cpus, platform, release, tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { publicFileCards, readStaticFile, webContentType } from '../host/web/serve.mjs';
-import { macBinary, macHostBinary } from '../host/apple/build.mjs';
+import { appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
 import { developmentBuildEnv, resolveApp, withAppFixture } from './app.mjs';
 import { Cdp } from './agent.mjs';
 
@@ -397,13 +397,17 @@ if (rebuild) {
 // 6. The macOS app's startup, when it has been built (`node host/apple/build.mjs`;
 // --long builds it): exec → main (dyld), NSApplication, the window, the runner
 // with layout and text measurement, the batch applied, the first paint.
-const macBin = macBinary;
+const macBin = appleArtifacts(app).binary;
+const macHostBinary = appleArtifacts(app, { host: true }).binary;
 const macReceipt = resolve(dirname(macBin), 'receipt.json');
 const macBuiltApp = () => {
   try { return JSON.parse(readFileSync(macReceipt, 'utf8')).app?.id ?? null; }
   catch { return null; }
 };
-const macRun = () => spawnSync(macBin, [], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_ASSETS: app.dir, EXACT_SMOKE: '1' }, timeout: 20000 });
+const macRun = () => {
+  assertAppleIdentity(app, macBin);
+  return spawnSync(macBin, [], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_ASSETS: app.dir, EXACT_SMOKE: '1' }, timeout: 20000 });
+};
 const macParse = (o) => {
   delete out.macos_note;
   out.macos_boot_ms = Number(/^boot ([\d.]+) ms/m.exec(o)?.[1] ?? NaN);
@@ -475,6 +479,7 @@ if (long) {
   step('macos-link-delta', () => {
     const r = spawnSync('node', [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--host'], { cwd: ROOT, encoding: 'utf8' });
     if (r.status !== 0 || !existsSync(macHostBinary) || !existsSync(floorBin)) { out.link_delta_bytes = NaN; return; }
+    assertAppleIdentity(app, macHostBinary);
     const size = (f) => statSync(f).size;
     const gz = (f) => gzipSync(readFileSync(f), { level: 9 }).length;
     const binDir = dirname(macHostBinary);

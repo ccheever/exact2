@@ -63,9 +63,10 @@ CSS's own function, by its own name, with its own meaning: the first colour
 when the used `color-scheme` is light, the second when it is dark
 (`rules/RULES.md` §Scope — a semantic that could follow CSS follows CSS).
 
-It is a *value*, so it is admitted anywhere a colour is: the eight `rgba8`
-rows are `background_color`, `border_color_top`/`right`/`bottom`/`left`,
+It is a *value*, so it is admitted anywhere a colour is: the original eight `rgba8`
+rows were `background_color`, `border_color_top`/`right`/`bottom`/`left`,
 `shadow_color`, `tint_color`, `text_color`.
+The unused `tint_color` slot became CSS `caret_color` on 2026-09-10 (LLP 1001 §1); its optional colour admits the same pair, with `auto` kept distinct.
 
 A colour row becomes what a dimension row already is — a small enum with a
 deferred variant — rather than a second row per colour.
@@ -152,8 +153,7 @@ instead of twenty-one. That is a smaller claim than r1's and it is the true
 one: this deletes the appearance from every colour, not from the app.
 
 What would remove the last consumer is a painted `tint_color` — one artwork,
-tinted by a row that could itself be a pair. The row exists and **nothing
-paints it**: LLP 1011 §6 puts it outside v1 explicitly. Moving it back on
+tinted by a row that could itself be a pair. The unused row has since been replaced by `caret_color`; **image tinting stays out**: LLP 1011 §6 puts it outside v1 explicitly. Moving it back on
 costs a trade under `rules/RULES.md` §Scope and is not taken here; it is the
 natural follow-up and the trigger is a second app wanting a tinted icon.
 

@@ -1438,3 +1438,35 @@ fn inherited_spelling_hint_updates_editors_and_returns_to_default() {
     }
     assert_eq!(count(&host.resize(402.0, 874.0), "props"), 0);
 }
+
+#[test]
+fn content_below_the_client_height_keeps_its_extent_and_changes() {
+    let plan = contract::compile(
+        r#"component Extent
+  state large = false
+  action grow writes large
+    large = true
+  view
+    column
+      button "Grow" press=grow testId="grow"
+      scroll testId="scroll" width=200 height=200 padding-top=5 padding-bottom=7
+        box width=120 height=(large ? 80 : 40)
+"#,
+    )
+    .unwrap();
+    let (mut host, initial) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let scroll = view(&host, "scroll");
+    assert_eq!(frame_of(&initial, scroll).3, 212.0);
+    assert_eq!(content_of(&initial, scroll).1, 52.0);
+    let grow = view(&host, "grow");
+    let changed = host.dispatch_at(grow, Event::Press, 0.0);
+    assert_eq!(content_of(&changed, scroll).1, 92.0);
+    assert!(!changed.contains(&format!("\"op\":\"frame\",\"id\":{scroll},")));
+}

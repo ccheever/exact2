@@ -32,4 +32,4 @@ component Insets
           text "editing" testId="editing" font-size=13 color="#b8a1d9"
         else
           text "idle" testId="idle" font-size=13 color="#b8a1d9"
-        input value=note change=setNote focus=focusIn blur=focusOut placeholder="A note" testId="note" padding=12 border-radius=8 border-width=1 border-color="#5b4a7a" background-color="#ffffff"
+        input value=note change=setNote focus=focusIn blur=focusOut placeholder="A note" testId="note" padding=12 border-radius=8 border-style="solid" border-width=1 border-color="#5b4a7a" background-color="#ffffff"

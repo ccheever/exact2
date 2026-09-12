@@ -140,32 +140,33 @@ final class TextSelection {
         guard !paragraph.lines.isEmpty else { return nil }
         var i = paragraph.lines.count - 1
         var bottom: CGFloat = 0
-        let lineHeight = spec.runs.map(\.lineHeight).max() ?? 0
         for n in paragraph.lines.indices {
-            var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
-            _ = CTLineGetTypographicBounds(paragraph.lines[n], &ascent, &descent, &leading)
-            bottom += lineHeight > 0 ? lineHeight : ascent + descent + leading
-            if point.y < bottom { i = n; break }
+            bottom = n < paragraph.lineBottoms.count ? paragraph.lineBottoms[n] : paragraph.height
+            if point.y - node.contentBox().minY < bottom { i = n; break }
         }
         return (paragraph, spec, i)
     }
 
     private func index(_ node: NodeView, at point: NSPoint) -> Int {
-        if point.y < 0 { return 0 }
-        if point.y > node.bounds.height { return length(node) }
+        let content = node.contentBox()
+        if point.y < content.minY { return 0 }
+        if point.y > content.maxY { return length(node) }
         guard let (p, spec, i) = line(node, at: point) else { return 0 }
         let row = p.lines[i]
         let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
-        let x = CGFloat(CTLineGetPenOffsetForFlush(row, flush, Double(node.bounds.width)))
+        let x = content.minX + CGFloat(CTLineGetPenOffsetForFlush(row, flush, Double(content.width)))
         let offset = CTLineGetStringIndexForPosition(row, CGPoint(x: point.x - x, y: 0))
         return offset == kCFNotFound ? length(node) : min(max(0, offset), length(node))
     }
 
     private func link(_ node: NodeView, at point: NSPoint) -> String? {
-        guard node.bounds.contains(point), let (p, _, i) = line(node, at: point) else { return nil }
+        let content = node.contentBox()
+        guard content.contains(point), let (p, spec, i) = line(node, at: point) else { return nil }
         // Clicking blank space after a line must not open its last link.
         let width = CGFloat(CTLineGetTypographicBounds(p.lines[i], nil, nil, nil))
-        guard point.x >= 0 && point.x <= width else { return nil }
+        let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
+        let x = content.minX + CGFloat(CTLineGetPenOffsetForFlush(p.lines[i], flush, Double(content.width)))
+        guard point.x >= x && point.x <= x + width else { return nil }
         let offset = index(node, at: point)
         var start = 0
         for run in node.paragraphSpec().runs {
@@ -180,17 +181,19 @@ final class TextSelection {
         guard let selection = range(node), selection.length > 0 else { return }
         NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45).setFill()
         let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
+        let content = node.contentBox()
         for (line, baseline) in zip(paragraph.lines, paragraph.baselines) {
             let r = CTLineGetStringRange(line)
             let lo = max(selection.location, r.location), hi = min(NSMaxRange(selection), r.location + r.length)
             guard hi > lo else { continue }
             var ascent: CGFloat = 0, descent: CGFloat = 0
             _ = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
-            guard baseline + descent >= dirty.minY && baseline - ascent <= dirty.maxY else { continue }
-            let flushX = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(node.bounds.width)))
+            let y = content.minY + baseline.rounded()
+            guard y + descent >= dirty.minY && y - ascent <= dirty.maxY else { continue }
+            let flushX = content.minX + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(content.width)))
             let x0 = CTLineGetOffsetForStringIndex(line, lo, nil)
             let x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
-            NSRect(x: flushX + min(x0, x1), y: baseline - ascent, width: max(1, abs(x1 - x0)), height: ascent + descent).fill()
+            NSRect(x: flushX + min(x0, x1), y: y - ascent, width: max(1, abs(x1 - x0)), height: ascent + descent).fill()
         }
     }
 }

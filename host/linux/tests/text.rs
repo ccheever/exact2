@@ -23,6 +23,25 @@ impl DataSource for NoData {
 }
 
 #[test]
+fn emergency_wrapping_preserves_the_two_intrinsic_width_rules() {
+    use exact_kernel::{AxisOffer, OverflowWrap, StyleProps};
+    pin_font();
+    let mut engine = exact_linux::text::TextEngine::new();
+    let mut spec = exact_linux::paint::text_spec(&StyleProps::default(), &"W".repeat(30));
+    let normal = engine.measure(&spec, AxisOffer::Definite(80.0));
+    let minimum = engine.measure(&spec, AxisOffer::MinContent).width;
+    assert!(normal.width > 80.0);
+    spec.overflow_wrap = OverflowWrap::BreakWord;
+    let broken = engine.measure(&spec, AxisOffer::Definite(80.0));
+    assert!(broken.height > normal.height);
+    assert!(broken.width <= 80.0);
+    assert_eq!(engine.measure(&spec, AxisOffer::MinContent).width, minimum);
+    spec.overflow_wrap = OverflowWrap::Anywhere;
+    assert_eq!(engine.measure(&spec, AxisOffer::Definite(80.0)), broken);
+    assert!(engine.measure(&spec, AxisOffer::MinContent).width < minimum / 10.0);
+}
+
+#[test]
 fn a_rejected_reload_keeps_the_running_font_catalog() {
     pin_font();
     let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts/fixtures/fonts");
@@ -144,17 +163,22 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
     for (weight, expected) in [(400, book), (500, book), (600, bold), (700, bold)] {
         let paragraph = text.paragraph(
             &Spec {
+                strut: exact_linux::text::Run::from_style(
+                    "",
+                    exact_kernel::TextStyle::from_style(&exact_kernel::StyleProps::default()),
+                ),
                 runs: vec![Run {
                     text: "Change station".into(),
                     size: 13.0,
                     weight,
                     family: 8,
                     italic: false,
-                    line_height: 0.0,
+                    line_height: None,
                     letter_spacing: 0.0,
                 }],
                 align: TextAlign::Left,
                 line_clamp: 0,
+                overflow_wrap: exact_kernel::OverflowWrap::Normal,
             },
             None,
         );
@@ -201,4 +225,81 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
             "{id} paints glyph geometry from the shaped buffer: {ink} dark pixels"
         );
     }
+}
+
+#[test]
+fn line_height_resolves_zero_and_paragraph_minimum_in_the_painted_cache() {
+    use exact_kernel::{AxisOffer, LineHeight, StyleProps};
+    pin_font();
+    let mut engine = exact_linux::text::TextEngine::new();
+    for (line_height, height) in [
+        (LineHeight::Number(1.5), 24.0),
+        (LineHeight::Length(25.25), 25.25),
+        (LineHeight::Number(0.0), 0.0),
+    ] {
+        let style = StyleProps {
+            font_size: 16.0,
+            line_height,
+            ..StyleProps::default()
+        };
+        let mut spec = exact_linux::paint::text_spec(&style, "Hello");
+        let measured = engine.measure(&spec, AxisOffer::MaxContent);
+        assert!(
+            (measured.height - height).abs() < 0.02,
+            "{line_height:?}: {measured:?}"
+        );
+        assert_eq!(engine.paragraph(&spec, None).height, measured.height);
+        if height > 0.0 {
+            spec.runs[0].size = 8.0;
+            spec.runs[0].line_height = Some(12.0);
+            assert!((engine.measure(&spec, AxisOffer::MaxContent).height - height).abs() < 0.02);
+        }
+    }
+}
+
+#[test]
+fn normal_paragraph_preserves_fractional_explicit_child_boxes() {
+    use exact_kernel::{AxisOffer, StyleProps};
+    pin_font();
+    let mut engine = exact_linux::text::TextEngine::new();
+    let style = StyleProps {
+        font_size: 16.0,
+        ..StyleProps::default()
+    };
+    for (text, count) in [("Child", 1.0), ("First\nSecond", 2.0)] {
+        let mut spec = exact_linux::paint::text_spec(&style, text);
+        spec.runs[0].line_height = Some(60.25);
+        let measured = engine.measure(&spec, AxisOffer::MaxContent);
+        assert!(
+            (measured.height - 60.25 * count).abs() < 0.02,
+            "{measured:?}"
+        );
+        assert_eq!(engine.paragraph(&spec, None).height, measured.height);
+    }
+    let mut spec = exact_linux::paint::text_spec(&style, "Child");
+    let normal = engine.measure(&spec, AxisOffer::MaxContent).height;
+    spec.runs[0].line_height = Some(10.0);
+    assert_eq!(engine.measure(&spec, AxisOffer::MaxContent).height, normal);
+}
+
+#[test]
+fn fixed_line_height_keeps_each_inline_fonts_shared_baseline_extents() {
+    use exact_kernel::{AxisOffer, LineHeight, StyleProps};
+    pin_font();
+    let mut engine = exact_linux::text::TextEngine::new();
+    let style = StyleProps {
+        font_size: 20.0,
+        line_height: LineHeight::Length(20.0),
+        ..StyleProps::default()
+    };
+    let mut spec = exact_linux::paint::text_spec(&style, "Larger");
+    spec.runs[0].size = 40.0;
+    let measured = engine.measure(&spec, AxisOffer::MaxContent);
+    // DejaVu's unrounded ascent/descent extrema. Chrome rounds this to 27;
+    // baseline metric rounding is the separate LLP 1035.000 D6 investigation.
+    assert!((measured.height - 26.923828).abs() < 0.02, "{measured:?}");
+    assert_eq!(
+        engine.paragraph(&spec, None).baselines[0],
+        measured.first_baseline.unwrap()
+    );
 }

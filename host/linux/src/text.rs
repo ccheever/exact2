@@ -28,6 +28,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tiny_skia::{IntSize, Mask, Pixmap, PixmapPaint, Transform};
 
+// Ascent, descent, and leading in logical points.
+type FontMetrics = (f32, f32, f32);
+
 /// One styled run: what changes glyph metrics.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Run {
@@ -41,42 +44,55 @@ pub struct Run {
     pub family: u16,
     /// Italic.
     pub italic: bool,
-    /// Points; 0 is `normal`.
-    pub line_height: f32,
+    /// Resolved logical length, or normal font metrics.
+    pub line_height: Option<f32>,
     /// Points per glyph.
     pub letter_spacing: f32,
+}
+
+impl Run {
+    /// Project the kernel's resolved text style for measuring and painting.
+    pub fn from_style(text: &str, style: exact_kernel::TextStyle) -> Self {
+        Self {
+            text: text.into(),
+            size: style.font_size,
+            weight: style.font_weight,
+            family: style.font_family,
+            italic: style.font_style != exact_kernel::FontStyle::Normal,
+            line_height: style.line_height,
+            letter_spacing: style.letter_spacing,
+        }
+    }
 }
 
 /// A paragraph's specification: runs plus paragraph style.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spec {
+    /// Paragraph minimum line box font and resolved length.
+    pub strut: Run,
     /// The runs, in order.
     pub runs: Vec<Run>,
     /// Alignment.
     pub align: TextAlign,
     /// Maximum lines; 0 is unlimited.
     pub line_clamp: u32,
+    /// CSS emergency line-breaking policy.
+    pub overflow_wrap: exact_kernel::OverflowWrap,
 }
 
 impl Spec {
     /// The spec a kernel measure request describes.
     pub fn from_request(request: &TextMeasureRequest<'_>) -> Spec {
         Spec {
+            strut: Run::from_style("", request.paragraph.strut),
             runs: request
                 .runs
                 .iter()
-                .map(|r| Run {
-                    text: r.text.to_string(),
-                    size: r.style.font_size,
-                    weight: r.style.font_weight,
-                    family: r.style.font_family,
-                    italic: r.style.font_style != exact_kernel::FontStyle::Normal,
-                    line_height: r.style.line_height,
-                    letter_spacing: r.style.letter_spacing,
-                })
+                .map(|r| Run::from_style(r.text, r.style))
                 .collect(),
             align: request.paragraph.text_align,
             line_clamp: request.paragraph.line_clamp,
+            overflow_wrap: request.paragraph.overflow_wrap,
         }
     }
 
@@ -88,7 +104,7 @@ impl Spec {
     fn key(&self, width: Option<f32>) -> String {
         // A hash key with the floats as bits, so 0.1 + 0.2 is not 0.3.
         let mut s = String::new();
-        for r in &self.runs {
+        for r in std::iter::once(&self.strut).chain(&self.runs) {
             s.push_str(&format!(
                 "{}|{}|{}|{}|{}|{}|{}\u{1}",
                 r.text,
@@ -96,12 +112,13 @@ impl Spec {
                 r.weight,
                 r.family,
                 r.italic,
-                r.line_height.to_bits(),
+                r.line_height.map_or(u32::MAX, f32::to_bits),
                 r.letter_spacing.to_bits()
             ));
         }
         s.push_str(&format!(
-            "{:?}|{}|{}",
+            "{:?}|{:?}|{}|{}",
+            self.overflow_wrap,
             self.align,
             self.line_clamp,
             width.map_or(u32::MAX, f32::to_bits)
@@ -121,6 +138,8 @@ pub struct Paragraph {
     pub height: f32,
     /// Top to the first alphabetic baseline, points.
     pub first_baseline: f32,
+    /// CSS shared-baseline placement for each wrapped line, used by both painters.
+    pub baselines: Vec<f32>,
 }
 
 struct Glyph {
@@ -166,7 +185,7 @@ pub struct TextEngine {
     swash: SwashCache,
     paragraphs: HashMap<String, Rc<Paragraph>>,
     glyphs: HashMap<(CacheKey, u32), Option<Rc<Glyph>>>,
-    normal: HashMap<(u16, u32, u16, bool), f32>,
+    normal: HashMap<(u16, u32, u16, bool), FontMetrics>,
     font_data: HashMap<(fontdb::ID, u16), Option<PenikoFont>>,
     /// A requested (weight, italic) → the weight of the face the family
     /// actually has for it (see `snap_weight`).
@@ -474,6 +493,11 @@ impl TextEngine {
     /// CSS `line-height: normal` for a run: the font's ascent + descent +
     /// line gap at the run's size, from the font the shaper picks.
     pub fn normal_line_height(&mut self, run: &Run) -> f32 {
+        let (ascent, descent, leading) = self.font_metrics(run);
+        ascent + descent + leading
+    }
+
+    fn font_metrics(&mut self, run: &Run) -> FontMetrics {
         let key = (run.family, run.size.to_bits(), run.weight, run.italic);
         if let Some(h) = self.normal.get(&key) {
             return *h;
@@ -495,13 +519,13 @@ impl TextEngine {
             None,
         );
         probe.shape_until_scroll(&mut self.fonts, false);
-        let mut height = run.size * 1.2;
+        let mut height = (run.size * 0.9, run.size * 0.3, 0.0);
         if let Some(g) = probe.layout_runs().flat_map(|r| r.glyphs.iter()).next() {
             if let Some(font) = self.fonts.get_font(g.font_id, g.font_weight) {
                 let m = font.metrics();
                 if m.units_per_em > 0 {
-                    height =
-                        (m.ascent + m.descent.abs() + m.leading) * run.size / m.units_per_em as f32;
+                    let scale = run.size / m.units_per_em as f32;
+                    height = (m.ascent * scale, m.descent.abs() * scale, m.leading * scale);
                 }
             }
         }
@@ -510,11 +534,8 @@ impl TextEngine {
     }
 
     fn line_height(&mut self, run: &Run) -> f32 {
-        if run.line_height > 0.0 {
-            run.line_height
-        } else {
-            self.normal_line_height(run)
-        }
+        run.line_height
+            .unwrap_or_else(|| self.normal_line_height(run))
     }
 
     /// The paragraph for `spec` wrapped at `width` (`None` is max-content).
@@ -533,13 +554,27 @@ impl TextEngine {
     }
 
     fn layout(&mut self, spec: &Spec, width: Option<f32>) -> Paragraph {
+        let minimum = self.line_height(&spec.strut);
+        let (ascent, descent, leading) = self.font_metrics(&spec.strut);
+        let half = (minimum - ascent - descent - leading) / 2.0;
+        let strut = (ascent + half, descent + leading + half);
         let line_heights: Vec<f32> = spec.runs.iter().map(|r| self.line_height(r)).collect();
+        let run_metrics: Vec<_> = spec.runs.iter().map(|r| self.font_metrics(r)).collect();
         let base = spec.runs.first().map_or(16.0, |r| r.size.max(0.5));
-        let tallest = line_heights.iter().copied().fold(0.0f32, f32::max).max(1.0);
-        let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(base, tallest));
+        let tallest = line_heights.iter().copied().fold(minimum, f32::max);
+        let mut buffer = Buffer::new(
+            &mut self.fonts,
+            Metrics::new(base, tallest.max(f32::EPSILON)),
+        );
         // CSS `overflow-wrap: normal`: lines break between words; a word
         // longer than the line overflows it, never breaks.
-        buffer.set_wrap(Wrap::Word);
+        buffer.set_wrap(
+            if spec.overflow_wrap == exact_kernel::OverflowWrap::Normal {
+                Wrap::Word
+            } else {
+                Wrap::WordOrGlyph
+            },
+        );
         buffer.set_size(width.map(|w| w.max(0.0)), None);
         if spec.line_clamp > 0 {
             buffer.set_ellipsize(Ellipsize::End(EllipsizeHeightLimit::Lines(
@@ -573,10 +608,15 @@ impl TextEngine {
             .zip(line_heights.iter())
             .zip(weights.iter())
             .zip(families.iter())
-            .map(|(((r, lh), w), family)| {
+            .enumerate()
+            .map(|(index, (((r, lh), w), family))| {
                 (
                     r.text.as_str(),
+                    // cosmic-text's scrolling loop requires positive pitch.
+                    // This shaping-only pitch never escapes: CSS placement below
+                    // uses the original lengths, including zero, by run metadata.
                     Self::attrs(r, *w, family.cosmic())
+                        .metadata(index)
                         .metrics(Metrics::new(r.size.max(0.5), lh.max(1.0))),
                 )
             })
@@ -592,17 +632,55 @@ impl TextEngine {
         buffer.shape_until_scroll(&mut self.fonts, false);
         let mut w = 0.0f32;
         let mut h = 0.0f32;
-        let mut first = None;
+        let mut baselines = Vec::new();
+        let mut explicit = false;
         for run in buffer.layout_runs() {
             w = w.max(run.line_w);
-            h = h.max(run.line_top + run.line_height);
-            first.get_or_insert(run.line_y);
+            let (mut above, mut below) = strut;
+            let mut above_explicit = spec.strut.line_height.is_some();
+            let mut below_explicit = above_explicit;
+            for glyph in run.glyphs {
+                if let Some(font) = self.fonts.get_font(glyph.font_id, glyph.font_weight) {
+                    let m = font.metrics();
+                    let scale = glyph.font_size / m.units_per_em as f32;
+                    // Explicit lengths size the authored inline box; only
+                    // normal expands to the actual fallback glyph font.
+                    let (ascent, descent, leading) =
+                        if spec.runs[glyph.metadata].line_height.is_some() {
+                            run_metrics[glyph.metadata]
+                        } else {
+                            (m.ascent * scale, m.descent.abs() * scale, m.leading * scale)
+                        };
+                    let height = spec.runs[glyph.metadata]
+                        .line_height
+                        .unwrap_or(ascent + descent + leading);
+                    let half = (height - ascent - descent - leading) / 2.0;
+                    let run_explicit = spec.runs[glyph.metadata].line_height.is_some();
+                    let (a, b) = (ascent + half, descent + leading + half);
+                    if a > above {
+                        above = a;
+                        above_explicit = run_explicit;
+                    } else if a == above {
+                        above_explicit &= run_explicit;
+                    }
+                    if b > below {
+                        below = b;
+                        below_explicit = run_explicit;
+                    } else if b == below {
+                        below_explicit &= run_explicit;
+                    }
+                }
+            }
+            explicit |= above_explicit || below_explicit;
+            baselines.push(h + above);
+            h += above + below;
         }
         Paragraph {
             buffer,
             width: w.ceil(),
-            height: h.ceil(),
-            first_baseline: first.unwrap_or(0.0),
+            height: if explicit { h } else { h.ceil() },
+            first_baseline: baselines.first().copied().unwrap_or(0.0),
+            baselines,
         }
     }
 
@@ -610,7 +688,11 @@ impl TextEngine {
     /// wrapped at every word boundary (width zero), the widest line is the
     /// widest word.
     fn min_content_width(&mut self, spec: &Spec) -> f32 {
-        let p = self.paragraph(spec, Some(0.0));
+        let mut intrinsic = spec.clone();
+        if intrinsic.overflow_wrap == exact_kernel::OverflowWrap::BreakWord {
+            intrinsic.overflow_wrap = exact_kernel::OverflowWrap::Normal;
+        }
+        let p = self.paragraph(&intrinsic, Some(0.0));
         p.width
     }
 
@@ -711,9 +793,9 @@ impl TextEngine {
         let glyph_ts = transform.pre_scale(1.0 / scale, 1.0 / scale);
         let paint = PixmapPaint::default();
         let mut placed = Vec::new();
-        for run in paragraph.buffer.layout_runs() {
+        for (run, baseline) in paragraph.buffer.layout_runs().zip(&paragraph.baselines) {
             for g in run.glyphs {
-                let phys = g.physical(((origin.0) * scale, (origin.1 + run.line_y) * scale), scale);
+                let phys = g.physical(((origin.0) * scale, (origin.1 + baseline) * scale), scale);
                 placed.push((phys.cache_key, phys.x, phys.y));
             }
         }
@@ -752,11 +834,11 @@ impl TextEngine {
         type Key = (fontdb::ID, u16, u32);
         type Runs = Vec<(Key, Vec<(u32, f32, f32)>)>;
         let mut runs: Runs = Vec::new();
-        for run in paragraph.buffer.layout_runs() {
+        for (run, baseline) in paragraph.buffer.layout_runs().zip(&paragraph.baselines) {
             for g in run.glyphs {
                 let key = (g.font_id, g.font_weight.0, g.font_size.to_bits());
                 let x = g.x + g.x_offset * g.font_size;
-                let y = run.line_y + g.y - g.y_offset * g.font_size;
+                let y = baseline + g.y - g.y_offset * g.font_size;
                 match runs.last_mut() {
                     Some((k, glyphs)) if *k == key => glyphs.push((g.glyph_id as u32, x, y)),
                     _ => runs.push((key, vec![(g.glyph_id as u32, x, y)])),

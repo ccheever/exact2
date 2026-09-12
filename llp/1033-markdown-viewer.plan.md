@@ -90,7 +90,7 @@ Both verbs launch `<Name>.app/Contents/MacOS/ExactMac` — the executable
 *inside* a bundle. A bare Mach-O, which is what `build.mjs --run` launched
 and still launches, has no Info.plist, so it has no name, no document types,
 no Dock tile, and Launch Services cannot find it. `--bundle` now assembles to
-one stable path (`target/clients/<id>/macos/<Name>.app`) instead of a fresh
+one stable path (`target/clients/<source-key>/<id>/macos/<Name>.app`) instead of a fresh
 `mkdtemp` per build, because a path that changes every build is a path
 nothing can be registered at.
 

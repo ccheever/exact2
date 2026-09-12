@@ -191,7 +191,14 @@ where
     LayoutOutput {
         size,
         #[cfg(feature = "content_size")]
-        content_size: measured_size + padding.sum_axes(),
+        // EXACT PATCH (LLP 1011 §1): intrinsic image pixels determine an
+        // unknown size, but do not extend a replaced element's scrollable
+        // overflow after CSS has sized its box (CSS Overflow §2.1).
+        content_size: if style.is_compressible_replaced() {
+            size - border.sum_axes()
+        } else {
+            measured_size + padding.sum_axes()
+        },
         first_baselines: Point {
             x: measured_output.first_baselines.x.map(|baseline| baseline + content_box_inset.left),
             y: measured_output.first_baselines.y.map(|baseline| baseline + content_box_inset.top),

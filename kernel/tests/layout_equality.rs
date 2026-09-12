@@ -123,6 +123,8 @@ fn random_style(rng: &mut Rng, node_type: NodeType) -> Box<StyleProps> {
     if rng.chance(5) {
         s.border_width_left = rng.below(4) as f32;
         s.mask.set(StyleId::BorderWidthLeft);
+        s.border_style_left = exact_kernel::BorderStyle::Solid;
+        s.mask.set(StyleId::BorderStyleLeft);
     }
     if rng.chance(2) {
         s.display = Display::Flex;
@@ -560,4 +562,98 @@ fn block_intrinsic_probes_cannot_leave_cached_final_children_wrapped() {
             height: 19.0
         }
     );
+}
+
+#[path = "support/reader.rs"]
+mod reader;
+
+#[test]
+fn reader_resize_replacement_and_recreation_equal_replay_and_rehydration() {
+    // Preserve frames AND descendant scroll overflow across cache invalidations.
+    fn geometry(k: &Kernel) -> Vec<(u32, [u32; 6])> {
+        k.rows(None)
+            .unwrap()
+            .iter()
+            .map(|r| {
+                let n = k.node(r.id).unwrap();
+                (
+                    r.id,
+                    [
+                        n.frame.x.to_bits(),
+                        n.frame.y.to_bits(),
+                        n.frame.width.to_bits(),
+                        n.frame.height.to_bits(),
+                        n.content.0.to_bits(),
+                        n.content.1.to_bits(),
+                    ],
+                )
+            })
+            .collect()
+    }
+    for workaround in [false, true] {
+        for border_box in [false, true] {
+            let mut k = reader::kernel();
+            let mut log = vec![reader::initial(workaround, border_box, true)];
+            k.apply(0, 0, &log[0]).unwrap();
+            let replace = Op::SetProp {
+                id: 210,
+                prop: PropId::Text,
+                value: reader::LONG_TEXT.repeat(13).into(),
+            };
+            let mut recreate = vec![Op::CreateView {
+                id: 10,
+                node_type: NodeType::View,
+            }];
+            recreate.extend(reader::block(10, true));
+            recreate.push(Op::SetChildren {
+                id: 4,
+                children: (5..=reader::LAST).collect(),
+            });
+            let steps = vec![
+                (360.0, vec![]),
+                (1000.0, vec![]),
+                (360.0, vec![]),
+                (360.0, vec![replace]),
+                (
+                    1000.0,
+                    vec![reader::style(
+                        4,
+                        &[(StyleId::MaxWidth, reader::number(540.0))],
+                    )],
+                ),
+                (360.0, vec![Op::DestroyView { id: 10 }]),
+                (360.0, recreate),
+            ];
+            for (round, (width, ops)) in steps.into_iter().enumerate() {
+                k.apply(0, round as u64 + 1, &ops).unwrap();
+                log.push(ops);
+                let offer = Offer::definite(width, 800.0);
+                k.compute_layout(1, offer).unwrap();
+                let mut rehydrated = k.rehydrate(Box::new(reader::measurer()));
+                rehydrated.compute_layout(1, offer).unwrap();
+                let mut replay = reader::kernel();
+                for (epoch, batch) in log.iter().enumerate() {
+                    replay.apply(0, epoch as u64, batch).unwrap();
+                }
+                replay.compute_layout(1, offer).unwrap();
+                assert_eq!(
+                    geometry(&k),
+                    geometry(&rehydrated),
+                    "rehydrated, round {round}"
+                );
+                assert_eq!(geometry(&k), geometry(&replay), "replayed, round {round}");
+                let col = k.node(4).unwrap();
+                let last = k.node(reader::LAST).unwrap();
+                assert!(
+                    (k.node(2).unwrap().content.1 - col.frame.height - 96.0).abs() < 0.02,
+                    "scroll padding, round {round}"
+                );
+                assert!(
+                    (col.frame.height - (last.frame.y + last.frame.height - col.frame.y)).abs()
+                        < 0.02,
+                    "phantom range, round {round}"
+                );
+            }
+        }
+    }
 }

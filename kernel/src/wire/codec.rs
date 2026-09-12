@@ -133,6 +133,21 @@ impl<'a> Reader<'a> {
         std::str::from_utf8(bytes).map_err(|_| DecodeError::InvalidUtf8)
     }
 
+    /// Read the line-height tag: 0 normal, 1 ratio plus f32, 2 length plus f32.
+    pub fn line_height(&mut self) -> Result<crate::style::LineHeight, DecodeError> {
+        use crate::style::LineHeight;
+        let value = match self.u8()? {
+            0 => LineHeight::Normal,
+            1 => LineHeight::Number(self.f32()?),
+            2 => LineHeight::Length(self.f32()?),
+            _ => return Err(DecodeError::InvalidLineHeight),
+        };
+        if !value.is_valid() {
+            return Err(DecodeError::InvalidLineHeight);
+        }
+        Ok(value)
+    }
+
     /// Read a dimension: kind byte (0 auto, 1 points, 2 percent, 3–6 an
     /// `env()` length at the top/right/bottom/left safe-area inset) then
     /// `f32` (the points added to an inset).
@@ -182,6 +197,15 @@ impl<'a> Reader<'a> {
         match self.u8()? {
             0 => Ok(ColorValue::Fixed(self.color()?)),
             1 => Ok(ColorValue::LightDark(self.color()?, self.color()?)),
+            other => Err(DecodeError::BadColorValue(other)),
+        }
+    }
+
+    /// A row-specific keyword (0), or an explicit colour value (1 and its codec).
+    pub fn optional_color(&mut self) -> Result<Option<ColorValue>, DecodeError> {
+        match self.u8()? {
+            0 => Ok(None),
+            1 => self.color_value().map(Some),
             other => Err(DecodeError::BadColorValue(other)),
         }
     }
@@ -436,6 +460,22 @@ impl Writer {
         self.buf[pos..pos + 4].copy_from_slice(&v.to_le_bytes());
     }
 
+    /// Append a tagged CSS line height.
+    pub fn line_height(&mut self, value: crate::style::LineHeight) {
+        use crate::style::LineHeight;
+        match value {
+            LineHeight::Normal => self.u8(0),
+            LineHeight::Number(n) => {
+                self.u8(1);
+                self.f32(n);
+            }
+            LineHeight::Length(n) => {
+                self.u8(2);
+                self.f32(n);
+            }
+        }
+    }
+
     /// Append a dimension.
     pub fn dimension(&mut self, d: Dimension) {
         match d {
@@ -481,6 +521,14 @@ impl Writer {
                 self.color(light);
                 self.color(night);
             }
+        }
+    }
+
+    /// Write a colour keyword separately from transparent paint.
+    pub fn optional_color(&mut self, c: Option<ColorValue>) {
+        self.u8(u8::from(c.is_some()));
+        if let Some(c) = c {
+            self.color_value(c);
         }
     }
 

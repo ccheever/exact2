@@ -1,8 +1,9 @@
 //! The corpus this reader exists for is the one in this repository, so that
 //! is what these check against. @ref LLP 1033
 
-use llp_data::{link_references, Entry};
+use llp_data::link_references;
 use markdown_parse::{plain, Run};
+use std::collections::BTreeSet;
 
 fn llp() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../llp")
@@ -34,11 +35,20 @@ fn the_index_is_this_repositorys_corpus_in_number_order() {
     assert!(entries[sub..].iter().all(|e| e.number != "1029"));
 
     // The working set is the `current/` overlay, and it is declared.
-    let current: Vec<&Entry> = entries.iter().filter(|e| e.overlay == "current").collect();
-    assert_eq!(
-        current.len(),
-        15,
-        "rules/RULES.md caps the working set at 15"
+    let current: BTreeSet<_> = entries
+        .iter()
+        .filter(|e| e.overlay == "current")
+        .map(|e| e.path.file_name().unwrap().to_owned())
+        .collect();
+    let declared: BTreeSet<_> = std::fs::read_dir(llp().join("current"))
+        .expect("llp/current/")
+        .map(|e| e.expect("working-set entry").file_name())
+        .collect();
+    assert_eq!(current, declared, "the reader indexes every declared link");
+    assert!(
+        current.len() <= 15,
+        "rules/RULES.md caps the working set at 15, found {}",
+        current.len()
     );
 }
 

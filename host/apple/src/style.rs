@@ -15,6 +15,7 @@
 use exact_kernel::style::ColorValue;
 use exact_kernel::{
     Dimension, Env, NodeRef, NodeType, Overflow, RowValue, StyleId, StyleMask, StyleProps,
+    StyleValue,
 };
 use std::fmt::Write as _;
 
@@ -76,6 +77,10 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
             }
             RowValue::Enum(e) => format!("\"{e}\""),
             RowValue::Vec2(v) => format!("[{},{}]", num(v.x), num(v.y)),
+            RowValue::LineHeight(v) => match v {
+                exact_kernel::LineHeight::Number(n) => num(n),
+                _ => format!("\"{}\"", v.css()),
+            },
             RowValue::Number(n) => num(n as f32),
             RowValue::Transitions(_) => continue, // the engine's, not the presenter's
             RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => {
@@ -139,13 +144,49 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
 /// the descendants an inherited change reaches (LLP 1035.000 D4), so this is
 /// re-sent by the ordinary update path, never re-derived per frame.
 pub fn style_json_for(node: &NodeRef<'_>, env: &Env) -> (String, Vec<Skipped>) {
-    let rows = if matches!(node.node_type, NodeType::Text | NodeType::TextInput) {
+    let rows = if matches!(
+        node.node_type,
+        NodeType::Text | NodeType::TextInput | NodeType::Image
+    ) {
         StyleMask::INHERITED
     } else {
         StyleMask::of(StyleId::TextColor)
     };
     let mut computed = node.computed_style(rows);
     computed.mask.set(StyleId::TextColor);
+    // The presenter must inset editors/images and paint the same border area
+    // that the kernel laid out. Authored widths survive separately in the node.
+    let widths = computed.border_widths();
+    for (id, width) in [
+        StyleId::BorderWidthTop,
+        StyleId::BorderWidthRight,
+        StyleId::BorderWidthBottom,
+        StyleId::BorderWidthLeft,
+    ]
+    .into_iter()
+    .zip(widths)
+    {
+        if width != 0.0 || computed.mask.has(id) {
+            computed
+                .set_dynamic(id, &StyleValue::Number(width as f64))
+                .unwrap();
+        }
+    }
+    if widths.iter().any(|width| *width > 0.0) {
+        let [top, right, bottom, left] = computed.border_colors(computed.text_color);
+        computed.border_color_top = Some(top);
+        computed.border_color_right = Some(right);
+        computed.border_color_bottom = Some(bottom);
+        computed.border_color_left = Some(left);
+        for id in [
+            StyleId::BorderColorTop,
+            StyleId::BorderColorRight,
+            StyleId::BorderColorBottom,
+            StyleId::BorderColorLeft,
+        ] {
+            computed.mask.set(id);
+        }
+    }
     let (mut json, skipped) = style_json(&computed, env);
     let (x, y) = effective_overflow(node);
     let name = |o: Overflow| match o {

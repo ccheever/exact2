@@ -51,9 +51,9 @@ Tags: node type → element (`View`→`div`, `Text`→`div`, or `span` for an
 inline run, `ScrollView`→`div[data-scroll]`, `TextInput`→`input`,
 `Pressable`→`button`, `Image`→`img`, `Toggle`→`input[type=checkbox]`), refined
 by `semanticTag` (`main`, `header`, `nav`, `section`, `footer`, `article`,
-`aside`). Props → DOM names: `text`→`textContent`, `testId`→`data-testid`,
+`aside`, `dialog`). Props → DOM names: `text`→`textContent`, `testId`→`data-testid`,
 `accessibilityLabel`→`aria-label`, `accessibilityRole`→`role`,
-`placeholder`, `value`, `disabled`, `lang`, `imageSource`→`src`; any other
+`placeholder`, `value`, `disabled`, `inert`, `lang`, `imageSource`→`src`; any other
 prop rides as `data-<name>` so nothing is lost. `scrollTop` and `scrollLeft`
 are explicit DOM-property bindings, applied after the complete batch has mounted
 its children and styles. Changes on one axis leave the other alone; clearing a
@@ -64,6 +64,34 @@ assigned again, so a mirrored scroll event does not restart CSS snapping. A decl
 and reports its actual `scrollLeft` and `scrollTop`
 through dispatch kind 13. Initial offset writes and later programmatic changes
 use that same browser event; unchanged positions produce no synthetic event.
+
+**Authored inertness** (LLP 1035.001 D3, 2026-09-11): boolean true sets the
+real `inert` attribute; false/clear removes it. Navigation combines it with
+inactive-route suppression. The browser owns focus, hit-testing and accessibility
+exclusion without removing layout. Host ancestor checks stop at an open modal
+dialog, after checking that dialog’s own attribute. Rebuilt browser drives pass
+explicit modal focus, control inspection, single confirmation dispatch, basic and
+active-route input exclusion/restoration, and four Messages selection/deletion/
+forwarding cases (`/tmp/messages-inert-ownership/verification.json`).
+
+**Modal confirmation** (LLP 1021 D2, 2026-09-11): `commandfor`/`command`
+reach the real DOM under their HTML names. A `dialog` stays hidden until opened;
+the browser's `show-modal`/`close` commands own its focus, top layer, input
+exclusion and close requests. Authored global keyboard shortcuts do not activate
+controls outside the focused modal dialog. Messages has no confirmation-open
+slot; outside cancellation preserves selection, first Escape closes confirmation,
+and second Escape cancels selection (`/tmp/messages-modal-confirmation/`).
+
+**Symbols** (LLP 1035.004, 2026-09-10) remain `img` leaves. The Rust host
+supplies the schema-generated `data-symbol-path` and decorative `alt=""`.
+The glue intercepts `symbol:` sources without a network request, supplies a
+transparent SVG sized from computed `font-size`, and paints the generated path
+as a CSS mask. Font weight changes its stroke; `tint-color` supplies its colour
+through `--exact-tint`, including `light-dark()`. Font inheritance changes are
+read after each batch. The mask uses the content box and `object-fit`; a fixed
+box wins over intrinsic size. An unknown dynamic role has no intrinsic size or
+paint and emits a journal refusal. These are generic role drawings, not Apple
+artwork. Messages and Fieldnotes exercise the same path.
 
 ## 2. CSS, once (`host/web/src/css.rs`)
 
@@ -79,7 +107,8 @@ lengths in `px`, percentages, `auto`; unitless where CSS is (`flex-grow`,
 `opacity`, `z-index`, `font-weight`, `scale`); `rotate` in `deg`;
 `translate` as two lengths. Rows the host does not lower are returned as
 `Skipped { row, reason }`, never silently dropped: gradients, `font_family`,
-`line_clamp`, `tint_color`, and grid rows in v1. An `env()` length (LLP 1001
+`line_clamp` and grid rows in v1. `tint_color` now lowers to `--exact-tint`
+for symbol images; raster-image tint remains unsupported. An `env()` length (LLP 1001
 §2) lowers to its CSS text — `env(safe-area-inset-top)`,
 `calc(env(safe-area-inset-bottom) + 12px)` — and the browser resolves it
 (2026-08-30).
@@ -168,6 +197,17 @@ It stamps `data-boot-ms` on the root when the first batch is in the DOM and
 `data-paint-ms` on the next animation frame. `index.html` resets only what a
 bare `<div>` would not have (`body` margin; `button`/`input` UA styles),
 because the kernel's defaults are already CSS's.
+
+The textarea keeps its user-agent long-word wrapping (`overflow-wrap: revert`)
+through that reset. Previously `all: unset` made an unbroken draft scroll
+horizontally even with `white-space: pre-wrap` and `field-sizing: content`.
+Six draft comparisons against a plain textarea in an unstyled document hold
+the restored behavior (`/tmp/messages-wrapping/web-ua-comparison.json` and
+`web-corrected-inspection.json`). The compiler now also declares `break-word`
+on its textarea tag. `overflow-wrap` is a schema row, projected as CSS and
+included in computed-style observations. Messages explicitly requests
+`break-word` on bubble text: an unbroken message now wraps instead of overflowing
+its border box (`/tmp/messages-overflow-wrap/`).
 
 An explicit `retainFocus` ancestor prevents pointer-down focus changes on
 non-editable content, including buttons and passive sheet headers. Inputs,
@@ -432,10 +472,22 @@ its unversioned paths. The agent's HTTP carrier calls the same static handler.
 `navigationPresentation="modal"` keeps its preceding route visible and inert
 behind the authored overlay. An isolated pseudo-element supplies the host's
 20% black backdrop; the app does not duplicate UIKit's presentation dimming.
-Escape invokes the root's named Back control
+Escape invokes the root's named, enabled Back control within the selected route
 unless the modal's `closedby` is `none`; explicit Close remains available.
+An already-prevented key is not reused for navigation. While the document has an
+open modal dialog or auto/hint popover, the modal handler leaves Escape to the browser, including
+when `closedby="none"` protects the underlying sheet. Manual popovers do not
+consume close requests. Messages' discard confirmation, retained form focus and
+draft, subsequent sheet refusal, and dismissible Compose cases are verified in
+`/tmp/messages-popover-escape/` (2026-09-11); authored `key` handlers remain separate.
 The iOS projection uses UIKit's sheet and its local keyboard viewport (LLP 1008).
-Both route-policy props reach the DOM, including updates to the close policy.
+The route-policy props reach the DOM, including updates to the close policy.
+`navigationPresentation="fullscreen"` and `navigationSource` preserve the selected
+route and source-id intent in the authored viewport (2026-09-11, LLP 1035.001 D4).
+Escape also reaches a fullscreen owner when inerting the previous editor leaves
+focus on the page body; a focused host input outside Exact keeps its keys. The
+rebuilt Messages flow, outside-input refusal and nested `closedby="none"` pass in
+`/tmp/messages-fullscreen/r5/`. This does not implement CSS View Transitions.
 
 **`layout <node>`** (2026-09-09, LLP 1035.002 D1): `layout` with an `id`
 adds `node` — the runner's rows and sources (the wasm's `node` message)
@@ -443,8 +495,9 @@ merged with what the page knows (`glue.js` `nodeDetail`): the box in the
 viewport, the client box, `devicePixelRatio` as the capture scale, the
 scroll chain (the page first, then `data-scroll` ancestors), the ancestors
 whose computed `overflow` or `clip-path` clip, `hidden` from
-`checkVisibility`, `inert` from the nearest `[inert]`, in-viewport and
-clipped-away from the rects — and `browser`, the browser's computed value
+`checkVisibility`, authored `inert` from ancestor attributes up to and including
+an open modal dialog (implicit document-wide modal inertness is not yet reported),
+in-viewport and clipped-away from the rects — and `browser`, the browser's computed value
 of every inherited row (`color`, the font rows, `line-height`,
 `letter-spacing`, `text-align`, `direction`, `white-space`), the oracle
 beside the kernel's answer. No window or screen space is reported: the
@@ -461,3 +514,11 @@ attributes); the browser has no interactive pop, so the transition is
 always `idle`. The glue tags its `layout` and `clock` replies with the
 runner's `epoch`/`incarnation`/`clock` (D3, `tagged`); the driver tags the
 input and capture it delivers through CDP.
+
+### CSS line height (LLP 1035.000.000, 2026-09-11)
+
+The typed line-height row emits a bare ratio, a `px` length, or `normal`.
+Ratios remain ratios in CSS and agent row inspection; the browser computes
+inheritance against each element's font. Zero emits `0` or `0px`, never
+`normal`. Literal HTML/CSS counterparts cover inherited 1.5, fixed 24px,
+zero and a paragraph with smaller inline children.

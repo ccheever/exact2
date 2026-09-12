@@ -318,6 +318,18 @@ impl NodeArena {
                         .unwrap_or(" ")
                 };
                 out.push(TextRun { text, style });
+                // A textarea's final Return creates a caret line. Paragraph
+                // shapers can omit a terminal break, so retain that line with
+                // zero-width measurement content, never in the field's value.
+                if self.styles[s].field_sizing == FieldSizing::Content
+                    && props.str(PropId::SemanticTag) == Some("textarea")
+                    && text.ends_with('\n')
+                {
+                    out.push(TextRun {
+                        text: "\u{200b}",
+                        style,
+                    });
+                }
             }
             _ => {
                 if let Some(text) = self.props[s].str(PropId::Text) {

@@ -35,7 +35,9 @@ pub struct CRun {
     pub font_family: u16,
     /// 1 for italic.
     pub italic: u8,
-    /// Points; 0 means the font's natural line height.
+    /// Whether line_height is an explicit used length, including zero.
+    pub has_line_height: u8,
+    /// Logical points when has_line_height is 1.
     pub line_height: f32,
     /// Points per glyph.
     pub letter_spacing: f32,
@@ -49,6 +51,8 @@ pub struct CRequest {
     pub runs: *const CRun,
     /// How many.
     pub count: usize,
+    /// Paragraph minimum line box font/style, with no text.
+    pub strut: CRun,
     /// Width offer in points, or [`MAX_CONTENT`] / [`MIN_CONTENT`].
     pub width: f32,
     /// Height offer in points, or [`MAX_CONTENT`] / [`MIN_CONTENT`].
@@ -57,6 +61,8 @@ pub struct CRequest {
     pub align: u8,
     /// Maximum lines; 0 means unlimited.
     pub line_clamp: u32,
+    /// CSS overflow-wrap: normal, break-word, anywhere.
+    pub overflow_wrap: u8,
 }
 
 /// What the callback returns.
@@ -163,25 +169,31 @@ fn offer(a: AxisOffer) -> f32 {
     }
 }
 
+fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
+    CRun {
+        text: text.as_ptr(),
+        len: text.len(),
+        font_size: style.font_size,
+        font_weight: style.font_weight,
+        font_family: style.font_family,
+        italic: u8::from(style.font_style != exact_kernel::FontStyle::Normal),
+        has_line_height: u8::from(style.line_height.is_some()),
+        line_height: style.line_height.unwrap_or(0.0),
+        letter_spacing: style.letter_spacing,
+    }
+}
+
 impl TextMeasurer for CallbackMeasurer {
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         let runs: Vec<CRun> = request
             .runs
             .iter()
-            .map(|r| CRun {
-                text: r.text.as_ptr(),
-                len: r.text.len(),
-                font_size: r.style.font_size,
-                font_weight: r.style.font_weight,
-                font_family: r.style.font_family,
-                italic: u8::from(r.style.font_style != exact_kernel::FontStyle::Normal),
-                line_height: r.style.line_height,
-                letter_spacing: r.style.letter_spacing,
-            })
+            .map(|r| c_run(r.text, r.style))
             .collect();
         let c = CRequest {
             runs: runs.as_ptr(),
             count: runs.len(),
+            strut: c_run("", request.paragraph.strut),
             width: offer(request.width),
             height: offer(request.height),
             align: match request.paragraph.text_align {
@@ -191,6 +203,7 @@ impl TextMeasurer for CallbackMeasurer {
                 TextAlign::Justify => 3,
             },
             line_clamp: request.paragraph.line_clamp,
+            overflow_wrap: request.paragraph.overflow_wrap as u8,
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.
@@ -208,5 +221,26 @@ impl TextMeasurer for CallbackMeasurer {
             },
             first_baseline: (m.baseline.is_finite() && m.baseline >= 0.0).then_some(m.baseline),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn used_zero_and_normal_are_distinct_at_the_c_seam() {
+        let mut style = exact_kernel::StyleProps::default();
+        let normal = c_run("", exact_kernel::TextStyle::from_style(&style));
+        assert_eq!(normal.has_line_height, 0);
+        style.line_height = exact_kernel::LineHeight::Number(0.0);
+        let zero = c_run("", exact_kernel::TextStyle::from_style(&style));
+        assert_eq!(zero.has_line_height, 1);
+        assert_eq!(zero.line_height, 0.0);
+        style.font_size = 20.0;
+        style.line_height = exact_kernel::LineHeight::Number(1.5);
+        let ratio = c_run("", exact_kernel::TextStyle::from_style(&style));
+        assert_eq!(ratio.has_line_height, 1);
+        assert_eq!(ratio.line_height, 30.0);
     }
 }

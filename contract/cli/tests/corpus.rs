@@ -7,6 +7,38 @@ use exact_runner::{DataError, DataSource, Event, Runner};
 use std::path::Path;
 
 #[test]
+fn symbols_admit_roles_and_refuse_platform_names_or_misspellings() {
+    for role in [
+        "back",
+        "close",
+        "compose",
+        "add",
+        "microphone",
+        "send",
+        "search",
+        "copy",
+        "select-text",
+        "more",
+        "delete",
+        "forward",
+    ] {
+        contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
+    }
+    for role in ["", "chevron.backward", "sf/plus", "Search", "serach"] {
+        let error = contract::compile(&format!(
+            "component App\n  view\n    image \"symbol:{role}\"\n"
+        ))
+        .unwrap_err();
+        assert!(error.to_string().contains("not a role"), "{error}");
+    }
+    // A dynamic source is checked by the host after it resolves.
+    contract::compile(
+        "component App\n  state source = \"symbol:unknown\"\n  view\n    image source\n",
+    )
+    .unwrap();
+}
+
+#[test]
 fn dynamic_auto_keeps_the_meaning_of_its_style_row() {
     let plan = contract::compile(
         r#"component AutoRows
@@ -337,7 +369,7 @@ fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
   view
     column width=200 height=400 testId="root"
       textarea value=draft field-sizing="fixed" width=70 testId="fixed-composer"
-      textarea value=draft change=write field-sizing="content" font-size=16 line-height=20 width=160 min-height=28 max-height=88 testId="composer"
+      textarea value=draft change=write field-sizing="content" font-size=16 line-height="20px" width=160 min-height=28 max-height=88 testId="composer"
 "#;
     let mut r = Runner::boot(
         contract::compile(source).unwrap(),
@@ -447,7 +479,7 @@ fn native_swipe_bindings_keep_authored_ids_through_plan_roundtrip_and_updates() 
         button id="second" press=choose aria-label="Second" width=50 height=50
         button id="row" press=choose width=300 height=80 testId="row"
           text "Row"
-        button id="delete" press=choose aria-label="Delete" swipeDestructive=true testId="delete" width=50 height=50
+        button id="delete" press=choose aria-label="Delete" destructive=alternate testId="delete" width=50 height=50
 "#;
     let plan = contract::compile(src).unwrap();
     let plan = Plan::decode(&plan.encode()).unwrap();
@@ -486,7 +518,51 @@ fn native_swipe_bindings_keep_authored_ids_through_plan_roundtrip_and_updates() 
             .node_by_key(delete)
             .unwrap()
             .props
-            .bool(PropId::SwipeDestructive),
+            .bool(PropId::Destructive),
         Some(true)
     );
+    r.dispatch(id, Event::Press).unwrap();
+    assert_eq!(
+        r.kernel()
+            .node_by_key(delete)
+            .unwrap()
+            .props
+            .bool(PropId::Destructive),
+        Some(false)
+    );
+}
+
+#[test]
+fn css_line_height_literals_and_dynamic_lengths_use_the_existing_value_grammar() {
+    for value in ["1.5", "0", "\"0px\"", "\"24px\"", "\"normal\""] {
+        contract::compile(&format!(
+            "component App\n  view\n    text \"hello\" line-height={value}\n"
+        ))
+        .unwrap();
+    }
+    for value in [
+        "-1",
+        "\"-2px\"",
+        "\"1em\"",
+        "\"150%\"",
+        "\"NaNpx\"",
+        "\"24\"",
+    ] {
+        assert!(
+            contract::compile(&format!(
+                "component App\n  view\n    text \"hello\" line-height={value}\n"
+            ))
+            .is_err(),
+            "{value}"
+        );
+    }
+    contract::compile(
+        r#"component App
+  state height = 24
+  state natural = false
+  view
+    text "hello" line-height=(natural ? "normal" : `${height}px`)
+"#,
+    )
+    .unwrap();
 }

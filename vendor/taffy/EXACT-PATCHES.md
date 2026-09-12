@@ -2,7 +2,7 @@
 
 - **Upstream:** `taffy` 0.9.2 from crates.io
   (`https://github.com/DioxusLabs/taffy`, tag `v0.9.2`).
-- **Why vendored:** five behavioral/API/performance patches (below) that the high-level
+- **Why vendored:** six behavioral/API/performance patches (below) that the high-level
   `TaffyTree` API gives us no way to apply from the outside. Wired in via
   `[patch.crates-io]` in the root `Cargo.toml`, so `kernel/Cargo.toml` still
   declares a normal `taffy = "0.9"` dependency.
@@ -11,7 +11,7 @@
   vendored copy and return to the crates.io release once a version containing
   the fix ships. Re-evaluate at the 2026-09-09 checkpoint (LLP 0151 cadence).
 
-## Patch 1: clamp definite cross size when measuring flex basis (ENG-22727)
+## Patch 1: used cross sizes and intrinsic cache entries (ENG-22727, LLP 1035.000.001)
 
 `src/compute/flexbox.rs`, `determine_flex_base_size`: the resolved style
 cross-size that seeds `child_known_dimensions` is now clamped by the item's
@@ -36,10 +36,25 @@ laid out against them (CSS 2.1 §10.4; css-flexbox-1 §9.2.3 sizes the item
 "into the available space" with its used cross size), and browsers agree —
 this patch matches browser behavior for the reduced test cases.
 
-Focused kernel regression names cited here previously no longer existed after
-the kernel test split. The patched upstream suite below remains the direct
-coverage; restoring a focused Exact regression is part of the next patch
-refresh, rather than claiming a stale test pointer here.
+**Intrinsic-cache extension (2026-09-12).** `src/tree/cache.rs` no longer
+promotes an intrinsic result to a known dimension merely because its returned
+size equals that dimension. A percentage column containing a code token wider
+than its maximum is measured with unresolved descendant percentages during a
+min-content probe. Its clamped width can equal the final width while its height
+still describes the intrinsic probe. Reusing that height gave LLP 1032 a
+67,333-point column around 30,049 points of blocks. Exact-input hits and
+promotion from definite available-space offers remain cached; both measurement
+and final-layout entries follow the rule. There is no global invalidation.
+
+`kernel/tests/reader.rs` holds 24 literal-Chrome cases for both width spellings,
+both box-sizing modes, three viewport widths, and ordinary/overwide-token text
+inside padded blocks. `kernel/tests/fixtures/reader.html` regenerates their
+geometry without Exact lowering. The measured intrinsic text height is 1,716;
+at the final 628-point content width it is 468. `layout_equality.rs` holds the
+resize, text replacement, maximum change, and subtree recreation sequence,
+including scroll overflow, against fresh replay and rehydration. The focused
+reader tests exercise the original cross-size clamp as well as this cache fix.
+The upstream generated suite below predates this extension.
 
 Validation: the full upstream test suite at `v0.9.2` passes with this patch
 applied — 89 unit tests, **2060 generated conformance fixtures**
@@ -186,3 +201,38 @@ that every cited Exact test still exists. Run the upstream suite for the
 patched tag and Exact's five checks before changing the pinned copy. Record
 any intentionally missing focused regression here instead of retaining a
 stale path.
+
+**Scrollable content extension (Codex, 2026-09-11).** Exact now sets Taffy's
+existing `item_is_replaced` marker for `Image`. A replaced leaf's
+`LayoutOutput.content_size` is its used padding box, not its measured natural
+bitmap plus padding. A 132×132 bitmap displayed at 32×32 must not contribute
+132×132 to an ancestor's scrollable overflow (CSS Overflow §2.1). The marker
+also enables Taffy's existing compressible grid-minimum behavior for images.
+The kernel image regressions cover source replacement, up/down scaling,
+padding/borders, all `object-fit` values and a percentage-constrained grid image;
+independent browser cases and the Messages focused reply are under
+`/tmp/messages-reply-overflow/`. Ordinary measured text still reports its content.
+
+## Patch 6: intrinsic item contributions exclude the container's inset (LLP 1001 §5)
+
+**Implementer:** Codex, 2026-09-11.
+
+`src/compute/flexbox.rs`, `determine_container_main_size`: remove the two
+`max(main_content_box_inset)` floors from the row/column item's intrinsic
+contribution. The container adds its inset after summing the contributions;
+using it to floor every item first counts parent padding twice for small content.
+The item's own measured size and min/max constraints remain in force.
+
+Messages demonstrates the row case: a nested text column inside a flex bubble
+with 14-point horizontal padding makes `min-width: 48px` resolve to 56px. The
+browser resolves it to 48px. A column container can likewise overstate height.
+The high-level kernel regression
+`intrinsic_flex_items_do_not_include_their_containers_padding` fails before the
+repair and passes after it across 48 parent/child direction and padding cases.
+A separate 24-case browser matrix confirms their width/height expectations.
+Artifacts: `/tmp/messages-short-width/`. The full kernel suite passes; the full
+upstream generated conformance corpus has not been rerun for this patch.
+
+The current [upstream implementation](https://github.com/DioxusLabs/taffy/blob/main/src/compute/flexbox.rs)
+also omits these floors (checked 2026-09-11). This is the bounded correction to
+our 0.9.2 copy, not an import of upstream's other intrinsic-sizing changes.

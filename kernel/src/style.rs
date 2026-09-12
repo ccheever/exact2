@@ -12,8 +12,8 @@ use taffy::style::TrackSizingFunction;
 use crate::arena::NodeArena;
 use crate::error::StyleValueError;
 use crate::generated::{
-    AlignContent, AlignItems, AlignSelf, BoxSizing, Display, FlexDirection, FlexWrap, GridAutoFlow,
-    JustifyContent, NodeType, Overflow, PositionType, StyleId, StyleProps,
+    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, Display, FlexDirection, FlexWrap,
+    GridAutoFlow, JustifyContent, NodeType, Overflow, PositionType, StyleId, StyleProps,
 };
 
 /// Largest grid track list the closed grammar carries.
@@ -203,6 +203,51 @@ impl Dimension {
     }
 }
 
+/// CSS line-height, preserved through inheritance and resolved per receiving font.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LineHeight {
+    /// The receiving font's natural metrics.
+    Normal,
+    /// A unitless multiple of the receiving font size.
+    Number(f32),
+    /// An absolute length in logical pixels.
+    Length(f32),
+}
+
+impl LineHeight {
+    /// Resolve after inheritance; `None` means normal, including distinct `Some(0)`.
+    pub fn resolve(self, font_size: f32) -> Option<f32> {
+        match self {
+            Self::Normal => None,
+            Self::Number(n) => Some(n * font_size),
+            Self::Length(n) => Some(n),
+        }
+    }
+    /// All stored numbers must be finite.
+    pub fn is_finite(self) -> bool {
+        match self {
+            Self::Normal => true,
+            Self::Number(n) | Self::Length(n) => n.is_finite(),
+        }
+    }
+    /// CSS refuses negative line heights.
+    pub fn is_valid(self) -> bool {
+        self.is_finite()
+            && match self {
+                Self::Normal => true,
+                Self::Number(n) | Self::Length(n) => n >= 0.0,
+            }
+    }
+    /// The CSS spelling. Percentages and font-relative lengths are unsupported.
+    pub fn css(self) -> String {
+        match self {
+            Self::Normal => "normal".into(),
+            Self::Number(n) => n.to_string(),
+            Self::Length(n) => format!("{n}px"),
+        }
+    }
+}
+
 /// A packed RGBA color, `0xRRGGBBAA`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Color(pub u32);
@@ -265,6 +310,27 @@ pub enum StyleValue {
 }
 
 impl StyleValue {
+    pub(crate) fn line_height(&self, style: StyleId) -> Result<LineHeight, StyleValueError> {
+        let value = match self {
+            Self::Number(n) if *n >= 0.0 => Some(LineHeight::Number(*n as f32)),
+            Self::Text(t) if t.trim().eq_ignore_ascii_case("normal") => Some(LineHeight::Normal),
+            Self::Text(t) => t
+                .trim()
+                .strip_suffix("px")
+                .and_then(|n| n.parse::<f64>().ok())
+                .filter(|n| *n >= 0.0)
+                .map(|n| LineHeight::Length(n as f32)),
+            _ => None,
+        };
+        value
+            .filter(|v| v.is_valid())
+            .ok_or(StyleValueError::WrongKind {
+                style,
+                expected:
+                    "nonnegative finite number, px length, or normal (percent/em unsupported)",
+            })
+    }
+
     pub(crate) fn f32(&self, style: StyleId) -> Result<f32, StyleValueError> {
         match self {
             StyleValue::Number(n) if (*n as f32).is_finite() => Ok(*n as f32),
@@ -332,6 +398,19 @@ impl StyleValue {
             }
         }
         self.color(style).map(ColorValue::Fixed)
+    }
+
+    /// A colour keyword remains distinct from transparent paint.
+    pub(crate) fn keyword_color(
+        &self,
+        style: StyleId,
+        keyword: &str,
+    ) -> Result<Option<ColorValue>, StyleValueError> {
+        match self {
+            StyleValue::Auto if keyword == "auto" => Ok(None),
+            StyleValue::Text(t) if t.eq_ignore_ascii_case(keyword) => Ok(None),
+            _ => self.color_value(style).map(Some),
+        }
     }
 
     pub(crate) fn color(&self, style: StyleId) -> Result<Color, StyleValueError> {
@@ -457,6 +536,8 @@ impl Color {
 /// for consumers that lower rows generically (a web host emitting CSS).
 #[derive(Debug, Clone, PartialEq)]
 pub enum RowValue<'a> {
+    /// CSS line-height, retaining its kind.
+    LineHeight(LineHeight),
     /// A validated CSS clipping path.
     ClipPath(&'a crate::clip::ClipPath),
     /// A dimension.
@@ -658,6 +739,34 @@ fn grid_auto_flow(v: GridAutoFlow) -> taffy::style::GridAutoFlow {
 }
 
 impl StyleProps {
+    /// CSS effective border widths: none and hidden occupy no border area.
+    pub fn border_widths(&self) -> [f32; 4] {
+        [
+            (self.border_style_top, self.border_width_top),
+            (self.border_style_right, self.border_width_right),
+            (self.border_style_bottom, self.border_width_bottom),
+            (self.border_style_left, self.border_width_left),
+        ]
+        .map(|(style, width)| {
+            if style == BorderStyle::Solid {
+                width.max(0.0)
+            } else {
+                0.0
+            }
+        })
+    }
+
+    /// Border colours after resolving currentColor against this node's computed colour.
+    pub fn border_colors(&self, current: ColorValue) -> [ColorValue; 4] {
+        [
+            self.border_color_top,
+            self.border_color_right,
+            self.border_color_bottom,
+            self.border_color_left,
+        ]
+        .map(|color| color.unwrap_or(current))
+    }
+
     /// Lower to engine style. `node_type` supplies the per-tag defaults the
     /// table does not carry: scroll containers scroll on their block axis
     /// unless the producer set `overflow_y`.
@@ -672,6 +781,9 @@ impl StyleProps {
             Display::None => taffy::style::Display::None,
             Display::Grid => taffy::style::Display::Grid,
         };
+        // Replaced pixels have ink overflow, never scrollable overflow (CSS
+        // Overflow §2.1). This also identifies images for grid intrinsic sizing.
+        s.item_is_replaced = node_type == NodeType::Image;
         s.box_sizing = match self.box_sizing {
             BoxSizing::ContentBox => taffy::style::BoxSizing::ContentBox,
             BoxSizing::BorderBox => taffy::style::BoxSizing::BorderBox,
@@ -738,11 +850,12 @@ impl StyleProps {
             bottom: self.padding_bottom.to_lp(env),
             left: self.padding_left.to_lp(env),
         };
+        let [top, right, bottom, left] = self.border_widths();
         s.border = taffy::geometry::Rect {
-            top: length(self.border_width_top),
-            right: length(self.border_width_right),
-            bottom: length(self.border_width_bottom),
-            left: length(self.border_width_left),
+            top: length(top),
+            right: length(right),
+            bottom: length(bottom),
+            left: length(left),
         };
 
         s.flex_direction = flex_direction(self.flex_direction);

@@ -23,7 +23,7 @@ are on it and the code exists. It is not a promise about anything not yet built.
 ## 1. One declaration authority (WS-B)
 
 `kernel/tables/schema.json` is the only place node types, props, style rows, enum
-vocabularies, and opcodes are declared. `kernel/build.rs` generates from it — into
+vocabularies, symbol roles and their host mappings, and opcodes are declared. `kernel/build.rs` generates from it — into
 `OUT_DIR`, never committed — the Rust enums, `StyleProps` and its mask, the
 patch/clear operations, the wire codec for style rows, and `SCHEMA_DIGEST`
 (domain-separated SHA-256 of the canonical JSON, first 8 bytes, little-endian).
@@ -45,6 +45,30 @@ carry CSS names and vocabularies (`object_fit: fill|contain|cover|none|scale-dow
 collapsing with it; flex and grid are opt-in per node. (An earlier draft chose
 React Native's defaults; Charlie reversed that on 2026-08-28.)
 
+**Border semantics (Codex, 2026-09-11):** four `border_style_*` rows
+(bits 91–94) accept `none | hidden | solid`, initially `none`. Contract's
+single-value `border-style` sets all four; `border-<side>-style` sets one.
+Other line styles are refused until a consumer needs their painting. Widths
+retain their authored values, initially 3 (`medium`), while `border_widths()`
+returns zero for `none`/`hidden`. Layout, Apple content insets and Linux paint
+consume those effective widths. Border colours initially use `currentcolor`:
+the row's `current-color` codec is an optional colour, sharing the caret codec's
+wire representation but preserving its own keyword. The native hosts resolve
+it against the node's computed text colour, retaining light/dark pairs; CSS
+receives the authored values. Explicit transparent colour still occupies space.
+These are [CSS Backgrounds §3.2–3.3](https://www.w3.org/TR/css-backgrounds-3/#border-style)'s rules.
+
+The prior native host painted every declared width: a 100×60 content box
+with padding 10 and border width 8 was 136×96 versus CSS's default 120×80,
+with child inset 18 versus 10 (`/tmp/messages-border-geometry/`). The corrected
+native fixture switches between those sizes with `solid` and `none`/`hidden`,
+and follows inherited colour through appearance and explicit colour changes.
+Existing app borders now declare solid, including Messages and Fieldnotes.
+The Messages iOS comparison is pixel-identical and the browser badge gains its
+declared one-point border (`/tmp/messages-border-semantics/`). Fractional device
+pixel snapping, patterned borders and compound shorthand values remain unverified
+or unsupported; these checks do not establish all CSS border painting.
+
 **Motion rows (2026-08-28, LLP 1002/1003).** The animatable rows carry CSS's
 individual transform property names — `translate` (vec2), `scale`, `rotate`
 (degrees) — beside `opacity`, and a `transition` row (codec `transitions`, bit 82)
@@ -52,6 +76,40 @@ carries CSS `transition` declarations. The row's type is `exact_motion::Transiti
 the kernel owns its bytes (`wire/codec.rs`) and depends on `exact-motion` for the
 type, which is the only dependency edge between the two crates. `Kernel::motion_sync`
 restates a commit for the engine (LLP 1003 §6).
+
+`caret-color` (bit 61; Messages, 2026-09-10) follows CSS `auto | <color>`:
+initially `auto`, inherited, and independent of layout and text measurement.
+It replaces the unused `tint_color` row. The `auto-color` codec keeps auto
+separate from explicit transparent paint; clearing an override resumes
+inheritance. The browser receives CSS; Apple receives auto or the existing fixed/
+light-dark colour representation. UIKit's editor tint colours both insertion
+carets and native selection handles/highlights; this platform coupling also
+applies to a read-only selection. AppKit colours its insertion point; Linux
+colours the focused input's painted caret. Auto retains UIKit's default tint and
+uses the text colour on AppKit/Linux. Messages explicitly requests white on its
+outgoing read-only selection and auto on incoming selections. See
+[CSS UI's caret rules](https://www.w3.org/TR/css-ui-4/#caret-color): user agents
+may also apply them to selection mechanisms outside editable text.
+
+`tint-color` (bit 89; LLP 1035.004, 2026-09-10) colours a `symbol:` image
+on Apple and the web. Initially opaque black, not inherited, it accepts fixed
+and `light-dark()` colours. Computed inherited `font-size` and `font-weight`
+configure the symbol independently of its CSS box. The schema's `symbols` rows
+hold each portable role, its Apple name and its generic SVG path; the generator
+emits the compiler vocabulary and both host mappings. Raster-image tint and
+Linux symbol rendering remain unsupported. This is separate from `caret-color`.
+
+`overflow-wrap` (bit 90; implementer Codex, 2026-09-11) is inherited text
+layout intent with CSS's `normal | break-word | anywhere` vocabulary and
+`normal` default. Both emergency modes break otherwise unbreakable text;
+only `anywhere` includes those breaks in min-content sizing. The paragraph
+request carries the policy to the host measurer; its cache and painted
+paragraph use the same policy. The web receives the CSS declaration directly.
+The compiler's `textarea` tag supplies `break-word`, matching its browser
+user-agent rule; Messages also declares it on bubble text. This repairs a
+45-character unbroken message that occupied one overflowing web line while
+UIKit wrapped three. It does not tighten a bubble around its wrapped lines.
+See [CSS Text's overflow wrapping](https://www.w3.org/TR/css-text-3/#overflow-wrap-property).
 
 `scrollLeft` (prop 59, float) is the horizontal counterpart of `scrollTop`: a
 changed binding sets that axis after layout, clamped by the host’s content
@@ -76,12 +134,20 @@ macOS still preserves the numeric offset in all cases. An explicit `scrollTop` a
 ResizeObserver and commit boundaries; Apple snapshots before each batch and
 restores after layout. The opt-in policy is not a complete native implementation
 of CSS `overflow-anchor` selection and suppression rules.
+`inert` (prop 20, boolean, absent/false by default) is now authorable through
+Contract. It preserves layout while requesting subtree input, focus and
+accessibility exclusion. The browser uses HTML inertness; iOS enforces the
+subtree boundary and its modal-confirmation exception (LLP 1035.001 D3).
+AppKit/Linux subtree enforcement remains open; the declaration alone is not
+cross-host support.
 `retainFocus` (prop 55, boolean, absent/false by default) lets a button
 retain the existing editing session on a tap, including a button with gesture
 handlers and no press action. Messages uses it on bubbles and reaction badges
 that open Tapbacks: the panel does not exist yet at pointer down. Web prevents
 the pointer’s default focus change; iOS skips resigning the current responder.
-It neither focuses a field nor opens a keyboard. Other hosts currently ignore it.
+It neither focuses a field nor opens a keyboard. Messages also declares it on
+both Send controls: sending from a retained composer keeps its editing session.
+Other hosts currently ignore it.
 `swipeIndicator` (prop 56, boolean, absent/false by default) marks a direct
 child of a `swiperight` target as authored gesture feedback. Web and iOS hold
 its opacity and scale between their authored values and 1 as the rightward
@@ -128,14 +194,29 @@ stacked rendering; callers supply opaque, absolutely positioned route surfaces.
 `swipeContent` (65), `swipeLeading` (66) and `swipeTrailing` (67) are
 explicit native row presentation requests (2026-09-10, Messages). The first
 names a descendant's HTML `id`; the others are whitespace-separated control
-ids, ordered from the outer action inward. `swipeDestructive` (68, boolean,
-absent/false) marks a control's destructive role in that presentation. These
-props do not change CSS layout, inheritance or scroll semantics. UIKit supplies
+ids, ordered from the outer action inward. These props do not change CSS
+layout, inheritance or scroll semantics. UIKit supplies
 the row's swipe surface (LLP 1008 §9); other hosts keep the authored content and
 controls. A full swipe performs the first configured action when it is enabled.
 Missing/ambiguous references or invalid row geometry leave the authored fallback
 in place and produce a host diagnostic. All references must be within the owning
 scroll node, and its content must have that node's width and height.
+
+`destructive` (68, boolean, absent/false) declares a control's destructive
+presentation role. The former `swipeDestructive` row is renamed in place, with
+no alias: UIKit uses it for swipe actions, menu items and confirmation actions
+(LLP 1021 D2/D3). Messages' measured black Block/Discard actions earn back the
+shared hint under LLP 1021 §5. This is an explicit deviation: CSS, HTML and ARIA
+have no equivalent action role. It changes no dispatch, inheritance or layout;
+the web emits `data-destructive` and retains authored CSS. AppKit and Linux do
+not yet map the role to native presentation. A red colour or action label never
+implies the flag.
+
+`commandfor` (69) and `command` (70) are HTML string attributes. A `dialog`
+semantic tag defaults to absolute positioning; `show-modal` and `close` name
+browser-owned presentation commands, not runner state. UIKit supports the narrow
+confirmation grammar and `closedby="any"`; AppKit/Linux do not present dialogs
+(LLP 1021 D2). No arbitrary dialog or additional command capability is implied.
 
 `emojiPicker` (prop 63, boolean, absent/false by default) is an explicit
 selection-input policy on `input`, not an HTML `inputmode` value. A single emoji
@@ -157,15 +238,17 @@ The region's bounds do not change the preview's source or text measurement.
 The app supplies the preview's matching content and the surrounding controls;
 the host supplies placement over scrolled content. This is a context-preview
 presentation policy, not CSS anchor positioning. Web and iOS also magnify the
-preview by 15%, capped at 26 added points of width, preserving its text layout,
-source-facing outside edge and vertical center before viewport clamping. Later
+preview by 15%, capped at 26 added points on its larger dimension, preserving its
+text layout, source-facing outside edge and vertical center before viewport clamping. Later
 content counteracts the panel's half-height shift so a receipt keeps its
 source-relative position. Top-aligned immediate side siblings translate to the
 enlarged preview's left or right edge, preserving their authored horizontal gap
 without changing the preview's percentage-width basis. Clamping includes the farther extent of the enlarged
-preview or following controls; the kernel's layout and authored transform rows
-do not change. This follows measured iPhone
-17 / iOS 26.5 preview geometry, not a recovered UIKit rounding/animation policy.
+preview or following controls. If the group is taller than the available region,
+following controls shift upward to keep their bottom inside it, overlapping the
+preview where necessary; the receipt retains its source-relative position.
+The kernel's layout and authored transform rows do not change. This follows
+measured iPhone 17 / iOS 26.5 preview geometry, not a recovered UIKit rounding/animation policy.
 `contextMagnify=false` on that preview disables only this host magnification;
 alignment, containment and the authored CSS transform still apply. Absent or
 true keeps the 15%/26-point rule. The prop is a non-inherited boolean and has
@@ -316,6 +399,15 @@ browser/iPhone fixture cover those cases. Rasterization belongs to the host;
 this does not remove rounding inside an injected text measurer or promise
 identical floating-point quantization in every browser engine.
 
+Intrinsic flex contributions exclude the containing flexbox's padding and border
+(Codex, 2026-09-11; Taffy patch 6). Those insets are added once, after summing
+the items. Flooring each item's contribution by its parent's inset made a
+48-point Messages bubble containing a text column 56 points wide; columns also
+overstated intrinsic height. The kernel regression covers both parent and child
+directions and independent parent/child padding; the original implementation
+fails it. Browser measurements supply the expected dimensions. This changes
+neither the app's minimum width nor its padding.
+
 **The result-equality gate is a test, from the first commit.**
 `tests/layout_equality.rs` mutates a random tree for hundreds of rounds and asserts
 the incremental frames equal, bit for bit, both a kernel rehydrated from the
@@ -327,6 +419,17 @@ production path): `LayoutTree` records it, `compute_layout` reports
 `LayoutError::Engine`, rebuilds the engine tree from the columns, and retries once.
 
 ## 6. Text (WS-E, WS-I)
+
+**CSS line height** (LLP 1035.000.000, 2026-09-11). Bit 72 uses the
+`line-height` codec: `Normal` (schema default), `Number(ratio)`, or
+`Length(px)`. The wire tag is 0 for normal, 1 plus f32 for a ratio, 2 plus
+f32 for a length. Negative/nonfinite values are refused. Percentages and
+font-relative length strings are unsupported. Inheritance retains the kind;
+`TextStyle::from_style` resolves a ratio using the receiving font size and
+returns `Option<f32>`: `None` is natural metrics, `Some(0)` is zero. A
+`Paragraph` also carries its own `TextStyle` strut so flattening smaller
+inline children cannot erase its minimum line box. The existing schema
+digest refuses old plans/frames; there is no numeric-points compatibility mode.
 
 **Inheritance** (LLP 1035.000 D1–D4, landed 2026-09-09). The schema marks the
 rows CSS inherits with `inherited: true` — `text_color`, `font_family`,
@@ -358,8 +461,13 @@ ordered `TextRun`s: a `Text` with its own `text` prop is one run; otherwise its
 `Text` children are its runs, flattened in order — one structural traversal
 (`NodeArena::text_runs`), the WS-I `text_fragments()` IR. Inline runs are measured
 with their owning paragraph and have no geometry of their own; editing a run marks
-the owner dirty (`measure_owner`). `TextInput` measures its `value` or
-`placeholder`. `MonospaceMeasurer` is the deterministic reference measurer for
+the owner dirty (`measure_owner`). Content-sized `TextInput` measures its `value`
+or `placeholder`; fixed fields use their preferred character/row size. A
+content-sized textarea ending in a newline includes its final caret line
+(2026-09-10): a zero-width measurement run preserves the empty paragraph that
+CoreText omits. The stored value is untouched; ordinary text keeps the shaper's
+terminal-break behavior. `kernel/tests/review_fixes.rs` covers repeated Returns,
+shortening and unchanged values. `MonospaceMeasurer` is the deterministic reference measurer for
 tests and headless hosts.
 
 ## 7. EXNODE export (WS-C)

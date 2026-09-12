@@ -114,15 +114,23 @@ impl Cache {
         available_space: Size<AvailableSpace>,
         run_mode: RunMode,
     ) -> Option<LayoutOutput> {
+        // EXACT PATCH (LLP 1035.000.001): an intrinsic result clamped to
+        // max-width is not a layout at that definite width. Descendant
+        // percentages were unresolved during the intrinsic probe. Promoting
+        // its resulting size to a known dimension reused the probe's height
+        // for the reader's final column, leaving a phantom scroll range.
+        // Keep equivalent definite-offer reuse and exact-input cache hits.
         match run_mode {
             RunMode::PerformLayout => self
                 .final_layout_entry
                 .filter(|entry| {
                     let cached_size = entry.content.size;
                     (known_dimensions.width == entry.known_dimensions.width
-                        || known_dimensions.width == Some(cached_size.width))
+                        || (known_dimensions.width == Some(cached_size.width)
+                            && matches!(entry.available_space.width, AvailableSpace::Definite(_))))
                         && (known_dimensions.height == entry.known_dimensions.height
-                            || known_dimensions.height == Some(cached_size.height))
+                            || (known_dimensions.height == Some(cached_size.height)
+                                && matches!(entry.available_space.height, AvailableSpace::Definite(_))))
                         && (known_dimensions.width.is_some()
                             || entry.available_space.width.is_roughly_equal(available_space.width))
                         && (known_dimensions.height.is_some()
@@ -134,9 +142,11 @@ impl Cache {
                     let cached_size = entry.content;
 
                     if (known_dimensions.width == entry.known_dimensions.width
-                        || known_dimensions.width == Some(cached_size.width))
+                        || (known_dimensions.width == Some(cached_size.width)
+                            && matches!(entry.available_space.width, AvailableSpace::Definite(_))))
                         && (known_dimensions.height == entry.known_dimensions.height
-                            || known_dimensions.height == Some(cached_size.height))
+                            || (known_dimensions.height == Some(cached_size.height)
+                                && matches!(entry.available_space.height, AvailableSpace::Definite(_))))
                         && (known_dimensions.width.is_some()
                             || entry.available_space.width.is_roughly_equal(available_space.width))
                         && (known_dimensions.height.is_some()

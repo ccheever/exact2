@@ -231,8 +231,8 @@ function positionContexts() {
     const anchor = contextAnchors.get(id);
     const source = { left: port.left + anchor.left, top: port.top + anchor.top,
       right: port.left + anchor.left + anchor.width, width: anchor.width, height: anchor.height };
-    // iPhone 17 / iOS 26.5 target-preview measurements: 15%, at most 26pt wide.
-    const scale = preview.getAttribute("contextMagnify") === "false" ? 1 : Math.min(1.15, 1 + 26 / content.width);
+    // iPhone 17 / iOS 26.5: 15%, with growth capped on the larger dimension.
+    const scale = preview.getAttribute("contextMagnify") === "false" ? 1 : Math.min(1.15, 1 + 26 / Math.max(content.width, content.height));
     const extra = content.height * (scale - 1);
     const trailing = source.left + source.width / 2 > port.left + port.width / 2;
     const dx = trailing ? source.right - content.right - content.width * (scale - 1) / 2
@@ -262,6 +262,18 @@ function positionContexts() {
     const maximum = Math.min(region.bottom, port.bottom - 8) - box.height - overflow;
     const top = Math.max(minimum, Math.min(wanted, maximum));
     panel.style.top = `${parseFloat(getComputedStyle(panel).top) + top - box.top}px`;
+    // Native Messages keeps trailing controls inside the available region,
+    // overlapping an oversized preview when the whole panel cannot fit.
+    let branch = preview;
+    while (branch.parentElement && branch.parentElement !== panel) branch = branch.parentElement;
+    const branchBottom = branch.getBoundingClientRect().bottom;
+    const trailingControls = [...panel.children].filter(node => node !== branch && node.getBoundingClientRect().top >= branchBottom - 0.01);
+    if (trailingControls.length) {
+      const first = Math.min(...trailingControls.map(node => node.getBoundingClientRect().top));
+      const last = Math.max(...trailingControls.map(node => node.getBoundingClientRect().bottom));
+      const overflow = Math.min(Math.max(0, last - Math.min(region.bottom, port.bottom - 8)), Math.max(0, first - minimum));
+      if (overflow) for (const node of trailingControls) project(node, `translateY(${-overflow}px) ${node.style.transform}`);
+    }
     const contentRoot = contextContent(target);
     if (contentRoot && !contentRoot.contains(panel)) {
       const scroll = contentRoot.parentElement;
@@ -274,6 +286,45 @@ function positionContexts() {
 }
 addEventListener("resize", () => requestAnimationFrame(positionContexts));
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
+// LLP 1035.004: portable roles are images; their artwork and tint are host-owned.
+const symbolStyle = document.createElement("style");
+symbolStyle.textContent = 'img[data-symbol-path]{background-color:var(--exact-symbol-tint,#000)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
+document.head.append(symbolStyle);
+function refreshSymbols() {
+  for (const el of views.values()) {
+    if (!(el instanceof HTMLImageElement) || !el.hasAttribute("data-symbol-path")) continue;
+    const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
+    const path = el.getAttribute("data-symbol-path"), key = `${path}:${size}:${weight}`;
+    if (!path && el.symbolRefusal !== el.symbolSource) {
+      log(`image ${el.symbolSource} refused: unknown symbol role`); el.symbolRefusal = el.symbolSource;
+    }
+    if (el.symbolKey !== key) {
+      el.symbolKey = key;
+      const point = path ? size : 0, stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="0 0 24 24"><path d="${path}" fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+      el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
+    }
+    // A transparent source supplies intrinsic dimensions; the mask supplies ink.
+    if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder;
+    el.style.setProperty("--exact-symbol-mask", el.symbolMask);
+    el.style.setProperty("--exact-symbol-tint", el.style.getPropertyValue("--exact-tint") || "#000");
+    const paddingX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight), paddingY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const fits = size <= el.clientWidth - paddingX && size <= el.clientHeight - paddingY;
+    const fit = cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${size}px ${size}px` : cs.objectFit === "scale-down" ? "contain" : cs.objectFit === "fill" ? "100% 100%" : cs.objectFit;
+    el.style.setProperty("--exact-symbol-fit", fit);
+  }
+}
+
+// A modal dialog escapes inert attributes above it; its own inert still applies.
+function inertAncestor(el) {
+  for (let node = el; node; node = node.parentElement) {
+    if (node.hasAttribute("inert")) return node;
+    if (node.localName === "dialog" && node.matches(":modal")) return null;
+  }
+  return null;
+}
+
 function applyProps(el, set, clear) {
   let sandboxChanged = false;
   for (const name of clear || []) {
@@ -286,11 +337,13 @@ function applyProps(el, set, clear) {
     else if (name === "text") el.textContent = "";
     else if (name === "value") el.value = "";
     else if (name === "checked") el.checked = false;
+    else if (name === "inert") { el.authoredInert = false; el.inert = false; }
     else el.removeAttribute(name);
   }
   for (const [name, value] of Object.entries(set || {})) {
     if (el instanceof HTMLIFrameElement && name === "sandbox" && el.getAttribute("sandbox") !== value) sandboxChanged = true;
-    if (name === "scrollFollowEnd") followScroll(el, value === "true");
+    if (el instanceof HTMLImageElement && name === "src" && value.startsWith("symbol:")) { el.symbolSource = value; }
+    else if (name === "scrollFollowEnd") followScroll(el, value === "true");
     else if (name === "scrollTop" || name === "scrollLeft") {
       const offset = Number(value);
       if (Number.isFinite(offset)) pendingScrolls.set(el, { ...pendingScrolls.get(el), [name]: offset });
@@ -300,6 +353,8 @@ function applyProps(el, set, clear) {
       if (el.value !== value) el.value = value;
     } else if (name === "checked") {
       el.checked = value === "true";
+    } else if (name === "inert") {
+      el.authoredInert = value === "true"; el.inert = el.authoredInert;
     } else if (name === "disabled" || name === "readonly") {
       if (value === "true") el.setAttribute(name, ""); else el.removeAttribute(name);
     } else {
@@ -421,7 +476,7 @@ function attach(el, id, handlers) {
     } else if (kind === "swiperight") {
       let drag = null, suppressClick = false;
       on("pointerdown", (e) => {
-        if (!e.isPrimary || e.button !== 0 || el.matches(":disabled") || el.closest("[inert]")) return;
+        if (!e.isPrimary || e.button !== 0 || el.matches(":disabled") || inertAncestor(el)) return;
         if (e.target.closest("input,textarea,[contenteditable]")) return;
         // The CSS touch-action decides which touch directions the browser
         // keeps for scrolling. A scrolling pointer cancels this observation.
@@ -477,7 +532,7 @@ function attach(el, id, handlers) {
       on("click", (e) => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopPropagation(); } });
     } else if (kind === "contextmenu" || kind === "dblclick") {
       on(kind, (e) => {
-        if (el.matches(":disabled") || el.closest("[inert]")) return;
+        if (el.matches(":disabled") || inertAncestor(el)) return;
         if (e.target.closest("input,textarea,[contenteditable]")) return;
         e.preventDefault(); e.stopPropagation();
         send(wasm.exact_dispatch(id, kind === "contextmenu" ? 10 : 11, 0, now()));
@@ -531,7 +586,9 @@ document.addEventListener("keydown", (event) => {
       && event.key.toLowerCase() === key.toLowerCase();
   };
   for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
-    if (!el.isConnected || !el.getClientRects().length || el.closest("[inert]") || getComputedStyle(el).visibility !== "visible") continue;
+    const modal = document.activeElement.closest("dialog:modal");
+    if (modal && !modal.contains(el)) continue;
+    if (!el.isConnected || !el.getClientRects().length || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
     if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -744,9 +801,10 @@ function apply(batch) {
       const active = index === selected;
       if (!active && route.contains(document.activeElement)) document.activeElement.blur();
       route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
-      route.inert = !active;
+      route.inert = !active || !!route.authoredInert;
     }
   }
+  refreshSymbols();
   for (const s of followedScrolls.values()) settleFollow(s);
   for (const [el, offsets] of pendingScrolls) if (el.isConnected) {
     // Mirroring the current offset must not restart snapping or cancel a pan.
@@ -762,7 +820,7 @@ function apply(batch) {
     // A focus that cannot be delivered is a journal line with its reason,
     // never silence (LLP 1035.001 D6); the reasons are the iOS host's.
     const reason = !el ? "no live node with that id" : !el.isConnected ? "not mounted" : el.matches(":disabled") ? "disabled"
-      : el.closest("[inert]") ? "inert ancestor" : !el.getClientRects().length ? "zero size"
+      : inertAncestor(el) ? "inert ancestor" : !el.getClientRects().length ? "zero size"
       : getComputedStyle(el).visibility !== "visible" ? "hidden ancestor" : null;
     if (reason) { log(`focus "${args[0]}" refused: ${reason}`); continue; }
     if (selectText && typeof el.select !== "function") { log(`selectText "${args[0]}" refused: not a text editor`); continue; }
@@ -900,7 +958,7 @@ function log(line) {
 const INHERITED_CSS = {
   text_color: "color", font_family: "font-family", font_size: "font-size", font_weight: "font-weight",
   font_style: "font-style", line_height: "line-height", letter_spacing: "letter-spacing",
-  font_variant_numeric: "font-variant-numeric", direction: "direction", white_space: "white-space", text_align: "text-align",
+  font_variant_numeric: "font-variant-numeric", direction: "direction", white_space: "white-space", overflow_wrap: "overflow-wrap", text_align: "text-align",
 };
 function nodeDetail(id) {
   const el = views.get(id);
@@ -940,7 +998,7 @@ function nodeDetail(id) {
   node.clip = clip;
   node.visible = {
     hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false,
-    inert: !!el.closest("[inert]"),
+    inert: !!inertAncestor(el),
     inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight,
     clipped,
   };
@@ -1113,7 +1171,8 @@ function agent(request) {
         st.navigation = {
           route: key,
           stack: index >= 0 ? routes.slice(0, index + 1).map((r) => r.getAttribute("navigationKey")) : [],
-          presentation: selected?.getAttribute("navigationPresentation") === "modal" ? "modal" : null,
+          presentation: ["modal", "fullscreen"].includes(selected?.getAttribute("navigationPresentation")) ? selected.getAttribute("navigationPresentation") : null,
+          source: selected?.getAttribute("navigationSource") ?? null,
           closedby: selected?.getAttribute("closedby") ?? null,
           transition: { interactive: false, phase: "idle" },
         };
@@ -1375,14 +1434,21 @@ async function main() {
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
 
-root.addEventListener("keydown", event => {
-  if (event.key !== "Escape") return;
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape" || event.defaultPrevented) return;
+  // Making a covered editor inert can leave focus on the page body. That
+  // neutral focus still belongs to the presentation; a host input outside
+  // Exact keeps its own keys.
+  if (!root.contains(event.target) && event.target !== document.body && event.target !== document.documentElement) return;
+  // The browser's top layer gets the close request before an authored modal.
+  // Preventing Escape here would also prevent the popover's default dismissal.
+  if (document.querySelector("dialog:modal") || [...document.querySelectorAll(":popover-open")].some(pop => pop.popover === "auto" || pop.popover === "hint")) return;
   for (const nav of root.querySelectorAll("[navigationBack]")) {
     const route = [...nav.children].find(child => child.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
-    if (route?.getAttribute("navigationPresentation") !== "modal") continue;
+    if (!["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"))) continue;
     event.preventDefault();
     if (route.getAttribute("closedby") === "none") return;
-    const control = document.getElementById(nav.getAttribute("navigationBack"));
+    const control = [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack"));
     if (control && !control.disabled) control.click();
     return;
   }

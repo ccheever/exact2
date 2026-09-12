@@ -51,6 +51,17 @@ component, shape, or style from another Contract file, resolved by
 declarations are merged in after this file's own; a cycle, a missing file, an
 unknown name, or a name declared differently in both is refused by name);
 anything but a `.contract` path is `contract-no-imports`, as before.
+`textarea` supplies `white-space: pre-wrap` and `overflow-wrap: break-word`,
+matching the browser control's wrapping defaults. An explicit declaration
+uses the ordinary style row and overrides that tag default.
+
+**Line height** (LLP 1035.000.000): `line-height=1.5` is a font-size
+ratio, `line-height="24px"` a fixed length, and `line-height="normal"`
+restores natural font metrics. Zero is explicit. Dynamic fixed lengths use
+existing interpolation, ``line-height=`${height}px` ``. Negative/nonfinite
+values, percentages and font-relative units are refused by the kernel row
+parser; numeric literals, including unary minus, are checked at compilation.
+
 **Styles.** `style Name` with lines of `attr=literal` (style rows only), applied
 by `class=Name` on a node, the node's own attribute winning (LLP 1017 P6).
 **Editor hints** (2026-09-09, Messages). `autocapitalize` and `autocorrect`
@@ -65,7 +76,7 @@ directly to the declared editors.
 to ancestors and then the editor default. The browser receives the authored HTML
 attribute; native editors receive the nearest explicit logical-tree hint.
 `swipeContent`, `swipeLeading` and `swipeTrailing` lower to string props;
-`swipeDestructive` lowers to a boolean. Their id references are resolved by the
+`destructive` lowers to a boolean. Their id references are resolved by the
 native presenter after keyed nodes exist, not inferred from test ids. The
 kernel declaration and native boundary are in LLP 1001 §1 and LLP 1008 §9.
 
@@ -147,6 +158,11 @@ holds (`state stationId = none` … `stationId = some(id)`); an unfilled `?` is
 order; a cycle is `type-derive-cycle`. Every rejection carries a stable id and
 a line:column (`CompileError`).
 
+`image "symbol:<role>"` (LLP 1035.004, 2026-09-10) checks literal roles
+against the generated schema vocabulary. Empty, unknown and platform-name
+sources are `lower-attr-value` with the available roles; dynamic sources remain
+host-checked. `tint-color` names the schema's colour row and accepts `light-dark()`.
+
 ## 3. Passes
 
 **Syntax** (`contract-syntax`): an indent-aware lexer (`Indent`/`Dedent`,
@@ -164,6 +180,11 @@ a region depth, `match` binding at a depth, inline-match local), `infer`, and
 site — behind a child's prop — types the action's parameters; children are
 checked standalone. Roster calls are checked against the table's `params`/
 `returns`.
+
+HTML `dialog` lowers to a View with `semanticTag="dialog"` and the absolute
+position default; `commandfor` and `command` are schema props, passed by their
+HTML names. Their presentation belongs to the host (LLP 1021 D2), with no
+compiler-created open-state slot.
 
 **Analyze** (`contract-analyze`): `writes` declared and honored, handler
 shape and arity (`change` and `key` supply a string as the last parameter,
@@ -183,7 +204,7 @@ rows by their **literal CSS names** (LLP 1017 §8.1, 2026-08-30 — `font-size`,
 hyphens are grammar, and the lexer reads `a-b` as one name as CSS's `calc()`
 does, so subtraction between names is `a - b`) or onto props by their HTML
 and ARIA names (`aria-label`, `aria-description`, `aria-level`, `role`,
-`placeholder`, `value`, `href`, `disabled`, `lang`; `testId` is the one
+`placeholder`, `value`, `href`, `disabled`, `inert`, `lang`; `testId` is the one
 Exact-named attribute) or handlers; there are no aliases — an old spelling
 (`size`, `fontSize`, `radius`, `label`) is `lower-unknown-attr` naming the
 CSS name it became; **a literal value is checked against its rows at

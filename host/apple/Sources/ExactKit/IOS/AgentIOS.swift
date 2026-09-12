@@ -90,9 +90,60 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
-    /// A push, pop, presentation or dismissal UIKit is still animating —
-    /// what `clock settle` waits for under platform timing (LLP 1035.003 D5).
-    func nativeInFlight() -> Bool { presenter.navigation.inTransition || presenter.modals.inTransition }
+    /// Native transitions, keyboard work and an agent-issued caret reveal
+    /// must finish before `clock settle` returns (LLP 1035.003 D5).
+    func nativeInFlight() -> Bool {
+        if presenter.navigation.inTransition || presenter.modals.inTransition || presenter.menus.inTransition || presenter.hasPendingKeyboardResize || nativeGeometryInFlight() { return true }
+        guard let editor = pendingTextReveal else { return false }
+        guard let node = editor.owner, presenter.views[node.id] === node,
+              node.textArea === editor, !presenter.navigation.isInactiveRoute(containing: node),
+              editor.window != nil, editor.isFirstResponder,
+              !editor.isTracking, !editor.isDragging, !editor.isDecelerating,
+              let selection = editor.selectedTextRange else {
+            pendingTextReveal = nil
+            return false
+        }
+        // TextKit's caret can exceed the authored line box. Clamp both
+        // alignments to UIKit's scrollable range; require only reachable
+        // visibility, with one physical pixel for native quantization.
+        let caret = editor.caretRect(for: selection.end)
+        let inset = editor.adjustedContentInset
+        let minimum = -inset.top
+        let maximum = max(minimum, editor.contentSize.height + inset.bottom - editor.bounds.height)
+        let top = min(max(caret.minY - inset.top, minimum), maximum)
+        let bottom = min(max(caret.maxY + inset.bottom - editor.bounds.height, minimum), maximum)
+        let tolerance = 1 / max(editor.traitCollection.displayScale, 1)
+        let offset = editor.contentOffset.y
+        if editor.bounds.height <= 0 || (offset >= min(top, bottom) - tolerance && offset <= max(top, bottom) + tolerance) {
+            pendingTextReveal = nil
+            return false
+        }
+        return true
+    }
+
+    /// UIKit can animate keyboard-driven geometry even when the agent applies
+    /// its own resize synchronously. Observe only this session's mounted views;
+    /// inspecting geometry animations avoids waiting for a caret's opacity blink.
+    func nativeGeometryInFlight() -> Bool {
+        guard presenter.viewport.window != nil else { return false }
+        func movesGeometry(_ animation: CAAnimation) -> Bool {
+            if let group = animation as? CAAnimationGroup {
+                return group.animations?.contains(where: movesGeometry) == true
+            }
+            guard let path = (animation as? CAPropertyAnimation)?.keyPath,
+                  let property = path.split(separator: ".").first else { return false }
+            return ["bounds", "position", "transform", "sublayerTransform", "anchorPoint", "zPosition"].contains(String(property))
+        }
+        var pending: [UIView] = [presenter.viewport]
+        while let view = pending.popLast() {
+            guard !view.isHidden, view.alpha > 0 else { continue }
+            if view.layer.animationKeys()?.contains(where: { key in
+                view.layer.animation(forKey: key).map(movesGeometry) == true
+            }) == true { return true }
+            pending.append(contentsOf: view.subviews)
+        }
+        return false
+    }
 
     /// What UIKit knows for `state` (LLP 1035.002 D2): which node holds the
     /// focus and through which responder, a focus still waiting on a
@@ -112,18 +163,23 @@ extension Agent {
             let responder: UIResponder = node.textArea ?? node.field ?? node
             focus["responder"] = String(describing: Swift.type(of: responder))
         }
-        if let target = presenter.modals.pendingFocusTarget {
-            focus["pending"] = ["target": target, "reason": "the sheet is still presenting"]
+        if let pending = presenter.pendingFocusObservation {
+            focus["pending"] = pending
         }
-        var keyboard: [String: Any] = ["visible": presenter.keyboardTop != nil, "overlap": Agent.r2(presenter.keyboardInset),
+        let keyboardContainer = presenter.modals.coordinateView ?? presenter.session?.view
+        let keyboardTop = keyboardContainer.flatMap { presenter.keyboardGuideTop(in: $0) }
+        var keyboard: [String: Any] = ["visible": keyboardTop != nil, "overlap": Agent.r2(presenter.keyboardInset),
                                        "policy": presenter.interactiveWidget ?? "resizes-visual", "interactive": presenter.interactiveKeyboardDrag]
-        if let top = presenter.keyboardTop, let w = vp.window {
-            keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: w).y - vp.contentOffset.y)
+        if let top = keyboardTop, let container = keyboardContainer {
+            keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.contentOffset.y)
         }
         if let view = presenter.session?.view { keyboard["guide"] = Agent.r2(view.keyboardLayoutGuide.layoutFrame.minY) }
         var navigation = presenter.navigation.observation()
-        navigation["presentation"] = presenter.modals.active ? "modal" : NSNull()
+        navigation["presentation"] = presenter.modals.presentation ?? NSNull()
         navigation["closedby"] = presenter.modals.closedby ?? NSNull()
+        navigation["owners"] = presenter.modals.routes.map { ["route": $0.node.props["navigationKey"] ?? "", "presentation": $0.kind] }
+        navigation["source"] = presenter.modals.routes.last?.node.props["navigationSource"] ?? NSNull()
+        navigation["popover"] = presenter.menus.observation() ?? NSNull()
         return ["focus": focus, "keyboard": keyboard, "navigation": navigation]
     }
 
@@ -152,6 +208,10 @@ extension Agent {
         let vp = presenter.viewport
         var nodes: [[String: Any]] = []
         for (id, v) in presenter.views.sorted(by: { $0.key < $1.key }) where v.window != nil {
+            if presenter.menus.ownsConfirmationNode(v) {
+                nodes.append(["id": Int(id), "presentation": "native-confirmation", "geometry": "unavailable"])
+                continue
+            }
             let nativeAction = presenter.swipeActions.ownsAction(id)
             let actionView = presenter.swipeActions.actionView(id)
             let r = nativeAction ? actionView.map { box($0) } ?? .zero : box(v)
@@ -211,6 +271,13 @@ extension Agent {
         guard let d = session.agent("{\"op\":\"node\",\"id\":\(id)}").data(using: .utf8),
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         if let e = node["error"] { return ["error": e] }
+        if presenter.menus.ownsConfirmationNode(v) {
+            node["space"] = ["unavailable": "UIAlertAction exposes no public action geometry"]
+            node["native"] = ["presentation": "confirmation"]
+            node["visible"] = ["unavailable": "use the native presentation observation and a window capture"]
+            reply["node"] = node
+            return reply
+        }
         if presenter.swipeActions.ownsAction(UInt32(id)) {
             let button = presenter.swipeActions.actionView(UInt32(id))
             func rect(_ r: CGRect) -> [String: Any] { ["x": Agent.r2(r.minX), "y": Agent.r2(r.minY), "w": Agent.r2(r.width), "h": Agent.r2(r.height)] }
@@ -300,7 +367,11 @@ extension Agent {
             responder = current.next
         }
         if let key = presenter.navigation.routeKey(containing: host) { native["route"] = key }
-        if let sheet = presenter.modals.coordinateView, host.isDescendant(of: sheet) { native["presentation"] = "sheet" }
+        if let sheet = presenter.modals.coordinateView, host.isDescendant(of: sheet) { native["presentation"] = presenter.modals.presentation == "fullscreen" ? "fullscreen" : "sheet" }
+        if let leaf = host.symbolView {
+            let size = leaf.image?.size ?? .zero
+            native["symbol"] = ["renderer": String(describing: Swift.type(of: leaf)), "name": host.props["symbolName"] ?? "", "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
+        }
         node["native"] = native
         node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]
         reply["node"] = node
@@ -318,6 +389,12 @@ extension Agent {
         // node and calling it a finger (D3).
         if let phase = req["phase"] as? String {
             return ["phase": phase, "delivery": "unsupported", "reason": "the iOS carrier synthesizes no touch (LLP 1008 §9); a contact needs the Simulator backend of LLP 1035.003 §3"]
+        }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let activated = presenter.menus.activate(node) {
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "confirmation"]
+                : ["error": "confirmation #\(id) is unavailable, transitioning, or its source is no longer active"]
         }
         if let id = req["id"] as? Int, presenter.swipeActions.ownsAction(UInt32(id)),
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil {
@@ -435,6 +512,9 @@ extension Agent {
                 f.selectAll(nil)
                 f.insertText(req["text"] as? String ?? "")
             }
+            // UITextView reveals an insertion asynchronously, including
+            // when UIView animations are disabled. Observe it; never seek it.
+            pendingTextReveal = f as? TextArea
             return ["typed": Int(v.id), "value": f.text ?? ""]
         }
         if let key = req["key"] as? String {
@@ -472,7 +552,8 @@ extension Agent {
         // 8-bit sRGB: on a wide-color screen the renderer would write a
         // 16-bit PNG, which nothing downstream (scripts/png.mjs) reads.
         format.preferredRange = .standard
-        let size = vp.bounds.size
+        let captureView: UIView = req["window"] as? Bool == true ? (vp.window ?? vp) : vp
+        let size = captureView.bounds.size
         #if targetEnvironment(simulator)
         // The simulator needs both paths: takeSnapshot alone omits guest
         // text, and drawHierarchy alone rasterizes a blank remote layer —
@@ -494,7 +575,7 @@ extension Agent {
         let captured = presenter.views.values.filter { Capture.web[$0.id] != nil || $0.kind == "canvas" }
         for node in captured { node.setNeedsDisplay(); node.layer.displayIfNeeded() }
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
-            vp.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+            captureView.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
         }
         Capture.capturing = false
         #if !targetEnvironment(simulator)

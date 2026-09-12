@@ -1108,7 +1108,9 @@ impl<'a> Lowerer<'a> {
         font: Option<&FontUse>,
     ) -> Result<(), LowerError> {
         let literal = match &a.value {
-            Expr::Number(n, _) => Some(StyleValue::Number(*n)),
+            expr if numeric_literal(expr).is_some() => {
+                Some(StyleValue::Number(numeric_literal(expr).unwrap()))
+            }
             Expr::Str(s, _) => Some(if s == "auto" {
                 StyleValue::Auto
             } else if let Some(pct) = s.strip_suffix('%').and_then(|p| p.parse::<f64>().ok()) {
@@ -1220,6 +1222,22 @@ impl<'a> Lowerer<'a> {
         scope: &Scope,
     ) -> Result<(), LowerError> {
         let want = tags::prop_ty(prop);
+        if prop == PropId::ImageSource {
+            if let Expr::Str(source, _) = value {
+                if let Some(role) = source.strip_prefix("symbol:") {
+                    if exact_kernel::generated::symbol(role).is_none() {
+                        return err(
+                            "lower-attr-value",
+                            format!(
+                                "symbol `{role}` is not a role; roles: {}",
+                                exact_kernel::generated::SYMBOL_ROLES.join(", ")
+                            ),
+                            span,
+                        );
+                    }
+                }
+            }
+        }
         if want == tags::PropTy::Int {
             if let Some(number) = numeric_literal(value) {
                 if !whole_i64(number) {

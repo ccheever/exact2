@@ -51,7 +51,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { connect, createServer as createTCPServer } from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { appBundle, bundleId, developmentLaunchEnvironment, deviceBundle, hostBundle, install, macBinary, macHostBinary, phone, simulator } from '../host/apple/build.mjs';
+import { appleArtifacts, assertAppleIdentity, bundleId, developmentLaunchEnvironment, install, phone, simulator } from '../host/apple/build.mjs';
 import { builtAppMatches, serveStatic } from '../host/web/serve.mjs';
 import { resolveApp } from './app.mjs';
 
@@ -366,10 +366,17 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   const a = resolveApp(app);
   const linux = host === 'linux';
   const sample = host === 'host';
-  const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`)) : sample ? macHostBinary : (process.env.EXACT_MAC_BIN ?? macBinary);
+  const artifacts = linux ? null : appleArtifacts(a, { destination: device ? 'ios' : 'macos', host: sample });
+  const deviceBundle = artifacts?.bundle;
+  const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`)) : (process.env.EXACT_MAC_BIN ?? artifacts.binary);
   if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run node host/apple/build.mjs --device first' : linux ? `run cargo build --release -p ${a.crate('linux')} first` : sample ? 'run node host/apple/build.mjs --host first' : 'run node host/apple/build.mjs first');
+  if (!linux) assertAppleIdentity(a, device ? resolve(deviceBundle, 'ExactIOS') : bin);
   if (device && (plan || extra.EXACT_PLAN || extra.EXACT_ASSETS)) throw new Error('a phone cannot read host-local plan/assets paths; use --url or its embedded app');
   const ph = device ? phone(pick) : null;
+  if (device) {
+    const installed = spawnSync('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, deviceBundle], { encoding: 'utf8' });
+    if (installed.status !== 0) throw new Error(`device install: ${installed.stderr || installed.stdout || installed.error?.message}`);
+  }
   const env = { EXACT_ASSETS: a.dir, ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;
   if (linux && size) env.EXACT_SIZE = `${size[0]}x${size[1]}`;
@@ -459,12 +466,13 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
 // ---------------------------------------------------------------- iOS, over a Unix socket
 
 /** The simulator carrier: the bundle `build.mjs --ios` assembled, installed and launched on a simulator with the agent socket's path in its environment (simctl passes SIMCTL_CHILD_*); then the same JSON lines over that socket (`AgentIOS.swift`). A `simctl launch --console` stays attached for the app's stdout and stderr (its `--stdout=`/`--stderr=` files stay empty on Xcode 26). One app per bundle id per device: a session replaces a running copy; closing hangs up the socket, which ends the app, and kills the pid the app reported if it lingers. */
-async function openIOS({ plan, app, env: extra = {}, session, bundle = appBundle, id }) {
+async function openIOS({ plan, app, env: extra = {}, session, hostFixture = false }) {
   const a = resolveApp(app);
-  const hostFixture = bundle !== appBundle;
+  const bundle = appleArtifacts(a, { destination: 'ios-simulator', host: hostFixture }).bundle;
+  const id = hostFixture ? `${a.id}.host` : a.id;
   if (!existsSync(bundle)) throw new Error(hostFixture ? 'run node host/apple/build.mjs --ios --host first' : 'run node host/apple/build.mjs --ios first');
   const dev = simulator();
-  install(dev);
+  install(dev, bundle, a, hostFixture);
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
   const sock = resolve(dir, 'agent.sock');
   const env = { EXACT_ASSETS: a.dir, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...extra };
@@ -670,7 +678,7 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
     if (plan) throw new Error('a native session takes either --url or --plan, not both');
     env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
   }
-  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, bundle: hostBundle, id: `${resolveApp(app).id}.host` }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url, app, webDist });
+  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url, app, webDist });
   const s = {
     host: carrier.host,
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */

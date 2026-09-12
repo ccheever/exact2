@@ -2,7 +2,7 @@ import type { Answer, Sources, Result } from './app.contract.d.ts';
 export const appId = 'com.exact.messages';
 export const grants = '';
 type Message = Result<'conversation'>['messages'][number];
-type StoredMessage = Omit<Message,'reaction'|'reactionCount'|'reactionEntries'|'reactionGroups'|'reactionPanelWidth'> & { second:number; reactions:Record<string,string> };
+type StoredMessage = Omit<Message,'reaction'|'reactionCount'|'reactionEntries'|'reactionGroups'|'reactionPanelWidth'> & { second:number; order:number; reactions:Record<string,string> };
 type Person = Result<'inbox'>['people'][number];
 const people: (Omit<Person,'draft'|'reply'|'muted'> & {address?:string})[] = [
   {id:'maya',address:'+14155550101',name:'Maya Chen',initials:'MC',color:'#a58ac4',preview:'See you there! ☕️',time:'9:41 AM',unread:true},
@@ -23,7 +23,12 @@ const reactions = [
 ];
 const threads = new Map<string, StoredMessage[]>();
 const muted = new Set<string>();
+const blocked = new Set<string>();
+const localContacts = new Map<string,{first:string,last:string,company:string,phone:string,email:string,notes:string}>();
 const deleted = new Set<string>();
+const recoverable = new Map<string,{message:StoredMessage,expires:number}[]>();
+const recoveryDay = 86400000;
+let messageOrder = 0;
 const drafts = new Map<string, {draft:string,reply:string}>();
 let revision = 0;
 const pending = new Map<string, {start:number,end:number,reply:string}>();
@@ -45,7 +50,21 @@ function sameRun(a:StoredMessage|undefined,b:StoredMessage|undefined) {
   return !!a && !!b && a.sender===b.sender && a.outgoing===b.outgoing && a.day===b.day && b.second>=a.second && b.second-a.second<60;
 }
 function message(id:string,body:string,outgoing:boolean,time:string,sender=outgoing?'me':'',day='Today',second=clockSecond(time)): StoredMessage {
-  return {second,chosen:false,selection:"",id,body,outgoing,time,day,timeLabel:'',delivery:outgoing?'Read':'',sender,senderName:'',senderInitials:'',senderColor:'',showSender:false,reactions:{},reply:'',tail:true,replyRoot:id,replyCount:0};
+  return {second,order:messageOrder++,chosen:false,selection:"",id,body,outgoing,time,day,timeLabel:'',delivery:outgoing?'Read':'',sender,senderName:'',senderInitials:'',senderColor:'',showSender:false,reactions:{},reply:'',tail:true,replyRoot:id,replyCount:0};
+}
+function expireDeleted(now:number) {
+  for(const [id,records] of recoverable) {
+    const kept=records.filter(r=>r.expires>now);
+    if(kept.length)recoverable.set(id,kept);else recoverable.delete(id);
+  }
+}
+function archiveMessages(id:string,rows:StoredMessage[],now:number) {
+  expireDeleted(now);
+  if(rows.length)recoverable.set(id,[...(recoverable.get(id)||[]),...rows.map(message=>({message,expires:now+30*recoveryDay}))]);
+}
+function refreshPreview(id:string) {
+  const person=people.find(p=>p.id===id),rows=threads.get(id),last=rows?.[rows.length-1];
+  if(person){person.preview=last?.body || '';person.time=last?(last.day==='Today'?last.time:last.day):'';}
 }
 function replyTo(item:StoredMessage,rows:StoredMessage[],root:string) {
   if(!root) return;
@@ -97,7 +116,7 @@ function addressPerson(value:string):typeof people[number] | undefined {
 }
 function recipientById(id:string) {
   const existing=people.find(p=>p.id===id);
-  if(existing) return existing;
+  if(existing) return existing.address?existing:undefined;
   if(!id.startsWith('address:')) return;
   try {
     const person=addressPerson(decodeURIComponent(id.slice(8)));
@@ -140,7 +159,7 @@ function conversation(id:string,replying:string,selection:string):Result<'conver
     return visible.map((m,i)=>{
       const sender=groups.has(person.id) && !m.outgoing?recipientById(m.sender):undefined;
       const startsDay=!visible[i-1] || visible[i-1].day!==m.day;
-      const {second:_second,reactions:saved,...content}=m;
+      const {second:_second,order:_order,reactions:saved,...content}=m;
       const entries=Object.entries(saved).sort(([a],[b])=>a==='me'?-1:b==='me'?1:0).map(([id,value],i)=>{
         const who=id==='me'?{name:'You',initials:'ME',color:'#859bc1'}:recipientById(id);
         return {id,value,name:who?.name||id,initials:who?.initials||'',color:who?.color||'#829baa',own:id==='me',offset:i*27,edge:i===0};
@@ -161,18 +180,30 @@ function conversation(id:string,replying:string,selection:string):Result<'conver
   return {selectedText:rows.filter(m=>selected.has(m.id)).map(m=>m.body).join("\n"),selectionCount:selected.size,typingName:typing?(responder(person.id)?.name || ''):'',
     typingAvatar:typing && groups.has(person.id)?responder(person.id)!.initials:'',typingRoot:typing?activity!.reply:'',
     id:person.id,name:person.name,initials:person.initials,color:person.color,reactions,
-    muted:muted.has(person.id),knownContact:!person.id.startsWith('address:'),
+    muted:muted.has(person.id),blocked:blocked.has(person.id),knownContact:!person.id.startsWith('address:') || localContacts.has(person.id),
     contactKind:person.address?.includes('@')?'email':'phone',
     contactAddress:person.address && /^\+1\d{10}$/.test(person.address)?`+1 (${person.address.slice(2,5)}) ${person.address.slice(5,8)}-${person.address.slice(8)}`:person.address || '',
     messages,replies:decorate(rows.filter(m=>m.replyRoot===replying)),revision,scrollRevision:scrollRevisions.get(person.id)||0};
 }
 const sources: Sources = {
-  inbox: ([query,_revision])=>({people:people.filter(p=>!deleted.has(p.id) && p.name.toLowerCase().includes(query.toLowerCase())).map(({address:_address,...p})=>({...p,muted:muted.has(p.id),...(drafts.get(p.id)||{draft:'',reply:''})}))}),
+  inbox: ([query,_revision])=>({people:people.filter(p=>threads.has(p.id) && !deleted.has(p.id) && p.name.toLowerCase().includes(query.toLowerCase())).map(({address:_address,...p})=>({...p,muted:muted.has(p.id),...(drafts.get(p.id)||{draft:'',reply:''})}))}),
+  recentlyDeleted: ([selection,_revision,now])=>{
+    expireDeleted(now);
+    const ids=new Set(selection.split('|'));
+    const rows=people.flatMap(p=>{
+      const records=recoverable.get(p.id);if(!records?.length)return [];
+      return [{id:p.id,name:p.name,initials:p.initials,color:p.color,count:records.length,
+        days:Math.ceil((Math.min(...records.map(r=>r.expires))-now)/recoveryDay),chosen:ids.has(p.id),
+        selection:(ids.has(p.id)?[...ids].filter(id=>id!==p.id):[...ids,p.id]).filter(Boolean).join('|')}];
+    });
+    const chosen=selection?rows.filter(p=>p.chosen):rows;
+    return {people:rows,targets:chosen.map(p=>p.id).join('|'),count:chosen.reduce((n,p)=>n+p.count,0)};
+  },
   recipients: ([ids,query,body,_revision])=>{
     const selected=selectedPeople(ids),selectedIds=new Set(selected.map(p=>p.id)),text=query.trim();
-    const pending=text?(people.find(p=>!groups.has(p.id) && p.name.toLowerCase()===text.toLowerCase()) || addressPerson(text)):undefined;
+    const pending=text?(people.find(p=>p.address && p.name.toLowerCase()===text.toLowerCase()) || addressPerson(text)):undefined;
     const resolved=pending?[...selectedIds,...(selectedIds.has(pending.id)?[]:[pending.id])].join('|'):'';
-    const matches=people.filter(p=>!groups.has(p.id) && !selectedIds.has(p.id) && p.name.toLowerCase().includes(text.toLowerCase()));
+    const matches=people.filter(p=>p.address && !selectedIds.has(p.id) && p.name.toLowerCase().includes(text.toLowerCase()));
     if(pending && !selectedIds.has(pending.id) && !matches.some(p=>p.id===pending.id)) matches.unshift(pending);
     return {selected:selected.map(p=>({id:p.id,name:p.name,without:selected.filter(other=>other.id!==p.id).map(p=>p.id).join('|')})),
       people:matches.map(({address:_address,...p})=>({...p,draft:'',reply:'',muted:false})),resolved,
@@ -190,8 +221,46 @@ const sources: Sources = {
     if(threads.has(id)){if(muted.has(id))muted.delete(id);else muted.add(id);revision++;}
     return changed();
   },
-  deleteConversation: ([id])=>{
-    if(threads.has(id)){deleted.add(id);pending.delete(id);drafts.delete(id);revision++;}
+  blockConversation: ([id,value])=>{
+    if(threads.has(id) && !groups.has(id)) {
+      if(value){blocked.add(id);pending.delete(id);}else blocked.delete(id);
+      revision++;
+    }
+    return changed();
+  },
+  createLocalContact: ([first,last,company,phone,email,notes])=>{
+    const name=[first.trim(),last.trim()].filter(Boolean).join(' ') || company.trim();
+    const initials=[first.trim(),last.trim()].filter(Boolean).map(v=>[...v][0]).join('').toUpperCase() || [...company.trim()].slice(0,2).join('').toUpperCase();
+    const addresses=[phone,email].map(addressPerson).filter((p):p is typeof people[number]=>!!p);
+    if(!addresses.length && name) addresses.push({id:`contact:${++revision}`,name,initials,color:'#92a8ce',preview:'',time:'Now',unread:false});
+    for(const candidate of addresses) {
+      let person=people.find(p=>p.id===candidate.id);
+      if(!person){person=candidate;people.push(person);}
+      if(name)person.name=name;
+      person.initials=initials;
+      localContacts.set(person.id,{first,last,company,phone,email,notes});
+    }
+    revision++;
+    return changed();
+  },
+  deleteConversation: ([id,now])=>{
+    const rows=threads.get(id);
+    if(rows){archiveMessages(id,rows,now);threads.set(id,[]);deleted.add(id);pending.delete(id);drafts.delete(id);revision++;}
+    return changed();
+  },
+  recoverConversations: ([selection,now])=>{
+    expireDeleted(now);
+    for(const id of new Set(selection.split('|'))) {
+      const records=recoverable.get(id);if(!records?.length)continue;
+      const rows=threads.get(id)||[],existing=new Set(rows.map(m=>m.id));
+      threads.set(id,[...rows,...records.map(r=>r.message).filter(m=>!existing.has(m.id))].sort((a,b)=>a.order-b.order));
+      recoverable.delete(id);deleted.delete(id);refreshPreview(id);revision++;
+    }
+    return changed();
+  },
+  purgeConversations: ([selection,now])=>{
+    expireDeleted(now);
+    for(const id of new Set(selection.split('|')))if(recoverable.delete(id))revision++;
     return changed();
   },
   saveDraft: ([id,draft,reply])=>{
@@ -204,7 +273,7 @@ const sources: Sources = {
   sendMessage: ([id,body,reply,now,nowMs])=>{
     if(body.trim()) {
       ensureConversation(id);
-      if(deleted.delete(id)) threads.set(id,[]);
+      deleted.delete(id);
     }
     const rows=threads.get(id),person=people.find(p=>p.id===id);
     if(rows && person && body.trim()) {
@@ -215,7 +284,7 @@ const sources: Sources = {
       rows.push(item);person.preview=body;person.time=item.time;person.unread=false;
       drafts.delete(id);
       scrollRevisions.set(id,++scrollGeneration);
-      pending.set(id,{start:now+3,end:now+15,reply:reply?item.replyRoot:''});
+      if(!blocked.has(id)) pending.set(id,{start:now+3,end:now+15,reply:reply?item.replyRoot:''});
     }
     return changed();
   },
@@ -245,14 +314,14 @@ const sources: Sources = {
     if(m){if(m.reactions.me===emoji)delete m.reactions.me;else m.reactions.me=emoji;revision++;}
     return changed();
   },
-  deleteMessages: ([id,selection])=>{
+  deleteMessages: ([id,selection,now])=>{
     const selected=new Set(selection.split('|')),rows=threads.get(id);
     if(rows){
       const remaining=rows.filter(m=>!selected.has(m.id));
       if(remaining.length!==rows.length){
+        archiveMessages(id,rows.filter(m=>selected.has(m.id)),now);
         threads.set(id,remaining);revision++;
-        const person=people.find(p=>p.id===id),last=remaining[remaining.length-1];
-        if(person){person.preview=last?.body || '';person.time=last?(last.day==='Today'?last.time:last.day):'';}
+        refreshPreview(id);
       }
     }
     return changed();

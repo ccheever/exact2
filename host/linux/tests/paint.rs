@@ -347,3 +347,61 @@ fn the_two_painters_agree_within_a_band() {
     assert!(mean < 5.0, "mean {mean:.2}/255");
     assert!(over < 6.0, "{over:.2}% of pixels differ by > 32");
 }
+
+#[test]
+fn border_style_controls_pixels_and_layout_with_current_color() {
+    for style in ["none", "hidden", "solid"] {
+        let source = format!(
+            r##"component Borders
+  view
+    column color="#ff0000" background-color="#ffffff" width="100%" height="100%" padding=20
+      box testId="border" width=100 height=60 padding=10 border-width=8 border-style="{style}" background-color="#cccccc"
+        box width=20 height=10 background-color="#000000"
+"##
+        );
+        let mut p = compiled(&source, 1.0, PainterChoice::Cpu);
+        let (x, y, w, h) = rect(&mut p, "border");
+        let frame = p.frame();
+        let solid = style == "solid";
+        assert_eq!((w, h), if solid { (136.0, 96.0) } else { (120.0, 80.0) });
+        assert_eq!(
+            px(&frame, x + 2.0, y + 2.0),
+            if solid { (255, 0, 0) } else { (204, 204, 204) }
+        );
+        let inset = if solid { 18.0 } else { 10.0 };
+        assert_eq!(px(&frame, x + inset + 2.0, y + inset + 2.0), (0, 0, 0));
+    }
+}
+
+#[test]
+fn an_unsupported_dialog_stays_unpainted_and_cannot_run_its_action() {
+    let mut p = compiled(
+        r##"component Dialog
+  state count = 0
+  action invoked writes count
+    count = count + 1
+  view
+    column width="100%" height="100%" background-color="#ffffff"
+      button press=invoked commandfor="dialog" command="show-modal" testId="invoker" width=48 height=48
+      dialog id="dialog" testId="dialog" closedby="any" width=100 height=100 background-color="#ff0000"
+        button press=invoked commandfor="dialog" command="close" testId="action" width=50 height=50
+      box testId="after" width=20 height=20 background-color="#00ff00"
+"##,
+        1.0,
+        PainterChoice::Cpu,
+    );
+    let dialog = view(&p, "dialog");
+    let action = view(&p, "action");
+    assert!(p.boxes().iter().all(|b| b.id != dialog && b.id != action));
+    assert_eq!(rect(&mut p, "after"), (0.0, 48.0, 20.0, 20.0));
+    assert_eq!(px(&p.frame(), 10.0, 70.0), (255, 255, 255));
+    let invoker = view(&p, "invoker");
+    p.tap(invoker).unwrap();
+    let state = p.host().agent(r#"{"op":"state"}"#);
+    assert!(state.contains("\"count\":0"), "{state}");
+    let logs = p.host().agent(r#"{"op":"logs"}"#);
+    assert!(
+        logs.contains("Linux dialog presentation is not implemented"),
+        "{logs}"
+    );
+}

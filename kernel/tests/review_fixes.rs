@@ -18,6 +18,113 @@ fn size(w: f32, h: f32) -> Box<StyleProps> {
 }
 
 #[test]
+fn intrinsic_flex_items_do_not_include_their_containers_padding() {
+    // Messages' nested text column made a 48-point bubble 56 points wide.
+    // The parent inset was flooring every item's intrinsic contribution,
+    // then being added again. Row/column cases also cover the height bug.
+    use exact_kernel::{StyleId::*, StyleValue};
+    fn style(rows: &[(exact_kernel::StyleId, StyleValue)]) -> Box<StyleProps> {
+        let mut result = StyleProps::default();
+        for (id, value) in rows {
+            result.set_dynamic(*id, value).unwrap();
+        }
+        Box::new(result)
+    }
+    let number = StyleValue::Number;
+    let text = |value: &str| StyleValue::Text(value.into());
+    for parent_direction in ["row", "column"] {
+        for direction in ["row", "column"] {
+            for inset in [0.0, 5.0, 14.0, 24.0] {
+                for child_padding in [0.0, 3.0, 18.0] {
+                    let mut k = Kernel::new(Box::new(MonospaceMeasurer {
+                        advance_em: 0.65,
+                        ..Default::default()
+                    }));
+                    let mut ops: Vec<_> = (1..=4)
+                        .map(|id| Op::CreateView {
+                            id,
+                            node_type: if id == 4 {
+                                NodeType::Text
+                            } else {
+                                NodeType::View
+                            },
+                        })
+                        .collect();
+                    ops.extend([
+                        Op::SetStyle {
+                            id: 1,
+                            patch: style(&[
+                                (Display, text("flex")),
+                                (FlexDirection, text(parent_direction)),
+                                (AlignItems, text("flex-start")),
+                                (Width, number(402.0)),
+                                (Height, number(874.0)),
+                                (FontSize, number(20.0)),
+                                (LineHeight, text("20px")),
+                            ]),
+                        },
+                        Op::SetStyle {
+                            id: 2,
+                            patch: style(&[
+                                (Display, text("flex")),
+                                (FlexDirection, text(direction)),
+                                (BoxSizing, text("border-box")),
+                                (MinWidth, number(48.0)),
+                                (MinHeight, number(40.0)),
+                                (AlignItems, text("center")),
+                                (JustifyContent, text("center")),
+                                (PaddingLeft, number(inset)),
+                                (PaddingRight, number(inset)),
+                                (PaddingTop, number(inset)),
+                                (PaddingBottom, number(inset)),
+                            ]),
+                        },
+                        Op::SetStyle {
+                            id: 3,
+                            patch: style(&[
+                                (Display, text("flex")),
+                                (FlexDirection, text("column")),
+                                (MinWidth, number(0.0)),
+                                (MinHeight, number(0.0)),
+                                (PaddingLeft, number(child_padding)),
+                                (PaddingRight, number(child_padding)),
+                                (PaddingTop, number(child_padding)),
+                                (PaddingBottom, number(child_padding)),
+                            ]),
+                        },
+                        Op::SetProp {
+                            id: 4,
+                            prop: PropId::Text,
+                            value: "H".into(),
+                        },
+                        Op::SetChildren {
+                            id: 1,
+                            children: vec![2],
+                        },
+                        Op::SetChildren {
+                            id: 2,
+                            children: vec![3],
+                        },
+                        Op::SetChildren {
+                            id: 3,
+                            children: vec![4],
+                        },
+                        Op::AttachRoot { id: 1 },
+                    ]);
+                    k.apply(0, 1, &ops).unwrap();
+                    k.compute_layout(1, Offer::definite(402.0, 874.0)).unwrap();
+                    let frame = k.node(2).unwrap().frame;
+                    let padding = 2.0 * (inset + child_padding) as f32;
+                    assert_eq!((frame.width, frame.height),
+                        ((13.0 + padding).max(48.0), (20.0 + padding).max(40.0)),
+                        "parent={parent_direction}, direction={direction}, inset={inset}, child_padding={child_padding}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn a_text_node_only_holds_text_children() {
     // Finding 2: a View under a Text was accepted, orphaned from the engine
     // tree, and then published its stale cached layout — breaking the
@@ -656,4 +763,88 @@ fn a_payload_length_near_u32_max_is_refused() {
         Err(KernelError::Decode(DecodeError::PayloadOverrun { .. }))
     ));
     assert_eq!(k.live_count(), 0);
+}
+
+#[test]
+fn content_sized_textarea_keeps_the_caret_line_after_return() {
+    // CoreText omits a paragraph's terminal empty line. The field must still
+    // grow for its caret; an ordinary paragraph keeps the shaper's behavior.
+    struct ParagraphMeasurer;
+    impl TextMeasurer for ParagraphMeasurer {
+        fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+            let text: String = request.runs.iter().map(|run| run.text).collect();
+            TextMetrics {
+                width: 80.0,
+                height: 20.0 * text.lines().count().max(1) as f32,
+                first_baseline: Some(16.0),
+            }
+        }
+    }
+    for (node_type, semantic) in [(NodeType::TextInput, "textarea"), (NodeType::Text, "")] {
+        let mut kernel = Kernel::new(Box::new(ParagraphMeasurer));
+        let mut style = StyleProps::default();
+        style.field_sizing = exact_kernel::FieldSizing::Content;
+        style.mask.set(StyleId::FieldSizing);
+        kernel
+            .apply(
+                0,
+                1,
+                &[
+                    Op::CreateView { id: 1, node_type },
+                    Op::SetStyle {
+                        id: 1,
+                        patch: Box::new(style),
+                    },
+                    Op::SetProp {
+                        id: 1,
+                        prop: PropId::SemanticTag,
+                        value: semantic.into(),
+                    },
+                    Op::AttachRoot { id: 1 },
+                ],
+            )
+            .unwrap();
+        let prop = if node_type == NodeType::TextInput {
+            PropId::Value
+        } else {
+            PropId::Text
+        };
+        for (index, (text, field_lines, paragraph_lines)) in [
+            ("Line", 1, 1),
+            ("Line\n", 2, 1),
+            ("Line\n\n", 3, 2),
+            ("Line\nLast", 2, 2),
+            ("Short", 1, 1),
+            ("\n", 2, 1),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            kernel
+                .apply(
+                    0,
+                    index as u64 + 2,
+                    &[Op::SetProp {
+                        id: 1,
+                        prop,
+                        value: text.into(),
+                    }],
+                )
+                .unwrap();
+            kernel
+                .compute_layout(1, Offer::definite(300.0, 200.0))
+                .unwrap();
+            let lines = if node_type == NodeType::TextInput {
+                field_lines
+            } else {
+                paragraph_lines
+            };
+            assert_eq!(
+                kernel.node(1).unwrap().frame.height,
+                20.0 * lines as f32,
+                "{semantic}: {text:?}"
+            );
+            assert_eq!(kernel.node(1).unwrap().props.str(prop), Some(text));
+        }
+    }
 }
