@@ -3,19 +3,59 @@
 #if os(iOS)
 import UIKit
 
-private final class ModalController: UIViewController {
+private final class ModalController: UIViewController, UIGestureRecognizerDelegate {
     weak var host: ModalHost?
     let routeID: UInt32
     var retiringRoot: NodeView?
     var retiringNavigation: UIViewController?
-    init(host: ModalHost, routeID: UInt32, fullscreen: Bool) {
+    init(host: ModalHost, routeID: UInt32, fullscreen: Bool, detent: String?) {
         self.host = host
         self.routeID = routeID
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = fullscreen ? .overFullScreen : .pageSheet
-        if !fullscreen { sheetPresentationController?.detents = [.large()] }
+        if !fullscreen { updateDetent(detent) }
+    }
+    private var detentValue: String?
+    func updateDetent(_ value: String?) {
+        guard modalPresentationStyle == .pageSheet,
+              let sheet = sheetPresentationController,
+              detentValue != value || sheet.detents.isEmpty else { return }
+        detentValue = value
+        let configure = {
+            if let value, let height = Double(value), height.isFinite, height > 0 {
+                // Authored points exclude the bottom safe area, which UIKit adds.
+                // One resting height leaves overscroll and dismissal with UIKit.
+                let identifier = UISheetPresentationController.Detent.Identifier("authored")
+                sheet.detents = [.custom(identifier: identifier) { context in
+                    min(CGFloat(height), context.maximumDetentValue)
+                }]
+                sheet.selectedDetentIdentifier = identifier
+            } else {
+                sheet.detents = [.large()]
+            }
+            sheet.prefersGrabberVisible = false
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+        }
+        if viewIfLoaded?.window != nil { sheet.animateChanges(configure) }
+        else { configure() }
     }
     required init?(coder: NSCoder) { nil }
+    private var backdropTap: UITapGestureRecognizer?
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard backdropTap == nil, let container = presentationController?.containerView else { return }
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tappedBackdrop))
+        tap.delegate = self
+        container.addGestureRecognizer(tap)
+        backdropTap = tap
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard let container = presentationController?.containerView,
+              let presented = presentationController?.presentedView,
+              host?.canDismissByBackdrop(routeID) == true else { return false }
+        return !presented.convert(presented.bounds, to: container).contains(touch.location(in: container))
+    }
+    @objc private func tappedBackdrop() { host?.dismissByBackdrop(routeID) }
     override func loadView() {
         view = UIView()
         view.backgroundColor = .secondarySystemGroupedBackground
@@ -66,7 +106,7 @@ private final class Presentation {
          background: UIViewController, node: NodeView?, home: UIView, owner: UIViewController) {
         self.route = route
         kind = route.props["navigationPresentation"] ?? "modal"
-        controller = ModalController(host: host, routeID: route.id, fullscreen: kind == "fullscreen")
+        controller = ModalController(host: host, routeID: route.id, fullscreen: kind == "fullscreen", detent: route.props["navigationDetent"])
         self.navigation = navigation
         self.background = background
         backgroundNode = node
@@ -101,6 +141,16 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     var routes: [(node: NodeView, kind: String)] { layers.map { ($0.route, $0.kind) } }
 
     init(presenter: Presenter) { self.presenter = presenter }
+
+    func canDismissByBackdrop(_ id: UInt32) -> Bool {
+        guard let layer = layers.last, layer.route.id == id, layer.route.props["closedby"] == "any",
+              !inTransition else { return false }
+        return !refusesDismissal(of: layer.route)
+    }
+    func dismissByBackdrop(_ id: UInt32) {
+        guard canDismissByBackdrop(id), let route = layers.last?.route else { return }
+        presenter.navigation.invokeBack(from: route)
+    }
 
     func prepare(_ batch: Batch) {
         for layer in layers where batch.ops.contains(where: {
@@ -158,7 +208,10 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     }
 
     func updatePermissions() {
-        for layer in layers { layer.controller.isModalInPresentation = refusesDismissal(of: layer.route) }
+        for layer in layers {
+            layer.controller.isModalInPresentation = refusesDismissal(of: layer.route)
+            layer.controller.updateDetent(layer.route.props["navigationDetent"])
+        }
     }
 
     func canPresent(from parent: UIViewController, route: NodeView) -> Bool {

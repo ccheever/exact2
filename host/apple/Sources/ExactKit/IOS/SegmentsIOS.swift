@@ -13,13 +13,40 @@ private final class ExactSegmentedControl: UISegmentedControl {
     required init?(coder: NSCoder) { nil }
 }
 
-final class SegmentHost {
+final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
     unowned let presenter: Presenter
     private var controls: [UInt32: ExactSegmentedControl] = [:]
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
 
-    init(_ presenter: Presenter) { self.presenter = presenter }
+    init(_ presenter: Presenter) { self.presenter = presenter; super.init() }
+
+    private func contextTab(_ gesture: UIGestureRecognizer) -> NodeView? {
+        guard let control = gesture.view as? ExactSegmentedControl,
+              let ids = members[control.ownerID], control.bounds.width > 0,
+              let owner = presenter.views[control.ownerID], available(owner) else { return nil }
+        let point = gesture.location(in: control)
+        guard control.bounds.contains(point) else { return nil }
+        var index = Int(point.x / control.bounds.width * CGFloat(ids.count))
+        if control.effectiveUserInterfaceLayoutDirection == .rightToLeft { index = ids.count - 1 - index }
+        guard ids.indices.contains(index), let tab = presenter.views[ids[index]],
+              !tab.disabled, tab.handlers.contains("contextmenu") else { return nil }
+        return tab
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        contextTab(gestureRecognizer) != nil
+    }
+
+    @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, let tab = contextTab(gesture),
+              let control = gesture.view as? ExactSegmentedControl else { return }
+        // UIKit cancels the pending segment tap. Opening a context action must
+        // not first navigate to that tab, nor commit selection when lifted.
+        control.cancelTracking(with: nil)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        presenter.contextmenu(tab.id)
+    }
 
     private func tabs(in owner: NodeView) -> [NodeView] {
         owner.container.subviews.compactMap { $0 as? NodeView }.filter {
@@ -89,6 +116,9 @@ final class SegmentHost {
             let control = controls[owner.id] ?? {
                 let value = ExactSegmentedControl(ownerID: owner.id)
                 value.addTarget(self, action: #selector(changed(_:)), for: .valueChanged)
+                let context = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
+                context.delegate = self
+                value.addGestureRecognizer(context)
                 value.autoresizingMask = [.flexibleWidth, .flexibleHeight]
                 owner.addSubview(value)
                 controls[owner.id] = value

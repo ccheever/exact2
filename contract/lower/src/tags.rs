@@ -196,6 +196,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationKey" => AttrTarget::Prop(p("navigationKey")),
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
         "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
+        "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
         "navigationSource" => AttrTarget::Prop(p("navigationSource")),
         "closedby" => AttrTarget::Prop(p("closedby")),
         "contextTarget" => AttrTarget::Prop(p("contextTarget")),
