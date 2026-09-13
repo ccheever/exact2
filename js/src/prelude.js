@@ -121,7 +121,15 @@
   Response.prototype.json = function () { var t = this._text; return new Promise(function (res) { res(JSON.parse(t)); }); };
   Response.prototype.arrayBuffer = function () { return Promise.resolve(fromBase64(this._b64).buffer); };
 
-  function FetchError(f) { this.name = "FetchError"; this.message = String(f.message); this.kind = String(f.kind); }
+  function FetchError(f) {
+    // Storage hardens Error.prototype. Define own fields instead of assigning
+    // through its frozen inherited name/message properties.
+    Object.defineProperties(this, {
+      name: { value: "FetchError", configurable: true },
+      message: { value: String(f.message), configurable: true },
+      kind: { value: String(f.kind), configurable: true },
+    });
+  }
   FetchError.prototype = Object.create(Error.prototype);
 
   global.Headers = Headers;
@@ -231,7 +239,15 @@
     var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0 };
     var result;
     currentCall = call;
-    try { result = global.exact.answer(source, JSON.parse(argsJson), store, storage); }
+    try {
+      var native = host(6, "available", "") === "native" ? Object.freeze({
+        call: function (request) {
+          if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
+          return JSON.parse(host(6, "call", JSON.stringify(request)));
+        },
+      }) : null;
+      result = global.exact.answer(source, JSON.parse(argsJson), store, storage, native);
+    }
     catch (e) { currentCall = null; return fail(e); }
     if (result && typeof result.then === "function") {
       calls.set(call.id, call);

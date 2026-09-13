@@ -103,6 +103,61 @@ fn call(m: &mut Module, s: &mut Store, op: &str, value: &str) -> String {
 }
 
 #[test]
+fn native_modules_are_deferred_retired_and_unavailable_to_validation() {
+    struct Native {
+        data: Option<PathBuf>,
+    }
+    impl exact_js::NativeModule for Native {
+        fn configure_storage(
+            &mut self,
+            data: PathBuf,
+            _: PathBuf,
+            _: PathBuf,
+        ) -> Result<(), String> {
+            assert!(
+                !data.exists(),
+                "native configuration must precede storage activation"
+            );
+            self.data = Some(data);
+            Ok(())
+        }
+        fn call(&mut self, request: &serde_json::Value) -> Result<serde_json::Value, String> {
+            let path = self.data.as_ref().unwrap().join("native.txt");
+            std::fs::write(path, request["value"].as_str().unwrap()).unwrap();
+            Ok(serde_json::json!({"text":request["value"]}))
+        }
+    }
+    let root = Root::new();
+    let mut m = root
+        .module()
+        .with_native(|_| Box::new(Native { data: None }));
+    assert!(!root.0.exists());
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    m.activate().unwrap();
+    assert_eq!(call(&mut m, &mut s, "native", "persisted"), "persisted");
+    assert_eq!(
+        std::fs::read_to_string(root.0.join("data/native.txt")).unwrap(),
+        "persisted"
+    );
+    let a = args("native-fetch", "after fetch");
+    assert!(matches!(
+        m.answer(&mut s, "work", &a).unwrap(),
+        Answer::Later(_)
+    ));
+    let answer = m.parse(&mut s, "work", &a, response("")).unwrap();
+    assert_eq!(finish(&mut m, &mut s, &a, answer), "after fetch");
+    assert!(
+        text(m.query("work", &args("native", "bake")).unwrap()).contains("unavailable during bake")
+    );
+    m.activate_for_validation().unwrap();
+    assert!(call(&mut m, &mut s, "native", "validation").contains("unavailable during bake"));
+    assert_eq!(
+        std::fs::read_to_string(root.0.join("data/native.txt")).unwrap(),
+        "after fetch"
+    );
+}
+
+#[test]
 fn storage_is_lazy_persistent_isolated_and_grant_checked() {
     let root = Root::new();
     let other = Root::new();

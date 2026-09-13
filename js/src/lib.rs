@@ -36,11 +36,13 @@
 #![deny(missing_docs)]
 
 mod engine;
+mod native;
 mod paired;
 mod storage;
 
 pub use engine::ENGINE_LINKED;
 pub use exact_js_value::{from_json, to_json, Shape};
+pub use native::NativeModule;
 pub use paired::Paired;
 
 use engine::{Engine, HostFn};
@@ -96,6 +98,7 @@ struct Parked {
 struct HostState {
     store: Option<*mut Store>,
     requests: Vec<(u64, Request)>,
+    native: Option<Box<dyn NativeModule>>,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -109,6 +112,7 @@ pub struct Module {
     storage: Option<storage::Session>,
     directories: Option<storage::Directories>,
     host: Box<HostState>,
+    native_factory: Option<fn(&str) -> Box<dyn NativeModule>>,
     sigs: HashMap<String, Sig>,
     parked: Vec<((String, Vec<u8>), Parked)>,
     budget_ms: f64,
@@ -176,6 +180,25 @@ unsafe extern "C" fn host_door(
                 Ok(None)
             } else {
                 Err("storage is unavailable during bake".into())
+            }
+        }
+        6 => {
+            if a == "available" {
+                Ok(Some("native".into()))
+            } else {
+                if let Some(store) = state.store {
+                    (*store).observe_external_read();
+                }
+                match (&mut state.native, state.store) {
+                    (Some(module), Some(_)) => serde_json::from_str(&b)
+                        .map_err(|error| error.to_string())
+                        .and_then(|request| module.call(&request))
+                        .map(|reply| Some(reply.to_string())),
+                    _ => Err(
+                        "native storage is unavailable during bake or in an unconfigured host"
+                            .into(),
+                    ),
+                }
             }
         }
         other => Err(format!("__exact_host: no op {other}")),
@@ -295,6 +318,7 @@ impl Module {
             storage: None,
             directories: None,
             host: Box::default(),
+            native_factory: None,
             sigs: HashMap::new(),
             parked: Vec::new(),
             budget_ms: DEFAULT_BUDGET_MS,
@@ -302,6 +326,14 @@ impl Module {
             logs: Vec::new(),
             overruns: 0,
         }
+    }
+
+    /// Attach this app's separately linked native implementation. The factory
+    /// runs only on activation with host-selected storage directories. A
+    /// replacement receives a fresh instance; validation receives none.
+    pub fn with_native(mut self, factory: fn(&str) -> Box<dyn NativeModule>) -> Self {
+        self.native_factory = Some(factory);
+        self
     }
 
     /// A module loaded at once — the bake's and a test's shape; a host loads
@@ -362,6 +394,15 @@ impl Module {
             .load(PRELUDE)
             .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
         if let Some(paths) = &self.directories {
+            if let Some(factory) = self.native_factory {
+                let mut native = factory(&self.grants);
+                native.configure_storage(
+                    paths.data.clone(),
+                    paths.cache.clone(),
+                    paths.temporary.clone(),
+                )?;
+                self.host.native = Some(native);
+            }
             self.storage = Some(storage::Session::open(paths, &self.grants)?);
             // Retain the borrowed queue even if adapter initialization fails;
             // the local engine must be destroyed before its storage context.
@@ -386,6 +427,7 @@ impl Module {
             self.logs.extend(engine.take_log());
         }
         self.storage = None;
+        self.host.native = None;
         self.parked.clear();
         self.host.requests.clear();
     }
@@ -712,6 +754,7 @@ impl DataSource for Module {
             .map(|pair| {
                 let mut module = pair.module;
                 module.directories = self.directories.clone();
+                module.native_factory = self.native_factory;
                 module
             })
             .map_err(DataError::Unavailable)

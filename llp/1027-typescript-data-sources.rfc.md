@@ -928,6 +928,21 @@ app never links the engine (D3). There is no per-platform override
 (`rules/NOT-DOING.md` §Authoring models), because the seam is the
 same on every host.
 
+**Messages native consumer (Codex, 2026-09-12; Charlie's Snapback4 issue):**
+The optional fifth argument to `answer`/source functions is the app's native
+JSON module (`call(request)`), or `null` in the browser. The app links a
+separate crate and supplies one factory through `Module::with_native`;
+`exact-js` depends on no module implementation and owns no module registry.
+The factory receives admitted grants and host-selected directories only on
+post-pixel activation. Calls count as external reads, refuse at bake or without
+configured storage, and never execute in disposable validation. Unload drops
+the instance; replacement copies the factory and constructs a fresh one.
+HTTP still leaves as ordinary `fetch` requests. Messages uses this door for
+`exact-snapback4`, which reuses Ibex's grants/path authority and Snapback's
+own device/interpreter. Both native SQLite users share the same rusqlite
+version and linked SQLite library. The browser uses the upstream TypeScript
+replica over Exact's existing SQLite capability.
+
 ### D9 — ibex, in three: the standard library, the engine build, the runtime layer
 
 Charlie's question — should ibex2 be split so the Rust standard

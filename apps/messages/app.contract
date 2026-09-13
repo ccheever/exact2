@@ -166,6 +166,7 @@ component Messages
   derive outgoingTailPath = "path('M 0 0 L 22 0 C 22 14.4 16.4 11.9 16.4 17.8 C 16.4 18.7 17.7 21.7 18.7 22.4 C 18.6 23.6 18.5 24 16.8 23.6 C 11.6 21.7 0.6 13.2 0 11 Z')"
   derive incomingTailPath = "path('M 22 0 L 0 0 C 0 14.4 5.6 11.9 5.6 17.8 C 5.6 18.7 4.3 21.7 3.3 22.4 C 3.4 23.6 3.5 24 5.2 23.6 C 10.4 21.7 21.4 13.2 22 11 Z')"
   resource inbox = inbox(query, revision) as shape Inbox
+  resource syncStatus = syncState(revision) as shape string
   resource deletedInbox = recentlyDeleted(deletedSelection, revision, now()) as shape DeletedInbox
   resource contacts = recipients(recipient, recipientQuery, newDraft, revision) as shape Recipients
   resource chat = conversation(thread, revision, replying, selection) as shape Conversation
@@ -484,6 +485,11 @@ component Messages
   task replies mount
     every(300, tick)
 
+  action synchronize writes change
+    send change = syncMessages(now())
+  task synchronization mount
+    every(3000, synchronize)
+
   view
     main testId="messages" navigationKey=(creatingContact ? "new-contact" : (composing ? "compose" : (details ? `details:${thread}` : thread))) navigationBack=(creatingContact ? "discard-new-contact" : (composing ? "cancel-new-message" : (details ? "close-details" : "back"))) viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" background-color="light-dark(#ffffff, #000000)" color="light-dark(#000000, #ffffff)" font-family="system-ui"
       column navigationKey="" testId="inbox-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" background-color="light-dark(#ffffff, #000000)" padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
@@ -533,6 +539,7 @@ component Messages
                           box width=24 height=28 scale=0.75 clip-path=trashPath background-color="#ffffff"
                 when length(inbox.people) == 0
                   text "No Results" text-align="center" padding=40 font-size=20 font-weight=600 color="#8e8e93"
+                text syncStatus testId="sync-status" text-align="center" padding=16 font-size=12 color="#8e8e93"
             row margin-left=28 margin-right=16 margin-bottom=16 gap=8 align-items="center" flex-shrink=0
               row testId="search-bar" padding-left=18 padding-right=14 height=48 flex=1 min-width=0 border-radius=24 backgroundMaterial="glass" align-items="center" gap=12 flex-shrink=0
                 image "symbol:search" font-size=20 font-weight=400 flex-shrink=0 tint-color="light-dark(#000000, #ffffff)"

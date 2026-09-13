@@ -24,6 +24,13 @@ is the storage consumer: notes in SQLite, backups in app-scoped files, and a
 multiline editor on web and Apple. Take: further general-purpose API expansion
 waits behind proving these shipped bindings in the app; Snapback2 stays deferred.
 
+**Expanded (Charlie, 2026-09-12: "Include the Messages conversion"):**
+Messages is the Snapback4 consumer: the separately linked Rust device on
+Apple/Linux, its TypeScript replica on the web, and the existing host SQLite
+and network capabilities. This unblocks durable conversations and offline
+writes across devices. Take: generalized native-view module loading remains
+behind proving this data-only consumer; Snapback2 stays deferred.
+
 ## Surfaces
 
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it

@@ -54,6 +54,7 @@ export async function prepare(payload, admitted, id = nextId++) {
   win.addEventListener('error', event => { initializationError = event.message; event.preventDefault(); });
   win.__exact_host = (op, name, value) => {
     if (!context) throw new Error('host call outside an answer');
+    if (op === 6) { if (name === 'available') return 'web'; throw new Error('native modules are unavailable in the browser'); }
     if (op === 1) { context.requests.set(Number(name), JSON.parse(value)); return; }
     if (op === 2) { context.reads.push(name); return context.store.get(name); }
     if (op === 5) { context.externalRead = true; return; }

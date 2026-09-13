@@ -1,6 +1,8 @@
 //! Messages: the shared Contract UI and deferred TypeScript data module on Apple.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
+#[path = "../../native.rs"]
+mod native;
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
@@ -11,8 +13,11 @@ exact_apple::host!(
     COMPAT,
     None,
     std::ptr::null(),
-    || exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS)
+    || native::module(BYTECODE, APP, GRANTS)
 );
+
+#[cfg(test)]
+mod snapback_tests;
 
 #[cfg(test)]
 mod tests {

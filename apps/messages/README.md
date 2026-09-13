@@ -1,9 +1,33 @@
 # Messages
 
-An in-progress, local-only iPhone chat example in Exact2. The view is
-`app.contract`; `app.ts` provides the baked conversation fixtures and in-memory
-message edits. It requests no network or storage capabilities. Relaunch resets
-all messages.
+An in-progress iPhone chat example in Exact2. The view is `app.contract`;
+`app.ts` owns the shared conversation model. Messages now persists people,
+messages, drafts, reactions, muted/blocked state, contacts and recoverable deletions
+through Snapback4. Apple and Linux use the reusable native device; the browser
+runs the upstream TypeScript replica over the existing SQLite capability.
+The baked conversation fixtures still provide the first frame without app code.
+
+The development connection is explicit in `snapback-client.ts`: origin
+`http://127.0.0.1:4400`, persona `alice`. Each origin/viewer partition has its own
+app-scoped database and stable device identity. Start the Messages backend locally
+with `snapback4 dev` from `apps/messages` (the source is `snapback/schema.q`).
+The build compiles that schema for a fresh device that starts offline. The footer
+shows whether changes are saved locally, waiting to sync, synced, or refused.
+A separate three-second source checks the server through normal grant-checked
+fetch; network waits do not block local edits. Acknowledged writes leave the durable
+outbox, and server snapshots replace predictions. New devices seed fixtures only
+when those rows are absent, so opening another device preserves existing edits.
+This development backend shares one persona's local conversation collection;
+phone numbers do not connect to SMS or iMessage.
+
+The existing UI behavior stays in TypeScript, including the clock-driven example
+replies. Selection, scroll commands and simulated typing remain session state.
+All persisted records contain authored model data, without derived bubble geometry.
+The browser's vendored replica is from Snapback commit
+`58251b46dce85b379bbf02f94b1ddad308b41a5d`, under its adjacent MIT license. The only
+upstream source adaptations remove `.ts` import suffixes and replace one `Array.at`
+with an ES2020-compatible indexed read. Exact's app-local store adapter batches
+SQLite writes atomically and reloads its in-memory indexes after a refusal.
 
 Run from the Exact2 root:
 

@@ -3,8 +3,14 @@ type Store = { get(name:string):string|null; set(name:string,value:string):void;
 const appId = "dev.exact.storage-test";
 const grants = "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
 
-async function answer(_source:string, args:unknown[], store:Store, storage:Storage) {
+async function answer(_source:string, args:unknown[], store:Store, storage:Storage, native?:{call(request:Record<string,unknown>):Record<string,unknown>}|null) {
   const op = String(args[0]), value = String(args[1]);
+  if (op === 'native' || op === 'native-fetch') {
+    try {
+      if(op === 'native-fetch') await fetch('https://example.test/native');
+      return {text:String(native!.call({value}).text)};
+    } catch(error:any) { return {text:error.message}; }
+  }
   const path = storage.fs.directories.data + "/note";
   if (op === "file") {
     await storage.fs.atomicWriteFile(path, new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));

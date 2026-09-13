@@ -1,8 +1,9 @@
 import type { Answer, Sources, Result } from './app.contract.d.ts';
+import { MessagesReplica, nativeCore, grants as replicaGrants, type Records } from './snapback-client';
 export const appId = 'com.exact.messages';
-export const grants = '';
+export const grants = replicaGrants;
 type Message = Result<'conversation'>['messages'][number];
-type StoredMessage = Omit<Message,'reaction'|'reactionCount'|'reactionEntries'|'reactionGroups'|'reactionPanelWidth'> & { second:number; order:number; reactions:Record<string,string> };
+type StoredMessage = Pick<Message,'id'|'body'|'outgoing'|'time'|'day'|'delivery'|'sender'|'reply'|'replyRoot'> & { second:number; order:number; reactions:Record<string,string> };
 type Person = Result<'inbox'>['people'][number];
 const people: (Omit<Person,'draft'|'reply'|'muted'> & {address?:string})[] = [
   {id:'maya',address:'+14155550101',name:'Maya Chen',initials:'MC',color:'#a58ac4',preview:'See you there! ☕️',time:'9:41 AM',unread:true},
@@ -31,6 +32,7 @@ const recoveryDay = 86400000;
 let messageOrder = 0;
 const drafts = new Map<string, {draft:string,reply:string}>();
 let revision = 0;
+let namespace='';
 const pending = new Map<string, {start:number,end:number,reply:string}>();
 let ticks = 0;
 const changed = () => ({revision,pending:pending.size>0});
@@ -50,7 +52,7 @@ function sameRun(a:StoredMessage|undefined,b:StoredMessage|undefined) {
   return !!a && !!b && a.sender===b.sender && a.outgoing===b.outgoing && a.day===b.day && b.second>=a.second && b.second-a.second<60;
 }
 function message(id:string,body:string,outgoing:boolean,time:string,sender=outgoing?'me':'',day='Today',second=clockSecond(time)): StoredMessage {
-  return {second,order:messageOrder++,chosen:false,selection:"",id,body,outgoing,time,day,timeLabel:'',delivery:outgoing?'Read':'',sender,senderName:'',senderInitials:'',senderColor:'',showSender:false,reactions:{},reply:'',tail:true,replyRoot:id,replyCount:0};
+  return {second,order:messageOrder++,id,body,outgoing,time,day,delivery:outgoing?'Read':'',sender,reactions:{},reply:'',replyRoot:id};
 }
 function expireDeleted(now:number) {
   for(const [id,records] of recoverable) {
@@ -186,6 +188,8 @@ function conversation(id:string,replying:string,selection:string):Result<'conver
     messages,replies:decorate(rows.filter(m=>m.replyRoot===replying)),revision,scrollRevision:scrollRevisions.get(person.id)||0};
 }
 const sources: Sources = {
+  syncMessages: () => changed(),
+  syncState: () => replica?.status() || 'Conversation preview',
   inbox: ([query,_revision])=>({people:people.filter(p=>threads.has(p.id) && !deleted.has(p.id) && p.name.toLowerCase().includes(query.toLowerCase())).map(({address:_address,...p})=>({...p,muted:muted.has(p.id),...(drafts.get(p.id)||{draft:'',reply:''})}))}),
   recentlyDeleted: ([selection,_revision,now])=>{
     expireDeleted(now);
@@ -232,7 +236,7 @@ const sources: Sources = {
     const name=[first.trim(),last.trim()].filter(Boolean).join(' ') || company.trim();
     const initials=[first.trim(),last.trim()].filter(Boolean).map(v=>[...v][0]).join('').toUpperCase() || [...company.trim()].slice(0,2).join('').toUpperCase();
     const addresses=[phone,email].map(addressPerson).filter((p):p is typeof people[number]=>!!p);
-    if(!addresses.length && name) addresses.push({id:`contact:${++revision}`,name,initials,color:'#92a8ce',preview:'',time:'Now',unread:false});
+    if(!addresses.length && name) addresses.push({id:`contact:${namespace}${++revision}`,name,initials,color:'#92a8ce',preview:'',time:'Now',unread:false});
     for(const candidate of addresses) {
       let person=people.find(p=>p.id===candidate.id);
       if(!person){person=candidate;people.push(person);}
@@ -278,7 +282,7 @@ const sources: Sources = {
     const rows=threads.get(id),person=people.find(p=>p.id===id);
     if(rows && person && body.trim()) {
       const at=fixtureTime(nowMs);
-      const item=message(`sent-${++revision}`,body,true,at.time,'me','Today',at.second);
+      const item=message(`sent-${namespace}${++revision}`,body,true,at.time,'me','Today',at.second);
       item.delivery='Delivered';
       replyTo(item,rows,reply);
       rows.push(item);person.preview=body;person.time=item.time;person.unread=false;
@@ -301,7 +305,7 @@ const sources: Sources = {
       const body=id==='weekend'?'Sounds good! 🌲':id==='maya'?'See you soon! ☕️':'Sounds good 😊';
       const sender=groups.has(id)?responder(id):undefined;
       const at=fixtureTime(nowMs);
-      const item=message(`received-${++revision}`,body,false,at.time,sender?.id || '','Today',at.second);
+      const item=message(`received-${namespace}${++revision}`,body,false,at.time,sender?.id || '','Today',at.second);
       replyTo(item,rows,activity.reply);
       rows.push(item);person.preview=sender?`${sender.name.split(' ')[0]}: ${body}`:body;person.time=item.time;person.unread=id!==activeThread;
       pending.delete(id);
@@ -327,4 +331,70 @@ const sources: Sources = {
     return changed();
   },
 };
-export const answer: Answer = (source,args,store,storage) => sources[source](args,store,storage);
+// Persistence contains authored data, never bubble geometry or selection state.
+function snapshot():Records {
+  const records:Records=new Map();
+  people.forEach((person,position)=>records.set(`person:${person.id}`,{kind:'person',person,position,
+    conversation:threads.has(person.id),muted:muted.has(person.id),blocked:blocked.has(person.id),deleted:deleted.has(person.id),
+    draft:drafts.get(person.id)||null,group:groups.get(person.id)||null,contact:localContacts.get(person.id)||null}));
+  const put=(conversation:string,message:StoredMessage,expires:number|null)=>records.set(`message:${encodeURIComponent(conversation)}:${encodeURIComponent(message.id)}`,{kind:'message',conversation,message,expires});
+  for(const [id,rows] of threads)for(const message of rows)put(id,message,null);
+  for(const [id,rows] of recoverable)for(const row of rows)put(id,row.message,row.expires);
+  // Detach the persisted image: source actions mutate the live maps in place.
+  return new Map([...records].map(([key,value])=>[key,JSON.parse(JSON.stringify(value))]));
+}
+function restore(records:Records):void {
+  type PersonRecord={kind:'person';person:typeof people[number];position:number;conversation:boolean;muted:boolean;blocked:boolean;deleted:boolean;draft:{draft:string;reply:string}|null;group:string[]|null;contact:typeof localContacts extends Map<string,infer C>?C:null};
+  type MessageRecord={kind:'message';conversation:string;message:StoredMessage;expires:number|null};
+  const persons:PersonRecord[]=[],messages:MessageRecord[]=[];
+  for(const value of records.values()){
+    if(!value || typeof value!=='object')throw new Error('Invalid Messages replica record');
+    const row=JSON.parse(JSON.stringify(value)) as PersonRecord|MessageRecord;
+    if(row.kind==='person'){
+      if(!row.person || !['id','name','initials','color','preview','time'].every(k=>typeof (row.person as unknown as Record<string,unknown>)[k]==='string') || typeof row.person.unread!=='boolean' || !Number.isFinite(row.position))throw new Error('Invalid Messages contact record');
+      persons.push(row);
+    }else if(row.kind==='message'){
+      if(!row.message || !['id','body','time','day','delivery','sender','reply','replyRoot'].every(k=>typeof (row.message as unknown as Record<string,unknown>)[k]==='string') || typeof row.message.outgoing!=='boolean' || !Number.isFinite(row.message.order) || !Number.isFinite(row.message.second) || !row.message.reactions || Object.values(row.message.reactions).some(v=>typeof v!=='string') || (row.expires!==null && !Number.isFinite(row.expires)))throw new Error('Invalid Messages message record');
+      messages.push(row);
+    }else throw new Error('Unknown Messages replica record');
+  }
+  people.splice(0);threads.clear();muted.clear();blocked.clear();deleted.clear();drafts.clear();groups.clear();localContacts.clear();recoverable.clear();
+  for(const row of persons.sort((a,b)=>a.position-b.position || a.person.id.localeCompare(b.person.id))){
+    const id=row.person.id;people.push(row.person);
+    if(row.conversation)threads.set(id,[]);
+    if(row.muted)muted.add(id);if(row.blocked)blocked.add(id);if(row.deleted)deleted.add(id);
+    if(row.draft)drafts.set(id,row.draft);if(row.group)groups.set(id,row.group);if(row.contact)localContacts.set(id,row.contact);
+  }
+  for(const row of messages.sort((a,b)=>a.message.order-b.message.order || a.message.id.localeCompare(b.message.id))){
+    if(row.expires!==null){const rows=recoverable.get(row.conversation)||[];rows.push({message:row.message,expires:row.expires});recoverable.set(row.conversation,rows);}
+    else {const rows=threads.get(row.conversation)||[];rows.push(row.message);threads.set(row.conversation,rows);}
+    messageOrder=Math.max(messageOrder,row.message.order+1);
+  }
+  for(const id of pending.keys())if(deleted.has(id)||blocked.has(id)||!threads.has(id))pending.delete(id);
+  revision++;
+}
+let replica:MessagesReplica|undefined;
+let configuredCore:ReturnType<typeof nativeCore>;
+let opened=false;
+let tail:Promise<unknown>=Promise.resolve();
+function local<T>(work:()=>Promise<T>):Promise<T>{const result=tail.then(work);tail=result.catch(()=>{});return result;}
+export const answer: Answer = (source,args,store,storage,native) => {
+  // The bake and unconfigured unit-test host deliberately expose no storage;
+  // the native hook records that external dependency before refusing it.
+  if(!opened){configuredCore=nativeCore(native);opened=configuredCore!==null;}
+  const core=configuredCore;
+  if(core===null)return sources[source](args,store,storage,native);
+  const ready=async()=>{
+    if(!replica){const client=await MessagesReplica.open(storage,core);namespace=client.namespace;await client.seed(snapshot());restore(client.initial());replica=client;}
+    return replica;
+  };
+  // Network awaits never hold the local action queue. Only applying a received
+  // page and replacing the model enter the same short gate as local edits.
+  if(source==='syncMessages')return local(ready).then(async client=>{const previous=client.status();await client.sync(Number(args[0]),local,restore);if(previous!==client.status())revision++;return changed();});
+  return local(async()=>{
+    const client=await ready();
+    const value=await sources[source](args,store,storage,native);
+    try{await client.persist(snapshot());}catch(error){client.failed(error);revision++;throw error;}
+    return value;
+  });
+};
