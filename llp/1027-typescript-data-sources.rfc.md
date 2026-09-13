@@ -482,6 +482,11 @@ runs the pinned TypeScript checker and Rolldown, compiles with `hermesc`, and
 bakes through that HBC with an empty store. Rolldown is already in this repo's
 toolchain; the Bun command below describes the original probe, not this producer.
 Imports outside the captured app refuse; npm dependency capture remains owed.
+As of 2026-09-13, the snapshot also carries `.ttf`/`.otf` fonts and every
+regular file in the app’s `assets/`, `deck/`, and `gpu/shaders/` trees. This
+keeps custom fonts and authored SVG/raster assets available during one-shot
+and resident bakes. Existing capture size bounds and link refusals still apply;
+web and Apple packagers continue to carry the static trees as bundle assets.
 New output directories contain plan, JS, HBC and a pairing receipt (hashes,
 lengths, ABI, bytecode version, identity, grants); no existing output is replaced.
 This receipt is not an authenticated deployment receipt or a native bake receipt.
