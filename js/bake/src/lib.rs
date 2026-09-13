@@ -155,7 +155,7 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 walk(root, &path, out, total)?;
             } else if matches!(
                 path.extension().and_then(|s| s.to_str()),
-                Some("ts" | "json" | "contract")
+                Some("ts" | "json" | "contract" | "ttf" | "otf")
             ) {
                 if !kind.is_file() {
                     return Err(format!("source is not a regular file: {}", path.display()));
