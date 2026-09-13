@@ -102,21 +102,30 @@ export class MessagesReplica {
       if([...key].length>1024)throw new Error('A Messages record key is too long.');
       changes.push([key,payload]);
     }
-    for(const [key,payload] of changes) {
-      const seq=await this.next(),id=`${this.device}:${seq}`;
-      const entry:Queued={id,seq,op:seed?'seedRecord':'putRecord',args:{recordId:this.recordId(key),key,payload},new_ids:[],predicted:[]};
-      // Queue first: a crash before prediction still leaves an uploadable write.
-      await this.call({op:'enqueue',entry});this.queued++;
-      try {
-        const prediction=await this.call<{predicted:string[]}>({op:'predict',name:entry.op,viewer,args:entry.args,now:0,newIds:[],entropy:seq});
-        entry.predicted=prediction.predicted;
-        // The native outbox rejects duplicate inserts, so prediction keys need
-        // not be rewritten: they are derivable from this one-row operation.
-      }catch(error){await this.call({op:'dequeue',id});this.queued--;throw error;}
-      if(payload===null)this.held.delete(key);else this.held.set(key,payload);
+    if(!changes.length)return;
+    if(changes.length>512)throw new Error('A Messages edit can change at most 512 records.');
+    if(this.error){await this.call({op:'set_meta',key:'exact:save-error',value:''});this.error='';}
+    const seq=await this.next(),id=`${this.device}:${seq}`;
+    const entry:Queued={id,seq,op:seed?'seedRecords':'putRecords',args:{
+      recordIds:changes.map(([key])=>this.recordId(key)),
+      keys:changes.map(([key])=>key),payloads:changes.map(([,payload])=>payload),
+    },new_ids:[],predicted:[]};
+    // Queue one complete edit first. A crash before prediction leaves that same
+    // atomic mutation to replay. Both interpreters commit all related rows in
+    // one transaction, so a refused row cannot leave a changed preview or draft.
+    await this.call({op:'enqueue',entry});this.queued++;
+    try {
+      await this.call({op:'predict',name:entry.op,viewer,args:entry.args,now:0,newIds:[],entropy:seq});
+    }catch(error){await this.call({op:'dequeue',id});this.queued--;throw error;}
+    // Publish a new complete snapshot only after the durable prediction commits.
+    // Seeding rereads the store, because seedRecords preserves existing rows.
+    if(!seed){
+      const committed=new Map(this.held);
+      for(const [key,payload] of changes){if(payload===null)committed.delete(key);else committed.set(key,payload);}
+      this.held=committed;
     }
-    if(changes.length && this.error){await this.call({op:'set_meta',key:'exact:save-error',value:''});this.error='';}
   }
+
   private async request(endpoint:string,body?:unknown):Promise<Request> {
     const response=await fetch(`${origin}${endpoint}`,{headers,...(body===undefined?{}:{method:'POST',body:JSON.stringify(body)})});
     if(!response.ok)throw new Error(`Snapback HTTP ${response.status}`);
@@ -129,7 +138,7 @@ export class MessagesReplica {
     this.syncing=true;this.lastSync=now;
     try {
       const fresh=await this.request('/schema') as unknown as Backend;
-      if(!fresh.schema?.tables.records || !fresh.programs?.some(p=>p.name==='putRecord'))throw new Error('The local Snapback origin is not the Messages backend');
+      if(!fresh.schema?.tables.records || !fresh.programs?.some(p=>p.name==='putRecords'))throw new Error('The local Snapback origin is not the Messages backend');
       const changedGeneration=fresh.generation!==this.generation;
       for(const entry of await local(()=>this.call<Queued[]>({op:'queued'}))) {
         const sent=await this.request(`/m/${entry.op}`,{id:entry.id,args:entry.args,newIds:entry.new_ids});

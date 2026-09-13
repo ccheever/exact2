@@ -19,11 +19,23 @@ table records:
 query records(c: cursor ?):
   return records[viewer] after c first 500 by byPrincipal
 
-mutation putRecord(recordId: records, key: text <=1024, payload: json <=65536):
-  upsert records[recordId] { principal: viewer, key, payload }
+-- Related model records are one write, on the server and in device prediction.
+-- Primitive lists use the language's existing slice loops; all lists have one length.
+mutation putRecords(recordIds: [records] <=512, keys: [text <=1024] <=512, payloads: [json <=65536] <=512):
+  require count(recordIds) = count(keys) and count(keys) = count(payloads) else INVALID_BATCH
+  for position in range(0, 512):
+    for recordId in slice(recordIds, position, position + 1):
+      for key in slice(keys, position, position + 1):
+        for payload in slice(payloads, position, position + 1):
+          upsert records[recordId] { principal: viewer, key, payload }
   return null
 
-mutation seedRecord(recordId: records, key: text <=1024, payload: json <=65536):
-  if records[recordId] = null:
-    upsert records[recordId] { principal: viewer, key, payload }
+mutation seedRecords(recordIds: [records] <=512, keys: [text <=1024] <=512, payloads: [json <=65536] <=512):
+  require count(recordIds) = count(keys) and count(keys) = count(payloads) else INVALID_BATCH
+  for position in range(0, 512):
+    for recordId in slice(recordIds, position, position + 1):
+      for key in slice(keys, position, position + 1):
+        for payload in slice(payloads, position, position + 1):
+          if records[recordId] = null:
+            upsert records[recordId] { principal: viewer, key, payload }
   return null

@@ -49,7 +49,7 @@ export async function prepare(payload, admitted, id = nextId++) {
   const frame = document.createElement('iframe'); frame.hidden = true;
   frame.setAttribute('aria-hidden', 'true'); document.body.append(frame);
   const win = frame.contentWindow;
-  let context = null, initializationError = null, busy = false, disposed = false, tail = Promise.resolve();
+  let context = null, initializationError = null, disposed = false, tail = Promise.resolve();
   let storage;
   win.addEventListener('error', event => { initializationError = event.message; event.preventDefault(); });
   win.__exact_host = (op, name, value) => {
@@ -88,12 +88,11 @@ export async function prepare(payload, admitted, id = nextId++) {
         pending.set(key(request), {call:answer.call,ticket:answer.ticket,requests:context.requests,owner:context.owner});
       }
       if (answer.tag !== 1) storage.retire(context.owner);
-      context = null; busy = false;
+      context = null;
       return result;
     };
     const begin = request => {
       if (disposed) throw new Error('module environment disposed');
-      busy = true;
       context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,requests:new Map()};
       if (request.op === 'answer') return JSON.parse(win.__exact_call(request.source,JSON.stringify(request.args)));
       const parked = pending.get(key(request));
@@ -104,13 +103,13 @@ export async function prepare(payload, admitted, id = nextId++) {
       win.__exact_fulfill(String(parked.ticket),JSON.stringify(request.outcome));
       return {tag:3,call:parked.call};
     };
-    const defer = (request, started = null) => {
+    const defer = request => {
       const token = nextTurn++;
       turns.set(token, {id, run: () => {
         const run = tail.then(async () => {
           if (disposed) throw new Error('module environment disposed');
           try {
-            let answer = started || begin(request);
+            let answer = begin(request);
             if (answer.tag === 3) {
               await checkpoint();
               if (disposed) throw new Error('module environment disposed');
@@ -125,7 +124,7 @@ export async function prepare(payload, admitted, id = nextId++) {
               answer = JSON.parse(win.__exact_settle(String(answer.call)));
             }
             return finish(answer,request);
-          } catch (error) { storage.retire(context?.owner); context = null; busy = false; throw error; }
+          } catch (error) { storage.retire(context?.owner); context = null; throw error; }
         });
         tail = run.catch(() => {}); return run;
       }});
@@ -133,11 +132,9 @@ export async function prepare(payload, admitted, id = nextId++) {
     };
     const realm = { frame, meta, id,
       invoke(request) {
-        if (busy) return defer(request);
-        try {
-          const answer = begin(request);
-          return answer.tag === 3 ? defer(request,answer) : finish(answer,request);
-        } catch (error) { const {reads,writes,externalRead} = context || {}; storage.retire(context?.owner); context = null; busy = false; return {error:String(error),reads,writes,externalRead}; }
+        // A context is installed only inside the queue that will finish it.
+        // The host may run continuation tokens in a different order from calls.
+        return defer(request);
       },
       dispose() {
         disposed = true; storage.dispose(); pending.clear(); realms.delete(id); frame.remove();

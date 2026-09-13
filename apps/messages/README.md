@@ -15,7 +15,9 @@ The build compiles that schema for a fresh device that starts offline. The foote
 shows whether changes are saved locally, waiting to sync, synced, or refused.
 A separate three-second source checks the server through normal grant-checked
 fetch; network waits do not block local edits. Acknowledged writes leave the durable
-outbox, and server snapshots replace predictions. New devices seed fixtures only
+outbox, and server snapshots replace predictions. Each edit groups up to 512 related
+records in one mutation; a refusal cannot commit just its preview or draft change.
+New devices seed fixtures only
 when those rows are absent, so opening another device preserves existing edits.
 This development backend shares one persona's local conversation collection;
 phone numbers do not connect to SMS or iMessage.

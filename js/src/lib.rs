@@ -54,6 +54,8 @@ use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
 use std::time::Instant;
 
+type NativeFactory = fn(&str) -> Box<dyn NativeModule>;
+
 /// The seam ABI this executor speaks; a module's `exact.abi` must equal it.
 pub const ABI: u32 = 1;
 /// Authoritative Ibex2 storage declarations included by the TypeScript bake.
@@ -112,7 +114,7 @@ pub struct Module {
     storage: Option<storage::Session>,
     directories: Option<storage::Directories>,
     host: Box<HostState>,
-    native_factory: Option<fn(&str) -> Box<dyn NativeModule>>,
+    native_factory: Option<NativeFactory>,
     sigs: HashMap<String, Sig>,
     parked: Vec<((String, Vec<u8>), Parked)>,
     budget_ms: f64,

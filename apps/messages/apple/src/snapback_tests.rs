@@ -2,7 +2,7 @@
 use exact_js::Module;
 use exact_js_value::{to_json, Shape};
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataSource, FailureKind, Outcome, Store};
+use exact_runner::{Answer, DataError, DataSource, FailureKind, Outcome, Store};
 use serde_json::Value as Json;
 use std::{
     path::PathBuf,
@@ -47,8 +47,11 @@ impl Device {
         self.module = Some(m);
     }
     fn call(&mut self, name: &str, args: Vec<Value>) -> Json {
+        self.try_call(name, args).unwrap()
+    }
+    fn try_call(&mut self, name: &str, args: Vec<Value>) -> Result<Json, DataError> {
         let m = self.module.as_mut().unwrap();
-        let mut answer = m.answer(&mut self.store, name, &args).unwrap();
+        let mut answer = m.answer(&mut self.store, name, &args)?;
         for _ in 0..200 {
             answer = match answer {
                 Answer::Now(value) => {
@@ -58,8 +61,9 @@ impl Device {
                         .iter()
                         .find(|row| self.plan.str(row.name) == name)
                         .unwrap();
-                    return to_json(&value, &Shape::from_plan(&self.plan, source.ty).unwrap())
-                        .unwrap();
+                    return Ok(
+                        to_json(&value, &Shape::from_plan(&self.plan, source.ty).unwrap()).unwrap(),
+                    );
                 }
                 Answer::Later(request) => {
                     let outcome = if let Some(token) = request.continuation {
@@ -72,7 +76,7 @@ impl Device {
                             message: "offline fixture".into(),
                         }
                     };
-                    m.parse(&mut self.store, name, &args, outcome).unwrap()
+                    m.parse(&mut self.store, name, &args, outcome)?
                 }
             };
         }
@@ -89,6 +93,51 @@ impl Device {
             ],
         )
     }
+}
+
+#[test]
+fn refused_native_save_preserves_draft_and_allows_the_next_edit() {
+    let mut d = Device::new();
+    let before = d.thread()["messages"].as_array().unwrap().len();
+    d.call(
+        "saveDraft",
+        vec![
+            Value::str("maya"),
+            Value::str("Keep my draft"),
+            Value::str(""),
+        ],
+    );
+    let send = |body: &str| {
+        vec![
+            Value::str("maya"),
+            Value::str(body),
+            Value::str(""),
+            Value::Number(0.),
+            Value::Number(45_000.),
+        ]
+    };
+    assert!(d
+        .try_call("sendMessage", send(&"🌲".repeat(20_000)))
+        .is_err());
+    for reopen in [false, true] {
+        if reopen {
+            d.reopen();
+        }
+        assert_eq!(d.thread()["messages"].as_array().unwrap().len(), before);
+        let inbox = d.call("inbox", vec![Value::str(""), Value::Number(0.)]);
+        let person = inbox["people"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == "maya")
+            .unwrap();
+        assert_eq!(person["draft"], "Keep my draft");
+    }
+    d.call("sendMessage", send("A valid later edit"));
+    assert_eq!(
+        d.thread()["messages"].as_array().unwrap().last().unwrap()["body"],
+        "A valid later edit"
+    );
 }
 impl Drop for Device {
     fn drop(&mut self) {
@@ -170,5 +219,89 @@ fn offline_messages_drafts_and_reactions_survive_the_real_native_reopen() {
             .filter(|r| ["inbox", "chat", "syncStatus"].contains(&d.plan.str(r.name)))
             .all(|r| r.reader),
         "bake records the storage dependency for post-pixel refresh"
+    );
+}
+
+#[test]
+fn one_ui_edit_is_one_mutation_and_a_refused_second_row_rolls_back_the_whole_batch() {
+    fn partition(d: &Device) -> exact_snapback4::Module {
+        assert!(
+            d.module.is_none(),
+            "the app releases its partition before inspection"
+        );
+        let mut core = exact_snapback4::Module::new(super::APP, super::GRANTS).unwrap();
+        core.configure_storage(
+            d.root.join("data"),
+            d.root.join("cache"),
+            d.root.join("tmp"),
+        )
+        .unwrap();
+        let path = super::GRANTS
+            .lines()
+            .find_map(|line| line.strip_prefix("sqlite.open "))
+            .unwrap();
+        core.call(&serde_json::json!({"op":"open", "path":path,
+            "origin":"http://127.0.0.1:4400", "viewer":"dev:alice"}))
+            .unwrap();
+        core
+    }
+    fn rows(core: &mut exact_snapback4::Module) -> Json {
+        core.call(&serde_json::json!({"op":"query", "name":"records",
+            "viewer":"dev:alice", "args":{"c":null}, "now":0}))
+            .unwrap()["ok"]
+            .clone()
+    }
+    fn queued(core: &mut exact_snapback4::Module) -> usize {
+        core.call(&serde_json::json!({"op":"queued"})).unwrap()["ok"]
+            .as_array()
+            .unwrap()
+            .len()
+    }
+    let mut d = Device::new();
+    d.thread();
+    d.module = None;
+    let mut core = partition(&d);
+    let before = queued(&mut core);
+    drop(core);
+    d.reopen();
+    d.call(
+        "sendMessage",
+        vec![
+            Value::str("maya"),
+            Value::str("One complete edit"),
+            Value::str(""),
+            Value::Number(0.),
+            Value::Number(1_000.),
+        ],
+    );
+    d.module = None;
+    let mut core = partition(&d);
+    assert_eq!(
+        queued(&mut core),
+        before + 1,
+        "preview, draft and message share one upload"
+    );
+    let kept = rows(&mut core);
+    let first = &kept["data"][0];
+    let mut changed = first["payload"].clone();
+    changed["uncommitted"] = Json::Bool(true);
+    let refused = core
+        .call(&serde_json::json!({"op":"predict", "name":"putRecords",
+        "viewer":"dev:alice", "now":0, "newIds":[], "entropy":1,
+        "args":{"recordIds":[first["id"], format!("{}:refused", first["id"].as_str().unwrap())],
+            "keys":[first["key"], first["key"]], "payloads":[changed, {"uncommitted":true}]}}))
+        .unwrap();
+    assert_eq!(refused["ok"]["denied"]["code"], "E_CONSTRAINT");
+    assert_eq!(
+        rows(&mut core),
+        kept,
+        "the second row's unique violation rolls back the first"
+    );
+    drop(core);
+    let mut reopened = partition(&d);
+    assert_eq!(
+        rows(&mut reopened),
+        kept,
+        "reopen retains the complete prior image"
     );
 }
