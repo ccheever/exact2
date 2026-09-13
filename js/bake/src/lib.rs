@@ -5,6 +5,8 @@
 #![deny(missing_docs)]
 
 mod resident;
+#[cfg(test)]
+mod sources_tests;
 pub use resident::Producer;
 
 use contract::DataSource;
@@ -147,6 +149,7 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 continue;
             }
             let path = entry.path();
+            let relative = path.strip_prefix(root).unwrap();
             let kind = entry.file_type().map_err(|e| e.to_string())?;
             if kind.is_symlink() {
                 return Err(format!("source links are not captured: {}", path.display()));
@@ -156,7 +159,10 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             } else if matches!(
                 path.extension().and_then(|s| s.to_str()),
                 Some("ts" | "json" | "contract" | "ttf" | "otf")
-            ) {
+            ) || ["assets", "deck", "gpu/shaders"]
+                .iter()
+                .any(|tree| relative.starts_with(tree))
+            {
                 if !kind.is_file() {
                     return Err(format!("source is not a regular file: {}", path.display()));
                 }
