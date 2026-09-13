@@ -44,6 +44,12 @@ impl DataSource for Messages {
     fn grants(&self) -> &str {
         GRANTS
     }
+    fn revision(&self) -> Option<&str> {
+        self.0.revision()
+    }
+    fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError> {
+        self.0.replacement(plan, receipt, module).map(Self)
+    }
     fn ready(&self) -> bool {
         self.0.ready()
     }

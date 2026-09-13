@@ -30,7 +30,7 @@
 //! `activate`; validation activation refuses storage even if configured. An app
 //! may instead wrap the same inherent `call` in its TypeScript executor's native
 //! hook. Shared application logic owns `/schema`, `/sync`, `/changes`, and
-//! `/flush` through ordinary grant-checked fetch; this module owns the partition,
+//! `/m/{operation}` through ordinary grant-checked fetch; this module owns the partition,
 //! local named queries/predictions, watermark, and durable outbox only.
 
 use exact_plan::Value;
@@ -203,7 +203,8 @@ impl Module {
             .is_none()
         {
             let mut bytes = [0u8; 16];
-            getrandom::fill(&mut bytes).map_err(|e| format!("Snapback4 device entropy: {e}"))?;
+            ibex2::stdlib::crypto::get_random_values(&mut bytes)
+                .map_err(|e| format!("Snapback4 device entropy: {e}"))?;
             let identity: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
             device
                 .set_meta("exact:device", &identity)

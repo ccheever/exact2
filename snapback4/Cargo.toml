@@ -9,7 +9,6 @@ description = "App-scoped Snapback4 native device, behind Exact's data seam."
 [dependencies]
 exact-plan = { path = "../plan" }
 exact-runner = { path = "../runner" }
-getrandom = "0.3"
 ibex2 = { path = "../../ibex/crates/ibex2", default-features = false }
 serde_json = "1"
 snapback4-device = { path = "../../snapback-sb4/snapback4/crates/snapback4-device" }

@@ -15,6 +15,19 @@ export type Records=Map<string,unknown>;
 const backend=compiledBackend as unknown as Backend;
 const headers={'content-type':'application/json','x-snapback-persona':persona};
 const absent='native storage is unavailable during bake or in an unconfigured host';
+const restoring='The server rejected a change; waiting to restore its saved version.';
+const payloadLimit=(backend.schema.tables.records.columns.payload as {Json:{max_bytes:number}}).Json.max_bytes;
+// UTF-8 bytes without a browser-only TextEncoder in the native data module.
+function jsonBytes(text:string):number {
+  let bytes=0;
+  for(let i=0;i<text.length;i++){
+    const n=text.charCodeAt(i);
+    if(n<128)bytes++;else if(n<2048)bytes+=2;
+    else if(n>=0xd800 && n<=0xdbff && text.charCodeAt(i+1)>=0xdc00 && text.charCodeAt(i+1)<=0xdfff){bytes+=4;i++;}
+    else bytes+=3;
+  }
+  return bytes;
+}
 
 export function nativeCore(native:NativeModule|undefined|null):Core|null|undefined {
   if(!native)return undefined;
@@ -38,6 +51,7 @@ export class MessagesReplica {
   private queued=0;
   private online=false;
   private error='';
+  private needsSnapshot=false;
   namespace='';
   private constructor(private core:Core) {}
   static async open(storage:Storage,core:Core|undefined):Promise<MessagesReplica> {
@@ -47,6 +61,8 @@ export class MessagesReplica {
     client.counter=Number(await client.call<string|null>({op:'meta',key:'exact:counter'}))||0;
     client.namespace=`${client.device}:${await client.next()}:`;
     client.generation=(await client.call<{generation:number}>({op:'state'})).generation;
+    client.needsSnapshot=await client.call({op:'meta',key:'exact:needs-snapshot'})==='1';
+    client.error=await client.call<string|null>({op:'meta',key:'exact:save-error'})||'';
     // Reconstruct a prediction if the process stopped after queueing it.
     for(const entry of await client.call<Queued[]>({op:'queued'}))await client.call({op:'predict',name:entry.op,viewer,args:entry.args,now:0,newIds:entry.new_ids,entropy:entry.seq});
     client.queued=(await client.call<Queued[]>({op:'queued'})).length;
@@ -67,8 +83,8 @@ export class MessagesReplica {
     return rows;
   }
   initial():Records{return this.held;}
-  status():string {return this.error || (this.queued?`${this.queued} change${this.queued===1?'':'s'} saved on this device; waiting to sync.`:this.online?'Synced':'Saved on this device.');}
-  failed(error:unknown):void {this.error=`Could not save: ${error instanceof Error?error.message:String(error)}`;}
+  status():string {return (this.needsSnapshot?restoring:this.error) || (this.queued?`${this.queued} change${this.queued===1?'':'s'} saved on this device; waiting to sync.`:this.online?'Synced':'Saved on this device.');}
+  async failed(error:unknown):Promise<void> {this.error=`Could not save: ${error instanceof Error?error.message:String(error)}`;await this.call({op:'set_meta',key:'exact:save-error',value:this.error});}
   async seed(records:Records):Promise<void> {
     if(await this.call({op:'meta',key:'exact:initialized'}))return;
     await this.persist(records,true);
@@ -76,9 +92,17 @@ export class MessagesReplica {
     await this.call({op:'set_meta',key:'exact:initialized',value:'1'});
   }
   async persist(records:Records,seed=false):Promise<void> {
+    const changes:[string,unknown][]=[];
+    // Validate the entire edit before queueing any of its records. Both twins
+    // use the schema's byte limit, even if a replica interpreter is permissive.
     for(const key of new Set([...(seed?[]:this.held.keys()),...records.keys()])) {
-      const payload=records.has(key)?records.get(key):null;
-      if(JSON.stringify(this.held.get(key)??null)===JSON.stringify(payload))continue;
+      const payload=records.has(key)?records.get(key):null,text=JSON.stringify(payload);
+      if(JSON.stringify(this.held.get(key)??null)===text)continue;
+      if(text===undefined || jsonBytes(text)>payloadLimit)throw new Error(`A Messages record exceeds ${payloadLimit} UTF-8 bytes.`);
+      if([...key].length>1024)throw new Error('A Messages record key is too long.');
+      changes.push([key,payload]);
+    }
+    for(const [key,payload] of changes) {
       const seq=await this.next(),id=`${this.device}:${seq}`;
       const entry:Queued={id,seq,op:seed?'seedRecord':'putRecord',args:{recordId:this.recordId(key),key,payload},new_ids:[],predicted:[]};
       // Queue first: a crash before prediction still leaves an uploadable write.
@@ -91,6 +115,7 @@ export class MessagesReplica {
       }catch(error){await this.call({op:'dequeue',id});this.queued--;throw error;}
       if(payload===null)this.held.delete(key);else this.held.set(key,payload);
     }
+    if(changes.length && this.error){await this.call({op:'set_meta',key:'exact:save-error',value:''});this.error='';}
   }
   private async request(endpoint:string,body?:unknown):Promise<Request> {
     const response=await fetch(`${origin}${endpoint}`,{headers,...(body===undefined?{}:{method:'POST',body:JSON.stringify(body)})});
@@ -105,25 +130,29 @@ export class MessagesReplica {
     try {
       const fresh=await this.request('/schema') as unknown as Backend;
       if(!fresh.schema?.tables.records || !fresh.programs?.some(p=>p.name==='putRecord'))throw new Error('The local Snapback origin is not the Messages backend');
-      if(fresh.generation!==this.generation)await local(async()=>{await this.call({op:'adopt',backend:fresh});this.generation=fresh.generation;});
+      const changedGeneration=fresh.generation!==this.generation;
       for(const entry of await local(()=>this.call<Queued[]>({op:'queued'}))) {
         const sent=await this.request(`/m/${entry.op}`,{id:entry.id,args:entry.args,newIds:entry.new_ids});
         if(sent.state!=='sent' && sent.state!=='failed')throw new Error('Snapback returned an unsettled write');
         await local(async()=>{
-        await this.call({op:'dequeue',id:entry.id});this.queued--;
         if(sent.state==='failed'){
-          await this.call({op:'withdraw',predicted:[`records/${String(entry.args.recordId)}`]});
-          await this.call({op:'clear_rows'});
-          this.error='The server rejected a change; the saved server version was restored.';
+          // Keep the durable partition until a replacement actually arrives.
+          // Persist this obligation before removing the rejected outbox entry.
+          await this.call({op:'set_meta',key:'exact:needs-snapshot',value:'1'});
+          this.needsSnapshot=true;
           console.warn('Snapback rejected a Messages edit',sent.why||sent.denied);
         }
+        await this.call({op:'dequeue',id:entry.id});this.queued--;
         });
       }
-      let watermark=(await local(()=>this.call<{watermark:number}>({op:'state'}))).watermark;
+      let watermark=this.needsSnapshot||changedGeneration?0:(await local(()=>this.call<{watermark:number}>({op:'state'}))).watermark;
       let after:string|undefined,first=true;
       for(;;){
         const page=await this.request(`/sync?from=${watermark}&limit=4000${after?`&after=${encodeURIComponent(after)}`:''}`);
-        await local(()=>this.call({op:'apply',page,first}));first=false;
+        await local(async()=>{
+          if(first && changedGeneration){await this.call({op:'adopt',backend:fresh});this.generation=fresh.generation;}
+          await this.call({op:'apply',page,first});
+        });first=false;
         if(page.snapshot && page.more && page.next){after=String(page.next);continue;}
         after=undefined;watermark=Number(page.watermark);
         if(!page.more)break;
@@ -134,6 +163,7 @@ export class MessagesReplica {
       for(const entry of await this.call<Queued[]>({op:'queued'}))await this.call({op:'predict',name:entry.op,viewer,args:entry.args,now:0,newIds:entry.new_ids,entropy:entry.seq});
       const current=await this.read();
       const changed=JSON.stringify([...current].sort())!==JSON.stringify([...this.held].sort());
+      if(this.needsSnapshot){await this.call({op:'set_meta',key:'exact:needs-snapshot',value:'0'});this.needsSnapshot=false;}
       this.held=current;this.online=true;
       if(changed)settle(current);
       });

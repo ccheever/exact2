@@ -780,7 +780,6 @@ version = "0.1.0"
 dependencies = [
  "exact-plan",
  "exact-runner",
- "getrandom 0.3.4",
  "ibex2",
  "serde_json",
  "snapback4-core",

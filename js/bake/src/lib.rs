@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// actual target/grants receipt to OUT_DIR; source files stay untouched.
 /// This development slice requires an updater-free composition (store L=0).
 pub fn build(app: &Path, platform: &str) -> Result<(), String> {
-    if !matches!(platform, "web" | "macos" | "ios") {
+    if !matches!(platform, "web" | "macos" | "ios" | "linux") {
         return Err(format!(
             "module client executor is not yet implemented for {platform}"
         ));

@@ -385,16 +385,31 @@ export const answer: Answer = (source,args,store,storage,native) => {
   const core=configuredCore;
   if(core===null)return sources[source](args,store,storage,native);
   const ready=async()=>{
-    if(!replica){const client=await MessagesReplica.open(storage,core);namespace=client.namespace;await client.seed(snapshot());restore(client.initial());replica=client;}
+    if(configuredCore===null)return undefined;
+    if(!replica){
+      try{const client=await MessagesReplica.open(storage,core);namespace=client.namespace;await client.seed(snapshot());restore(client.initial());replica=client;}
+      catch(error){
+        if((error instanceof Error?error.message:String(error))!=='storage is unavailable in agent mode')throw error;
+        configuredCore=null;opened=true;return undefined;
+      }
+    }
     return replica;
   };
   // Network awaits never hold the local action queue. Only applying a received
   // page and replacing the model enter the same short gate as local edits.
-  if(source==='syncMessages')return local(ready).then(async client=>{const previous=client.status();await client.sync(Number(args[0]),local,restore);if(previous!==client.status())revision++;return changed();});
+  if(source==='syncMessages')return local(ready).then(async client=>{if(!client)return changed();const previous=client.status();await client.sync(Number(args[0]),local,restore);if(previous!==client.status())revision++;return changed();});
   return local(async()=>{
     const client=await ready();
+    if(!client)return sources[source](args,store,storage,native);
+    const previousPending=new Map(pending),previousTicks=ticks;
     const value=await sources[source](args,store,storage,native);
-    try{await client.persist(snapshot());}catch(error){client.failed(error);revision++;throw error;}
+    try{await client.persist(snapshot());}catch(error){
+      restore(client.initial());pending.clear();for(const [id,activity] of previousPending)if(!deleted.has(id)&&!blocked.has(id)&&threads.has(id))pending.set(id,activity);ticks=previousTicks;
+      // A failed save must not leave an invalid model that every later read
+      // tries to save again. Report the original error even if disk is full.
+      try{await client.failed(error);}catch{/* The runner still receives the save failure. */}
+      throw error;
+    }
     return value;
   });
 };
