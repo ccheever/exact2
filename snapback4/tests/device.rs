@@ -41,7 +41,7 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         let mut id = [0u8; 16];
-        getrandom::fill(&mut id).unwrap();
+        ibex2::stdlib::crypto::get_random_values(&mut id).unwrap();
         let id: String = id.iter().map(|b| format!("{b:02x}")).collect();
         Self(std::env::temp_dir().join(format!("exact-snapback4-{id}")))
     }
