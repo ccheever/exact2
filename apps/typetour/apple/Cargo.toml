@@ -1,0 +1,21 @@
+[package]
+name = "typetour-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Type Tour on Apple platforms: the host's C exports over its baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "typetour_apple"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+typetour-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+typetour-data = { path = "../data" }
