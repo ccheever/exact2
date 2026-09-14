@@ -3,8 +3,11 @@
 Tooling runs on **Bun 1.3.12 or newer** (release toolchain pinned in `package.json`).
 Run `bun install --frozen-lockfile` to install the dependencies in `bun.lock`.
 Node and npm are not required. Rolldown remains the app bundler; the existing
-build, serve, watch, and reload scripts run under Bun. This is the source
+build, serve, watch, and reload scripts run under Bun. Run tooling unit tests with
+`bun test ./scripts/install-page.test.mjs ./scripts/rust.test.mjs`; the explicit
+paths keep Bun from searching generated fixture checkouts. This is the source
 tooling installation; a standalone CLI distribution is not packaged yet.
+
 
 A cross-platform application runtime. The Rust kernel computes layout, each platform
 renders natively, and Contract is the authoring model.
@@ -94,10 +97,10 @@ URL. Device builds require a connected, provisioned phone. `--url` overrides
 `EXACT_DEV_PLAN` for this launch; it does not change the app's production origin.
 An external app uses these commands with `EXACT_APP_DIR` set as usual.
 Plans and assets reload through the native URL loader. Admitted TypeScript
-module clients also reload logic on web/macOS/iOS; native Rust logic remains
-binary-bound. Once built, an agent can drive
+module clients reload logic on web/macOS/iOS; declared Rust modules reload on
+web/macOS/iOS/Linux using the executor selected below. Once built, an agent can drive
 the same URL with `bun scripts/agent.mjs macos --url http://127.0.0.1:8765/ tree state logs`
-(also `web`, `ios`, and `linux`; Linux fetches once at launch).
+(also `web`, `ios`, and `linux`; Linux polls the same URL after first pixel).
 The Go/custom-client sequence
 is in [LLP 1030.000 §7](llp/1030.000-dev-server-as-deployer.rfc.md#7-exact2-go-and-custom-development-clients--implementation-direction).
 
@@ -162,7 +165,7 @@ Native module clients can supply a `Module` factory to `exact_apple::host!`
 through `ExactApp.applyGeneration`. All sessions prepare before any commit;
 changed logic re-asks resources while preserving compatible slots and clock.
 Initial module loading happens after first pixel. The binary's app identity
-and grants must match; Rust-only clients refuse module replacement. Pairing
+and grants must match; a client must include the candidate's executor. Pairing
 hashes are not authentication: this API requires an admitted development origin,
 and does not accept signed-delivery generation tokens.
 
@@ -292,3 +295,113 @@ neither input.
 `kernel/tables/schema.json` is the one declaration authority for node types, props,
 style rows, enums, and opcodes; `kernel/build.rs` generates the Rust from it at build
 time. Edit the table, never the generated code.
+
+## Installation page
+
+Every web build includes `/.exact/install/`, with explicit `web/`, `ios/` and
+`macos/` pages. Each shows stacked Web, iOS and macOS sections; unavailable
+platforms are gray. Web works by default and shows its destination URL. Native
+methods appear only when configured. The header shows build/source/timestamp
+and serving context. Optional `brand.logo` and `brand.wordmark` reuse app images
+or a text wordmark with an asset font; the footer uses the gray Exact mark.
+
+Configure `install.<platform>.methods` in the app’s `app.json`; use
+`recommended` to name a configured method. See [LLP 1030.003 D6a](llp/1030.003-continuous-release-loop.rfc.md#d6a--the-standard-install-page)
+for the schema and examples. A method links to an already available installation
+flow; configuring it does not build, sign, upload or verify a native app.
+`terminal` displays a command and offers Copy, never executes it.
+
+On a Mac, the development server adds a dev-only iOS method to the page. It lists
+available iOS Simulators and reachable paired devices, then **Build and install**
+runs the existing `--ios --sim` or development-signed `--device` build, installs
+the app, and opens it on the same development URL. Simulator builds work from a
+loopback server. A physical phone must be unlocked, paired, in Developer Mode and
+able to reach the server, so start without `--loopback` and use a printed LAN URL
+for that case. The request is same-origin and protected by a random token that
+exists only for that server process. Static and hosted pages never expose it.
+
+For additional web destinations, set `install.web.urls` to entries such as
+`{"label":"Public", "url":"https://interview.example/"}` alongside the web
+method. These are explicit HTTPS destinations; the build does not guess a public
+hostname. Development install pages also list localhost and interface addresses
+for the actual listener, labeling LAN and Tailscale/VPN addresses. Loopback-only
+servers omit other interfaces. Published pages do not expose the host's private
+network addresses. Address discovery uses the OS interface list, with no external
+commands on the request path.
+
+## Rust live replacement
+
+Rust replacement is enabled by default in development and production: native
+shared libraries on macOS/Linux, the browser's Wasm executor on web, and the
+`wasmi` interpreter on iOS devices and simulators. Native hosts start with their
+linked Rust; interpreted execution applies to replaced logic. Android/Windows
+have policy defaults but their hosts remain future work. See
+[LLP 1029.000](llp/1029.000-rust-development-reload.rfc.md) for the boundary and
+verification status.
+
+Control inclusion in `app.json`. `"rust": false` disables everywhere;
+`"rust": {"prod": false}` keeps it in development only. A platform can override
+both or either environment:
+
+```json
+{
+  "rust": {
+    "module": { "package": "caltrain-logic" },
+    "platforms": {
+      "ios": { "prod": false },
+      "macos": { "prod": "wasm" }
+    }
+  },
+  "dev": { "rebuild": { "rust": "manual", "typescript": "save" } }
+}
+```
+
+Modes are `auto`, `native`, `tiered`, `wasm`, and `off`; `true` means `auto` and `false`
+means `off`. Resolution is global → environment → platform → platform environment.
+`off` removes the replacement path from the native bake; changing that requires
+a new binary. TypeScript and delivery cadence remain separate choices. Save is
+the default trigger for both languages while the development watcher runs;
+manual is useful when an agent wants to finish a set of edits before rebuilding.
+After the app's initial web bake, run `bun scripts/rust.mjs caltrain` to build
+the independent Rust module variants; the running dev server consumes the
+completed output. At the dev
+server’s terminal, `r` + Enter rebuilds Rust and `t` + Enter rebuilds TypeScript.
+
+For portable modules without essential private state,
+`"rust": {"platforms": {"macos": {"dev": "tiered"}}}` runs new Wasm immediately
+after publication and promotes to native when the library finishes loading.
+Both variants must declare `exact_logic_abi::export!(Data, constructor, stateless)`:
+essential state lives in host inputs, Contract or host-owned storage; initialization
+and destruction have no external effects. Promotion preserves the app generation
+and does not restart TypeScript or replay business calls. Native loading failures
+leave Wasm running. This mode adds the interpreter and both artifact variants;
+explicit `native` avoids that interpreter. The usual dev/prod overrides apply,
+but `tiered` is unavailable on iOS/web. Update Lab opts in for macOS development;
+`auto` defaults are unchanged. Both variants still compile before publication.
+
+The repository's app entries use `contract::rust_entry` to select a concrete
+factory at bake time. A custom host adapter must do the same (and depend on
+`exact-logic`), or compose `Swappable::native`, `Swappable::tiered`, `Swappable::wasm` or
+`Swappable::browser` explicitly. Merely declaring a module does not retrofit
+a custom, manually implemented `DataSource` host.
+
+[Update Lab](apps/update-lab/README.md) composes one Rust probe with one
+TypeScript executor. Its complete development candidate carries both modules,
+so a TypeScript or Contract edit retains the last accepted Rust version.
+
+The replacement unit is the declared portable logic-wrapper `cdylib`, not an individual
+Rust function or file. Keep business logic in small Cargo crates and native I/O
+in host adapters; Cargo reuses unchanged helpers, but their dependent loadable
+module still relinks. Independent replacement of several domains requires
+separate loadable artifacts and explicit host composition; a multi-module
+manifest registry is not implemented.
+
+Production capability does not grant store permission to deliver arbitrary
+code updates. Apple's [review guidelines](https://developer.apple.com/app-store/review/guidelines/)
+restrict downloaded feature-changing code, including interpreted code; Google
+Play's [policy](https://support.google.com/googleplay/android-developer/answer/16559646?hl=en)
+restricts downloaded native `.so` code and describes a VM/interpreter exception.
+Use the production opt-out where the app's distribution requires it. Native
+macOS libraries also need platform-appropriate code signing: the production
+producer requires `EXACT_RUST_SIGN_IDENTITY` for the host's signing team, or
+select `wasm` for macOS production.

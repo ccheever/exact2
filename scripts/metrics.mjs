@@ -8,6 +8,7 @@
  *   bun scripts/metrics.mjs --json     one JSON object
  *   bun scripts/metrics.mjs --app <name> measure that resolved app
  *   bun scripts/metrics.mjs --scaling  runner workloads (300/3000/10000 rows), no browser
+ *   bun scripts/metrics.mjs --list-memory  fresh-process eager-list heap/RSS baseline (25/1000/25000)
  *   bun scripts/metrics.mjs --interaction <testId> first browser action to measure
  *   bun scripts/metrics.mjs --rebuild  also time an app edit → wasm rebuild (the cold path)
  *   bun scripts/metrics.mjs --long     also the macOS host: an initial build, a touch-one-line
@@ -33,7 +34,7 @@ const appName = process.argv.includes('--app') ? process.argv[process.argv.index
 const app = resolveApp(appName);
 // The child uses the captured scripts and inputs; only this invocation's
 // resolved root bypasses capture. Foreign inherited markers cannot do so.
-if (!process.argv.includes('--scaling') && process.env.EXACT_DIAGNOSTIC_ROOT !== ROOT) {
+if (!process.argv.includes('--scaling') && !process.argv.includes('--list-memory') && process.env.EXACT_DIAGNOSTIC_ROOT !== ROOT) {
   const code = await withAppFixture(app, async ({ exactRoot, env }) => {
     // The captured source excludes node_modules. Resolve the pinned toolchain
     // inside this private checkout, rather than borrowing the live workspace.
@@ -67,6 +68,53 @@ if (process.env.EXACT_DIAGNOSTIC_ROOT === ROOT) {
 }
 // Opt-in large workloads run in the existing metrics binary. No browser or
 // rebuild is needed to compare runner algorithms on one fixed machine.
+if (process.argv.includes('--list-memory')) {
+  if (process.argv.includes('--scaling')) throw new Error('choose --list-memory or --scaling');
+  const env = { ...developmentBuildEnv(), EXACT_APP_DIR: resolve(ROOT, 'apps/caltrain') };
+  const built = spawnSync('cargo', ['build', '-q', '--release', '-p', 'caltrain-web', '--bin', 'metrics'],
+    { cwd: ROOT, encoding: 'utf8', env });
+  if (built.status !== 0) { console.error(built.error?.message ?? built.stderr); process.exit(built.status ?? 1); }
+  const binary = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'release/metrics');
+  out.identity.binary_sha256 = sha256(readFileSync(binary));
+  const sample = (count) => new Promise((done, fail) => {
+    const child = spawn(binary, ['--list-memory', String(count), '--hold'], { cwd: ROOT, env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '', result, failure;
+    const timer = setTimeout(() => { failure = new Error(`list memory: ${count} rows exceeded 60 s`); child.kill(); }, 60000);
+    child.once('error', error => { clearTimeout(timer); fail(error); });
+    child.stdin.on('error', error => { failure ??= error; child.kill(); });
+    child.stderr.on('data', bytes => { stderr = (stderr + bytes).slice(-8192); });
+    child.stdout.on('data', bytes => {
+      stdout += bytes;
+      if (result || failure || !stdout.includes('\n')) return;
+      try {
+        result = JSON.parse(stdout.slice(0, stdout.indexOf('\n')));
+        // Both Darwin and Linux ps report this column in KiB. This is RSS,
+        // not Apple's phys_footprint and not a decoded-image measurement.
+        const rss = ['darwin', 'linux'].includes(platform())
+          ? spawnSync('ps', ['-o', 'rss=', '-p', String(child.pid)], { encoding: 'utf8', timeout: 5000 }) : null;
+        const kib = Number(rss?.stdout?.trim());
+        result.process_rss_bytes = rss?.status === 0 && kib > 0 ? kib * 1024 : null;
+        result.rss_note = result.process_rss_bytes == null ? 'unmeasured: ps RSS unavailable' : 'ps RSS while the runner is alive; process total, not phys_footprint';
+        child.stdin.end('\n');
+      } catch (error) { failure = error; child.kill(); }
+    });
+    child.once('close', code => {
+      clearTimeout(timer);
+      if (failure || code !== 0 || !result) fail(failure ?? new Error(`list memory: ${count} rows exited ${code}: ${stderr}`));
+      else done(result);
+    });
+  });
+  out.list_memory = [];
+  for (const count of [25, 1000, 25000]) out.list_memory.push(await sample(count));
+  out.list_memory_note = 'One fresh process per size; synthetic eager rows, one text leaf per row, monospace layout. Heap is net System allocator requested bytes after compilation (data + decoded plan + runner + kernel); peak excludes allocator-internal realloc transients. Encoded input, allocator slack, stacks and host allocations are excluded from heap, included where resident in RSS. First pixel, native views and decoded image bytes are unmeasured. Memory tracking adds allocator overhead to these construction timings; this is not a frame-rate benchmark.';
+  if (json) console.log(JSON.stringify(out));
+  else {
+    console.log(`Eager list memory baseline — ${JSON.stringify(out.identity)}`);
+    for (const r of out.list_memory) console.log(`  ${r.rows} rows: ${r.live_kernel_nodes} nodes; data ${r.data_heap_bytes} B; plan ${r.decoded_plan_heap_bytes} B; retained heap ${r.retained_heap_delta_bytes} B; peak ${r.peak_heap_delta_bytes} B; RSS ${r.process_rss_bytes ?? 'unmeasured'} B; boot ${r.runner_boot_ms} ms; layout ${r.layout_ms} ms`);
+    console.log(out.list_memory_note);
+  }
+  process.exit(0);
+}
 if (process.argv.includes('--scaling')) {
   const run = spawnSync('cargo', ['run', '-q', '--release', '-p', 'caltrain-web', '--bin', 'metrics', '--', '--scaling'],
     { cwd: ROOT, encoding: 'utf8', env: { ...developmentBuildEnv(), EXACT_APP_DIR: resolve(ROOT, 'apps/caltrain') } });

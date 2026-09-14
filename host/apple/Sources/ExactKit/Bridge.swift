@@ -1,4 +1,4 @@
-// The Swift face of the C ABI (host/apple/include/exact.h, v5): one
+// The Swift face of the C ABI (host/apple/include/exact.h, v6): one
 // `Runtime` per handle — created by `exact_create`, freed by
 // `exact_destroy` — and one typed batch per call. Every export takes the
 // handle (LLP 1031 D2), so a session that owns a runtime owns everything
@@ -17,6 +17,7 @@ public struct Batch {
     /// The runner's clock after the call, milliseconds (LLP 1012 `clock`).
     public let clock: Double?
     public let error: String?
+    public var pending = false
 }
 
 /// A runtime handle and its calls. `destroy` is idempotent at this layer and
@@ -50,7 +51,7 @@ final class Runtime {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return Batch(ops: [], timers: false, motion: false, clock: nil, error: "unreadable batch")
         }
-        return Batch(ops: obj["ops"] as? [[String: Any]] ?? [], timers: obj["timers"] as? Bool ?? false, motion: obj["motion"] as? Bool ?? false, clock: obj["clock"] as? Double, error: obj["error"] as? String)
+        return Batch(ops: obj["ops"] as? [[String: Any]] ?? [], timers: obj["timers"] as? Bool ?? false, motion: obj["motion"] as? Bool ?? false, clock: obj["clock"] as? Double, error: obj["error"] as? String, pending: obj["pending"] as? Bool ?? false)
     }
     /// A payload into the runtime's input buffer; its length. An empty
     /// payload clears the buffer without dereferencing anything.
@@ -74,12 +75,12 @@ final class Runtime {
         return read(exact_prepare_plan(rt, token, n, Float(width), Float(height)))
     }
     func commitPlan() -> Batch { read(exact_commit_plan(rt)) }
-    func prepareModule(_ plan: Data, module: ExactModule, width: CGFloat, height: CGFloat) -> Batch {
+    func prepareModule(_ plan: Data, module: ExactModule, token: UInt64 = 0, width: CGFloat, height: CGFloat) -> Batch {
         var payload = plan
         payload.append(module.receipt)
         payload.append(module.bytecode)
         _ = write(payload)
-        return read(exact_prepare_module(rt, plan.count, module.receipt.count, module.bytecode.count, Float(width), Float(height)))
+        return read(exact_prepare_module(rt, token, plan.count, module.receipt.count, module.bytecode.count, Float(width), Float(height)))
     }
     func dataReady() -> Batch { read(exact_data_ready(rt)) }
     func discardPlan() { exact_discard_plan(rt) }

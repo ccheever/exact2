@@ -16,6 +16,23 @@ let memory = null;
 let inputReady = false;
 const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
+let rustLoader = null, rustLoading = null;
+const rustImports = Object.fromEntries(['load', 'call', 'read', 'drop'].map(name => [name, (...args) => {
+  if (!rustLoader) throw new Error('Rust module loader is not ready');
+  return rustLoader[name](...args);
+}]));
+function loadAfterPaint(file, exported) {
+  return new Promise((resolve,reject)=>{
+    const script=document.createElement('script');script.type='module';script.src=new URL(file,import.meta.url).href;
+    script.onload=()=>resolve(globalThis.exact[exported]);script.onerror=()=>reject(new Error('host module loader failed: '+file));document.head.append(script);
+  });
+}
+async function loadRust() {
+  if (rustLoader) return;
+  rustLoading ??= loadAfterPaint('./rust-glue.js','createRustRuntime')
+    .then(create=>{rustLoader=create(()=>memory);}).catch(error=>{rustLoading=null;throw error;});
+  await rustLoading;
+}
 let resolveModuleReady;
 const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
 // Baked content is readable and scrollable before the data executor arrives.
@@ -699,6 +716,24 @@ function apply(batch) {
         } catch (e) { console.warn("exact: store", op.name, String(e)); }
         break;
       }
+      case "storage": {
+        const requestIncarnation=incarnation;
+        const p=Promise.resolve().then(async()=>{
+          if(agentMode)throw new Error('storage is unavailable in agent mode');
+          await moduleReady; if(!inputReady)throw new Error('data executor is unavailable');
+          if(requestIncarnation!==incarnation)throw new Error('storage source unloaded');
+          if(!storageRequests){
+            const app=globalThis.exact.compat.inputs.app, scope=grants.join('\n');
+            const pending=loadAfterPaint('./storage-request.js','createStorageRequests').then(create=>create(app,scope)).catch(error=>{if(storageRequests===pending)storageRequests=null;throw error;});
+            storageRequests=pending;
+          }
+          const service=await storageRequests;
+          if(requestIncarnation!==incarnation)throw new Error('storage source unloaded');
+          return service.run(op.payload,op.scope);
+        }).then(bytes=>safelyFulfill(requestIncarnation,op.ticket,5,0,"",bytes))
+          .catch(error=>safelyFulfill(requestIncarnation,op.ticket,3,0,"",enc.encode(String(error))));
+        inflight.add(p);p.finally(()=>inflight.delete(p));break;
+      }
       case "continue": {
         const requestIncarnation = incarnation;
         const p = Promise.resolve().then(() => moduleLoader.run(op.token))
@@ -709,15 +744,11 @@ function apply(batch) {
         break;
       }
       case "request": {
-        // A request the runner handed the page to run (LLP 1016 D2): the
-        // browser is the executor and the authority (CORS); the app's grant
-        // is checked here too, so a refusal is the same on every host. The
-        // reply — any status, or no response — goes back through
-        // `exact_fulfill` on this thread; the batch it makes is applied
-        // like any other.
+        // Host and source scopes both admit the request (LLP 1027.001 D2).
         const { ticket, method, url, headers, body, cache } = op;
         const requestIncarnation = incarnation;
-        if (!granted(url)) {
+        const scopeValid = op.scope == null || typeof op.scope === 'string' && op.scope.split('\n').map(s=>s.trim()).filter(Boolean).every(s=>grants.map(g=>g.trim()).includes(s));
+        if (!scopeValid || !granted(url) || !granted(url,op.scope)) {
           deferFulfill(requestIncarnation, ticket, 2, 0, "", enc.encode(`refused by grant: ${url}`));
           break;
         }
@@ -730,7 +761,7 @@ function apply(batch) {
         }
         const controller = new AbortController();
         controllers.add(controller);
-        const init = { method, headers, cache: cache === "reload" ? "reload" : "default", signal: controller.signal };
+        const init = { method, headers, redirect: op.scope == null ? "follow" : "error", cache: cache === "reload" ? "reload" : "default", signal: controller.signal };
         if (decodedBody) init.body = decodedBody;
         const p = fetch(url, init)
           .then(async (r) => safelyFulfill(requestIncarnation, ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), new Uint8Array(await r.arrayBuffer())))
@@ -893,17 +924,18 @@ function commitFonts(faces) {
 // batch), the fetches in flight (the agent's `settle` waits on them), and
 // the reply path into the wasm.
 let grants = [];
+let storageRequests = null;
 const inflight = new Set();
 const controllers = new Set();
 let incarnation = 0;
 const enc = new TextEncoder();
-function granted(url) {
+function granted(url, scope = null) {
   // A `net.fetch` grant is an origin — scheme, host, port — matched whole,
   // as ibex2 matches it on the native hosts (LLP 0067): the same refusal
   // everywhere. A URL that does not parse is outside every grant.
   let origin;
   try { origin = new URL(url).origin; } catch { return false; }
-  return grants.some((g) => {
+  return (scope == null ? grants : scope.split("\n")).map(g=>g.trim()).some((g) => {
     const [kind, granted] = g.split(/\s+/, 2);
     if (kind !== "net.fetch" || !granted) return false;
     try { return new URL(granted).origin === origin; } catch { return false; }
@@ -1270,6 +1302,11 @@ async function clock(request) {
 }
 
 let ticker = null;
+function activateData() {
+  const batch = JSON.parse(readOut(wasm.exact_data_ready()));
+  if (batch.error) throw new Error(batch.error);
+  applyBatch(batch); setInputReady(true); root.dataset.moduleReady = 'true';
+}
 
 // Boot the app — from the plan baked into the wasm, or from `bytes` (the
 // dev loop's restart carrying compatible state, LLP 1007 §6).
@@ -1289,7 +1326,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   if (!current() || request !== bootAttempt) return null;
   let len;
   if (module) {
-    const id = new TextEncoder().encode(JSON.stringify(module.realm.id));
+    const id = module.rust ?? new TextEncoder().encode(JSON.stringify(module.realm.id));
     const payload = new Uint8Array(plan.length + module.receipt.length + id.length);
     payload.set(plan); payload.set(module.receipt, plan.length); payload.set(id, plan.length + module.receipt.length);
     ptr = wasm.exact_in(payload.length); new Uint8Array(memory.buffer, ptr, payload.length).set(payload);
@@ -1301,7 +1338,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   } else len = wasm.exact_boot();
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
-  if (module) { activeModule?.realm.dispose(); activeModule = module; setInputReady(true); }
+  if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); }
   const oldAssets = devAssets;
   devAssets = assets;
   shaderCommit?.();
@@ -1322,6 +1359,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   pendingScrolls.clear();
   views.clear();
   messageFrames.clear();
+  if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = [];
   for (const controller of controllers) controller.abort();
   controllers.clear();
@@ -1329,6 +1367,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   root.replaceChildren();
   commitFonts(preparedFonts);
   const timers = applyBatch(batch).timers;
+  if (bytes && !module) activateData(); // This session has already painted once.
   if (oldAssets !== assets) releaseAssets(oldAssets);
   if (timers && !agentMode) ticker = setInterval(() => send(wasm.exact_advance(now())), 250);
   if (bytes) requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded));
@@ -1342,24 +1381,35 @@ globalThis.exact = {
   // A dev-plan event can arrive while the wasm is still fetching. Queue it
   // behind the initial boot instead of acknowledging a reload that did not
   // happen.
-  reload: async (bytes) => { await ready; if (logicInfo) throw new Error('module reload requires a paired generation'); return boot(bytes); },
-  reloadGeneration: async (bytes, cards, current, module = null) => {
+  reload: async (bytes) => { await ready; await moduleReady; if (logicInfo || activeModule) throw new Error('module reload requires a paired generation'); return boot(bytes); },
+  reloadGeneration: async (bytes, cards, current, module = null, rust = null) => {
     await ready;
     await moduleReady;
     if (module && !logicInfo) throw new Error('this web client has binary-bound logic; rebuild with the browser module executor');
-    if (!module && logicInfo) throw new Error('a module client requires a paired plan/module generation');
+    if (!module && !rust && (logicInfo || activeModule)) throw new Error('a module client requires a paired plan/module generation');
+    if (rust && globalThis.exact.compat?.inputs?.rustMode !== 'browser') throw new Error('Rust replacement is disabled in this client; rebuild it');
     const assets = assetNamespace(cards);
     let candidate = null;
     try {
       if (module) candidate = { ...module, realm: await moduleLoader.prepare(module, logicInfo) };
+      if (rust) {
+        await loadRust();
+        if (candidate) {
+          const js = new TextEncoder().encode(JSON.stringify(candidate.realm.id));
+          const payload = new Uint8Array(js.length + rust.module.length);
+          payload.set(js); payload.set(rust.module, js.length);
+          const decode = bytes => JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes));
+          candidate = {...candidate, receipt:new TextEncoder().encode(JSON.stringify({version:1,kind:'mixed',javascript:decode(module.receipt),rust:decode(rust.receipt),javascriptBytes:js.length})),rust:payload};
+        } else candidate = { receipt: rust.receipt, rust: rust.module };
+      }
       return await boot(bytes, assets, current, candidate) !== null;
     } finally {
       if (devAssets !== assets) releaseAssets(assets);
-      if (candidate && activeModule !== candidate) candidate.realm.dispose();
+      if (candidate && activeModule !== candidate) candidate.realm?.dispose();
     }
   },
   get devAssets() { return devAssets; },
-  get ready() { return ready.then(async () => { if (logicInfo) { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'browser module not ready'); } }); },
+  get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
   ...(agentMode ? { agent, now } : {}), views, root, generation: 0, pendingSurfaces: [],
 };
 
@@ -1378,15 +1428,13 @@ function loadGpuIfNeeded() {
 
 async function main() {
   const url = new URL("./app.wasm", import.meta.url);
-  const { instance } = await WebAssembly.instantiateStreaming(fetch(url), { exact_js: { call: moduleCall } });
+  const { instance } = await WebAssembly.instantiateStreaming(fetch(url), { exact_js: { call: moduleCall }, exact_rust: rustImports });
   wasm = instance.exports;
   memory = wasm.memory;
   globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
-  logicInfo = wasm.exact_logic ? JSON.parse(readOut(wasm.exact_logic())) : null;
-  setInputReady(!logicInfo); // First pixel is baked; actions need the deferred executor.
-  // The kept secrets, before boot (LLP 1018 D6): every `exact.secret.*` key,
-  // handed to the runner, which keeps the granted names — so the first frame
-  // is a returning user's. Agent mode starts from nothing.
+  logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? JSON.parse(readOut(wasm.exact_logic())) : null;
+  setInputReady(false); // Every data executor activates after the baked first pixel.
+  // Restore granted secrets before the baked frame (LLP 1018 D6).
   if (!agentMode) {
     const kept = [];
     try {
@@ -1398,35 +1446,27 @@ async function main() {
     if (kept.length) wasm.exact_store(writeIn(kept.join("\0")));
   }
   await boot(null);
-  // The first frame is in the DOM: stamp the time from script start, so a
-  // headless run can read it. rAF runs before paint; its stamp is only the
-  // first frame callback. The nested callback gives the browser a rendering
-  // opportunity before optional module loading begins.
+  // Nested rAF gives the baked DOM a rendering opportunity before activation.
   root.dataset.bootMs = (performance.now() - t0).toFixed(1);
   requestAnimationFrame(() => {
     root.dataset.frameCallbackMs = (performance.now() - t0).toFixed(1);
     requestAnimationFrame(async () => {
       loadGpuIfNeeded();
       try {
-        if (logicInfo) {
-          moduleLoader = await new Promise((resolve, reject) => {
-            const script = document.createElement('script'); script.type = 'module';
-            script.src = new URL('./module-glue.js', import.meta.url).href;
-            script.onload = () => resolve(globalThis.exact.moduleRuntime);
-            script.onerror = () => reject(new Error('browser module loader failed'));
-            document.head.append(script);
-          });
+        if (typeof wasm.exact_module_artifact === 'function') {
+          moduleLoader = await loadAfterPaint('./module-glue.js','moduleRuntime');
           const payload = await moduleLoader.baked();
           const realm = await moduleLoader.prepare(payload, logicInfo, 0);
           activeModule = { ...payload, realm };
-          const batch = JSON.parse(readOut(wasm.exact_data_ready()));
-          if (batch.error) throw new Error(batch.error);
-          applyBatch(batch);
-          setInputReady(true);
-          root.dataset.moduleReady = 'true';
         }
+        activateData();
       } catch (error) { root.dataset.error = String(error); console.error(error); }
-      finally { resolveModuleReady(); }
+      finally {
+        resolveModuleReady();
+        if (globalThis.exact.compat.inputs.rustModule && globalThis.exact.compat.inputs.rustMode === 'browser') {
+          loadRust().then(() => globalThis.exact.followRustUpdates(globalThis.exact, import.meta.url)).catch(error => console.error('Rust update discovery:',error));
+        }
+      }
     });
   });
 }

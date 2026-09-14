@@ -1,0 +1,13 @@
+[package]
+name = "caltrain-logic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+caltrain-data = { path = "../data" }
+exact-logic-abi = { path = "../../../logic/abi" }

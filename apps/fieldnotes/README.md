@@ -25,7 +25,11 @@ safe to keep an independent copy. Restore accepts pasted backup text or, when
 empty, uses the saved file; it validates the complete backup before replacing
 notes in a transaction.
 
-`app.contract` owns the UI. `app.ts` uses the generated TypeScript storage types:
+`app.contract` owns the UI. `app.ts` owns notes, search and restore; `data/`
+implements `backupNotes` in Rust behind the same data-source interface. Both use
+the same storage and grants. Mutation revisions use the runner's app-owned
+`fieldnotes.revision` Store entry, so repeated saves/deletions still invalidate
+the library after a language change or module reload:
 SQLite at `app:/data/fieldnotes.db`, filesystem access restricted to
 `app:/data/backups`. Native hosts choose the app's directories; the browser uses
 IndexedDB and SQLite WASM. Browser data belongs to this origin and browser
@@ -34,8 +38,12 @@ clears its notes and local backup. HTTPS or localhost is required. There is no
 cross-device sync. The current limits are 1,000 notes, 160 characters per title,
 20,000 per body, and 4 MB of backup text.
 
-The native integration test runs the real baked TypeScript app against temporary
-SQLite/filesystem storage:
+The native integration test runs the real baked TypeScript app and the Rust
+backup source against temporary SQLite/filesystem storage. It moves backup
+between languages through the Rust module ABI, compares the complete answer and
+file, restarts, restores the Rust backup in TypeScript, and checks refusal and
+size errors. It also drives backup followed by delete, reload and another delete
+through the runner to verify that the shared counter refreshes the visible library:
 
 ```sh
 EXACT_UPDATE_TRUST=development cargo test -p fieldnotes-apple

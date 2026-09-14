@@ -34,6 +34,12 @@ use tiny_skia::Pixmap;
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
     host: Host<D>,
+    module: Option<crate::delivery::Module>,
+    painted: bool,
+    activation_failed: bool,
+    dev: Option<crate::fetch::Poller>,
+    pending_dev: Option<crate::fetch::Generation>,
+    pending_update: bool,
     text: Shared,
     brush: Painter,
     viewport: (f32, f32),
@@ -287,6 +293,12 @@ impl<D: DataSource> Presenter<D> {
             pointer: None,
             boxes: Vec::new(),
             dirty: true,
+            module: None,
+            painted: false,
+            activation_failed: false,
+            dev: None,
+            pending_dev: None,
+            pending_update: false,
             last_frame_succeeded: false,
             choice,
             fonts_ms,
@@ -314,6 +326,87 @@ impl<D: DataSource> Presenter<D> {
         self.sync_delivery();
     }
 
+    /// Remember the accepted pair for future plan-only development reloads.
+    pub fn set_module(&mut self, module: Option<crate::delivery::Module>) {
+        self.module = module;
+    }
+
+    /// Connect the existing development URL loop; polling starts after first pixel.
+    pub fn set_development(&mut self, url: Option<String>, identity: Option<String>) {
+        self.dev = url.map(|url| crate::fetch::Poller::new(url, self.compat.clone(), identity));
+    }
+
+    /// Apply a finished URL generation without blocking the presentation thread.
+    pub fn poll_development(&mut self, data: impl FnOnce() -> D) {
+        if !self.painted {
+            return;
+        }
+        match self.dev.as_mut().map(|dev| dev.poll()) {
+            Some(Ok(Some(generation))) => self.pending_dev = Some(generation),
+            Some(Err(error)) => eprintln!("exact url: {error}; keeping the running app"),
+            _ => {}
+        }
+        if let Some(generation) = self.pending_dev.take() {
+            match self.reload_module(&generation.plan, data(), generation.module.clone()) {
+                Ok(_) => self.dev.as_mut().unwrap().identity = Some(generation.identity),
+                Err(HostError::PreparingModule) => self.pending_dev = Some(generation),
+                Err(error) => eprintln!("exact url: candidate refused: {error}"),
+            }
+        }
+    }
+
+    fn prepare_logic(
+        &self,
+        plan: &[u8],
+        admitted: D,
+        module: Option<&crate::delivery::Module>,
+        text: &Shared,
+        carried: &mut exact_runner::Carried,
+        delivery: &exact_runner::Delivery,
+    ) -> Result<D, HostError> {
+        let Some(module) = module else {
+            return Ok(admitted);
+        };
+        if self.host.runner().has_pending() {
+            return Err(HostError::Asset(
+                "Rust replacement waits for pending requests; retry after they settle".into(),
+            ));
+        }
+        let data = module
+            .replacement(plan, &admitted)
+            .map_err(HostError::Asset)?;
+        if self.painted {
+            if !data
+                .preload()
+                .map_err(|e| HostError::Asset(format!("candidate module: {e:?}")))?
+            {
+                return Err(HostError::PreparingModule);
+            }
+            let mut validation = module
+                .replacement(plan, &admitted)
+                .map_err(HostError::Asset)?;
+            validation
+                .activate_for_validation()
+                .map_err(|e| HostError::Asset(format!("candidate module: {e:?}")))?;
+            let (host, error) = Host::boot_with(
+                plan,
+                validation,
+                Box::new(Measurer(text.clone())),
+                self.viewport.0,
+                self.viewport.1,
+                Some(carried),
+                Some(delivery.clone()),
+            )?;
+            if let Some(error) = error {
+                return Err(HostError::Layout(error));
+            }
+            let mut validated = host.carry();
+            validated.store = carried.store.clone();
+            *carried = validated;
+        }
+        Ok(data)
+    }
+
     /// The store's wake, for the display loop's poll set.
     pub fn update_fd(&self) -> Option<std::os::unix::io::RawFd> {
         self.updates.as_ref().map(|u| u.fd())
@@ -321,22 +414,37 @@ impl<D: DataSource> Presenter<D> {
 
     /// First pixel (LLP 1026 D11): the selection that booted is good.
     pub fn first_pixel(&mut self) {
-        if self.dirty || !self.last_frame_succeeded {
+        if self.dirty || !self.last_frame_succeeded || self.activation_failed {
             return;
+        }
+        self.painted = true;
+        match self.host.activate_data() {
+            Ok(true) => {
+                if let Some(error) = self.after_commit() {
+                    self.activation_failed = true;
+                    self.host.log(error);
+                    return;
+                }
+            }
+            Err(error) => {
+                self.activation_failed = true;
+                self.host.log(error);
+                return;
+            }
+            Ok(false) if self.host.data_pending() => return,
+            Ok(false) => {}
         }
         if let Some(u) = self.updates.as_mut() {
             u.boot_succeeded();
         }
-        match self.host.activate_data() {
-            Ok(true) => {
-                if let Some(error) = self.after_commit() {
-                    self.host.log(error);
-                }
-            }
-            Err(error) => self.host.log(error),
-            Ok(false) => {}
-        }
         self.sync_delivery();
+    }
+
+    /// Wake an idle display while an executable image is loading off-thread.
+    pub fn module_pending(&self) -> bool {
+        (self.painted && !self.activation_failed && self.host.data_pending())
+            || self.pending_dev.is_some()
+            || self.pending_update
     }
 
     /// Check the stream's head now, on the store's thread; the outcome
@@ -379,7 +487,17 @@ impl<D: DataSource> Presenter<D> {
         updates.staged_stream_into(&mut delivery);
         delivery.seq = candidate.seq;
         delivery.staged = false;
-        let carried = self.host.carry();
+        let module =
+            crate::delivery::Module::resolve(&candidate.assets).map_err(HostError::Asset)?;
+        let mut carried = self.host.carry();
+        let data = self.prepare_logic(
+            &candidate.plan,
+            data,
+            module.as_ref(),
+            &text,
+            &mut carried,
+            &delivery,
+        )?;
         let (mut host, error) = Host::boot_with(
             &candidate.plan,
             data,
@@ -415,6 +533,8 @@ impl<D: DataSource> Presenter<D> {
             .map_err(HostError::Asset)?;
         self.updates.as_mut().unwrap().boot_started();
         self.host = host;
+        self.activation_failed = false;
+        self.module = module;
         self.text = text.clone();
         self.brush.text = text;
         self.assets = assets;
@@ -460,11 +580,7 @@ impl<D: DataSource> Presenter<D> {
                         eprintln!("exact update: no store, or a check is already running");
                     }
                 }
-                "deliveryActivate" => match self.activate_update(data()) {
-                    Ok(true) => {}
-                    Ok(false) => eprintln!("exact update: nothing is staged"),
-                    Err(e) => eprintln!("exact update: activate: {e}"),
-                },
+                "deliveryActivate" => self.pending_update = true,
                 // The app's chosen appearance is what a `light-dark()` colour
                 // resolves to here (LLP 1034 D2). `system` is no override,
                 // and this host has no system to follow, so it draws light.
@@ -477,11 +593,31 @@ impl<D: DataSource> Presenter<D> {
                 other => eprintln!("exact: unknown command {other}"),
             }
         }
+        if self.pending_update {
+            self.pending_update = false;
+            match self.activate_update(data()) {
+                Ok(true) => {}
+                Ok(false) => eprintln!("exact update: nothing is staged"),
+                Err(HostError::PreparingModule) => self.pending_update = true,
+                Err(e) => eprintln!("exact update: activate: {e}"),
+            }
+        }
     }
 
     /// The dev loop's restart: boot the new plan with state carried; every
     /// picture, offset, and focus goes (LLP 1007 §6).
     pub fn reload(&mut self, plan: &[u8], data: D) -> Result<Option<String>, HostError> {
+        self.reload_module(plan, data, self.module.clone())
+    }
+
+    /// Replace a local development pair transactionally, carrying compatible state.
+    pub fn reload_module(
+        &mut self,
+        plan: &[u8],
+        data: D,
+        module: Option<crate::delivery::Module>,
+    ) -> Result<Option<String>, HostError> {
+        let module = module.or_else(|| self.module.clone());
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
         // Fonts are candidate state too. Keep the running plan's catalog and
         // caches untouched until its runner has booted successfully.
@@ -489,7 +625,15 @@ impl<D: DataSource> Presenter<D> {
         if let Some(reason) = self.assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
-        let carried = self.host.carry();
+        let mut carried = self.host.carry();
+        let data = self.prepare_logic(
+            plan,
+            data,
+            module.as_ref(),
+            &candidate_text,
+            &mut carried,
+            self.host.runner().delivery(),
+        )?;
         let (host, error) = Host::boot_with(
             plan,
             data,
@@ -499,7 +643,12 @@ impl<D: DataSource> Presenter<D> {
             Some(&carried),
             Some(self.host.runner().delivery().clone()),
         )?;
+        if let Some(error) = error {
+            return Err(HostError::Layout(error));
+        }
         self.host = host;
+        self.activation_failed = false;
+        self.module = module;
         self.text = candidate_text.clone();
         self.brush.text = candidate_text;
         self.executor = crate::executor::Executor::start(&self.host.grants());
@@ -508,7 +657,7 @@ impl<D: DataSource> Presenter<D> {
         self.images.reset();
         self.focus = None;
         let e = self.after_commit();
-        Ok(error.or(e))
+        Ok(e)
     }
 
     /// The host.

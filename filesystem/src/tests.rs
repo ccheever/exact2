@@ -367,3 +367,21 @@ fn concurrent_intermediate_symlinks_never_supply_or_receive_bytes() {
     assert_eq!(outside.names().unwrap(), vec!["private-only", "value"]);
     assert_eq!(outside.read("value").unwrap(), b"secret");
 }
+
+#[test]
+fn resident_reader_reopens_roots_and_refuses_mutations() {
+    let fixture = Fixture::new();
+    let path = fixture.path("root");
+    fs::create_dir(&path).unwrap();
+    fs::write(path.join("value"), "before").unwrap();
+    let input = json!({"op":"get","root":path,"path":"value"});
+    assert_eq!(read_request(&input).unwrap(), STANDARD.encode("before"));
+    fs::rename(&path, fixture.path("old")).unwrap();
+    fs::create_dir(&path).unwrap();
+    fs::write(path.join("value"), "after").unwrap();
+    assert_eq!(read_request(&input).unwrap(), STANDARD.encode("after"));
+    assert!(read_request(&json!({"op":"put","root":path,"path":"value"})).is_err());
+    fs::remove_file(path.join("value")).unwrap();
+    symlink(fixture.path("old/value"), path.join("value")).unwrap();
+    assert!(read_request(&input).is_err());
+}

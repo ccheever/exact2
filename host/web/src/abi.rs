@@ -145,6 +145,15 @@ impl<D: DataSource> Bridge<D> {
     /// The input concatenates plan, pairing receipt, and browser environment id.
     /// The JS loader prepares that private environment before this synchronous swap.
     pub fn boot_module(&mut self, lengths: [usize; 3], admitted: D) -> u32 {
+        if self
+            .host
+            .as_ref()
+            .is_some_and(|host| host.runner().has_pending())
+        {
+            return self.emit(exact_runner::agent::error(
+                "module replacement waits for in-flight requests to settle; retry the update",
+            ));
+        }
         let [plan, receipt, module] = lengths;
         if plan
             .checked_add(receipt)
@@ -152,7 +161,7 @@ impl<D: DataSource> Bridge<D> {
             != Some(self.input.len())
             || plan > 32 << 20
             || receipt > 1 << 20
-            || module > 32
+            || module > 32 << 20
         {
             return self.emit(exact_runner::agent::error(
                 "invalid module generation lengths",

@@ -47,7 +47,8 @@ const modulePage=hostPage.replace(/<script type="module" src="\.\/glue\.js"><\/s
 const startupStub=()=>{
   const memory=new WebAssembly.Memory({initial:2});
   const out=value=>{const bytes=new TextEncoder().encode(JSON.stringify(value));new Uint8Array(memory.buffer,65536,bytes.length).set(bytes);return bytes.length;};
-  globalThis.startup={dispatch:[],activated:false,release:null};
+  const rustOnly=new URL(location.href).searchParams.has('rust');
+  globalThis.startup={dispatch:[],activations:0,activated:false,painted:false,storageRuns:0,release:null};
   globalThis.startupGate=new Promise(resolve=>startup.release=resolve);
   const create=(id,tag,props,css,handlers=[])=>({op:'create',id,tag,props,css,handlers});
   const batch={ops:[
@@ -61,15 +62,19 @@ const startupStub=()=>{
     create(5,'div',{text:'A long baked page'},'height:2200px'),
     {op:'children',id:1,ids:[2,3,4,6,7,8,5]},{op:'roots',ids:[1]}
   ]};
+  if(rustOnly)batch.ops.push({op:'grants',lines:['fs.write app:/data']},{op:'storage',ticket:9,payload:'{"version":1,"op":"fs.mkdir","args":{"path":"app:/data/backup"}}',scope:null});
   WebAssembly.instantiateStreaming=async response=>{
     await response;
+    if(new URL(location.href).searchParams.has('early'))queueMicrotask(()=>{globalThis.earlyReload=globalThis.exact.reload(new Uint8Array([1]));});
     return {instance:{exports:{memory,exact_out:()=>65536,exact_in:()=>0,
-      exact_compat:()=>out({}),exact_logic:()=>out({appId:'test.startup',grants:''}),
-      exact_plan:()=>out([]),exact_plan_fonts:()=>out([]),exact_boot:()=>out(batch),
-      exact_data_ready:()=>{startup.activated=true;return out({ops:[
+      exact_compat:()=>out({inputs:{app:'test.startup'}}),exact_logic:()=>out(rustOnly?null:{appId:'test.startup',grants:''}),
+      ...(rustOnly?{}:{exact_module_artifact:()=>0}),
+      exact_plan:()=>out([]),exact_plan_fonts:()=>out([]),exact_boot:()=>out(batch),exact_boot_plan:()=>out(batch),
+      exact_data_ready:()=>{startup.activations++;startup.activated=true;startup.painted=!!document.getElementById('exact-root').dataset.frameCallbackMs;return out({ops:[
         {op:'props',id:7,set:{disabled:'true'},clear:[]},
         {op:'props',id:8,set:{},clear:['disabled']}
       ]});},
+      exact_fulfill:()=>out({ops:[]}),
       exact_dispatch:(id,kind,length)=>{startup.dispatch.push({id,kind,value:new TextDecoder().decode(new Uint8Array(memory.buffer,0,length))});return out({ops:[]});}
     }}};
   };
@@ -81,6 +86,10 @@ routes['/sqlite3.wasm']='node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm'
 const fixtures=Object.fromEntries(['inputs','castle','caltrain','ambient-init','storage'].map(name=>[name,execFileSync(process.execPath,['./node_modules/.bin/rolldown',`js/tests/fixtures/${name}.ts`,'--format','iife'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})]));
 fixtures.oracle=JSON.parse(process.env.EXACT_PARITY);
 const server = createServer((req,res)=>{
+  if(req.url.startsWith('/startup/storage-request.js')){
+    res.setHeader('content-type','text/javascript');
+    res.end(`startup.storageBeforePaint=!document.getElementById('exact-root').dataset.frameCallbackMs;globalThis.exact.createStorageRequests=(app,grants)=>({run:async()=>{startup.storageRuns++;return new Uint8Array();},dispose(){}});`);return;
+  }
   if(req.url.startsWith('/startup/module-glue.js')){
     res.setHeader('content-type','text/javascript');
     res.end(`globalThis.exact.moduleRuntime={baked:async()=>{await globalThis.startupGate;if(location.search.includes('fail'))throw new Error('controlled loader failure');return {};},prepare:async()=>({id:0,dispose(){}})};`);return;
@@ -131,12 +140,13 @@ try {
     if(privateFrames.length!==1||privateFrames.some(frame=>frame.getClientRects().length))throw new Error('private module iframe participates in layout');
     if(document.documentElement.scrollHeight!==pageHeight)throw new Error('private module grew document scroll height');
     const answer=(source,args=[])=>call({op:'answer',id:module.id,source,args,store:[['token','old']],grants:['token']});
-    const results=['alias','random','constructor','intl'].map(name=>answer(name));
+    const results=[];
+    for(const name of ['alias','random','constructor','intl'])results.push(await checkpoint(answer(name)));
     if(!results.every(r=>r.message?.includes('pass time or a random seed')))throw new Error(JSON.stringify(results));
-    if(answer('explicit',[0]).value!==1970)throw new Error('explicit date arithmetic changed');
-    const written=answer('write');
+    if((await checkpoint(answer('explicit',[0]))).value!==1970)throw new Error('explicit date arithmetic changed');
+    const written=await checkpoint(answer('write'));
     if(written.value!=='old'||written.reads[0]!=='token'||written.writes[0][1]!=='next')throw new Error('store seam changed');
-    if(!answer('refused').message?.includes('not granted'))throw new Error('store grant bypass');
+    if(!(await checkpoint(answer('refused'))).message?.includes('not granted'))throw new Error('store grant bypass');
     if((await checkpoint(answer('async'))).value!=='later')throw new Error('Promise resolution failed');
     if(Date!==oldDate||Date.now!==oldNow||Math.random!==oldRandom||Date.now()<=0||guest.contentWindow.Date!==guestDate||guest.contentWindow.Date.now()<=0)throw new Error('page/guest globals changed');
     const count=document.querySelectorAll('iframe').length;
@@ -425,7 +435,168 @@ try {
     }
   }
   console.log('startup: private iframe layout, pre-activation scroll, input gating, successful and failed activation');
+  await call('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/startup?rust=1`});
+  assert.equal(await evaluate(`(async()=>{for(let i=0;i<120;i++){${frames};if(globalThis.startup?.activated)return true;}return false;})()`),true,'Rust-only deferred source activates without module metadata');
+  assert.equal(await evaluate('startup.painted'),true,'Rust-only activation follows a rendering opportunity');
+  assert.equal(await evaluate('!!globalThis.exact.moduleRuntime'),false,'Rust-only activation loads no TS executor');
+  await evaluate('globalThis.exact.ready');
+  await click('action');
+  assert.equal(await evaluate('startup.dispatch.some(event=>event.id===2&&event.kind===0)'),true,'Rust-only actions become ready');
+  await evaluate('globalThis.exact.reload(new Uint8Array([1]))');
+  assert.equal(await evaluate('startup.activations'),2,'Rust-only Contract reload activates its fresh source');
+  assert.equal(await evaluate(`(async()=>{for(let i=0;i<120;i++){${frames};if(startup.storageRuns)return true;}return false;})()`),true,'raw Rust storage reaches the host service');
+  assert.equal(await evaluate('startup.storageBeforePaint'),false,'raw initial storage waits for the first-paint barrier');
+  await call('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/startup?rust=1&early=1`});
+  await evaluate(`(async()=>{for(let i=0;i<120;i++){${frames};if(globalThis.earlyReload){await earlyReload;return;}}throw new Error('early reload did not run');})()`);
+  assert.deepEqual(await evaluate('({painted:startup.painted,activations:startup.activations})'),{painted:true,activations:2},'immediate Contract reload follows first-paint activation');
+  console.log('startup: Rust-only deferred activation after paint without JavaScript module');
 } finally {
   process.kill(-child.pid,'SIGKILL');await exited;server.closeAllConnections();await new Promise(r=>server.close(r));rmSync(profile,{recursive:true,force:true,maxRetries:3,retryDelay:100});
+}
+"#;
+
+#[test]
+fn browser_portable_storage_shares_fieldnotes_data_and_enforces_scope() {
+    let chrome = std::env::var("CHROME")
+        .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
+    if !Path::new(&chrome).exists() {
+        eprintln!("browser storage sweep unavailable: set CHROME");
+        return;
+    }
+    let result = Command::new("bun")
+        .args(["--input-type=module", "-e", PROTOCOL_PROBE])
+        .env("CHROME", chrome)
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .unwrap();
+    eprintln!("{}", String::from_utf8_lossy(&result.stdout));
+    assert!(
+        result.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+const PROTOCOL_PROBE: &str = r#"
+import { Cdp } from './scripts/agent.mjs';
+import { spawn, execFileSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import assert from 'node:assert/strict';
+const routes={'/module-glue.js':'host/web/module-glue.js','/module-prelude.js':'js/src/prelude.js',
+  '/sqlite3.mjs':'node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs','/sqlite3.wasm':'node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm'};
+for(const file of ['storage.js','storage-fs.js','storage-sqlite.js','storage-worker.js','storage-request.js'])routes['/'+file]='host/web/'+file;
+const app=execFileSync('./node_modules/.bin/rolldown',['apps/fieldnotes/app.ts','--format','iife','--name','fieldnotes'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})+'\nglobalThis.exact={...fieldnotes,abi:1};';
+const server=createServer((req,res)=>{
+  res.setHeader('content-type',req.url.endsWith('.wasm')?'application/wasm':routes[req.url]?'text/javascript':'text/html');
+  res.end(routes[req.url]?readFileSync(routes[req.url]):'<main id="exact-root"></main>');
+});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const profile=mkdtempSync(resolve(tmpdir(),'exact-storage-protocol-'));
+const child=spawn(process.env.CHROME,['--headless=new','--no-sandbox','--remote-debugging-pipe','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
+const cdp=new Cdp(child.stdio[3],child.stdio[4]);
+const exited=new Promise(resolve=>child.on('exit',()=>{cdp.fail('browser closed');resolve();}));
+try {
+  const {targetInfos}=await cdp.send('Target.getTargets');
+  const {sessionId}=await cdp.send('Target.attachToTarget',{targetId:targetInfos.find(t=>t.type==='page').targetId,flatten:true});
+  const send=(method,params)=>cdp.send(method,params,sessionId);
+  await send('Page.enable');
+  await send('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
+  const probe=async(app,reloaded)=>{
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    globalThis.exact??={};
+    const {prepare,call,run}=await import('/module-glue.js');
+    const {createStorageRequests}=await import('/storage-request.js');
+    const encoder=new TextEncoder(),decoder=new TextDecoder();
+    const identity={appId:'com.exact.fieldnotes',grants:'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nsecret.keep fieldnotes.revision'};
+    const script=encoder.encode(app);
+    const sha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',script)),b=>b.toString(16).padStart(2,'0')).join('');
+    const receipt=encoder.encode(JSON.stringify({version:1,abi:1,...identity,module:{sha256:'a'.repeat(64)},web:{file:'app.js',bytes:script.length,sha256}}));
+    let realm=await prepare({script,receipt},identity);
+    const snapshot=new Map(JSON.parse(sessionStorage.getItem('fieldnotes-store')||'[]'));
+    const priorRevision=Number(snapshot.get('fieldnotes.revision')||0);
+    const ask=async(source,args=[])=>{
+      let result=call({op:'answer',id:realm.id,source,args,store:[...snapshot],grants:['fieldnotes.revision']});
+      for(let i=0;result.continuation&&i<200;i++)result=await run(result.continuation);
+      if(result.tag!==0)throw new Error(source+': '+JSON.stringify(result));
+      for(const [key,value] of result.writes||[]){if(value===null)snapshot.delete(key);else snapshot.set(key,value);}
+      sessionStorage.setItem('fieldnotes-store',JSON.stringify([...snapshot]));
+      if(source!=='library'&&(result.writes?.length!==1||result.value.revision!==Number(snapshot.get('fieldnotes.revision'))))throw new Error('mutation revision must settle once');
+      return result.value;
+    };
+    const check=(condition,message)=>{if(!condition)throw new Error(message);};
+    const service=createStorageRequests(identity.appId,identity.grants);
+    const request=async(op,args,scope)=>JSON.parse(decoder.decode(await service.run(JSON.stringify({version:1,op,args}),scope)));
+    const command=(kind,sql,params=[])=>({kind,sql,params});
+    const db='app:/data/fieldnotes.db',path='app:/data/backups/fieldnotes.json';
+    if(reloaded){
+      const read=await ask('readBackup');check(read.revision===priorRevision+1,'revision survives full page reload');check(!read.failed&&read.backupText.includes('Protocol edited this note'),'TS reload reads portable backup');
+      const restored=await ask('restoreNotes',['']);check(!restored.failed,'TS restores portable backup after page reload');
+      const library=await ask('library',['',0,0]);check(library.notes[0].title==='Protocol edited this note'&&library.total===1,'TS reload sees same SQLite IDs/data');
+      const large='\\'.repeat(20000);
+      const inserted=await request('sqlite.transaction',{path:db,commands:Array.from({length:105},()=>command('execute','INSERT INTO notes (title,body,pinned) VALUES (?,?,?)',['Large note',large,{integer:'0'}]))});
+      check(!inserted.error,'large notebook fixture');
+      const oversized=await ask('backupNotes');
+      check(oversized.failed&&oversized.message==='This backup exceeds 4 MB. Split or remove large notes before backing up.','bounded TypeScript backup preserves its size error');
+      check((await ask('readBackup')).backupText===read.backupText,'oversized backup retains previous file');
+      check(!(await ask('restoreNotes',[''])).failed,'restore remains available after oversized backup');
+      service.dispose();realm.dispose();return {reloaded:true};
+    }
+    const saved=await ask('saveNote',['','Café 🌿','京都\nBinary-safe backups\u2028line separator\u2029paragraph separator',true,1]);check(!saved.failed,'TS creates notebook');
+    const expected=await ask('backupNotes');check(!expected.failed,'TS original backup');
+    // These are the same value-only operations emitted by fieldnotes-data;
+    // the native fixture separately executes the Rust source through ABI2.
+    const rows=await request('sqlite',{path:db,commands:[command('query','SELECT id,title,body,pinned FROM notes ORDER BY pinned DESC,id DESC')]});
+    check(!rows.error,'portable SQL opens TS database: '+JSON.stringify(rows));
+    const notes=rows[0].rows.map(r=>({id:r[0].integer,title:r[1],body:r[2],pinned:r[3].integer==='1'}));
+    const text=JSON.stringify({version:1,notes},null,2);check(text===expected.backupText,'portable backup preserves exact TypeScript format');
+    check(!(await request('fs.mkdir',{path:'app:/data/backups'}))?.error,'portable mkdir');
+    check(!(await request('fs.atomicWriteFile',{path,text}))?.error,'portable writes backup');
+    check((await ask('readBackup')).backupText===text,'TS reads portable UTF8 backup');
+    const beforeReplacement=await ask('readBackup');
+    realm.dispose();realm=await prepare({script,receipt},identity);
+    const afterReplacement=await ask('readBackup');
+    check(afterReplacement.message===beforeReplacement.message&&afterReplacement.revision===beforeReplacement.revision+1,'identical result messages after source replacement still advance shared revision');
+    const typed=await request('sqlite',{path:db,commands:[command('query','SELECT ?,?,?,?,?',[{integer:'9223372036854775807'},{integer:'-9223372036854775808'},1.25,{bytes:[0,255]},null])]});
+    check(JSON.stringify(typed[0].rows[0])===JSON.stringify([{integer:'9223372036854775807'},{integer:'-9223372036854775808'},1.25,{bytes:[0,255]},null]),'SQLite integer/blob/real/null survive protocol');
+    const numericTypes=await request('sqlite',{path:db,commands:[command('query','SELECT typeof(?),typeof(?)',[1,0.5])]});
+    check(JSON.stringify(numericTypes[0].rows)===JSON.stringify([['integer','real']]),'ordinary safe integral numbers bind as SQLite integers');
+    const unsafeNumber=await request('sqlite',{path:db,commands:[command('query','SELECT ?',[9007199254740992])]});
+    check(typeof unsafeNumber.error==='string','unsafe integral numbers require explicit int64 representation');
+    const edited=await request('sqlite.transaction',{path:db,commands:[command('execute','UPDATE notes SET title=? WHERE id=?',['Protocol edited this note',{integer:saved.id}])]});
+    check(!edited.error,'portable updates same note');
+    const refused=await request('sqlite.transaction',{path:db,commands:[command('execute','DELETE FROM notes'),command('execute','INSERT INTO missing_table VALUES (?)',[1])]});
+    check(typeof refused.error==='string','invalid transaction refuses');
+    const library=await ask('library',['',0,0]);check(library.total===1&&library.notes[0].id===saved.id&&library.notes[0].title==='Protocol edited this note','failed portable transaction rolls back and TS sees preceding update');
+    const narrow=await request('fs.atomicWriteFile',{path:'app:/data/backups/refused',text:'deny'},'sqlite.open app:/data/fieldnotes.db');
+    check(typeof narrow.error==='string','narrow source cannot borrow sibling filesystem grant');
+    const widened=await request('fs.mkdir',{path:'app:/cache/no'},'fs.write app:/');
+    check(widened.error?.includes('exceeds'),'scope cannot exceed admitted grants');
+    history.replaceState(null,'','/?agent=1');
+    check((await request('fs.readFile',{path})).error?.includes('unavailable in agent mode'),'agent mode withholds portable storage');
+    history.replaceState(null,'','/');
+    check(typeof (await request('fs.atomicWriteFile',{path:'app:/data/backups/../escape',text:'deny'})).error==='string','traversal refused');
+    const binary='app:/data/backups/binary';await request('fs.atomicWriteFile',{path:binary,bytes:[0,255]});
+    check((await request('fs.readFile',{path:binary})).base64==='AP8=','file byte representation exact');
+    const updated={version:1,notes:library.notes.map(({id,title,body,pinned})=>({id,title,body,pinned}))};
+    await request('fs.atomicWriteFile',{path,text:JSON.stringify(updated,null,2)});
+    await ask('deleteNote',[saved.id]);check((await ask('library',['',0,0])).total===0,'TS deletes before reload restore');
+    const pending=service.run(JSON.stringify({version:1,op:'sqlite',args:{path:db,commands:[command('query','SELECT 1')]}}));
+    service.dispose();check(typeof JSON.parse(decoder.decode(await pending)).error==='string','disposal refuses outstanding operation');
+    check(typeof (await request('fs.readFile',{path})).error==='string','disposed service refuses future calls');
+    realm.dispose();return {shared:true,types:true,rollback:true,scope:true,disposal:true};
+  };
+  for(const reloaded of [false,true]){
+    if(reloaded)await send('Page.reload');
+    const result=await send('Runtime.evaluate',{expression:`(${probe.toString()})(${JSON.stringify(app)},${reloaded})`,returnByValue:true,awaitPromise:true});
+    assert.equal(result.exceptionDetails,undefined,JSON.stringify(result.exceptionDetails));
+    assert.deepEqual(result.result.value,reloaded?{reloaded:true}:{shared:true,types:true,rollback:true,scope:true,disposal:true});
+    console.log(JSON.stringify(result.result.value));
+  }
+} finally {
+  process.kill(-child.pid,'SIGKILL');await exited;server.closeAllConnections();await new Promise(resolve=>server.close(resolve));rmSync(profile,{recursive:true,force:true,maxRetries:3,retryDelay:100});
 }
 "#;

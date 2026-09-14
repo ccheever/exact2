@@ -17,17 +17,9 @@ const headers={'content-type':'application/json','x-snapback-persona':persona};
 const absent='native storage is unavailable during bake or in an unconfigured host';
 const restoring='The server rejected a change; waiting to restore its saved version.';
 const payloadLimit=(backend.schema.tables.records.columns.payload as {Json:{max_bytes:number}}).Json.max_bytes;
-// UTF-8 bytes without a browser-only TextEncoder in the native data module.
-function jsonBytes(text:string):number {
-  let bytes=0;
-  for(let i=0;i<text.length;i++){
-    const n=text.charCodeAt(i);
-    if(n<128)bytes++;else if(n<2048)bytes+=2;
-    else if(n>=0xd800 && n<=0xdbff && text.charCodeAt(i+1)>=0xdc00 && text.charCodeAt(i+1)<=0xdfff){bytes+=4;i++;}
-    else bytes+=3;
-  }
-  return bytes;
-}
+// @ref LLP 1027.001 D2 — standard UTF-8 on every executor
+const encoder = new TextEncoder();
+function jsonBytes(text:string):number { return encoder.encode(text).byteLength; }
 
 export function nativeCore(native:NativeModule|undefined|null):Core|null|undefined {
   if(!native)return undefined;

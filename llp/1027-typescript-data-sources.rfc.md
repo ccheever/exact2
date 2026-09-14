@@ -314,9 +314,10 @@ enqueues it under a new ticket and commits nothing else — which is how
 one `answer` awaits two fetches in a row; every Rust source wraps its
 value in `Answer::Now`. `query` (the bake's path) has no store — reads
 are empty, writes refused — and a fetching answer is `Unavailable`
-there, exactly as `Later` at boot is refused today. Owed: the pure tier
-as ibex2 bindings (D10; `URL`, `TextEncoder`, base64, `Headers` from
-Rust), and `AbortSignal`. The clock gap was closed by LLP 1027.000 on
+there, exactly as `Later` at boot is refused today. LLP 1027.001 now binds
+Ibex URL, UTF-8 text and base64 in native TS. `Headers` retains the existing
+adapter; broader encodings and `AbortSignal` remain separate gaps.
+The clock gap was closed by LLP 1027.000 on
 2026-09-04 with explicit time/seed arguments and ambient-read refusal.
 
 ### D2 — Marshaling is shape-directed, both ways, from the plan's own tables
@@ -343,6 +344,11 @@ seam is unchanged, and it is the second line of defense behind the
 conversion. A malformed reply is `DataError::Unavailable` naming the
 source and the field; never a panic (LLP 1005 §2's refusal
 discipline).
+
+LLP 1027.001 D5 now carries large native result strings separately alongside
+their JSON message, after Fieldnotes demonstrated a multi-megabyte escaping and
+parsing cost. The built-in serializer and existing shape validation retain their
+semantics; app exports, the module ABI and the browser path do not change.
 
 Why JSON and not a walk over the engine's objects through JSI: the
 walk would be faster (the probe's per-call cost is mostly the two
@@ -920,15 +926,15 @@ primary purpose — the shape Expo Updates has shipped under for years.
 
 ### D8 — Rust and TypeScript side by side: one seam, routed by source name
 
-An app may have `app.ts` and a `data/` crate. The bake composes them as
-one `DataSource`: `exact_js::Either<Rust, Module>` routes each source
-name to whichever declares it, and a name declared by both is refused
-at bake by name (`bake-source-twice`). The TypeScript module declares
-its sources by the `Args` union the generated types give it — that
-is, by answering; a Rust crate declares them by its `match`. `appId`
-must agree, or bake refuses (`bake-app-id`). Grants are each side's
-own, and the app's grants are the union, checked by the host as today
-(the runner sees one string).
+An app may have `app.ts` and a `data/` crate. `exact_data::Mixed<J, R>`
+composes them as one `DataSource` using explicit source-name lists. Its
+constructor refuses duplicate ownership and disagreeing `appId`s before
+calling either source; answering is never used to discover ownership.
+The app's grants are the union; each source's Store access and requests
+remain constrained to its own admitted grants. Update Lab and Fieldnotes
+use this composer. A JS-only replacement explicitly retains Rust state;
+enabled Rust replacement requires the complete paired receipt.
+LLP 1027.001 records the implementation and language-parity principle.
 
 This is how "optional" and "paved path" coexist without a mode: the
 paved path is `app.ts` alone; the hot source moves to Rust one name at
@@ -1070,6 +1076,10 @@ restart, backup, deletion, and transactional restore. Snapback2 remains deferred
   `performance.now` (the clock is the runner's), WebSocket and streams
   (a trigger), `crypto` (deliberately later). Marginal size over the
   lean engine: unmeasured; ibex2's binding bytecode is 28 KB.
+  **2026-09-14 implementation:** LLP 1027.001 installs URL/URLSearchParams,
+  TextEncoder, UTF-8 TextDecoder and atob/btoa through Ibex's algorithms.
+  Browser realms retain browser implementations. This does not claim the
+  entire proposed tier, other text encodings, or a new Headers implementation.
 - **`console`**, admitted as the one host binding (Charlie, 2026-09-03;
   the alternatives — `fetch`, timers, a clock, secrets, files — are each
   refused by D1's rule, and the pure helpers are §10 Q6): `console.log` into the runner's `logs` (the agent API's,

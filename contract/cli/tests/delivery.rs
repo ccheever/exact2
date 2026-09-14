@@ -37,14 +37,14 @@ fn text_of(r: &Runner<NoData>, test_id: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// The state reply's `delivery` object, as text — the last one, since the
-/// fixture's resource is called `delivery` too and appears under
-/// `resources` first (which is the mirror being a mirror).
-fn mirror(r: &Runner<NoData>) -> String {
-    let state = agent::state(r);
-    let key = "\"delivery\":";
-    let at = state.rfind(key).expect("state has no delivery");
-    state[at + key.len()..].trim_end_matches('}').to_string() + "}"
+/// Read the top-level delivery mirror independently of sibling diagnostics
+/// and the fixture's resource, which is also called `delivery`.
+fn mirror(r: &Runner<NoData>) -> serde_json::Value {
+    let state: serde_json::Value = serde_json::from_str(&agent::state(r)).unwrap();
+    state
+        .get("delivery")
+        .expect("state has no delivery")
+        .clone()
 }
 
 #[test]
@@ -56,9 +56,12 @@ fn a_baked_plan_shows_the_embedded_answer_with_no_host_in_sight() {
     assert_eq!(r.delivery(), &Delivery::default());
     assert_eq!(
         mirror(&r),
-        "{\"stream\":\"embedded\",\"seq\":0,\"embeddedSeq\":0,\"staged\":false,\
+        serde_json::from_str::<serde_json::Value>(
+            "{\"stream\":\"embedded\",\"seq\":0,\"embeddedSeq\":0,\"staged\":false,\
          \"sunset\":\"\",\"interpreted\":[],\"compatibilityId\":\"\",\"L\":\"A\",\
          \"E\":[\"native\"]}"
+        )
+        .unwrap()
     );
 }
 
@@ -90,10 +93,13 @@ fn a_hosts_facts_re_answer_the_resource_in_one_commit_and_the_agent_sees_them() 
     assert_eq!(text_of(&r, "delivery-staged").as_deref(), Some("staged"));
     assert_eq!(
         mirror(&r),
-        "{\"stream\":\"prod/abc\",\"seq\":44,\"embeddedSeq\":7,\"staged\":true,\
+        serde_json::from_str::<serde_json::Value>(
+            "{\"stream\":\"prod/abc\",\"seq\":44,\"embeddedSeq\":7,\"staged\":true,\
          \"sunset\":\"This build stops receiving updates in March\",\
          \"interpreted\":[\"profile\"],\"compatibilityId\":\"9f1c0a2b\",\"L\":\"A\",\
          \"E\":[\"hermes\",\"native\"]}"
+        )
+        .unwrap()
     );
     // The same facts again are no commit at all.
     let same = r.delivery().clone();
@@ -118,8 +124,11 @@ fn a_compat_file_names_the_cohort_and_leaves_the_stream_alone() {
     // An L = 0 client still answers its embedded entry and nothing staged.
     assert_eq!(text_of(&r, "delivery-stream").as_deref(), Some("embedded"));
     assert_eq!(text_of(&r, "delivery-staged").as_deref(), Some("current"));
-    assert!(mirror(&r).contains("\"L\":\"0\""));
-    assert!(mirror(&r).contains("\"compatibilityId\":\"1a2b3c4d5e6f70819a2b3c4d5e6f7081\""));
+    assert_eq!(mirror(&r)["L"], "0");
+    assert_eq!(
+        mirror(&r)["compatibilityId"],
+        "1a2b3c4d5e6f70819a2b3c4d5e6f7081"
+    );
 }
 
 #[test]

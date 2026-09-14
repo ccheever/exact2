@@ -19,6 +19,7 @@
     "name": "Caltrain",
     "origin": "https://caltrain.exact.invalid"
   },
+  "rust": { "module": { "package": "caltrain-logic" } },
   "host": {
     "ios": {
       "minimumOS": "17.0",

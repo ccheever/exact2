@@ -62,6 +62,7 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
         eprintln!("exact: {e}");
     }
     p.poll_update();
+    p.poll_development(D::default);
     p.run_commands(D::default);
     let reply = answer(p, line);
     p.run_commands(D::default);

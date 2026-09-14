@@ -1,1 +1,0 @@
-../1036-elegance-frictions.research.md

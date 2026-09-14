@@ -69,21 +69,8 @@
     }
   }
 
-  // --- base64, for a response body's bytes (Hermes has no atob) -----------
-  var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  var B64V = {};
-  for (var i = 0; i < 64; i++) B64V[B64.charAt(i)] = i;
-  function fromBase64(s) {
-    var n = s.length;
-    while (n > 0 && s.charAt(n - 1) === "=") n--;
-    var out = new Uint8Array(Math.floor((n * 3) / 4));
-    var o = 0, acc = 0, bits = 0;
-    for (var k = 0; k < n; k++) {
-      acc = (acc << 6) | B64V[s.charAt(k)];
-      bits += 6;
-      if (bits >= 8) { bits -= 8; out[o++] = (acc >> bits) & 255; }
-    }
-    return out;
+  function fromBase64(text) {
+    return Uint8Array.from(global.atob(text), function (c) { return c.charCodeAt(0); });
   }
 
   // --- fetch: a request the host runs; a Promise for its reply -------------
@@ -215,7 +202,28 @@
   // --- the seam ------------------------------------------------------------
   var calls = new Map();     // id -> { id, status, value, error, tickets }
   var nextCall = 1;
-  function ok(value) { return JSON.stringify({ tag: 0, value: value === undefined ? null : value }); }
+  // Large native strings travel alongside the JSON skeleton. The built-in
+  // serializer still owns getters, toJSON, omissions, and cycle detection.
+  // Explicit paths avoid reserving any property spelling in application data.
+  var captureString = global.__exact_capture_string;
+  delete global.__exact_capture_string;
+  function ok(value) {
+    var reply = { tag: 0, value: value === undefined ? null : value };
+    if (typeof captureString !== "function") return JSON.stringify(reply);
+    var paths = new WeakMap(), root = true;
+    return JSON.stringify(reply, function (key, item) {
+      var path = root ? [] : paths.get(this).concat([key]);
+      root = false;
+      if (typeof item === "string" && item.length >= 65536) {
+        // Application toJSON hooks apply to its values, never our path metadata.
+        Object.defineProperty(path, "toJSON", {value:undefined});
+        captureString(JSON.stringify(path), item);
+        return "";
+      }
+      if (item !== null && typeof item === "object") paths.set(item, path);
+      return item;
+    });
+  }
   function fail(e) {
     var kind = e && typeof e === "object" ? e.kind : undefined;
     if (kind !== "UnknownSource" && kind !== "BadArguments" && kind !== "Unavailable") kind = "Unavailable";

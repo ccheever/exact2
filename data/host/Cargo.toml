@@ -1,0 +1,16 @@
+[package]
+name = "exact-data-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+exact-data = { path = ".." }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }
+serde_json = "1.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ibex2 = { path = "../../../ibex/crates/ibex2", default-features = false }
+ibex2-sqlite = { path = "../../../ibex/crates/ibex2-sqlite" }

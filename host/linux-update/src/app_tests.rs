@@ -95,12 +95,15 @@ fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
         smoke: false,
         shot: None,
         dev_plan: None,
+        dev_url: None,
+        dev_identity: None,
         card: String::new(),
         vnc: None,
         compat: UPDATE_COMPAT.into(),
         explicit: false,
         entry: None,
         selected_assets: None,
+        module: Ok(None),
         updates: None,
     };
     config.use_updates(Box::new(Updates::from_client(client).unwrap()), baked);
@@ -151,12 +154,15 @@ fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
         smoke: false,
         shot: None,
         dev_plan: None,
+        dev_url: None,
+        dev_identity: None,
         card: String::new(),
         vnc: None,
         compat: r#"{"id":"fixture00000000","inputs":{"store":{"L":"0"}}}"#.into(),
         explicit: true,
         entry: None,
         selected_assets: None,
+        module: Ok(None),
         updates: None,
     };
     let size = config.size;
@@ -215,12 +221,15 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
         smoke: false,
         shot: None,
         dev_plan: Some(PathBuf::from("app.plan")),
+        dev_url: None,
+        dev_identity: None,
         card: String::new(),
         vnc: None,
         compat: compat.into(),
         explicit: true,
         entry: None,
         selected_assets: None,
+        module: Ok(None),
         updates: None,
     };
     config.use_updates(Box::new(updates), &baked);
@@ -681,4 +690,278 @@ fn a_refused_initial_layout_releases_no_network_requests() {
     if let Err(error) = result {
         std::panic::resume_unwind(error);
     }
+}
+
+#[derive(Default)]
+struct DeferredRust {
+    replacement: bool,
+    active: bool,
+    fails: bool,
+}
+
+static RUST_ACTIVATIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static RUST_VALIDATIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+impl DataSource for DeferredRust {
+    fn app_id(&self) -> &str {
+        "com.exact.fixture"
+    }
+    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(name.into()))
+    }
+    fn ready(&self) -> bool {
+        !self.replacement || self.active
+    }
+    fn replacement(&self, _: &[u8], _: &str, bytes: Vec<u8>) -> Result<Self, DataError> {
+        Ok(Self {
+            replacement: true,
+            active: false,
+            fails: bytes == b"fails",
+        })
+    }
+    fn activate(&mut self) -> Result<(), DataError> {
+        if self.replacement {
+            assert!(!self.active);
+            RUST_ACTIVATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        self.active = true;
+        Ok(())
+    }
+    fn activate_for_validation(&mut self) -> Result<(), DataError> {
+        assert!(self.replacement && !self.active);
+        RUST_VALIDATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.fails {
+            return Err(DataError::Unavailable("candidate refused".into()));
+        }
+        self.active = true;
+        Ok(())
+    }
+}
+
+#[test]
+fn signed_rust_pair_is_deferred_and_failed_live_replacement_keeps_the_old_generation() {
+    use std::sync::atomic::Ordering::SeqCst;
+    RUST_ACTIVATIONS.store(0, SeqCst);
+    RUST_VALIDATIONS.store(0, SeqCst);
+    let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
+        .unwrap()
+        .encode();
+    let candidate = contract::compile("component App\n  view\n    text \"candidate\"\n")
+        .unwrap()
+        .encode();
+    let receipt = br#"{"module":{"file":"app.module.wasm"}}"#.to_vec();
+    let dir = std::env::temp_dir().join(format!("exact-linux-rust-pair-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let client = stage(
+        &dir,
+        &baked,
+        &candidate,
+        &[
+            ("rust/app.module.json", receipt.clone()),
+            ("rust/app.module.wasm", b"works".to_vec()),
+        ],
+    );
+    let mut config = selected_config(&dir, &baked, client);
+    let (mut presenter, error) =
+        boot_presenter::<DeferredRust>(&mut config, (390.0, 844.0)).unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert!(presenter
+        .host()
+        .agent("{\"op\":\"tree\"}")
+        .contains("candidate"));
+    assert_eq!(
+        RUST_ACTIVATIONS.load(SeqCst),
+        0,
+        "boot only verifies and defers the module"
+    );
+    let reply = exact_linux::agent::handle(
+        &mut presenter,
+        &serde_json::json!({"op":"screenshot", "path":dir.join("first.png")}).to_string(),
+    );
+    assert!(!reply.contains("error"), "{reply}");
+    assert_eq!(RUST_ACTIVATIONS.load(SeqCst), 1);
+    let tree = presenter.host().agent("{\"op\":\"tree\"}");
+    let refused = exact_linux::delivery::Module {
+        receipt: String::from_utf8(receipt).unwrap(),
+        bytes: b"fails".to_vec(),
+    };
+    assert!(presenter
+        .reload_module(&baked, DeferredRust::default(), Some(refused))
+        .is_err());
+    assert_eq!(RUST_VALIDATIONS.load(SeqCst), 1);
+    assert_eq!(RUST_ACTIVATIONS.load(SeqCst), 1);
+    assert_eq!(presenter.host().agent("{\"op\":\"tree\"}"), tree);
+    // A plan-only reload keeps the admitted pair and recreates its deferred source.
+    presenter
+        .reload_module(&candidate, DeferredRust::default(), None)
+        .unwrap();
+    assert_eq!(RUST_VALIDATIONS.load(SeqCst), 2);
+    assert_eq!(RUST_ACTIVATIONS.load(SeqCst), 1);
+    let reply = exact_linux::agent::handle(
+        &mut presenter,
+        &serde_json::json!({"op":"screenshot", "path":dir.join("second.png")}).to_string(),
+    );
+    assert!(!reply.contains("error"), "{reply}");
+    assert_eq!(RUST_ACTIVATIONS.load(SeqCst), 2);
+    drop(presenter);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn corrupt_or_disabled_signed_rust_pair_falls_back_before_booting_its_plan() {
+    let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
+        .unwrap()
+        .encode();
+    let candidate = contract::compile("component App\n  view\n    text \"candidate\"\n")
+        .unwrap()
+        .encode();
+    for corrupt in [false, true] {
+        let dir = std::env::temp_dir().join(format!(
+            "exact-linux-rust-refused-{corrupt}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let client = stage(
+            &dir,
+            &baked,
+            &candidate,
+            &[
+                (
+                    "rust/app.module.json",
+                    br#"{"module":{"file":"app.module.wasm"}}"#.to_vec(),
+                ),
+                ("rust/app.module.wasm", b"works".to_vec()),
+            ],
+        );
+        if corrupt {
+            let path = client
+                .selection()
+                .assets_dir
+                .unwrap()
+                .join("rust/app.module.wasm");
+            std::fs::write(path, b"corrupt").unwrap();
+        }
+        let mut config = selected_config(&dir, &baked, client);
+        let (presenter, _) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
+        assert!(presenter
+            .host()
+            .agent("{\"op\":\"tree\"}")
+            .contains("baked"));
+        assert!(!presenter
+            .host()
+            .agent("{\"op\":\"tree\"}")
+            .contains("candidate"));
+        assert!(config.entry.is_none());
+        drop(presenter);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn failed_post_pixel_rust_activation_does_not_bless_the_selected_bundle() {
+    #[derive(Default)]
+    struct CannotActivate;
+    impl DataSource for CannotActivate {
+        fn app_id(&self) -> &str {
+            "com.exact.fixture"
+        }
+        fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(name.into()))
+        }
+        fn ready(&self) -> bool {
+            false
+        }
+        fn replacement(&self, _: &[u8], _: &str, _: Vec<u8>) -> Result<Self, DataError> {
+            Ok(Self)
+        }
+        fn activate(&mut self) -> Result<(), DataError> {
+            Err(DataError::Unavailable("malformed module".into()))
+        }
+    }
+    let plan = contract::compile("component App\n  view\n    text \"candidate\"\n")
+        .unwrap()
+        .encode();
+    let dir = std::env::temp_dir().join(format!(
+        "exact-linux-rust-activation-failure-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let client = stage(
+        &dir,
+        &plan,
+        &plan,
+        &[
+            (
+                "rust/app.module.json",
+                br#"{"module":{"file":"app.module.wasm"}}"#.to_vec(),
+            ),
+            ("rust/app.module.wasm", b"malformed".to_vec()),
+        ],
+    );
+    let record = client.dir().join("record.json");
+    let mut config = selected_config(&dir, &plan, client);
+    let (mut presenter, _) = boot_presenter::<CannotActivate>(&mut config, (390.0, 844.0)).unwrap();
+    let _ = presenter.frame();
+    presenter.first_pixel();
+    let _ = presenter.frame();
+    presenter.first_pixel();
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(record).unwrap()).unwrap();
+    assert_eq!(
+        saved["failures"], 1,
+        "first pixel cannot bless a module that failed activation"
+    );
+    assert!(saved["lastGood"].is_null());
+    drop(presenter);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_live_rust_swap_refuses_before_loading_while_a_request_is_pending() {
+    use exact_runner::{Answer, Store};
+    #[derive(Clone)]
+    struct Held(Arc<std::sync::atomic::AtomicUsize>);
+    impl DataSource for Held {
+        fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(name.into()))
+        }
+        fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            Ok(Answer::Later(exact_runner::Request::post_json(
+                "https://pending.invalid",
+                "{}",
+            )))
+        }
+        fn replacement(&self, _: &[u8], _: &str, _: Vec<u8>) -> Result<Self, DataError> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(self.clone())
+        }
+    }
+    let plan = contract::compile("shape Reply\n  value: string\ncomponent App\n  mutation reply as shape Reply\n  action start writes reply\n    send reply = write()\n  view\n    button press=start testId=\"start\"\n      text \"send\"\n").unwrap().encode();
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let source = Held(calls.clone());
+    let (mut presenter, _) = exact_linux::Presenter::boot(
+        &plan,
+        source.clone(),
+        (390.0, 844.0),
+        1.0,
+        std::env::temp_dir(),
+    )
+    .unwrap();
+    let kernel = presenter.host().kernel();
+    let button = kernel
+        .node_by_key(kernel.find_by_test_id("start")[0])
+        .unwrap()
+        .id;
+    presenter.tap(button).unwrap();
+    let pending = presenter.host().runner().pending();
+    assert!(!pending.is_empty());
+    let module = exact_linux::delivery::Module {
+        receipt: String::new(),
+        bytes: Vec::new(),
+    };
+    let error = presenter
+        .reload_module(&plan, source, Some(module))
+        .unwrap_err();
+    assert!(error.to_string().contains("retry after they settle"));
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(presenter.host().runner().pending(), pending);
 }

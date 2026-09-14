@@ -1,6 +1,37 @@
 use super::{sources, Scratch};
 
 #[test]
+fn mixed_bake_reads_rust_identity_and_own_grants_without_executing_it() {
+    use contract::DataSource;
+    struct Rust;
+    impl DataSource for Rust {
+        fn app_id(&self) -> &str {
+            "test.mixed"
+        }
+        fn grants(&self) -> &str {
+            "fs.read app:/data/rust"
+        }
+        fn query(
+            &mut self,
+            _: &str,
+            _: &[exact_plan::Value],
+        ) -> Result<exact_plan::Value, exact_runner::DataError> {
+            panic!("metadata collection must not query the Rust source")
+        }
+        fn activate(&mut self) -> Result<(), exact_runner::DataError> {
+            panic!("metadata collection must not activate the Rust source")
+        }
+    }
+    let javascript =
+        serde_json::json!({"appId":"test.mixed","grants":"net.fetch https://example.test/"});
+    assert_eq!(
+        super::mixed_grants(&javascript, Some(&Rust)).unwrap(),
+        Some("fs.read app:/data/rust")
+    );
+    assert!(super::mixed_grants(&serde_json::json!({"appId":"wrong"}), Some(&Rust)).is_err());
+}
+
+#[test]
 fn captures_fonts_and_complete_static_trees_without_following_links() {
     let app = Scratch::new(&std::env::temp_dir()).unwrap();
     let inputs = [

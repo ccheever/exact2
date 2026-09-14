@@ -10,8 +10,12 @@ build = "build.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+fieldnotes-data = { path = "../data" }
+exact-data-host = { path = "../../../data/host" }
+exact-logic = { path = "../../../logic" }
 exact-web = { path = "../../../host/web" }
 exact-js-web = { path = "../../../js/web" }
 
 [build-dependencies]
+fieldnotes-data = { path = "../data" }
 exact-js-bake = { path = "../../../js/bake" }

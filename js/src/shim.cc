@@ -34,6 +34,11 @@ private:
 // (ctx, op, a, b, out) -> 0 with `out` null (undefined) or a malloc'd string.
 typedef int (*HostFn)(void *ctx, uint32_t op, const char *a, const char *b, char **out);
 
+struct CapturedString {
+  std::string path;
+  std::u16string value;
+};
+
 struct State {
   std::unique_ptr<facebook::hermes::HermesRuntime> rt;
   std::vector<std::string> log;
@@ -41,9 +46,40 @@ struct State {
   void *ctx;
   // Destroy the adapter (and its JSI roots) before the runtime.
   std::unique_ptr<ibex2::jsi_adapter::Adapter> storage;
+  size_t capture_limit;
+  size_t capture_bytes = 0;
+  std::vector<CapturedString> captures;
 };
 
 constexpr size_t kLogLines = 256;
+
+void clear_captures(State *state) {
+  state->captures.clear();
+  state->capture_bytes = 0;
+}
+
+// The prelude captures and removes this binding before app initialization.
+// Strings stay UTF-16 here: converting through JSI UTF-8 would replace lone
+// surrogates which the existing JSON/serde seam rejects.
+void install_capture(State *state) {
+  auto &rt = *state->rt;
+  rt.global().setProperty(rt, "__exact_capture_string",
+      jsi::Function::createFromHostFunction(rt,
+          jsi::PropNameID::forAscii(rt, "__exact_capture_string"), 2,
+          [state](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
+                  size_t count) -> jsi::Value {
+            if (count != 2 || !args[0].isString() || !args[1].isString())
+              throw jsi::JSError(rt, "result capture requires a path and string");
+            auto path = args[0].getString(rt).utf8(rt);
+            auto value = args[1].getString(rt).utf16(rt);
+            const auto remaining = state->capture_limit - state->capture_bytes;
+            if (path.size() > remaining || value.size() > (remaining-path.size())/sizeof(char16_t))
+              throw jsi::JSError(rt, "result string captures exceed the module heap limit");
+            state->capture_bytes += path.size() + value.size()*sizeof(char16_t);
+            state->captures.push_back({std::move(path), std::move(value)});
+            return jsi::Value::undefined();
+          }));
+}
 
 char *dup(const std::string &s) {
   char *p = static_cast<char *>(std::malloc(s.size() + 1));
@@ -129,9 +165,15 @@ void *exact_js_create(uint32_t max_heap_bytes, HostFn host, void *ctx) {
                       .build();
     auto rt = facebook::hermes::makeHermesRuntimeNoThrow(config);
     if (!rt) return nullptr;
-    auto *state = new State{std::move(rt), {}, host, ctx, nullptr};
+    auto *state = new State{std::move(rt), {}, host, ctx, nullptr, max_heap_bytes, 0, {}};
     install_console(state);
     install_host(state);
+    install_capture(state);
+    // Pure Ibex text bindings preserve typed buffers without JSON byte arrays.
+    // No task queue or grants are required by these synchronous operations.
+    auto global = state->rt->global();
+    ibex2::jsi_adapter::set_binding(*state->rt, global, "__exact_encode", 20, nullptr);
+    ibex2::jsi_adapter::set_binding(*state->rt, global, "__exact_decode", 21, nullptr);
     return state;
   } catch (...) {
     return nullptr;
@@ -221,14 +263,16 @@ int exact_js_string(void *h, const char *name, char **out) {
 int exact_js_call(void *h, const char *name, const char *a, const char *b, const char *c,
                   char **out) {
   auto *state = static_cast<State *>(h);
+  clear_captures(state);
   jsi::Runtime &rt = *state->rt;
   try {
     jsi::Function fn = rt.global().getPropertyAsFunction(rt, name);
     jsi::Value result = fn.call(rt, jsi::String::createFromUtf8(rt, a),
                                 jsi::String::createFromUtf8(rt, b),
                                 jsi::String::createFromUtf8(rt, c));
-    if (result.isUndefined()) return fail(out, "", 0);
+    if (result.isUndefined()) { clear_captures(state); return fail(out, "", 0); }
     if (!result.isString()) {
+      clear_captures(state);
       return fail(out, result.isObject() && result.getObject(rt).hasProperty(rt, "then")
                            ? "returned a promise"
                            : "did not return a string",
@@ -236,11 +280,29 @@ int exact_js_call(void *h, const char *name, const char *a, const char *b, const
     }
     return fail(out, result.getString(rt).utf8(rt), 0);
   } catch (const jsi::JSError &e) {
+    clear_captures(state);
     return fail(out, e.getMessage(), 1);
   } catch (const std::exception &e) {
+    clear_captures(state);
     return fail(out, e.what(), 2);
   }
 }
+
+// Borrowed until the next call/clear; Rust copies/decodes before returning.
+size_t exact_js_capture_count(void *h) {
+  return static_cast<State *>(h)->captures.size();
+}
+bool exact_js_capture(void *h, size_t index, const char **path, size_t *path_len,
+                      const uint16_t **value, size_t *value_len) {
+  const auto &captures = static_cast<State *>(h)->captures;
+  if (index >= captures.size()) return false;
+  const auto &capture = captures[index];
+  *path = capture.path.data(); *path_len = capture.path.size();
+  *value = reinterpret_cast<const uint16_t *>(capture.value.data());
+  *value_len = capture.value.size();
+  return true;
+}
+void exact_js_clear_captures(void *h) { clear_captures(static_cast<State *>(h)); }
 
 // Run every queued microtask: the continuations of resolved fetches.
 int exact_js_drain(void *h, char **out) {

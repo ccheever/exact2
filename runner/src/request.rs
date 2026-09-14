@@ -32,6 +32,10 @@ pub struct Request {
     /// Executor-local continuation token, not an HTTP request. The browser
     /// drains its module's microtasks; native hosts take source-owned worker work.
     pub continuation: Option<u64>,
+    /// Portable storage operation; independent of HTTP and native closures.
+    pub storage: Option<Vec<u8>>,
+    /// Admitted source scope inside a mixed app; may only narrow host grants.
+    pub grants: Option<String>,
     /// `GET`, `POST`, …
     pub method: String,
     /// The URL.
@@ -47,6 +51,8 @@ impl Request {
     pub fn get(url: &str) -> Request {
         Request {
             continuation: None,
+            storage: None,
+            grants: None,
             method: "GET".into(),
             url: url.into(),
             headers: Vec::new(),
@@ -58,10 +64,20 @@ impl Request {
     pub fn post_json(url: &str, json: &str) -> Request {
         Request {
             continuation: None,
+            storage: None,
+            grants: None,
             method: "POST".into(),
             url: url.into(),
             headers: vec![("content-type".into(), "application/json".into())],
             body: json.as_bytes().to_vec(),
+        }
+    }
+
+    /// Host storage work as a bounded protocol payload (LLP 1027.001 D2).
+    pub fn storage(payload: Vec<u8>) -> Self {
+        Self {
+            storage: Some(payload),
+            ..Self::get("")
         }
     }
 
@@ -94,6 +110,8 @@ pub struct Response {
 /// A request's outcome: a response (any status), or no response at all.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
+    /// A portable storage operation completed (LLP 1027.001 D2).
+    Storage(Vec<u8>),
     /// The server answered.
     Response(Response),
     /// Nothing came back: the executor says why.

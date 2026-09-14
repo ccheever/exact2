@@ -1,0 +1,50 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Update Lab",
+  "short_name": "Update Lab",
+  "id": "com.exact.updatelab",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#233d62",
+  "background_color": "#f3f5f9",
+  "app": {
+    "id": "com.exact.updatelab",
+    "name": "Update Lab"
+  },
+  "rust": {
+    "module": {
+      "package": "update-lab-logic"
+    },
+    "platforms": {
+      "macos": { "dev": "tiered" }
+    }
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ],
+      "localNetworking": "Connect to your development server to test source updates."
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 520,
+        "height": 820,
+        "minWidth": 360,
+        "minHeight": 600
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

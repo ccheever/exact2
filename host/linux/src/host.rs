@@ -28,6 +28,7 @@ pub enum HostError {
     Painter(String),
     Layout(String),
     Asset(String),
+    PreparingModule,
 }
 
 impl std::fmt::Display for HostError {
@@ -270,6 +271,14 @@ impl<D: DataSource> Host<D> {
         if self.data_activated {
             return Ok(false);
         }
+        if !self
+            .runner
+            .data_ref()
+            .preload()
+            .map_err(|e| format!("prepare data: {e:?}"))?
+        {
+            return Ok(false);
+        }
         if let Err(error) = self
             .configure_storage()
             .and_then(|()| self.runner.data().activate())
@@ -291,6 +300,11 @@ impl<D: DataSource> Host<D> {
             Ok(None) => Ok(false),
             Err(error) => Err(format!("data ready: {error:?}")),
         }
+    }
+
+    /// Deferred image preparation needs another turn after first pixel.
+    pub fn data_pending(&self) -> bool {
+        !self.data_activated
     }
 
     /// Transfer a source-owned operation to the native executor.

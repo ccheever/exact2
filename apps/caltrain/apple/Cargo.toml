@@ -15,6 +15,7 @@ name = "caltrain_apple"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+exact-logic = { path = "../../../logic" }
 caltrain-data = { path = "../data" }
 exact-apple = { path = "../../../host/apple" }
 

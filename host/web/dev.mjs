@@ -26,23 +26,36 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
+import { developmentInstallPage, installNetworkPage, INSTALL_FILES, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
+import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
+import { rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
-import { applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGeneration, readStaticFile, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
+import { phones, simulators } from '../apple/build.mjs';
+import { applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
 const buildEnv = {...developmentBuildEnv(),EXACT_UPDATE_TRUST:'development'};
-const app = resolveApp(arg('--app', undefined));
+let app = resolveApp(arg('--app', undefined));
 const port = Number(arg('--port', 8765));
 const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
 const host = loopback ? '127.0.0.1' : '0.0.0.0';
+const privateAddress = address => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(address);
+const lanAddresses = Object.values(networkInterfaces()).flat()
+  .filter(address => address && !address.internal && address.family === 'IPv4')
+  .map(address => address.address).sort((a, b) => privateAddress(b) - privateAddress(a));
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(root, 'host/web/dist'));
 const source = resolve(app.dir, 'app.contract');
-const typescript = existsSync(resolve(app.dir, 'app.ts'));
+let typescript = existsSync(resolve(app.dir, 'app.ts'));
+let portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';
+let rebuildOn = rebuildPolicy(app.manifest);
+let manualTypescript = null, rustChild = null, rustActive = false, rustRun = 0, rustHeartbeat = null, rustDirty = false, rustSaved = 0, rustSourceWatch = null, rustOutputWatch = null;
+let rustInputFiles = new Set();
+let changed = new Set(), timer=null, building=false, again=false, builds=0;
 const plan = resolve(dist, 'app.plan');
 const graphPath = resolve(dist, 'bake.json');
 buildEnv.EXACT_DEV_BAKE = graphPath;
@@ -81,9 +94,83 @@ const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stri
 // A revision owns its plan and complete asset namespace. Its process epoch
 // makes a restarted server's seq=1 newer than the previous server's seq=N.
 const epoch = randomBytes(16).toString('hex');
-const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir })).digest('hex'));
+const localInstallToken = randomBytes(32).toString('hex');
+let localInstallChild = null;
+let localInstallTargets = [], localInstallTargetsAt = 0, localInstallTargetError = null;
+let localInstallState = { state: 'idle', message: 'Looking for an iOS Simulator or paired device…', log: '' };
+const publicTarget = target => ({ id: target.id, kind: target.kind, name: target.name, model: target.model, os: target.os, state: target.state });
+const simulatorOS = runtime => (/(?:^|\.)iOS-(\d+)-(\d+)(?:-(\d+))?$/.exec(runtime)?.slice(1).filter(Boolean).join('.') ?? runtime);
+function refreshLocalInstallTargets(force = false) {
+  if (process.platform !== 'darwin') {
+    localInstallTargets = []; localInstallTargetError = 'Local iOS builds require a Mac running this development server.';
+    return;
+  }
+  if (!force && Date.now() - localInstallTargetsAt < 3000) return;
+  localInstallTargetsAt = Date.now();
+  const found = [], errors = [];
+  try { found.push(...phones().filter(device => device.reachable && device.paired).map(device => ({
+    id: `device:${device.id}`, value: device.id, kind: 'device', name: device.name, model: device.model, os: device.os,
+  }))); } catch (error) { errors.push(error.message); }
+  try { found.push(...simulators().filter(device => /SimRuntime\.iOS/.test(device.runtime) && /^(iPhone|iPad)/.test(device.name)).map(device => ({
+    id: `simulator:${device.udid}`, value: device.udid, kind: 'simulator', name: device.name,
+    model: 'Simulator', os: simulatorOS(device.runtime), state: device.state,
+  }))); } catch (error) { errors.push(error.message); }
+  localInstallTargets = found.sort((a, b) => Number(b.state === 'Booted') - Number(a.state === 'Booted') || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  localInstallTargetError = found.length ? null : errors.join(' ');
+}
+function localInstallStatus(forceTargets = false) {
+  if (localInstallState.state !== 'building') refreshLocalInstallTargets(forceTargets);
+  let message = localInstallState.message;
+  if (localInstallState.state === 'idle') {
+    if (localInstallTargetError) message = localInstallTargetError;
+    else if (!localInstallTargets.length) message = 'No available iOS Simulator or reachable paired device was found. Add a Simulator in Xcode, or unlock and pair a physical device.';
+    else message = 'Ready to build locally. The first build can take a few minutes.';
+  }
+  return { ...localInstallState, message, available: process.platform === 'darwin' && !localInstallTargetError,
+    targets: localInstallTargets.map(publicTarget) };
+}
+function appendLocalInstallLog(chunk) {
+  localInstallState.log = (localInstallState.log + String(chunk)).replace(/\r/g, '').slice(-16000);
+}
+function startLocalInstall(targetId, requestOrigin) {
+  if (localInstallChild) { const error = new Error('A local iOS build is already running.'); error.status = 409; throw error; }
+  refreshLocalInstallTargets(true);
+  if (localInstallTargetError) { const error = new Error(localInstallTargetError); error.status = 503; throw error; }
+  const target = localInstallTargets.find(candidate => candidate.id === targetId);
+  if (!target) { const error = new Error('That Simulator or device is no longer available. Refresh the target list.'); error.status = 400; throw error; }
+  let appURL = new URL('/', requestOrigin);
+  if (target.kind === 'device' && ['127.0.0.1', 'localhost', '[::1]'].includes(appURL.hostname)) {
+    if (loopback || !lanAddresses.length) { const error = new Error('A physical device cannot reach this loopback-only server. Start it on the LAN and open the LAN install URL.'); error.status = 400; throw error; }
+    appURL = new URL(`http://${lanAddresses[0]}:${port}/`);
+  }
+  localInstallState = { state: 'building', message: `Building ${app.displayName} for ${target.name}. This can take a few minutes…`, log: '', target: publicTarget(target), startedAt: new Date().toISOString() };
+  const destination = target.kind === 'simulator' ? ['--ios', app.crate('apple'), '--sim', target.value] : ['--device', app.crate('apple'), '--phone', target.value];
+  const child = localInstallChild = spawn(process.execPath, [resolve(root, 'host/apple/build.mjs'), ...destination, '--run', '--url', appURL.href], {
+    cwd: root, env: { ...process.env, EXACT_APP_DIR: app.dir, EXACT_UPDATE_TRUST: 'development' }, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout.on('data', appendLocalInstallLog);
+  child.stderr.on('data', appendLocalInstallLog);
+  child.on('error', error => {
+    if (localInstallChild !== child) return;
+    localInstallChild = null;
+    localInstallState = { ...localInstallState, state: 'failed', message: `The local build could not start: ${error.message}`, completedAt: new Date().toISOString() };
+  });
+  child.on('exit', (code, signal) => {
+    if (localInstallChild !== child) return;
+    localInstallChild = null;
+    const failed = code !== 0;
+    const detail = localInstallState.log.trim().split('\n').filter(Boolean).at(-1);
+    localInstallState = { ...localInstallState, state: failed ? 'failed' : 'installed',
+      message: failed ? `The local build failed${detail ? `: ${detail}` : ` (${signal ?? `exit ${code}`})`}` : `${app.displayName} was installed and opened on ${target.name}.`,
+      completedAt: new Date().toISOString() };
+  });
+  return localInstallStatus();
+}
+const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
 let current = null;
 let currentModule = null;
+let currentRust = null;
+let currentRustId = null;
 let assetsNeedRebuild = false;
 // This names the actual programs already served, including optional GPU code.
 // A changed program stays terminal even when its compatibility metadata agrees.
@@ -103,11 +190,26 @@ const announcement = () => current ? {
 const hello = () => JSON.stringify({ hello: true, ...announcement() });
 let retentionToken = null;
 function captureGeneration(reuseCurrentAssets = false) {
+  // A mixed app publishes one complete candidate. A producer may finish
+  // first, but neither language may reset the other's last admitted module.
+  if (typescript && portableRust && (!currentModule || !currentRust)) return;
   const encodedPlan = currentModule ? null : filesystem({ op: 'get', root: dist, path: 'app.plan' });
   if (!currentModule && encodedPlan === null) throw new Error('the plan is missing');
-  const planBytes = currentModule?.get('app.plan') ?? Buffer.from(encodedPlan, 'base64');
+  const planBytes = currentModule?.get('app.plan') ?? currentRust?.get('app.plan') ?? Buffer.from(encodedPlan, 'base64');
   const files = currentModule ? new Map(currentModule) : new Map([['app.plan', planBytes]]);
   const module = currentModule ? moduleCards(files, app.id) : null;
+  if (currentRust) for (const [name, body] of currentRust) {
+    if (name === 'app.plan') continue;
+    // A Contract/TS bake can reuse the exact accepted Rust artifact. Bind
+    // its receipt to the new common plan; each client validates both
+    // executors together before restart with carry.
+    if (currentModule && name.endsWith('/app.module.json')) {
+      const receipt = JSON.parse(body);
+      receipt.plan = {file:'app.plan',bytes:planBytes.length,sha256:createHash('sha256').update(planBytes).digest('hex')};
+      files.set(name, Buffer.from(JSON.stringify(receipt)));
+    } else files.set(name, body);
+  }
+  const rust = currentRust ? rustCards(files) : null;
   const assets = [];
   // Logic edits reuse the last admitted static snapshot. Asset events capture
   // through owned filesystem reads again before publishing their own revision.
@@ -134,11 +236,12 @@ function captureGeneration(reuseCurrentAssets = false) {
     || [...files.values()].reduce((sum, body) => sum + body.length, 0) > 256 * 1024 * 1024) throw new Error('generation exceeds the payload budget');
   const envelope = webEnvelope(app, planBytes, assets);
   const generation = createHash('sha256').update(canonicalBytes({
-    plan: { sha256: envelope.plan.sha256, bytes: planBytes.length }, assets, ...(module ? { module } : {}),
+    plan: { sha256: envelope.plan.sha256, bytes: planBytes.length }, assets, ...(module ? { module } : {}), ...(rust ? { rust: Object.fromEntries(Object.entries(rust).map(([k,v]) => [k, { module:{bytes:v.module.bytes,sha256:v.module.sha256},receipt:{bytes:v.receipt.bytes,sha256:v.receipt.sha256},...(k !== "wasm" ? {target:v.target} : {}) }])) } : {}),
   })).digest('hex');
   const prefix = `/__dev/generation/${epoch}/${seq}/`;
   envelope.dev = { epoch, program, seq, generation, events: '/__dev' };
   envelope.plan.url = prefix + 'app.plan';
+  if (rust) envelope.rust = Object.fromEntries(Object.entries(rust).map(([kind, variant]) => [kind, { ...variant, receipt:{...variant.receipt,url:prefix+variant.receipt.url},module:{...variant.module,url:prefix+variant.module.url} }]));
   if (module) envelope.module = Object.fromEntries(Object.entries(module).map(([key, card]) => [key, { ...card, url: prefix + MODULE_FILES[key] }]));
   for (const asset of envelope.assets) asset.url = prefix + asset.name.split('/').map(encodeURIComponent).join('/');
   const envelopeBytes = Buffer.from(JSON.stringify(envelope) + '\n');
@@ -156,7 +259,9 @@ function captureGeneration(reuseCurrentAssets = false) {
 let dev = null;
 let announced = false;
 function startCompiler() {
+  if (portableRust) startRustCompiler();
   if (typescript) { startModuleCompiler(); return; }
+  if (portableRust) return;
   dev = spawn('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--bin', 'dev', '--', source, plan], { cwd: app.workspace, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
@@ -269,6 +374,7 @@ function startModuleCompiler() {
     active = { id: moduleRun, started, saved: moduleSaved || started, stage, output: resolve(stage, 'generation') };
     child.stdin.write(JSON.stringify({ id: active.id, out: active.output }) + '\n');
   };
+  manualTypescript = () => { moduleRun++; moduleSaved = Date.now(); produce(); };
   child.stderr.on('data', chunk => {  errors = (errors + chunk).slice(-65536); });
   child.stdout.on('data', chunk => {
     if (dev !== child) return;
@@ -314,19 +420,107 @@ function startModuleCompiler() {
     || assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')), error => {
     moduleRun++; moduleSaved = Date.now(); clearImmediate(moduleTimer);
     if (error) { console.error(error.message); push({error:error.message}); return; }
-    moduleTimer = setImmediate(produce);
+    if (rebuildOn.typescript === "save") moduleTimer = setImmediate(produce);
   });
   if (moduleWatch.error) { console.error(moduleWatch.error.message); push({error:moduleWatch.error.message}); }
 
   produce();
 }
+function readRustGeneration() {
+  if (building || changed.size) return;
+  const directory = rustOutput(app), id = readFileSync(resolve(directory, 'current'), 'utf8');
+  if (!/^[0-9a-f]{64}$/.test(id)) throw new Error('invalid Rust generation pointer');
+  if (id === currentRustId && current) return;
+  const candidate = new Map();
+  const walk = (dir, prefix = '') => {
+    for (const entry of readdirSync(dir, {withFileTypes:true})) {
+      const name = prefix + entry.name;
+      if (entry.isSymbolicLink()) throw new Error('Rust generation contains a link');
+      if (entry.isDirectory()) walk(resolve(dir, entry.name), name + '/');
+      else candidate.set(name, readFileSync(resolve(dir, entry.name)));
+    }
+  };
+  walk(resolve(directory, id));
+  if (!rustCards(candidate)) throw new Error('Rust generation contains no module');
+  const previous = currentRust; currentRust = candidate; seq++;
+  try { captureGeneration(true); } catch (error) { currentRust = previous; throw error; }
+  currentRustId = id;
+  rustInputFiles = new Set(rustInputs(app, buildEnv, {reloadOnly:true}));
+  watchCompilerInputs();
+  pending.set(seq, {saved:rustSaved || Date.now(),ready:Date.now()});
+  push(announcement());
+  console.log(`Rust generation ${id.slice(0,12)} ready; restart with carry`);
+}
+function produceRust() {
+  if (building) { rustDirty = true; again = true; return; }
+  if (changed.size) { rebuild(); return; }
+  if (rustActive) { rustDirty = true; return; }
+  if (!rustChild) {
+    const child=rustChild=spawn(process.execPath,[resolve(root,'scripts/rust.mjs'),app.name,'--serve'],{cwd:root,env:buildEnv,detached:true,stdio:['pipe','pipe','pipe']});
+    let buffer='';
+    const failed=error=>{
+      if(rustChild!==child)return;
+      rustChild=null;rustActive=false;clearInterval(rustHeartbeat);rustHeartbeat=null;
+      console.error(error.message);push({error:error.message});
+      try{process.kill(-child.pid,'SIGTERM');}catch{}
+    };
+    child.on('error',failed);
+    child.on('exit',(code,signal)=>failed(new Error(`Rust producer exited (${code??signal})`)));
+    child.stdin.on('error',failed);
+    child.stderr.on('data',data=>process.stderr.write(data));
+    child.stdout.on('data',data=>{
+      buffer+=data;
+      let end;
+      while((end=buffer.indexOf('\n'))>=0) {
+        const line=buffer.slice(0,end);buffer=buffer.slice(end+1);
+        try {
+          const reply=JSON.parse(line);
+          if(reply.id!==rustRun||!rustActive||typeof reply.ok!=='boolean')throw new Error('invalid Rust producer reply');
+          rustActive=false;clearInterval(rustHeartbeat);rustHeartbeat=null;
+          if(!reply.ok){console.error(reply.error);push({error:reply.error});}
+          if(rustDirty && rebuildOn.rust==='save')produceRust();
+        } catch(error){failed(error);return;}
+      }
+    });
+  }
+  rustDirty=false;rustActive=true;rustRun++;
+  const started=Date.now();
+  console.log(`Rust build ${rustRun} started; the current generation stays active`);
+  rustHeartbeat=setInterval(()=>console.log(`Rust build ${rustRun} still running (${Math.round((Date.now()-started)/1000)} s); waiting for compiler/baker`),10000);
+  rustChild.stdin.write(JSON.stringify({id:rustRun})+'\n');
+}
+function startRustCompiler() {
+  rustInputFiles = new Set(rustInputs(app, buildEnv, {reloadOnly:true}));
+  const directory = rustOutput(app); mkdirSync(directory, {recursive:true});
+  rustOutputWatch = watch(directory, (_event,name) => {
+    if (name !== 'current') return;
+    try { readRustGeneration(); } catch (error) { console.error(error.message); push({error:error.message}); }
+  });
+  rustSourceWatch = watchModuleSources(app.dir, name => skipped.test(name) || /(^|\/)\./.test(name)
+    || /\.(ts|json)$/.test(name)
+    || assetTrees.some(([tree]) => resolve(app.dir,name).startsWith(tree+'/')), error => {
+    if (error) { push({error:error.message}); return; }
+    // The TS producer owns mixed Contract edits. If a Contract changes
+    // during a Rust bake, its before/after guard will refuse that bake;
+    // remember to build the latest snapshot once the in-flight job ends.
+    if (typescript) { if (rustActive) rustDirty = true; return; }
+    rustSaved = Date.now(); rustDirty = true;
+    if (rebuildOn.rust === 'save') { clearTimeout(timer); timer=setTimeout(produceRust,200); }
+  });
+  produceRust();
+}
 const killCompiler = () => {
+  manualTypescript = null;
+  rustSourceWatch?.close(); rustSourceWatch = null; rustOutputWatch?.close(); rustOutputWatch = null;
+  clearInterval(rustHeartbeat); rustHeartbeat = null; rustActive = false;
+  const rust = rustChild; rustChild = null; if (rust) { try { process.kill(-rust.pid, 'SIGKILL'); } catch {} }
+
   moduleWatch?.close(); moduleWatch = null; clearImmediate(moduleTimer); moduleRun++;
   const d = dev; dev = null; if (d) { try { process.kill(-d.pid, 'SIGKILL'); } catch {} }
   if (moduleStage) { rmSync(moduleStage, { recursive: true, force: true }); moduleStage = null; }
 };
 startCompiler();
-const stop = () => { killCompiler(); process.exit(0); };
+const stop = () => { killCompiler(); localInstallChild?.kill('SIGTERM'); process.exit(0); };
 
 // The asset row (LLP 1030 D10; 1030.000 stage 1): an edit to an image, a
 // font, a deck page, or a shader under the app's `assets/`, `deck/`, or
@@ -453,7 +647,7 @@ function refreshNativePending(){nativePending.clear();for(const r of builtReceip
 refreshNativePending();
 let previousWeb=cohortReceipt(JSON.parse(readFileSync(graphPath,'utf8')));
 function classifyGeneration(planBytes, assets) {
-  if (currentModule) return ['plan/module/assets: development candidate; each client verifies its admitted module identity and grants (not signed deployment classification)'];
+  if (currentModule || currentRust) return ['plan/module/assets: development candidate; each client verifies its admitted module identity and grants (not signed deployment classification)'];
   const web=JSON.parse(readFileSync(graphPath,'utf8'));
   const candidate=developmentCandidate(web,{sha256:createHash('sha256').update(planBytes).digest('hex'),bytes:planBytes.length},assets,shaderDigests);
   const lines=[];
@@ -480,14 +674,18 @@ function classifyRebuild() {
   watchCompilerInputs();
   return [`web: actual binary inputs ${check.binary?'changed':'unchanged'}; cohort ${web.compat.id}`, ...builtReceipts.filter(r=>r.compat.inputs.platform!=='web').map(r=>`${r.compat.inputs.platform}: ${nativePending.get(r.compat.target+'/'+r.compat.inputs.platform)?.length?'binary inputs changed; rebuild the actual target':'loaded inputs unchanged'} (${r.compat.target})`)];
 }
-let changed = new Set(), timer=null, building=false, again=false, builds=0;
 const watched=new Map();
+let compilerInputFiles = new Set(), compilerInputTrees = [], compilerMissingInputs = [], swiftSourceDirectories = new Set();
 function watchCompilerInputs() {
   // Watching source directories also catches newly added modules after their
   // declaring file changes. Generated output and third-party caches never
   // cause build loops; their source declarations remain in the receipt.
-  const files=new Set(builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)).filter(p=>!skipped.test(p)&&!p.includes('/.cargo/')));
+  const files=new Set([...builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)),...rustInputFiles].filter(p=>!skipped.test(p)&&!p.includes('/.cargo/')));
   files.add(resolve(app.dir,'app.json'));
+  compilerInputFiles = files;
+  compilerInputTrees = builtReceipts.flatMap(r=>r.binary.directories.map(d=>d.path));
+  compilerMissingInputs = builtReceipts.flatMap(r=>r.binary.missing);
+  swiftSourceDirectories = new Set([...files].filter(path=>path.endsWith('.swift')).map(path=>resolve(path,'..')));
   const directories=new Set([...files].map(path=>resolve(path,'..')));
   for(const receipt of builtReceipts) {
     for(const {path} of receipt.binary.directories)directories.add(path);
@@ -500,13 +698,30 @@ function watchCompilerInputs() {
     if(skipped.test(dir)||dir.includes('/.cargo/')||watched.has(dir)||!existsSync(dir))continue;
     try {watched.set(dir,watch(dir,(_event,name)=>{
       if(!name||skipped.test(name)||/(^|\/)\./.test(name)||name.endsWith('dev.js')||assetTrees.some(([tree])=>resolve(dir,name).startsWith(tree+'/'))||resolve(dir,name)===source)return;
+      // Parent-directory notifications include unrelated documents and output.
+      // Only receipt inputs, declared trees/missing paths, and Swift's implicit
+      // source discovery can invalidate the host. Rust additions are reached
+      // when their declaring module or build input changes.
+      const path = resolve(dir, name);
+      if (!compilerInputFiles.has(path) && !compilerInputTrees.some(tree=>path===tree||path.startsWith(tree+'/'))
+        && !compilerMissingInputs.some(missing=>path===missing||missing.startsWith(path+'/'))
+        && !(name.endsWith('.swift') && swiftSourceDirectories.has(dir))) return;
       if (typescript && resolve(dir, name).startsWith(app.dir + '/') && /\.(ts|contract)$/.test(name)) return;
+      if (portableRust && rustInputFiles.has(resolve(dir,name))) { rustSaved=Date.now();rustDirty=true;if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(produceRust,200);}return; }
       changed.add(resolve(dir,name));console.log(`edit ${resolve(dir,name)} → build pending; classification follows its receipt`);
-      clearTimeout(timer);timer=setTimeout(rebuild,200);
+      if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(rebuild,200);}
     }));}catch(error){console.error(`cannot watch ${dir}: ${error.message}`);}
   }
 }
 watchCompilerInputs();
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', input => {
+  for (const command of input.trim().split(/\s+/)) {
+    if (command === 't') manualTypescript?.();
+    if (command === 'r') { if (portableRust && !changed.size) produceRust(); else rebuild(); }
+  }
+});
+console.log(`rebuild: Rust ${rebuildOn.rust}, TypeScript ${rebuildOn.typescript}; r + Enter builds Rust, t + Enter builds TypeScript`);
 
 function rebuild() {
   if (building) { again = true; return; }
@@ -526,8 +741,15 @@ function rebuild() {
       // The compiler's plans must match the wasm's format: it is built again
       // too (cargo, warm), and its first plan reaches the reloaded page.
       killCompiler();
-      current = null; assetsNeedRebuild = false;
+      app = resolveApp(arg('--app', undefined));
+      typescript = existsSync(resolve(app.dir, 'app.ts'));
+      portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';
+      rebuildOn = rebuildPolicy(app.manifest);
+      current = null; currentModule = null; currentRust = null; currentRustId = null; assetsNeedRebuild = false;
       program = programIdentity();
+      // The restarted producer consumes module edits; queued core edits start
+      // their rebuild there. Do not re-arm a third build below on that success.
+      again = false;
       startCompiler();
       console.log(`rust: rebuilt in ${(ms / 1000).toFixed(1)} s · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading\n  ${classifyRebuild().join('\n  ')}`);
       push({ rebuilt: builds });
@@ -540,10 +762,38 @@ function rebuild() {
   });
 }
 
-const server = createServer((req, res) => {
+const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted';
-  if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && devBeacon)) { res.writeHead(405); res.end(); return; }
+  const localInstall = url.pathname === LOCAL_IOS_INSTALL_ENDPOINT;
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (devBeacon || localInstall))) { res.writeHead(405); res.end(); return; }
+  if (localInstall) {
+    const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body) + '\n'); };
+    if (req.headers['x-exact-install-token'] !== localInstallToken) { json(404, { message: 'Not found.' }); return; }
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      const body = localInstallStatus(url.searchParams.get('refresh') === '1');
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(req.method === 'HEAD' ? undefined : JSON.stringify(body) + '\n');
+      return;
+    }
+    try {
+      const origin = new URL(req.headers.origin);
+      if (!['http:', 'https:'].includes(origin.protocol) || origin.host !== req.headers.host) { const error = new Error('The install request must come from this development server.'); error.status = 403; throw error; }
+      if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] ?? '')) { const error = new Error('The install request must be JSON.'); error.status = 415; throw error; }
+      let size = 0, encoded = '';
+      for await (const chunk of req) {
+        size += chunk.length;
+        if (size > 1024) { const error = new Error('The install request is too large.'); error.status = 413; throw error; }
+        encoded += chunk;
+      }
+      const body = JSON.parse(encoded || '{}');
+      if (typeof body.target !== 'string' || body.target.length > 128) { const error = new Error('Choose an available iOS Simulator or paired device.'); error.status = 400; throw error; }
+      json(202, startLocalInstall(body.target, origin));
+    } catch (error) {
+      json(error.status ?? 400, { message: error instanceof SyntaxError ? 'The install request must be JSON.' : error.message });
+    }
+    return;
+  }
   if (url.pathname === '/__dev/open') {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' });
     res.end(req.method === 'HEAD' ? undefined : developmentOpenPage(app));
@@ -560,7 +810,7 @@ const server = createServer((req, res) => {
         const body = current.files.get(name);
         if (body) retained = { name, body };
       } catch { /* malformed URL */ }
-    } else retained = readDevGeneration(generationCache, url.pathname);
+    } else retained = await readDevGenerationAsync(generationCache, url.pathname);
     if (!retained) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
     const { name, body } = retained;
     res.writeHead(200, { 'content-type': name === 'exact.json' ? 'application/vnd.exact.envelope+json' : webContentType('/' + name), 'cache-control': 'no-store' });
@@ -613,24 +863,27 @@ const server = createServer((req, res) => {
   const file = url.pathname === '/' ? '/index.html' : url.pathname;
   if (file === '/dev.js') { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(resolve(root, 'host/web/dev.js'))); return; }
   try {
-    const found = readStaticFile(dist, file);
+    const found = await readStaticFileAsync(dist, file);
     if (!found) { res.writeHead(404); res.end(); return; }
     let body = found.body;
     if (file === '/index.html') body = body.toString().replace('<script type="module" src="./glue.js"></script>', '<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>');
+    if (INSTALL_FILES.includes(found.route)) body = process.platform === 'darwin'
+      ? developmentInstallPage(body.toString(), localInstallToken)
+      : body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', 'Development server');
+    if (INSTALL_FILES.includes(found.route)) body = installNetworkPage(body.toString(), {host,port});
     res.writeHead(200, { 'content-type': webContentType(found.route), ...(file === '/index.html' ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : body);
   } catch { try { res.writeHead(404); res.end(); } catch { /* mid-write */ } }
 });
 server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}`); killCompiler(); process.exit(1); });
+await readStaticFileAsync(dist, '/index.html'); // warm the reader before advertising readiness
 server.listen(port, host, () => {
   const urls = [`http://127.0.0.1:${port}/`];
   if (!loopback) {
     // Every usable IPv4, private-range first, none silently picked (D8):
     // a utun/VPN address printed alone is a silent failure on the phone.
-    const priv = (a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
-    const addrs = Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal && a.family === 'IPv4').map((a) => a.address).sort((a, b) => priv(b) - priv(a));
-    urls.push(...addrs.map((a) => `http://${a}:${port}/`));
-    if (addrs.length === 0) console.log('no LAN interface found; serving loopback only in effect');
+    urls.push(...lanAddresses.map((address) => `http://${address}:${port}/`));
+    if (lanAddresses.length === 0) console.log('no LAN interface found; serving loopback only in effect');
   }
   console.log(urls.join('\n'));
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${loopback ? 'loopback only' : 'LAN bind — --loopback to keep it local; macOS may ask to allow node'}; ctrl-c to stop)`);

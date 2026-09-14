@@ -352,6 +352,11 @@ impl<D: DataSource> Host<D> {
         if self.data_activated {
             return self.commit(&[], None);
         }
+        match self.runner.data_ref().preload() {
+            Ok(false) => return "{\"ops\":[],\"pending\":true}".into(),
+            Err(error) => return self.commit(&[], Some(format!("prepare data: {error:?}"))),
+            Ok(true) => {}
+        }
         if let Err(error) = Self::activate_source(self.runner.data()) {
             return self.commit(&[], Some(format!("activate data: {error:?}")));
         }

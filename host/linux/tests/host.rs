@@ -588,6 +588,7 @@ fn a_request_runs_on_the_executor_and_its_reply_commits() {
             let text = match &outcome {
                 Outcome::Response(r) => String::from_utf8_lossy(&r.body).into_owned(),
                 Outcome::Failed { message, .. } => message.clone(),
+                Outcome::Storage(_) => panic!("HTTP request received a storage result"),
             };
             let name = if text.contains("ada") {
                 "ada".to_string()

@@ -26,6 +26,8 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { createHash } from 'node:crypto';
+import { prepareRustBundle } from './rust.mjs';
+import { installProblems } from './install-page.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
@@ -62,6 +64,7 @@ export function readManifest(dir, name) {
   let parsed;
   try { parsed = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${path}: ${e.message}`); }
   const problems = validate(parsed, schema(), '', schema());
+  if (!problems.length) problems.push(...installProblems(parsed));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
   return { host: {}, deploy: {}, ...parsed };
 }
@@ -112,6 +115,37 @@ export function validate(value, node, at, root) {
 /** Developer entrypoints explicitly bake unsigned-update permission. Direct Cargo/contract bakes default to production; release callers can select it here too. */
 export function developmentBuildEnv() {
   return { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' };
+}
+
+/** Rust replacement capability baked into this platform/environment, independent
+ * of release cadence and rebuild triggers. @ref LLP 1029.000 §2. */
+export function rustPolicy(manifest, platform, environment = 'dev') {
+  if (!['web', 'ios', 'macos', 'linux', 'android', 'windows'].includes(platform)) throw new Error(`unknown Rust replacement platform: ${platform}`);
+  if (!['dev', 'prod'].includes(environment)) throw new Error(`unknown Rust replacement environment: ${environment}`);
+  const policy = manifest.rust;
+  if (policy !== undefined) {
+    const problems = validate(policy, schema().properties.rust, 'rust', schema());
+    if (problems.length) throw new Error(problems.join('\n'));
+  }
+  const choice = (value) => value === true ? 'auto' : value === false ? 'off' : typeof value === 'string' ? value : value?.mode;
+  const surface = policy?.platforms?.[platform];
+  let mode = 'auto';
+  for (const value of [policy, policy?.[environment], surface, surface?.[environment]]) mode = choice(value) ?? mode;
+  if (mode === 'off') return 'off';
+  if (['native', 'tiered'].includes(mode) && ['web', 'ios'].includes(platform)) throw new Error(`rust: ${mode} replacement is unavailable on ${platform}; use wasm or off`);
+  if (platform === 'web') return 'browser';
+  if (mode !== 'auto') return mode;
+  return platform === 'ios' || (platform === 'android' && environment === 'prod') ? 'wasm' : 'native';
+}
+
+/** Starting the development watcher opts into save-triggered builds; agents
+ * can select manual per language and issue an explicit rebuild when ready. */
+export function rebuildPolicy(manifest) {
+  if (manifest.dev !== undefined) {
+    const problems = validate(manifest.dev, schema().properties.dev, 'dev', schema());
+    if (problems.length) throw new Error(problems.join('\n'));
+  }
+  return { rust: 'save', typescript: 'save', ...manifest.dev?.rebuild };
 }
 
 /** An app-specific OS opening action, not the app URL or an authentication credential. */
@@ -307,13 +341,15 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
     add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'build.mjs'));
   }
   if(platform==='web') {
-    for(const path of ['host/web/glue.js','host/web/gpu-glue.js','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
+    for(const path of ['host/web/rust-glue.js','scripts/rust.mjs','host/web/glue.js','host/web/gpu-glue.js','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
     if (existsSync(resolve(app.dir, 'app.ts'))) {
       // The TS producer is a build dependency, outside the runtime Cargo graph.
       // Its canonical API declaration still determines the accepted app module.
       add(storageTypes);
-      for (const path of ['host/web/module-glue.js', 'js/src/prelude.js',
-        'host/web/storage.js', 'host/web/storage-fs.js', 'host/web/storage-sqlite.js', 'host/web/storage-worker.js',
+      for (const path of ['host/web/module-glue.js', 'js/src/prelude.js']) add(resolve(ROOT, path));
+    }
+    if (existsSync(resolve(app.dir, 'app.ts')) || /^\s*(?:fs\.|sqlite\.)/m.test(compat.inputs.grantCeiling ?? '')) {
+      for (const path of ['host/web/storage-request.js', 'host/web/storage.js', 'host/web/storage-fs.js', 'host/web/storage-sqlite.js', 'host/web/storage-worker.js',
         'package.json', 'bun.lock', 'node_modules/@sqlite.org/sqlite-wasm/package.json',
         'node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs', 'node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm']) add(resolve(ROOT, path));
     }
@@ -323,7 +359,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
   const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')).map((path)=>({path,bytes:statSync(path).size,sha256:buildHash(readFileSync(path))}));
-  return {version:1,trust:env.EXACT_UPDATE_TRUST??'production',compat,graph:bundleGraph,binary:{sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
+  return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(rootOutput,'rust')}:{}),trust:env.EXACT_UPDATE_TRUST??'production',compat,graph:bundleGraph,binary:{sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
 }
 
 /** Ephemeral output ownership shared by Apple builders and Cargo bakes.
@@ -354,6 +390,8 @@ export function buildBake(app, platform, target, options = {}) {
   const env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
+  const rustBundle=prepareRustBundle(app,platform,target,env);
+  if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
   const graph=buildGraph(app,target,kind,env,platform!=='linux'&&existsSync(resolve(app.dir,'gpu/Cargo.toml'))),messages=[],roots=[];
   const selected = [graph.surface,graph.root].filter(Boolean).map(pkg => {
     const unit = pkg.id === graph.root.id && kind === 'linux' ? pkg.targets.find(t => t.kind.includes('bin')) : cargoLibraryTarget(pkg);
@@ -420,7 +458,7 @@ export function classifyArtifacts(candidate, cohort, signingKey = null) {
   }
   const changed=candidate.binary.sha256!==cohort.binary || (candidate.pendingInputs?.length ?? 0)>0;
   const warnings=[];
-  if(changed&&canonicalBuild(candidate.compat.inputs.dataCrate)!==canonicalBuild(have.dataCrate)&&Object.keys(candidate.graph.sources).some(n=>n!=='exactDelivery'&&cohort.sources[n])) warnings.push(`same name, same shape, new native code: cohort ${cohort.compat.id} will run the old code`);
+  if(changed&&!candidate.graph.artifacts.some(a=>a.name==='rust/app.module.json')&&canonicalBuild(candidate.compat.inputs.dataCrate)!==canonicalBuild(have.dataCrate)&&Object.keys(candidate.graph.sources).some(n=>n!=='exactDelivery'&&cohort.sources[n])) warnings.push(`same name, same shape, new native code: cohort ${cohort.compat.id} will run the old code`);
   if(changed&&Object.keys(candidate.graph.surfaceCalls??{}).length) warnings.push(`same surface name and arity: cohort ${cohort.compat.id} retains its old GPU implementation`);
   return {binary:changed,bundle:missing.length===0&&have.store?.L!=='0',missing:have.store?.L==='0'?['store.L=0: this binary has no bundle carrier']:missing,warnings};
 }
@@ -483,7 +521,7 @@ export async function withAppFixture(app, use) {
       }) };
     for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE',
       'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'EXACT_DEPLOY_CAPSULE',
-      'EXACT_UPDATE_RECEIPT', 'EXACT_UPDATE_GENESIS', 'EXACT_UPDATE_ORIGIN', 'EXACT_GPU_DYLIB',
+      'EXACT_UPDATE_RECEIPT', 'EXACT_UPDATE_GENESIS', 'EXACT_UPDATE_ORIGIN', 'EXACT_GPU_DYLIB', 'EXACT_RUST_BUNDLE',
       'EXACT_DEV_PLAN', 'EXACT_PLAN', 'EXACT_ASSETS']) delete env[name];
     const barrier = resolve(fixture.sourceRoot, '.git');
     if (readFileSync(barrier, 'utf8') !== 'exact deploy source boundary\n') throw new Error('unexpected diagnostic Git boundary');

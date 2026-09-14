@@ -1,0 +1,11 @@
+[package]
+name = "exact-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+exact-plan = { path = "../plan" }
+exact-runner = { path = "../runner" }
+serde_json = "1.0"

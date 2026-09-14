@@ -633,6 +633,11 @@ impl<D: DataSource> Runner<D> {
         &mut self.data
     }
 
+    /// Inspect data-source identity and readiness without executing app logic.
+    pub fn data_ref(&self) -> &D {
+        &self.data
+    }
+
     /// Current value of a slot by name.
     pub fn slot(&self, name: &str) -> Option<&Value> {
         self.plan
@@ -1292,6 +1297,7 @@ impl<D: DataSource> Runner<D> {
         let name = self.target_name(target);
         self.log(match request.continuation {
             Some(token) => format!("continuation {ticket} ({name}): executor token {token}"),
+            None if request.storage.is_some() => format!("storage {ticket} ({name})"),
             None => format!(
                 "request {ticket} ({name}): {} {}",
                 request.method, request.url

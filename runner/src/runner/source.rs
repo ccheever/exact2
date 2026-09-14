@@ -26,6 +26,13 @@ pub trait DataSource {
         None
     }
 
+    /// Resolve a composed token for the browser's existing executor registry.
+    /// Unlike native `continuation`, work stays in the browser. Composers consume
+    /// their routing entry here; ordinary executors already use registry tokens.
+    fn continuation_token(&mut self, token: u64) -> Option<u64> {
+        Some(token)
+    }
+
     /// Activate deferred logic after first pixel; binary-bound sources do nothing.
     fn activate(&mut self) -> Result<(), DataError> {
         Ok(())
@@ -37,6 +44,13 @@ pub trait DataSource {
     /// Requests/effects stay with the uncommitted host and are discarded.
     fn activate_for_validation(&mut self) -> Result<(), DataError> {
         self.activate()
+    }
+
+    /// Prepare executable images after first pixel without blocking the caller.
+    /// False means pending: retain the current generation and retry preparation.
+    /// This may load code, but must not create app instances or release effects.
+    fn preload(&self) -> Result<bool, DataError> {
+        Ok(true)
     }
 
     /// Pair candidate logic with a plan, preserving this binary's admitted

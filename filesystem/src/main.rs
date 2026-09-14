@@ -321,7 +321,23 @@ fn emit(value: Value) -> io::Result<()> {
     println!("{value}");
     io::stdout().flush()
 }
+// A serving process keeps this pipe open, but every request reopens its root.
+// No directory or file bytes survive a request, so atomic root swaps stay visible.
+fn read_request(input: &Value) -> io::Result<Value> {
+    if input["op"] != "get" {
+        return Err(refuse("read session only accepts get"));
+    }
+    let root = Directory::root(field(input, "root")?, false)?;
+    operate(&root, input, None)
+}
 fn main() -> io::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--serve-reads") {
+        for line in io::stdin().lock().lines() {
+            let input: Value = serde_json::from_str(&line?)?;
+            emit(response(read_request(&input), true))?;
+        }
+        return Ok(());
+    }
     let mut lines = io::stdin().lock().lines();
     let first: Value =
         serde_json::from_str(&lines.next().ok_or_else(|| refuse("missing request"))??)?;

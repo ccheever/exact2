@@ -180,8 +180,29 @@ impl Batch {
             ));
             return;
         }
+        if let Some(payload) = &r.request.storage {
+            let mut s = format!("{{\"op\":\"storage\",\"ticket\":{},\"payload\":", r.ticket);
+            // Empty text is invalid JSON and refuses before effects; never repair
+            // malformed bytes into a different, executable storage request.
+            quote(std::str::from_utf8(payload).unwrap_or(""), &mut s);
+            s.push_str(",\"scope\":");
+            if let Some(scope) = &r.request.grants {
+                quote(scope, &mut s)
+            } else {
+                s.push_str("null")
+            }
+            s.push('}');
+            self.ops.push(s);
+            return;
+        }
         let mut s = format!("{{\"op\":\"request\",\"ticket\":{},\"target\":", r.ticket);
         quote(&r.target, &mut s);
+        s.push_str(",\"scope\":");
+        if let Some(scope) = &r.request.grants {
+            quote(scope, &mut s)
+        } else {
+            s.push_str("null")
+        }
         s.push_str(",\"method\":");
         quote(&r.request.method, &mut s);
         s.push_str(",\"url\":");

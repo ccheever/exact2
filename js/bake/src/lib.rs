@@ -21,6 +21,29 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// actual target/grants receipt to OUT_DIR; source files stay untouched.
 /// This development slice requires an updater-free composition (store L=0).
 pub fn build(app: &Path, platform: &str) -> Result<(), String> {
+    build_sources(app, platform, None)
+}
+
+/// Bake a mixed app using each source's own identity and grants. Metadata reads
+/// never invoke or activate the Rust implementation.
+pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), String> {
+    build_sources(app, platform, Some(rust))
+}
+
+fn mixed_grants<'a>(
+    javascript: &serde_json::Value,
+    rust: Option<&'a dyn DataSource>,
+) -> Result<Option<&'a str>, String> {
+    rust.map(|source| {
+        if javascript["appId"].as_str() != Some(source.app_id()) {
+            return Err("mixed bake sources must declare the same app identity".into());
+        }
+        Ok(source.grants())
+    })
+    .transpose()
+}
+
+fn build_sources(app: &Path, platform: &str, rust: Option<&dyn DataSource>) -> Result<(), String> {
     if !matches!(platform, "web" | "macos" | "ios" | "linux") {
         return Err(format!(
             "module client executor is not yet implemented for {platform}"
@@ -40,14 +63,34 @@ pub fn build(app: &Path, platform: &str) -> Result<(), String> {
     }
     let manifest = contract::Manifest::read(app)?;
     let target = std::env::var("TARGET").map_err(|e| e.to_string())?;
-    let compat =
-        contract::compatibility_id(app, platform, &target, &manifest, meta["grants"].as_str())?;
+    let compat = contract::compatibility_id_sources(
+        app,
+        platform,
+        &target,
+        &manifest,
+        meta["grants"].as_str(),
+        mixed_grants(&meta, rust)?,
+    )?;
     if compat.inputs["store"]["L"] != "0" {
         return Err("module clients currently require deploy.store.<platform> = 0; signed module delivery is not implemented".into());
     }
     std::fs::write(out.join("compat.json"), compat.to_json()).map_err(|e| e.to_string())?;
-    let metadata = format!("pub const APP: &str = {:?};\npub const GRANTS: &str = {:?};\npub const REVISION: &str = {:?};\n", meta["appId"].as_str().ok_or("missing appId")?, meta["grants"].as_str().ok_or("missing grants")?, meta["module"]["sha256"].as_str().ok_or("missing module hash")?);
+    let rust_updates = compat.inputs["rustMode"] != "off"
+        && compat.inputs["rustModule"]
+            .as_str()
+            .is_some_and(|module| !module.is_empty());
+    let metadata = format!("pub const APP: &str = {:?};\npub const GRANTS: &str = {:?};\npub const REVISION: &str = {:?};\npub const RUST_UPDATES: bool = {rust_updates};\n", meta["appId"].as_str().ok_or("missing appId")?, meta["grants"].as_str().ok_or("missing grants")?, meta["module"]["sha256"].as_str().ok_or("missing module hash")?);
     std::fs::write(out.join("module.rs"), metadata).map_err(|e| e.to_string())?;
+    {
+        let entry = contract::rust_entry(
+            "ExactEmbeddedData",
+            "embedded_data()",
+            compat.inputs["rustMode"]
+                .as_str()
+                .ok_or("missing Rust policy")?,
+        )?;
+        std::fs::write(out.join("logic.rs"), entry).map_err(|e| e.to_string())?;
+    }
     println!("cargo:rerun-if-changed={}", app.display());
     Ok(())
 }
@@ -79,7 +122,11 @@ impl Default for Tools {
             rolldown: tool("EXACT_ROLLDOWN", root.join("node_modules/.bin/rolldown")),
             hermesc: tool(
                 "EXACT_HERMESC",
-                root.join(format!("../ibex/tools/hermes-vanilla/hermesc-macos-{arch}")),
+                if cfg!(target_os = "linux") {
+                    root.join(format!("../ibex/tools/hermes/hermesc-linux-{arch}"))
+                } else {
+                    root.join(format!("../ibex/tools/hermes-vanilla/hermesc-macos-{arch}"))
+                },
             ),
         }
     }

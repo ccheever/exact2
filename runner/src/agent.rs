@@ -415,8 +415,40 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     }
     s.push_str("],\"delivery\":");
     delivery(runner, &mut s);
+    s.push_str(",\"logic\":");
+    logic(runner, &mut s);
     s.push('}');
     s
+}
+
+// The revision comes from the admitted source, not a host's copy of metadata.
+// `ready` distinguishes a deferred, paired module from an activated executor.
+fn logic<D: DataSource>(runner: &Runner<D>, s: &mut String) {
+    let source = runner.data_ref();
+    let revision = source.revision();
+    let rust = revision
+        .and_then(|r| r.strip_prefix("rust:"))
+        .and_then(|r| r.split_once(':'))
+        .map(|(executor, _)| executor);
+    let executor = match rust {
+        Some("wasm") if cfg!(target_arch = "wasm32") => Some("browser"),
+        Some("wasm") => Some("wasm"),
+        Some("native") => Some("native"),
+        _ => None,
+    };
+    s.push_str("{\"revision\":");
+    if let Some(revision) = revision {
+        quote(revision, s);
+    } else {
+        s.push_str("null");
+    }
+    s.push_str(",\"rustExecutor\":");
+    if let Some(executor) = executor {
+        quote(executor, s);
+    } else {
+        s.push_str("null");
+    }
+    let _ = write!(s, ",\"ready\":{}}}", source.ready());
 }
 
 /// `state.delivery` (LLP 1030 D7): the `delivery` resource's own fields,

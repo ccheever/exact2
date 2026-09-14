@@ -53,6 +53,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildRust, rustBundle, rustPackage } from './rust.mjs';
 import { buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp } from './app.mjs';
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
 import { listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
@@ -909,7 +910,8 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
     const installed=frozen ?? (!head&&!record&&candidate?cohortReceipt(candidate):null);
     const check=classifyArtifacts(candidate,installed,signingKey);
     const inputs=installed?.compat.inputs ?? compat[platform]?.inputs;
-    const changes=admission?.usable?changesAgainst(bundle,admission.head):head?[{name:'exact.json',change:'repair',note:admission.problem}]:changesAgainst(bundle,null);
+    const selectedBundle=bundle.platforms?.[platform] ?? bundle;
+    const changes=admission?.usable?changesAgainst(selectedBundle,admission.head):head?[{name:'exact.json',change:'repair',note:admission.problem}]:changesAgainst(selectedBundle,null);
     let seq=admission?.seq;
     if(changes.length && (check.bundle || item.platform)) {
       try {seq=await nextSeq(origin,app,stream,admission,`the head at ${origin.describe()}/${streamPath(stream)}/exact.json`);}
@@ -1187,6 +1189,19 @@ async function deployCaptured(opts, capsule) {
     const cards=[{name:'app.plan',sha256:bundle.plan.sha256,bytes:bundle.plan.bytes.length},...bundle.assets.map(a=>({name:a.name,sha256:a.sha256,bytes:a.bytes.length}))];
     if(canonicalJson(build.graph.artifacts.map(({name,sha256,bytes})=>({name,sha256,bytes})).sort((a,b)=>a.name.localeCompare(b.name)))!==canonicalJson(cards.sort((a,b)=>a.name.localeCompare(b.name))))refuse(`${platform} bake graph differs from the packaged bundle`);
   }
+  if (rustPackage(app)) {
+    bundle.platforms = {};
+    const env = sealedSourceEnv(sourceRoot, {CARGO_TARGET_DIR:app.target,EXACT_UPDATE_TRUST:'production'});
+    const nativeTargets = [...new Set(platforms.filter(p=>['native','tiered'].includes(builds[p].compat.inputs.rustMode)).map(p=>builds[p].compat.target))];
+    const variants = new Map();
+    for (const target of nativeTargets.length ? nativeTargets : [null]) variants.set(target, await buildRust(app,{compat:builds.web.compat,env,nativeTarget:target,plan:bundle.plan.bytes,profile:'release'}));
+    for (const platform of platforms) {
+      const build=builds[platform];
+      const produced=variants.get(build.compat.target) ?? variants.values().next().value;
+      const result=rustBundle(app,bundle,build,produced);
+      builds[platform]=result.build; bundle.platforms[platform]=result.bundle;
+    }
+  }
   log(`compatibility ids: ${Object.entries(compat).map(([p, c]) => `${p} ${c.id}`).join(', ')}`);
 
   const table = await classify({ app, opts, origin, channel, snapshot, release, web, bundle, compat, builds, platforms, wantOrigin });
@@ -1214,7 +1229,7 @@ async function deployCaptured(opts, capsule) {
     if (row.action === 'unavailable') { failed.push({ platform: row.platform, compatibilityId: row.compatibilityId, error: row.reason }); log(`  ${name}: unavailable — ${row.reason}`); continue; }
     if (row.action === 'binary') { refused.push({ platform: row.platform, compatibilityId: row.compatibilityId, reason: row.reason }); log(`  ${name}: refused — ${row.reason}`); continue; }
     try {
-      const result = await publishStream({ origin, row, bundle, compat: row.receipt?.compat ?? compat[row.platform], app, signer, release, snapshot: table.snapshot, opts, log, build:builds[row.platform] });
+      const result = await publishStream({ origin, row, bundle: bundle.platforms?.[row.platform] ?? bundle, compat: row.receipt?.compat ?? compat[row.platform], app, signer, release, snapshot: table.snapshot, opts, log, build:builds[row.platform] });
       published.push(result);
       log(result.action === 'published' ? `  ${name}: head seq ${result.seq} (${result.head.sha256.slice(0, 12)}), previous ${result.previous ? result.previous.slice(0, 12) : 'none'}` : `  ${name}: ${result.note}`);
     } catch (e) {

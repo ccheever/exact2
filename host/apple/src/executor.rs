@@ -36,8 +36,10 @@ impl Executor {
     /// grants that parse, and every request is refused) and the host's wake.
     pub fn start(
         bindings: Option<ibex2::host::Bindings>,
+        grants: &str,
         wake: Option<(WakeFn, *mut c_void)>,
     ) -> Executor {
+        let grants = grants.to_string();
         let (jobs, job_rx) = channel::<Job>();
         let (outcome_tx, outcomes) = channel();
         // The context pointer crosses to the worker as an integer: it is the
@@ -47,7 +49,21 @@ impl Executor {
             .name("exact-executor".into())
             .spawn(move || {
                 for job in job_rx {
-                    let outcome = run(bindings.as_ref(), job.request, job.forced, job.work);
+                    let scoped = job.request.grants.as_deref().map(|scope| {
+                        exact_data::storage::scope(&grants, Some(scope))
+                            .and_then(|s| {
+                                ibex2::grant::GrantSet::parse(s).map_err(|e| e.to_string())
+                            })
+                            .map(|g| ibex2::host::Host::new().endow(g))
+                    });
+                    let outcome = match scoped {
+                        Some(Err(message)) => Outcome::Failed {
+                            kind: FailureKind::Refused,
+                            message,
+                        },
+                        Some(Ok(ref b)) => run(Some(b), job.request, job.forced, job.work),
+                        None => run(bindings.as_ref(), job.request, job.forced, job.work),
+                    };
                     if outcome_tx.send((job.ticket, outcome)).is_err() {
                         break;
                     }
@@ -82,6 +98,12 @@ fn run(
     forced: bool,
     work: Option<Box<dyn FnOnce() -> Outcome + Send>>,
 ) -> Outcome {
+    if request.storage.is_some() {
+        return Outcome::Failed {
+            kind: FailureKind::Unsupported,
+            message: "storage requires an app storage adapter".into(),
+        };
+    }
     if request.continuation.is_some() {
         return work.map_or_else(
             || Outcome::Failed {
@@ -132,7 +154,7 @@ mod tests {
 
     #[test]
     fn continuations_run_on_worker_and_missing_tokens_refuse_without_network() {
-        let executor = Executor::start(None, None);
+        let executor = Executor::start(None, "", None);
         let renderer = std::thread::current().id();
         let (entered, on_worker) = channel();
         let (release, wait) = channel();

@@ -102,6 +102,7 @@ public final class ExactUpdates: ExactAppLifecycle {
     private weak var app: ExactApp?
     private let storeOpen: Bool
     private var firstPixelSeen = false
+    private var preparationRetry: DispatchWorkItem?
     public private(set) var status: String?
 
     @discardableResult
@@ -116,7 +117,10 @@ public final class ExactUpdates: ExactAppLifecycle {
     private init(app: ExactApp) {
         self.app = app
         storeOpen = Updates.open(assets: app.assetRoot)
-        if storeOpen, let selected = Updates.selection() { app.installInitial(generation(selected, app: app)) }
+        if storeOpen, let selected = Updates.selection() {
+            do { app.installInitial(try generation(selected, app: app)) }
+            catch { Updates.refuse(selected.token, reason: error.localizedDescription) }
+        }
         Updates.completed = { [weak self] line in
             self?.status = line
             FileHandle.standardError.write(Data("exact update: \(line)\n".utf8))
@@ -124,11 +128,28 @@ public final class ExactUpdates: ExactAppLifecycle {
         }
     }
 
-    private func generation(_ selection: Updates.Selection, app: ExactApp) -> ExactGeneration {
+    private func generation(_ selection: Updates.Selection, app: ExactApp) throws -> ExactGeneration {
         let assets = AssetResolver(root: app.assetRoot, names: selection.assets) { name in
             try Updates.asset(selection, name: name).get()
         }
-        return ExactGeneration(plan: selection.plan, assets: assets, token: selection.token)
+        var module: ExactModule?
+        let rustNames = selection.assets.filter { $0.hasPrefix("rust/") }
+        if !rustNames.isEmpty {
+            func refused(_ message: String) -> NSError {
+                NSError(domain: "ExactRust", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+            }
+            guard rustNames.contains("rust/app.module.json"),
+                  let receipt = try Updates.asset(selection, name: "rust/app.module.json").get(), receipt.count <= 1 << 20,
+                  let json = try JSONSerialization.jsonObject(with: receipt) as? [String: Any],
+                  let row = json["module"] as? [String: Any], let file = row["file"] as? String,
+                  ["app.module.wasm", "app.module.dylib", "app.module.so", "app.module.dll", "app.module.bin"].contains(file),
+                  rustNames.sorted() == ["rust/app.module.json", "rust/" + file].sorted(),
+                  let bytes = try Updates.asset(selection, name: "rust/" + file).get(), bytes.count <= 32 << 20
+            else { throw refused("incomplete or invalid signed Rust module pair") }
+            guard app.rustPolicy.mode != "off" else { throw refused("Rust replacement is disabled in this binary") }
+            module = ExactModule(receipt: receipt, bytecode: bytes)
+        }
+        return ExactGeneration(plan: selection.plan, assets: assets, token: selection.token, module: module)
     }
 
     public func generationStarted(_ app: ExactApp, token: UInt64) { if storeOpen { Updates.started(token) } }
@@ -151,9 +172,19 @@ public final class ExactUpdates: ExactAppLifecycle {
 
     @discardableResult
     public func activate() -> Bool {
+        preparationRetry?.cancel()
+        preparationRetry = nil
         guard storeOpen, let app, let selected = Updates.prepare() else { return false }
-        let accepted = app.applyGeneration(generation(selected, app: app), label: "update", commit: { Updates.commit(selected) })
+        let accepted: Bool
+        do { accepted = app.applyGeneration(try generation(selected, app: app), label: "update", commit: { Updates.commit(selected) }) }
+        catch { status = error.localizedDescription; Updates.discard(selected); return false }
         if !accepted { Updates.discard(selected) }
+        if !accepted && app.generationPending {
+            status = "Preparing Rust update; the current app remains active"
+            let retry = DispatchWorkItem { [weak self] in self?.activate() }
+            preparationRetry = retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: retry)
+        }
         return accepted
     }
 

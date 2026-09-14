@@ -33,8 +33,16 @@ struct Envelope {
     #[allow(dead_code)]
     app: Option<AppCard>,
     plan: PlanCard,
+    rust: Option<std::collections::BTreeMap<String, RustVariant>>,
     seq: Option<u64>,
     events: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RustVariant {
+    receipt: PlanCard,
+    module: PlanCard,
+    target: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -62,6 +70,79 @@ pub fn is_url(v: &str) -> bool {
 
 /// Resolve `page` and return the verified plan bytes.
 pub fn fetch_app(page: &str) -> Result<Vec<u8>, String> {
+    fetch_changed(page, "{}", None).map(|generation| {
+        generation
+            .expect("uncached fetch returns a generation")
+            .plan
+    })
+}
+
+/// A complete development generation returned by the background URL poll.
+pub struct Generation {
+    /// Fingerprint of the declared plan and Rust artifacts.
+    pub identity: String,
+    /// Verified plan bytes.
+    pub plan: Vec<u8>,
+    /// Selected and verified executor pair.
+    pub module: Option<crate::delivery::Module>,
+}
+
+type FetchOutcome = Result<Option<Generation>, String>;
+
+/// One in-flight URL poll owned by the presenter, shared by display and agent loops.
+pub(crate) struct Poller {
+    url: String,
+    compat: String,
+    pub identity: Option<String>,
+    due: std::time::Instant,
+    worker: Option<std::sync::mpsc::Receiver<FetchOutcome>>,
+}
+
+impl Poller {
+    pub fn new(url: String, compat: String, identity: Option<String>) -> Self {
+        Self {
+            url,
+            compat,
+            identity,
+            due: std::time::Instant::now(),
+            worker: None,
+        }
+    }
+
+    pub fn poll(&mut self) -> FetchOutcome {
+        if let Some(worker) = &self.worker {
+            match worker.try_recv() {
+                Ok(outcome) => {
+                    self.worker = None;
+                    self.due = std::time::Instant::now() + std::time::Duration::from_millis(500);
+                    return outcome;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.worker = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(None),
+            }
+        }
+        if self.worker.is_none() && std::time::Instant::now() >= self.due {
+            let url = self.url.clone();
+            let compat = self.compat.clone();
+            let previous = self.identity.clone();
+            let (send, receive) = std::sync::mpsc::channel();
+            self.worker = Some(receive);
+            std::thread::spawn(move || {
+                let _ = send.send(fetch_changed(&url, &compat, previous.as_deref()));
+            });
+        }
+        Ok(None)
+    }
+}
+
+/// Fetch only when the envelope declares a changed plan or module pair.
+pub fn fetch_changed(
+    page: &str,
+    compat: &str,
+    previous: Option<&str>,
+) -> Result<Option<Generation>, String> {
     let transport = ibex2::transport::default_transport();
     let get = |url: &str, accept: &str, limit: usize| -> Result<(u16, Vec<u8>), String> {
         let mut req = ibex2::stdlib::fetch::Request::get(url);
@@ -106,33 +187,78 @@ pub fn fetch_app(page: &str) -> Result<Vec<u8>, String> {
             envelope.exact
         ));
     }
-    let count = usize::try_from(envelope.plan.bytes)
-        .map_err(|_| "the envelope's plan byte count is too large".to_string())?;
-    if count > MAX_PLAN_BYTES {
-        return Err(format!(
-            "the envelope declares a {count}-byte plan, over the {MAX_PLAN_BYTES}-byte limit"
-        ));
+    let mut fingerprint = format!("{}:{}", envelope.plan.sha256, envelope.plan.bytes);
+    if let Some(variants) = &envelope.rust {
+        for (name, variant) in variants {
+            fingerprint.push_str(&format!(
+                ":{name}:{}:{}:{}:{}:{:?}",
+                variant.receipt.sha256,
+                variant.receipt.bytes,
+                variant.module.sha256,
+                variant.module.bytes,
+                variant.target
+            ));
+        }
     }
-    let url = join(&envelope_base, &envelope.plan.url)?;
-    same_host(page, &url)?;
-    // The envelope's own count is the tighter ceiling: a plan that overruns
-    // what its envelope promised is refused as it arrives, not weighed after.
-    let (status, bytes) = get(&url, "application/vnd.exact.plan", count)?;
-    if status != 200 {
-        return Err(format!("{url}: HTTP {status}"));
+    let identity = format!("{:x}", Sha256::digest(fingerprint.as_bytes()));
+    if previous == Some(identity.as_str()) {
+        return Ok(None);
     }
-    if bytes.len() != count {
-        return Err(format!(
-            "plan is {} bytes, envelope said {count}; refusing it",
-            bytes.len()
-        ));
-    }
-    let digest = Sha256::digest(&bytes);
-    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    if hex != envelope.plan.sha256.to_lowercase() {
-        return Err(format!("plan sha256 mismatch at {url}; refusing it"));
-    }
-    Ok(bytes)
+    let fetch_card = |card: &PlanCard, limit: usize| -> Result<Vec<u8>, String> {
+        let count = usize::try_from(card.bytes)
+            .map_err(|_| "the envelope's plan byte count is too large".to_string())?;
+        if count > limit {
+            return Err(format!(
+                "the envelope declares a {count}-byte plan, over the {limit}-byte limit"
+            ));
+        }
+        let url = join(&envelope_base, &card.url)?;
+        same_host(page, &url)?;
+        // The envelope's own count is the tighter ceiling: a plan that overruns
+        // what its envelope promised is refused as it arrives, not weighed after.
+        let (status, bytes) = get(&url, "application/vnd.exact.plan", count)?;
+        if status != 200 {
+            return Err(format!("{url}: HTTP {status}"));
+        }
+        if bytes.len() != count {
+            return Err(format!(
+                "plan is {} bytes, envelope said {count}; refusing it",
+                bytes.len()
+            ));
+        }
+        let digest = Sha256::digest(&bytes);
+        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        if hex != card.sha256.to_lowercase() {
+            return Err(format!("plan sha256 mismatch at {url}; refusing it"));
+        }
+        Ok(bytes)
+    };
+    let plan = fetch_card(&envelope.plan, MAX_PLAN_BYTES)?;
+    let module = if let Some(variants) = envelope.rust {
+        let compat: serde_json::Value = serde_json::from_str(compat).map_err(|e| e.to_string())?;
+        let mode = compat["inputs"]["rustMode"].as_str().unwrap_or("off");
+        if variants.keys().any(|k| k != "native" && k != "wasm") {
+            return Err("invalid Rust executor manifest".into());
+        }
+        let variant = variants
+            .get(mode)
+            .ok_or("no Rust replacement matching this binary's executor")?;
+        if mode == "native" && variant.target.as_deref() != compat["target"].as_str() {
+            return Err("Rust replacement target does not match this binary".into());
+        }
+        Some(crate::delivery::Module {
+            receipt: String::from_utf8(fetch_card(&variant.receipt, 1 << 20)?)
+                .map_err(|e| e.to_string())?,
+            bytes: fetch_card(&variant.module, 32 << 20)?,
+        })
+    } else {
+        None
+    };
+    Ok(Some(Generation {
+        identity,
+        plan,
+        module,
+    }))
 }
 
 fn decode_envelope(body: &[u8]) -> Result<Envelope, String> {
@@ -366,5 +492,69 @@ mod tests {
         .is_err());
         assert!(decode_envelope(b"not json").is_err());
         assert!(decode_envelope(&vec![b' '; 64 * 1024 + 1]).is_err());
+    }
+    #[test]
+    fn polling_a_rust_generation_skips_unchanged_artifacts_and_fetches_new_pairs() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering::SeqCst},
+            Arc,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let page = format!("http://{}/", listener.local_addr().unwrap());
+        let revision = Arc::new(AtomicUsize::new(1));
+        let payload_requests = Arc::new(AtomicUsize::new(0));
+        let serving_revision = revision.clone();
+        let serving_payloads = payload_requests.clone();
+        let server = std::thread::spawn(move || {
+            for connection in listener.incoming().take(9) {
+                let mut stream = connection.unwrap();
+                let path = read_request_path(&mut stream);
+                let module =
+                    format!("wasm revision {}", serving_revision.load(SeqCst)).into_bytes();
+                let receipt = br#"{"module":{"file":"app.module.wasm"}}"#.to_vec();
+                let card = |url: &str, bytes: &[u8]| serde_json::json!({"url":url, "bytes":bytes.len(), "sha256":format!("{:x}", sha2::Sha256::digest(bytes))});
+                let body = match path.as_str() {
+                    "/" => serde_json::to_vec(&serde_json::json!({
+                        "exact":1, "plan":card("/app.plan", b"plan"),
+                        "rust":{"wasm":{"receipt":card("/receipt", &receipt),"module":card("/module", &module)}}
+                    })).unwrap(),
+                    "/app.plan" => b"plan".to_vec(),
+                    "/receipt" => receipt,
+                    "/module" => module,
+                    _ => panic!("unexpected path {path}"),
+                };
+                if path != "/" {
+                    serving_payloads.fetch_add(1, SeqCst);
+                }
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        });
+        use sha2::Digest;
+        let compat = r#"{"inputs":{"rustMode":"wasm"}}"#;
+        let first = super::fetch_changed(&page, compat, None).unwrap().unwrap();
+        assert_eq!(first.module.unwrap().bytes, b"wasm revision 1");
+        assert_eq!(payload_requests.load(SeqCst), 3);
+        assert!(super::fetch_changed(&page, compat, Some(&first.identity))
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            payload_requests.load(SeqCst),
+            3,
+            "only the envelope is polled when unchanged"
+        );
+        revision.store(2, SeqCst);
+        let next = super::fetch_changed(&page, compat, Some(&first.identity))
+            .unwrap()
+            .unwrap();
+        assert_ne!(next.identity, first.identity);
+        assert_eq!(next.module.unwrap().bytes, b"wasm revision 2");
+        assert_eq!(payload_requests.load(SeqCst), 6);
+        server.join().unwrap();
     }
 }

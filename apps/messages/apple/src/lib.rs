@@ -7,14 +7,12 @@ const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
-exact_apple::host!(
-    exact_js::Module,
-    PLAN,
-    COMPAT,
-    None,
-    std::ptr::null(),
-    || native::module(BYTECODE, APP, GRANTS)
-);
+type ExactEmbeddedData = exact_js::Module;
+fn embedded_data() -> ExactEmbeddedData {
+    native::module(BYTECODE, APP, GRANTS)
+}
+include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);
 
 #[cfg(test)]
 mod snapback_tests;

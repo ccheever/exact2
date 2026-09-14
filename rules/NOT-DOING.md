@@ -31,7 +31,36 @@ and network capabilities. This unblocks durable conversations and offline
 writes across devices. Take: generalized native-view module loading remains
 behind proving this data-only consumer; Snapback2 stays deferred.
 
+**Expanded (Charlie, 2026-09-14):** language parity for existing app operations
+(LLP 1027.001): shared standard text/URL helpers, portable storage requests,
+reusable mixed composition, and Fieldnotes backup in either language. Unblocks
+moving app logic without changing durable data or permissions. Take: remove
+app-private text helpers and Update Lab's private composer; generalized native
+views and multi-module scheduling stay behind this consumer.
+
+**Expanded (Charlie, 2026-09-14: "let's build this now"):** optional worker
+placement for data modules (LLP 1027.002) — one module instance, one executor
+owner, values cross and the runner commits; `main` stays the default and the
+manifest opts a module in per platform. Unblocks app computation off the UI
+thread with the same inputs, results, grants and durable data, ahead of a
+measured hitch, for the story and because the limits will be hit. Take: Rust
+on a web Worker waits behind a consumer that needs it (placement is
+language-neutral on native, TypeScript-only on the web); a second worker, job
+pools and load balancing stay out; the mixed-resource first-frame bake is
+built with it rather than queued. The measurement bar in LLP 1027.002 §2 says
+when a worker is claimed to help.
+
 ## Surfaces
+
+**Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with
+a separately linked native or interpreted Wasm module, in development and
+production (LLP 1029.000). Unblocks business-logic updates without a host rebuild.
+Take: multi-module scheduling and generalized native-view module loading stay
+behind this single data-module consumer; Windows and Android hosts remain below.
+**Refined (Charlie, 2026-09-14):** optional Wasm-first/native promotion for
+explicitly stateless modules removes OS loading from the update latency path.
+Generic executor-private state migration stays out; this is one committed
+generation with an executor change, not a second app reload or patch protocol.
 
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it
   doubles the native matrix. Port it after the loop is proven.
@@ -96,8 +125,13 @@ change can break.
 - No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
   host earns them).
-- No virtualList v2 (cert wires, extent demand, proxy lanes). A straightforward windowed
-  list — and if it misses 60fps, that is a kernel bug worth fixing properly.
+- No virtualList v2 (cert wires, extent demand, proxy lanes). **Admitted 2026-09-14
+  (Charlie: "ok do what you think"):** a straightforward windowed list with bounded
+  row/view lifetime and a separate decoded-image budget (LLP 1010 §6). Unblocks
+  real Messages histories without constructing every row; memory and construction
+  cost trigger it alongside 60 fps. Take: further Messages decorative Tapback/emoji
+  artwork, material matching and animation-timing polish move behind list memory.
+  O(N) input data is named separately from O(window) UI; recycling is no flat-memory claim.
 
 **Motion** — **in v1**, in the LLP 1002 shape: CSS's `transition` model. Targets
 are kernel style rows (`translate`, `scale`, `rotate`, `opacity`); a `transition`
@@ -188,3 +222,12 @@ This half matters more than the feature half.
 
 Write one line naming what it unblocks, and take something off the doing-list in the
 same PR. If nothing can come off, the answer is no.
+
+**Install-page slice, 2026-09-12 (Charlie, LLP 1030.003 D6a/D6b):** bake a
+standard `/.exact/install/` page for web/iOS/macOS with configured installation
+methods, and let a Mac development server invoke its existing simulator or device
+build for a local Simulator or paired phone. Unblocks sharing one honest
+installation URL and a local Apple development loop; the generic Go launcher,
+distributable IPA, EAS/AppDrop adapter and
+automatic provider provisioning remain behind proving this consumer. No new
+update service or production native carrier is introduced.

@@ -7,6 +7,7 @@
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
 **Implementer:** Claude (Fable 5); the macOS behavior landed 2026-08-29 (this document transcribes it)
+**Windowing work:** Codex, started 2026-09-14 at Charlie's direction ("ok do what you think" after the list-memory assessment). §6 is the implementation plan; it does not claim windowing is built.
 **Related:** LLP 1001 §1 (the `ScrollView`/`List` default — the only per-tag default — and the root-width rule), LLP 1002 D4 ("scroll always wins": the platform recognizes and scrolls; the engine follows), LLP 1007 §1 (the web host's `<div data-scroll>`), LLP 1008 §1, §5 (the window as a viewport over a document; the chaining scroll view), `rules/RULES.md` §The web is the standard, `rules/NOT-DOING.md` §Components (no virtualList v2) and §Motion (scroll-vs-pan arbitration is the platform's)
 
 ## Summary
@@ -182,7 +183,15 @@ pairing and content-size column are held by unit tests in
 `kernel/src/style.rs` and `cargo test --workspace` (171 tests,
 2026-08-29).
 
-## 5. Not in v1, and built but untested (each declared here)
+## 5. Original omissions, and the current windowing boundary
+
+**2026-09-14 correction:** the omission inventory below is the 2026-08-29
+snapshot. Scroll events now carry `scrollLeft`/`scrollTop` to the runner on
+web and Apple; programmatic offsets, per-axis overflow, overscroll policy,
+and the admitted scroll-snap form have also landed. `scrollCommand` was
+replaced by offset props. None of those changes implements windowing.
+The current code is `host/web/glue.js`, `NodeViewIOS.swift`,
+`NodeViewMac.swift`, and `runner/src/runner.rs`'s `Event::Scroll`.
 
 **Built, untested:** keyboard and space-bar scrolling on the page (AppKit's);
 horizontal scrolling on macOS (the code path takes x; the fixture is
@@ -203,14 +212,179 @@ scroll position across a reload (the tree is rebuilt; LLP 1007 §9);
 `overflowX`/`overflowY` in Contract (rows exist, attributes do not);
 `overscroll-behavior: contain`/`none` (a row CSS has and the schema does
 not); scroll snapping; `scrollIntoView` and programmatic scroll (an agent
-operation, later); windowing for `List` (a plain windowed
-list when it misses 60 fps — `rules/NOT-DOING.md` §Components). **The
-current seam does not support windowing without extension**: the kernel's
-`content` is the extent of the *materialized* children only, the runner
-admits only press and change events, and `scrollCommand`/`virtualized`
-are inert props. A windowed `List` needs three things this spec does not
-have: a logical total extent the host sizes the document to (a spacer the
-kernel or the plan declares), window-origin compensation so materialized
-rows land at their logical offsets, and a scroll-offset event from the
-host to the runner so the window follows the scroll. `List` and
-`ScrollView` are today the same thing on every host.
+operation, later).
+
+**Current, 2026-09-14:** `List` and `ScrollView` still have the same
+behavior on every host; `virtualized` is inert. A windowed list still
+needs a logical total extent (today `content` counts materialized children)
+and window-origin compensation, plus runner row lifetime management.
+The scroll-offset event exists on web and Apple; Linux needs the same
+feedback when windowing lands there. The old 60-fps-only trigger is
+replaced by §6's memory and responsiveness requirements.
+
+## 6. Bounded list memory — implementation plan, 2026-09-14
+
+**Owner:** Codex. **Start:** 2026-09-14. **Consumer:** Messages inbox and
+transcript, then the other apps' long lists. **Order:** baseline → runner
+and web window → Apple and Linux → bounded raster loading → consumer sweep.
+The baseline starts now; this is not a statement that the later slices
+have landed. Router/viewport work already assigned in LLPs 1038/1039 keeps
+its assignment. ExactViewport is a viewport fact, not the missing size of
+a nested scroll container; windowing must observe the actual scrollport.
+This LLP returns to `current/`; 1036's research link leaves that overlay
+to keep its 15-document budget. The research document itself stays.
+
+**Scope trade:** list memory and construction cost trigger the work without
+waiting for a dropped frame. Further Messages decorative Tapback/emoji
+artwork, material matching and animation-timing polish move behind this
+consumer. Navigation, editing and data-loss fixes remain functional work.
+No virtualList v2, new blocking gate, agent verb, core Cargo feature, or
+parallel layout engine. LLP 1037 F3 supplies research, not authority.
+
+### 6.1 The promise and the five measurements
+
+Let N be the supplied records and W the rows intersecting the scrollport
+plus one viewport of overscan on either side. Input records and compact
+key/height metadata may be O(N); **instantiated row state, kernel nodes
+and host views must be O(W)**. The serialized plan's row template must
+not expand with N. An app that loads all records therefore still has an
+O(N) data cost. We do not call its process memory flat.
+
+Use the existing `scripts/metrics.mjs`, with diagnostic cases in its
+existing metrics binary and the existing agent carriers. Every result
+names source/binary identity, host, viewport, record count and sample
+phase. Unavailable measurements are `null` with a reason, never zero.
+
+| Quantity | What is counted; what it must distinguish |
+|---|---|
+| Construction to first frame | Data acquisition/build, plan decode, runner construction, layout, host application and actual first pixel separately. A runner boot timer is not first pixel. Include any bake-time expansion separately. |
+| Retained state | Encoded and decoded plan, input records, row instances/local slots and kernel allocations. Count shared storage once; label aggregate allocator deltas, estimates and exact counts as such. Report peak during replacement as well as settled live bytes. |
+| Host objects | Actual mounted/live DOM elements or Apple views, including swipe tables, labels and image subviews. Kernel node count is a separate number. Linux reports no per-row native-view model, not a made-up view count. |
+| Decoded images | Unique resident raster bytes, pinned/cache/in-flight reservations separately; encoded responses and platform symbol caches are different quantities. Browser-owned decoded bytes may be unavailable. |
+| Process memory | Same OS metric at the same phases, with baseline, settled and peak distinguished. RSS, Apple physical footprint and browser-process memory are named separately; allocator bytes are not substitutes. |
+
+Run N = 25 / 1,000 / 25,000 in fresh processes at the same viewport, with
+text-only and distinct raster-image cases. Sample first frame, settled
+top, middle, bottom, return to top, after 20 full traversals, after
+replace/reorder, and after leaving the list. Repeated data and one shared
+image cannot stand in for distinct records and bitmaps. Keep raw samples
+and phase names beside any medians. Physical iPhone frame/memory results
+are required before calling the phone budget satisfied; simulator results
+are labeled separately.
+
+**First delivery:** `bun scripts/metrics.mjs --list-memory [--json]` is
+the eager text-row baseline only, one fresh process per N. It measures
+requested live/peak heap deltas for data, decoded plan, runner and kernel,
+live kernel nodes, decode/boot/layout time, and process RSS while the
+runner is alive. The compiler and encoded input precede the heap baseline;
+allocator slack and internal realloc transients are not tracked. Native
+views, decoded image bytes and first pixel are explicitly unmeasured.
+The counting allocator exists only in this diagnostic executable, never
+in an app host.
+
+**Baseline measured 2026-09-14:** Apple M5 Max, macOS 25.6.0 arm64,
+Rust 1.97.0, optimized diagnostic, one fresh process per row count.
+`--list-memory --json` passes the fixture's all-rows node-count assertion;
+the decoded plan stays 894 bytes (730 encoded) at every N.
+
+| Rows | Live kernel nodes | Input data, MiB | Retained heap delta, MiB | Peak heap delta, MiB | Process RSS, MiB | Runner boot / layout, ms |
+|---|---:|---:|---:|---:|---:|---:|
+| 25 | 27 | 0.002 | 0.097 | 0.126 | 3.28 | 0.294 / 0.068 |
+| 1,000 | 1,002 | 0.084 | 3.275 | 4.298 | 9.19 | 2.558 / 0.760 |
+| 25,000 | 25,002 | 2.098 | 95.945 | 124.555 | 109.94 | 81.628 / 29.990 |
+
+The 25,000-record input is about 2.1 MiB; the retained data/plan/runner/kernel
+aggregate is about 96 MiB before a native view or image is created. This
+already earns the work. No first-pixel or phone claim follows from these
+instrumented desktop timings. RSS includes the process, not just that
+aggregate; different allocator/OS accounting need not order RSS and peak
+requested heap the same way.
+
+Raw sample: `/tmp/exact-list-memory-baseline.json`; source base
+`818930f539551ef18da846ddf9518edb107c16e9` with working edits, recorded source
+diff SHA-256 `3767311e51898723199d0ab410327e823b3ff6e540b922b95a3efa5e2142a5f5`,
+binary SHA-256 `3f54c258cc3a1d9da826b959e27368be7c6acebf8f9298d7d07cc4ea60c9ac83`.
+The command records the current identities when rerun; this sample is not
+attributed to an unmodified HEAD.
+
+### 6.2 Materialize the window before creating rows
+
+Implement the first window in the runner, shared by every host, using
+the existing keyed-region and create/destroy operations. Ordinary `each`
+keeps its eager semantics; authoring the windowed case is explicit. The
+compiler's row-template representation stays compact; define its small
+opt-in surface with the first working fixture, not a second list DSL.
+Do not turn on the inert prop while still building every row.
+
+The list owns its total logical extent, visible range and estimated/measured
+row heights. Hosts supply the actual scrollport/offset and measured row
+boxes (browser layout on web; kernel layout on native). The engine
+publishes the spacer/offset geometry needed to keep scrolling that logical
+document. Offset-only updates visit the window; scanning/keying every
+record on every drag frame is not acceptable. Membership/order changes
+may rebuild the compact index; ordinary row updates retain keyed identity.
+
+Start with fixed-height inbox rows to establish lifetime and geometry,
+then variable-height transcript rows before acceptance. Preserve an
+anchor key and its offset within the scrollport when heights change,
+older messages prepend, images arrive, width changes, or records reorder.
+If the anchor is deleted, use the next surviving neighbor, then the
+previous one. Follow the end only when the user was already following it.
+Apply extent/window/anchor changes coherently; never reset native momentum
+or take over scroll recognition.
+
+Rows leaving the window lose their view instances and component-local
+slots. Drafts, selection and durable per-message state belong in the
+existing parent/keyed data model. A focused editor or active native
+interaction can pin its row until completion; pins are explicit, counted
+and bounded (at most one focused row and one other interacting row).
+Switching interactions releases the earlier pin. A keep-alive map that
+grows with every visited key fails the memory requirement.
+
+### 6.3 Raster memory is a separate budget
+
+After view lifetime works, bound loading independently on Apple/Linux:
+start with a **32 MiB per-session budget** for unique Exact-owned decoded
+raster storage and decode reservations, including images pinned by live
+views. Deduplicate identical source/size/generation requests; use at most
+two simultaneous decodes, reserve from metadata before decode, and
+downsample to the required display size when the source would exceed the
+budget. Avoid a full-resolution intermediate. A bitmap cannot be declared
+evicted while a view still owns its bytes. Queueing, cancellation and
+stale-generation completion must not release another request's reservation.
+
+Visible demand goes first; off-window requests are cancelled or dropped,
+and unpinned cold entries evict first. If visible demand exceeds the
+budget, lower the requested decode resolution or defer a load with an
+observable reason; never silently exceed it. Handle memory pressure by
+dropping reclaimable entries. This changes loading/cache policy, not
+intrinsic CSS dimensions or `object-fit`. A future measured change to
+32 MiB is an explicit budget change, not a hidden exception.
+
+On web the browser owns decoding and eviction. Bound DOM/image demand
+and measure the browser where supported; promise no Exact-controlled
+decoded-byte ceiling there. Symbol/framework caches are likewise outside
+the Exact raster budget and remain visible in process measurements.
+
+### 6.4 Acceptance and landing
+
+At a fixed viewport and row shape, 1,000 and 25,000 records have the same
+window-sized row-instance/kernel/view bound, plus the two declared pins.
+Twenty traversals do not accumulate retired rows, row-local slots or
+decoded pictures. Heap growth attributable to O(N) data/metadata is
+reported separately; remaining growth needs an explanation before landing.
+Image counters stay within their byte budget, including in-flight work.
+
+Use the existing tests and agent operations to cover first/last row,
+fast scroll in both directions, reorder/delete/prepend, resize, delayed
+image sizes, keyboard/end-follow, swipe actions, row focus, selection,
+accessibility position/count, and navigation away/back. A focused or
+accessibility-targeted row must be brought into the window before being
+addressed. Ordinary eager lists remain a parity comparison.
+
+Land each slice with its measured before/after and code/docs together.
+The five checks remain five; the host/memory sweep is diagnostic and runs
+asynchronously. The work is complete only after Messages passes on web
+and physical iOS and the shared fixtures pass on macOS/Linux. A runner-only
+number, native cell recycling, or a smooth 25-record demo closes none of
+those later slices.

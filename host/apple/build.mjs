@@ -146,7 +146,7 @@ export function assertAppleIdentity(app, executable, compatibilityId) {
 /** Copy the app-visible static trees into a private Apple package stage.
  * Every leaf goes through the web host's no-symlink policy; `trees` maps an
  * app-relative source (notably `gpu/shaders`) to its bundle-visible name. */
-export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets'], ['deck', 'deck'], ['shaders', 'shaders']]) {
+export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets'], ['deck', 'deck'], ['shaders', 'shaders'], ['rust', 'rust']]) {
   for (const [from, to] of trees) {
     copyStaticTreeIfPresent(resolve(source, from), resolve(target, to));
   }
@@ -459,7 +459,8 @@ function main(args) {
     for (const file of [`lib${crate.replace(/-/g, '_')}.a`, ...(hasGpu ? [dylib] : [])]) captureAppleProduct(buildReceipt, resolve(cargoLibDir, file), resolve(capture, file));
     bakedPlan = readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.plan`));
     copyAppleStaticTrees(app.dir, capture, [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]);
-    verifyBakeFiles(buildReceipt.compat, bakedPlan, listAssets(capture));
+    if (buildReceipt.rust) copyStaticTreeIfPresent(buildReceipt.rust, resolve(capture, 'rust'));
+    verifyBakeFiles(buildReceipt.compat, bakedPlan, listAssets(capture, true));
     placeAppleArtifact(capture, paths.capture);
   } });
   const libDir = paths.capture;
@@ -487,7 +488,7 @@ function main(args) {
     copyFileSync(resolve(pkg, 'include/exact.h'), resolve(embed, 'include/exact.h'));
     if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(embed, loadName));
     copyAppleStaticTrees(paths.capture, embed);
-    verifyBakeFiles(bakedCompat, bakedPlan, listAssets(embed));
+    verifyBakeFiles(bakedCompat, bakedPlan, listAssets(embed, true));
     writeFileSync(resolve(embed, 'compat.json'), JSON.stringify(bakedCompat, null, 2) + '\n');
     writeFileSync(resolve(embed, 'receipt.json'), receipt(app, { platform, target: ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), sdk, archive, gpu: hasGpu ? loadName : null, package: pkg, composition, compatibilityId:bakedCompat.id, build:buildReceipt }));
     const bytes = statSync(resolve(embed, archive)).size;
@@ -626,7 +627,7 @@ function main(args) {
       for (const file of ['ExactMac', webLoadName, ...(hasGpu ? [loadName] : [])]) copyFileSync(resolve(binDir, file), resolve(executables, file));
       writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development }));
       copyAppleStaticTrees(paths.capture, resources);
-      verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources));
+      verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
       copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
       for (const file of [webLoadName, ...(hasGpu ? [loadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
@@ -659,7 +660,7 @@ function main(args) {
   // The GPU crate's shaders (LLP 1030 D8): files the presenter registers
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
-  verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle));
+  verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
   let ph, prof;
@@ -687,7 +688,7 @@ function main(args) {
       copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
       writeFileSync(ent, entitlements({ ...app, id }, signingProfile.team));
     }
-    verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled));
+    verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true));
     assertAppleIdentity(app, resolve(assembled, host ? 'ExactHostIOS' : 'ExactIOS'), bakedCompat.id);
     writeFileSync(resolve(assembled, 'receipt.json'), receipt(app, { compatibilityId: bakedCompat.id, build: buildReceipt, composition,
       platform: device ? 'ios' : 'ios-simulator', target, sdk, identity: signingIdentity,

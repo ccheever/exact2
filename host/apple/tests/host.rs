@@ -104,6 +104,8 @@ struct ExactModule { let receipt: Data; let bytecode: Data }
 struct ExactGeneration { let plan: Data; let assets: String; let module: ExactModule }
 public final class ExactApp {
     let resolver = "assets"
+    var mode = "wasm"
+    var rustPolicy: (mode: String, target: String) { (mode, "test-target") }
     var plain = 0
     var generations: [ExactGeneration] = []
     func apply(_ bytes: Data, label: String) -> Bool { plain += 1; return true }
@@ -138,6 +140,30 @@ try FileManager.default.removeItem(at: directory.appendingPathComponent("app.mod
 precondition(!candidate.apply(to: app) && app.plain == 1 && app.generations.count == 2)
 try write("app.module.json", String(repeating: "x", count: (1 << 20) + 1))
 precondition(!candidate.apply(to: app) && app.generations.count == 2)
+try FileManager.default.removeItem(at: directory.appendingPathComponent("app.module.json"))
+try FileManager.default.removeItem(at: directory.appendingPathComponent("app.hbc"))
+try FileManager.default.createDirectory(at: directory.appendingPathComponent("rust/wasm"), withIntermediateDirectories: true)
+try write("rust/wasm/app.module.json", "{\"module\":{\"file\":\"app.module.wasm\"}}")
+let partialRust = candidate.revision
+precondition(candidate.hasModule && !candidate.apply(to: app))
+try write("rust/wasm/app.module.wasm", "wasm")
+precondition(candidate.revision != partialRust && candidate.apply(to: app))
+precondition(app.generations.last!.module.bytecode == Data("wasm".utf8))
+let rustOnly = app.generations.count; try write("app.module.json", "{\"kind\":\"javascript\",\"plan\":{\"file\":\"app.plan\"}}")
+precondition(!candidate.apply(to: app) && app.generations.count == rustOnly)
+try write("app.hbc", "hbc")
+precondition(candidate.apply(to: app))
+let mixed = app.generations.last!.module
+let receipt = try JSONSerialization.jsonObject(with: mixed.receipt) as! [String: Any]
+precondition(receipt["kind"] as? String == "mixed" && receipt["version"] as? Int == 1)
+precondition(receipt["javascriptBytes"] as? Int == 3 && mixed.bytecode == Data("hbcwasm".utf8))
+precondition((receipt["javascript"] as? [String: Any])?["kind"] as? String == "javascript")
+precondition(((receipt["rust"] as? [String: Any])?["module"] as? [String: Any])?["file"] as? String == "app.module.wasm")
+let both = app.generations.count; try FileManager.default.removeItem(at: directory.appendingPathComponent("rust/wasm/app.module.wasm"))
+precondition(!candidate.apply(to: app) && app.generations.count == both)
+try write("rust/wasm/app.module.wasm", "wasm"); try write("app.module.json", "not JSON")
+precondition(!candidate.apply(to: app) && app.generations.count == both)
+app.mode = "off"; precondition(candidate.apply(to: app) && app.generations.last!.module.bytecode == Data("hbc".utf8))
 "#;
     let result = std::process::Command::new("swift")
         .args(["-swift-version", "5", "-e", &format!("{source}\n{checks}")])
@@ -1002,6 +1028,7 @@ mod handles {
         count(5);
     }
     pub static DELIVERY: exact_apple::delivery::Hooks = exact_apple::delivery::Hooks {
+        selected_module: || Ok(None),
         selected_plan: || {
             count(2);
             Some(("selected".into(), baked().to_vec()))

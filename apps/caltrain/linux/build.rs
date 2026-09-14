@@ -33,5 +33,17 @@ fn main() {
     } else {
         "exact_linux_update"
     };
-    std::fs::write(out_dir.join("entry.rs"), format!("fn main() {{ std::process::exit({host}::run::<caltrain_data::Caltrain>(PLAN, COMPAT)); }}\n")).unwrap();
+    std::fs::write(
+        out_dir.join("entry.rs"),
+        format!(
+            "{}\nfn main() {{ std::process::exit({host}::run::<AppData>(PLAN, COMPAT)); }}\n",
+            contract::rust_entry(
+                "caltrain_data::Caltrain",
+                "caltrain_data::Caltrain",
+                compat.inputs["rustMode"].as_str().unwrap()
+            )
+            .unwrap()
+        ),
+    )
+    .unwrap();
 }

@@ -4,11 +4,18 @@ type Library = Result<'library'>;
 type Note = Library['notes'][number];
 type Saved = Result<'saveNote'>;
 type Status = Result<'backupNotes'>;
+type Store = Parameters<Answer>[2];
 
 export const appId = 'com.exact.fieldnotes';
-export const grants = 'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups';
+export const grants = 'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nsecret.keep fieldnotes.revision';
 const backupPath = 'app:/data/backups/fieldnotes.json';
-let revision = 0;
+// One app-owned revision survives source/language replacement with the Store.
+function nextRevision(store:Store):number {
+  const raw=store.get('fieldnotes.revision');
+  const previous=raw&&/^[0-9]+$/.test(raw)?Number(raw):0;
+  const next=Number.isSafeInteger(previous)&&previous<Number.MAX_SAFE_INTEGER?previous+1:1;
+  store.set('fieldnotes.revision',String(next));return next;
+}
 // Serialize whole app operations, not just individual database statements.
 // A save and the resource refresh it triggers never contend for the same file.
 let tail: Promise<unknown> = Promise.resolve();
@@ -42,18 +49,11 @@ function validate(title: string, body: string): void {
   if (title.length > 160) throw new Error('Keep titles under 160 characters.');
   if (body.length > 20000) throw new Error('Keep each note under 20,000 characters.');
 }
-// Portable UTF-8: these app-local helpers also work in the lean native VM.
-function encode(text: string): Uint8Array {
-  const encoded = encodeURIComponent(text), bytes: number[] = [];
-  for(let i=0;i<encoded.length;i++) {
-    if(encoded[i]==='%'){bytes.push(parseInt(encoded.slice(i+1,i+3),16));i+=2;}
-    else bytes.push(encoded.charCodeAt(i));
-  }
-  return new Uint8Array(bytes);
-}
-function decode(bytes: ArrayBuffer): string {
-  return decodeURIComponent(Array.from(new Uint8Array(bytes), b=>'%'+b.toString(16).padStart(2,'0')).join(''));
-}
+// @ref LLP 1027.001 D1 — standard UTF-8 on every executor
+const encoder = new TextEncoder();
+const decoder = new TextDecoder('utf-8', { fatal: true });
+function encode(text: string): Uint8Array { return encoder.encode(text); }
+function decode(bytes: ArrayBuffer): string { return decoder.decode(bytes); }
 type BackupNote = {id:string;title:string;body:string;pinned:boolean};
 function parseBackup(text: string): BackupNote[] {
   if(text.length>4*1024*1024)throw new Error('Backups must be smaller than 4 MB.');
@@ -76,7 +76,7 @@ async function library(query: string, storage: Storage): Promise<Library> {
     return {notes:[],total:0,message:why.includes('unsupported by this host')||why.includes('during bake') ? 'Opening your notebook…' : 'Could not open your notebook: '+why,ready:false};
   }
 }
-async function saveNote(noteId:string,title:string,body:string,pinned:boolean,version:number,storage:Storage): Promise<Saved> {
+async function saveNote(noteId:string,title:string,body:string,pinned:boolean,version:number,storage:Storage,store:Store): Promise<Saved> {
   try {
     validate(title,body);if(!title.trim()&&!body.trim())throw new Error('Write something before saving.');
     const savedId=await withDatabase(storage,async db=>{
@@ -90,19 +90,36 @@ async function saveNote(noteId:string,title:string,body:string,pinned:boolean,ve
       const result=await db.execute('INSERT INTO notes (title,body,pinned) VALUES (?,?,?)',[title.trim()||'Untitled note',body,pinned?1n:0n]);
       return String(result.lastInsertRowid);
     });
-    return {id:savedId,version,title,body,pinned,revision:++revision,message:'Saved on this device.',failed:false};
-  } catch(error) {return {id:noteId,version,title,body,pinned,revision:++revision,message:message(error),failed:true};}
+    return {id:savedId,version,title,body,pinned,revision:nextRevision(store),message:'Saved on this device.',failed:false};
+  } catch(error) {return {id:noteId,version,title,body,pinned,revision:nextRevision(store),message:message(error),failed:true};}
 }
-async function service(source:string,args:unknown[],storage:Storage): Promise<Status> {
+async function service(source:string,args:unknown[],storage:Storage,store:Store): Promise<Status> {
   try {
     let text='',notice='';
     if(source==='backupNotes') {
-      const all=await withDatabase(storage,notes);
-      text=JSON.stringify({version:1,notes:all.map(({id,title,body,pinned})=>({id,title,body,pinned}))},null,2);
-      if(text.length>4*1024*1024)throw new Error('This backup exceeds 4 MB. Split or remove large notes before backing up.');
+      let count=0;
+      text=await withDatabase(storage,async db=>{
+        const parts:string[]=[];
+        const prefix='{\n  "version": 1,\n  "notes": [\n', suffix='\n  ]\n}';
+        let length=prefix.length+suffix.length;
+        // One SQLite statement preserves a snapshot across other windows' writes.
+        // A valid 4 Mi UTF-16 backup has at most 12 MiB of quoted UTF-8 text.
+        const result=await db.query('WITH sized AS (SELECT id, title, body, pinned, SUM(length(CAST(json_quote(title) AS BLOB)) + length(CAST(json_quote(body) AS BLOB))) OVER () AS backup_bytes FROM notes) SELECT id, CASE WHEN backup_bytes <= 12582912 THEN title END, CASE WHEN backup_bytes <= 12582912 THEN body END, pinned FROM sized ORDER BY pinned DESC, id DESC');
+        for(const row of result.rows){
+          if(row[1]===null||row[2]===null)throw new Error('This backup exceeds 4 MB. Split or remove large notes before backing up.');
+          // These fields are scalars: emit their final six-space indentation
+          // directly, instead of scanning every body again to indent its lines.
+          const note=JSON.stringify({id:String(row[0]),title:String(row[1]),body:String(row[2]),pinned:row[3]===1n},null,6);
+          const part='    '+note.slice(0,-1)+'    }';
+          length+=part.length+(count?2:0);
+          if(length>4*1024*1024)throw new Error('This backup exceeds 4 MB. Split or remove large notes before backing up.');
+          parts.push(part);count++;
+        }
+        return count?prefix+parts.join(',\n')+suffix:JSON.stringify({version:1,notes:[]},null,2);
+      });
       await storage.fs.mkdir('app:/data/backups');
       await storage.fs.atomicWriteFile(backupPath,encode(text));
-      notice=`Backup saved with ${all.length} notes.`;
+      notice=`Backup saved with ${count} notes.`;
     } else if(source==='readBackup') {
       text=decode(await storage.fs.readFile(backupPath));parseBackup(text);notice='Your saved backup is ready to copy.';
     } else if(source==='restoreNotes') {
@@ -113,15 +130,15 @@ async function service(source:string,args:unknown[],storage:Storage): Promise<St
     } else if(source==='deleteNote') {
       await withDatabase(storage,db=>db.execute('DELETE FROM notes WHERE id=?',[id(String(args[0]))]));notice='Note deleted.';
     } else throw new Error('Unknown notebook action.');
-    return {revision:++revision,message:notice,failed:false,backupText:text};
-  } catch(error) {return {revision:++revision,message:message(error),failed:true,backupText:''};}
+    return {revision:nextRevision(store),message:notice,failed:false,backupText:text};
+  } catch(error) {return {revision:nextRevision(store),message:message(error),failed:true,backupText:''};}
 }
 const sources: Sources = {
   library: ([query], _store, storage) => serial(() => library(query, storage)),
-  saveNote: (args, _store, storage) => serial(() => saveNote(...args, storage)),
-  backupNotes: (args, _store, storage) => serial(() => service('backupNotes', args, storage)),
-  readBackup: (args, _store, storage) => serial(() => service('readBackup', args, storage)),
-  restoreNotes: (args, _store, storage) => serial(() => service('restoreNotes', args, storage)),
-  deleteNote: (args, _store, storage) => serial(() => service('deleteNote', args, storage)),
+  saveNote: (args, store, storage) => serial(() => saveNote(...args, storage, store)),
+  backupNotes: (args, store, storage) => serial(() => service('backupNotes', args, storage, store)),
+  readBackup: (args, store, storage) => serial(() => service('readBackup', args, storage, store)),
+  restoreNotes: (args, store, storage) => serial(() => service('restoreNotes', args, storage, store)),
+  deleteNote: (args, store, storage) => serial(() => service('deleteNote', args, storage, store)),
 };
 export const answer: Answer = (source,args,store,storage) => sources[source](args,store,storage);

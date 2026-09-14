@@ -38,6 +38,7 @@
 mod engine;
 mod native;
 mod paired;
+mod pure;
 mod storage;
 
 pub use engine::ENGINE_LINKED;
@@ -203,6 +204,7 @@ unsafe extern "C" fn host_door(
                 }
             }
         }
+        7 => pure::call(&a, &b).map(Some),
         other => Err(format!("__exact_host: no op {other}")),
     };
     *out = std::ptr::null_mut();
@@ -253,6 +255,8 @@ fn request_from_json(text: &str) -> Result<Request, String> {
     }
     Ok(Request {
         continuation: None,
+        storage: None,
+        grants: None,
         method: field("method").ok_or("no method")?,
         url: field("url").ok_or("no url")?,
         headers,
@@ -262,6 +266,9 @@ fn request_from_json(text: &str) -> Result<Request, String> {
 
 fn outcome_to_json(outcome: &Outcome) -> Json {
     match outcome {
+        Outcome::Storage(_) => {
+            json!({"failed":{"kind":"Unsupported","message":"storage result supplied to a fetch continuation"}})
+        }
         Outcome::Response(r) => json!({
             "response": {
                 "status": r.status,
@@ -475,15 +482,21 @@ impl Module {
     }
 
     /// The prelude's reply for one step, decoded by the source's result shape.
-    fn step(sig: &Sig, source: &str, text: &str) -> Step {
-        let reply: Json = match serde_json::from_str(text) {
+    fn step(sig: &Sig, engine: &mut Engine, source: &str, text: &str) -> Step {
+        let mut reply: Json = match serde_json::from_str(text) {
             Ok(j) => j,
             Err(e) => {
+                engine.clear_reply();
                 return Step::Done(Err(DataError::Unavailable(format!(
                     "`{source}` answered something other than JSON: {e}"
-                ))))
+                ))));
             }
         };
+        if let Err(error) = engine.restore_reply(&mut reply) {
+            return Step::Done(Err(DataError::Unavailable(format!(
+                "`{source}` answered outside its shape: {error}"
+            ))));
+        }
         let num = |k: &str| reply.get(k).and_then(Json::as_u64);
         match num("tag") {
             Some(0) => Step::Done(
@@ -587,6 +600,9 @@ impl Module {
         })();
         self.host.store = None;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
+        if result.is_err() || took_ms > self.budget_ms {
+            self.engine.as_mut().expect("checked above").clear_reply();
+        }
         if took_ms > self.budget_ms {
             self.overruns += 1;
             return Err(DataError::Unavailable(format!(
@@ -596,7 +612,12 @@ impl Module {
         }
         let text = result?;
         let sig = self.sigs.get(source).expect("checked above");
-        match Module::step(sig, source, &text) {
+        match Module::step(
+            sig,
+            self.engine.as_mut().expect("checked above"),
+            source,
+            &text,
+        ) {
             Step::Done(r) => r.map(Answer::Now),
             Step::Pending { call, ticket } => {
                 let request = if ticket == 0 {
@@ -673,6 +694,9 @@ impl Module {
         })();
         self.host.store = None;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
+        if result.is_err() || took_ms > self.budget_ms {
+            self.engine.as_mut().expect("checked above").clear_reply();
+        }
         if took_ms > self.budget_ms {
             self.overruns += 1;
             return Err(DataError::Unavailable(format!(
@@ -682,9 +706,15 @@ impl Module {
         }
         let text = result?;
         let Some(sig) = self.sigs.get(source) else {
+            self.engine.as_mut().expect("checked above").clear_reply();
             return Err(DataError::UnknownSource(source.to_string()));
         };
-        match Module::step(sig, source, &text) {
+        match Module::step(
+            sig,
+            self.engine.as_mut().expect("checked above"),
+            source,
+            &text,
+        ) {
             Step::Done(r) => r.map(Answer::Now),
             Step::Pending { call, ticket } => {
                 let request = if ticket == 0 {

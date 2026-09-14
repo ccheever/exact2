@@ -13,13 +13,15 @@
 #![deny(missing_docs)]
 
 pub mod compat;
+mod logic;
 mod receipt;
 mod typescript;
 
-pub use compat::{compatibility_id, Compat, Manifest};
+pub use compat::{compatibility_id, compatibility_id_sources, Compat, Manifest};
 /// The data seam, re-exported for an app's build script: the bake asks the
 /// crate its grants for the compatibility id (`Caltrain.grants()`).
 pub use exact_runner::DataSource;
+pub use logic::rust_entry;
 pub use receipt::write_development_artifacts;
 pub use typescript::typescript;
 

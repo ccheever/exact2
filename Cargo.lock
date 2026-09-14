@@ -200,6 +200,7 @@ dependencies = [
  "contract",
  "exact-apple",
  "exact-apple-update",
+ "exact-logic",
 ]
 
 [[package]]
@@ -228,6 +229,15 @@ dependencies = [
  "contract",
  "exact-linux",
  "exact-linux-update",
+ "exact-logic",
+]
+
+[[package]]
+name = "caltrain-logic"
+version = "0.1.0"
+dependencies = [
+ "caltrain-data",
+ "exact-logic-abi",
 ]
 
 [[package]]
@@ -238,6 +248,7 @@ dependencies = [
  "caltrain-data",
  "contract",
  "exact-kernel",
+ "exact-logic",
  "exact-plan",
  "exact-runner",
  "exact-web",
@@ -595,6 +606,7 @@ dependencies = [
  "caltrain",
  "caltrain-data",
  "contract",
+ "exact-data",
  "exact-kernel",
  "exact-motion",
  "exact-plan",
@@ -613,6 +625,28 @@ dependencies = [
  "exact-runner",
  "exact-update",
  "ibex2",
+ "serde_json",
+]
+
+[[package]]
+name = "exact-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+ "serde_json",
+]
+
+[[package]]
+name = "exact-data-host"
+version = "0.1.0"
+dependencies = [
+ "exact-data",
+ "exact-plan",
+ "exact-runner",
+ "ibex2",
+ "ibex2-sqlite",
+ "serde_json",
 ]
 
 [[package]]
@@ -720,6 +754,7 @@ dependencies = [
  "cosmic-text",
  "drm",
  "evdev",
+ "exact-data",
  "exact-kernel",
  "exact-motion",
  "exact-plan",
@@ -748,6 +783,39 @@ dependencies = [
  "exact-update",
  "ibex2",
  "serde_json",
+]
+
+[[package]]
+name = "exact-logic"
+version = "0.1.0"
+dependencies = [
+ "exact-logic-abi",
+ "exact-plan",
+ "exact-runner",
+ "libloading",
+ "serde_json",
+ "sha2",
+ "wasmi",
+ "wat",
+]
+
+[[package]]
+name = "exact-logic-abi"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "exact-logic-bake"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-logic",
+ "exact-runner",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -841,11 +909,27 @@ name = "fieldnotes-apple"
 version = "0.1.0"
 dependencies = [
  "exact-apple",
+ "exact-data-host",
  "exact-js",
  "exact-js-bake",
  "exact-js-value",
+ "exact-kernel",
+ "exact-logic",
+ "exact-logic-abi",
  "exact-plan",
  "exact-runner",
+ "fieldnotes-data",
+ "serde_json",
+]
+
+[[package]]
+name = "fieldnotes-data"
+version = "0.1.0"
+dependencies = [
+ "exact-data",
+ "exact-plan",
+ "exact-runner",
+ "serde",
  "serde_json",
 ]
 
@@ -853,9 +937,12 @@ dependencies = [
 name = "fieldnotes-web"
 version = "0.1.0"
 dependencies = [
+ "exact-data-host",
  "exact-js-bake",
  "exact-js-web",
+ "exact-logic",
  "exact-web",
+ "fieldnotes-data",
 ]
 
 [[package]]
@@ -1392,6 +1479,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "leb128fmt"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
+
+[[package]]
 name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1460,6 +1553,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-logic",
  "llp-data",
 ]
 
@@ -1477,6 +1571,7 @@ name = "llp-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-logic",
  "exact-web",
  "llp-data",
 ]
@@ -1502,6 +1597,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-logic",
  "markdown-data",
 ]
 
@@ -1526,6 +1622,7 @@ name = "markdown-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-logic",
  "exact-web",
  "markdown-data",
 ]
@@ -1553,6 +1650,7 @@ dependencies = [
  "exact-js",
  "exact-js-bake",
  "exact-js-value",
+ "exact-logic",
  "exact-plan",
  "exact-runner",
  "exact-snapback4",
@@ -1567,6 +1665,7 @@ dependencies = [
  "exact-js",
  "exact-js-bake",
  "exact-linux",
+ "exact-logic",
  "exact-plan",
  "exact-runner",
  "exact-snapback4",
@@ -1580,6 +1679,7 @@ version = "0.1.0"
 dependencies = [
  "exact-js-bake",
  "exact-js-web",
+ "exact-logic",
  "exact-web",
  "serde_json",
  "snapback4-lang",
@@ -2388,6 +2488,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "spin"
+version = "0.9.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
+
+[[package]]
 name = "spirv"
 version = "0.4.0+sdk-1.4.341.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2425,6 +2531,16 @@ name = "strict-num"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
+
+[[package]]
+name = "string-interner"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23de088478b31c349c9ba67816fa55d9355232d63c3afea8bf513e31f0f1d2c0"
+dependencies = [
+ "hashbrown 0.15.5",
+ "serde",
+]
 
 [[package]]
 name = "subtle"
@@ -2645,6 +2761,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
+name = "update-lab-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+ "update-lab-data",
+]
+
+[[package]]
+name = "update-lab-data"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-data",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+ "serde_json",
+]
+
+[[package]]
+name = "update-lab-logic"
+version = "0.1.0"
+dependencies = [
+ "exact-logic-abi",
+ "update-lab-data",
+]
+
+[[package]]
+name = "update-lab-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "update-lab-data",
+]
+
+[[package]]
 name = "ureq"
 version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2824,6 +2982,99 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-encoder"
+version = "0.259.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1d0246511d901aacf25d2dc9111f0054947de5e093fe662099e709ff7530dc3"
+dependencies = [
+ "leb128fmt",
+ "wasmparser 0.259.0",
+]
+
+[[package]]
+name = "wasmi"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78693fcdd618e0fc34af59c6b8efa9ac5d58c68df940beff4bedddb6acfe7c27"
+dependencies = [
+ "spin",
+ "wasmi_collections",
+ "wasmi_core",
+ "wasmi_ir",
+ "wasmparser 0.228.0",
+]
+
+[[package]]
+name = "wasmi_collections"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a8be2aa467cf2d29e96ff759472c36eeb44a3c81c67fc9cb76c9a24c519c557"
+dependencies = [
+ "string-interner",
+]
+
+[[package]]
+name = "wasmi_core"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69372d5fda3ea3d1e0aa6603c7888110e0187e88ea17cd8fc2e2df0a0e1f37fa"
+dependencies = [
+ "libm",
+]
+
+[[package]]
+name = "wasmi_ir"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f17b774caa13c618c7244f1ee51fe23c5e7b8538a471fa46d9949779758aed6"
+dependencies = [
+ "wasmi_core",
+]
+
+[[package]]
+name = "wasmparser"
+version = "0.228.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4abf1132c1fdf747d56bbc1bb52152400c70f336870f968b85e89ea422198ae3"
+dependencies = [
+ "bitflags",
+ "indexmap",
+]
+
+[[package]]
+name = "wasmparser"
+version = "0.259.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f7c12eac7bb587801590f6a67ff0bc84d0748513864b71108e4b311cc3df694"
+dependencies = [
+ "bitflags",
+ "indexmap",
+ "semver",
+]
+
+[[package]]
+name = "wast"
+version = "259.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c69beba8d9da07af9a0971b559149a2ac4729895b55144de4fddbf5a02660648"
+dependencies = [
+ "bumpalo",
+ "leb128fmt",
+ "memchr",
+ "unicode-width",
+ "wasm-encoder",
+]
+
+[[package]]
+name = "wat"
+version = "1.259.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6eec44b0c80391b20fb7ad9ea440c72c5d382385bdf74444bb18321c425017e"
+dependencies = [
+ "wast",
+]
+
+[[package]]
 name = "wayland-sys"
 version = "0.31.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2843,6 +3094,7 @@ dependencies = [
  "exact-js",
  "exact-js-bake",
  "exact-js-value",
+ "exact-logic",
  "exact-plan",
  "exact-runner",
  "serde_json",
@@ -2865,6 +3117,7 @@ version = "0.1.0"
 dependencies = [
  "exact-js-bake",
  "exact-js-web",
+ "exact-logic",
  "exact-web",
 ]
 

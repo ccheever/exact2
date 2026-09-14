@@ -23,6 +23,7 @@ pub(crate) fn emit(
         "EXACT_UPDATE_GENESIS",
         "EXACT_BAKE_OUTPUT",
         "EXACT_BAKE_ANALYSIS",
+        "EXACT_RUST_BUNDLE",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
     }
@@ -42,8 +43,27 @@ pub(crate) fn emit(
         ));
     }
     let plan_card = json!({"sha256": hash(&plan_bytes), "bytes": plan_bytes.len()});
-    let assets = asset_cards(app)?;
-    let graph = artifact_graph(&plan, &compat.inputs, &assets)?;
+    let mut assets = asset_cards(app)?;
+    let rust_assets = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
+        stage_rust_bundle(
+            Path::new(&directory),
+            out,
+            &plan_bytes,
+            &compat.inputs,
+            target,
+        )?
+    } else {
+        // OUT_DIR survives incremental builds; a prior supplied pair must not
+        // become part of a later build that deliberately supplies none.
+        let stale = out.join("rust");
+        if stale.exists() {
+            std::fs::remove_dir_all(stale).map_err(|e| e.to_string())?;
+        }
+        Vec::new()
+    };
+    assets.extend(rust_assets);
+    assets.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    let graph = artifact_graph(&plan, &compat.inputs, &assets, target)?;
     std::fs::write(out.join("artifacts.json"), graph.to_string()).map_err(|e| e.to_string())?;
     compat.target = target.into();
     compat.embedded =
@@ -132,6 +152,143 @@ fn asset_cards(app: &Path) -> Result<Vec<Value>, String> {
     serde_json::from_slice(&output.stdout).map_err(|e| format!("bake asset inventory: {e}"))
 }
 
+// Supply bytes, never just signed names. A binary's entry-zero asset roster is
+// used by the updater to decide Current, so claiming absent Rust files would
+// prevent their download and leave the embedded implementation answering them.
+fn stage_rust_bundle(
+    directory: &Path,
+    out: &Path,
+    plan: &[u8],
+    inputs: &Value,
+    target: &str,
+) -> Result<Vec<Value>, String> {
+    let mode = inputs["rustMode"]
+        .as_str()
+        .ok_or("Rust bundle requires a baked executor policy")?;
+    let (executor, module_target, filename) = match mode {
+        "wasm" | "browser" => ("wasm", "wasm32-unknown-unknown", "app.module.wasm"),
+        "tiered" if !target.contains("-apple-ios") && !target.starts_with("wasm") => {
+            ("tiered", target, "app.module.bin")
+        }
+        "native" if !target.contains("-apple-ios") && !target.starts_with("wasm") => {
+            let name = if target.contains("-apple-darwin") {
+                "app.module.dylib"
+            } else if target.contains("-windows-") {
+                "app.module.dll"
+            } else {
+                "app.module.so"
+            };
+            ("native", target, name)
+        }
+        _ => return Err("supplied Rust bundle is disabled by this host's executor policy".into()),
+    };
+    if !std::fs::symlink_metadata(directory)
+        .map_err(|e| e.to_string())?
+        .file_type()
+        .is_dir()
+    {
+        return Err("Rust bundle must be an ordinary directory, not a symlink".into());
+    }
+    let receipt_path = directory.join("app.module.json");
+    let module_path = directory.join(filename);
+    for path in [&receipt_path, &module_path] {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+    let receipt = read_rust_artifact(&receipt_path, 1 << 20)?;
+    let module = read_rust_artifact(&module_path, 32 << 20)?;
+    let meta: Value =
+        serde_json::from_slice(&receipt).map_err(|e| format!("Rust bundle receipt: {e}"))?;
+    if meta["version"].as_u64() != Some(1)
+        || meta["kind"] != "rust"
+        || meta["abi"].as_u64() != Some(2)
+    {
+        return Err("Rust bundle has an unsupported receipt or ABI".into());
+    }
+    let expected_app = inputs["app"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .ok_or("Rust bundle needs an admitted app identity")?;
+    let expected_grants = inputs["rustGrants"]
+        .as_str()
+        .ok_or("Rust bundle needs its baked source grants")?;
+    let ceiling = inputs["grantCeiling"]
+        .as_str()
+        .ok_or("Rust bundle needs the baked grant ceiling")?;
+    let admitted: Vec<_> = ceiling
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    if expected_grants
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .any(|line| !admitted.contains(&line))
+    {
+        return Err("Rust source grants exceed the app ceiling".into());
+    }
+    if meta["appId"].as_str() != Some(expected_app)
+        || meta["grants"].as_str().map(str::trim) != Some(expected_grants.trim())
+        || meta["executor"].as_str() != Some(executor)
+        || meta["target"].as_str() != Some(module_target)
+    {
+        return Err("Rust bundle changes the baked app, grants, executor or target".into());
+    }
+    for (field, name, bytes) in [
+        ("plan", "app.plan", plan),
+        ("module", filename, module.as_slice()),
+    ] {
+        let card = &meta[field];
+        if card["file"].as_str() != Some(name)
+            || card["bytes"].as_u64() != Some(bytes.len() as u64)
+            || card["sha256"].as_str() != Some(hash(bytes).as_str())
+        {
+            return Err(format!(
+                "Rust bundle {field} does not match its exact baked bytes"
+            ));
+        }
+    }
+    if executor == "wasm" && !module.starts_with(b"\0asm\x01\0\0\0") {
+        return Err("Rust bundle module is not wasm version 1".into());
+    }
+    let destination = out.join("rust");
+    if destination.exists() {
+        std::fs::remove_dir_all(&destination).map_err(|e| e.to_string())?;
+    }
+    std::fs::create_dir_all(&destination).map_err(|e| e.to_string())?;
+    let mut cards = Vec::new();
+    for (name, bytes) in [
+        ("app.module.json", receipt.as_slice()),
+        (filename, module.as_slice()),
+    ] {
+        std::fs::write(destination.join(name), bytes).map_err(|e| e.to_string())?;
+        cards.push(json!({"name":format!("rust/{name}"),"sha256":hash(bytes),"bytes":bytes.len()}));
+    }
+    Ok(cards)
+}
+
+fn read_rust_artifact(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if !metadata.file_type().is_file() || metadata.len() > limit as u64 {
+        return Err(format!(
+            "{} must be an ordinary bounded Rust artifact",
+            path.display()
+        ));
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .map_err(|e| e.to_string())?
+        .take(limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > limit {
+        return Err("Rust bundle artifact exceeds its byte limit".into());
+    }
+    Ok(bytes)
+}
+
 // Shapes use semantic names and field order, never plan-local row numbers.
 // The same source signature survives unrelated declarations being inserted.
 fn shape(plan: &exact_plan::Plan, ty: exact_plan::TypesId, depth: usize) -> Result<Value, String> {
@@ -159,6 +316,7 @@ fn artifact_graph(
     plan: &exact_plan::Plan,
     inputs: &Value,
     assets: &[Value],
+    target: &str,
 ) -> Result<Value, String> {
     let mut sources = serde_json::Map::new();
     for row in &plan.sources {
@@ -203,12 +361,38 @@ fn artifact_graph(
         requires.insert("executors".into(), inputs["executors"].clone());
         requires.insert("grantCeiling".into(), inputs["grantCeiling"].clone());
     }
+    let rust = assets
+        .iter()
+        .any(|asset| asset["name"] == "rust/app.module.json");
+    let rust_requirements = if rust {
+        let mode = inputs["rustMode"]
+            .as_str()
+            .ok_or("Rust artifact lacks executor policy")?;
+        let target = if mode == "wasm" || mode == "browser" {
+            "wasm32-unknown-unknown".to_string()
+        } else {
+            target.to_string()
+        };
+        json!({"rustMode":mode,"rustAbi":2,"rustTarget":target,"grantCeiling":inputs["grantCeiling"],"rustGrants":inputs["rustGrants"]})
+    } else {
+        json!({})
+    };
+    if rust {
+        requires.remove("sources");
+        requires.extend(rust_requirements.as_object().unwrap().clone());
+    }
     let plan_bytes = plan.encode();
     let mut artifacts = vec![
         json!({"name":"app.plan","kind":"bundle","sha256":hash(&plan_bytes),"bytes":plan_bytes.len(),"requires":requires}),
     ];
     for asset in assets {
         let mut requires = serde_json::Map::new();
+        if asset["name"]
+            .as_str()
+            .is_some_and(|name| name.starts_with("rust/"))
+        {
+            requires.extend(rust_requirements.as_object().unwrap().clone());
+        }
         if let Some(stem) = asset["name"]
             .as_str()
             .and_then(|n| n.strip_prefix("shaders/"))
@@ -242,7 +426,12 @@ pub fn write_development_artifacts(plan: &exact_plan::Plan) -> Result<(), String
     {
         return Err("resident compiler needs its app's actual development web bake receipt".into());
     }
-    let graph = artifact_graph(plan, &receipt["compat"]["inputs"], &[])?;
+    let graph = artifact_graph(
+        plan,
+        &receipt["compat"]["inputs"],
+        &[],
+        "wasm32-unknown-unknown",
+    )?;
     let rows = receipt["graph"]["artifacts"]
         .as_array_mut()
         .ok_or("bake receipt has no artifacts")?;
@@ -301,6 +490,269 @@ fn hash(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn rust_fixture(plan: &[u8]) -> (PathBuf, Value, Value) {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "exact-rust-bake-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        // Parallel tests can observe the same clock tick. Each fixture owns
+        // its directory exclusively, including cleanup after staging.
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(root.join("input")).unwrap();
+        let inputs =
+            json!({"app":"com.exact.caltrain","grantCeiling":"","rustGrants":"","rustMode":"wasm"});
+        let module = b"\0asm\x01\0\0\0";
+        let receipt = json!({"version":1,"kind":"rust","abi":2,"appId":inputs["app"],"grants":"",
+            "target":"wasm32-unknown-unknown","executor":"wasm",
+            "plan":{"file":"app.plan","sha256":hash(plan),"bytes":plan.len()},
+            "module":{"file":"app.module.wasm","sha256":hash(module),"bytes":module.len()}});
+        std::fs::write(root.join("input/app.module.wasm"), module).unwrap();
+        std::fs::write(root.join("input/app.module.json"), receipt.to_string()).unwrap();
+        (root, inputs, receipt)
+    }
+
+    #[test]
+    fn supplemental_rust_is_real_paired_bytes_with_executor_requirements() {
+        let mut plan = exact_plan::builder::PlanBuilder::new(0, 0)
+            .finish()
+            .unwrap();
+        plan.app_id = "com.exact.caltrain".into();
+        let bytes = plan.encode();
+        let (root, inputs, _) = rust_fixture(&bytes);
+        let cards = stage_rust_bundle(
+            &root.join("input"),
+            &root.join("out"),
+            &bytes,
+            &inputs,
+            "aarch64-apple-ios",
+        )
+        .unwrap();
+        assert_eq!(cards.len(), 2);
+        for card in &cards {
+            let actual =
+                std::fs::read(root.join("out").join(card["name"].as_str().unwrap())).unwrap();
+            assert_eq!(card["sha256"], hash(&actual));
+            assert_eq!(card["bytes"], actual.len());
+        }
+        let graph = artifact_graph(&plan, &inputs, &cards, "aarch64-apple-ios").unwrap();
+        for row in graph["artifacts"].as_array().unwrap() {
+            assert_eq!(row["requires"]["rustAbi"], 2);
+            assert_eq!(row["requires"]["rustMode"], "wasm");
+            assert_eq!(row["requires"]["rustTarget"], "wasm32-unknown-unknown");
+        }
+        assert!(graph["artifacts"][0]["requires"].get("sources").is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn tiered_assets_bind_the_complete_container_and_exact_native_cohort() {
+        let mut plan = exact_plan::builder::PlanBuilder::new(0, 0)
+            .finish()
+            .unwrap();
+        plan.app_id = "com.exact.caltrain".into();
+        let bytes = plan.encode();
+        let (root, mut inputs, mut receipt) = rust_fixture(&bytes);
+        let target = "aarch64-apple-darwin";
+        let module = b"EXLT\x01\0\0\0\x08\0\0\0\0asm\x01\0\0\0native";
+        inputs["rustMode"] = json!("tiered");
+        receipt["executor"] = json!("tiered");
+        receipt["target"] = json!(target);
+        receipt["module"] =
+            json!({"file":"app.module.bin","sha256":hash(module),"bytes":module.len()});
+        std::fs::write(root.join("input/app.module.bin"), module).unwrap();
+        std::fs::write(root.join("input/app.module.json"), receipt.to_string()).unwrap();
+        let stage = |host| {
+            stage_rust_bundle(
+                &root.join("input"),
+                &root.join("out"),
+                &bytes,
+                &inputs,
+                host,
+            )
+        };
+        let cards = stage(target).unwrap();
+        let graph = artifact_graph(&plan, &inputs, &cards, target).unwrap();
+        for row in graph["artifacts"].as_array().unwrap() {
+            assert_eq!(row["requires"]["rustMode"], "tiered");
+            assert_eq!(row["requires"]["rustTarget"], target);
+        }
+        for incompatible in [
+            "x86_64-apple-darwin",
+            "aarch64-apple-ios",
+            "wasm32-unknown-unknown",
+        ] {
+            assert!(stage(incompatible).is_err(), "{incompatible}");
+        }
+        // A changed native companion is covered by the same authenticated digest.
+        let mut changed = module.to_vec();
+        *changed.last_mut().unwrap() ^= 1;
+        std::fs::write(root.join("input/app.module.bin"), changed).unwrap();
+        assert!(stage(target).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn supplemental_rust_refuses_policy_identity_grants_target_and_tampered_pair() {
+        let plan = b"exact baked plan";
+        let (root, mut inputs, receipt) = rust_fixture(plan);
+        for (key, value) in [
+            ("appId", json!("another.app")),
+            ("grants", json!("secret.keep token")),
+            ("abi", json!(99)),
+            ("kind", json!("javascript")),
+            ("target", json!("aarch64-apple-ios")),
+            ("executor", json!("native")),
+        ] {
+            let mut changed = receipt.clone();
+            changed[key] = value;
+            std::fs::write(root.join("input/app.module.json"), changed.to_string()).unwrap();
+            assert!(
+                stage_rust_bundle(
+                    &root.join("input"),
+                    &root.join("out"),
+                    plan,
+                    &inputs,
+                    "aarch64-apple-ios"
+                )
+                .is_err(),
+                "{key}"
+            );
+            assert!(!root.join("out/rust").exists());
+        }
+        std::fs::write(root.join("input/app.module.json"), receipt.to_string()).unwrap();
+        inputs["rustMode"] = json!("off");
+        assert!(stage_rust_bundle(
+            &root.join("input"),
+            &root.join("out"),
+            plan,
+            &inputs,
+            "aarch64-apple-ios"
+        )
+        .is_err());
+        inputs["rustMode"] = json!("wasm");
+        assert!(stage_rust_bundle(
+            &root.join("input"),
+            &root.join("out"),
+            b"changed plan",
+            &inputs,
+            "aarch64-apple-ios"
+        )
+        .is_err());
+        std::fs::write(root.join("input/app.module.wasm"), b"changed module").unwrap();
+        assert!(stage_rust_bundle(
+            &root.join("input"),
+            &root.join("out"),
+            plan,
+            &inputs,
+            "aarch64-apple-ios"
+        )
+        .is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn mixed_rust_receipt_preserves_its_own_scope_under_the_union_ceiling() {
+        let plan = b"mixed baked plan";
+        let (root, mut inputs, mut receipt) = rust_fixture(plan);
+        inputs["grantCeiling"] = json!("fs.read app:/data/rust\nnet.fetch https://example.test/");
+        inputs["rustGrants"] = json!("fs.read app:/data/rust");
+        inputs["javascriptGrants"] = json!("net.fetch https://example.test/");
+        receipt["grants"] = inputs["rustGrants"].clone();
+        std::fs::write(root.join("input/app.module.json"), receipt.to_string()).unwrap();
+        assert!(stage_rust_bundle(
+            &root.join("input"),
+            &root.join("out"),
+            plan,
+            &inputs,
+            "aarch64-apple-ios"
+        )
+        .is_ok());
+        receipt["grants"] = inputs["grantCeiling"].clone();
+        std::fs::write(root.join("input/app.module.json"), receipt.to_string()).unwrap();
+        assert!(
+            stage_rust_bundle(
+                &root.join("input"),
+                &root.join("out"),
+                plan,
+                &inputs,
+                "aarch64-apple-ios"
+            )
+            .is_err(),
+            "a module cannot borrow its sibling's grant"
+        );
+        receipt["grants"] = inputs["rustGrants"].clone();
+        std::fs::write(root.join("input/app.module.json"), receipt.to_string()).unwrap();
+        inputs["grantCeiling"] = inputs["javascriptGrants"].clone();
+        assert!(
+            stage_rust_bundle(
+                &root.join("input"),
+                &root.join("out"),
+                plan,
+                &inputs,
+                "aarch64-apple-ios"
+            )
+            .is_err(),
+            "source grants must fit the host ceiling"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn signed_release_requires_the_complete_real_supplemental_roster() {
+        let (mut compat, mut receipt, plan) = signed_fixture();
+        let (root, inputs, _) = rust_fixture(&plan);
+        let cards = stage_rust_bundle(
+            &root.join("input"),
+            &root.join("out"),
+            &plan,
+            &inputs,
+            "aarch64-apple-ios",
+        )
+        .unwrap();
+        for card in &cards {
+            receipt["envelope"]["assets"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({
+                "name":card["name"],"sha256":card["sha256"],"bytes":card["bytes"],
+                "url":format!("../../blobs/{}",card["sha256"].as_str().unwrap())}));
+        }
+        // A fresh process-local test key: no publisher's private key is stored.
+        let canonical = exact_update::canonical_bytes(&receipt["envelope"].to_string()).unwrap();
+        let output = std::process::Command::new("bun").args(["-e", r#"
+            const {generateKeyPairSync,sign}=require('node:crypto');
+            const {publicKey,privateKey}=generateKeyPairSync('ed25519');
+            process.stdout.write(JSON.stringify({public:publicKey.export({type:'spki',format:'der'}).subarray(-32).toString('base64'),
+                signature:sign(null,Buffer.from(process.argv[1]),privateKey).toString('base64')}));
+        "#]).arg(String::from_utf8(canonical).unwrap()).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let signing: Value = serde_json::from_slice(&output.stdout).unwrap();
+        compat.inputs["keys"] = json!({"fixture":signing["public"]});
+        receipt["envelope"]["signature"] =
+            json!({"keyId":"fixture","ed25519":signing["signature"]});
+        let receipt = serde_json::to_vec(&receipt).unwrap();
+        assert!(apply_release(&mut compat, &receipt, &plan)
+            .unwrap_err()
+            .contains("complete embedded asset roster"));
+        let assets = compat.embedded["assets"].as_array_mut().unwrap();
+        assets.extend(cards);
+        assets.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+        apply_release(&mut compat, &receipt, &plan).unwrap();
+        assert_eq!(compat.embedded["seq"], 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     #[cfg(unix)]

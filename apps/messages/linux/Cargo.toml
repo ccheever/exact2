@@ -6,6 +6,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+exact-logic = { path = "../../../logic" }
 exact-linux = { path = "../../../host/linux" }
 exact-js = { path = "../../../js" }
 exact-runner = { path = "../../../runner" }

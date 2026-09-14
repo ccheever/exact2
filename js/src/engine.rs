@@ -29,6 +29,16 @@ mod real {
             c: *const c_char,
             out: *mut *mut c_char,
         ) -> i32;
+        fn exact_js_capture_count(h: *mut c_void) -> usize;
+        fn exact_js_capture(
+            h: *mut c_void,
+            index: usize,
+            path: *mut *const c_char,
+            path_len: *mut usize,
+            value: *mut *const u16,
+            value_len: *mut usize,
+        ) -> bool;
+        fn exact_js_clear_captures(h: *mut c_void);
         fn exact_js_install_storage(
             h: *mut c_void,
             queue: *const c_void,
@@ -51,7 +61,7 @@ mod real {
     }
 
     /// One runtime with one module evaluated into it.
-    pub struct Engine(*mut c_void);
+    pub struct Engine(*mut c_void, Vec<(Vec<String>, String)>);
 
     fn take(out: *mut c_char) -> String {
         if out.is_null() {
@@ -79,7 +89,7 @@ mod real {
             if h.is_null() {
                 return Err("the Hermes runtime could not be created".into());
             }
-            Ok(Engine(h))
+            Ok(Engine(h, Vec::new()))
         }
 
         /// Install only during trusted initialization, after the prelude and
@@ -155,6 +165,7 @@ mod real {
         }
 
         pub fn call(&mut self, name: &str, args: [&str; 3]) -> Result<String, String> {
+            self.clear_reply();
             let name = c(name)?;
             let a = c(args[0])?;
             let b = c(args[1])?;
@@ -173,10 +184,87 @@ mod real {
             };
             let text = take(out);
             if status == 0 {
+                self.collect_reply()?;
                 Ok(text)
             } else {
                 Err(text)
             }
+        }
+
+        // Collection remains inside Engine::call and therefore inside the
+        // executor's budget. No engine pointers survive this conversion.
+        fn collect_reply(&mut self) -> Result<(), String> {
+            let result = (|| {
+                // SAFETY: only this engine owns the live handle. Reading the
+                // count does not mutate its captures or borrowed allocations.
+                let count = unsafe { exact_js_capture_count(self.0) };
+                let mut captures = Vec::with_capacity(count);
+                for index in 0..count {
+                    let (mut path, mut value) = (std::ptr::null(), std::ptr::null());
+                    let (mut path_len, mut value_len) = (0, 0);
+                    // SAFETY: outputs live through the call; returned buffers
+                    // remain valid until clear below. No JS runs while borrowed.
+                    let found = unsafe {
+                        exact_js_capture(
+                            self.0,
+                            index,
+                            &mut path,
+                            &mut path_len,
+                            &mut value,
+                            &mut value_len,
+                        )
+                    };
+                    if !found || path.is_null() || value.is_null() {
+                        return Err("invalid native result capture".to_string());
+                    }
+                    // SAFETY: the shim supplies correctly aligned allocations
+                    // and their element counts, retained until all decoding ends.
+                    let path = unsafe { std::slice::from_raw_parts(path.cast::<u8>(), path_len) };
+                    let value = unsafe { std::slice::from_raw_parts(value, value_len) };
+                    let path: Vec<String> = serde_json::from_slice(path)
+                        .map_err(|e| format!("invalid result string path: {e}"))?;
+                    let value = String::from_utf16(value)
+                        .map_err(|_| "result string contains a lone surrogate".to_string())?;
+                    captures.push((path, value));
+                }
+                Ok(captures)
+            })();
+            // SAFETY: decoding has ended, including on error; no borrowed slice
+            // escapes the closure. The C++ allocations are released exactly once.
+            unsafe { exact_js_clear_captures(self.0) };
+            self.1 = result?;
+            Ok(())
+        }
+
+        pub fn clear_reply(&mut self) {
+            self.1.clear();
+            // SAFETY: this engine uniquely owns the live handle.
+            unsafe { exact_js_clear_captures(self.0) };
+        }
+
+        /// Consume this call's strings into their exact JSON locations before
+        /// the existing shape check. A user property can never act as a marker.
+        pub fn restore_reply(&mut self, reply: &mut serde_json::Value) -> Result<(), String> {
+            for (path, value) in std::mem::take(&mut self.1) {
+                let mut target = &mut *reply;
+                for part in path {
+                    target = match target {
+                        serde_json::Value::Object(object) => object.get_mut(&part),
+                        serde_json::Value::Array(array) => part
+                            .parse::<usize>()
+                            .ok()
+                            .filter(|index| index.to_string() == part)
+                            .and_then(|index| array.get_mut(index)),
+                        _ => None,
+                    }
+                    .ok_or("result string path is absent")?;
+                }
+                if target.as_str() != Some("") {
+                    return Err("result string placeholder is not empty".into());
+                }
+                *target = serde_json::Value::String(value);
+            }
+            Ok(())
         }
 
         pub fn drain(&mut self) -> Result<(), String> {
@@ -257,6 +345,10 @@ mod real {
             Err(NONE.into())
         }
         pub fn call(&mut self, _name: &str, _args: [&str; 3]) -> Result<String, String> {
+            Err(NONE.into())
+        }
+        pub fn clear_reply(&mut self) {}
+        pub fn restore_reply(&mut self, _reply: &mut serde_json::Value) -> Result<(), String> {
             Err(NONE.into())
         }
         pub fn take_log(&mut self) -> Vec<String> {

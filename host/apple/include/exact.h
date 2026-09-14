@@ -1,4 +1,4 @@
-/* exact.h — the Apple host's C ABI, v5 (LLP 1008 §4; LLP 1031 D2).
+/* exact.h — the Apple host's C ABI, v6 (LLP 1008 §4; LLP 1031 D2).
  *
  * Every call takes a runtime handle: exact_create() hands one out (a u32,
  * never 0, never reused) and exact_destroy() frees everything attributable
@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 5
+#define EXACT_ABI_VERSION 6
 
 #ifdef __cplusplus
 extern "C" {
@@ -122,9 +122,10 @@ uint32_t exact_boot(ExactRuntime rt, float width, float height);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
 uint32_t exact_commit_plan(ExactRuntime rt);
-/* Development generation: concatenated plan, pairing receipt, module bytes.
- * Identity/grants must match the binary; hashes do not authenticate an origin. */
-uint32_t exact_prepare_module(ExactRuntime rt, size_t plan, size_t receipt, size_t module, float width, float height);
+/* Admitted generation: concatenated plan, pairing receipt, compiled module.
+ * A nonzero token supplies signed delivery facts. Identity and grants match
+ * the binary; the caller admits the development origin or signed assets. */
+uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size_t receipt, size_t module, float width, float height);
 /* Call after first pixel, never as a prerequisite to painting the baked frame. */
 uint32_t exact_data_ready(ExactRuntime rt);
 void exact_discard_plan(ExactRuntime rt);

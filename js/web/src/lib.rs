@@ -105,6 +105,11 @@ impl Module {
                     .ok_or_else(|| unavailable("reply for an answer not in flight"))?;
                 if checkpoint {
                     match outcome {
+                        Outcome::Storage(_) => {
+                            return Err(unavailable(
+                                "storage result supplied to JavaScript checkpoint",
+                            ))
+                        }
                         Outcome::Response(response) => serde_json::from_slice(&response.body)
                             .map_err(|e| unavailable(e.to_string()))?,
                         Outcome::Failed { message, .. } => return Err(unavailable(message)),
@@ -112,6 +117,9 @@ impl Module {
                 } else {
                     input["op"] = "resume".into();
                     input["outcome"] = match outcome {
+                        Outcome::Storage(_) => {
+                            return Err(unavailable("storage result supplied to fetch"))
+                        }
                         Outcome::Response(r) => {
                             json!({"response":{"status":r.status,"headers":r.headers,"body":String::from_utf8_lossy(&r.body),"bodyBase64":exact_runner::agent::base64(&r.body)}})
                         }

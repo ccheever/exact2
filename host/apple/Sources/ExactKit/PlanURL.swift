@@ -12,15 +12,42 @@
 import CryptoKit
 import Foundation
 
+/// A fixed JavaScript/Rust generation crosses the data seam as one candidate.
+private enum DevelopmentModules {
+    static func combine(javascript: ExactModule?, rust: ExactModule?) throws -> ExactModule? {
+        guard let javascript else { return rust }
+        guard let rust else { return javascript }
+        guard let jsReceipt = try JSONSerialization.jsonObject(with: javascript.receipt) as? [String: Any],
+              let rustReceipt = try JSONSerialization.jsonObject(with: rust.receipt) as? [String: Any] else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let receipt = try JSONSerialization.data(withJSONObject: [
+            "version": 1, "kind": "mixed", "javascript": jsReceipt, "rust": rustReceipt,
+            "javascriptBytes": javascript.bytecode.count,
+        ])
+        guard receipt.count <= 1 << 20, javascript.bytecode.count <= 32 << 20,
+              rust.bytecode.count <= (32 << 20) - javascript.bytecode.count else { throw CocoaError(.fileReadTooLarge) }
+        var bytes = javascript.bytecode
+        bytes.append(rust.bytecode)
+        return ExactModule(receipt: receipt, bytecode: bytes)
+    }
+}
+
 /// A local development bake is a plan plus its optional, inseparable module
 /// pair (LLP 1027 D7). Watch all three files: a writer can replace them in
 /// either order, and a refused partial bake must be retried when it finishes.
 public struct ExactDevelopmentPlan {
-    private let files: [URL]
+    private let baseFiles: [URL]
+    private var files: [URL] {
+        let root = baseFiles[0].deletingLastPathComponent().appendingPathComponent("rust")
+        let found = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? [])
+            .filter { !$0.hasDirectoryPath }.sorted { $0.path < $1.path }
+        return baseFiles + found
+    }
     public init(_ path: String) {
         let plan = URL(fileURLWithPath: path)
         let directory = plan.deletingLastPathComponent()
-        files = [plan, directory.appendingPathComponent("app.module.json"), directory.appendingPathComponent("app.hbc")]
+        baseFiles = [plan, directory.appendingPathComponent("app.module.json"), directory.appendingPathComponent("app.hbc")]
     }
 
     public var hasModule: Bool { files.dropFirst().contains { FileManager.default.fileExists(atPath: $0.path) } }
@@ -37,6 +64,7 @@ public struct ExactDevelopmentPlan {
 
     @discardableResult
     public func apply(to app: ExactApp) -> Bool {
+        let files = self.files
         do {
             func read(_ index: Int, limit: Int) throws -> Data {
                 let url = files[index]
@@ -51,7 +79,25 @@ public struct ExactDevelopmentPlan {
             let plan = try read(0, limit: 32 << 20)
             let label = files[0].lastPathComponent
             if hasModule {
-                let module = ExactModule(receipt: try read(1, limit: 1 << 20), bytecode: try read(2, limit: 32 << 20))
+                var javascript: ExactModule?, rust: ExactModule?
+                if files[1...2].contains(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+                    javascript = ExactModule(receipt: try read(1, limit: 1 << 20), bytecode: try read(2, limit: 32 << 20))
+                }
+                if files.count > baseFiles.count && !(app.rustPolicy.mode == "off" && javascript != nil) {
+                    let policy = app.rustPolicy
+                    let prefix = policy.mode == "wasm" ? "rust/wasm" : "rust/" + policy.mode + "/" + policy.target
+                    guard policy.mode != "off",
+                          let index = files.firstIndex(where: { $0.path.hasSuffix(prefix + "/app.module.json") }) else {
+                        throw NSError(domain: "ExactDevelopmentPlan", code: 1, userInfo: [NSLocalizedDescriptionKey: "no Rust replacement matching this binary's executor and target"])
+                    }
+                    let receiptIndex = index
+                    let json = try JSONSerialization.jsonObject(with: read(index, limit: 1 << 20)) as? [String: Any]
+                    guard let row = json?["module"] as? [String: Any], let name = row["file"] as? String,
+                          ["app.module.wasm", "app.module.dylib", "app.module.so", "app.module.dll", "app.module.bin"].contains(name),
+                          let index = files.firstIndex(where: { $0.path.hasSuffix(prefix + "/" + name) }) else { throw CocoaError(.fileNoSuchFile) }
+                    rust = ExactModule(receipt: try read(receiptIndex, limit: 1 << 20), bytecode: try read(index, limit: 32 << 20))
+                }
+                guard let module = try DevelopmentModules.combine(javascript: javascript, rust: rust) else { throw CocoaError(.fileNoSuchFile) }
                 return app.applyGeneration(ExactGeneration(plan: plan, assets: app.resolver, module: module), label: label, commit: { true })
             }
             return app.apply(plan, label: label)
@@ -242,12 +288,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     /// The app owns the identity: replacing a connection must not restart an
     /// already current app, while another kind of apply invalidates the identity.
-    static func open(_ page: String, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
+    static func open(_ page: String, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
         guard let u = URL(string: page), u.host != nil, sameOrigin(u, u) else {
             fputs("exact url: not an HTTP app URL: \(page)\n", stderr)
             return nil
         }
-        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, apply: apply)
+        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, waiting: waiting, apply: apply)
         connection.resolveAndBoot()
         return connection
     }
@@ -255,6 +301,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     let page: URL
     private let currentGeneration: () -> String?
     private let applyGeneration: (Generation, String) -> Bool
+    private let preparationPending: () -> Bool
     private let acceptProgram: (String?) -> Bool
     var terminal: String?
     private var observed: Revision?
@@ -265,6 +312,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private var retrySeconds = 1.0
     private var closed = false
     private var resolution: UInt64 = 0
+    private var resolutionStarted = ProcessInfo.processInfo.systemUptime
     private var fetches: [UUID: BoundedFetch] = [:]
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -274,16 +322,18 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
 
-    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, apply: @escaping (Generation, String) -> Bool) {
+    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, apply: @escaping (Generation, String) -> Bool) {
         self.page = page
         self.acceptProgram = acceptProgram
         currentGeneration = current
         applyGeneration = apply
+        preparationPending = waiting
     }
 
     @discardableResult
     private func beginResolution() -> UInt64 {
         resolution &+= 1
+        resolutionStarted = ProcessInfo.processInfo.systemUptime
         pending = nil
         Array(fetches.values).forEach { $0.cancel() }
         fetches.removeAll()
@@ -461,7 +511,44 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             }
         }
         let moduleCanonical = module.isEmpty ? "" : ",\"module\":{" + ["native", "receipt", "web"].map { PlanURL.quote($0) + ":" + module[$0]!.canonical }.joined(separator: ",") + "}"
-        let canonical = "{\"assets\":[" + assets.map(\.canonical).joined(separator: ",") + "]" + moduleCanonical + ",\"plan\":" + plan.canonical + "}"
+        var rustCanonical = ""
+        var rustModule: [String: FileCard] = [:]
+        if let raw = json["rust"] {
+            guard let variants = raw as? [String: Any], !variants.isEmpty,
+                  Set(variants.keys).isSubset(of: Set(["native", "tiered", "wasm"])) else {
+                failed("invalid Rust module manifest", generation: generation); return
+            }
+            let policy = ExactApp.shared.rustPolicy
+            var canonicalVariants: [String] = []
+            for key in variants.keys.sorted() {
+                guard let variant = variants[key] as? [String: Any],
+                      Set(variant.keys) == Set(key != "wasm" ? ["module", "receipt", "target"] : ["module", "receipt"]) else {
+                    failed("invalid Rust executor manifest", generation: generation); return
+                }
+                var cards: [String: FileCard] = [:]
+                for name in ["module", "receipt"] {
+                    guard let row = variant[name] as? [String: Any], let file = card(row, name: "", base: base),
+                          file.count <= (name == "receipt" ? 1 << 20 : 32 << 20), file.count <= PlanURL.generationLimit - total else {
+                        failed("invalid or oversized Rust module card", generation: generation); return
+                    }
+                    cards[name] = file; total += file.count
+                }
+                let target = variant["target"] as? String
+                if key != "wasm" && (target == nil || target!.isEmpty) {
+                    failed("missing Rust native target", generation: generation); return
+                }
+                let targetCanonical = target.map { ",\"target\":" + PlanURL.quote($0) } ?? ""
+                canonicalVariants.append(PlanURL.quote(key) + ":{\"module\":" + cards["module"]!.canonical + ",\"receipt\":" + cards["receipt"]!.canonical + targetCanonical + "}")
+                if key == policy.mode && (key == "wasm" || target == policy.target) {
+                    rustModule = ["receipt": cards["receipt"]!, "native": cards["module"]!]
+                }
+            }
+            guard !rustModule.isEmpty || (policy.mode == "off" && !module.isEmpty) else {
+                failed("no Rust replacement matching this binary's executor and target", generation: generation); return
+            }
+            rustCanonical = ",\"rust\":{" + canonicalVariants.joined(separator: ",") + "}"
+        }
+        let canonical = "{\"assets\":[" + assets.map(\.canonical).joined(separator: ",") + "]" + moduleCanonical + ",\"plan\":" + plan.canonical + rustCanonical + "}"
         let identity = PlanURL.hash(Data(canonical.utf8))
         if let dev = json["dev"] as? [String: Any] {
             guard let revision = PlanURL.revision(dev), revision.identity == identity,
@@ -480,47 +567,77 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         // Subscribe before payloads finish: hello repairs an edit between
         // discovery and the stream opening, including an asset-only edit.
         guard currentGeneration() != identity else { pending = nil; return }
-        fetchGeneration(plan: plan, assets: assets, module: module, identity: identity, generation: generation)
+        fetchGeneration(plan: plan, assets: assets, module: module, rust: rustModule, identity: identity, generation: generation)
     }
 
-    /// Serial fetching bounds concurrent buffers as well as total bytes. The
-    /// resolver is handed over only after every file verifies; no partial
-    /// asset callbacks, and an empty roster means every old asset is absent.
-    private func fetchGeneration(plan: FileCard, assets: [FileCard], module: [String: FileCard], identity: String, generation: UInt64) {
-        var planBytes = Data()
-        var assetBytes: [String: Data] = [:]
-        var moduleBytes: [Data] = []
-        let cards = [plan] + assets + ["receipt", "native"].compactMap { module[$0] }
-        func next(_ index: Int) {
-            guard !closed, terminal == nil, generation == resolution else { return }
-            guard index < cards.count else {
+    /// At most four payloads are in flight. Every card still has its own byte
+    /// bound, and all plan, assets and module bytes verify before one apply.
+    private func fetchGeneration(plan: FileCard, assets: [FileCard], module: [String: FileCard], rust: [String: FileCard], identity: String, generation: UInt64) {
+        let payloadStarted = ProcessInfo.processInfo.systemUptime
+        let envelopeMs = (payloadStarted - resolutionStarted) * 1000
+        let cards = [plan] + assets + [module, rust].flatMap { files in ["receipt", "native"].compactMap { files[$0] } }
+        var payloads = [Data](repeating: Data(), count: cards.count)
+        var nextIndex = 0, active = 0, completed = 0
+        var stopped = false
+        func refuse(_ message: String) {
+            guard !stopped else { return }
+            stopped = true
+            Array(fetches.values).forEach { $0.cancel() }
+            failed(message, generation: generation)
+        }
+        func pump() {
+            guard !stopped, !closed, terminal == nil, generation == resolution else { return }
+            if completed == cards.count {
+                stopped = true
                 pending = nil
                 if currentGeneration() != identity {
-                    let logic = moduleBytes.isEmpty ? nil : ExactModule(receipt: moduleBytes[0], bytecode: moduleBytes[1])
-                    let candidate = Generation(identity: identity, plan: planBytes, assets: assetBytes, module: logic)
-                    if !applyGeneration(candidate, "generation ← " + (page.host ?? "")) {
-                        status("the host refused the generation; keeping the running app")
+                    let javascriptIndex = 1 + assets.count
+                    let rustIndex = javascriptIndex + (module.isEmpty ? 0 : 2)
+                    let javascript = module.isEmpty ? nil : ExactModule(receipt: payloads[javascriptIndex], bytecode: payloads[javascriptIndex + 1])
+                    let rustModule = rust.isEmpty ? nil : ExactModule(receipt: payloads[rustIndex], bytecode: payloads[rustIndex + 1])
+                    do {
+                        let logic = try DevelopmentModules.combine(javascript: javascript, rust: rustModule)
+                        let assetBytes = Dictionary(uniqueKeysWithValues: assets.enumerated().map { ($0.element.name, payloads[$0.offset + 1]) })
+                        let candidate = Generation(identity: identity, plan: payloads[0], assets: assetBytes, module: logic)
+                        let fetched = ProcessInfo.processInfo.systemUptime
+                        func commitCandidate() {
+                            guard !self.closed, self.terminal == nil, generation == self.resolution else { return }
+                            if applyGeneration(candidate, "generation ← " + (page.host ?? "")) {
+                                status(String(format: "generation %@: envelope %.1f ms, payloads %.1f ms, preparation %.1f ms", String(identity.prefix(12)), envelopeMs, (fetched - payloadStarted) * 1000, (ProcessInfo.processInfo.systemUptime - fetched) * 1000))
+                            } else if preparationPending() {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: commitCandidate)
+                            } else {
+                                status("the host refused the generation; keeping the running app")
+                            }
+                        }
+                        commitCandidate()
+                    } catch {
+                        failed("cannot combine JavaScript and Rust modules: \(error.localizedDescription); keeping the running app", generation: generation)
                     }
                 }
                 return
             }
-            let card = cards[index]
-            var request = URLRequest(url: card.url)
-            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-            fetch(request, limit: card.count, generation: generation) { [weak self] result in
-                guard let self else { return }
-                guard case let .success((data, response)) = result, response.statusCode == 200,
-                      data.count == card.count, PlanURL.hash(data) == card.sha else {
-                    self.failed("cannot verify \(card.url); keeping the running app", generation: generation)
-                    return
+            while !stopped && active < 4 && nextIndex < cards.count {
+                let index = nextIndex, card = cards[index]
+                nextIndex += 1
+                active += 1
+                var request = URLRequest(url: card.url)
+                request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+                fetch(request, limit: card.count, generation: generation) { result in
+                    guard !stopped else { return }
+                    active -= 1
+                    guard case let .success((data, response)) = result, response.statusCode == 200,
+                          data.count == card.count, PlanURL.hash(data) == card.sha else {
+                        refuse("cannot verify \(card.url); keeping the running app")
+                        return
+                    }
+                    payloads[index] = data
+                    completed += 1
+                    pump()
                 }
-                if index == 0 { planBytes = data }
-                else if index <= assets.count { assetBytes[card.name] = data }
-                else { moduleBytes.append(data) }
-                next(index + 1)
             }
         }
-        next(0)
+        pump()
     }
 
     private static func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }

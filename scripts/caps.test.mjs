@@ -1494,6 +1494,6 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir, { recursive: true, force: true });
   result('Apple packages reject linked static files and roots', copied && appRefused && hostRefused && danglingRootRefused);
 }
-
+const installs = spawnSync(process.execPath, ['test', join(dirname(CAPS), 'install-page.test.mjs')], { encoding: 'utf8' }); if (installs.status !== 0) console.error(installs.stdout, installs.stderr); result('install page configuration and publication', installs.status === 0);
 console.log(`\n${total - failed}/${total} passed`);
 process.exit(failed ? 1 : 0);

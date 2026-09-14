@@ -13,6 +13,49 @@ include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
+// Exercise the actual replaceable-module codec on both calls and replies. A
+// portable storage request cannot smuggle an executor-local Rust closure here.
+struct AbiBackup(exact_logic_abi::Session<fieldnotes_data::Backup>);
+impl Default for AbiBackup {
+    fn default() -> Self {
+        Self(exact_logic_abi::Session::new(
+            fieldnotes_data::Backup::default(),
+        ))
+    }
+}
+impl DataSource for AbiBackup {
+    fn app_id(&self) -> &str {
+        APP
+    }
+    fn grants(&self) -> &str {
+        GRANTS
+    }
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, exact_runner::DataError> {
+        Err(exact_runner::DataError::Unavailable(source.into()))
+    }
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, exact_runner::DataError> {
+        let request = exact_logic_abi::call_request(store, source, args, None).unwrap();
+        self.0.dispatch(&request).unwrap();
+        exact_logic_abi::call_reply(self.0.output(), store)
+    }
+    fn parse(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: exact_runner::Outcome,
+    ) -> Result<Answer, exact_runner::DataError> {
+        let request = exact_logic_abi::call_request(store, source, args, Some(&outcome)).unwrap();
+        self.0.dispatch(&request).unwrap();
+        exact_logic_abi::call_reply(self.0.output(), store)
+    }
+}
+
 struct Root(PathBuf);
 impl Root {
     fn new() -> Self {
@@ -29,15 +72,19 @@ impl Drop for Root {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
-struct Notebook {
-    module: Module,
+struct Notebook<D = Module> {
+    module: D,
     plan: Plan,
     store: Store,
 }
-impl Notebook {
+impl Notebook<Module> {
     fn open(root: &Root) -> Self {
+        Self::with_data(root, Module::new(BYTECODE.to_vec(), APP, GRANTS))
+    }
+}
+impl<D: DataSource> Notebook<D> {
+    fn with_data(root: &Root, mut module: D) -> Self {
         let plan = Plan::decode(PLAN).unwrap();
-        let mut module = Module::new(BYTECODE.to_vec(), APP, GRANTS);
         module
             .configure_storage(
                 root.0.join("data"),
@@ -46,7 +93,6 @@ impl Notebook {
             )
             .unwrap();
         module.bind(&plan);
-        assert!(!module.is_loaded());
         module.activate().unwrap();
         Self {
             module,
@@ -108,6 +154,297 @@ impl Notebook {
         assert_eq!(answer["failed"], false, "{answer}");
         answer
     }
+}
+
+#[test]
+fn backup_moves_between_typescript_and_rust_with_the_same_database_and_file() {
+    use exact_data_host::Storage;
+    let root = Root::new();
+    let mut ts = Notebook::open(&root);
+    let saved = ts.save("", "Café 🌿", "京都\nQuotes \" and backslash \\", true);
+    let id = saved["id"].as_str().unwrap();
+    ts.save(
+        "",
+        "Other page",
+        "Tabs\tand\nnewlines\u{2028}line separator\u{2029}paragraph separator",
+        false,
+    );
+    drop(ts);
+    let mut ts = Notebook::open(&root);
+    let expected = ts.call("backupNotes", vec![]);
+    assert_eq!(expected["failed"], false, "{expected}");
+    drop(ts);
+
+    let mut rust = Notebook::with_data(&root, Storage::new(AbiBackup::default()));
+    let actual = rust.call("backupNotes", vec![]);
+    assert_eq!(
+        actual, expected,
+        "source move preserves the full declared result"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.0.join("data/backups/fieldnotes.json")).unwrap(),
+        actual["backupText"].as_str().unwrap()
+    );
+    drop(rust);
+
+    let mut ts = Notebook::open(&root);
+    assert_eq!(
+        ts.call("readBackup", vec![])["backupText"],
+        actual["backupText"]
+    );
+    ts.call("deleteNote", vec![Value::str(id)]);
+    assert_eq!(ts.library("")["total"], 1.0);
+    assert_eq!(
+        ts.call("restoreNotes", vec![Value::str("")])["failed"],
+        false
+    );
+    assert_eq!(ts.library("")["total"], 2.0);
+    ts.save(id, "Edited after Rust backup", "Preserved identifier", true);
+    drop(ts);
+
+    // The normal host composition routes only backupNotes to Rust. TypeScript
+    // sees the unchanged database and can read a backup written by that source.
+    let mut mixed = Notebook::with_data(
+        &root,
+        Storage::new(fieldnotes_data::mixed(Module::new(
+            BYTECODE.to_vec(),
+            APP,
+            GRANTS,
+        ))),
+    );
+    assert_eq!(mixed.library("")["notes"][0]["id"], id);
+    let backup = mixed.call("backupNotes", vec![]);
+    assert_eq!(backup["failed"], false, "{backup}");
+    assert!(backup["backupText"]
+        .as_str()
+        .unwrap()
+        .contains("Edited after Rust backup"));
+    assert_eq!(
+        mixed.call("readBackup", vec![])["backupText"],
+        backup["backupText"]
+    );
+}
+
+#[test]
+fn rust_backup_cannot_write_without_the_existing_filesystem_grant() {
+    use exact_runner::{DataError, Outcome};
+    struct ReadOnly(fieldnotes_data::Backup);
+    impl DataSource for ReadOnly {
+        fn app_id(&self) -> &str {
+            APP
+        }
+        fn grants(&self) -> &str {
+            "sqlite.open app:/data/fieldnotes.db\nsecret.keep fieldnotes.revision"
+        }
+        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+            self.0.query(source, args)
+        }
+        fn answer(
+            &mut self,
+            store: &mut Store,
+            source: &str,
+            args: &[Value],
+        ) -> Result<Answer, DataError> {
+            self.0.answer(store, source, args)
+        }
+        fn parse(
+            &mut self,
+            store: &mut Store,
+            source: &str,
+            args: &[Value],
+            outcome: Outcome,
+        ) -> Result<Answer, DataError> {
+            self.0.parse(store, source, args, outcome)
+        }
+    }
+    let root = Root::new();
+    Notebook::open(&root).save("", "Keep this note", "No write grant", false);
+    let mut rust = Notebook::with_data(
+        &root,
+        exact_data_host::Storage::new(ReadOnly(fieldnotes_data::Backup::default())),
+    );
+    let refusal = rust.call("backupNotes", vec![]);
+    assert_eq!(refusal["failed"], true, "{refusal}");
+    assert_eq!(refusal["backupText"], "");
+    assert!(!root.0.join("data/backups/fieldnotes.json").exists());
+    drop(rust);
+    assert_eq!(Notebook::open(&root).library("")["total"], 1.0);
+}
+
+#[test]
+fn moving_backup_to_rust_preserves_the_size_error_and_previous_file() {
+    let root = Root::new();
+    let mut ts = Notebook::open(&root);
+    ts.save("", "A small backup", "Retain this spare copy", false);
+    assert_eq!(ts.call("backupNotes", vec![])["failed"], false);
+    // Each backslash occupies one UTF-16 unit in the note and two in JSON.
+    // Every note remains within the app's size limit; the full backup exceeds it.
+    let body = "\\".repeat(20_000);
+    for _ in 0..104 {
+        ts.save("", "A large note", &body, false);
+    }
+    // Exercise a valid near-limit backup too: the oversize path alone never
+    // encodes/writes a multi-megabyte file or returns it through the JS door.
+    let near_limit = ts.call("backupNotes", vec![]);
+    assert_eq!(near_limit["failed"], false, "{near_limit}");
+    let retained = near_limit["backupText"].clone();
+    assert!(retained.as_str().unwrap().len() > 4_000_000);
+    let mut rust = Notebook::with_data(&root, exact_data_host::Storage::new(AbiBackup::default()));
+    assert_eq!(rust.call("backupNotes", vec![])["backupText"], retained);
+    drop(rust);
+    ts.save("", "The note crossing the limit", &body, false);
+    drop(ts);
+    let mut ts = Notebook::open(&root);
+    let expected = ts.call("backupNotes", vec![]);
+    assert_eq!(expected["failed"], true, "{expected}");
+    assert_eq!(
+        expected["message"],
+        "This backup exceeds 4 MB. Split or remove large notes before backing up."
+    );
+    drop(ts);
+    let mut rust = Notebook::with_data(&root, exact_data_host::Storage::new(AbiBackup::default()));
+    assert_eq!(rust.call("backupNotes", vec![]), expected);
+    assert_eq!(
+        std::fs::read_to_string(root.0.join("data/backups/fieldnotes.json")).unwrap(),
+        retained.as_str().unwrap(),
+    );
+}
+
+#[test]
+fn mixed_backup_and_repeated_delete_after_reload_refresh_the_visible_library() {
+    use exact_kernel::Kernel;
+    use exact_runner::{Event, Runner};
+    fn settle<D: DataSource>(runner: &mut Runner<D>) {
+        for _ in 0..100 {
+            if !runner.has_pending() {
+                return;
+            }
+            let requests = runner.take_requests();
+            assert!(!requests.is_empty());
+            for request in requests {
+                let work = runner
+                    .data()
+                    .continuation(request.request.continuation.unwrap())
+                    .unwrap();
+                let outcome = std::thread::spawn(work).join().unwrap();
+                runner.fulfill(request.ticket, outcome).unwrap();
+            }
+        }
+        panic!("Fieldnotes did not settle");
+    }
+    let root = Root::new();
+    let id = Notebook::open(&root).save("", "Delete after backup", "Persisted note", false)["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let second_id = Notebook::open(&root).save("", "Delete after reload", "Another note", false)
+        ["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut data = exact_data_host::Storage::new(fieldnotes_data::mixed(Module::new(
+        BYTECODE.to_vec(),
+        APP,
+        GRANTS,
+    )));
+    data.configure_storage(
+        root.0.join("data"),
+        root.0.join("cache"),
+        root.0.join("temporary"),
+    )
+    .unwrap();
+    let mut runner =
+        Runner::boot(Plan::decode(PLAN).unwrap(), data, Kernel::with_monospace()).unwrap();
+    runner.data().activate().unwrap();
+    runner.data_ready().unwrap();
+    settle(&mut runner);
+    for target in [
+        &format!("note-{id}"),
+        "backups",
+        "save-backup",
+        "backups",
+        "delete-note",
+        "confirm-delete",
+    ] {
+        let key = runner.kernel().find_by_test_id(target)[0];
+        let view = runner.kernel().node_by_key(key).unwrap().id;
+        runner.dispatch(view, Event::Press).unwrap();
+        settle(&mut runner);
+    }
+    assert!(runner
+        .kernel()
+        .find_by_test_id(&format!("note-{id}"))
+        .is_empty());
+    assert_eq!(runner.store().get("fieldnotes.revision"), Some("2"));
+    let carried = runner.carry();
+    drop(runner);
+    let mut data = exact_data_host::Storage::new(fieldnotes_data::mixed(Module::new(
+        BYTECODE.to_vec(),
+        APP,
+        GRANTS,
+    )));
+    data.configure_storage(
+        root.0.join("data"),
+        root.0.join("cache"),
+        root.0.join("temporary"),
+    )
+    .unwrap();
+    let mut runner = Runner::boot_carrying(
+        Plan::decode(PLAN).unwrap(),
+        data,
+        Kernel::with_monospace(),
+        &carried,
+    )
+    .unwrap();
+    runner.data().activate().unwrap();
+    runner.data_ready().unwrap();
+    settle(&mut runner);
+    for target in [
+        &format!("note-{second_id}"),
+        "delete-note",
+        "confirm-delete",
+    ] {
+        let key = runner.kernel().find_by_test_id(target)[0];
+        let view = runner.kernel().node_by_key(key).unwrap().id;
+        runner.dispatch(view, Event::Press).unwrap();
+        settle(&mut runner);
+    }
+    assert_eq!(runner.store().get("fieldnotes.revision"), Some("3"));
+    assert!(!runner.kernel().find_by_test_id("empty-notebook").is_empty());
+}
+
+#[test]
+fn mutation_revisions_follow_the_store_across_language_changes_and_failures() {
+    let root = Root::new();
+    let mut ts = Notebook::open(&root);
+    assert_eq!(
+        ts.save("", "Shared revision", "One store", false)["revision"],
+        1.0
+    );
+    assert_eq!(
+        ts.store.get("fieldnotes.revision"),
+        Some("1"),
+        "TypeScript persists its revision in the shared Store"
+    );
+    let snapshot = ts.store.snapshot();
+    drop(ts);
+    let mut rust = Notebook::with_data(&root, exact_data_host::Storage::new(AbiBackup::default()));
+    rust.store = Store::new(GRANTS, snapshot);
+    assert_eq!(
+        rust.store.get("fieldnotes.revision"),
+        Some("1"),
+        "the Rust executor receives the carried Store"
+    );
+    assert_eq!(rust.call("backupNotes", vec![])["revision"], 2.0);
+    let snapshot = rust.store.snapshot();
+    drop(rust);
+    let mut ts = Notebook::open(&root);
+    ts.store = Store::new(GRANTS, snapshot);
+    assert_eq!(ts.call("readBackup", vec![])["revision"], 3.0);
+    let failed = ts.call("restoreNotes", vec![Value::str("invalid backup")]);
+    assert_eq!(failed["failed"], true);
+    assert_eq!(failed["revision"], 4.0);
+    assert_eq!(ts.store.get("fieldnotes.revision"), Some("4"));
 }
 
 #[test]
@@ -325,4 +662,73 @@ fn apple_module_replacement_configures_storage_before_activation_and_refreshes_l
         assert_eq!(Notebook::open(&app_root).library("")["total"], 1.0);
     }
     drop(bridge);
+}
+
+#[test]
+fn rust_backup_keeps_one_snapshot_when_another_writer_changes_a_later_note() {
+    let root = Root::new();
+    let mut ts = Notebook::open(&root);
+    let first = ts.save("", "Before", "Original body", false)["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for _ in 0..24 {
+        ts.save("", "Other note", "Other body", false);
+    }
+    let mut rust = Notebook::with_data(&root, exact_data_host::Storage::new(AbiBackup::default()));
+    let Answer::Later(request) = rust
+        .module
+        .answer(&mut rust.store, "backupNotes", &[])
+        .unwrap()
+    else {
+        panic!("backup must read storage");
+    };
+    let read = rust
+        .module
+        .continuation(request.continuation.unwrap())
+        .unwrap();
+    let outcome = std::thread::spawn(read).join().unwrap();
+    // This note would belong to a later OFFSET page. The captured read must
+    // remain one SQLite snapshot even when another writer commits now.
+    ts.save(&first, "After", "Changed after the read", false);
+    let mut answer = rust
+        .module
+        .parse(&mut rust.store, "backupNotes", &[], outcome)
+        .unwrap();
+    for _ in 0..10 {
+        match answer {
+            Answer::Now(_) => {
+                let saved: Json = serde_json::from_slice(
+                    &std::fs::read(root.0.join("data/backups/fieldnotes.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(saved["notes"].as_array().unwrap().len(), 25);
+                let note = saved["notes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|note| note["id"] == first)
+                    .unwrap();
+                assert_eq!(note["title"], "Before");
+                assert_eq!(note["body"], "Original body");
+                return;
+            }
+            Answer::Later(request) => {
+                let work = rust
+                    .module
+                    .continuation(request.continuation.unwrap())
+                    .unwrap();
+                answer = rust
+                    .module
+                    .parse(
+                        &mut rust.store,
+                        "backupNotes",
+                        &[],
+                        std::thread::spawn(work).join().unwrap(),
+                    )
+                    .unwrap();
+            }
+        }
+    }
+    panic!("backup did not settle");
 }

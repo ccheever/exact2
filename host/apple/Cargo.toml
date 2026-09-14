@@ -17,6 +17,7 @@ name = "exact_apple"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-data = { path = "../../data" }
 exact-kernel = { path = "../../kernel" }
 exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }

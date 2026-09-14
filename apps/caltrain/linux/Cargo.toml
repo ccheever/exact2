@@ -15,6 +15,7 @@ name = "caltrain-linux"
 path = "src/main.rs"
 
 [dependencies]
+exact-logic = { path = "../../../logic" }
 caltrain-data = { path = "../data" }
 exact-linux = { path = "../../../host/linux" }
 

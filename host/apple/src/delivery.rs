@@ -4,10 +4,15 @@
 use exact_runner::Delivery;
 use std::ffi::c_void;
 
+/// An authenticated UTF-8 pairing receipt and its opaque executable module bytes.
+pub type ModulePair = (String, Vec<u8>);
+
 /// Process-owned delivery operations, supplied by the app's linked adapter.
 pub struct Hooks {
     /// The selected candidate, before boot.
     pub selected_plan: fn() -> Option<(String, Vec<u8>)>,
+    /// The selected plan's authenticated Rust receipt and module, if present.
+    pub selected_module: fn() -> Result<Option<ModulePair>, String>,
     /// Candidate facts supplied before the containing app commits it.
     pub candidate_delivery: fn(u64, &str) -> Option<Delivery>,
     /// Record an attempted boot.

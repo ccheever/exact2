@@ -311,7 +311,7 @@ try {
   assert.equal(appleArtifacts(a,{trust:'production'}).bundle, first.bundle);
   const release = appleBuildLock(a);
   const contender = spawnSync(process.execPath,['--input-type=module','-e',
-    `import {appleBuildLock} from './host/apple/build.mjs'; import {resolveApp} from './scripts/app.mjs'; appleBuildLock(resolveApp('one'));`], {encoding:'utf8'});
+    `import {appleBuildLock} from './host/apple/build.mjs'; import {resolveApp} from './scripts/app.mjs'; appleBuildLock(resolveApp('one'));`], {encoding:'utf8',env:{...process.env}});
   assert.notEqual(contender.status, 0); assert.match(contender.stderr, /Apple build busy/);
   assert.match(contender.stderr, new RegExp(String(process.pid))); release();
   assert.ok(!existsSync(first.lock)); appleBuildLock(a)();
@@ -323,7 +323,7 @@ try {
     const name = ['alpha-beta-apple','alpha_beta-apple'][i];
     writeFileSync(resolve(app.dir,'Cargo.toml'), `[package]\nname = "${name}"\nversion = "0.1.0"\nedition = "2021"\n[lib]\npath = "lib.rs"\ncrate-type = ["staticlib"]\n`);
     writeFileSync(resolve(app.dir,'lib.rs'), `#[no_mangle] pub extern "C" fn alpha() -> u32 { ${i} }`);
-    const metadata = spawnSync('cargo',['metadata','--no-deps','--format-version','1','--manifest-path',resolve(app.dir,'Cargo.toml')],{encoding:'utf8'});
+    const metadata = spawnSync('cargo',['metadata','--no-deps','--format-version','1','--manifest-path',resolve(app.dir,'Cargo.toml')],{encoding:'utf8',env:{...process.env}});
     assert.equal(metadata.status,0,metadata.stderr);
     return cargoLibraryTarget(JSON.parse(metadata.stdout).packages[0]);
   });
@@ -331,14 +331,14 @@ try {
   assert.deepEqual(firstClaims,appleCargoClaims(b,'host',[libraries[1]]));
   assert.equal(appleCargoClaims(a,'host',[...libraries,{name:'alpha-beta-apple'}]).length,1);
   const buildLibrary = app => {
-    const built = spawnSync('cargo',['build','--manifest-path',resolve(app.dir,'Cargo.toml'),'--message-format=json'],{encoding:'utf8'});
+    const built = spawnSync('cargo',['build','--manifest-path',resolve(app.dir,'Cargo.toml'),'--message-format=json'],{encoding:'utf8',env:{...process.env}});
     assert.equal(built.status,0,built.stderr);
     return built.stdout.trim().split('\n').map(line=>JSON.parse(line)).find(m=>m.reason==='compiler-artifact').filenames.find(p=>p.endsWith('.a'));
   };
   const releaseLibrary = claimBuildOutput(a,firstClaims[0]);
   const library = buildLibrary(a), bytesBefore = readFileSync(library);
   const aliasContender = spawnSync(process.execPath,['--input-type=module','-e',
-    `import {claimBuildOutput,appleCargoClaims} from './scripts/app.mjs'; const app=${JSON.stringify(b)}; claimBuildOutput(app,appleCargoClaims(app,'host',${JSON.stringify([libraries[1]])})[0]);`],{encoding:'utf8'});
+    `import {claimBuildOutput,appleCargoClaims} from './scripts/app.mjs'; const app=${JSON.stringify(b)}; claimBuildOutput(app,appleCargoClaims(app,'host',${JSON.stringify([libraries[1]])})[0]);`],{encoding:'utf8',env:{...process.env}});
   assert.notEqual(aliasContender.status,0); assert.match(aliasContender.stderr,/Apple build busy/);
   assert.deepEqual(readFileSync(library),bytesBefore); releaseLibrary();
   const releaseOther = claimBuildOutput(b,firstClaims[0]);

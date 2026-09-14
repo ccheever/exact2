@@ -40,10 +40,12 @@ export async function baked() {
   return { receipt, script: await read(new URL('./app.js', import.meta.url), Math.min(meta.web?.bytes ?? 0, 32 * 1024 * 1024)) };
 }
 export async function prepare(payload, admitted, id = nextId++) {
+  const ceiling = new Set(admitted.grants.split('\n').map(s=>s.trim()).filter(Boolean));
   const meta = JSON.parse(decoder.decode(payload.receipt));
-  if (meta.version !== 1 || meta.abi !== 1 || meta.appId !== admitted.appId || meta.grants?.trim() !== admitted.grants.trim()
+  if (meta.version !== 1 || meta.abi !== 1 || meta.appId !== admitted.appId || typeof meta.grants !== 'string' || meta.grants.split('\n').map(s=>s.trim()).filter(Boolean).some(s=>!ceiling.has(s))
       || meta.web?.file !== 'app.js' || meta.web.bytes !== payload.script.length || meta.web.sha256 !== await hash(payload.script)
       || !/^[0-9a-f]{64}$/.test(meta.module?.sha256)) throw new Error('module integrity, ABI, identity, or grants mismatch');
+  admitted = {...admitted,grants:meta.grants};
   prelude ??= read(new URL('./module-prelude.js', import.meta.url), 256 * 1024).then(bytes => decoder.decode(bytes)).catch(error => { prelude = null; throw error; });
   const before = await prelude;
   const frame = document.createElement('iframe'); frame.hidden = true;

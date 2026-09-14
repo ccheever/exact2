@@ -10,20 +10,23 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSy
 import { networkInterfaces } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { filesystem } from '../../scripts/filesystem.mjs';
+import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
 import { developmentURLScheme } from '../../scripts/app.mjs';
 import { parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
+import { INSTALL_FILES, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
+
 const PUBLIC_FILES = new Set([
-  '/app.js', '/app.hbc', '/app.module.json', '/module-glue.js', '/module-prelude.js',
-  '/storage.js', '/storage-fs.js', '/storage-sqlite.js', '/storage-worker.js', '/sqlite3.mjs', '/sqlite3.wasm',
+  ...INSTALL_FILES,
+  '/rust-glue.js', '/app.js', '/app.hbc', '/app.module.json', '/module-glue.js', '/module-prelude.js',
+  '/storage-request.js', '/storage.js', '/storage-fs.js', '/storage-sqlite.js', '/storage-worker.js', '/sqlite3.mjs', '/sqlite3.wasm',
   '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/gpu-glue.js',
   '/gpu.js', '/gpu_bg.wasm', '/index.html', '/manifest.json',
   // The one dot path a static origin serves: the deep-link association
   // file bake generates (LLP 1030 D1), read by Apple's CDN over HTTPS.
   '/.well-known/apple-app-site-association',
 ]);
-const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/'];
+const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/'];
 const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', 'index.html', 'manifest.json'];
 // An origin's update streams (LLP 1030.000 D7; `scripts/origin.mjs`):
 // `.exact/blobs/<sha256>` and `.exact/<channel>/<compatibility id>/…` — the
@@ -102,28 +105,32 @@ export function retainDevGeneration(cache, epoch, seq, files, quota = DEV_GENERA
 
 /** The envelope is written last. An interrupted candidate has no public
  * namespace, and undeclared files never become routes through this cache. */
-export function readDevGeneration(cache, pathname) {
+function* devGenerationRead(cache, pathname) {
   try {
     const match = /^\/__dev\/generation\/([0-9a-f]{32})\/([0-9]+)\/(.+)$/.exec(pathname);
     if (!match) return null;
     const name = staticRelative(decodeURIComponent(match[3]));
     if (!['app.plan', 'exact.json', ...Object.values(MODULE_FILES)].includes(name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
     const prefix = `${match[1]}/${match[2]}`;
-    const raw = filesystem({ op: 'get', root: resolve(cache), path: `${prefix}/exact.json` });
+    const raw = (yield { op: 'get', root: resolve(cache), path: `${prefix}/exact.json` });
     if (raw === null) return null;
     const envelopeBytes = Buffer.from(raw, 'base64');
     const envelope = JSON.parse(envelopeBytes.toString('utf8'));
     if (envelope.dev?.epoch !== match[1] || String(envelope.dev?.seq) !== match[2]) return null;
     if (name === 'exact.json') return { name, body: envelopeBytes };
     const moduleKey = Object.keys(MODULE_FILES).find(key => MODULE_FILES[key] === name);
-    const card = name === 'app.plan' ? envelope.plan : moduleKey ? envelope.module?.[moduleKey] : envelope.assets?.find((asset) => asset.name === name);
+    const rustCard = Object.values(envelope.rust ?? {}).flatMap(v => [v.receipt, v.module]).find(card => card.url?.endsWith('/' + name) || card.url === name);
+    const card = name === 'app.plan' ? envelope.plan : moduleKey ? envelope.module?.[moduleKey] : rustCard ?? envelope.assets?.find((asset) => asset.name === name);
     if (!card) return null;
-    const value = filesystem({ op: 'get', root: resolve(cache), path: `${prefix}/${name}` });
+    const value = (yield { op: 'get', root: resolve(cache), path: `${prefix}/${name}` });
     if (value === null) return null;
     const body = Buffer.from(value, 'base64');
     return body.length === card.bytes && sha256(body) === card.sha256 ? { name, body } : null;
   } catch { return null; }
 }
+
+export function readDevGeneration(cache, pathname) { return runReads(devGenerationRead(cache, pathname)); }
+export function readDevGenerationAsync(cache, pathname) { return runReadsAsync(devGenerationRead(cache, pathname)); }
 
 /** Every regular file under a static source tree, sorted and refused when
  * the root or any entry is a symlink or another special filesystem object. */
@@ -314,7 +321,7 @@ export function applyStaticChange(source, name, target, validate = null) {
  * null for anything that must not be served. */
 export function staticFile(dist, pathname) {
   let route;
-  try { route = decodeURIComponent(pathname === '/' ? '/index.html' : pathname); }
+  try { route = installRoute(decodeURIComponent(pathname === '/' ? '/index.html' : pathname)); }
   catch { return null; }
   if (!route.startsWith('/') || route.includes('\\') || route.includes('\0')) return null;
   const parts = route.split('/').filter(Boolean);
@@ -343,9 +350,9 @@ export function staticFile(dist, pathname) {
 /** Resolve and read together, retrying when a build rename moved the path
  * between those operations. The opened response is wholly old or wholly
  * new; a request never observes the rename window as a synthetic 404. */
-function publishedFile(dist, pathname) {
+function* publishedFile(dist, pathname) {
   let route;
-  try { route = decodeURIComponent(pathname === '/' ? '/index.html' : pathname); }
+  try { route = installRoute(decodeURIComponent(pathname === '/' ? '/index.html' : pathname)); }
   catch { return null; }
   // Immutable generation URLs never consult the current pointer: readers
   // that already opened an older index keep all of that generation's files.
@@ -355,38 +362,59 @@ function publishedFile(dist, pathname) {
     if (!PUBLIC_FILES.has('/' + name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
     staticRelative(name);
     const rel = `${webReleasePath(release[1])}/${name}`;
-    const body = filesystem({ op: 'get', root: resolve(dist), path: rel });
-    return body === null ? null : { path: resolve(dist, rel), route: '/' + name, body: Buffer.from(body, 'base64'), immutable: true };
+    const body = (yield { op: 'get', root: resolve(dist), path: rel });
+    return body === null ? null : { path: resolve(dist, rel), route: '/' + name, body: Buffer.from(body, 'base64'), immutable: true, published: true };
   }
-  if (route.startsWith('/.exact/')) return undefined; // native heads/blobs and the web pointer
-  const raw = filesystem({ op: 'get', root: resolve(dist), path: webRootPath });
+  if (route.startsWith('/.exact/') && !INSTALL_FILES.includes(route)) return undefined; // native heads/blobs and the web pointer
+  const raw = (yield { op: 'get', root: resolve(dist), path: webRootPath });
   if (raw === null) return undefined; // a local build, not a deployed root
   const root = parseWebRoot(Buffer.from(raw, 'base64'));
   const card = root.files.find((file) => '/' + file.name === route);
   if (!card || !PUBLIC_FILES.has(route) && !PUBLIC_TREES.some((tree) => route.startsWith(tree))) return null;
   const rel = `${webReleasePath(root.id)}/${card.name}`;
-  const value = filesystem({ op: 'get', root: resolve(dist), path: rel });
+  const value = (yield { op: 'get', root: resolve(dist), path: rel });
   if (value === null) return null;
   const body = Buffer.from(value, 'base64');
   if (body.length !== card.bytes || sha256(body) !== card.sha256) return null;
-  return { path: resolve(dist, rel), route, body, immutable: false };
+  return { path: resolve(dist, rel), route, body, immutable: false, published: true };
 }
 
-export function readStaticFile(dist, pathname) {
+function* staticRead(dist, pathname) {
   try {
-    const published = publishedFile(dist, pathname);
+    const published = yield* publishedFile(dist, pathname);
     if (published !== undefined) return published;
   } catch { return null; } // a malformed pointer or unsafe path never falls back to stale files
   for (let attempt = 0; attempt < 4; attempt++) {
     const found = staticFile(dist, pathname);
     if (!found) continue;
     try {
-      const bytes = filesystem({ op: 'get', root: dirname(found.path), path: basename(found.path) });
+      const bytes = (yield { op: 'get', root: dirname(found.path), path: basename(found.path) });
       if (bytes !== null) return { ...found, body: Buffer.from(bytes, 'base64') };
     }
     catch { /* retry against dist or dist.previous */ }
   }
   return null;
+}
+
+// One route/integrity policy, driven synchronously by build tooling and through
+// the resident asynchronous reader by HTTP. Read failures reenter the same guards.
+export function readStaticFile(dist, pathname) { return runReads(staticRead(dist, pathname)); }
+export function readStaticFileAsync(dist, pathname) { return runReadsAsync(staticRead(dist, pathname)); }
+function runReads(reads) {
+  let step = reads.next();
+  while (!step.done) {
+    try { step = reads.next(filesystem(step.value)); }
+    catch (error) { step = reads.throw(error); }
+  }
+  return step.value;
+}
+async function runReadsAsync(reads) {
+  let step = reads.next();
+  while (!step.done) {
+    try { step = reads.next(await filesystemRead(step.value)); }
+    catch (error) { step = reads.throw(error); }
+  }
+  return step.value;
 }
 
 /** Every file a static web build is allowed to expose, relative to its root.
@@ -403,6 +431,7 @@ export function listPublicFiles(dist) {
     }
     out.push(asset.name);
   }
+  if (existsSync(resolve(root, 'rust'))) for (const name of listStaticFiles(resolve(root, 'rust'))) out.push('rust/' + name);
   return out.sort();
 }
 
@@ -463,7 +492,7 @@ export function builtAppMatches(dist, app) {
 }
 
 /** The assets by digest (LLP 1023 D4's owed slice; 1026 D11; 1030 D10): every file under assets/, deck/, and shaders/ in a build, named by its path beside the page, so a client fetches by name and verifies by digest and a dev push names what changed. Sorted by name. */
-export function listAssets(dir) {
+export function listAssets(dir, rust = false) {
   const out = [];
   const walk = (sub) => {
     const abs = resolve(dir, sub);
@@ -477,7 +506,7 @@ export function listAssets(dir) {
       }
     }
   };
-  for (const tree of ['assets', 'deck', 'shaders']) walk(tree);
+  for (const tree of ['assets', 'deck', 'shaders', ...(rust ? ['rust'] : [])]) walk(tree);
   return out.sort((a, b) => (a.name < b.name ? -1 : 1));
 }
 
@@ -520,27 +549,29 @@ export function webCacheControl(found) {
 
 /** The production directory origin and diagnostic server share actual HTTP
  * handling, including no-store deletions and the native envelope rung. */
-export function serveStatic(dist, req, res) {
+export async function serveStatic(dist, req, res, listener) {
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { 'cache-control': 'no-store' }); res.end(); return; }
   let route = new URL(req.url, 'http://exact.invalid').pathname;
-  const index = route === '/' || route.endsWith('/index.html');
+  const index = route === '/' || route.endsWith('/index.html') && !route.includes(INSTALL_ROOT);
   if (index && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json')) route = route === '/' ? '/exact.json' : route.slice(0, -10) + 'exact.json';
-  const found = readStaticFile(dist, route);
+  const found = await readStaticFileAsync(dist, route);
   if (!found) { res.writeHead(404, { 'cache-control': 'no-store', ...(index ? { vary: 'Accept' } : {}) }); res.end(); return; }
   res.writeHead(200, { 'content-type': webContentType(found.route), 'cache-control': webCacheControl(found), ...(index ? { vary: 'Accept' } : {}) });
-  res.end(req.method === 'HEAD' ? undefined : found.body);
+  let body = !found.immutable && INSTALL_FILES.includes(found.route) ? found.body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', found.published ? 'Hosted release' : 'Development server') : found.body;
+  if (!found.immutable && !found.published && INSTALL_FILES.includes(found.route)) body = installNetworkPage(body, listener ?? {host:req.socket.localAddress,port:req.socket.localPort});
+  res.end(req.method === 'HEAD' ? undefined : body);
 }
 
-function main() {
+async function main() {
   const argv = process.argv.slice(2);
   const at = argv.indexOf('--origin');
   if (at >= 0 && (!argv[at + 1] || argv[at + 1].startsWith('--'))) throw new Error('--origin needs a directory');
   const dist = at >= 0 ? resolve(argv.splice(at, 2)[1]) : resolve(process.env.EXACT_WEB_DIST ?? new URL('./dist', import.meta.url).pathname);
-  if (!readStaticFile(dist, '/app.wasm')) { console.error('run bun host/web/build.mjs first, or serve a published --origin <dir>'); return 2; }
+  if (!await readStaticFileAsync(dist, '/app.wasm')) { console.error('run bun host/web/build.mjs first, or serve a published --origin <dir>'); return 2; }
   const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
   const port = Number(argv.find((a) => !a.startsWith('--')) ?? 8765);
   const host = loopback ? '127.0.0.1' : '0.0.0.0';
-  createServer((req, res) => serveStatic(dist, req, res)).listen(port, host, () => {
+  createServer((req, res) => serveStatic(dist, req, res, {host,port})).listen(port, host, () => {
     const urls = [`http://127.0.0.1:${port}/`];
     if (!loopback) {
       const priv = (a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
@@ -551,4 +582,4 @@ function main() {
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();

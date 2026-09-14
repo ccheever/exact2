@@ -12,6 +12,7 @@ name = "llp_apple"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+exact-logic = { path = "../../../logic" }
 exact-apple = { path = "../../../host/apple" }
 llp-data = { path = "../data" }
 

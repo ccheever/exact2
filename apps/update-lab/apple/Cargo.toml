@@ -1,0 +1,20 @@
+[package]
+name = "update-lab-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+update-lab-data = { path = "../data" }
+exact-apple = { path = "../../../host/apple" }
+exact-js = { path = "../../../js" }
+
+[build-dependencies]
+update-lab-data = { path = "../data" }
+exact-js-bake = { path = "../../../js/bake" }

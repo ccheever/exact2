@@ -11,9 +11,9 @@
 //! - `EXACT_DEV_PLAN=<file>` — restart from it whenever it changes, state
 //!   carried (the dev loop, LLP 1007 §6; display mode).
 //! - Either, as an `http(s)://` URL — the app URL: the envelope resolved
-//!   and the plan fetched, verified, and booted once per run (LLP 1023
-//!   Stage 1; `fetch.rs`). A headless run is per-invocation, so an edit is
-//!   the next run; the display loop's live half is owed (QUEUE).
+//!   and the plan plus selected Rust pair fetched, verified, and booted
+//!   (`fetch.rs`). `EXACT_DEV_PLAN` URLs continue polling after first pixel;
+//!   each verified change prepares and commits a carried-state replacement.
 //! - `EXACT_ASSETS=<dir>` — the asset root (the current directory otherwise).
 //! - `EXACT_SIZE=WxH` — the headless viewport, points (420×860 otherwise).
 //! - `EXACT_SCALE=n` — device pixels per point (1 otherwise).
@@ -66,6 +66,10 @@ pub struct Config {
     pub shot: Option<String>,
     /// The dev loop's plan file.
     pub dev_plan: Option<PathBuf>,
+    /// A development app URL polled off the presentation thread after first pixel.
+    pub dev_url: Option<String>,
+    /// The last accepted URL generation, avoiding redundant payload transfers.
+    pub dev_identity: Option<String>,
     /// The KMS device.
     pub card: String,
     /// Serve the screen over VNC at this address (`1` is `0.0.0.0:5900`).
@@ -80,6 +84,8 @@ pub struct Config {
     pub entry: Option<String>,
     /// The selected generation's complete, lazily verified asset roster.
     pub selected_assets: Option<AssetResolver>,
+    /// Explicit development logic paired with the selected plan.
+    pub module: Result<Option<crate::delivery::Module>, String>,
     /// The update store, opened before the boot it selects (`run`); the
     /// presenter takes it at boot.
     pub updates: Option<Box<dyn Store>>,
@@ -96,11 +102,12 @@ impl Config {
             .into_iter()
             .flatten()
             .find(|v| crate::fetch::is_url(v))
-            .and_then(|u| match crate::fetch::fetch_app(u) {
-                Ok(b) => {
-                    eprintln!("exact: plan ← {u} ({} bytes)", b.len());
-                    Some(b)
+            .and_then(|u| match crate::fetch::fetch_changed(u, compat, None) {
+                Ok(Some(generation)) => {
+                    eprintln!("exact: plan ← {u} ({} bytes)", generation.plan.len());
+                    Some(generation)
                 }
+                Ok(None) => None,
                 Err(e) => {
                     eprintln!("exact url: {e}; booting the baked plan");
                     None
@@ -138,7 +145,17 @@ impl Config {
         // compiler may not have produced the file yet; a persisted release
         // selection must not win in that window or have its boot counted.
         let explicit = has_explicit_locator(exact_plan.as_deref(), exact_dev_plan.as_deref());
-        let plan = from_url.or(named).or(dev).unwrap_or_else(|| baked.to_vec());
+        let url_module = from_url
+            .as_ref()
+            .and_then(|generation| generation.module.clone());
+        let dev_identity = from_url
+            .as_ref()
+            .map(|generation| generation.identity.clone());
+        let plan = from_url
+            .map(|generation| generation.plan)
+            .or(named)
+            .or(dev)
+            .unwrap_or_else(|| baked.to_vec());
         let size = env("EXACT_SIZE")
             .and_then(|s| {
                 let (w, h) = s.split_once('x')?;
@@ -160,12 +177,24 @@ impl Config {
             smoke: env("EXACT_SMOKE").as_deref() == Some("1"),
             shot: env("EXACT_SHOT"),
             dev_plan,
+            dev_url: exact_dev_plan
+                .as_ref()
+                .filter(|url| crate::fetch::is_url(url))
+                .cloned(),
+            dev_identity,
             card: env("EXACT_DRM").unwrap_or_else(|| "/dev/dri/card0".to_string()),
             vnc: env("EXACT_VNC"),
             compat: compat.to_string(),
             explicit,
             entry: None,
             selected_assets: None,
+            module: exact_plan
+                .as_deref()
+                .or(exact_dev_plan.as_deref())
+                .filter(|path| !crate::fetch::is_url(path))
+                .map_or(Ok(url_module), |path| {
+                    crate::delivery::Module::local(std::path::Path::new(path), compat)
+                }),
             updates: None,
         }
     }
@@ -214,11 +243,16 @@ pub fn boot_presenter<D: DataSource + Default>(
         }
         delivery
     };
+    let dev_url = config.dev_url.clone();
+    let dev_identity = config.dev_identity.clone();
     let delivered = |mut booted: (Presenter<D>, Option<String>),
                      updates: Option<Box<dyn Store>>| {
         // The accepted runner already has the complete facts. Attaching the
         // adapter must never reintroduce intermediate embedded answers.
         booted.0.set_updates(updates);
+        booted
+            .0
+            .set_development(dev_url.clone(), dev_identity.clone());
         booted
     };
     // The selected bytes passed verification. Record the attempt before
@@ -229,16 +263,36 @@ pub fn boot_presenter<D: DataSource + Default>(
             updates.boot_started();
         }
     }
-    match Presenter::boot_selected(
-        &config.plan,
-        D::default(),
-        viewport,
-        config.scale,
-        config.assets.clone(),
-        config.selected_assets.clone(),
-        (&compat, facts(&updates)),
-    ) {
-        Ok(value) => Ok(delivered(value, updates)),
+    let module = match &config.selected_assets {
+        Some(assets) => crate::delivery::Module::resolve(assets),
+        None => config.module.clone(),
+    };
+    let admitted = D::default();
+    let source = module
+        .as_ref()
+        .map_err(Clone::clone)
+        .and_then(|module| match module {
+            Some(module) => module.replacement(&config.plan, &admitted),
+            None => Ok(admitted),
+        });
+    let booted = source
+        .map_err(crate::host::HostError::Asset)
+        .and_then(|data| {
+            Presenter::boot_selected(
+                &config.plan,
+                data,
+                viewport,
+                config.scale,
+                config.assets.clone(),
+                config.selected_assets.clone(),
+                (&compat, facts(&updates)),
+            )
+        });
+    match booted {
+        Ok(mut value) => {
+            value.0.set_module(module.unwrap_or(None));
+            Ok(delivered(value, updates))
+        }
         Err(fetched_error) => {
             let Some(baked) = config.fallback_plan.as_deref() else {
                 return Err(fetched_error.to_string());
@@ -344,6 +398,7 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
     // drive named an origin; a headless run has no user to wait for.
     let _ = p.frame();
     p.first_pixel();
+    p.poll_development(D::default);
     if std::env::var_os("EXACT_UPDATE_ORIGIN").is_some() {
         p.check_update();
     }

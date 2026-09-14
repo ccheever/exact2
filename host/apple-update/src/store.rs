@@ -250,6 +250,50 @@ pub fn selected_plan() -> Option<(String, Vec<u8>)> {
     Some((p.selection.generation.entry?, p.selection.plan.to_vec()))
 }
 
+/// A selected direct C boot admits the same signed Rust pair as the Swift composition.
+pub fn selected_module() -> Result<Option<(String, Vec<u8>)>, String> {
+    let Some(pinned) = initial_selection() else {
+        return Ok(None);
+    };
+    let assets = &pinned.selection.assets;
+    let names = assets.names();
+    let rust: Vec<_> = names
+        .iter()
+        .filter(|name| name.starts_with("rust/"))
+        .collect();
+    if rust.is_empty() {
+        return Ok(None);
+    }
+    let receipt = assets
+        .resolve("rust/app.module.json")?
+        .ok_or("missing Rust pairing receipt")?;
+    if receipt.len() > 1 << 20 {
+        return Err("Rust receipt exceeds 1 MiB".into());
+    }
+    let receipt = String::from_utf8(receipt.to_vec()).map_err(|e| e.to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&receipt).map_err(|e| e.to_string())?;
+    let file = json["module"]["file"].as_str().unwrap_or("");
+    if rust.len() != 2
+        || ![
+            "app.module.wasm",
+            "app.module.dylib",
+            "app.module.so",
+            "app.module.dll",
+            "app.module.bin",
+        ]
+        .contains(&file)
+    {
+        return Err("invalid signed Rust replacement pair".into());
+    }
+    let bytes = assets
+        .resolve(&format!("rust/{file}"))?
+        .ok_or("missing Rust module")?;
+    if bytes.len() > 32 << 20 {
+        return Err("Rust replacement exceeds 32 MiB".into());
+    }
+    Ok(Some((receipt, bytes.to_vec())))
+}
+
 /// One signed asset: status byte 0 absent, 1 verified bytes, 2 refusal text.
 /// The consumer receives immutable bytes, never a path it must reopen.
 pub fn asset(token: u64, len: usize) -> u32 {

@@ -105,13 +105,17 @@ async function fetchGeneration(message, signal) {
   const moduleKeys = ['native', 'receipt', 'web'];
   if (envelope.module !== undefined && (!envelope.module || Object.keys(envelope.module).sort().join(',') !== moduleKeys.join(','))) throw new Error('invalid module manifest');
   const moduleCards = envelope.module ? moduleKeys.map(key => envelope.module[key]) : [];
-  const cards = [envelope.plan, ...envelope.assets, ...moduleCards];
+  const rust = envelope.rust;
+  if (rust && (!rust.wasm || Object.keys(rust).some(k => !["wasm", "native", "tiered"].includes(k)))) throw new Error("invalid Rust manifest");
+  const rustCards = rust ? Object.values(rust).flatMap(v => [v.receipt, v.module]) : [];
+  const cards = [envelope.plan, ...envelope.assets, ...moduleCards, ...rustCards];
   if (cards.some((card) => !Number.isSafeInteger(card?.bytes) || card.bytes < 0 || card.bytes > 64 * 1024 * 1024)
       || cards.reduce((sum, card) => sum + card.bytes, 0) > 256 * 1024 * 1024) throw new Error("generation exceeds the payload budget");
   // All admitted payloads are independent. One bounded queue avoids separate
   // network rounds for the plan, assets and module without raising concurrency.
   const jobs = [[envelope.plan, "app.plan"], ...envelope.assets.map(card => [card, card.name]),
-    ...(envelope.module ? ['receipt', 'web'].map(key => [envelope.module[key], `module ${key}`]) : [])];
+    ...(envelope.module ? ['receipt', 'web'].map(key => [envelope.module[key], `module ${key}`]) : []),
+    ...(rust ? [[rust.wasm.receipt, 'Rust receipt'], [rust.wasm.module, 'Rust Wasm']] : [])];
   const loaded = new Array(jobs.length);
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, async () => {
@@ -122,12 +126,15 @@ async function fetchGeneration(message, signal) {
   }));
   const plan = loaded[0];
   envelope.assets.forEach((card, index) => assets.set(card.name, loaded[index + 1]));
-  const module = envelope.module ? { receipt: loaded.at(-2).bytes, script: loaded.at(-1).bytes } : null;
+  const moduleAt = 1 + envelope.assets.length;
+  const module = envelope.module ? { receipt: loaded[moduleAt].bytes, script: loaded[moduleAt + 1].bytes } : null;
+  const rustPayload = rust ? { receipt: loaded.at(-2).bytes, module: loaded.at(-1).bytes } : null;
   const canonical = { assets: [...envelope.assets].sort((a, b) => utf8Compare(a.name, b.name)).map((a) => ({ bytes: a.bytes, name: a.name, sha256: a.sha256 })),
     ...(envelope.module ? { module: Object.fromEntries(moduleKeys.map(key => [key, { bytes: envelope.module[key].bytes, sha256: envelope.module[key].sha256 }])) } : {}),
-    plan: { bytes: plan.bytes.length, sha256: plan.sha256 } };
+    plan: { bytes: plan.bytes.length, sha256: plan.sha256 },
+    ...(rust ? { rust: Object.fromEntries(Object.keys(rust).sort().map(k => [k, { module: {bytes:rust[k].module.bytes,sha256:rust[k].module.sha256}, receipt:{bytes:rust[k].receipt.bytes,sha256:rust[k].receipt.sha256}, ...(k !== "wasm" ? {target:rust[k].target} : {}) }])) } : {}) };
   if (await digest(encoder.encode(JSON.stringify(canonical))) !== identity.generation) throw new Error("the generation digest does not bind its complete manifest");
-  return { ...identity, plan: plan.bytes, assets, module, fetchMs: performance.now() - started };
+  return { ...identity, plan: plan.bytes, assets, module, rust: rustPayload, fetchMs: performance.now() - started };
 }
 
 // Fetches may finish in any order. Only the latest request can enter the
@@ -190,7 +197,7 @@ if (es) {
     apply: async (candidate, current) => {
       if (!current()) return false;
       const t = performance.now();
-      const accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module);
+      const accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module, candidate.rust);
       if (accepted) {
         navigator.sendBeacon(`/__dev/reloaded?epoch=${candidate.epoch}&seq=${candidate.seq}&dom=${Date.now()}&fetch=${candidate.fetchMs.toFixed(1)}&boot=${(performance.now() - t).toFixed(1)}`);
         requestAnimationFrame(() => navigator.sendBeacon(`/__dev/painted?epoch=${candidate.epoch}&seq=${candidate.seq}&paint=${Date.now()}`));

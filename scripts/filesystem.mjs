@@ -68,3 +68,52 @@ export async function filesystemLock(root, path, fn) {
     lines.close();
   }
 }
+
+// HTTP reads share a resident process: per-read exec can stall in macOS
+// executable assessment. Idle pipes do not keep Bun alive; pending reads do.
+// Parent exit terminates its helper, including one still awaiting OS startup.
+let reader;
+export function filesystemRead(input) {
+  if (input.op !== 'get') return Promise.reject(new Error('read session only accepts get'));
+  reader ??= createReader();
+  return reader.send(input);
+}
+function createReader() {
+  const child = spawn(executable(), ['--serve-reads'], {stdio:['pipe','pipe','pipe']});
+  const lines = createInterface({input:child.stdout});
+  const stop = () => child.kill();
+  process.once('exit', stop);
+  const pending = [];
+  let failure, stderr = '';
+  const reference = active => {
+    for (const handle of [child, child.stdout, child.stderr]) handle[active ? 'ref' : 'unref']();
+  };
+  const fail = error => {
+    if (failure) return;
+    failure = error;
+    if (reader === session) reader = undefined;
+    for (const item of pending.splice(0)) item.reject(error);
+    process.removeListener('exit', stop);
+    lines.close(); child.stdin.destroy(); child.kill(); reference(false);
+  };
+  child.on('error', fail);
+  child.stdin.on('error', fail);
+  child.stderr.on('data', data => { stderr = (stderr + data).slice(-8192); });
+  child.on('close', code => fail(new Error(stderr || `filesystem reader exited ${code}`)));
+  lines.on('line', line => {
+    const item = pending.shift();
+    if (!item) { fail(new Error('unexpected filesystem reply')); return; }
+    try { item.resolve(decode(JSON.parse(line))); } catch (error) { item.reject(error); }
+    if (!pending.length) reference(false);
+  });
+  const session = {send(input) {
+    if (failure) return Promise.reject(failure);
+    reference(true);
+    return new Promise((resolve, reject) => {
+      pending.push({resolve, reject});
+      child.stdin.write(`${JSON.stringify(request(input))}\n`, error => { if (error) fail(error); });
+    });
+  }};
+  reference(false);
+  return session;
+}

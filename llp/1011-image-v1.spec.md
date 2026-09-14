@@ -233,6 +233,15 @@ transparent, so AppKit pixels remain unverified. Receipt and limits:
 
 ## 6. Not in v1 (each declared here)
 
+**2026-09-14 scope change:** bounded raster loading/cache memory is now
+assigned to Codex under LLP 1010 §6.3, after the windowed-list lifetime
+slice, with Messages as the consumer. The initial target is 32 MiB per
+session including Exact-owned pinned bitmaps and in-flight reservations;
+the browser retains its own decoder/cache policy. This is planned, not
+implemented: the current Apple loader below still has no size cap or
+cancellation. Remote-image API expansion, `srcset` and loading-state
+authoring remain outside that slice.
+
 `srcset`/density selection and `image-rendering`; raster-image `tint_color`
 (symbol tint is implemented on Apple/web); Linux symbols; loading states and errors visible to the app (the
 kernel measures an unknown axis as 0; macOS paints nothing and writes a

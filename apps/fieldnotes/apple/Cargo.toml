@@ -10,13 +10,19 @@ build = "build.rs"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+fieldnotes-data = { path = "../data" }
+exact-data-host = { path = "../../../data/host" }
+exact-logic = { path = "../../../logic" }
 exact-apple = { path = "../../../host/apple" }
 exact-js = { path = "../../../js" }
 
 [build-dependencies]
+fieldnotes-data = { path = "../data" }
 exact-js-bake = { path = "../../../js/bake" }
 
 [dev-dependencies]
+exact-kernel = { path = "../../../kernel" }
+exact-logic-abi = { path = "../../../logic/abi" }
 exact-plan = { path = "../../../plan" }
 exact-runner = { path = "../../../runner" }
 exact-js-value = { path = "../../../js/value" }

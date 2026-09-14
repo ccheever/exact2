@@ -74,8 +74,8 @@ public protocol ExactAppLifecycle: AnyObject {
 /// A plan and its complete asset namespace prepared by an app composition.
 /// The opaque token is meaningful only to that composition; zero is an
 /// ordinary core/dev plan, with no delivery selection to count or bless.
-/// A development module's pairing receipt and bytecode. These hashes bind
-/// bytes, not their origin; callers must admit the development origin first.
+/// A module's pairing receipt and compiled bytes. The caller authenticates
+/// a signed update or explicitly admits a development origin before preparation.
 public struct ExactModule {
     public let receipt: Data
     public let bytecode: Data
@@ -114,6 +114,8 @@ public final class ExactApp {
     private(set) var lastModule: ExactModule?
     private(set) var resolver: AssetResolver!
     private var transaction = false
+    /// A retryable image preparation; the current sessions remain live.
+    public private(set) var generationPending = false
     private var notifications: [() -> Void] = []
 
     func deliver(_ body: @escaping () -> Void) {
@@ -140,6 +142,17 @@ public final class ExactApp {
         #endif
         assetRoot = URL(fileURLWithPath: ExactEnv.environment["EXACT_ASSETS"] ?? fallback, isDirectory: true)
         resolver = AssetResolver(root: assetRoot)
+    }
+
+    /// The immutable Rust executor policy carried by this binary's bake.
+    public var rustPolicy: (mode: String, target: String) {
+        let runtime = Runtime()
+        defer { runtime.destroy() }
+        let length = exact_baked_compat(runtime.rt)
+        let bytes = Data(bytes: exact_out(runtime.rt), count: Int(length))
+        let json = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
+        let inputs = json["inputs"] as? [String: Any] ?? [:]
+        return (inputs["rustMode"] as? String ?? "off", json["target"] as? String ?? "")
     }
 
     /// Install a composition's launch generation before creating sessions.
@@ -196,7 +209,7 @@ public final class ExactApp {
             if let old = self.devProgram { return old == program }
             self.devProgram = program
             return true
-        }, current: { [weak self] in self?.devGeneration }, apply: { [weak self] candidate, label in
+        }, current: { [weak self] in self?.devGeneration }, waiting: { [weak self] in self?.generationPending == true }, apply: { [weak self] candidate, label in
             guard let self else { return false }
             let resolver = AssetResolver(root: self.assetRoot, names: Array(candidate.assets.keys), read: { candidate.assets[$0] })
             return self.applyTogether(candidate.plan, label: label, resolver: resolver, token: 0, identity: candidate.identity, module: candidate.module, commit: { true })
@@ -211,7 +224,7 @@ public final class ExactApp {
     /// The connection's page URL, when connected (what a deck's `//` source resolves against).
     public var connectedPage: URL? { connection?.page }
     /// The connection's status line for a dev menu, or nil.
-    public var connectionStatus: String? { connection.map { "\($0.page)\($0.terminal != nil ? " (rebuild the host)" : " (live)")" } }
+    public var connectionStatus: String? { connection.map { "\($0.page)\($0.terminal != nil ? " (rebuild the host)" : generationPending ? " (preparing Rust update)" : " (live)")" } }
     /// Re-resolve the connection (the menu's Reload; clears a `{rebuilt}` stop).
     public func reloadConnection() { connection?.reload() }
 
@@ -229,10 +242,9 @@ public final class ExactApp {
     }
 
     private func applyTogether(_ bytes: Data, label: String, resolver candidateResolver: AssetResolver, token: UInt64, identity: String? = nil, module: ExactModule? = nil, commit: () -> Bool) -> Bool {
+        generationPending = false
         guard !transaction else { return false }
         let module = module ?? lastModule
-        // Signed update compositions do not yet admit replaceable modules.
-        guard module == nil || token == 0 else { return false }
         let participants = sessions.filter { $0.state != .destroyed }
         // An app may stage before creating a view. Validate its plan now,
         // without committing a hidden runner or starting its requests.
@@ -245,6 +257,7 @@ public final class ExactApp {
         var prepared: [(ExactSession, ExactSession.Prepared)] = []
         for session in participants {
             guard let candidate = session.prepare(bytes, resolver: candidateResolver, token: token, module: module) else {
+                generationPending = session.modulePending
                 for (session, _) in prepared { session.runtime.discardPlan() }
                 return false
             }
@@ -464,19 +477,22 @@ public final class ExactSession {
         let token: UInt64
     }
 
+    private(set) var modulePending = false
+
     func prepare(_ bytes: Data, resolver: AssetResolver, token: UInt64 = 0, module: ExactModule? = nil, size: CGSize? = nil) -> Prepared? {
+        modulePending = false
         guard state != .destroyed else { return nil }
         let module = module ?? app.lastModule
-        guard module == nil || token == 0 else { return nil }
         let candidate = TextEngine(resolve: { resolver.url($0) }, read: { resolver.bytes($0) })
         runtime.setMeasure(TextEngine.measureText, ctx: candidate.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: candidate.opaque)
         let viewport = size ?? presenter.viewportSize
         let batch: Batch
-        if let module { batch = runtime.prepareModule(bytes, module: module, width: viewport.width, height: viewport.height) }
+        if let module { batch = runtime.prepareModule(bytes, module: module, token: token, width: viewport.width, height: viewport.height) }
         else { batch = runtime.preparePlan(bytes, width: viewport.width, height: viewport.height, token: token) }
         runtime.setMeasure(TextEngine.measureText, ctx: text.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.opaque)
+        if batch.pending { modulePending = true; return nil }
         // Resolve initially used local payloads before first pixel, without
         // applying a presenter batch or starting an image/web/GPU operation.
         for op in batch.ops {
@@ -586,13 +602,22 @@ public final class ExactSession {
 
     private func firstDrawn(generation drawnGeneration: Int, token: UInt64) {
         guard state != .destroyed, generation == drawnGeneration else { return }
-        app.firstPixel(token)
         if firstDrawMs == nil { firstDrawMs = ExactEnv.wall() }
         guard activatedGeneration != drawnGeneration else { return }
         activatedGeneration = drawnGeneration
         DispatchQueue.main.async { [weak self] in
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
-            apply(runtime.dataReady())
+            let batch = runtime.dataReady()
+            if batch.pending {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                    guard let self, generation == drawnGeneration, state != .destroyed else { return }
+                    activatedGeneration = nil
+                    firstDrawn(generation: drawnGeneration, token: token)
+                }
+                return
+            }
+            apply(batch)
+            if batch.error == nil { app.firstPixel(token) }
             canvases.loadIfNeeded()
             frames.run(frames.motion || canvases.wantsFrames)
         }

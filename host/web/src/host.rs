@@ -22,6 +22,7 @@ use exact_runner::{
 /// A reply as the ABI carries it, as the runner's `Outcome`.
 pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Outcome {
     match kind {
+        5 => Outcome::Storage(body),
         0 => Outcome::Response(Response {
             status: status as u16,
             headers: headers
@@ -183,7 +184,10 @@ impl<D: DataSource> Host<D> {
             batch.store(&w);
         }
         batch.grants(host.runner.data().grants());
-        for r in host.runner.take_requests() {
+        for mut r in host.runner.take_requests() {
+            if let Some(token) = r.request.continuation {
+                r.request.continuation = host.runner.data().continuation_token(token);
+            }
             batch.request(&r);
         }
         let timers = host.runner.has_timers();
@@ -360,7 +364,10 @@ impl<D: DataSource> Host<D> {
         for w in self.runner.take_store_writes() {
             batch.store(&w);
         }
-        for r in self.runner.take_requests() {
+        for mut r in self.runner.take_requests() {
+            if let Some(token) = r.request.continuation {
+                r.request.continuation = self.runner.data().continuation_token(token);
+            }
             batch.request(&r);
         }
         let timers = self.runner.has_timers();

@@ -188,8 +188,26 @@ pub fn copy_xrgb(frame: &Pixmap, dst: &mut [u8], pitch: usize, width: u32, heigh
     }
 }
 
-fn mtime(path: &Path) -> Option<SystemTime> {
-    std::fs::metadata(path).ok()?.modified().ok()
+fn mtime(path: &Path) -> Option<Vec<(std::path::PathBuf, SystemTime, u64)>> {
+    fn collect(path: &Path, rows: &mut Vec<(std::path::PathBuf, SystemTime, u64)>) {
+        let Ok(metadata) = std::fs::metadata(path) else {
+            return;
+        };
+        if metadata.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(path) {
+                for entry in entries.flatten() {
+                    collect(&entry.path(), rows);
+                }
+            }
+        } else if let Ok(modified) = metadata.modified() {
+            rows.push((path.to_path_buf(), modified, metadata.len()));
+        }
+    }
+    let mut rows = Vec::new();
+    collect(path, &mut rows);
+    collect(&path.parent()?.join("rust"), &mut rows);
+    rows.sort();
+    Some(rows)
 }
 
 /// The display loop: paint when something changed, present, wait for input
@@ -266,6 +284,9 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                 check_due = Some(Instant::now() + Duration::from_secs(2));
             }
         }
+        if p.module_pending() {
+            p.first_pixel();
+        }
         let now = wall();
         let mut timeout: i32 = -1;
         if p.host().motion() {
@@ -273,8 +294,11 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         } else if p.host().has_timers() {
             timeout = (last_tick + 250.0 - now).max(0.0) as i32;
         }
-        if p.images().pending() || config.dev_plan.is_some() {
+        if p.images().pending() || config.dev_plan.is_some() || config.dev_url.is_some() {
             timeout = if timeout < 0 { 100 } else { timeout.min(100) };
+        }
+        if p.module_pending() {
+            timeout = if timeout < 0 { 50 } else { timeout.min(50) };
         }
         if let Some(due) = check_due {
             let wait = due.saturating_duration_since(Instant::now()).as_millis() as i32;
@@ -349,13 +373,18 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             p.tick(now);
         }
         p.poll_images();
+        p.poll_development(D::default);
         if let Some(path) = &config.dev_plan {
             let m = mtime(path);
             if m.is_some() && m != plan_seen {
                 plan_seen = m;
                 if let Ok(bytes) = std::fs::read(path) {
                     let t = Instant::now();
-                    match p.reload(&bytes, D::default()) {
+                    let module = crate::delivery::Module::local(path, &config.compat);
+                    match module
+                        .map_err(crate::host::HostError::Asset)
+                        .and_then(|module| p.reload_module(&bytes, D::default(), module))
+                    {
                         Ok(e) => println!(
                             "reloaded {} in {:.1} ms{}",
                             path.file_name()
@@ -364,6 +393,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                             t.elapsed().as_secs_f64() * 1000.0,
                             e.map(|e| format!(" — {e}")).unwrap_or_default()
                         ),
+                        Err(crate::host::HostError::PreparingModule) => plan_seen = None,
                         Err(e) => eprintln!("exact: reload: {e}"),
                     }
                 }

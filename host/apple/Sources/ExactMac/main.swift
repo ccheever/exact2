@@ -206,8 +206,7 @@ if let planPath = ExactEnv.environment["EXACT_DEV_PLAN"] {
         t.setEventHandler {
             let revision = candidate.revision
             guard revision != last else { return }
-            last = revision
-            candidate.apply(to: exact)
+            if candidate.apply(to: exact) || !exact.generationPending { last = revision }
         }
         t.resume()
         planWatch = t

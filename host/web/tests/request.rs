@@ -86,7 +86,7 @@ fn a_send_leaves_as_a_request_op_and_the_reply_commits() {
 
     host.dispatch(view(&host, "who"), Event::Change("ada".into()));
     let batch = host.dispatch(view(&host, "login"), Event::Press);
-    assert!(batch.contains("\"op\":\"request\",\"ticket\":1,\"target\":\"session\",\"method\":\"POST\",\"url\":\"https://api.castle.test/graphql\",\"headers\":[[\"content-type\",\"application/json\"],[\"x-who\",\"ada\"]],\"body\":\"eyJxIjoxfQ==\",\"cache\":\"default\"}"), "{batch}");
+    assert!(batch.contains("\"op\":\"request\",\"ticket\":1,\"target\":\"session\",\"scope\":null,\"method\":\"POST\",\"url\":\"https://api.castle.test/graphql\",\"headers\":[[\"content-type\",\"application/json\"],[\"x-who\",\"ada\"]],\"body\":\"eyJxIjoxfQ==\",\"cache\":\"default\"}"), "{batch}");
     assert!(batch.contains("Logging in…"), "the view says busy: {batch}");
     assert_eq!(host.runner().pending(), vec![("session".to_string(), 1)]);
 
@@ -126,4 +126,52 @@ fn a_send_leaves_as_a_request_op_and_the_reply_commits() {
         ]))),
         "the failure became the source's own value"
     );
+}
+
+#[test]
+fn module_replacement_preserves_the_owner_of_an_in_flight_post() {
+    let plan = contract::bake(contract::compile(SRC).unwrap(), Later)
+        .unwrap()
+        .encode();
+    let (host, _) = Host::boot(&plan, Later).unwrap();
+    let mut bridge = exact_web::abi::Bridge::new();
+    bridge.boot(&plan, Later);
+    bridge.input_write(b"ada");
+    bridge.dispatch(view(&host, "who"), 1, 3, 0.0);
+    bridge.dispatch(view(&host, "login"), 0, 0, 0.0);
+    bridge.input_write(b"candidate");
+    let len = bridge.boot_module([0, 0, 9], Later);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("in-flight"));
+    bridge.input_write(b"{}");
+    let len = bridge.fulfill(1.0, 0, 200, 0, 2, 5.0);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("Signed in as ada"));
+}
+
+#[test]
+fn storage_batch_preserves_text_and_scope_and_refuses_invalid_utf8() {
+    use exact_runner::RequestOut;
+    for (payload, encoded) in [
+        (
+            b"{\"text\":\"hello\"}".to_vec(),
+            r#""payload":"{\"text\":\"hello\"}""#,
+        ),
+        (vec![0xff], r#""payload":"""#),
+    ] {
+        let mut request = Request::storage(payload);
+        request.grants = Some(String::new());
+        let mut batch = exact_web::batch::Batch::default();
+        batch.request(&RequestOut {
+            ticket: 1,
+            target: "backup".into(),
+            request,
+            forced: false,
+        });
+        let wire = batch.finish(false, 0., None);
+        assert!(wire.contains(encoded), "{wire}");
+        assert!(
+            wire.contains(r#""scope":"""#),
+            "an empty scope stays deny-all: {wire}"
+        );
+        assert!(!wire.contains('�'));
+    }
 }

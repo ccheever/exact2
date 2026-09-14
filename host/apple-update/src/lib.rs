@@ -7,6 +7,7 @@ pub use exact_apple;
 /// The process store's operations, injected before the first boot.
 pub static HOOKS: exact_apple::delivery::Hooks = exact_apple::delivery::Hooks {
     selected_plan: store::selected_plan,
+    selected_module: store::selected_module,
     candidate_delivery: store::prepared_delivery,
     boot_started: store::boot_started,
     entry_refused: store::entry_refused,

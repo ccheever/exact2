@@ -10,4 +10,4 @@ pub const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 /// The compatibility id and its inputs (LLP 1030 D3a), written beside it.
 pub const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 
-exact_web::host!(markdown_data::Markdown, PLAN, COMPAT);
+include!(concat!(env!("OUT_DIR"), "/entry.rs"));

@@ -5,9 +5,12 @@
 // Developer builds bake development trust; EXACT_UPDATE_TRUST=production
 // requires signing keys, and the deploy verb always selects production.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { writeInstallPages } from '../../scripts/install-page.mjs';
+import { rustPolicy } from '../../scripts/app.mjs';
+import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
@@ -34,7 +37,9 @@ const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-
 // Stages live under ignored target/, so even a SIGKILL leaves no source dirt.
 const stages = resolve(root, 'target/web-dist-stages');
 mkdirSync(stages, { recursive: true });
-let stage = mkdtempSync(resolve(stages, `${app.name.replace(/[^a-zA-Z0-9_-]/g, '_')}-`));
+// A worktree may share target/ through a symlink. This directory is ours;
+// retain its physical name before the strict filesystem reader inventories it.
+let stage = realpathSync(mkdtempSync(resolve(stages, `${app.name.replace(/[^a-zA-Z0-9_-]/g, '_')}-`)));
 process.on('exit', () => { if (stage) rmSync(stage, { recursive: true, force: true }); });
 const out = resolve(stage, 'app.wasm');
 
@@ -68,7 +73,8 @@ copyFileSync(resolve(root, 'host/web/glue.js'), resolve(stage, 'glue.js'));
 // encoder's fixed little-endian layout.
 const planOut = resolve(stage, 'app.plan');
 const wasm = readFileSync(out);
-const { instance } = await WebAssembly.instantiate(wasm, { exact_js: { call: () => { throw new Error('app logic ran while extracting baked bytes'); } } });
+const unbooted = () => { throw new Error('app logic ran while extracting baked bytes'); };
+const { instance } = await WebAssembly.instantiate(wasm, { exact_js: { call: unbooted }, exact_rust: { load: unbooted, call: unbooted, read: unbooted, drop: unbooted } });
 const exports = instance.exports;
 if (typeof exports.exact_plan !== 'function' || typeof exports.exact_out !== 'function' || !(exports.memory instanceof WebAssembly.Memory)) {
   throw new Error('the web wasm does not export exact_plan, exact_out, and memory');
@@ -91,22 +97,34 @@ if (typeof exports.exact_module_artifact === 'function') {
   pairedModule = Object.fromEntries(Object.entries(moduleCards(files, app.id)).map(([key, card]) => [key, { ...card, url: './' + MODULE_FILES[key] }]));
   copyFileSync(resolve(root, 'host/web/module-glue.js'), resolve(stage, 'module-glue.js'));
   copyFileSync(resolve(root, 'js/src/prelude.js'), resolve(stage, 'module-prelude.js'));
-  for (const name of ['storage.js','storage-fs.js','storage-sqlite.js','storage-worker.js']) {
-    copyFileSync(resolve(root, 'host/web', name), resolve(stage, name));
-  }
-  for (const [source, name] of [['index.mjs','sqlite3.mjs'],['sqlite3.wasm','sqlite3.wasm']]) {
-    copyFileSync(resolve(root, 'node_modules/@sqlite.org/sqlite-wasm/dist', source), resolve(stage, name));
-  }
+
 }
 if (typeof exports.exact_compat !== 'function') throw new Error('the web wasm exposes no baked receipt');
 const compatLen = exports.exact_compat();
 const embeddedCompat = Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), compatLen)).toString('utf8');
 const bakedReceipt = readBake(app, 'web', 'wasm32-unknown-unknown', buildEnv.EXACT_BAKE_OUTPUT);
 if (JSON.stringify(JSON.parse(embeddedCompat)) !== JSON.stringify(bakedReceipt)) throw new Error('the emitted receipt differs from the wasm receipt');
+// Storage is an app capability, including apps whose only logic is Rust.
+if (pairedModule || /^\s*(?:fs\.|sqlite\.)/m.test(bakedReceipt.inputs.grantCeiling ?? '')) {
+  for (const name of ['storage-request.js','storage.js','storage-fs.js','storage-sqlite.js','storage-worker.js']) {
+    copyFileSync(resolve(root, 'host/web', name), resolve(stage, name));
+  }
+  for (const [source, name] of [['index.mjs','sqlite3.mjs'],['sqlite3.wasm','sqlite3.wasm']]) {
+    copyFileSync(resolve(root, 'node_modules/@sqlite.org/sqlite-wasm/dist', source), resolve(stage, name));
+  }
+}
 const copiedAssets = listAssets(stage);
 verifyBakeFiles(bakedReceipt, planBytes, copiedAssets);
+let pairedRust = null;
+if (rustPackage(app) && rustPolicy(app.manifest, 'web', buildEnv.EXACT_UPDATE_TRUST === 'production' ? 'prod' : 'dev') !== 'off') {
+  const built = await buildRust(app, { compat: bakedReceipt, env: buildEnv, plan: planBytes, profile: buildEnv.EXACT_UPDATE_TRUST === 'production' ? 'release' : 'logic-dev' });
+  const files = rustFiles(built);
+  for (const [name, bytes] of files) { mkdirSync(resolve(stage, name, '..'), {recursive:true}); writeFileSync(resolve(stage, name), bytes); }
+  pairedRust = rustCards(files);
+  copyFileSync(resolve(root, 'host/web/rust-glue.js'), resolve(stage, 'rust-glue.js'));
+}
 writeFileSync(resolve(stage, 'bake.json'), JSON.stringify(buildReceipt) + '\n');
-writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({ ...webEnvelope(app, planBytes, copiedAssets), ...(pairedModule ? { module: pairedModule } : {}) }) + '\n');
+writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({ ...webEnvelope(app, planBytes, copiedAssets), ...(pairedModule ? { module: pairedModule } : {}), ...(pairedRust ? { rust: pairedRust } : {}) }) + '\n');
 // The web app manifest (LLP 1030 D2/D10; 1030.000 D7): the W3C keys of
 // `app.json`, copied out as `manifest.json`; the page links it, takes its
 // name as the title, and its first icon as the favicon. An installed PWA's
@@ -117,6 +135,9 @@ const webManifest = Object.fromEntries(webKeys.filter((k) => app.manifest[k] !==
 webManifest.name ??= app.displayName;
 webManifest.start_url ??= '/';
 writeFileSync(resolve(stage, 'manifest.json'), JSON.stringify(webManifest, null, 2) + '\n');
+const sourceRevision = spawnSync('git', ['rev-parse', '--short=10', 'HEAD'], {cwd:app.dir,encoding:'utf8'});
+const sourceChanges = spawnSync('git', ['status', '--porcelain'], {cwd:app.dir,encoding:'utf8'});
+writeInstallPages(stage, app.manifest, {id:buildReceipt.binary.sha256, source:sourceRevision.status === 0 ? sourceRevision.stdout.trim() : null, dirty:sourceChanges.status === 0 && !!sourceChanges.stdout.trim(), builtAt:new Date().toISOString(), mode:buildEnv.EXACT_UPDATE_TRUST === 'production' ? 'Release build' : 'Development build'});
 const icon = webManifest.icons?.[0];
 const escapeHtml = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8')

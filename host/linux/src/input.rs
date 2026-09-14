@@ -61,7 +61,9 @@ impl Input {
         for (_, d) in evdev::enumerate() {
             let pointer = d.supported_events().contains(EventType::RELATIVE);
             // An absolute pointer: ABS_X/ABS_Y with their ranges (a KVM's
-            // mouse, a tablet); a touchpad's multitouch is not read.
+            // mouse, a tablet, a USB touchscreen). Multitouch slots are
+            // not tracked; ABS_MT_POSITION_* is the same point as ABS_X/Y
+            // on the single-contact devices we open.
             let absolute = d
                 .supported_absolute_axes()
                 .is_some_and(|a| {
@@ -125,12 +127,14 @@ impl Input {
             };
             for e in events {
                 match e.destructure() {
-                    EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_X, v) => {
+                    EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_X, v)
+                    | EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_MT_POSITION_X, v) => {
                         if let Some(r) = absolute {
                             out.push(InputEvent::Absolute(Some(fraction(r[0], v)), None));
                         }
                     }
-                    EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_Y, v) => {
+                    EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_Y, v)
+                    | EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_MT_POSITION_Y, v) => {
                         if let Some(r) = absolute {
                             out.push(InputEvent::Absolute(None, Some(fraction(r[1], v))));
                         }
@@ -159,7 +163,9 @@ impl Input {
                         let code = code.0;
                         let down = value != 0;
                         match code {
-                            0x110 => out.push(InputEvent::Button(down)),
+                            // BTN_LEFT (a mouse) and BTN_TOUCH (a
+                            // touchscreen). Both are a primary press.
+                            0x110 | 0x14a => out.push(InputEvent::Button(down)),
                             42 | 54 => self.shift = down,
                             _ if down => {
                                 if let Some(k) = key(code, self.shift) {

@@ -10,6 +10,18 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **List memory** (2026-09-14, Codex; LLP 1010 §6): baseline at 25/1,000/25,000
+  rows, then shared runner/web windowing, Apple/Linux, raster budget and Messages
+  acceptance. Memory and construction cost trigger it now; further Messages
+  decorative artwork/material/timing polish waits. The baseline does not complete windowing.
+
+- **Router and viewport facts** (2026-09-14, accepted; Astra): LLP 1039 first — the
+  `exactViewport` fact, `aria-orientation`, the Mac tablist guard, Interview's rail —
+  then LLP 1038 slice 1 (`exact-route`, `routes`, the roster verbs, the launch fact,
+  `initial_args`, the `router` op, the iOS push-or-swap and macOS/Linux hide-and-inert
+  rules, Interview on `routes`); slice 2 fans out (web history + serving; native URL
+  entry points). Both LLPs are in `llp/current/`; 1001 and 1012 moved to foundation.
+
 - **LLP 1035 follow-ups** (2026-09-09): landed the same day — inherited rows
   (1035.000 slice 1), `layout <node>` (1035.002 slice 1), a contact's phases on
   the web and macOS carriers (1035.003). Next, in the umbrella's order: the
@@ -128,10 +140,10 @@ sits on that list carries the trade it would take.
    table (below), and two ghost-only size properties on the engine. Charlie to confirm
    the boundary (§Open questions).
 
-- **Rust development reload** — **LLP 1029.000** (Draft RFC, 2026-09-09): native-first Rust
-  logic, native shared-library swaps, browser Wasm, Pulley on physical iOS;
-  whole modules first, phone/native-loader measurements owed. Production Rust
-  delivery and per-source digest analysis move behind the proposed dev loop.
+- **Rust replacement follow-ups** — **LLP 1029.000**: native/browser/Wasmi replacement
+  and dev/prod controls are implemented. Next: physical-phone size/latency and
+  20-edit/50-replacement measurements, normalized native-baseline reuse, and
+  custom out-of-tree host composition; independent multi-module routing stays later.
   Parent **LLP 1029** (Draft RFC, 2026-09-03), mixed by default and optional
   executors, builds on LLP 1028 (the measurements: wasmtime runtime +0.49 MB / +Pulley
   +0.58 / wasmi +1.0 / Cranelift +5.6, never shipped). Charlie's three rulings of
@@ -303,9 +315,6 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 ## Later
 
-- **Windowed `List`** — when a list misses 60 fps. Needs a logical total extent and window-origin compensation
-  (LLP 1010 §5); scroll-offset events now reach the runner on web and Apple. `List` and `ScrollView` are the same thing on
-  every host today.
 - **Windows, Android** — `rules/NOT-DOING.md` §Surfaces; after the loop is proven.
 - **ibex2** (`~/projects/ibex/crates/ibex2`; ibex LLP 0057 §5.2 targets Exact 2). Two
   things, two triggers (Charlie, 2026-08-29). `ibex2::host` — the Rust standard library
@@ -336,9 +345,7 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 - LLP 1023 Stage 1 leftovers, each small: the physical-iPhone typed-URL run (the
   phone was asleep on landing day — `bun host/apple/build.mjs --device --run`, then
   4-finger tap → Open Project… → the LAN URL dev.mjs printed; ATS and signing already
-  proven on the built bundle); the Linux display loop's live SSE half (fetch.rs boots
-  once per run today — subscribe-and-swap needs a Linux display to verify on); a
-  native pre-download `kernelSchema` compare (needs the client's own digest exported —
+  proven on the built bundle); a native pre-download `kernelSchema` compare (needs the client's own digest exported —
   the runner's boot gate catches a mismatch only after the download); `metrics.mjs`
   rows for cold URL→first-frame and hot seq→first-frame over the LAN (diagnostic,
   never a sixth check).
@@ -369,8 +376,8 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   an `Answer` so one answer awaits two fetches in a row, eleven tests. Next: stage 2
   (bake: Rolldown → hermesc → bake under the VM, `app.d.ts`, `dev.mjs`) built against
   its first consumer, stage 5 (Weird Castle in TypeScript), then stage 4 (web), stage 6
-  (delivery), stage 7 (the engine crate + Linux); owed from stage 3: the pure tier from
-  ibex2 (URL, TextEncoder, base64). LLP 1027.000 landed 2026-09-04: time and seeds
+  (delivery), stage 7 (the engine crate + Linux). LLP 1027.001 supplies the named
+  Ibex URL, UTF-8 text and base64 bindings. LLP 1027.000 landed 2026-09-04: time and seeds
   are explicit inputs; ambient Date/Intl time and Math.random calls refuse. The
   boot question was ruled the same day ("ok let's do that"): **the kept answer** — the
   runner persists a store-reading resource's last answer beside the secrets, boots
@@ -401,6 +408,10 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   input"); worked around with a private `CARGO_TARGET_DIR=target/dev-local`. Needs: decide
   whether the checkout's `target/` gets wiped/rebuilt once or the receipt step tolerates
   foreign dep-info.
+
+**2026-09-14 priority:** the decorative artwork, material/pixel matching and
+animation-timing items below are deferred behind LLP 1010 §6's list-memory
+acceptance. Their evidence stays here; functional navigation/editing fixes continue.
 
 - **Messages iPhone parity** (`apps/messages`): the local chat example now runs on
   web and iOS. Finish native back/Tapback/reply gestures, timestamp motion matching (recognition threshold and release curve; resisted/capped travel and stationary labels now work; extent/rate/paging probes rejected, a linked Exact-engine spring now measures 1.14-point RMS error versus 7.70 for scroll snap, with physical vertical/reversal checks; R4 reuses current editor exclusion and identity-bound Presenter.dragX: physical read-only selection moves rows 0 points versus 44, and Back-during-hold emits 0 gone-target writes versus 11. Of three additional attempts approved by Charlie on 2026-09-11, R5 fails compilation on unsupported inset() clip-path; R6 margins/overflow hide rest labels with 23 native rectangles unchanged, ten physical assertions passing, zero retired writes and browser geometry verified (`/tmp/messages-timestamp-ownership/r6/`). All three additional attempts are consumed; authored intent and browser ownership still need integration),
@@ -450,3 +461,21 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 
 - Dynamic style diagnostics: a conditional `top` branch containing `"0px"` compiled but poisoned the runner with `WrongKind` on activation (`/tmp/messages-panel-placement/late-failure-web.json`). Accept the CSS length or diagnose the unsupported value before dispatch; the Messages branch currently uses the supported `"0%"`.
+
+- Continuous release loop (LLP 1030.003 r2, 2026-09-12): release id + signed `published` and the `use`-able version screen (Caltrain first), one hosted Interview release on the directory origin behind its tunnel, `--watch`, iOS through TestFlight (the archive verb, upload, `--status`, version/build numbers), safe activation + the web page's own check, the EAS macOS-worker spike for the Apple lanes (D8, Charlie's 2026-09-12 ask), then the EAS Hosting spike. D6a install pages and D6b's Mac-local development build/install are landed; distributable native artifacts and providers remain pending. §6's six questions await Charlie; other slices await an implementer.
+
+- Shared-target filesystem helper: the ada0b93 workspace sweep failed with `spawnSync .../exact-filesystem ENOENT`; the working checkout’s async reader also intermittently returned 404 when its helper exited after one request. Reproduce helper executable identity/lifecycle across worktrees before claiming a full green sweep; evidence in `/tmp/interview-snapback4-20260913/exact2-checks/` and `/tmp/interview-snapback4-20260913/ui/`.
+
+- Diagnostic source capture: the September 14 optional suite passed 55/56 cases; its source-isolation/cleanup assertion failed. A focused reproduction was interrupted after walking `snapback-sb4/snapback4/target/debug/deps` as ignored source for minutes; the assertion's cause remains unconfirmed. Exclude actual Cargo output directories of local dependency workspaces, while preserving ignored real inputs: derive output roots from Cargo instead of excluding every directory named `target`.
+
+- Native development URL latency: Charlie observes about one second for Update Lab Contract edits on the physical iPhone while localhost clients update almost immediately (2026-09-14). Notification already uses SSE. `PlanURL` now fetches up to four verified payloads concurrently after the envelope; it still creates a fresh URLSession per fetch and refetches unchanged payloads. A physical-phone sample measured envelope 56.5 ms, payload fetches 1,347.8 ms, and prepare/commit 32.1 ms (`target/update-lab-phone-timing.json`). Payload fetching dominates this sample; isolate connection setup versus transfer, then consider a shared session and verified reuse by digest. Preserve byte limits, complete-generation validation and failed-candidate retention.
+
+- Update completion event (Charlie, 2026-09-14): expose one app lifecycle notification after an admitted generation commits and its executors are ready, covering Contract, TypeScript and Rust. Include which artifact digests changed; refused/superseded candidates emit nothing, and initialization stays after first pixel. Update Lab now uses its existing 250 ms task to show executed probe versions automatically; an event would remove that sampling delay without making real apps poll. Define the shared Contract lifecycle hook before adding separate host callbacks.
+
+- Fieldnotes aggregate library size: the app admits 1,000 notes of up to 20,000 UTF-16 units each, but `library` reads every body in one SQLite result. Real Chrome with 1,000 emoji notes at the per-note limit returns `query result exceeds 16 MiB limit` and cannot open the notebook. Paginate/search in SQLite and load full bodies only for the selected note so allowed stored data remains readable; preserve ordering, filtering, IDs and draft guards. Backup now uses one size-bounded SQLite statement in both languages, preserves one read snapshot and returns the existing 4 MiB backup notice. A generic worker would not repair this result-size failure (LLP 1027.001).
+
+- Mixed resource first-frame bake (LLP 1027.001 D3): `build_mixed` now records actual per-source grants and the union host ceiling, but still bakes initial resource values through the TypeScript module. Support an exclusively Rust-owned resource without a duplicated TS bake placeholder by routing the explicitly declared owners during bake; preserve the no-app-code-before-first-pixel rule and paired replacement. Fieldnotes backup and Update Lab currently prove mixed mutations, not this resource path.
+
+- Rust replacement latency follow-up (2026-09-14, LLP 1029.000): native image preparation now runs off the UI thread and the bake helper stays resident. Six Rust edit/restore cycles reached web, macOS, simulator and iPhone with carried state; three distinct new libraries took 2.6–4.6 s save-to-observed, with macOS probe round trips ≤48 ms. First executable launches can still wait on macOS assessment (including the filesystem helper at dev-server startup). Measure the remaining compiler/producer overhead toward the subsecond warm-edit target; the 20-edit timing and 50-replacement retention probes remain owed. Evidence: `target/update-lab-distinct-repeat-result.json`, `target/update-lab-baker-reuse-check.log`. Later normal-app preparation took 17.6 s behind a ~31 s load. Isolated real-library loads reproduced 70.7 s ad-hoc and 39.1 s development-signed inside `dlopen`, versus <1 ms write/sync in the ad-hoc case. Gatekeeper assessment and concurrent 30 s `syspolicyd` QUIC timeouts are recorded in `target/native-bottleneck-security.log`; loader stage diagnostics now separate queue/write/sync/load. Signing alone is not a fix. The opt-in stateless `tiered` executor now runs the new Wasm while native mapping proceeds, then promotes without a second reload (LLP §4.1); this leaves the OS loading cause and producer timing as follow-ups. A fresh Rust save in the Launch Services app then published in 2.93 s but spent 103.9 s in `dlopen`; the main thread stayed in its event loop. Restore preparation reused the mapping in 19.8 ms, with a separate 36.2 s producer/publication delay still to attribute. The tiered live proof subsequently passed with state/TS retained: 25 ms candidate preparation on two saves, plus 36 ms preparation while a normal-app native load took 54.3 s. Web/simulator/iPhone save-and-restore also passed; the earlier JS-engine-not-loaded diagnostic did not recur in the native traces (`target/update-lab-tiered-result.json`, `target/update-lab-tiered-cross-host-result.json`). Cold helper launches and shared Cargo locks still made initial builds take minutes; this is separate from tiered activation.
+
+- Messages native debug startup (2026-09-14, LLP 1027.001): three conversation tests exceed the 100 ms executor guard during synchronous native Snapback/SQLite initialization. Serial A/B on the same integrated runtime measured 132–151 ms with either the standard TextEncoder or the previous private UTF-8 counter; the helper replacement is not causal. All 13 optimized Messages tests pass. Profile native initialization and its scheduling separately; do not raise the guard or describe the full debug workspace suite as green. Evidence: `/tmp/exact2-language-parity/logs/de55b63-messages-current-serial.log` and the adjacent old-helper log.

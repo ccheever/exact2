@@ -1,15 +1,17 @@
-//! Fieldnotes: the shared Contract UI and deferred TypeScript data module on Apple.
+//! Fieldnotes: shared Contract UI with TypeScript notes and Rust backup on Apple.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
-exact_apple::host!(
-    exact_js::Module,
-    PLAN,
-    COMPAT,
-    None,
-    std::ptr::null(),
-    || exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS)
-);
+type ExactEmbeddedData = exact_data_host::Storage<fieldnotes_data::Data<exact_js::Module>>;
+fn embedded_data() -> ExactEmbeddedData {
+    exact_data_host::Storage::new(fieldnotes_data::mixed(exact_js::Module::new(
+        BYTECODE.to_vec(),
+        APP,
+        GRANTS,
+    )))
+}
+include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);

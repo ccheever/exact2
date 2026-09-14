@@ -62,7 +62,21 @@ impl Executor {
                     .ok()
                     .map(|g| host.endow(g));
                 for job in job_rx {
-                    let outcome = run(bindings.as_ref(), job.request, job.forced, job.work);
+                    let scoped = job.request.grants.as_deref().map(|scope| {
+                        exact_data::storage::scope(&grants, Some(scope))
+                            .and_then(|s| {
+                                ibex2::grant::GrantSet::parse(s).map_err(|e| e.to_string())
+                            })
+                            .map(|g| ibex2::host::Host::new().endow(g))
+                    });
+                    let outcome = match scoped {
+                        Some(Err(message)) => Outcome::Failed {
+                            kind: FailureKind::Refused,
+                            message,
+                        },
+                        Some(Ok(ref b)) => run(Some(b), job.request, job.forced, job.work),
+                        None => run(bindings.as_ref(), job.request, job.forced, job.work),
+                    };
                     if outcome_tx.send((job.ticket, outcome)).is_err() {
                         break;
                     }
@@ -118,6 +132,12 @@ fn run(
     forced: bool,
     work: Option<Box<dyn FnOnce() -> Outcome + Send>>,
 ) -> Outcome {
+    if request.storage.is_some() {
+        return Outcome::Failed {
+            kind: FailureKind::Unsupported,
+            message: "storage requires an app storage adapter".into(),
+        };
+    }
     if request.continuation.is_some() {
         return work.map_or_else(
             || Outcome::Failed {

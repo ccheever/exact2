@@ -1,0 +1,92 @@
+// Edit "Contract v1" and the blue card color for the Contract experiment.
+shape Probe
+  label: string
+  input: number
+  output: number
+
+shape Executor
+  label: string
+
+component UpdateLab
+  state counter = 1
+  state note = "Keep this note through a reload"
+  state live = true
+  mutation tsResult as shape Probe
+  mutation rustResult as shape Probe
+  mutation rustExecutorResult as shape Executor
+
+  action increment writes counter
+    counter = counter + 1
+  action reset writes counter, note
+    counter = 1
+    note = "Keep this note through a reload"
+  action editNote(value) writes note
+    note = value
+  action runTypescript writes tsResult
+    send tsResult = typescriptProbe(counter)
+  action runRust writes rustResult, rustExecutorResult
+    send rustResult = rustProbe(counter)
+    send rustExecutorResult = rustExecutor()
+  action toggleLive writes live
+    live = not live
+  action sample writes tsResult, rustResult, rustExecutorResult
+    if live
+      send tsResult = typescriptProbe(counter)
+      send rustResult = rustProbe(counter)
+      send rustExecutorResult = rustExecutor()
+
+  task probes mount
+    every(250, sample)
+
+  view
+    main testId="update-lab" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" overflow-y="scroll" background-color="#f3f5f9" color="#23304a" padding=20 gap=16
+      column gap=4 flex-shrink=0
+        text "Update Lab" font-size=28 font-weight=700
+        text "One app. Three kinds of source edits." font-size=14 color="#63718a"
+      column padding=18 gap=8 border-radius=12 background-color="#233d62" flex-shrink=0
+        text "CONTRACT" font-size=11 font-weight=700 letter-spacing=1 color="#bccce4"
+        text "Contract v21" testId="contract-version" font-size=24 font-weight=600 color="#ffffff"
+        text "Change this label or the card color in app.contract." font-size=13 color="#e1e8f3"
+      column padding=18 gap=12 border-radius=12 background-color="#ffffff" flex-shrink=0
+        text "State to watch" font-size=18 font-weight=600
+        row gap=12 align-items="center" flex-wrap="wrap"
+          text `Counter: ${counter}` testId="counter" font-size=22 font-weight=600
+          button press=increment testId="increment" aria-label="Increment counter" padding=12 border-radius=8 background-color="#e6ecf7"
+            text "+1" font-size=16 color="#233d62"
+          button press=reset testId="reset" padding=12 border-radius=8 background-color="#f3f5f9"
+            text "Reset" font-size=14 color="#63718a"
+        input value=note change=editNote testId="note" aria-label="Note to watch during updates" width="100%" box-sizing="border-box" padding=12 font-size=14 border-width=1 border-style="solid" border-color="#ccd5e2" border-radius=8
+        text "Change the counter and note before editing a source file." font-size=12 color="#63718a"
+        row gap=12 align-items="center" flex-wrap="wrap"
+          text (live ? "Live probes · every 250 ms" : "Live probes paused") testId="live-status" font-size=12 color="#63718a"
+          button press=toggleLive testId="toggle-live" padding=8 border-radius=8 background-color="#e6ecf7"
+            text (live ? "Pause" : "Resume") color="#233d62" font-size=12
+      column padding=18 gap=10 border-radius=12 background-color="#ffffff" flex-shrink=0
+        text "TYPESCRIPT" font-size=11 font-weight=700 letter-spacing=1 color="#3269a8"
+        match tsResult
+          case some(result)
+            text result.label testId="ts-version" font-size=22 font-weight=600
+            text `${result.input} → ${result.output}` testId="ts-result" font-size=18
+          case none
+            text "Not run yet" testId="ts-version" font-size=22 color="#63718a"
+        when not live
+          button press=runTypescript testId="run-ts" padding=12 background-color="#e6ecf7" border-radius=8
+            text "Run TypeScript" color="#233d62" font-weight=600
+          text "Edit VERSION or MULTIPLIER in app.ts; live probes show the new result." font-size=12 color="#63718a"
+      column padding=18 gap=10 border-radius=12 background-color="#ffffff" flex-shrink=0
+        text "RUST" font-size=11 font-weight=700 letter-spacing=1 color="#a15d34"
+        match rustResult
+          case some(result)
+            text result.label testId="rust-version" font-size=22 font-weight=600
+            text `${result.input} → ${result.output}` testId="rust-result" font-size=18
+          case none
+            text "Not run yet" testId="rust-version" font-size=22 color="#63718a"
+        match rustExecutorResult
+          case some(executor)
+            text `Executor: ${executor.label}` testId="rust-executor" font-size=12 color="#63718a"
+          case none
+            text "Executor: waiting" testId="rust-executor" font-size=12 color="#63718a"
+        when not live
+          button press=runRust testId="run-rust" padding=12 background-color="#f6eade" border-radius=8
+            text "Run Rust" color="#8c4d29" font-weight=600
+          text "Edit VERSION or MULTIPLIER in data/src/probe.rs; live probes show the new result." font-size=12 color="#63718a"

@@ -30,4 +30,15 @@ fn main() {
     let compat = contract::compatibility_id(&app_dir, platform, &target, &manifest, Some(grants))
         .unwrap_or_else(|e| panic!("compatibility id: {e}"));
     std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
+    let entry = contract::rust_entry(
+        "markdown_data::Markdown",
+        "markdown_data::Markdown::new()",
+        compat.inputs["rustMode"].as_str().unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        out_dir.join("entry.rs"),
+        format!("{entry}\nexact_web::host!(AppData, PLAN, COMPAT, app_data);\n"),
+    )
+    .unwrap();
 }

@@ -40,7 +40,15 @@ fn main() {
     };
     std::fs::write(
         out_dir.join("entry.rs"),
-        format!("{host}::host!(llp_data::Llp, PLAN, COMPAT);\n"),
+        format!(
+            "{}\n{host}::host!(AppData, PLAN, COMPAT);\n",
+            contract::rust_entry(
+                "llp_data::Llp",
+                "llp_data::Llp::new()",
+                compat.inputs["rustMode"].as_str().unwrap()
+            )
+            .unwrap()
+        ),
     )
     .unwrap();
 }

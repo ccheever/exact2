@@ -3,5 +3,10 @@ fn main() {
         Ok("ios") => "ios",
         _ => "macos",
     };
-    exact_js_bake::build(std::path::Path::new(".."), platform).expect("bake Fieldnotes");
+    exact_js_bake::build_mixed(
+        std::path::Path::new(".."),
+        platform,
+        &fieldnotes_data::Backup::default(),
+    )
+    .expect("bake Fieldnotes");
 }

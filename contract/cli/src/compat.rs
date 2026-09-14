@@ -50,6 +50,57 @@ pub struct Manifest {
 }
 
 impl Manifest {
+    /// Resolve the replacement executor baked into a platform/environment.
+    /// Matches `scripts/app.mjs::rustPolicy` (LLP 1029.000 §2): global,
+    /// environment, platform, then platform environment; true means auto.
+    pub fn rust_mode(&self, platform: &str, development: bool) -> Result<&'static str, String> {
+        if !matches!(
+            platform,
+            "web" | "ios" | "macos" | "linux" | "android" | "windows"
+        ) {
+            return Err(format!("unknown Rust replacement platform: {platform}"));
+        }
+        let policy = self.json.get("rust");
+        if let Some(value) = policy {
+            validate_rust_policy(value, 2)?;
+        }
+        let environment = if development { "dev" } else { "prod" };
+        let surface = policy
+            .and_then(|p| p.get("platforms"))
+            .and_then(|p| p.get(platform));
+        let mut mode = "auto";
+        for value in [
+            policy,
+            policy.and_then(|p| p.get(environment)),
+            surface,
+            surface.and_then(|p| p.get(environment)),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            mode = match value {
+                serde_json::Value::Bool(true) => "auto",
+                serde_json::Value::Bool(false) => "off",
+                serde_json::Value::String(s) => s,
+                serde_json::Value::Object(o) => {
+                    o.get("mode").and_then(|v| v.as_str()).unwrap_or(mode)
+                }
+                _ => unreachable!("policy validated above"),
+            };
+        }
+        match (mode, platform) {
+            ("off", _) => Ok("off"),
+            ("native" | "tiered", "web" | "ios") => Err(format!(
+                "rust: {mode} replacement is unavailable on {platform}; use wasm or off"
+            )),
+            (_, "web") => Ok("browser"),
+            ("tiered", _) => Ok("tiered"),
+            ("wasm", _) | ("auto", "ios") => Ok("wasm"),
+            ("auto", "android") if !development => Ok("wasm"),
+            _ => Ok("native"),
+        }
+    }
+
     /// `app.json` in `app_dir`, or the derived defaults: `com.exact.<name>`
     /// and the directory's name capitalized.
     pub fn read(app_dir: &Path) -> Result<Manifest, String> {
@@ -201,6 +252,68 @@ impl Manifest {
     }
 }
 
+// Depth 2 is global (platform overrides and the module declaration), depth
+// 1 is a platform (environment overrides), depth 0 is an environment choice.
+fn validate_rust_policy(value: &serde_json::Value, depth: u8) -> Result<(), String> {
+    use serde_json::Value;
+    let valid_mode = |v: &Value| {
+        v.as_str()
+            .is_some_and(|m| matches!(m, "auto" | "native" | "tiered" | "wasm" | "off"))
+    };
+    match value {
+        Value::Bool(_) => Ok(()),
+        Value::String(_) if valid_mode(value) => Ok(()),
+        Value::Object(object) => {
+            for (key, value) in object {
+                match key.as_str() {
+                    "mode" if valid_mode(value) => {}
+                    "dev" | "prod" if depth > 0 => validate_rust_policy(value, 0)?,
+                    "platforms" if depth == 2 => {
+                        let platforms = value
+                            .as_object()
+                            .ok_or("rust.platforms must be an object")?;
+                        for (platform, policy) in platforms {
+                            if !matches!(
+                                platform.as_str(),
+                                "web" | "ios" | "macos" | "linux" | "android" | "windows"
+                            ) {
+                                return Err(format!(
+                                    "unknown Rust replacement platform: {platform}"
+                                ));
+                            }
+                            validate_rust_policy(policy, 1)?;
+                        }
+                    }
+                    "module" if depth == 2 => {
+                        let module = value.as_object().ok_or("rust.module must be an object")?;
+                        if module.len() != 1
+                            || !module
+                                .get("package")
+                                .and_then(Value::as_str)
+                                .is_some_and(|s| {
+                                    !s.is_empty()
+                                        && s.bytes().all(|c| {
+                                            c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_')
+                                        })
+                                })
+                        {
+                            return Err(
+                                "rust.module requires a Cargo package name in `package`".into()
+                            );
+                        }
+                    }
+                    _ => return Err(format!("invalid rust policy key or value: {key}")),
+                }
+            }
+            Ok(())
+        }
+        _ => Err(
+            "rust policy must be boolean, auto/native/tiered/wasm/off, or an override object"
+                .into(),
+        ),
+    }
+}
+
 /// The id and the inputs it digests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Compat {
@@ -262,6 +375,20 @@ pub fn compatibility_id(
     manifest: &Manifest,
     grants: Option<&str>,
 ) -> Result<Compat, String> {
+    compatibility_id_sources(app_dir, platform, target, manifest, grants, None)
+}
+
+/// Compatibility for separately owned language sources. With `rust_grants`,
+/// `grants` describes JavaScript; the host admits their union and hashes each
+/// child's exact grant declaration independently.
+pub fn compatibility_id_sources(
+    app_dir: &Path,
+    platform: &str,
+    target: &str,
+    manifest: &Manifest,
+    grants: Option<&str>,
+    rust_grants: Option<&str>,
+) -> Result<Compat, String> {
     // Cargo must rebake even when only the explicit trust selection changes.
     // External apps call this same entrypoint from their own build scripts.
     if std::env::var_os("OUT_DIR").is_some() {
@@ -272,7 +399,18 @@ pub fn compatibility_id(
         Err(std::env::VarError::NotPresent) => "production".into(),
         Err(_) => return Err("EXACT_UPDATE_TRUST is not UTF-8".into()),
     };
-    let mut compat = compatibility_with_trust(app_dir, platform, target, manifest, grants, &trust)?;
+    let ceiling = rust_grants.map(|rust| grant_union(grants.unwrap_or(""), rust));
+    let mut compat = compatibility_with_trust(
+        app_dir,
+        platform,
+        target,
+        manifest,
+        ceiling.as_deref().or(grants),
+        &trust,
+    )?;
+    if let Some(rust) = rust_grants {
+        source_scopes(&mut compat, grants.unwrap_or(""), rust);
+    }
     if let Some(out) = std::env::var_os("OUT_DIR") {
         crate::receipt::emit(
             &mut compat,
@@ -284,6 +422,45 @@ pub fn compatibility_id(
         )?;
     }
     Ok(compat)
+}
+
+fn grant_union(javascript: &str, rust: &str) -> String {
+    let union = [javascript, rust]
+        .into_iter()
+        .flat_map(str::lines)
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join("\n");
+    // Match Mixed::grants: retain the existing receipt spelling when Rust adds
+    // no capability; otherwise the combined ceiling is deterministic.
+    if union
+        .lines()
+        .all(|line| javascript.lines().map(str::trim).any(|grant| grant == line))
+    {
+        javascript.into()
+    } else {
+        union
+    }
+}
+
+fn source_scopes(compat: &mut Compat, javascript: &str, rust: &str) {
+    compat.inputs["grantCeiling"] = serde_json::Value::String(grant_union(javascript, rust));
+    compat.inputs["javascriptGrants"] = serde_json::Value::String(javascript.into());
+    compat.inputs["rustGrants"] = serde_json::Value::String(rust.into());
+    compat.id = compatibility_digest(&compat.inputs);
+}
+
+fn compatibility_digest(inputs: &serde_json::Value) -> String {
+    let mut canon = String::new();
+    canonical(inputs, &mut canon);
+    let mut h = Sha256::new();
+    h.update(DOMAIN.as_bytes());
+    h.update(canon.as_bytes());
+    let digest = h.finalize();
+    digest[..16].iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn compatibility_with_trust(
@@ -329,7 +506,34 @@ fn compatibility_with_trust(
         return Err("production updater requires deploy.signing.keys with at least one verification key; use EXACT_UPDATE_TRUST=development only for a development artifact".into());
     }
     let host = manifest.host(platform);
-    let executors = executors(app_dir, platform);
+    let rust_mode = manifest.rust_mode(platform, trust == "development")?;
+    let mut executors = executors(app_dir, platform);
+    let rust_target = match rust_mode {
+        "tiered" => {
+            executors.push("native-dylib".into());
+            executors.push("wasmi".into());
+            Some(target)
+        }
+        "native" => {
+            executors.push("native-dylib".into());
+            Some(target)
+        }
+        "wasm" => {
+            executors.push("wasmi".into());
+            Some("wasm32-unknown-unknown")
+        }
+        "browser" => {
+            executors.push("browser-wasm".into());
+            Some("wasm32-unknown-unknown")
+        }
+        _ => None,
+    };
+    executors.sort();
+    executors.dedup();
+    let rust_module = manifest
+        .json
+        .pointer("/rust/module/package")
+        .and_then(Value::as_str);
     let hermes = executors.iter().any(|e| e == "hermes");
     let wasmtime = executors.iter().any(|e| e == "wasmtime");
     let mut kinds = vec!["plan", "assets"];
@@ -370,6 +574,10 @@ fn compatibility_with_trust(
         "formatDigest": format!("{:016x}", exact_plan::FORMAT_DIGEST),
         "abi": { "c": abi_version()?, "gpuModule": GPU_MODULE_ABI, "storeCodec": if binary_only { Value::Null } else { json!(STORE_CODEC) } },
         "executors": executors,
+        "rustMode": rust_mode,
+        "rustAbi": if rust_mode == "off" { Value::Null } else { json!(2) },
+        "rustTarget": rust_target,
+        "rustModule": rust_module,
         "dataCrate": data_crate(app_dir)?,
         // Each shader's reflected interface digest (LLP 1030 D8) — entry
         // points, bindings, layouts, inputs, outputs, overrides, never the
@@ -389,19 +597,15 @@ fn compatibility_with_trust(
         "keys": keys,
         "trust": if binary_only { Value::Null } else { json!(trust) },
         "grantCeiling": grants.map_or(Value::Null, |g| Value::String(g.to_string())),
+        "javascriptGrants": Value::Null,
+        "rustGrants": grants.map_or(Value::Null, |g| Value::String(g.to_string())),
         "platform": platform,
         "arch": target.split('-').next().unwrap_or(target),
         "minimumOS": host.get("minimumOS").and_then(|v| v.as_str()).map_or(Value::Null, |s| Value::String(s.to_string())),
         "store": { "L": store, "acceptedKinds": if binary_only { vec![] } else { kinds } },
         "app": manifest.id,
     });
-    let mut canon = String::new();
-    canonical(&inputs, &mut canon);
-    let mut h = Sha256::new();
-    h.update(DOMAIN.as_bytes());
-    h.update(canon.as_bytes());
-    let digest = h.finalize();
-    let id = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
+    let id = compatibility_digest(&inputs);
     Ok(Compat {
         id,
         inputs,
@@ -595,6 +799,107 @@ mod tests {
     use super::{compatibility_with_trust, Manifest};
     use std::path::{Path, PathBuf};
 
+    #[test]
+    fn mixed_source_ownership_is_hashed_even_when_the_host_ceiling_is_unchanged() {
+        let dir = app("mixed-source-grants");
+        let manifest = Manifest::read(&dir).unwrap();
+        let mut compat = compatibility_with_trust(
+            &dir,
+            "web",
+            "wasm32-unknown-unknown",
+            &manifest,
+            Some(""),
+            "development",
+        )
+        .unwrap();
+        let javascript = "net.fetch https://example.test/";
+        let rust = "fs.read app:/data/rust";
+        super::source_scopes(&mut compat, javascript, rust);
+        assert_eq!(
+            compat.inputs["grantCeiling"],
+            format!("{rust}\n{javascript}")
+        );
+        assert_eq!(compat.inputs["javascriptGrants"], javascript);
+        assert_eq!(compat.inputs["rustGrants"], rust);
+        let first = compat.id.clone();
+        super::source_scopes(&mut compat, &format!("{rust}\n{javascript}"), rust);
+        assert_eq!(
+            compat.inputs["grantCeiling"],
+            format!("{rust}\n{javascript}")
+        );
+        assert_ne!(
+            compat.id, first,
+            "a child gaining a sibling's grant changes compatibility"
+        );
+        let second = compat.id.clone();
+        super::source_scopes(&mut compat, &format!("{rust}\n{javascript}"), javascript);
+        assert_ne!(
+            compat.id, second,
+            "Rust grant ownership is hashed independently"
+        );
+        let spelling = format!("{javascript}\n{rust}\n");
+        super::source_scopes(&mut compat, &spelling, rust);
+        assert_eq!(
+            compat.inputs["grantCeiling"], spelling,
+            "subset sources retain the JS receipt spelling like Mixed"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn rust_policy_inherits_and_refuses_invalid_configuration() {
+        let mut m = Manifest {
+            json: serde_json::json!({}),
+            id: "com.example.app".into(),
+            name: "App".into(),
+            declared: true,
+        };
+        for (platform, dev, prod) in [
+            ("web", "browser", "browser"),
+            ("ios", "wasm", "wasm"),
+            ("macos", "native", "native"),
+            ("linux", "native", "native"),
+            ("android", "native", "wasm"),
+            ("windows", "native", "native"),
+        ] {
+            assert_eq!(m.rust_mode(platform, true).unwrap(), dev);
+            assert_eq!(m.rust_mode(platform, false).unwrap(), prod);
+        }
+        m.json["rust"] = serde_json::json!({"mode":"off","dev":true,"prod":false,"module":{"package":"app-data"},"platforms":{"ios":{"mode":"wasm","prod":false},"linux":{"prod":true}}});
+        assert_eq!(m.rust_mode("ios", true).unwrap(), "wasm");
+        assert_eq!(m.rust_mode("ios", false).unwrap(), "off");
+        assert_eq!(m.rust_mode("linux", false).unwrap(), "native");
+        assert_eq!(m.rust_mode("macos", false).unwrap(), "off");
+        m.json["rust"] = serde_json::json!({"prod":false,"platforms":{"ios":true}});
+        assert_eq!(m.rust_mode("ios", false).unwrap(), "wasm");
+        for policy in [
+            serde_json::json!(null),
+            serde_json::json!("jit"),
+            serde_json::json!({"enabled":false}),
+            serde_json::json!({"mode":false}),
+            serde_json::json!({"platforms":{"iphone":false}}),
+            serde_json::json!({"dev":{"prod":false}}),
+            serde_json::json!({"module":{"package":"bad/path"}}),
+            serde_json::json!({"module":{}}),
+        ] {
+            m.json["rust"] = policy;
+            assert!(m.rust_mode("ios", true).is_err(), "{}", m.json);
+        }
+        m.json["rust"] = serde_json::json!("native");
+        assert!(m.rust_mode("ios", true).is_err());
+        assert!(m.rust_mode("web", true).is_err());
+        m.json["rust"] = serde_json::json!({"platforms":{"macos":{"dev":"tiered","prod":"native"},"linux":{"mode":"tiered","prod":false}}});
+        assert_eq!(m.rust_mode("macos", true).unwrap(), "tiered");
+        assert_eq!(m.rust_mode("macos", false).unwrap(), "native");
+        assert_eq!(m.rust_mode("linux", true).unwrap(), "tiered");
+        assert_eq!(m.rust_mode("linux", false).unwrap(), "off");
+        m.json["rust"] = serde_json::json!("tiered");
+        assert!(m.rust_mode("web", true).is_err());
+        assert!(m.rust_mode("ios", false).is_err());
+        m.json["rust"] = serde_json::json!(false);
+        assert_eq!(m.rust_mode("ios", true).unwrap(), "off");
+    }
+
     /// A minimal app: a data crate with one file, a manifest with one icon
     /// and a deploy policy, no shaders.
     fn app(name: &str) -> PathBuf {
@@ -683,6 +988,10 @@ mod tests {
             "formatDigest",
             "abi",
             "executors",
+            "rustMode",
+            "rustAbi",
+            "rustTarget",
+            "rustModule",
             "dataCrate",
             "gpuSurfaces",
             "nativeModules",
@@ -700,7 +1009,11 @@ mod tests {
             assert!(i.get(key).is_some(), "missing {key}: {i}");
         }
         assert_eq!(i["abi"]["c"], super::abi_version().unwrap());
-        assert_eq!(i["executors"], serde_json::json!(["native"]));
+        assert_eq!(i["rustMode"], "wasm");
+        assert_eq!(i["rustAbi"], 2);
+        assert_eq!(i["rustTarget"], "wasm32-unknown-unknown");
+        assert!(i["rustModule"].is_null());
+        assert_eq!(i["executors"], serde_json::json!(["native", "wasmi"]));
         assert_eq!(i["arch"], "aarch64");
         assert_eq!(i["minimumOS"], "17.0");
         assert_eq!(
@@ -737,6 +1050,51 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
     #[test]
+    fn rust_capability_receipts_bind_executor_abi_target_and_module() {
+        let dir = app("rust-capabilities");
+        let mut manifest = Manifest::read(&dir).unwrap();
+        let mut ids = Vec::new();
+        for (mode, target, executor) in [
+            ("native", Some("aarch64-apple-darwin"), Some("native-dylib")),
+            ("wasm", Some("wasm32-unknown-unknown"), Some("wasmi")),
+            ("off", None, None),
+        ] {
+            manifest.json["rust"] =
+                serde_json::json!({"mode":mode,"module":{"package":"app-logic"}});
+            let receipt = compatibility_with_trust(
+                &dir,
+                "macos",
+                "aarch64-apple-darwin",
+                &manifest,
+                Some(""),
+                "development",
+            )
+            .unwrap();
+            assert_eq!(receipt.inputs["rustModule"], "app-logic");
+            assert_eq!(receipt.inputs["rustTarget"], serde_json::json!(target));
+            assert_eq!(
+                receipt.inputs["rustAbi"],
+                if mode == "off" {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::json!(2)
+                }
+            );
+            let expected = executor.map_or_else(
+                || serde_json::json!(["native"]),
+                |e| serde_json::json!(["native", e]),
+            );
+            assert_eq!(receipt.inputs["executors"], expected);
+            assert!(
+                !ids.contains(&receipt.id),
+                "executor capability changes cohort identity"
+            );
+            ids.push(receipt.id);
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn web_receipts_name_the_linked_composition_and_refuse_an_unlinked_store() {
         let dir = app("web-zero");
         let mut manifest = Manifest::read(&dir).unwrap();
@@ -753,7 +1111,7 @@ mod tests {
             assert_eq!(plain.inputs["store"]["L"], "0");
             assert_eq!(
                 plain.inputs["executors"],
-                serde_json::json!(["browser", "native"])
+                serde_json::json!(["browser", "browser-wasm", "native"])
             );
             assert_eq!(
                 plain.inputs["store"]["acceptedKinds"],

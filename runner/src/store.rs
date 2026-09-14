@@ -21,6 +21,8 @@ use crate::runner::DataError;
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Store {
     granted: Vec<String>,
+    /// A child executor may see only the intersection with its own grants.
+    restricted: bool,
     values: std::collections::BTreeMap<String, String>,
     writes: Vec<StoreWrite>,
     /// Monotonic within a transaction; restored with a refused transaction.
@@ -83,6 +85,7 @@ impl Store {
             .collect();
         Store {
             granted,
+            restricted: false,
             values,
             writes: Vec::new(),
             revision: 0,
@@ -95,8 +98,40 @@ impl Store {
         &self.granted
     }
 
+    /// Run one child executor with only its admitted secret grants. Values,
+    /// observations, and writes remain in this transaction; even unwinding
+    /// restores the caller's grant scope. Nested scopes can only narrow access.
+    pub fn with_grants<T>(&mut self, grants: &str, call: impl FnOnce(&mut Store) -> T) -> T {
+        struct Scope<'a> {
+            store: &'a mut Store,
+            granted: Vec<String>,
+            restricted: bool,
+        }
+        impl Drop for Scope<'_> {
+            fn drop(&mut self) {
+                self.store.granted = std::mem::take(&mut self.granted);
+                self.store.restricted = self.restricted;
+            }
+        }
+        let admitted = Store::new(grants, []).granted;
+        let narrowed = self
+            .granted
+            .iter()
+            .filter(|name| admitted.contains(name))
+            .cloned()
+            .collect();
+        let granted = std::mem::replace(&mut self.granted, narrowed);
+        let restricted = std::mem::replace(&mut self.restricted, true);
+        let scope = Scope {
+            store: self,
+            granted,
+            restricted,
+        };
+        call(scope.store)
+    }
+
     fn is_granted(&self, name: &str) -> bool {
-        self.granted.iter().any(|g| g == name)
+        !Self::is_kept(name) && self.granted.iter().any(|g| g == name)
     }
 
     /// The runner's own names (LLP 1027 D4): a kept answer for a
@@ -137,6 +172,9 @@ impl Store {
             return None;
         }
         self.reads.set(self.reads.get() + 1);
+        if !self.is_granted(name) {
+            return None;
+        }
         self.values.get(name).map(String::as_str)
     }
 
@@ -172,20 +210,33 @@ impl Store {
 
     /// The names with a kept value, sorted — never the values.
     pub fn names(&self) -> Vec<&str> {
-        self.values.keys().map(String::as_str).collect()
+        self.values
+            .keys()
+            .filter(|name| !self.restricted || self.is_granted(name))
+            .map(String::as_str)
+            .collect()
     }
 
     /// Everything kept: what a reload carries (`Carried::store`).
     pub fn snapshot(&self) -> Vec<(String, String)> {
         self.values
             .iter()
+            .filter(|(name, _)| !self.restricted || self.is_granted(name))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
     }
 
     /// The writes since the last take, in order.
     pub fn take_writes(&mut self) -> Vec<StoreWrite> {
-        std::mem::take(&mut self.writes)
+        if !self.restricted {
+            return std::mem::take(&mut self.writes);
+        }
+        // A child cannot inspect another child's pending secret values.
+        let (visible, hidden) = std::mem::take(&mut self.writes)
+            .into_iter()
+            .partition(|write: &StoreWrite| self.is_granted(&write.name));
+        self.writes = hidden;
+        visible
     }
 
     /// Observe app filesystem or database access without reading a secret.

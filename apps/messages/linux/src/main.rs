@@ -71,6 +71,12 @@ impl DataSource for Messages {
         self.0.continuation(token)
     }
 }
+type ExactEmbeddedData = Messages;
+fn embedded_data() -> ExactEmbeddedData {
+    Messages::default()
+}
+include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+
 fn main() {
-    std::process::exit(exact_linux::run::<Messages>(PLAN, COMPAT));
+    std::process::exit(exact_linux::run::<AppData>(PLAN, COMPAT));
 }
