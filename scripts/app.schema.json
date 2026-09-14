@@ -430,6 +430,9 @@
             "prod": {
               "$ref": "#/$defs/rustChoice"
             },
+            "placement": {
+              "$ref": "#/$defs/placement"
+            },
             "platforms": {
               "type": "object",
               "properties": {
@@ -473,6 +476,28 @@
         }
       ],
       "description": "Rust live replacement, enabled by default in dev and prod. Resolve root, environment, platform, then platform environment. false/off removes replacement support at bake; true/auto uses browser Wasm, iOS Wasm interpreter, native desktop, Android native dev / Wasm prod. Android and Windows hosts remain future work."
+    },
+    "typescript": {
+      "type": "object",
+      "properties": {
+        "placement": {
+          "$ref": "#/$defs/placement"
+        },
+        "platforms": {
+          "type": "object",
+          "properties": {
+            "web": { "$ref": "#/$defs/placementPolicy" },
+            "ios": { "$ref": "#/$defs/placementPolicy" },
+            "macos": { "$ref": "#/$defs/placementPolicy" },
+            "linux": { "$ref": "#/$defs/placementPolicy" },
+            "android": { "$ref": "#/$defs/placementPolicy" },
+            "windows": { "$ref": "#/$defs/placementPolicy" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "description": "The TypeScript module's placement (LLP 1027.002), globally and per platform."
     },
     "dev": {
       "type": "object",
@@ -684,11 +709,31 @@
             },
             "prod": {
               "$ref": "#/$defs/rustChoice"
+            },
+            "placement": {
+              "$ref": "#/$defs/placement"
             }
           },
           "additionalProperties": false
         }
       ]
+    },
+    "placement": {
+      "type": "string",
+      "enum": [
+        "main",
+        "worker"
+      ],
+      "description": "Where the module instance runs (LLP 1027.002 D1): on the runner's thread, or on an owner of its own. A change is a new compatibility id."
+    },
+    "placementPolicy": {
+      "type": "object",
+      "properties": {
+        "placement": {
+          "$ref": "#/$defs/placement"
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

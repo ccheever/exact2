@@ -9,6 +9,8 @@ description = "Build-time TypeScript bundling and Contract baking; never linked 
 [dependencies]
 contract = { path = "../../contract/cli" }
 exact-js = { path = ".." }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }
 serde_json = "1.0"
 sha2 = "0.10"
 

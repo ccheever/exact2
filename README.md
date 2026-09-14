@@ -160,6 +160,13 @@ bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
 types, and an `app.module.json` pairing receipt into a **new** directory; it
 never overwrites an existing generation. npm dependencies are not captured yet.
 `EXACT_TSC`, `EXACT_ROLLDOWN`, and `EXACT_HERMESC` override producer tools.
+A module's placement (LLP 1027.002) is the manifest's: `typescript.placement`
+and `rust.placement` are `main` (the default) or `worker`, overridable per
+platform under `platforms.<platform>.placement`; `EXACT_TYPESCRIPT_PLACEMENT`
+and `EXACT_RUST_PLACEMENT` override a bake for a measurement. A change is a new
+compatibility id, never an update. `build_mixed_with` bakes a mixed app through
+its own composer, so a resource only Rust owns needs no TypeScript placeholder;
+the development producer keeps such a resource's last Cargo-baked value.
 
 Native module clients can supply a `Module` factory to `exact_apple::host!`
 (the sixth argument) and apply an `ExactGeneration` containing an `ExactModule`

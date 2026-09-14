@@ -1,7 +1,9 @@
 //! Native transport scheduling shared by Apple and Linux (LLP 1041 D1–D4).
 //! Only explicitly independent HTTP leaves the ordered lane. Each worker has
 //! its own bindings and transport, so held data cannot consume control leases.
-use exact_runner::{FailureKind, HttpScheduling, Outcome, Request, RequestOut, Response};
+use exact_runner::{
+    FailureKind, HttpScheduling, Outcome, Reply, Request, RequestOut, Response, Work,
+};
 use ibex2::stdlib::abort::AbortController;
 use std::collections::VecDeque;
 use std::sync::{
@@ -18,7 +20,6 @@ const MAX_REQUEST: usize = 4 << 20;
 const MAX_BODY: usize = 64 << 20;
 const MAX_HEADERS: usize = 64 << 10;
 
-type Work = Box<dyn FnOnce() -> Outcome + Send>;
 type Wake = Box<dyn Fn() + Send + Sync>;
 struct Job {
     ticket: u64,
@@ -301,7 +302,7 @@ fn worker(
         bindings
     };
     loop {
-        let job = {
+        let mut job = {
             let mut state = shared.state.lock().unwrap();
             loop {
                 if state.retired {
@@ -316,6 +317,30 @@ fn worker(
                 state = shared.ready.wait(state).unwrap();
             }
         };
+        let work = match job.work.take() {
+            Some(Work::Later(hand))
+                if job.request.continuation.is_some() && job.request.storage.is_none() =>
+            {
+                let completion = shared.clone();
+                let ticket = job.ticket;
+                let bytes = job.bytes;
+                let reply = Reply::new(move |outcome| {
+                    let mut state = completion.state.lock().unwrap();
+                    if !state.retired {
+                        state.completed[lane].push_back(Completed {
+                            ticket,
+                            outcome: bounded_outcome(outcome, bytes),
+                            bytes,
+                        });
+                        wake(&mut state);
+                    }
+                });
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hand(reply)));
+                continue;
+            }
+            Some(Work::Now(work)) => Some(work),
+            _ => None,
+        };
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let scoped = job.request.grants.as_deref().map(|scope| {
                 exact_data::storage::scope(&grants, Some(scope))
@@ -324,18 +349,14 @@ fn worker(
             });
             match scoped {
                 Some(Err(message)) => failed(FailureKind::Refused, message),
-                Some(Ok(ref scoped)) => execute(
-                    Some(scoped),
-                    job.request,
-                    job.forced,
-                    job.work,
-                    &shared.abort,
-                ),
+                Some(Ok(ref scoped)) => {
+                    execute(Some(scoped), job.request, job.forced, work, &shared.abort)
+                }
                 None => execute(
                     bindings.as_ref(),
                     job.request,
                     job.forced,
-                    job.work,
+                    work,
                     &shared.abort,
                 ),
             }
@@ -390,7 +411,7 @@ fn execute(
     bindings: Option<&ibex2::host::Bindings>,
     request: Request,
     forced: bool,
-    work: Option<Work>,
+    work: Option<Box<dyn FnOnce() -> Outcome + Send>>,
     abort: &AbortController,
 ) -> Outcome {
     if abort.signal().aborted() {

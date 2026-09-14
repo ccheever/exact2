@@ -3,7 +3,7 @@
 import { createFileSystem } from './storage-fs.js';
 import { createSqlite } from './storage-sqlite.js';
 
-export function createStorage(win, admitted, scope) {
+export function createStorage(win, admitted, scope, agent = new URL(location.href).searchParams.has('agent')) {
   const fs = createFileSystem(admitted.appId, admitted.grants);
   const sqlite = createSqlite(admitted.appId, admitted.grants);
   const queues = new Map(), waiters = new Map(), retired = new WeakSet();
@@ -13,7 +13,7 @@ export function createStorage(win, admitted, scope) {
   const clone = value => win.structuredClone(value);
   function enqueue(invoke, convert = clone, discard = () => {}) {
     if (disposed) return win.Promise.reject(unavailable());
-    if (new URL(location.href).searchParams.has('agent')) return win.Promise.reject(error({message:'storage is unavailable in agent mode'}));
+    if (agent) return win.Promise.reject(error({message:'storage is unavailable in agent mode'}));
     const owner = scope();
     return new win.Promise((resolve, reject) => {
       const ready = (complete, cleanup = () => {}) => {

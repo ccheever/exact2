@@ -48,6 +48,7 @@ export async function prepare(payload, admitted, id = nextId++) {
   admitted = {...admitted,grants:meta.grants};
   prelude ??= read(new URL('./module-prelude.js', import.meta.url), 256 * 1024).then(bytes => decoder.decode(bytes)).catch(error => { prelude = null; throw error; });
   const before = await prelude;
+  if (admitted.placement === 'worker') return prepareWorker(payload, admitted, id, before, meta);
   const frame = document.createElement('iframe'); frame.hidden = true;
   frame.setAttribute('aria-hidden', 'true'); document.body.append(frame);
   const win = frame.contentWindow;
@@ -107,7 +108,9 @@ export async function prepare(payload, admitted, id = nextId++) {
     };
     const defer = request => {
       const token = nextTurn++;
-      turns.set(token, {id, run: () => {
+      // `request.store` is replaced at dispatch, on the runner's thread,
+      // with the store as committed then (LLP 1027.002 D3, change 1).
+      turns.set(token, {id, request, run: () => {
         const run = tail.then(async () => {
           if (disposed) throw new Error('module environment disposed');
           try {
@@ -132,7 +135,7 @@ export async function prepare(payload, admitted, id = nextId++) {
       }});
       return {continuation:token};
     };
-    const realm = { frame, meta, id,
+    const realm = { frame, meta, id, placement: 'main',
       invoke(request) {
         // A context is installed only inside the queue that will finish it.
         // The host may run continuation tokens in a different order from calls.
@@ -146,11 +149,58 @@ export async function prepare(payload, admitted, id = nextId++) {
     realms.set(id, realm); return realm;
   } catch (error) { storage?.dispose(); frame.remove(); throw error; }
 }
+// The module's realm on a dedicated Worker (LLP 1027.002 D2): the prelude,
+// storage capability and turn discipline of the iframe realm, off the
+// page's main thread (module-worker.js). Same interface as the iframe realm.
+async function prepareWorker(payload, admitted, id, before, meta) {
+  const worker = new Worker(new URL('./module-worker.js', import.meta.url), { type: 'module' });
+  const waiting = new Map();
+  let disposed = false;
+  const fail = message => { for (const w of waiting.values()) w.reject(new Error(message)); waiting.clear(); };
+  worker.onmessage = ({ data }) => {
+    const w = waiting.get(data.token); if (!w) return;
+    waiting.delete(data.token);
+    if (data.error !== undefined) w.reject(new Error(data.error)); else w.resolve(data.result);
+  };
+  worker.onerror = event => { event.preventDefault(); fail(`module worker failed: ${event.message}`); };
+  worker.onmessageerror = () => fail('module worker message failed');
+  const ready = new Promise((resolve, reject) => waiting.set(0, { resolve, reject }));
+  worker.postMessage({ op: 'init', token: 0, prelude: before, script: decoder.decode(payload.script), admitted,
+    agent: new URL(location.href).searchParams.has('agent') });
+  try { await ready; } catch (error) { worker.terminate(); throw error; }
+  const realm = { frame: null, meta, id, placement: 'worker',
+    invoke(request) {
+      const token = nextTurn++;
+      turns.set(token, {id, request, run: () => new Promise((resolve, reject) => {
+        if (disposed) return reject(new Error('module environment disposed'));
+        waiting.set(token, { resolve, reject });
+        worker.postMessage({ op: 'turn', token, request });
+      })});
+      return {continuation: token};
+    },
+    dispose() {
+      disposed = true; fail('module environment disposed'); worker.terminate(); realms.delete(id);
+      for (const [token, turn] of turns) if (turn.id === id) turns.delete(token);
+    },
+  };
+  realms.set(id, realm); return realm;
+}
 export function call(request) {
   const realm = realms.get(request.id);
   if (!realm) return { error: 'browser module not loaded' };
-  if (request.op === 'activate') return realm.meta.appId === request.appId && realm.meta.grants.trim() === request.grants.trim() && realm.meta.module.sha256 === request.revision
+  if (request.op === 'activate') return realm.meta.appId === request.appId && realm.meta.grants.trim() === request.grants.trim() && realm.meta.module.sha256 === request.revision && realm.placement === (request.placement ?? 'main')
     ? { ok: true } : { error: 'browser module admission mismatch' };
+  if (request.op === 'dispatch') {
+    const turn = turns.get(request.token);
+    if (!turn || turn.id !== request.id) return { error: 'browser continuation is no longer live' };
+    turn.request.store = request.store; turn.request.grants = request.grants;
+    return { ok: true };
+  }
+  if (request.op === 'discard') {
+    const turn = turns.get(request.token);
+    if (turn && turn.id === request.id) turns.delete(request.token);
+    return { ok: true };
+  }
   if (request.op === 'answer' || request.op === 'resume') return realm.invoke(request);
   return { error: 'unknown browser module operation' };
 }

@@ -24,7 +24,7 @@ pub use carry::Carried;
 pub use router::RouterChange;
 
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
-use crate::request::{Answer, Outcome, Request, RequestOut};
+use crate::request::{Answer, Dispatch, Outcome, Request, RequestOut};
 use crate::store::{Store, StoreWrite};
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
 use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
@@ -953,19 +953,29 @@ impl<D: DataSource> Runner<D> {
             let m = *m as usize;
             let mrow = self.plan.mutations[m].clone();
             let name = self.plan.str(mrow.name).to_string();
-            let answer = self
-                .data
-                .answer(&mut self.store, source, sargs)
-                .map_err(|error| RunnerError::Data {
-                    resource: name.clone(),
-                    error,
-                })?;
+            let answer = match self.data.answer(&mut self.store, source, sargs) {
+                Ok(answer) => answer,
+                Err(error) => {
+                    self.discard_later(&later);
+                    return Err(RunnerError::Data {
+                        resource: name,
+                        error,
+                    });
+                }
+            };
             match answer {
                 Answer::Now(v) => {
                     if !v.conforms(&self.plan, mrow.ty) {
+                        self.discard_later(&later);
                         return Err(RunnerError::Shape { resource: name });
                     }
-                    let slot = self.mutation_slot(m)?;
+                    let slot = match self.mutation_slot(m) {
+                        Ok(slot) => slot,
+                        Err(e) => {
+                            self.discard_later(&later);
+                            return Err(e);
+                        }
+                    };
                     answered.push((slot as u32, Value::some(v)));
                 }
                 Answer::Later(request) => later.push((m, source.clone(), sargs.clone(), request)),
@@ -981,6 +991,7 @@ impl<D: DataSource> Runner<D> {
             .chain(outcome.row_writes.iter().map(|(s, v, _)| (s, v)))
         {
             if !value.conforms(&self.plan, self.plan.slots[*slot as usize].ty) {
+                self.discard_later(&later);
                 return Err(RunnerError::SlotType {
                     slot: self
                         .plan
@@ -1024,6 +1035,7 @@ impl<D: DataSource> Runner<D> {
         }
         self.refresh_next = outcome.refreshes.iter().map(|r| *r as usize).collect();
         if let Err(e) = self.router_change().and_then(|_| self.settle(false)) {
+            self.discard_later(&later);
             self.slots = saved_slots;
             for (rows, slot, old) in row_undo.into_iter().rev() {
                 match old {
@@ -1288,6 +1300,34 @@ impl<D: DataSource> Runner<D> {
     /// The requests the host is to run since the last take (LLP 1016 D2).
     pub fn take_requests(&mut self) -> Vec<RequestOut> {
         std::mem::take(&mut self.requests)
+    }
+
+    /// The work behind continuation `token` (LLP 1027.002 D3): a host asks
+    /// on this thread, after the commit that handed the request out, so a
+    /// worker's snapshot is the store as committed then.
+    pub fn dispatch_work(&mut self, token: u64) -> Dispatch {
+        self.data.dispatch(token, &self.store)
+    }
+
+    /// Work the source held at dispatch and the last commit releases, in
+    /// order; a host asks after every commit.
+    pub fn release_work(&mut self) -> Vec<(u64, Dispatch)> {
+        self.data.release(&self.store)
+    }
+
+    /// A request a refused transaction dropped before it was handed out:
+    /// its continuation token is never dispatched, so the source forgets it.
+    pub(super) fn discard_request(&mut self, request: &Request) {
+        if let Some(token) = request.continuation {
+            self.data.discard(token);
+        }
+    }
+
+    /// The `Later` sends an action collected before a refusal dropped them.
+    fn discard_later(&mut self, later: &[(usize, String, Vec<Value>, Request)]) {
+        for (_, _, _, request) in later {
+            self.discard_request(request);
+        }
     }
 
     /// Every request in flight: the resource's or mutation's name and its ticket.

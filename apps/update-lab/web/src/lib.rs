@@ -9,13 +9,16 @@ fn embedded_data() -> ExactEmbeddedData {
     update_lab_data::Probe
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
-type HostData = update_lab_data::Lab<exact_js_web::Module, AppData>;
+type HostData = update_lab_data::Lab<exact_js_web::Module, update_lab_data::Placed<AppData>>;
+fn placed_rust() -> update_lab_data::Placed<AppData> {
+    update_lab_data::Placed::built(app_data(), RUST_PLACEMENT, |_| Box::new(|| Ok(app_data())))
+}
 fn lab_data() -> HostData {
     update_lab_data::compose(
-        exact_js_web::Module::new(APP, GRANTS, REVISION),
-        app_data(),
+        exact_js_web::Module::new(APP, GRANTS, REVISION).placed(TYPESCRIPT_PLACEMENT),
+        placed_rust(),
         RUST_UPDATES,
-        |_| Ok(app_data()),
+        |_| Ok(placed_rust()),
     )
 }
 exact_web::host!(

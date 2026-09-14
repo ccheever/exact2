@@ -373,7 +373,9 @@ function startModuleCompiler() {
     const started = Date.now(), stage = mkdtempSync(resolve(scratch, 'candidate-'));
     moduleStage = stage;
     active = { id: moduleRun, started, saved: moduleSaved || started, stage, output: resolve(stage, 'generation') };
-    child.stdin.write(JSON.stringify({ id: active.id, out: active.output }) + '\n');
+    // The served plan and receipt seed what the producer cannot compute: a
+    // resource only Rust owns keeps its last Cargo-baked first-frame value.
+    child.stdin.write(JSON.stringify({ id: active.id, out: active.output, previous: resolve(dist, 'app.plan'), receipt: resolve(dist, 'app.module.json') }) + '\n');
   };
   manualTypescript = () => { moduleRun++; moduleSaved = Date.now(); produce(); };
   child.stderr.on('data', chunk => {  errors = (errors + chunk).slice(-65536); });

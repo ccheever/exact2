@@ -5,7 +5,9 @@
 //!
 //! Agent mode (`EXACT_AGENT=1`, LLP 1012) gets a memory store unless
 //! `EXACT_STORE=real` says otherwise: a scripted drive starts from nothing
-//! and leaves nothing in a developer's keychain.
+//! and leaves nothing in a developer's keychain. `EXACT_STORE=memory` asks
+//! for the same memory store outside agent mode — a test that needs the real
+//! filesystem and database but must not raise the keychain's prompt.
 
 use ibex2::host::{Bindings, Host};
 
@@ -15,8 +17,8 @@ pub fn endow(grants: &str) -> Option<Bindings> {
     let set = ibex2::grant::GrantSet::parse(grants).ok()?;
     let mut host = Host::new();
     let agent = std::env::var_os("EXACT_AGENT").is_some();
-    let real = std::env::var("EXACT_STORE").is_ok_and(|v| v == "real");
-    if agent && !real {
+    let store = std::env::var("EXACT_STORE").unwrap_or_default();
+    if (agent && store != "real") || store == "memory" {
         host = host.with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()));
     }
     Some(host.endow(set))

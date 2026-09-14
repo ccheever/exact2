@@ -18,7 +18,7 @@ import { INSTALL_FILES, INSTALL_ROOT, installRoute, installNetworkPage } from '.
 
 const PUBLIC_FILES = new Set([
   ...INSTALL_FILES,
-  '/rust-glue.js', '/app.js', '/app.hbc', '/app.module.json', '/module-glue.js', '/module-prelude.js',
+  '/rust-glue.js', '/app.js', '/app.hbc', '/app.module.json', '/module-glue.js', '/module-worker.js', '/module-prelude.js',
   '/storage-request.js', '/storage.js', '/storage-fs.js', '/storage-sqlite.js', '/storage-worker.js', '/sqlite3.mjs', '/sqlite3.wasm',
   '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/navigation.js', '/gpu-glue.js',
   '/gpu.js', '/gpu_bg.wasm', '/index.html', '/manifest.json',

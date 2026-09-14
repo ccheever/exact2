@@ -1,7 +1,7 @@
 //! Bounded native I/O (LLP 1016 / 1041). Unannotated requests and native
 //! continuations share one FIFO. Explicit independent HTTP uses two workers
 //! with separate transports; their held sockets cannot occupy the ordered lane.
-use exact_runner::{Outcome, RequestOut};
+use exact_runner::{RequestOut, Work};
 use std::ffi::c_void;
 #[path = "executor_core.rs"]
 mod core;
@@ -46,11 +46,7 @@ impl Executor {
     }
     /// Admit or return a terminal refusal without allocating a failure queue.
     /// The caller records refusals on existing runner tickets and wakes a pump.
-    pub fn run(
-        &self,
-        request: RequestOut,
-        work: Option<Box<dyn FnOnce() -> Outcome + Send>>,
-    ) -> Result<(), &'static str> {
+    pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         self.core.run(request, work)
     }
     /// Acknowledge the coalesced wake before choosing a completion or refusal.
