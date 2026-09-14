@@ -38,8 +38,21 @@ clears its notes and local backup. HTTPS or localhost is required. There is no
 cross-device sync. The current limits are 1,000 notes, 160 characters per title,
 20,000 per body, and 4 MB of backup text.
 
+`app.json` places the TypeScript module on a worker (LLP 1027.002:
+`"typescript": { "placement": "worker" }`); the Rust half stays on `main`. Both
+keep `fieldnotes.revision`, so the composer orders every call of either half
+into one queue, each turn running against the store as committed and its writes
+landing through the runner. On native the module has an owner thread of its
+own; on the web it runs in a dedicated Worker instead of the private iframe.
+`EXACT_TYPESCRIPT_PLACEMENT=main` (or `EXACT_RUST_PLACEMENT=worker`) at bake
+overrides the manifest for a measurement; the compatibility id carries the
+result. The Chrome drive in `web/tests/worker.rs` reports the page's frame gaps
+while a backup of 1,000 notes runs beside wheel scrolling, at 1× and 4× CPU
+throttling, against the display's own frame interval.
+
 The native integration test runs the real baked TypeScript app and the Rust
-backup source against temporary SQLite/filesystem storage. It moves backup
+backup source against temporary SQLite/filesystem storage. It also drives the
+notebook on every placement pair and the host's own dispatch and pump loop. It moves backup
 between languages through the Rust module ABI, compares the complete answer and
 file, restarts, restores the Rust backup in TypeScript, and checks refusal and
 size errors. It also drives backup followed by delete, reload and another delete

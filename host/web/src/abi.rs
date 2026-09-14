@@ -115,6 +115,7 @@ impl<D: DataSource> Bridge<D> {
                 ("appId", data.app_id()),
                 ("grants", data.grants()),
                 ("revision", revision),
+                ("placement", data.placement().name()),
             ]
             .iter()
             .enumerate()

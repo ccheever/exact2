@@ -3,7 +3,8 @@
 //! HTTP requests both travel through the runner's stale-safe ticket path.
 use exact_js_value::{from_json, to_json, Shape};
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store};
+pub use exact_runner::Placement;
+use exact_runner::{Answer, DataError, DataSource, Dispatch, Outcome, Request, Store};
 use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -45,6 +46,9 @@ pub struct Module {
     ready: bool,
     signatures: HashMap<String, (Vec<Shape>, Shape)>,
     waiting: HashMap<String, bool>, // true: a browser checkpoint; false: HTTP
+    /// Where the loader runs this module's turns (LLP 1027.002 D1): the
+    /// page's private iframe realm, or a dedicated Worker.
+    placement: Placement,
 }
 impl Module {
     /// Construct from binary-admitted identity/grants and baked HBC digest.
@@ -58,7 +62,15 @@ impl Module {
             ready: false,
             signatures: HashMap::new(),
             waiting: HashMap::new(),
+            placement: Placement::Main,
         }
+    }
+
+    /// This module, placed: the loader prepares its realm as a dedicated
+    /// Worker for `Worker`. Carried by replacements, never changed by one.
+    pub fn placed(mut self, placement: Placement) -> Self {
+        self.placement = placement;
+        self
     }
     fn invoke(
         &mut self,
@@ -226,7 +238,7 @@ impl DataSource for Module {
     }
     fn activate(&mut self) -> Result<(), DataError> {
         let response = call(
-            json!({"op":"activate", "id":self.id, "appId":self.app, "grants":self.grants, "revision":self.revision}),
+            json!({"op":"activate", "id":self.id, "appId":self.app, "grants":self.grants, "revision":self.revision, "placement":self.placement.name()}),
         )?;
         if response["ok"] != true {
             return Err(unavailable(
@@ -257,7 +269,34 @@ impl DataSource for Module {
             .ok_or_else(|| unavailable("missing module identity"))?;
         let mut next = Self::new(&self.app, &self.grants, revision);
         next.id = id;
+        next.placement = self.placement;
         Ok(next)
+    }
+
+    fn placement(&self) -> Placement {
+        self.placement
+    }
+
+    /// The turn takes its snapshot now, from the store as committed (LLP
+    /// 1027.002 D3, change 1), scoped to this module's own names; the
+    /// loader's registry runs the token its way.
+    fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        let granted = Store::new(&self.grants, []).granted().to_vec();
+        let snapshot: Vec<_> = store
+            .snapshot()
+            .into_iter()
+            .filter(|(name, _)| !name.starts_with(Store::KEPT) && granted.iter().any(|g| g == name))
+            .collect();
+        match call(
+            json!({"op":"dispatch", "id":self.id, "token":token, "store":snapshot, "grants":granted}),
+        ) {
+            Ok(response) if response["ok"] == true => Dispatch::Host(token),
+            _ => Dispatch::Missing,
+        }
+    }
+
+    fn discard(&mut self, token: u64) {
+        let _ = call(json!({"op":"discard", "id":self.id, "token":token}));
     }
     fn bind(&mut self, plan: &Plan) {
         self.signatures.clear();

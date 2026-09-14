@@ -688,6 +688,7 @@ dependencies = [
  "caltrain-data",
  "cc",
  "contract",
+ "exact-data",
  "exact-js-value",
  "exact-kernel",
  "exact-plan",

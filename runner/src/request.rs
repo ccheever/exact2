@@ -137,6 +137,97 @@ pub enum FailureKind {
     Aborted,
 }
 
+/// Where a module instance runs (LLP 1027.002 D1): on the runner's thread,
+/// or on an owner of its own. `Main` is the default and, for a source that
+/// never says otherwise, the only behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Placement {
+    /// The runner's thread: answers may be `Now`, inside the transaction.
+    #[default]
+    Main,
+    /// An owner the host runs for the module: every answer is `Later`, its
+    /// turn runs against a snapshot, and the runner commits its writes.
+    Worker,
+}
+
+impl Placement {
+    /// The manifest's spelling, `main` or `worker`.
+    pub fn parse(name: &str) -> Option<Placement> {
+        match name {
+            "main" => Some(Placement::Main),
+            "worker" => Some(Placement::Worker),
+            _ => None,
+        }
+    }
+
+    /// The manifest's spelling.
+    pub fn name(self) -> &'static str {
+        match self {
+            Placement::Main => "main",
+            Placement::Worker => "worker",
+        }
+    }
+}
+
+/// The reply to host work that finishes on another owner (LLP 1027.002 D3):
+/// `send` once, when the outcome exists. Dropped unsent — the owner died
+/// mid-turn, or never took the job — it reports `Aborted`, so the ticket
+/// still ends and a queue behind it can move.
+pub struct Reply(Option<Box<dyn FnOnce(Outcome) + Send>>);
+
+impl Reply {
+    /// A reply that delivers through `deliver`, once.
+    pub fn new(deliver: impl FnOnce(Outcome) + Send + 'static) -> Reply {
+        Reply(Some(Box::new(deliver)))
+    }
+
+    /// Deliver the outcome.
+    pub fn send(mut self, outcome: Outcome) {
+        if let Some(deliver) = self.0.take() {
+            deliver(outcome);
+        }
+    }
+}
+
+impl Drop for Reply {
+    fn drop(&mut self) {
+        if let Some(deliver) = self.0.take() {
+            deliver(Outcome::Failed {
+                kind: FailureKind::Aborted,
+                message: "the owner ended without a reply".into(),
+            });
+        }
+    }
+}
+
+/// Host work behind a continuation token, as `DataSource::dispatch` hands
+/// it out.
+pub enum Work {
+    /// Runs on the host's I/O worker; what it returns is the outcome.
+    Now(Box<dyn FnOnce() -> Outcome + Send>),
+    /// Hands the reply to another owner and returns at once; the outcome
+    /// arrives when that owner sends it. The I/O worker is never held
+    /// while a module computes (LLP 1027.002 D4).
+    Later(Box<dyn FnOnce(Reply) + Send>),
+}
+
+/// What a continuation token is at dispatch — asked on the runner's thread,
+/// after the commit that handed the request out, with the store as
+/// committed then (LLP 1027.002 D3).
+pub enum Dispatch {
+    /// Work for the host to run.
+    Run(Work),
+    /// The host's own executor runs its registry token its way (the
+    /// browser's turn registry).
+    Host(u64),
+    /// Not yet: the source holds it — a turn is reserved ahead of it — and
+    /// releases it from `DataSource::release` after a later commit.
+    Held,
+    /// No work: the token is unknown or already consumed. The host refuses
+    /// the request as it does a missing continuation.
+    Missing,
+}
+
 /// A request the host is to run: its ticket, the resource or mutation it
 /// answers, and the request. Taken by [`Runner::take_requests`].
 #[derive(Debug, Clone, PartialEq, Eq)]

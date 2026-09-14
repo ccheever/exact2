@@ -72,6 +72,9 @@ pub struct Bridge<D: DataSource> {
     /// binary's cohort, its update store, and its executors.
     compat: Option<&'static str>,
     delivery: Option<&'static crate::delivery::Hooks>,
+    /// Requests whose continuation a source held at dispatch (LLP 1027.002
+    /// D3): released after a later commit, by token.
+    parked: std::collections::BTreeMap<u64, exact_runner::RequestOut>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -100,6 +103,7 @@ impl<D: DataSource> Bridge<D> {
             fonts_ctx: std::ptr::null_mut(),
             compat: None,
             delivery: None,
+            parked: std::collections::BTreeMap::new(),
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -168,17 +172,52 @@ impl<D: DataSource> Bridge<D> {
     fn emit(&mut self, s: String) -> u32 {
         // Whatever the last call asked the host to run goes to the executor
         // with the batch (LLP 1016 D2); the presenter never sees a request.
-        if let (Some(h), Some(x)) = (self.host.as_mut(), self.executor.as_ref()) {
+        // A continuation is dispatched here, on this thread, after the
+        // commit that handed it out (LLP 1027.002 D3); one a source holds
+        // is parked and released after a later commit.
+        let Bridge {
+            host,
+            executor,
+            parked,
+            ..
+        } = self;
+        if let (Some(h), Some(x)) = (host.as_mut(), executor.as_ref()) {
             for r in h.take_requests() {
-                let work = r
-                    .request
-                    .continuation
-                    .and_then(|token| h.continuation(token));
-                x.run(r, work);
+                let dispatch = match r.request.continuation {
+                    Some(token) => h.dispatch_work(token),
+                    None => {
+                        x.run(r, None);
+                        continue;
+                    }
+                };
+                Self::run_dispatch(x, parked, r, dispatch);
+            }
+            for (token, dispatch) in h.release_work() {
+                if let Some(r) = parked.remove(&token) {
+                    Self::run_dispatch(x, parked, r, dispatch);
+                }
             }
         }
         self.output = s.into_bytes();
         self.output.len() as u32
+    }
+
+    fn run_dispatch(
+        x: &crate::executor::Executor,
+        parked: &mut std::collections::BTreeMap<u64, exact_runner::RequestOut>,
+        r: exact_runner::RequestOut,
+        dispatch: exact_runner::Dispatch,
+    ) {
+        match dispatch {
+            exact_runner::Dispatch::Run(work) => x.run(r, Some(work)),
+            exact_runner::Dispatch::Held => {
+                if let Some(token) = r.request.continuation {
+                    parked.insert(token, r);
+                }
+            }
+            // No native work: refused as a missing continuation.
+            exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => x.run(r, None),
+        }
     }
 
     /// The executor's queued outcomes into the runner (LLP 1016 D2): the
@@ -305,6 +344,7 @@ impl<D: DataSource> Bridge<D> {
                     hooks.wake.map(|w| (w, hooks.wake_ctx)),
                 ));
                 self.host = Some(host);
+                self.parked.clear();
                 Ok(batch)
             }
             Err(e) => Err(format!("{e:?}")),
@@ -592,6 +632,7 @@ impl<D: DataSource> Bridge<D> {
             candidate.hooks.wake.map(|w| (w, candidate.hooks.wake_ctx)),
         ));
         self.host = Some(candidate.host);
+        self.parked.clear();
         self.emit(candidate.batch)
     }
 

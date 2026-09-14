@@ -66,6 +66,9 @@ pub struct Presenter<D: DataSource> {
     pub painter: PainterInfo,
     /// The executor for a request that leaves the process (LLP 1016 D2).
     executor: crate::executor::Executor,
+    /// Requests whose continuation a source held at dispatch (LLP 1027.002
+    /// D3): released after a later commit, by token.
+    parked: BTreeMap<u64, exact_runner::RequestOut>,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
     /// The commands the last commits' actions asked for, for the loop that
@@ -281,6 +284,7 @@ impl<D: DataSource> Presenter<D> {
         let mut p = Presenter {
             host,
             executor,
+            parked: BTreeMap::new(),
             brush: Painter::new(text.clone(), scale, backend),
             text,
             viewport,
@@ -540,6 +544,7 @@ impl<D: DataSource> Presenter<D> {
         self.assets = assets;
         self.images = images;
         self.executor = crate::executor::Executor::start(&self.host.grants());
+        self.parked.clear();
         self.scroll.clear();
         self.page = (0.0, 0.0);
         self.focus = None;
@@ -652,6 +657,7 @@ impl<D: DataSource> Presenter<D> {
         self.text = candidate_text.clone();
         self.brush.text = candidate_text;
         self.executor = crate::executor::Executor::start(&self.host.grants());
+        self.parked.clear();
         self.scroll.clear();
         self.page = (0.0, 0.0);
         self.images.reset();
@@ -725,12 +731,23 @@ impl<D: DataSource> Presenter<D> {
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
         // for the loop (`run_commands`).
+        // A continuation is dispatched here, on this thread, after the
+        // commit that handed it out (LLP 1027.002 D3); one a source holds
+        // is parked and released after a later commit.
         for r in self.host.take_requests() {
-            let work = r
-                .request
-                .continuation
-                .and_then(|token| self.host.continuation(token));
-            self.executor.run(r, work);
+            let dispatch = match r.request.continuation {
+                Some(token) => self.host.dispatch_work(token),
+                None => {
+                    self.executor.run(r, None);
+                    continue;
+                }
+            };
+            self.run_dispatch(r, dispatch);
+        }
+        for (token, dispatch) in self.host.release_work() {
+            if let Some(r) = self.parked.remove(&token) {
+                self.run_dispatch(r, dispatch);
+            }
         }
         self.commands.extend(self.host.take_commands());
         let live = self.host.preorder();
@@ -753,6 +770,21 @@ impl<D: DataSource> Presenter<D> {
         }
         self.clamp_scroll();
         error
+    }
+
+    fn run_dispatch(&mut self, r: exact_runner::RequestOut, dispatch: exact_runner::Dispatch) {
+        match dispatch {
+            exact_runner::Dispatch::Run(work) => self.executor.run(r, Some(work)),
+            exact_runner::Dispatch::Held => {
+                if let Some(token) = r.request.continuation {
+                    self.parked.insert(token, r);
+                }
+            }
+            // No native work: refused as a missing continuation.
+            exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => {
+                self.executor.run(r, None)
+            }
+        }
     }
 
     /// Loads that arrived since the last call: their sizes reach the kernel.

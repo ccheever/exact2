@@ -42,7 +42,9 @@ mod pure;
 mod storage;
 
 pub use engine::ENGINE_LINKED;
+pub use exact_data::Placed;
 pub use exact_js_value::{from_json, to_json, Shape};
+pub use exact_runner::Placement;
 pub use native::NativeModule;
 pub use paired::Paired;
 
@@ -116,6 +118,8 @@ pub struct Module {
     directories: Option<storage::Directories>,
     host: Box<HostState>,
     native_factory: Option<NativeFactory>,
+    /// The bound plan, kept so an owner thread can bind its own instance.
+    plan: Option<Plan>,
     sigs: HashMap<String, Sig>,
     parked: Vec<((String, Vec<u8>), Parked)>,
     budget_ms: f64,
@@ -328,6 +332,7 @@ impl Module {
             directories: None,
             host: Box::default(),
             native_factory: None,
+            plan: None,
             sigs: HashMap::new(),
             parked: Vec::new(),
             budget_ms: DEFAULT_BUDGET_MS,
@@ -343,6 +348,47 @@ impl Module {
     pub fn with_native(mut self, factory: fn(&str) -> Box<dyn NativeModule>) -> Self {
         self.native_factory = Some(factory);
         self
+    }
+
+    /// This module, placed (LLP 1027.002 D1): `Main` is this module as it
+    /// is; `Worker` builds an instance of it on a host-owned thread at
+    /// activation, from what this one knows, and this one stays as the
+    /// template. The engine never crosses a thread.
+    pub fn placed(self, placement: Placement) -> Placed<Module> {
+        Placed::built(self, placement, Module::build)
+    }
+
+    /// What an owner thread needs to build this module there (LLP 1027.002
+    /// D2): its bytecode, identity, directories, plan and limits — all of it
+    /// `Send`; the runtime is created, run and destroyed on the owner.
+    fn build(template: &Module) -> exact_data::placed::Obtain<Module> {
+        let bytecode = template.bytecode.clone();
+        let app_id = template.app_id.clone();
+        let grants = template.grants.clone();
+        let directories = template.directories.clone();
+        let native_factory = template.native_factory;
+        let plan = template.plan.as_ref().map(Plan::encode);
+        let budget_ms = template.budget_ms;
+        let max_heap = template.max_heap;
+        Box::new(move || {
+            let mut module = Module::new(bytecode, app_id, grants);
+            if let Some(factory) = native_factory {
+                module = module.with_native(factory);
+            }
+            module.set_budget_ms(budget_ms);
+            module.set_max_heap(max_heap);
+            if let Some(paths) = directories {
+                module.configure_storage(paths.data, paths.cache, paths.temporary)?;
+            }
+            if let Some(bytes) = plan {
+                let plan = Plan::decode(&bytes).map_err(|e| {
+                    DataError::Unavailable(format!("the plan did not cross to the owner: {e:?}"))
+                })?;
+                module.bind(&plan);
+            }
+            module.activate()?;
+            Ok(module)
+        })
     }
 
     /// A module loaded at once — the bake's and a test's shape; a host loads
@@ -812,6 +858,7 @@ impl DataSource for Module {
 
     /// The seam's signatures, from the plan's `sources` table (LLP 1027 D2).
     fn bind(&mut self, plan: &Plan) {
+        self.plan = Some(plan.clone());
         self.sigs.clear();
         for row in &plan.sources {
             let start = row.params.start as usize;

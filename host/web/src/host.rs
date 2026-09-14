@@ -16,7 +16,8 @@ use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeRef, NodeType, PropId, Pr
 use exact_motion::Property;
 use exact_plan::{EventKind, Plan, StackMemberKind, StacksId};
 use exact_runner::{
-    Carried, DataSource, Event, FailureKind, Outcome, Response, Runner, RunnerError, Timed,
+    Carried, DataSource, Dispatch, Event, FailureKind, Outcome, RequestOut, Response, Runner,
+    RunnerError, Timed, Work,
 };
 
 /// A reply as the ABI carries it, as the runner's `Outcome`.
@@ -82,6 +83,9 @@ pub struct Host<D: DataSource> {
     font_names: Vec<String>,
     /// The plan-owned face catalog, queried separately from op batches.
     font_catalog: String,
+    /// Requests whose continuation a source held at dispatch (LLP 1027.002
+    /// D3): released after a later commit, by token.
+    parked: BTreeMap<u64, RequestOut>,
 }
 
 impl<D: DataSource> Host<D> {
@@ -143,6 +147,7 @@ impl<D: DataSource> Host<D> {
             now_ms: 0.0,
             font_names,
             font_catalog,
+            parked: BTreeMap::new(),
         };
         // The binary's delivery facts before the first frame (LLP 1030 D7):
         // the batch below creates the whole tree from the kernel as it then
@@ -184,15 +189,8 @@ impl<D: DataSource> Host<D> {
             batch.store(&w);
         }
         batch.grants(host.runner.data().grants());
-        for mut r in host.runner.take_requests() {
-            if let Some(token) = r.request.continuation {
-                r.request.continuation = host.runner.data().continuation_token(token);
-            }
-            batch.request(&r);
-        }
-        let timers = host.runner.has_timers();
-        let clock = host.runner.now_ms();
-        Ok((host, batch.finish(timers, clock, None)))
+        let batch = host.complete(batch, None);
+        Ok((host, batch))
     }
 
     /// The runner.
@@ -306,6 +304,13 @@ impl<D: DataSource> Host<D> {
 
     fn batch_for(&mut self, receipts: &[Timed], error: Option<&str>) -> String {
         let mut batch = Batch::new();
+        self.emit_receipts(receipts, &mut batch);
+        self.complete(batch, error.map(str::to_string))
+    }
+
+    /// The ops that make the page equal to the tree after `receipts`, and
+    /// what those commits produced beside the tree.
+    fn emit_receipts(&mut self, receipts: &[Timed], batch: &mut Batch) {
         for t in receipts {
             let r = &t.receipt;
             batch.at(t.at_ms);
@@ -323,27 +328,27 @@ impl<D: DataSource> Host<D> {
             for key in &r.created {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
                     let id = node.id;
-                    self.create(id, &mut batch, handlers.get(&id).map_or(&[], Vec::as_slice));
+                    self.create(id, batch, handlers.get(&id).map_or(&[], Vec::as_slice));
                 }
             }
             for key in r.created.iter().chain(r.touched.iter()) {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
                     let id = node.id;
                     if r.touched.contains(key) {
-                        self.update(id, &mut batch);
+                        self.update(id, batch);
                     }
                 }
             }
             // This commit's springs, at its own time: the style (the target)
             // is in the page before the frames that approach it start playing.
-            self.emit_springs(&mut batch, std::slice::from_ref(r), t.at_ms / 1000.0);
+            self.emit_springs(batch, std::slice::from_ref(r), t.at_ms / 1000.0);
         }
         // Earlier receipts also read the final tree, whose children can be
         // created by a later receipt in this seek. Attach only after all creates.
         for t in receipts {
             for key in t.receipt.created.iter().chain(t.receipt.touched.iter()) {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
-                    self.emit_children(node.id, &mut batch);
+                    self.emit_children(node.id, batch);
                 }
             }
         }
@@ -364,14 +369,96 @@ impl<D: DataSource> Host<D> {
         for w in self.runner.take_store_writes() {
             batch.store(&w);
         }
-        for mut r in self.runner.take_requests() {
-            if let Some(token) = r.request.continuation {
-                r.request.continuation = self.runner.data().continuation_token(token);
+    }
+
+    /// Hand the last commit's requests to the page and finish the batch. A
+    /// continuation is dispatched here, on this thread, with the store as
+    /// committed (LLP 1027.002 D3); one a source holds is parked and
+    /// released after a later commit. Work a source answers at once — a
+    /// main member's turn in an ordered set — is fulfilled here, and the
+    /// commits it makes join the batch.
+    fn complete(&mut self, mut batch: Batch, error: Option<String>) -> String {
+        let mut error = error;
+        loop {
+            let mut immediate = Vec::new();
+            for r in self.runner.take_requests() {
+                self.emit_request(r, &mut batch, &mut immediate);
             }
-            batch.request(&r);
+            for (token, dispatch) in self.runner.release_work() {
+                if let Some(r) = self.parked.remove(&token) {
+                    self.emit_dispatch(r, dispatch, &mut batch, &mut immediate);
+                }
+            }
+            if immediate.is_empty() || error.is_some() {
+                break;
+            }
+            let mut receipts = Vec::new();
+            for (ticket, outcome) in immediate {
+                match self.runner.fulfill(ticket, outcome) {
+                    Ok(Some(receipt)) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Ok(None) => {}
+                    Err(e) => {
+                        error = Some(format!("{e:?}"));
+                        break;
+                    }
+                }
+            }
+            self.emit_receipts(&receipts, &mut batch);
         }
         let timers = self.runner.has_timers();
-        batch.finish(timers, self.runner.now_ms(), error)
+        batch.finish(timers, self.runner.now_ms(), error.as_deref())
+    }
+
+    fn emit_request(
+        &mut self,
+        r: RequestOut,
+        batch: &mut Batch,
+        immediate: &mut Vec<(u64, Outcome)>,
+    ) {
+        let Some(token) = r.request.continuation else {
+            batch.request(&r);
+            return;
+        };
+        let dispatch = self.runner.dispatch_work(token);
+        self.emit_dispatch(r, dispatch, batch, immediate);
+    }
+
+    fn emit_dispatch(
+        &mut self,
+        mut r: RequestOut,
+        dispatch: Dispatch,
+        batch: &mut Batch,
+        immediate: &mut Vec<(u64, Outcome)>,
+    ) {
+        match dispatch {
+            Dispatch::Host(registry) => {
+                r.request.continuation = Some(registry);
+                batch.request(&r);
+            }
+            Dispatch::Run(Work::Now(work)) => immediate.push((r.ticket, work())),
+            Dispatch::Run(Work::Later(_)) => immediate.push((
+                r.ticket,
+                Outcome::Failed {
+                    kind: FailureKind::Unsupported,
+                    message: "an owner thread is unavailable on this host".into(),
+                },
+            )),
+            Dispatch::Held => {
+                if let Some(token) = r.request.continuation {
+                    self.parked.insert(token, r);
+                }
+            }
+            Dispatch::Missing => immediate.push((
+                r.ticket,
+                Outcome::Failed {
+                    kind: FailureKind::Unsupported,
+                    message: "missing or consumed browser continuation".into(),
+                },
+            )),
+        }
     }
 
     /// The page brought back request `ticket`'s outcome (LLP 1016 D2):

@@ -21,13 +21,187 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// actual target/grants receipt to OUT_DIR; source files stay untouched.
 /// This development slice requires an updater-free composition (store L=0).
 pub fn build(app: &Path, platform: &str) -> Result<(), String> {
-    build_sources(app, platform, None)
+    build_sources(app, platform, None, None)
 }
 
 /// Bake a mixed app using each source's own identity and grants. Metadata reads
-/// never invoke or activate the Rust implementation.
+/// never invoke or activate the Rust implementation; first-frame values bake
+/// through TypeScript alone.
 pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), String> {
-    build_sources(app, platform, Some(rust))
+    build_sources(app, platform, Some(rust), None)
+}
+
+/// Bake a mixed app through its own composer (LLP 1027.002 §5 step 0): the
+/// bake's TypeScript module is composed with the app's Rust source by
+/// `compose`, so a resource only Rust owns bakes its first-frame value
+/// through Rust, with no TypeScript placeholder. `rust_sources` names what
+/// Rust owns, for the receipt the development producer seeds from.
+pub fn build_mixed_with(
+    app: &Path,
+    platform: &str,
+    rust: &dyn DataSource,
+    rust_sources: &[&str],
+    compose: impl FnOnce(Module) -> Box<dyn DataSource>,
+) -> Result<(), String> {
+    let composer = Composer {
+        rust_sources: rust_sources.iter().map(|s| s.to_string()).collect(),
+        compose: Box::new(compose),
+    };
+    build_sources(app, platform, Some(rust), Some(composer))
+}
+
+/// How a Cargo bake composes the TypeScript module with the app's Rust.
+struct Composer<'a> {
+    rust_sources: Vec<String>,
+    compose: Box<dyn FnOnce(Module) -> Box<dyn DataSource> + 'a>,
+}
+
+/// A composed source, as `contract::bake` takes it.
+struct Composed(Box<dyn DataSource>);
+
+impl DataSource for Composed {
+    fn query(
+        &mut self,
+        source: &str,
+        args: &[exact_plan::Value],
+    ) -> Result<exact_plan::Value, exact_runner::DataError> {
+        self.0.query(source, args)
+    }
+    fn answer(
+        &mut self,
+        store: &mut exact_runner::Store,
+        source: &str,
+        args: &[exact_plan::Value],
+    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
+        self.0.answer(store, source, args)
+    }
+    fn app_id(&self) -> &str {
+        self.0.app_id()
+    }
+    fn grants(&self) -> &str {
+        self.0.grants()
+    }
+    fn revision(&self) -> Option<&str> {
+        self.0.revision()
+    }
+    fn bind(&mut self, plan: &exact_plan::Plan) {
+        self.0.bind(plan)
+    }
+    fn ready(&self) -> bool {
+        self.0.ready()
+    }
+}
+
+/// What the development producer knows about the Rust half it cannot run:
+/// the previous generation's plan and the sources Rust owns (from the last
+/// Cargo bake's receipt). A Rust-owned resource keeps its previous
+/// first-frame value until the next Cargo bake; one that has none refuses
+/// by name.
+pub struct Seed {
+    values: BTreeMap<String, Result<exact_plan::Value, String>>,
+}
+
+impl Seed {
+    /// From the previous plan's bytes and the receipt's `rustSources`.
+    pub fn new(plan: &[u8], rust_sources: &[String]) -> Result<Seed, String> {
+        let plan = exact_plan::Plan::decode(plan).map_err(|e| format!("previous plan: {e:?}"))?;
+        let mut values: BTreeMap<String, Result<exact_plan::Value, String>> = BTreeMap::new();
+        for row in plan.resources.iter() {
+            let source = plan.str(row.source).to_string();
+            if !rust_sources.contains(&source) {
+                continue;
+            }
+            let name = plan.str(row.name).to_string();
+            let value = if row.initial.len > 0 {
+                exact_plan::Value::from_bytes(plan.bytes(row.initial))
+                    .map_err(|e| format!("`{name}`: previous value: {e:?}"))
+            } else {
+                Err(format!(
+                    "`{name}` has no baked value; a Cargo bake supplies it"
+                ))
+            };
+            values
+                .entry(source)
+                .and_modify(|v| {
+                    *v = Err(format!(
+                        "`{name}` shares its Rust source with another resource; a Cargo bake resolves it"
+                    ))
+                })
+                .or_insert(value);
+        }
+        Ok(Seed { values })
+    }
+
+    /// From the files on disk, when both exist; `None` otherwise.
+    pub fn read(plan: Option<&Path>, receipt: Option<&Path>) -> Result<Option<Seed>, String> {
+        let (Some(plan), Some(receipt)) = (plan, receipt) else {
+            return Ok(None);
+        };
+        let (Ok(plan), Ok(receipt)) = (std::fs::read(plan), std::fs::read(receipt)) else {
+            return Ok(None);
+        };
+        let receipt: serde_json::Value =
+            serde_json::from_slice(&receipt).map_err(|e| format!("previous receipt: {e}"))?;
+        let rust_sources: Vec<String> = receipt["rustSources"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .filter_map(|s| s.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if rust_sources.is_empty() {
+            return Ok(None);
+        }
+        Seed::new(&plan, &rust_sources).map(Some)
+    }
+}
+
+/// The bake's module beside the seed: Rust-owned sources answer from the
+/// previous plan; everything else is the module's.
+struct Seeded<'a> {
+    module: Module,
+    seed: &'a Seed,
+}
+
+impl DataSource for Seeded<'_> {
+    fn query(
+        &mut self,
+        source: &str,
+        args: &[exact_plan::Value],
+    ) -> Result<exact_plan::Value, exact_runner::DataError> {
+        match self.seed.values.get(source) {
+            Some(Ok(value)) => Ok(value.clone()),
+            Some(Err(message)) => Err(exact_runner::DataError::Unavailable(message.clone())),
+            None => self.module.query(source, args),
+        }
+    }
+    fn answer(
+        &mut self,
+        store: &mut exact_runner::Store,
+        source: &str,
+        args: &[exact_plan::Value],
+    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
+        if self.seed.values.contains_key(source) {
+            return self.query(source, args).map(exact_runner::Answer::Now);
+        }
+        self.module.answer(store, source, args)
+    }
+    fn app_id(&self) -> &str {
+        self.module.app_id()
+    }
+    fn grants(&self) -> &str {
+        self.module.grants()
+    }
+    fn revision(&self) -> Option<&str> {
+        self.module.revision()
+    }
+    fn bind(&mut self, plan: &exact_plan::Plan) {
+        self.module.bind(plan)
+    }
+    fn ready(&self) -> bool {
+        self.module.ready()
+    }
 }
 
 fn mixed_grants<'a>(
@@ -43,13 +217,27 @@ fn mixed_grants<'a>(
     .transpose()
 }
 
-fn build_sources(app: &Path, platform: &str, rust: Option<&dyn DataSource>) -> Result<(), String> {
+fn build_sources(
+    app: &Path,
+    platform: &str,
+    rust: Option<&dyn DataSource>,
+    composer: Option<Composer<'_>>,
+) -> Result<(), String> {
     if !matches!(platform, "web" | "macos" | "ios" | "linux") {
         return Err(format!(
             "module client executor is not yet implemented for {platform}"
         ));
     }
-    let baked = bake(app, &Tools::default())?;
+    let stage = Scratch::new(&std::env::temp_dir())?;
+    let baked = bake_in(
+        app,
+        &Tools::default(),
+        &stage.0,
+        &mut BTreeMap::new(),
+        None,
+        composer,
+        None,
+    )?;
     let meta: serde_json::Value =
         serde_json::from_str(&baked.receipt).map_err(|e| e.to_string())?;
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("build requires OUT_DIR")?);
@@ -79,7 +267,26 @@ fn build_sources(app: &Path, platform: &str, rust: Option<&dyn DataSource>) -> R
         && compat.inputs["rustModule"]
             .as_str()
             .is_some_and(|module| !module.is_empty());
-    let metadata = format!("pub const APP: &str = {:?};\npub const GRANTS: &str = {:?};\npub const REVISION: &str = {:?};\npub const RUST_UPDATES: bool = {rust_updates};\n", meta["appId"].as_str().ok_or("missing appId")?, meta["grants"].as_str().ok_or("missing grants")?, meta["module"]["sha256"].as_str().ok_or("missing module hash")?);
+    let mut metadata = format!("pub const APP: &str = {:?};\npub const GRANTS: &str = {:?};\npub const REVISION: &str = {:?};\npub const RUST_UPDATES: bool = {rust_updates};\n", meta["appId"].as_str().ok_or("missing appId")?, meta["grants"].as_str().ok_or("missing grants")?, meta["module"]["sha256"].as_str().ok_or("missing module hash")?);
+    // Where each module runs (LLP 1027.002 §6), typed for the executor crate
+    // this platform links; the compatibility id already carries the same.
+    let placement_type = if platform == "web" {
+        "exact_js_web::Placement"
+    } else {
+        "exact_js::Placement"
+    };
+    for (language, name) in [
+        ("typescript", "TYPESCRIPT_PLACEMENT"),
+        ("rust", "RUST_PLACEMENT"),
+    ] {
+        let variant = match compat.inputs[format!("{language}Placement")].as_str() {
+            Some("worker") => "Worker",
+            _ => "Main",
+        };
+        metadata.push_str(&format!(
+            "pub const {name}: {placement_type} = {placement_type}::{variant};\n"
+        ));
+    }
     std::fs::write(out.join("module.rs"), metadata).map_err(|e| e.to_string())?;
     {
         let entry = contract::rust_entry(
@@ -277,7 +484,7 @@ fn digest(bytes: &[u8]) -> String {
 /// declaration is overwritten. This producer currently requires macOS Hermes.
 pub fn bake(app: &Path, tools: &Tools) -> Result<Baked, String> {
     let stage = Scratch::new(&std::env::temp_dir())?;
-    bake_in(app, tools, &stage.0, &mut BTreeMap::new(), None)
+    bake_in(app, tools, &stage.0, &mut BTreeMap::new(), None, None, None)
 }
 
 fn bake_in(
@@ -286,6 +493,8 @@ fn bake_in(
     stage: &Path,
     previous: &mut BTreeMap<PathBuf, Vec<u8>>,
     compiler: Option<&mut resident::Compiler>,
+    composer: Option<Composer<'_>>,
+    seed: Option<&Seed>,
 ) -> Result<Baked, String> {
     if !exact_js::ENGINE_LINKED {
         return Err("TypeScript bake requires the lean Hermes executor on this producer".into());
@@ -343,11 +552,23 @@ fn bake_in(
     let module = Module::inspect(bytecode.clone())?;
     let app_id = module.app_id().to_owned();
     let grants = module.grants().to_owned();
-    let plan = contract::bake(plan, module)
-        .map_err(|e| e.to_string())?
-        .encode();
+    let rust_sources = composer
+        .as_ref()
+        .map(|c| c.rust_sources.clone())
+        .unwrap_or_default();
+    // The first frame bakes through the declared owners (LLP 1027.002 §5
+    // step 0): the app's composer in a Cargo bake; the previous plan's
+    // values for the Rust half a development producer cannot run.
+    let plan = match (composer, seed) {
+        (Some(composer), _) => contract::bake(plan, Composed((composer.compose)(module))),
+        (None, Some(seed)) => contract::bake(plan, Seeded { module, seed }),
+        (None, None) => contract::bake(plan, module),
+    }
+    .map_err(|e| e.to_string())?
+    .encode();
     let receipt = serde_json::json!({
         "version": 1, "appId": app_id, "grants": grants, "abi": exact_js::ABI,
+        "rustSources": rust_sources,
         "bytecodeVersion": exact_js::BYTECODE_VERSION,
         "plan": {"file": "app.plan", "sha256": digest(&plan), "bytes": plan.len()},
         "module": {"file": "app.hbc", "sha256": digest(&bytecode), "bytes": bytecode.len()},

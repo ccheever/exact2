@@ -10,7 +10,7 @@
 //! calls `exact_pump`, which delivers every queued outcome to the runner as
 //! one batch. Requests run one at a time, in order; parallelism is later.
 
-use exact_runner::{FailureKind, Outcome, Request, RequestOut, Response};
+use exact_runner::{FailureKind, Outcome, Reply, Request, RequestOut, Response, Work};
 use std::ffi::c_void;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
@@ -22,7 +22,7 @@ struct Job {
     ticket: u64,
     request: Request,
     forced: bool,
-    work: Option<Box<dyn FnOnce() -> Outcome + Send>>,
+    work: Option<Work>,
 }
 
 /// One worker thread and its two queues.
@@ -49,6 +49,36 @@ impl Executor {
             .name("exact-executor".into())
             .spawn(move || {
                 for job in job_rx {
+                    let Job {
+                        ticket,
+                        request,
+                        forced,
+                        work,
+                    } = job;
+                    // Work that finishes on another owner (LLP 1027.002 D3):
+                    // hand it the reply and move on. This thread is never
+                    // held while a module computes.
+                    let work = match work {
+                        Some(Work::Later(hand)) => {
+                            let tx = outcome_tx.clone();
+                            hand(Reply::new(move |outcome| {
+                                if tx.send((ticket, outcome)).is_ok() {
+                                    if let Some((f, ctx)) = wake {
+                                        f(ctx as *mut c_void);
+                                    }
+                                }
+                            }));
+                            continue;
+                        }
+                        Some(Work::Now(work)) => Some(work),
+                        None => None,
+                    };
+                    let job = Job {
+                        ticket,
+                        request,
+                        forced,
+                        work: None,
+                    };
                     let scoped = job.request.grants.as_deref().map(|scope| {
                         exact_data::storage::scope(&grants, Some(scope))
                             .and_then(|s| {
@@ -61,8 +91,8 @@ impl Executor {
                             kind: FailureKind::Refused,
                             message,
                         },
-                        Some(Ok(ref b)) => run(Some(b), job.request, job.forced, job.work),
-                        None => run(bindings.as_ref(), job.request, job.forced, job.work),
+                        Some(Ok(ref b)) => run(Some(b), job.request, job.forced, work),
+                        None => run(bindings.as_ref(), job.request, job.forced, work),
                     };
                     if outcome_tx.send((job.ticket, outcome)).is_err() {
                         break;
@@ -76,8 +106,9 @@ impl Executor {
         Executor { jobs, outcomes }
     }
 
-    /// Hand a request to the worker.
-    pub fn run(&self, r: RequestOut, work: Option<Box<dyn FnOnce() -> Outcome + Send>>) {
+    /// Hand a request to the worker, with the work its continuation
+    /// dispatched to (LLP 1027.002 D3), if any.
+    pub fn run(&self, r: RequestOut, work: Option<Work>) {
         let _ = self.jobs.send(Job {
             ticket: r.ticket,
             request: r.request,
@@ -165,7 +196,7 @@ mod tests {
                 request: Request::continuation(12),
                 forced: false,
             },
-            Some(Box::new(move || {
+            Some(Work::Now(Box::new(move || {
                 entered.send(std::thread::current().id()).unwrap();
                 wait.recv_timeout(Duration::from_secs(5)).unwrap();
                 Outcome::Response(Response {
@@ -173,7 +204,7 @@ mod tests {
                     headers: vec![],
                     body: b"done".to_vec(),
                 })
-            })),
+            }))),
         );
         let worker = on_worker.recv_timeout(Duration::from_secs(5));
         // Always unblock the worker before assertions, including failed checks.

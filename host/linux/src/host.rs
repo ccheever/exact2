@@ -307,9 +307,15 @@ impl<D: DataSource> Host<D> {
         !self.data_activated
     }
 
-    /// Transfer a source-owned operation to the native executor.
-    pub fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
-        self.runner.data().continuation(token)
+    /// The work behind a continuation, dispatched on this thread after the
+    /// commit that handed it out (LLP 1027.002 D3).
+    pub fn dispatch_work(&mut self, token: u64) -> exact_runner::Dispatch {
+        self.runner.dispatch_work(token)
+    }
+
+    /// Work a source held at dispatch that the last commit released.
+    pub fn release_work(&mut self) -> Vec<(u64, exact_runner::Dispatch)> {
+        self.runner.release_work()
     }
 
     /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.

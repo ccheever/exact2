@@ -96,6 +96,7 @@ if (typeof exports.exact_module_artifact === 'function') {
   }
   pairedModule = Object.fromEntries(Object.entries(moduleCards(files, app.id)).map(([key, card]) => [key, { ...card, url: './' + MODULE_FILES[key] }]));
   copyFileSync(resolve(root, 'host/web/module-glue.js'), resolve(stage, 'module-glue.js'));
+  copyFileSync(resolve(root, 'host/web/module-worker.js'), resolve(stage, 'module-worker.js'));
   copyFileSync(resolve(root, 'js/src/prelude.js'), resolve(stage, 'module-prelude.js'));
 
 }

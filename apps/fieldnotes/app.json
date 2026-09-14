@@ -8,6 +8,7 @@
   "theme_color": "#31554a",
   "background_color": "#f6f3eb",
   "app": { "id": "com.exact.fieldnotes", "name": "Fieldnotes" },
+  "typescript": { "placement": "worker" },
   "host": {
     "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
     "macos": { "minimumOS": "14.0", "window": { "width": 1100, "height": 760, "minWidth": 760, "minHeight": 560 } },
