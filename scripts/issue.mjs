@@ -275,7 +275,7 @@ export function validateIssue(path, text) {
       fixable: true,
       hint:
         `All ${legacy.rows.length} bullet fields (${names.join(', ')}) need \`**Name:**\` markers. ` +
-        '`node scripts/issue.mjs check --fix` rewrites the labels — including `Area` -> `Systems` — and never touches your values. ' +
+        '`bun scripts/issue.mjs check --fix` rewrites the labels — including `Area` -> `Systems` — and never touches your values. ' +
         'Anything still missing afterwards is reported field by field.',
     });
     return problems;
@@ -331,7 +331,7 @@ export function validateIssue(path, text) {
           : `\`--fix\` rewrites the token to \`Open\` and moves ${remainder ? `\`${truncate(remainder)}\`` : 'any qualifier'} verbatim into a labelled body note directly under the header.`
         : closed
           ? 'cdcstack issue statuses are exactly `Open` and `Closed`. Set it to `Closed` and put the detail in **Resolution:**.'
-          : 'This issue is under `issues/` but its Status reads as closed. Either move it properly — `node scripts/issue.mjs close <path> --resolution "…"` — or set **Status:** Open.',
+          : 'This issue is under `issues/` but its Status reads as closed. Either move it properly — `bun scripts/issue.mjs close <path> --resolution "…"` — or set **Status:** Open.',
     });
   }
 
@@ -490,7 +490,7 @@ function insertBodyNote(lines, parsed, note) {
     insertAt,
     0,
     '',
-    `Status note (moved verbatim off the **Status:** line by \`node scripts/issue.mjs\`; cdcstack issue statuses are exactly \`Open\` or \`Closed\`): ${note}`,
+    `Status note (moved verbatim off the **Status:** line by \`bun scripts/issue.mjs\`; cdcstack issue statuses are exactly \`Open\` or \`Closed\`): ${note}`,
   );
   return next;
 }
@@ -613,9 +613,9 @@ never read as metadata.
 ────────────────────────────────────────────────────────────────────────────`;
 
 const COMMANDS_FOOTER = `
-  repair the mechanical parts   node scripts/issue.mjs check --fix
-  file an issue correctly       node scripts/issue.mjs new "<title>" --systems "<a, b>"
-  close one correctly           node scripts/issue.mjs close <path> --resolution "<one line>"`;
+  repair the mechanical parts   bun scripts/issue.mjs check --fix
+  file an issue correctly       bun scripts/issue.mjs new "<title>" --systems "<a, b>"
+  close one correctly           bun scripts/issue.mjs close <path> --resolution "<one line>"`;
 
 export function formatReport(problems) {
   const byPath = new Map();
@@ -728,13 +728,13 @@ function optionalText(args, name) {
 function commandNew(root, args) {
   const title = args._[0];
   if (!title) {
-    return fail('usage: node scripts/issue.mjs new "<one-line title>" --systems "<a, b>" [--author …] [--severity P2] [--related …] [--slug …] [--body …]');
+    return fail('usage: bun scripts/issue.mjs new "<one-line title>" --systems "<a, b>" [--author …] [--severity P2] [--related …] [--slug …] [--body …]');
   }
   const systems = optionalText(args, 'systems');
   if (!systems) {
     return fail(
       'An issue needs **Systems:** and a machine cannot infer it.\n' +
-        '  node scripts/issue.mjs new "Router drops the back gesture" --systems "exact-router, Apple host"',
+        '  bun scripts/issue.mjs new "Router drops the back gesture" --systems "exact-router, Apple host"',
     );
   }
   const date = optionalText(args, 'date') ?? new Date().toISOString().slice(0, 10);
@@ -769,7 +769,7 @@ function commandNew(root, args) {
   mkdirSync(dirname(resolve(root, path)), { recursive: true });
   writeFileSync(resolve(root, path), text);
   if (!args.quiet) console.log(`\n${text}`);
-  console.log(`${path}: conformant. Close it later with:\n  node scripts/issue.mjs close ${path} --resolution "<one line>"`);
+  console.log(`${path}: conformant. Close it later with:\n  bun scripts/issue.mjs close ${path} --resolution "<one line>"`);
   return 0;
 }
 
@@ -785,7 +785,7 @@ function resolveIssuePath(root, given) {
 
 function commandClose(root, args) {
   const given = args._[0];
-  if (!given) return fail('usage: node scripts/issue.mjs close <path|slug> --resolution "<one line>"');
+  if (!given) return fail('usage: bun scripts/issue.mjs close <path|slug> --resolution "<one line>"');
   const resolution = optionalText(args, 'resolution');
   if (!resolution) {
     return fail(
@@ -916,10 +916,10 @@ function parseArgs(argv) {
 
 const USAGE = `cdcstack filesystem issues — see docs/issues.md.
 
-  node scripts/issue.mjs new "<title>" --systems "<a, b>" [--author …] [--severity P2]
+  bun scripts/issue.mjs new "<title>" --systems "<a, b>" [--author …] [--severity P2]
                                       [--related …] [--slug …] [--date YYYY-MM-DD] [--body …]
-  node scripts/issue.mjs close <path|slug> --resolution "<one line>"
-  node scripts/issue.mjs check [<path> …] [--fix] [--lift-resolution]
+  bun scripts/issue.mjs close <path|slug> --resolution "<one line>"
+  bun scripts/issue.mjs check [<path> …] [--fix] [--lift-resolution]
 ${HEADER_TEMPLATE}
 `;
 

@@ -14,7 +14,7 @@ use std::sync::Mutex;
 #[test]
 fn development_opening_metadata_is_app_specific_and_opt_in() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = std::process::Command::new("node")
+    let result = std::process::Command::new("bun")
         .current_dir(root)
         .args(["--input-type=module", "-e", r#"
 import assert from 'node:assert/strict';

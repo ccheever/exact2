@@ -15,6 +15,7 @@
 //! point at the three tools when they are somewhere else.
 
 use std::env;
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -153,7 +154,7 @@ fn main() {
     );
     assert!(
         rolldown.is_file(),
-        "exact-js: rolldown not found at {} (run `npm install` at the repo root, or set EXACT_ROLLDOWN)",
+        "exact-js: rolldown not found at {} (run `bun install` at the repo root, or set EXACT_ROLLDOWN)",
         rolldown.display()
     );
     let compile = |script: &PathBuf, bytecode: &PathBuf| {
@@ -182,7 +183,25 @@ fn main() {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());
         let script = out.join(format!("{name}.js"));
-        let status = Command::new(&rolldown)
+        let mut header = [0; 128];
+        let len = std::fs::File::open(&rolldown)
+            .and_then(|mut file| file.read(&mut header))
+            .unwrap_or(0);
+        let shebang = String::from_utf8_lossy(&header[..len]);
+        let javascript = shebang.lines().next().is_some_and(|line| {
+            line.starts_with("#!")
+                && line
+                    .split_whitespace()
+                    .any(|word| matches!(word.rsplit('/').next(), Some("node" | "bun")))
+        });
+        let mut bundler = if javascript {
+            let mut command = Command::new("bun");
+            command.arg(&rolldown);
+            command
+        } else {
+            Command::new(&rolldown)
+        };
+        let status = bundler
             .arg(&source)
             .args(["--format", "iife", "--file"])
             .arg(&script)

@@ -60,7 +60,7 @@ and this one does not. Read them first.
 - `host/web/` — `exact-web`, the web host: the runner and kernel in wasm over
   the real DOM, CSS computed once from the kernel's rows, springs lowered to
   frames, a no-`unsafe` ABI, the glue, the headless-Chrome smoke, the motion
-  parity harness (`parity.mjs`), and the dev loop (`node host/web/dev.mjs`:
+  parity harness (`parity.mjs`), and the dev loop (`bun host/web/dev.mjs`:
   edit `app.contract`, the page restarts in ~20 ms). LLP 1007.
 - `host/apple/` — `exact-apple`, the Apple host: the runner and kernel as a static
   library with a C ABI (`include/exact.h`), the kernel's own layout with CoreText
@@ -124,8 +124,8 @@ per host, and the smoke as a script of its operations.)
 cargo build --workspace
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check
-node scripts/caps.mjs
-node scripts/boot.mjs   # counts the module graph before first pixel: host glue only, no app JS
+bun scripts/caps.mjs
+bun scripts/boot.mjs   # counts the module graph before first pixel: host glue only, no app JS
 ```
 
 ## Durable constraints (from the rules, restated for orientation)

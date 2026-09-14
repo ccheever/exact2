@@ -1,10 +1,9 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * boot — the fifth check (rules/RULES.md §The five checks): parse and count
  * the module graph reachable before first pixel. A count cannot flake like a
  * timer, and parsing keeps valid HTML/ESM spellings from bypassing the count.
  */
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import vm from 'node:vm';
@@ -85,7 +84,7 @@ function scriptTags(html, problems) {
 
 // Remove comments and literal bodies while retaining code in ${...}; this is
 // only for detecting dynamic import. Static imports and all syntax are parsed
-// by V8's module parser below.
+// by the runtime's module parser below; none of the source is executed.
 function codeOnly(source) {
   const out = [...source].fill(' ');
   const templates = [];
@@ -161,12 +160,12 @@ function run() {
     if (!existsSync(file)) { problems.push(`missing module: ${rel}`); continue; }
     const source = readFileSync(file, 'utf8');
     sources.set(file, source);
-    let module;
-    try { module = new vm.SourceTextModule(source, { identifier: file }); }
+    let requests;
+    try { requests = new vm.SourceTextModule(source, { identifier: file }).dependencySpecifiers; }
     catch (error) { problems.push(`invalid module syntax in ${rel}: ${error.message}`); continue; }
     if (/\bimport\s*\(/.test(codeOnly(source))) problems.push(`dynamic import before first pixel in ${rel}`);
-    for (const request of module.moduleRequests) {
-      const next = localModule(root, file, request.specifier, problems);
+    for (const request of requests) {
+      const next = localModule(root, file, request, problems);
       if (next) queue.push(next);
     }
   }
@@ -190,10 +189,4 @@ function run() {
 
 const entry = process.argv[1]
   && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
-if (entry) {
-  if (typeof vm.SourceTextModule !== 'function') {
-    const child = spawnSync(process.execPath, ['--experimental-vm-modules', '--no-warnings', ...process.argv.slice(1)], { cwd: process.cwd(), stdio: 'inherit' });
-    process.exit(child.status ?? 1);
-  }
-  process.exitCode = run();
-}
+if (entry) process.exitCode = run();

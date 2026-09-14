@@ -1,8 +1,8 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Serve the current web build for a browser — and, through exact.json, for
 // a native client (LLP 1023 D1). LAN by default (D8); --loopback (or
 // EXACT_LOOPBACK=1) binds 127.0.0.1 only.
-// Usage: node host/web/serve.mjs [port=8765] [--loopback]
+// Usage: bun host/web/serve.mjs [port=8765] [--loopback]
 import { createServer } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -44,8 +44,8 @@ export function developmentOpenPage(app) {
 <nav><a id="native">Open in native client</a><a id="browser" href="/">Continue in browser</a></nav>
 <label for="url">App URL — also works in the native menu’s Open Project</label><input id="url" readonly><p id="status" role="status"></p>
 <details><summary>Need a native client?</summary><p>Build this app’s client from its source workspace. Older clients need a rebuild to register the opening link.</p>
-<h2>macOS</h2><pre>node host/apple/build.mjs ${crate} --bundle</pre><p>Open the printed <code>.app</code> once, then return here. This is a local development bundle, not a notarized download.</p>
-<h2>iPhone / iPad</h2><pre>node host/apple/build.mjs --device ${crate}</pre><p>Connect an unlocked, paired device to the signing Mac. Developer Mode and a matching provisioning profile are required. Allow Local Network access and keep the app visible.</p>
+<h2>macOS</h2><pre>bun host/apple/build.mjs ${crate} --bundle</pre><p>Open the printed <code>.app</code> once, then return here. This is a local development bundle, not a notarized download.</p>
+<h2>iPhone / iPad</h2><pre>bun host/apple/build.mjs --device ${crate}</pre><p>Connect an unlocked, paired device to the signing Mac. Developer Mode and a matching provisioning profile are required. Allow Local Network access and keep the app visible.</p>
 <p>For an external app, use its existing <code>EXACT_APP_DIR</code> setup. A cloud workspace needs a device-reachable URL and a Mac builder; automatic cloud builds, downloads and Exact2 Go are not available in this flow yet.</p></details>
 <p><small>Open only a development server you trust. This link selects the app; the native loader still checks compatibility and may refuse it. LAN addresses require the same network.</small></p></main>
 <script>
@@ -536,7 +536,7 @@ function main() {
   const at = argv.indexOf('--origin');
   if (at >= 0 && (!argv[at + 1] || argv[at + 1].startsWith('--'))) throw new Error('--origin needs a directory');
   const dist = at >= 0 ? resolve(argv.splice(at, 2)[1]) : resolve(process.env.EXACT_WEB_DIST ?? new URL('./dist', import.meta.url).pathname);
-  if (!readStaticFile(dist, '/app.wasm')) { console.error('run node host/web/build.mjs first, or serve a published --origin <dir>'); return 2; }
+  if (!readStaticFile(dist, '/app.wasm')) { console.error('run bun host/web/build.mjs first, or serve a published --origin <dir>'); return 2; }
   const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
   const port = Number(argv.find((a) => !a.startsWith('--')) ?? 8765);
   const host = loopback ? '127.0.0.1' : '0.0.0.0';

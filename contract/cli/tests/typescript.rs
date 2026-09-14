@@ -93,7 +93,8 @@ impl Fixture {
 
     fn check(&self, text: &str) -> Output {
         self.write("app.ts", text);
-        Command::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../node_modules/.bin/tsc"))
+        Command::new("bun")
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../node_modules/.bin/tsc"))
             .args([
                 "--noEmit",
                 "--strict",
@@ -111,7 +112,7 @@ impl Fixture {
             ])
             .current_dir(&self.0)
             .output()
-            .expect("run npm ci at the repo root to install the pinned TypeScript compiler")
+            .expect("run bun install --frozen-lockfile at the repo root to install the pinned TypeScript compiler")
     }
 }
 

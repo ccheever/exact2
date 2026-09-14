@@ -42,9 +42,9 @@ checker moves your words to the right field rather than rejecting them.
 ## Commands
 
 ```sh
-node scripts/issue.mjs new "<one-line title>" --systems "<a, b>"
-node scripts/issue.mjs close issues/<file>.md --resolution "fixed by <sha>"
-node scripts/issue.mjs check --fix
+bun scripts/issue.mjs new "<one-line title>" --systems "<a, b>"
+bun scripts/issue.mjs close issues/<file>.md --resolution "fixed by <sha>"
+bun scripts/issue.mjs check --fix
 ```
 
 **Do not close an issue with a bare `git mv`.** The closed path requires `Status: Closed`

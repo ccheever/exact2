@@ -1,6 +1,6 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Approved diagnostic, not a sixth check: UIKit touch reduction (LLP 1012).
-// node host/apple/touch.mjs [--device] [--phone <id>] [--presenter] [--case 0..6] [--early-session] [--run]
+// bun host/apple/touch.mjs [--device] [--phone <id>] [--presenter] [--case 0..6] [--early-session] [--run]
 // Separate bundle; never overwrites Caltrain or adds dependencies to ExactKit.
 import {spawnSync} from 'node:child_process';
 import {copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync} from 'node:fs';

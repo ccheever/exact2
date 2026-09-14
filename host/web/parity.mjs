@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Record the motion parity fixture from a real browser and check the engine
 // against it. The cases and the check are Rust (host/web/src/parity.rs);
 // this script serves parity.html + cases.json, renders it in headless Chrome,

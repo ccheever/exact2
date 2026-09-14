@@ -34,14 +34,14 @@ SQLite writes atomically and reloads its in-memory indexes after a refusal.
 Run from the Exact2 root:
 
 ```sh
-node host/apple/build.mjs --ios messages-apple --run
-node host/web/dev.mjs --app messages
+bun host/apple/build.mjs --ios messages-apple --run
+bun host/web/dev.mjs --app messages
 ```
 
 Drive the installed simulator app:
 
 ```sh
-node scripts/agent.mjs --app messages ios 'tap conversation-maya' \
+bun scripts/agent.mjs --app messages ios 'tap conversation-maya' \
   'type composer See you soon!' 'tap send' state
 ```
 

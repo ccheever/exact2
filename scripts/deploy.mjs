@@ -1,13 +1,13 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // `exact deploy` — the publisher (LLP 1030.000 D3 the verb, D4 the policies,
 // D5 one library in its own process, D7 where things live; LLP 1030 D3 the
 // classifier and D3a the compatibility id; LLP 1026 D11 the signed head).
 // The repo has no `exact` binary; this script is the verb:
 //
-//   node scripts/deploy.mjs <app> [--origin <dir|url>] [--channel <name>]
+//   bun scripts/deploy.mjs <app> [--origin <dir|url>] [--channel <name>]
 //       [--only bundle|origin] [--platform <p>]… [--snapshot <sha>] [--dirty]
 //       [--release <id>] [--keys <dir>] [--json] [--yes] [--slow-ms <n>]
-//   node scripts/deploy.mjs keygen <id> [--keys <dir>] [--json]
+//   bun scripts/deploy.mjs keygen <id> [--keys <dir>] [--json]
 //
 // In order, as D3 states it: **snapshot** — the app's tree must be committed
 // (`--dirty` publishes the working tree and says so loudly) and the snapshot
@@ -61,7 +61,7 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const PLATFORMS = ['web', 'ios', 'macos', 'linux'];
 /** The platforms that hold an update store and so a stream, when the manifest names none (`deploy.store`, `deploy.binaries`). The web is the origin row: a fresh load is current. */
 const STREAM_PLATFORMS = ['ios', 'macos', 'linux'];
-const USAGE = 'usage: node scripts/deploy.mjs <app> [--origin <dir|url>] [--channel <name>] [--only bundle|origin] [--platform <web|ios|macos|linux>]... [--snapshot <sha>] [--dirty] [--release <id>] [--keys <dir>] [--json] [--yes]\n       node scripts/deploy.mjs keygen <id> [--keys <dir>] [--json]';
+const USAGE = 'usage: bun scripts/deploy.mjs <app> [--origin <dir|url>] [--channel <name>] [--only bundle|origin] [--platform <web|ios|macos|linux>]... [--snapshot <sha>] [--dirty] [--release <id>] [--keys <dir>] [--json] [--yes]\n       bun scripts/deploy.mjs keygen <id> [--keys <dir>] [--json]';
 
 /** A refusal: printed as one line, exit 1. Anything else is a bug and keeps its stack. */
 class Refusal extends Error {}
@@ -168,7 +168,7 @@ export function canonicalBytes(head) {
   return Buffer.from(canonicalJson(head, true), 'utf8');
 }
 
-/** An Ed25519 public key from its 32 raw bytes: the SubjectPublicKeyInfo prefix Node wants, then the bytes. */
+/** An Ed25519 public key from its 32 raw bytes: the SubjectPublicKeyInfo prefix the crypto API wants, then the bytes. */
 export function publicKeyFromRaw(raw) {
   if (raw.length !== 32) refuse(`an Ed25519 public key is 32 bytes; this one is ${raw.length}`);
   return createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), raw]), format: 'der', type: 'spki' });
@@ -181,9 +181,9 @@ const rawPublic = (key) => key.export({ type: 'spki', format: 'der' }).subarray(
 export function loadSigner(app, keysDir) {
   const signing = app.manifest.deploy?.signing ?? {};
   const keyId = signing.key;
-  if (!keyId) refuse(`${app.dir}/app.json names no deploy.signing.key: a publish signs every head (LLP 1026 D11); node scripts/deploy.mjs keygen <id> makes one`);
+  if (!keyId) refuse(`${app.dir}/app.json names no deploy.signing.key: a publish signs every head (LLP 1026 D11); bun scripts/deploy.mjs keygen <id> makes one`);
   const path = resolve(keysDir, `${keyId}.pem`);
-  if (!existsSync(path)) refuse(`no signing key at ${path} — node scripts/deploy.mjs keygen ${keyId} --keys ${keysDir} writes one (and prints the public half for app.json's deploy.signing.keys["${keyId}"])`);
+  if (!existsSync(path)) refuse(`no signing key at ${path} — bun scripts/deploy.mjs keygen ${keyId} --keys ${keysDir} writes one (and prints the public half for app.json's deploy.signing.keys["${keyId}"])`);
   let privateKey;
   try { privateKey = createPrivateKey(readFileSync(path)); } catch (e) { refuse(`${path} is not a PEM private key: ${e.message}`); }
   if (privateKey.asymmetricKeyType !== 'ed25519') refuse(`${path} is a ${privateKey.asymmetricKeyType} key; the head is signed with Ed25519`);

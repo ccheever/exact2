@@ -242,7 +242,7 @@ assert.equal(readDevGeneration(cache,prefix+'app.js'),null);
 assert.deepEqual(readDevGeneration(cache,prefix+'app.hbc')?.body,files.get('app.hbc'));
 assert.equal(readDevGeneration(cache,prefix+'private.js'),null);
 "#;
-    let result = std::process::Command::new("node")
+    let result = std::process::Command::new("bun")
         .args(["--input-type=module", "-e", probe])
         .arg(out)
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))

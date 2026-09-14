@@ -1,7 +1,7 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Build the web app: the wasm under the `web` profile (size-tuned), `wasm-opt -Oz`
 // when binaryen is on PATH, then `dist/` = index.html + glue.js + app.wasm.
-// Usage: node host/web/build.mjs [crate=caltrain-web]
+// Usage: bun host/web/build.mjs [crate=caltrain-web]
 // Developer builds bake development trust; EXACT_UPDATE_TRUST=production
 // requires signing keys, and the deploy verb always selects production.
 import { spawnSync } from 'node:child_process';

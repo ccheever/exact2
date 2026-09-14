@@ -13,7 +13,7 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
         return;
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = Command::new("node")
+    let result = Command::new("bun")
         .args(["--input-type=module", "-e", PROBE])
         .env("CHROME", chrome)
         .env(
@@ -78,7 +78,7 @@ const startupPage=hostPage.replace('<script type="module" src="./glue.js"></scri
 for(const name of ['storage.js','storage-fs.js','storage-sqlite.js','storage-worker.js'])routes['/'+name]='host/web/'+name;
 routes['/sqlite3.mjs']='node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs';
 routes['/sqlite3.wasm']='node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm';
-const fixtures=Object.fromEntries(['inputs','castle','caltrain','ambient-init','storage'].map(name=>[name,execFileSync('./node_modules/.bin/rolldown',[`js/tests/fixtures/${name}.ts`,'--format','iife'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})]));
+const fixtures=Object.fromEntries(['inputs','castle','caltrain','ambient-init','storage'].map(name=>[name,execFileSync(process.execPath,['./node_modules/.bin/rolldown',`js/tests/fixtures/${name}.ts`,'--format','iife'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})]));
 fixtures.oracle=JSON.parse(process.env.EXACT_PARITY);
 const server = createServer((req,res)=>{
   if(req.url.startsWith('/startup/module-glue.js')){

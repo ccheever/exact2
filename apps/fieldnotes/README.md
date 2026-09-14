@@ -14,9 +14,9 @@ clears the search and focuses the title; selecting a saved note focuses its body
 Drafts remain protected: New note stays disabled until saved or discarded.
 
 ```sh
-node host/web/dev.mjs --app fieldnotes
-node host/apple/build.mjs fieldnotes-apple --run
-node host/apple/build.mjs fieldnotes-apple --ios --run
+bun host/web/dev.mjs --app fieldnotes
+bun host/apple/build.mjs fieldnotes-apple --run
+bun host/apple/build.mjs fieldnotes-apple --ios --run
 ```
 
 Save a draft before opening another note, or discard the changes. Backups → Save

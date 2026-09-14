@@ -279,7 +279,7 @@ fn border_layout_paint_and_current_color_follow_live_style_changes() {
 #[test]
 fn apple_artifacts_own_paths_locks_identity_and_failed_placement() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = std::process::Command::new("node")
+    let result = std::process::Command::new("bun")
         .current_dir(root)
         .args(["--input-type=module", "-e", r#"
 import assert from 'node:assert/strict';

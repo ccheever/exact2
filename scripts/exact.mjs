@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // exact — run an Exact app from a terminal on macOS, and install one so it
 // keeps running from a terminal after you close the laptop.
 //
@@ -103,7 +103,7 @@ function run(app, files) {
   const dev = devPlan(app);
   console.log(dev.path
     ? `live reload: watching ${dev.path.replace(ROOT + '/', '')} — edit ${app.name}/app.contract and this window restarts from it`
-    : `live reload: off (${dev.why}). Start it with: node host/web/dev.mjs --app ${app.name}`);
+    : `live reload: off (${dev.why}). Start it with: bun host/web/dev.mjs --app ${app.name}`);
   const child = spawn(executableIn(bundle), documents, {
     stdio: 'inherit',
     // Assets from the app directory, not the copy in the bundle, so editing

@@ -5,7 +5,7 @@
 // AppKit and UIKit halves under `#if os(...)`; the two standalone apps
 // (`ExactMac`, `ExactIOS`) and the two sample hosts (`ExactHostMac`,
 // `ExactHostIOS`) as executables over it. Links the app's static library
-// (`node host/apple/build.mjs` builds it and points EXACT_LIB_DIR/EXACT_LIB
+// (`bun host/apple/build.mjs` builds it and points EXACT_LIB_DIR/EXACT_LIB
 // at it; the default is Caltrain's macOS archive).
 import PackageDescription
 import Foundation
@@ -20,7 +20,7 @@ precondition(["embedded", "updating"].contains(composition), "EXACT_APP_COMPOSIT
 // executables cannot build for macOS. EXACT_TESTS=1 narrows the package to
 // what the tests need — the same environment-driven shape the composition
 // above already uses — so a normal build is unchanged and a test build is
-// quick. `node host/apple/build.mjs --test` sets it.
+// quick. `bun host/apple/build.mjs --test` sets it.
 let testing = ProcessInfo.processInfo.environment["EXACT_TESTS"] == "1"
 
 let core: [Target] = [

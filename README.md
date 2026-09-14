@@ -1,5 +1,11 @@
 # Exact
 
+Tooling runs on **Bun 1.3.12 or newer** (release toolchain pinned in `package.json`).
+Run `bun install --frozen-lockfile` to install the dependencies in `bun.lock`.
+Node and npm are not required. Rolldown remains the app bundler; the existing
+build, serve, watch, and reload scripts run under Bun. This is the source
+tooling installation; a standalone CLI distribution is not packaged yet.
+
 A cross-platform application runtime. The Rust kernel computes layout, each platform
 renders natively, and Contract is the authoring model.
 
@@ -29,9 +35,9 @@ never to block. Its design documents are imported under `llp/research/`.
 | `apps/llp/` | The same reader specialised for an LLP corpus: numbered index with sub-documents, search over every document's text, section outline, `LLP 1234` as a link. `llpview`. See its [README](apps/llp/README.md). | LLP 1033 |
 | `apps/caltrain/` | The v1 app: `app.contract`, its Rust data crate, and its wasm crate; the end-to-end fixture. | — |
 | `gpu/` (`exact-gpu`) | The GPU canvas: a `Surface` trait against wgpu, a per-app module loaded on demand (a dylib on macOS, a second wasm on the web) after the first pixel; the same Rust renders on Metal and on the browser's WebGPU. `apps/caltrain/gpu` is the line map and the aurora. `gpu/reflect` (`exact-gpu-reflect`, naga only) reflects every `.wgsl` in a GPU crate's `build.rs`: bindings, struct layouts, vertex inputs, and entry points generated as Rust, the WGSL as the one declaration authority. | LLP 1009 |
-| `host/apple/` (`exact-apple`) | The Apple host: runner + kernel as a static library with a C ABI, the kernel's layout with CoreText measurement through a callback, `exact-motion` as the executor, typed batches; `macos/` is the AppKit presenter and `ios/` the UIKit one (SwiftPM, sharing `swift/`). `node host/apple/build.mjs --run`; `node host/apple/build.mjs --ios --run` on a simulator. | LLP 1008 |
+| `host/apple/` (`exact-apple`) | The Apple host: runner + kernel as a static library with a C ABI, the kernel's layout with CoreText measurement through a callback, `exact-motion` as the executor, typed batches; `macos/` is the AppKit presenter and `ios/` the UIKit one (SwiftPM, sharing `swift/`). `bun host/apple/build.mjs --run`; `bun host/apple/build.mjs --ios --run` on a simulator. | LLP 1008 |
 | `host/linux/` (`exact-linux`) | The Linux host, the first that paints: runner + kernel natively, cosmic-text measuring and painting from one cache, `exact-motion` as the executor, the kernel tree drawn by one walk over a backend — vello on the GPU (the main one), tiny-skia on the CPU (the fallback and the pixel oracle) — onto DRM/KMS dumb buffers with evdev input, or into a buffer with no display (the agent API, screenshots, the smoke; on macOS too). Pure Rust, no system library. `cargo build --release -p caltrain-linux`. | LLP 1015 |
-| `host/web/` (`exact-web`) | The web host: runner + kernel in wasm over the real DOM, CSS computed once from the kernel's rows, springs lowered to frames the browser plays, a no-`unsafe` ABI, ~150 lines of glue, a headless-Chrome smoke, the motion parity harness, and the dev loop (`node host/web/dev.mjs`, edit → present ~20 ms). | LLP 1007 |
+| `host/web/` (`exact-web`) | The web host: runner + kernel in wasm over the real DOM, CSS computed once from the kernel's rows, springs lowered to frames the browser plays, a no-`unsafe` ABI, ~150 lines of glue, a headless-Chrome smoke, the motion parity harness, and the dev loop (`bun host/web/dev.mjs`, edit → present ~20 ms). | LLP 1007 |
 | `vendor/taffy/` | Taffy 0.9.2 plus two Exact patches. | `vendor/taffy/EXACT-PATCHES.md` |
 
 All four surfaces run the app; `QUEUE.md` is the ordered list of what would
@@ -40,13 +46,13 @@ make sense to do next.
 ## Run an app from a terminal on macOS
 
 ```sh
-node scripts/exact.mjs list                       # the apps here, and their commands
-node scripts/exact.mjs run markdown README.md     # build and launch, log on this terminal
-node scripts/exact.mjs install markdown           # ~/Applications/Markdown.app + `mdview`
+bun scripts/exact.mjs list                       # the apps here, and their commands
+bun scripts/exact.mjs run markdown README.md     # build and launch, log on this terminal
+bun scripts/exact.mjs install markdown           # ~/Applications/Markdown.app + `mdview`
 mdview README.md                                  # from anywhere, reusing a running copy
 ```
 
-`npm link` (or a symlink into a directory on `PATH`) makes it plain `exact`.
+`bun link` (or a symlink into a directory on `PATH`) makes it plain `exact`.
 Both verbs launch the executable inside `<Name>.app`, so the process has the
 app's bundle identity: its name in the menu bar, its Dock tile, and the
 document types Finder's Open With reads. `install` also writes a shim named by
@@ -74,13 +80,13 @@ against the selected app's embedded identity before the driver launches it.
 
 ## Open the same development URL on Apple hosts
 
-Start `node host/web/dev.mjs` and open a printed URL in your browser. Build
+Start `bun host/web/dev.mjs` and open a printed URL in your browser. Build
 and launch the app's native client with that same address:
 
 ```sh
-node host/apple/build.mjs --run --url http://127.0.0.1:8765/
-node host/apple/build.mjs --ios --run --url http://127.0.0.1:8765/
-node host/apple/build.mjs --device --run --url http://192.168.1.20:8765/
+bun host/apple/build.mjs --run --url http://127.0.0.1:8765/
+bun host/apple/build.mjs --ios --run --url http://127.0.0.1:8765/
+bun host/apple/build.mjs --device --run --url http://192.168.1.20:8765/
 ```
 
 For a phone, replace the example with the server's reachable LAN or HTTPS
@@ -90,7 +96,7 @@ An external app uses these commands with `EXACT_APP_DIR` set as usual.
 Plans and assets reload through the native URL loader. Admitted TypeScript
 module clients also reload logic on web/macOS/iOS; native Rust logic remains
 binary-bound. Once built, an agent can drive
-the same URL with `node scripts/agent.mjs macos --url http://127.0.0.1:8765/ tree state logs`
+the same URL with `bun scripts/agent.mjs macos --url http://127.0.0.1:8765/ tree state logs`
 (also `web`, `ios`, and `linux`; Linux fetches once at launch).
 The Go/custom-client sequence
 is in [LLP 1030.000 §7](llp/1030.000-dev-server-as-deployer.rfc.md#7-exact2-go-and-custom-development-clients--implementation-direction).
@@ -106,7 +112,7 @@ cargo run -q -p contract -- types path/to/app.contract -o path/to/app.contract.d
 In `app.ts`, use `import type { Sources, Answer } from './app.contract.d.ts'`.
 Annotate the provider map as `Sources`; each function takes `(args, store, storage)` and
 returns its declared result or a Promise of it. An `Answer` dispatcher can call
-`sources[source](args, store, storage)` without casts. `npm ci` installs the pinned `tsc`.
+`sources[source](args, store, storage)` without casts. `bun install --frozen-lockfile` installs the pinned `tsc`.
 Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
 Generated declarations are build artifacts, not files to commit.
 
@@ -181,7 +187,7 @@ exact_web::host!(exact_js_web::Module,
     ]);
 ```
 
-Run the ordinary build scripts and `node host/web/dev.mjs --app <name>` with
+Run the ordinary build scripts and `bun host/web/dev.mjs --app <name>` with
 `EXACT_APP_DIR` set for an external app. The dev server watches local TypeScript
 imports and Contract, publishes complete immutable generations, and the same URL
 delivers plan/logic/assets to the browser and an admitted macOS/iOS client without
@@ -249,7 +255,7 @@ local setup instructions at `/__dev/open`. Development Apple builds register an
 app-specific opening scheme and pass its HTTP(S) locator to the existing loader;
 production builds do not register that development handler. iOS handles cold and
 warm URL delivery. For a local macOS bundle, use
-`node host/apple/build.mjs <app>-apple --bundle` and open the printed `.app` once.
+`bun host/apple/build.mjs <app>-apple --bundle` and open the printed `.app` once.
 The bundle includes its assets and native modules; it is not a notarized download.
 Browser navigation, both Apple cold/warm handlers and malformed-link refusals are
 tested. The page cannot detect installation, and does not trigger signing/builds.
@@ -271,8 +277,8 @@ export EXACT_UPDATE_TRUST=development                                   # local 
 cargo build --workspace                                                 # build
 cargo test --workspace                                                  # test
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check   # lint
-node scripts/caps.mjs                                                   # caps
-node scripts/boot.mjs                                                   # boot graph
+bun scripts/caps.mjs                                                   # caps
+bun scripts/boot.mjs                                                   # boot graph
 ```
 
 The shared build scripts select development trust explicitly too. Direct Cargo

@@ -8,7 +8,7 @@ mdview README.md
 mdview ~/notes             # a folder opens its README.md
 
 exact run markdown README.md   # from this repo, in the foreground, with its log
-node host/web/dev.mjs --app markdown
+bun host/web/dev.mjs --app markdown
 ```
 
 Open a document with `⌘O`, a Finder double-click or Open With, a path typed in

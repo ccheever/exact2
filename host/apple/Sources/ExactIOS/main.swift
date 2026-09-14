@@ -8,7 +8,7 @@
 // frames and exits. EXACT_AGENT=1 with EXACT_AGENT_SOCKET=<path> is the agent
 // API (LLP 1012, `Agent.swift`, `AgentIOS.swift`): the driver owns the clock
 // and drives the app over a Unix socket. `xcrun simctl launch` passes the
-// environment through as SIMCTL_CHILD_*; `node host/apple/build.mjs --ios`
+// environment through as SIMCTL_CHILD_*; `bun host/apple/build.mjs --ios`
 // builds, bundles, installs, and launches.
 import ExactKit
 import ExactComposition

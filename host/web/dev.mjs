@@ -1,6 +1,6 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // The resident dev loop: edit app.contract → the page shows it, no cargo
-// build in the loop. Usage: node host/web/dev.mjs [--app caltrain] [--port 8765] [--loopback]
+// build in the loop. Usage: bun host/web/dev.mjs [--app caltrain] [--port 8765] [--loopback]
 //
 // Binds the LAN by default (LLP 1023 D8) so a phone on the network can boot
 // the plan from this URL; --loopback (or EXACT_LOOPBACK=1) restores
@@ -47,7 +47,7 @@ const plan = resolve(dist, 'app.plan');
 const graphPath = resolve(dist, 'bake.json');
 buildEnv.EXACT_DEV_BAKE = graphPath;
 if (!builtAppMatches(dist, app) || !existsSync(graphPath) || JSON.parse(readFileSync(graphPath,'utf8')).version!==1 || JSON.parse(readFileSync(graphPath,'utf8')).trust!=='development') {
-  const b = spawnSync('node', [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: 'inherit' });
+  const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: 'inherit' });
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
 const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
@@ -514,7 +514,7 @@ function rebuild() {
   const files = [...changed]; changed = new Set();
   const t = Date.now();
   console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the wasm`);
-  const b = spawn('node', [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  const b = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   b.stdout.on('data', (d) => { out += d; });
   b.stderr.on('data', (d) => { out += d; });

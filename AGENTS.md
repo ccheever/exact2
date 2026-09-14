@@ -18,42 +18,45 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 
 ## Working here
 
+- Tooling runs on Bun (pinned in `package.json`); `bun install --frozen-lockfile`.
+  Rolldown remains the app bundler. Node and npm are not required.
+
 - `kernel/tables/schema.json` is the one declaration authority; `kernel/build.rs`
   generates from it. Edit the table, never generated code.
-- Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `node scripts/caps.mjs`.
+- Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `bun scripts/caps.mjs`.
 - The five checks: `cargo build --workspace` · `cargo test --workspace` ·
   `cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check` ·
-  `node scripts/caps.mjs` · `node scripts/boot.mjs`.
+  `bun scripts/caps.mjs` · `bun scripts/boot.mjs`.
 - Set `EXACT_UPDATE_TRUST=development` for local Cargo validation, as the shared
   build scripts do. Production native bakes require an authenticated
   `EXACT_UPDATE_RECEIPT` or explicit new-stream `EXACT_UPDATE_GENESIS=1` (README).
 - An app outside this repo (weird-castle, `~/projects/weird-castle`) builds, runs, and is
   driven through these same scripts with `EXACT_APP_DIR` set — `scripts/app.mjs` is the
   one place that knows; its `exact.mjs` sets it. exact2 is consumed there by path.
-- The dev loop is `node host/web/dev.mjs`: edit `apps/caltrain/app.contract`, the page
+- The dev loop is `bun host/web/dev.mjs`: edit `apps/caltrain/app.contract`, the page
   restarts from the new plan in ~20 ms; edit Rust under the wasm's crates, it rebuilds
-  and the page reloads. `node scripts/metrics.mjs` prints every number
-  (`--long` adds the macOS build and boot). macOS: `node host/apple/build.mjs --run`;
-  iOS: `node host/apple/build.mjs --ios --run` (a simulator; `--sim` or `EXACT_SIM` picks one);
+  and the page reloads. `bun scripts/metrics.mjs` prints every number
+  (`--long` adds the macOS build and boot). macOS: `bun host/apple/build.mjs --run`;
+  iOS: `bun host/apple/build.mjs --ios --run` (a simulator; `--sim` or `EXACT_SIM` picks one);
   `--device --run` on a connected iPhone (signed with a team profile on this Mac);
   `--host` also builds the sample host (LLP 1031 D10), the native app that embeds two
-  sessions, which `node scripts/smoke.mjs host` drives and `scripts/agent.mjs host
+  sessions, which `bun scripts/smoke.mjs host` drives and `scripts/agent.mjs host
   --session a …` addresses; `--ios --host` is the same fixture on a simulator, driven
   by `smoke.mjs host-ios` and `agent.mjs host-ios`. The Swift is one package, `host/apple/Package.swift`:
   `ExactKit` (session, view, app owner — what an embedder links) and the executables
   as adapters over it. `apps/<name>/app.json` is the app manifest (LLP 1030 D2): the
   bundle id, name, host files, and deploy policy come from it, never from a crate name.
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
-- To see a change work, drive the app: `node scripts/agent.mjs <web|macos|ios|linux> tree
+- To see a change work, drive the app: `bun scripts/agent.mjs <web|macos|ios|linux> tree
   "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot
   out.png"` — the eight operations of LLP 1012, the same on every host, with the clock
-  in your hands (`clock settle` instead of waiting). `node scripts/smoke.mjs
+  in your hands (`clock settle` instead of waiting). `bun scripts/smoke.mjs
   <web|macos|ios|linux|host>` is the whole app driven that way. The Linux host
   (`cargo build --release -p caltrain-linux`) runs headless anywhere, macOS included.
-- Delivery (LLP 1030.000): `node scripts/deploy.mjs <app> [--origin <dir>]` prints the
+- Delivery (LLP 1030.000): `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the
   classifier's table (a dry run); `--yes` publishes signed bundles per stream through
   `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters
-  the repo). `node scripts/smoke.mjs deploy` drives it. A native host opens its update
+  the repo). `bun scripts/smoke.mjs deploy` drives it. A native host opens its update
   store at launch and checks after first pixel (`EXACT_UPDATE_ORIGIN=<url>` points a dev
   build at a directory `serve.mjs` serves; `state.delivery` shows what it did).
 - `QUEUE.md` is what would make sense to do next. Add a line when you find something

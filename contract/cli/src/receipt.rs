@@ -117,7 +117,7 @@ fn asset_cards(app: &Path) -> Result<Vec<Value>, String> {
         }
         process.stdout.write(JSON.stringify(cards.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0)));
     "#;
-    let output = std::process::Command::new("node")
+    let output = std::process::Command::new("bun")
         .args(["--input-type=module", "-e", code])
         .arg(gate)
         .arg(app)

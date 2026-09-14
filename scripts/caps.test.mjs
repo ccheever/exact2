@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Proves caps rules fire in throwaway repositories and a clean repo passes;
 // also exercises the shared build, delivery, and launch helpers.
 import { spawn, spawnSync } from 'node:child_process';
@@ -23,21 +23,16 @@ const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
 const BOOT = join(dirname(fileURLToPath(import.meta.url)), 'boot.mjs');
 const DEPLOY = join(dirname(fileURLToPath(import.meta.url)), 'deploy.mjs');
 const GOOD_RULES = `# Rules
-
 - **5 blocking checks, 60s total.** **[check]**
 - **15 documents in the working set.** **[check]**
 - **10 documents in the foundation.** **[check]**
 - **This file: 700 words.** **[check]**
 - **1,500 lines per source file.** **[check]**
-
 ## Time budgets
-
 | | |
 |---|---|
 | Cold start to interactive | 100ms |
-
 ## The five checks
-
 \`build\` · \`test\` · \`lint\` · \`caps\` · \`boot\`
 `;
 
@@ -56,7 +51,7 @@ function repo(files) {
 }
 
 function run(dir) {
-  const r = spawnSync('node', [CAPS], { cwd: dir, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CAPS], { cwd: dir, encoding: 'utf8' });
   return { out: r.stdout + r.stderr, code: r.status };
 }
 
@@ -141,7 +136,7 @@ function boot(html, files = {}) {
   mkdirSync(join(dir, 'scripts'), { recursive: true });
   const fixtureBoot = join(dir, 'scripts/boot.mjs');
   copyFileSync(BOOT, fixtureBoot);
-  const r = spawnSync('node', [fixtureBoot], { cwd: dir, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [fixtureBoot], { cwd: dir, encoding: 'utf8' });
   rmSync(dir, { recursive: true, force: true });
   return { code: r.status, out: r.stdout + r.stderr };
 }
@@ -150,6 +145,11 @@ for (const [name, html, files, expectCode, expect] of [
   ['boot sees an unquoted src', '<script type=module src=./glue.js></script>', {}, 0, 'modules reachable before first pixel: 1'],
   ['boot follows re-exports', '<script type=module src=./glue.js></script>', { 'host/web/glue.js': "export * from '../../apps/app.js';\n", 'apps/app.js': '' }, 1, 'app JS before first pixel'],
   ['boot ignores comments', '<!-- <script src=../../apps/bypass.js></script> --><script src=./glue.js></script>', { 'host/web/glue.js': "// export * from '../../apps/bypass.js';\n/* import '../../apps/also.js'; */\n" }, 0, 'modules reachable before first pixel: 1'],
+  ['boot rejects malformed JavaScript', '<script type=module src=./glue.js></script>', { 'host/web/glue.js': 'export const =' }, 1, 'invalid module syntax'],
+  ['boot retains unused static imports', '<script type=module src=./glue.js></script>', { 'host/web/glue.js': "import unused from '../../apps/app.js';", 'apps/app.js': 'export default 1;' }, 1, 'app JS before first pixel'],
+  ['boot rejects computed dynamic imports', '<script type=module src=./glue.js></script>', { 'host/web/glue.js': 'import(globalThis.modulePath);' }, 1, 'dynamic import before first pixel'],
+  ['boot rejects top-level return', '<script type=module src=./glue.js></script>', { 'host/web/glue.js': 'return;' }, 1, 'invalid module syntax'],
+  ['boot enforces module strict mode', '<script type=module src=./glue.js></script>', { 'host/web/glue.js': 'with ({}) {}' }, 1, 'invalid module syntax'],
   ['boot fails closed on malformed tags', '<script type=module src="./glue.js></script>', {}, 1, 'malformed HTML'],
 ]) {
   const r = boot(html, files);

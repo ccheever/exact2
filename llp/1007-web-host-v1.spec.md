@@ -309,7 +309,7 @@ from it. `exact_web::dev::Session` watches one `.contract` file (a stat every
 10 ms; a save with identical bytes is not an edit), compiles, bakes against
 the app's data source, and writes the plan atomically. The app's `dev` bin
 (`apps/caltrain/web/src/bin/dev.rs`, one line) runs it as a resident process;
-`node host/web/dev.mjs` runs that, serves `dist/` with `dev.js` added to the
+`bun host/web/dev.mjs` runs that, serves `dist/` with `dev.js` added to the
 page, pushes each ready plan over server-sent events, and prints the numbers.
 `dev.js` fetches the plan and calls `exact.reload(bytes)` → `exact_boot_plan`:
 a full teardown of the page and a boot of the new plan **carrying the old
@@ -329,7 +329,7 @@ column; the last good plan stays. Measured (`scripts/metrics.mjs`, five runs):
 **save → plan ready 8–13 ms** (compile 0.5–1 ms, bake 0.5–1 ms, the rest the
 poll), **save → the new plan's first frame in the DOM 18–20 ms**. The
 compiler's ≤20 ms slice (1004 D5) holds with no incremental compilation at
-this size. The cold path — `node host/web/build.mjs`, a cargo build of the
+this size. The cold path — `bun host/web/build.mjs`, a cargo build of the
 app crate — is 6 s and is no longer the loop.
 
 **The Rust side (2026-08-30).** `dev.mjs` also watches the crates the wasm
@@ -367,13 +367,13 @@ graph; capture does not rewrite the live lock. Metrics report source identity,
 verify a changed visible text after dev DOM acceptance, and label `--scaling`
 as the fixed Caltrain runner workload, independent of app selection.
 
-`node host/web/build.mjs` — `cargo build --lib --profile web --target
+`bun host/web/build.mjs` — `cargo build --lib --profile web --target
 wasm32-unknown-unknown` for the app's crate (the `web` profile is release with
 `opt-level = "z"` and fat LTO: the runner's work is sub-millisecond, so every
 byte is fetch, parse, and compile), then `wasm-opt -Oz` when binaryen is on
 PATH (the build says so when it is not, and ships unoptimized), then
 `host/web/dist/` (ignored by git): `app.wasm`, `index.html`, `glue.js`.
-`node host/web/smoke.mjs` — serves `dist/` and renders it in headless Chrome,
+`bun host/web/smoke.mjs` — serves `dist/` and renders it in headless Chrome,
 asserting the app's landmarks and printing the boot stamp. `node
 scripts/metrics.mjs` — every number in this document in one run (~10 s;
 diagnostic, never blocking).
@@ -446,7 +446,7 @@ fits and starts fresh when it changed or was renamed.
 `apps/caltrain/tests/app.rs`: a reload keeps its station and clock on an
 edited, unbaked plan and re-requests nothing whose arguments did not change. `motion/tests/spring.rs`: the engine's lowering is the closed form on
 the grid, bit for bit, for scalars and pairs. `scripts/boot.mjs` green; `node
-host/web/smoke.mjs` and `node host/web/parity.mjs` green in headless Chrome.
+host/web/smoke.mjs` and `bun host/web/parity.mjs` green in headless Chrome.
 All under the five checks on 2026-08-28 (158 tests across the workspace).
 
 ## 10. The store (LLP 1018, as built 2026-08-30)

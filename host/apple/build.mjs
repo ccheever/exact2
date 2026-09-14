@@ -1,11 +1,11 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Build the macOS app — or, with --ios, the iOS app: the app's static
 // library (cargo, release), then the presenter (swift build) linked against
 // it. Usage:
-//   node host/apple/build.mjs [crate=caltrain-apple] [--run]                 macOS
-//   node host/apple/build.mjs [crate] --test                                  the Swift host tests
-//   node host/apple/build.mjs --ios [crate] [--run] [--sim <udid|name>]        iOS, on a simulator
-//   node host/apple/build.mjs --device [crate] [--run] [--phone <udid|name>]   iOS, on a phone
+//   bun host/apple/build.mjs [crate=caltrain-apple] [--run]                 macOS
+//   bun host/apple/build.mjs [crate] --test                                  the Swift host tests
+//   bun host/apple/build.mjs --ios [crate] [--run] [--sim <udid|name>]        iOS, on a simulator
+//   bun host/apple/build.mjs --device [crate] [--run] [--phone <udid|name>]   iOS, on a phone
 // Add --url <http(s) app URL> with --run to connect any of these clients
 // to the same address as the browser (LLP 1030.000 §7).
 // --ios builds the same archive for the simulator's Rust target, the UIKit

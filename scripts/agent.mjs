@@ -1,10 +1,10 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // The agent API's driver (LLP 1012): the eight operations —
 //   tree · screenshot · tap · type · state · layout · logs · clock
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
-// Usage:  node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
+// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window]
 //   tap <target> [wheel <dx> <dy> [gesture] | hover | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name>
 //   clock <ms|+ms|settle>
@@ -113,7 +113,7 @@ export class Cdp {
 /** Refuse to drive anything but a complete, authenticated build of the
  * selected app. The build marker binds every public runtime artifact. */
 export function assertWebDistApp(dist, app) {
-  if (!builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; run node host/web/build.mjs ${app.crate('web')}`);
+  if (!builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; run bun host/web/build.mjs ${app.crate('web')}`);
 }
 
 async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) {
@@ -369,7 +369,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   const artifacts = linux ? null : appleArtifacts(a, { destination: device ? 'ios' : 'macos', host: sample });
   const deviceBundle = artifacts?.bundle;
   const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`)) : (process.env.EXACT_MAC_BIN ?? artifacts.binary);
-  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run node host/apple/build.mjs --device first' : linux ? `run cargo build --release -p ${a.crate('linux')} first` : sample ? 'run node host/apple/build.mjs --host first' : 'run node host/apple/build.mjs first');
+  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : linux ? `run cargo build --release -p ${a.crate('linux')} first` : sample ? 'run bun host/apple/build.mjs --host first' : 'run bun host/apple/build.mjs first');
   if (!linux) assertAppleIdentity(a, device ? resolve(deviceBundle, 'ExactIOS') : bin);
   if (device && (plan || extra.EXACT_PLAN || extra.EXACT_ASSETS)) throw new Error('a phone cannot read host-local plan/assets paths; use --url or its embedded app');
   const ph = device ? phone(pick) : null;
@@ -470,7 +470,7 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
   const a = resolveApp(app);
   const bundle = appleArtifacts(a, { destination: 'ios-simulator', host: hostFixture }).bundle;
   const id = hostFixture ? `${a.id}.host` : a.id;
-  if (!existsSync(bundle)) throw new Error(hostFixture ? 'run node host/apple/build.mjs --ios --host first' : 'run node host/apple/build.mjs --ios first');
+  if (!existsSync(bundle)) throw new Error(hostFixture ? 'run bun host/apple/build.mjs --ios --host first' : 'run bun host/apple/build.mjs --ios first');
   const dev = simulator();
   install(dev, bundle, a, hostFixture);
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
@@ -996,7 +996,7 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: node scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       node scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });

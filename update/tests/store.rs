@@ -1050,7 +1050,7 @@ fn canonical_bytes_sorts_keys_drops_the_signature_and_refuses_a_float() {
 
 #[test]
 fn canonical_bytes_match_the_direct_node_serializer() {
-    // `expected` is also asserted by the Node publisher fixture. The numeric
+    // `expected` is also asserted by the Bun publisher fixture. The numeric
     // unknown keys are deliberately written in JavaScript's enumeration order
     // and must emerge in UTF-8 lexical order, byte for byte.
     let head = r#"{"exact":1,"signature":{"keyId":"k1","ed25519":"AA=="},"app":{"name":"Weird Castle é—ü","id":"com.exact.weird-castle"},"plan":{"url":"./app.plan","bytes":12580,"sha256":"aa","formatVersion":4},"assets":[{"name":"a/b \"q\" \\ \u0001.png","bytes":0}],"stream":{"seq":41,"channel":"release","compatibilityId":"9a1f","app":"com.exact.weird-castle"},"sunset":{"message":"Retiring — update.","store":null},"unknownKeys":{"2":"two","10":"ten"}}"#;

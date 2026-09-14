@@ -1,7 +1,7 @@
 //! The engine, held to the browser: every sample a real browser recorded
 //! for the parity cases (host/web/src/parity.rs) is what the engine computes
 //! for the same script, within the declared tolerance. The fixture is
-//! re-recorded with `node host/web/parity.mjs`.
+//! re-recorded with `bun host/web/parity.mjs`.
 
 #[test]
 fn the_engine_matches_the_browser_on_every_recorded_sample() {

@@ -59,7 +59,7 @@ pub(super) struct Compiler {
 }
 impl Compiler {
     fn new(root: &Path, stage: &Path) -> Result<Self, String> {
-        let mut child = Command::new("node")
+        let mut child = Command::new("bun")
             .args(["--input-type=module", "-e", WORKER])
             .arg(stage)
             .current_dir(root)

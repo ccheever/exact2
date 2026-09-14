@@ -183,7 +183,28 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
 }
 
 fn run(tool: &Path, args: &[&str], cwd: &Path) -> Result<(), String> {
-    let output = Command::new(tool)
+    // Package executables retain their upstream Node shebang. Run JavaScript
+    // through Bun while preserving native and shell compiler overrides.
+    use std::io::Read;
+    let mut header = [0; 128];
+    let len = std::fs::File::open(tool)
+        .and_then(|mut file| file.read(&mut header))
+        .unwrap_or(0);
+    let shebang = String::from_utf8_lossy(&header[..len]);
+    let javascript = shebang.lines().next().is_some_and(|line| {
+        line.starts_with("#!")
+            && line
+                .split_whitespace()
+                .any(|word| matches!(word.rsplit('/').next(), Some("node" | "bun")))
+    });
+    let mut command = if javascript {
+        let mut command = Command::new("bun");
+        command.arg(tool);
+        command
+    } else {
+        Command::new(tool)
+    };
+    let output = command
         .args(args)
         .current_dir(cwd)
         .output()

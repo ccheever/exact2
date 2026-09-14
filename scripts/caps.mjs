@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * cdcstack caps — enforce the budgets declared in rules/RULES.md.
  *

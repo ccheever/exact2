@@ -1,12 +1,12 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // The smoke drives the resolved app through the agent API (LLP 1012) on the
 // web, macOS, iOS, or Linux. Every app gets the generic host fixtures and its
 // own app.test.contract; Caltrain's landmarks, interactions, GPU reference,
 // and deck run when its fixture root is present. Not a blocking check (it needs Chrome or
-// a window server): `node scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`
+// a window server): `bun scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`
 // --app-only runs the complete selected app drive and its Contract tests,
 // not the unrelated bare-plan host fixtures. ios --device selects a phone.
-// after `node host/web/build.mjs` / `node host/apple/build.mjs [--ios]` /
+// after `bun host/web/build.mjs` / `bun host/apple/build.mjs [--ios]` /
 // `cargo build --release -p caltrain-linux`.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, verify } from 'node:crypto';
@@ -44,7 +44,7 @@ const pinned = resolve(ROOT, 'scripts/fixtures/transcript.txt');
 if (argv.includes('--record')) { writeFileSync(pinned, transcript()); console.log(`recorded ${pinned.replace(ROOT + '/', '')}`); process.exit(0); }
 
 const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : argv[0] === 'deploy' ? 'deploy' : null;
-if (!host) { console.error('usage: node scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy> [--app <name>] [--shot <png>] | --record'); process.exit(2); }
+if (!host) { console.error('usage: bun scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy> [--app <name>] [--shot <png>] | --record'); process.exit(2); }
 
 // The two Apple presenters share one Canvases: children captured through the
 // surface, placements (LLP 1014 D2, D5) — what the canvas steps below assert.
@@ -92,7 +92,7 @@ function treeFingerprint(root) {
 // full-bleed fixture grows by the insets.
 let appViewport;
 
-check(transcript() === readFileSync(pinned, 'utf8'), 'the transcript form drifted from scripts/fixtures/transcript.txt (a deliberate change: node scripts/smoke.mjs --record)');
+check(transcript() === readFileSync(pinned, 'utf8'), 'the transcript form drifted from scripts/fixtures/transcript.txt (a deliberate change: bun scripts/smoke.mjs --record)');
 check(browserDiagnosticNoise('CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670'), 'the known headless display-service diagnostic is no longer classified as browser noise');
 check(!browserDiagnosticNoise('console.error: exact: failed'), 'page/runtime errors must not be classified as browser noise');
 
@@ -818,7 +818,7 @@ if (caltrainFixture) {
       const region = crop(image, Math.round(sky.x * scale), top + Math.round(sky.y * scale), Math.round(sky.w * scale), Math.round(sky.h * scale));
       const reference = resolve(ROOT, `scripts/fixtures/canvas-sky.${host}.png`);
       if (recordCanvas) { writeFileSync(reference, encodePng(region)); console.log(`recorded ${reference.replace(ROOT + '/', '')} (${region.width}×${region.height})`); }
-      else if (!existsSync(reference)) failures.push(`no reference picture ${reference.replace(ROOT + '/', '')}: node scripts/smoke.mjs ${host} --record-canvas`);
+      else if (!existsSync(reference)) failures.push(`no reference picture ${reference.replace(ROOT + '/', '')}: bun scripts/smoke.mjs ${host} --record-canvas`);
       else {
         const d = diff(region, decodePng(readFileSync(reference)));
         check(d.differing <= 0.01, `the canvas differs from its reference: ${(d.differing * 100).toFixed(2)}% of pixels beyond the band, mean ${d.mean.toFixed(2)} (${d.size})`);

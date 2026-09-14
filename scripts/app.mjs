@@ -7,10 +7,10 @@
 // script that builds, serves, or drives an app resolves it here, so nothing
 // else knows the difference.
 //
-//   node host/web/build.mjs weird-castle-web          (EXACT_APP_DIR set)
-//   node host/apple/build.mjs --ios weird-castle-apple --run
-//   node host/web/dev.mjs --app weird-castle
-//   node scripts/agent.mjs --app weird-castle macos tree
+//   bun host/web/build.mjs weird-castle-web          (EXACT_APP_DIR set)
+//   bun host/apple/build.mjs --ios weird-castle-apple --run
+//   bun host/web/dev.mjs --app weird-castle
+//   bun scripts/agent.mjs --app weird-castle macos tree
 //
 // The app manifest (LLP 1030 D2; 1030.000 D7): `app.json` beside
 // `app.contract` — the W3C Web App Manifest's own keys, which the web host
@@ -314,7 +314,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
       add(storageTypes);
       for (const path of ['host/web/module-glue.js', 'js/src/prelude.js',
         'host/web/storage.js', 'host/web/storage-fs.js', 'host/web/storage-sqlite.js', 'host/web/storage-worker.js',
-        'package.json', 'package-lock.json', 'node_modules/@sqlite.org/sqlite-wasm/package.json',
+        'package.json', 'bun.lock', 'node_modules/@sqlite.org/sqlite-wasm/package.json',
         'node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs', 'node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm']) add(resolve(ROOT, path));
     }
   }

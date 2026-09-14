@@ -1,16 +1,16 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * metrics — startup and speed numbers from one captured-source run.
  * Builds start with a private cache. Diagnostic, never blocking (rules/RULES.md §Loop shape:
  * run everything, block on almost nothing).
  *
- *   node scripts/metrics.mjs            table
- *   node scripts/metrics.mjs --json     one JSON object
- *   node scripts/metrics.mjs --app <name> measure that resolved app
- *   node scripts/metrics.mjs --scaling  runner workloads (300/3000/10000 rows), no browser
- *   node scripts/metrics.mjs --interaction <testId> first browser action to measure
- *   node scripts/metrics.mjs --rebuild  also time an app edit → wasm rebuild (the cold path)
- *   node scripts/metrics.mjs --long     also the macOS host: an initial build, a touch-one-line
+ *   bun scripts/metrics.mjs            table
+ *   bun scripts/metrics.mjs --json     one JSON object
+ *   bun scripts/metrics.mjs --app <name> measure that resolved app
+ *   bun scripts/metrics.mjs --scaling  runner workloads (300/3000/10000 rows), no browser
+ *   bun scripts/metrics.mjs --interaction <testId> first browser action to measure
+ *   bun scripts/metrics.mjs --rebuild  also time an app edit → wasm rebuild (the cold path)
+ *   bun scripts/metrics.mjs --long     also the macOS host: an initial build, a touch-one-line
  *                                       rebuild, and the app's boot phases (minutes, not seconds)
  *
  * Budgets are read from rules/RULES.md so they cannot drift from the prose.
@@ -37,9 +37,9 @@ if (!process.argv.includes('--scaling') && process.env.EXACT_DIAGNOSTIC_ROOT !==
   const code = await withAppFixture(app, async ({ exactRoot, env }) => {
     // The captured source excludes node_modules. Resolve the pinned toolchain
     // inside this private checkout, rather than borrowing the live workspace.
-    const installed = spawnSync('npm', ['ci', '--no-audit', '--no-fund'],
+    const installed = spawnSync(process.execPath, ['install', '--frozen-lockfile'],
       { cwd: exactRoot, env, encoding: 'utf8' });
-    if (installed.error || installed.status !== 0) throw new Error(`diagnostic npm ci: ${installed.error?.message ?? installed.stderr}`);
+    if (installed.error || installed.status !== 0) throw new Error(`diagnostic bun install --frozen-lockfile: ${installed.error?.message ?? installed.stderr}`);
     const child = spawn(process.execPath, [resolve(exactRoot, 'scripts/metrics.mjs'), ...process.argv.slice(2)],
       { cwd: exactRoot, env, stdio: 'inherit' });
     return await new Promise((done, fail) => { child.once('error', fail); child.once('exit', (code) => done(code ?? 1)); });
@@ -107,7 +107,7 @@ step('native', () => {
 // so every number below is for the code as it is now.
 step('wasm', () => {
   const dist = resolve(ROOT, 'host/web/dist');
-  const b = spawnSync('node', [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
+  const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
   if (b.status !== 0) process.exit(b.status ?? 1);
   out.web_artifacts = publicFileCards(dist);
   out.web_artifact_id = sha256(JSON.stringify(out.web_artifacts));
@@ -126,7 +126,7 @@ step('wasm', () => {
 
 // 3. Boot modules (the fifth check's count).
 step('boot', () => {
-  const r = spawnSync('node', [resolve(ROOT, 'scripts/boot.mjs'), '--json'], { cwd: ROOT, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [resolve(ROOT, 'scripts/boot.mjs'), '--json'], { cwd: ROOT, encoding: 'utf8' });
   out.boot = JSON.parse(r.stdout);
   out.boot_modules = out.boot.modules;
   out.boot_ok = r.status === 0;
@@ -274,7 +274,7 @@ step('boot', () => {
   const t = Date.now();
   const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   const port = 20000 + Math.floor(Math.random() * 20000);
-  const dev = spawn('node', [resolve(ROOT, 'host/web/dev.mjs'), '--app', app.name, '--port', String(port)], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app.name, '--port', String(port)], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   let compilerPid = null, diagnostic = '', devExited = false;
   dev.stderr.on('data', chunk => { diagnostic = (diagnostic + chunk).slice(-8000); });
   dev.on('exit', () => { devExited = true; });
@@ -389,12 +389,12 @@ if (rebuild) {
     const now = new Date();
     utimesSync(source, now, now);
     const t = Date.now();
-    const r = spawnSync('node', [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: 'ignore' });
+    const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: 'ignore' });
     out.rebuild_ms = r.status === 0 ? Date.now() - t : NaN;
   });
 }
 
-// 6. The macOS app's startup, when it has been built (`node host/apple/build.mjs`;
+// 6. The macOS app's startup, when it has been built (`bun host/apple/build.mjs`;
 // --long builds it): exec → main (dyld), NSApplication, the window, the runner
 // with layout and text measurement, the batch applied, the first paint.
 const macBin = appleArtifacts(app).binary;
@@ -438,9 +438,9 @@ const floorRun = () => {
   out.floor_draw_ms = stampOf('first draw');
 };
 step('macos-boot', () => {
-  if (!existsSync(macBin)) { out.macos_boot_ms = NaN; out.macos_note = 'not built (node host/apple/build.mjs)'; return; }
+  if (!existsSync(macBin)) { out.macos_boot_ms = NaN; out.macos_note = 'not built (bun host/apple/build.mjs)'; return; }
   const built = macBuiltApp();
-  if (built !== app.id) { out.macos_boot_ms = NaN; out.macos_note = `binary receipt is for ${built ?? 'an unknown app'}, not ${app.id} (node host/apple/build.mjs ${app.crate('apple')})`; return; }
+  if (built !== app.id) { out.macos_boot_ms = NaN; out.macos_note = `binary receipt is for ${built ?? 'an unknown app'}, not ${app.id} (bun host/apple/build.mjs ${app.crate('apple')})`; return; }
   macRun(); // the first launch of a fresh binary is a cold outlier: warm up, report the second
   macParse(macRun().stdout ?? '');
   floorRun();
@@ -453,7 +453,7 @@ if (long) {
   step('macos', () => {
     const build = () => {
       const t = Date.now();
-      const r = spawnSync('node', [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple')], { cwd: ROOT, encoding: 'utf8' });
+      const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple')], { cwd: ROOT, encoding: 'utf8' });
       const m = /cargo ([\d.]+) s, swift ([\d.]+) s/.exec(r.stdout ?? '');
       return { ok: r.status === 0, total_s: (Date.now() - t) / 1000, cargo_s: m ? Number(m[1]) : NaN, swift_s: m ? Number(m[2]) : NaN };
     };
@@ -477,7 +477,7 @@ if (long) {
   // `floor.swift`, installed bytes and gzip apart; each optional artifact
   // (the GPU module, the web arm) reported beside it, never folded in.
   step('macos-link-delta', () => {
-    const r = spawnSync('node', [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--host'], { cwd: ROOT, encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--host'], { cwd: ROOT, encoding: 'utf8' });
     if (r.status !== 0 || !existsSync(macHostBinary) || !existsSync(floorBin)) { out.link_delta_bytes = NaN; return; }
     assertAppleIdentity(app, macHostBinary);
     const size = (f) => statSync(f).size;

@@ -334,7 +334,7 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   rebases across 43b0c0c and lands only through a green smoke.
 
 - LLP 1023 Stage 1 leftovers, each small: the physical-iPhone typed-URL run (the
-  phone was asleep on landing day — `node host/apple/build.mjs --device --run`, then
+  phone was asleep on landing day — `bun host/apple/build.mjs --device --run`, then
   4-finger tap → Open Project… → the LAN URL dev.mjs printed; ATS and signing already
   proven on the built bundle); the Linux display loop's live SSE half (fetch.rs boots
   once per run today — subscribe-and-swap needs a Linux display to verify on); a

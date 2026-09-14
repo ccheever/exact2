@@ -65,7 +65,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 ///   Nothing in an envelope is fractional: `seq` and every byte count are
 ///   integers.
 ///
-/// The Node publisher emits each sorted key/value pair directly. It cannot
+/// The Bun publisher emits each sorted key/value pair directly. It cannot
 /// rebuild an object and then call `JSON.stringify`: JavaScript always
 /// enumerates integer-like keys numerically, which would undo lexical order
 /// for an otherwise valid unknown field such as `{ "10": …, "2": … }`.

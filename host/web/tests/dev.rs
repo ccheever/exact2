@@ -248,7 +248,7 @@ writeFileSync(dist + '/index.html', 'current');
 if (text(readStaticFile(dist, '/')) !== 'current') throw new Error('current build did not win');
 if (readStaticFile(dist, '/gpu.js') !== null) throw new Error('current build borrowed stale GPU');
 "#;
-    let output = std::process::Command::new("node")
+    let output = std::process::Command::new("bun")
         .args(["--input-type=module", "--eval", js])
         .arg("serve-fallback-test")
         .arg(module)
@@ -257,7 +257,7 @@ if (readStaticFile(dist, '/gpu.js') !== null) throw new Error('current build bor
         .unwrap();
     assert!(
         output.status.success(),
-        "node: {}{}",
+        "bun: {}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

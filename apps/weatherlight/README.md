@@ -8,9 +8,9 @@ exploration and Celsius/Fahrenheit conversion reuse the loaded data.
 Run from the repository root:
 
 ```sh
-node host/web/dev.mjs --app weatherlight
-node host/apple/build.mjs weatherlight-apple --bundle --run --url http://127.0.0.1:8765/
-node host/apple/build.mjs weatherlight-apple --ios --run --url http://127.0.0.1:8765/
+bun host/web/dev.mjs --app weatherlight
+bun host/apple/build.mjs weatherlight-apple --bundle --run --url http://127.0.0.1:8765/
+bun host/apple/build.mjs weatherlight-apple --ios --run --url http://127.0.0.1:8765/
 ```
 
 Keep the dev server running for live edits. Its URL carries the matching plan,

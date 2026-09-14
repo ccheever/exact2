@@ -9,7 +9,7 @@ llpview ~/projects/exact2/llp
 llpview llp/1033-markdown-viewer.plan.md
 
 exact run llp llp/
-node host/web/dev.mjs --app llp
+bun host/web/dev.mjs --app llp
 ```
 
 What it adds to the general reader, all of it below the data seam:

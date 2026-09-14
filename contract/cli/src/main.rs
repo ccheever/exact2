@@ -94,7 +94,7 @@ fn compat(args: &[String]) -> ExitCode {
 }
 
 /// `contract test <file.test.contract>`: the tests as JSON for the agent
-/// driver (`node scripts/agent.mjs <host> --test <file>` runs them).
+/// driver (`bun scripts/agent.mjs <host> --test <file>` runs them).
 fn tests(args: &[String]) -> ExitCode {
     let Some(input) = args.first() else {
         eprintln!("usage: contract test <file.test.contract>");

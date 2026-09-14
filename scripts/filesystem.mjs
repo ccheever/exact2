@@ -12,7 +12,7 @@ function executable() {
   const target = resolve(root, 'target/exact-filesystem-tool/debug/exact-filesystem');
   // A separate tooling target also permits calls from an active app Cargo
   // build script: the helper has no compiler/app dependency and never waits
-  // on that app build directory lock. Once per Node process, Cargo checks
+  // on that app build directory lock. Once per Bun process, Cargo checks
   // sources, lockfile and toolchain.
   // An mtime-only shortcut can silently reuse an obsolete helper dependency.
   const env = { ...process.env };

@@ -15,6 +15,10 @@ unimplemented clock shadow. The macOS executor implementation and actual
 verification are recorded in the child; browser parity and iOS execution are
 recorded in D6 (2026-09-07).
 
+**Tooling runtime (Charlie, 2026-09-14):** Bun replaces Node for the bake and
+repository scripts. Rolldown remains the app bundler, and `hermesc` remains the
+bytecode compiler; the resident producer and existing dev server retain their behavior.
+
 ## Summary
 
 Charlie's ruling, 2026-09-03, in his words: *"we want TS support to be

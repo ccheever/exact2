@@ -10,7 +10,7 @@
 //! publisher)
 //!
 //! `fixtures/publisher/` is the stream directory as the publisher wrote it
-//! (`node scripts/deploy.mjs caltrain --yes --origin <dir>` with a throwaway
+//! (`bun scripts/deploy.mjs caltrain --yes --origin <dir>` with a throwaway
 //! key, whose public half is `caltrain-2026.pub` in the manifest's base64
 //! form): `exact.json`, `app.plan`, `assets/<name>`; plus `canonical.bin`,
 //! the bytes Node signed, written by the same `canonicalBytes`. The private
@@ -326,11 +326,11 @@ assert.deepEqual(mixed.rows.map(({kind, platform}) => [kind, platform]).sort(), 
 console.log('level-zero deploy: binary only, zero stream discovery or head reads; mixed runs retain only A streams');
 "#;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    let result = std::process::Command::new("node")
+    let result = std::process::Command::new("bun")
         .args(["--input-type=module", "-e", script])
         .current_dir(root)
         .output()
-        .expect("Node runs the existing publisher");
+        .expect("Bun runs the existing publisher");
     assert!(
         result.status.success(),
         "{}{}",
