@@ -16,6 +16,29 @@ final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
+/// A material paints, but never supplies a new hit target or focus owner.
+private final class MaterialContent: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
+}
+
+@available(macOS 26.0, *)
+private final class GlassBackground: NSGlassEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        contentView?.hitTest(convert(point, from: superview))
+    }
+}
+
+private final class BlurBackground: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
+}
+
 /// A scroll container that chains: a wheel event it cannot consume in its
 /// dominant direction — nothing to scroll, or already at that edge — goes
 /// to the next responder, so an inner `scroll` node never traps the page.
@@ -169,6 +192,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textAreaScroll: NSScrollView?
     var field: NSTextField?
     var scroll: ChainingScrollView?
+    var materialView: NSView?
+    private var materialContent: NSView?
+    private var materialKind: String?
     /// Natural extent from the kernel, before the CSS client-size minimum.
     var content = CGSize.zero
     /// The platform view returned by the dlopened iframe arm (@ref LLP 1020 D3).
@@ -544,7 +570,69 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override var isFlipped: Bool { true }
 
     /// Where children go: the scroll document view, or this view.
-    var container: NSView { scroll?.documentView ?? overlay ?? self }
+    var container: NSView { scroll?.documentView ?? overlay ?? materialContent ?? self }
+
+    // @ref LLP 1001 §1 — two semantic materials, not sampled blur constants.
+    // AppKit owns accessibility/appearance adaptation, including Reduce
+    // Transparency and Increase Contrast; do not freeze the effective appearance.
+    var appliedMaterial: String {
+        guard let materialView, materialView.superview === self else {
+            return props["backgroundMaterial"] == nil ? "none" : "unsupported"
+        }
+        if #available(macOS 26.0, *), materialView is NSGlassEffectView { return "NSGlassEffectView(.regular)" }
+        return "NSVisualEffectView(.popover)"
+    }
+
+    func updateMaterial() {
+        let requested = props["backgroundMaterial"]
+        let kind = requested == "glass" || requested == "ultra-thin" ? requested : nil
+        if materialKind != kind {
+            let children = container.subviews.compactMap { $0 as? NodeView }
+            let old = materialView
+            materialView = nil
+            materialContent = nil
+            materialKind = kind
+            if let kind {
+                let content = MaterialContent(frame: bounds)
+                content.autoresizingMask = [.width, .height]
+                let effect: NSView
+                if kind == "glass", #available(macOS 26.0, *) {
+                    let glass = GlassBackground(frame: bounds)
+                    glass.style = .regular
+                    glass.contentView = content
+                    effect = glass
+                } else {
+                    // AppKit has no ultra-thin material. Popover is its
+                    // semantic floating-surface fallback, not iOS pixel parity.
+                    let blur = BlurBackground(frame: bounds)
+                    blur.material = .popover
+                    blur.blendingMode = .withinWindow
+                    blur.state = .followsWindowActiveState
+                    blur.addSubview(content)
+                    effect = blur
+                }
+                effect.autoresizingMask = [.width, .height]
+                effect.setAccessibilityElement(false)
+                content.setAccessibilityElement(false)
+                addSubview(effect, positioned: .below, relativeTo: subviews.first)
+                materialView = effect
+                materialContent = content
+            }
+            // Reconcile before removing the old container, keeping live child
+            // identities, their frames and their native editors intact.
+            for child in children where child.superview !== container { container.addSubview(child) }
+            old?.removeFromSuperview()
+        }
+        guard let materialView else { return }
+        let radius = max(0, number("border_radius", number("border_radius_top_left")))
+        if #available(macOS 26.0, *), let glass = materialView as? NSGlassEffectView {
+            glass.cornerRadius = radius
+        } else {
+            materialView.wantsLayer = true
+            materialView.layer?.cornerRadius = radius
+            materialView.layer?.masksToBounds = true
+        }
+    }
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
@@ -876,6 +964,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
         if kind == "iframe" { presenter?.session?.webviews.update(self) }
+        updateMaterial()
         needsDisplay = true
     }
 
@@ -903,13 +992,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             sv.contentView.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(self, selector: #selector(clipScrolled), name: NSView.boundsDidChangeNotification, object: sv.contentView)
             sv.autoresizingMask = [.width, .height]
-            for child in subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
+            for child in container.subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
             addSubview(sv)
             scroll = sv
         }
         if ox != "scroll" && oy != "scroll", let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
-            for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); addSubview(child) }
+            for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
             sv.removeFromSuperview()
             scroll = nil
         }
@@ -947,6 +1036,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // CSS z-index: a WKWebView's remote layer otherwise paints over later
         // siblings (the account mark on the deck).
         layer?.zPosition = number("z_index")
+        updateMaterial()
         needsDisplay = true
     }
 

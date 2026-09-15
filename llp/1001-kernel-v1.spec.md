@@ -519,8 +519,13 @@ uniform border radius. Web uses translucent fill, blur, and a light shadow.
 Messages uses glass for its composer, header controls, and inbox search. Authored
 children go in the effect’s `contentView`; enabled nodes with a press handler use
 `UIGlassEffect.isInteractive`. Changing or clearing the material preserves those
-children. Glass grouping is not implemented. Other hosts currently leave materials
-transparent. This explicit
+children. AppKit uses `NSGlassEffectView` with regular style on macOS 26 for
+`glass`; earlier macOS and `ultra-thin` use `NSVisualEffectView(.popover)` with
+within-window blending and window-active-state tracking. AppKit has no ultra-thin
+material; this is a semantic floating-surface fallback, not pixel parity. Authored
+children use the glass content view unless a scroll/canvas already owns their
+container. AppKit supplies appearance and accessibility adaptation. Glass grouping
+is not implemented. Linux currently leaves materials transparent. This explicit
 host policy does not alter the existing CSS `backdrop-blur` style row or claim
 pixel parity between a UIKit material and a CSS filter.
 
