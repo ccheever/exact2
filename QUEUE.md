@@ -10,6 +10,11 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **Native verification gaps** (2026-09-15): Messages debug native tests can
+  exceed their 100 ms data-call budget during workspace validation (105–241 ms
+  on the Air); investigate without weakening the limit. Interview's new Mac
+  materials still need Reduce Transparency/Increase Contrast and older-OS pixels.
+
 - **Web driver shutdown** (2026-09-14): Caltrain web smoke and Interview web
   drive print success after closing sessions but leave Bun alive; find the
   remaining handle. Explicit exit after the smoke returns completes cleanly.
