@@ -91,7 +91,14 @@ fn the_first_frame_needs_no_data_source() {
         }
     }
     let baked = caltrain::build().unwrap();
-    let r = Runner::boot(baked, Refusing, Kernel::with_monospace()).unwrap();
+    let r = Runner::boot(
+        baked,
+        Refusing,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert_eq!(
         text_of(&r, "station-name").as_deref(),
         Some("Mountain View")
@@ -228,6 +235,8 @@ fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
         caltrain::build().unwrap(),
         counting(),
         Kernel::with_monospace(),
+        Default::default(),
+        "/",
     )
     .unwrap();
     r.dispatch(view_of(&r, "change-station"), Event::Press)
@@ -247,8 +256,15 @@ fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
         &caltrain::SOURCE.replace("text \"Caltrain\" ", "text \"Caltrain Live\" "),
     )
     .unwrap();
-    let mut again =
-        Runner::boot_carrying(edited, counting(), Kernel::with_monospace(), &carried).unwrap();
+    let mut again = Runner::boot_carrying(
+        edited,
+        counting(),
+        Kernel::with_monospace(),
+        &carried,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert_eq!(
         again.slot("stationId"),
         Some(&Value::some(Value::str("sf")))
@@ -298,6 +314,8 @@ fn hover_focus_and_keys_reach_their_actions() {
         caltrain::build().unwrap(),
         caltrain_data::Caltrain,
         Kernel::with_monospace(),
+        Default::default(),
+        "/",
     )
     .unwrap();
     r.dispatch(view_of(&r, "change-station"), Event::Press)

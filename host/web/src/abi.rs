@@ -68,6 +68,14 @@ impl<D: DataSource> Bridge<D> {
         self.snapshot = snapshot;
     }
 
+    /// UTF-8 launch location carried after optional plan bytes.
+    /// @ref LLP 1038 D5 — the page supplies pathname plus search before boot.
+    pub fn launch_input(&self, start: usize, len: usize) -> String {
+        let start = start.min(self.input.len());
+        let end = start.saturating_add(len).min(self.input.len());
+        String::from_utf8_lossy(&self.input[start..end]).into_owned()
+    }
+
     /// Resize the input buffer and return its address.
     pub fn input(&mut self, len: usize) -> *mut u8 {
         self.input.clear();
@@ -185,14 +193,27 @@ impl<D: DataSource> Bridge<D> {
         if let Err(error) = data.activate() {
             return self.emit(exact_runner::agent::error(&format!("{error:?}")));
         }
-        self.boot_plan(plan, data)
+        let viewport = self
+            .host
+            .as_ref()
+            .map_or_else(Default::default, |h| h.runner().viewport());
+        let launch = self.host.as_ref().map_or("/", |h| h.location()).to_owned();
+        self.boot_plan(plan, data, viewport.width, viewport.height, &launch)
     }
 
     /// Boot from `plan` with `data` and the snapshot `store` handed in; the
     /// output is the first batch.
-    pub fn boot(&mut self, plan: &[u8], data: D) -> u32 {
+    pub fn boot(&mut self, plan: &[u8], data: D, width: f64, height: f64, launch: &str) -> u32 {
         let snapshot = std::mem::take(&mut self.snapshot);
-        match Host::boot_delivered(plan, data, None, snapshot, self.compat) {
+        match Host::boot_delivered(
+            plan,
+            data,
+            None,
+            snapshot,
+            self.compat,
+            exact_runner::Viewport { width, height },
+            launch,
+        ) {
             Ok((host, batch)) => {
                 self.host = Some(host);
                 self.emit(batch)
@@ -208,10 +229,18 @@ impl<D: DataSource> Bridge<D> {
     /// restart from a freshly compiled plan. Build the candidate beside the
     /// live host: only a successful boot replaces it, while a refusal leaves
     /// the old runner available to its page and in-flight work.
-    pub fn boot_plan(&mut self, len: usize, data: D) -> u32 {
+    pub fn boot_plan(&mut self, len: usize, data: D, width: f64, height: f64, launch: &str) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
         let carried = self.host.as_ref().map(Host::carry);
-        match Host::boot_delivered(&plan, data, carried.as_ref(), Vec::new(), self.compat) {
+        match Host::boot_delivered(
+            &plan,
+            data,
+            carried.as_ref(),
+            Vec::new(),
+            self.compat,
+            exact_runner::Viewport { width, height },
+            launch,
+        ) {
             Ok((host, batch)) => {
                 self.host = Some(host);
                 self.emit(batch)
@@ -247,6 +276,7 @@ impl<D: DataSource> Bridge<D> {
     /// 7 = submit, 8 = load, 9 = message (the payload — a change's text, a
     /// key's name, or a guest message — is the input buffer's first `len`
     /// bytes, UTF-8).
+    /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
     pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -270,6 +300,8 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
+            // @ref LLP 1038 D8 — the next ABI kind after scroll.
+            14 => Event::Navigate(payload),
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
@@ -299,6 +331,16 @@ impl<D: DataSource> Bridge<D> {
             Some(h) => h.fulfill_at(ticket as u64, kind, status, &headers, body, now_ms),
             None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
         };
+        self.emit(out)
+    }
+
+    /// Re-answer viewport resources and return the resulting batch.
+    /// @ref LLP 1039 D2 — buffers remain host-owned, with no unsafe code.
+    pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> u32 {
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.resize(width, height, now_ms),
+        );
         self.emit(out)
     }
 
@@ -407,21 +449,23 @@ macro_rules! host {
 
         /// Boot; returns the first batch's length.
         #[no_mangle]
-        pub extern "C" fn exact_boot() -> u32 {
+        pub extern "C" fn exact_boot(width: f64, height: f64, launch_len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 b.set_compat($compat);
-                b.boot($plan, ($new)())
+                let launch = b.launch_input(0, launch_len as usize);
+                b.boot($plan, ($new)(), width, height, &launch)
             })
         }
 
         /// Boot from plan bytes in the input buffer (the dev loop's restart).
         #[no_mangle]
-        pub extern "C" fn exact_boot_plan(len: u32) -> u32 {
+        pub extern "C" fn exact_boot_plan(len: u32, width: f64, height: f64, launch_len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 b.set_compat($compat);
-                b.boot_plan(len as usize, ($new)())
+                let launch = b.launch_input(len as usize, launch_len as usize);
+                b.boot_plan(len as usize, ($new)(), width, height, &launch)
             })
         }
 
@@ -467,6 +511,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_fulfill(ticket: f64, kind: u32, status: u32, hlen: u32, blen: u32, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().fulfill(ticket, kind, status, hlen as usize, blen as usize, now_ms))
+        }
+
+        /// The layout viewport changed; returns the batch's length (LLP 1039).
+        #[no_mangle]
+        pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, now_ms))
         }
 
         /// Move the clock; returns the batch's length.

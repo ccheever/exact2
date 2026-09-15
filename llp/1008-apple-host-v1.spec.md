@@ -568,6 +568,24 @@ display slept, 2026-08-29, showed both, and HEAD's own presenter the same.
 
 ## 9. iOS: the UIKit presenter (`host/apple/ios`, `host/apple/swift`; 2026-08-29)
 
+**Router projection (LLP 1038 D6/D7/D11, 2026-09-14).** The Rust host
+emits the coalesced `router{top,url,removed}` op at boot and beside commands
+after commits. The session retains the last op for both agents' `navigation.url`;
+Native URL entry points (LLP 1038 D5/D8/D11) use `exact_location_of` through the runtime buffers, then set the launch location before boot or dispatch kind 14 to the root's `navigate` handler. iOS handles `connectionOptions.urlContexts` and browsing-web user activities before view construction, and `scene(_:openURLContexts:)` / `scene(_:continue:)` while running. macOS handles the first non-file URL in `application(_:open urls:)`; attachment and boot wait until `applicationDidFinishLaunching`, after launch URL delivery. No URL means `/`. The explicit development `open?url=` link is checked first and never reaches `navigate`; file URLs keep the document path. `type` on the root uses the same dispatch without focusing an editor. Manifest `urlSchemes` reach `CFBundleURLTypes`; `host.ios.associatedDomains` accepts explicit entitlement entries or `true` for the app origin's `applinks:` entry. UIKit animates a controller
+change according to the prefix relationship of the controller lists, whatever verb produced it (`NavigationRules.isPushOrPop`):
+an `open` that extends the current stack animates as a push, one that replaces it swaps.
+UIKit cancellation may call `willShow` for the source a second time; its
+interactive source is retained until `didShow`, so the agent reports `cancelled`
+and dispatches no Back. The existing agent freeze and modal conditions still apply. AppKit uses
+`NavigationRules.stack` on each navigation container's direct keyed children:
+only the selected route is visible and interactive, except its immediate
+underlay when selected presentation is `modal`, visible but inert. Other routes
+are hidden through `NSView.isHidden`; ancestor inert gates input, focus and
+accessibility. An unmatched selection leaves projection unchanged and journals
+once per key (1035.001 D6).
+
+LLP 1039 passes the session’s layout viewport to the runner before first settlement; `resize` re-answers `exactViewport` and merges that commit with the existing relayout batch. Under `interactive-widget="resizes-content"`, the keyboard-adjusted frame is therefore both the kernel’s viewport and the app’s `height`.
+
 iOS is this host on its fourth surface, not a fifth host. **The archive is the
 same**: `cargo build --release -p caltrain-apple --target aarch64-apple-ios-sim`
 (x86_64-apple-ios on an Intel Mac) builds `libcaltrain_apple.a` — the runner,

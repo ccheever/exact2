@@ -142,6 +142,8 @@ impl PaintedBox {
 pub struct Scene<'a> {
     /// The kernel: frames, styles, props.
     pub kernel: &'a Kernel,
+    /// @ref LLP 1038 D6 — hidden route subtrees paint no pixels or hit boxes.
+    pub hidden: &'a dyn Fn(ViewId) -> bool,
     /// The roots, in order.
     pub roots: &'a [ViewId],
     /// A node's presentation values.
@@ -283,7 +285,8 @@ impl Painter {
         let Some(node) = walk.scene.kernel.node(id) else {
             return;
         };
-        if node.style.display == Display::None
+        if (walk.scene.hidden)(id)
+            || node.style.display == Display::None
             || node.props.str(PropId::SemanticTag) == Some("dialog")
         {
             return;

@@ -8,6 +8,9 @@ use crate::ast::*;
 use crate::lexer::{template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
+#[path = "routes.rs"]
+mod routes;
+
 /// A parse failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxError {
@@ -202,6 +205,12 @@ impl Parser {
                     self.next();
                 }
                 TokenKind::Ident(w) if w == "font" => file.fonts.push(self.font_decl()?),
+                TokenKind::Ident(w) if w == "routes" => {
+                    if file.routes.is_some() {
+                        return self.err("route-duplicate", "an app declares exactly one `routes` table");
+                    }
+                    file.routes = Some(self.routes_decl()?);
+                }
                 TokenKind::Ident(w) if w == "shape" => file.shapes.push(self.shape()?),
                 TokenKind::Ident(w) if w == "style" => file.styles.push(self.style()?),
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
@@ -222,7 +231,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `font`, `shape`, `style`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `shape`, `style`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
                     )

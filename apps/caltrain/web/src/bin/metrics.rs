@@ -119,6 +119,8 @@ fn main() {
             baked.clone(),
             caltrain_data::Caltrain,
             Kernel::with_monospace(),
+            Default::default(),
+            "/",
         )
         .unwrap()
     });
@@ -132,6 +134,8 @@ fn main() {
                 baked.clone(),
                 caltrain_data::Caltrain,
                 Kernel::with_monospace(),
+                Default::default(),
+                "/",
             )
             .unwrap();
             let root = fresh.roots()[0];
@@ -213,8 +217,9 @@ fn main() {
     };
 
     // The web host's batches.
-    let ((host, first_batch), web_boot_ms) =
-        repeat(5, || Host::boot(&encoded, caltrain_data::Caltrain).unwrap());
+    let ((host, first_batch), web_boot_ms) = repeat(5, || {
+        Host::boot(&encoded, caltrain_data::Caltrain, Default::default(), "/").unwrap()
+    });
     let mut host = host;
     let change = view_of(host.runner().kernel(), "change-station");
     let (batch, web_update_ms) = time(|| host.dispatch(change, Event::Press));
@@ -262,8 +267,16 @@ component App
     let data_bytes = HEAP_DELTA.load(Relaxed);
     let (plan, decode_ms) = time(|| exact_plan::Plan::decode(&encoded).unwrap());
     let plan_bytes = HEAP_DELTA.load(Relaxed) - data_bytes;
-    let (mut runner, boot_ms) =
-        time(|| Runner::boot(plan, data, Kernel::with_monospace()).unwrap());
+    let (mut runner, boot_ms) = time(|| {
+        Runner::boot(
+            plan,
+            data,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    });
     let root = runner.roots()[0];
     let (_, layout_ms) = time(|| {
         runner
@@ -357,14 +370,21 @@ component App
         };
         let encoded = plan.encode();
         for action in ["bump", "reorder", "topology"] {
-            let mut runner =
-                Runner::boot(plan.clone(), data.clone(), Kernel::with_monospace()).unwrap();
+            let mut runner = Runner::boot(
+                plan.clone(),
+                data.clone(),
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+            .unwrap();
             let root = runner.roots()[0];
             runner
                 .kernel_mut()
                 .compute_layout(root, Offer::definite(390.0, 844.0))
                 .unwrap();
-            let (mut host, _) = Host::boot(&encoded, data.clone()).unwrap();
+            let (mut host, _) =
+                Host::boot(&encoded, data.clone(), Default::default(), "/").unwrap();
             let id = view_of(runner.kernel(), action);
             let host_id = view_of(host.runner().kernel(), action);
             let mut updates = Vec::new();

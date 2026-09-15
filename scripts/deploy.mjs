@@ -1057,9 +1057,14 @@ export function webRelease(web) {
     file.sourceSha256 = sha256(file.body);
     if (file.name === 'index.html') {
       const html = file.body.toString('utf8');
-      if (/<base\b/i.test(html)) refuse('the baked index already defines a base URL');
-      file.body = Buffer.from(html.replace(/(<meta charset="utf-8">)/i, `$1\n<base href="${prefix}">`));
+      // @ref LLP 1038 D7 — a bake anchors deep locations at /; a published
+      // page anchors assets in its captured release, keeping the location.
+      const base = /<base\s+href=["']\/["']\s*\/?\s*>/i;
+      if (/<base\b/i.test(html.replace(base, ''))) refuse('the baked index defines a non-root or duplicate base URL');
+      file.body = Buffer.from(base.test(html) ? html.replace(base, `<base href="${prefix}">`)
+        : html.replace(/(<meta charset="utf-8">)/i, `$1\n<base href="${prefix}">`));
       if (!file.body.toString('utf8').includes('<base ')) file.body = Buffer.from(`<base href="${prefix}">\n${html}`);
+      file.body = Buffer.from(file.body.toString().replace('href="./exact.json"', `href="${prefix}exact.json"`));
     } else if (file.name === 'manifest.json') {
       const manifest = JSON.parse(file.body.toString('utf8'));
       // Manifest navigation remains canonical after moving the manifest

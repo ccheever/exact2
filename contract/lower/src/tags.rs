@@ -189,6 +189,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "dblclick" => AttrTarget::Handler("dblclick"),
         "swiperight" => AttrTarget::Handler("swiperight"),
         "scroll" => AttrTarget::Handler("scroll"),
+        "navigate" => AttrTarget::Handler("navigate"),
         // the canvas's surface (LLP 1009 D3)
         "surface" => AttrTarget::Surface,
         // props (HTML and ARIA attribute names; `testId` is Exact's)
@@ -256,6 +257,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "commandfor" => AttrTarget::Prop(p("commandfor")),
         "command" => AttrTarget::Prop(p("command")),
         "aria-checked" => AttrTarget::Prop(p("accessibilityChecked")),
+        // @ref LLP 1039 D6 — vertical tablists retain authored layout.
+        "aria-orientation" => AttrTarget::Prop(p("accessibilityOrientation")),
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         // style rows, by their CSS property names
         "white-space" => styles(&["white_space"]),
@@ -417,6 +420,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "overflowX" => "overflow-x",
         "overflowY" => "overflow-y",
         "zIndex" => "z-index",
+        "accessibilityOrientation" => "aria-orientation",
         "label" | "accessibilityLabel" => "aria-label",
         "hint" | "accessibilityHint" => "aria-description",
         "headingLevel" => "aria-level",

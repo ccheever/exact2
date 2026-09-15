@@ -151,7 +151,10 @@
               }
             },
             "associatedDomains": {
-              "type": "boolean"
+              "oneOf": [
+                { "type": "boolean" },
+                { "type": "array", "items": { "type": "string" } }
+              ]
             },
             "urlSchemes": {
               "type": "array",

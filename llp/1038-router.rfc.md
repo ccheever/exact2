@@ -1,10 +1,10 @@
 # LLP 1038: Router — a location, a stack per tab, six verbs
 
 **Type:** RFC
-**Status:** Accepted by Charlie, 2026-09-14 — every §10 question ruled; implementation assigned and not started. r2 (r1 was `1037-router.rfc.md`, Claude (Opus 5), 2026-09-14, superseded and withdrawn the same day; 1037 is the DartNative research, allocated four minutes earlier — numbers are never reused). **The rulings:** a web tab switch is a history entry (D12; §10 Q1); a template literal passed to a verb is refused — a location is a literal, a `path()` call, or a variable (D3; §10 Q2); the viewport fact the rail needs is LLP 1039 (D12); no restore in v1, kept easy to add (§7; Q3); LLP 1001 and 1012 move to `llp/foundation/` so this and 1039 join the working set (Q4); Astra implements, 1039 first (Q5)
+**Status:** Accepted by Charlie, 2026-09-14 — every §10 question ruled; slices 1 and 2 implemented and integrated. The held-contact and iPad verification follow-ups in §9 remain; slice 3 is deferred to its first consumer. r2 (r1 was `1037-router.rfc.md`, Claude (Opus 5), 2026-09-14, superseded and withdrawn the same day; 1037 is the DartNative research, allocated four minutes earlier — numbers are never reused). **The rulings:** a web tab switch is a history entry (D12; §10 Q1); a template literal passed to a verb is refused — a location is a literal, a `path()` call, or a variable (D3; §10 Q2); the viewport fact the rail needs is LLP 1039 (D12); no restore in v1, kept easy to add (§7; Q3); LLP 1001 and 1012 move to `llp/foundation/` so this and 1039 join the working set (Q4); Astra implements, 1039 first (Q5)
 **Systems:** a new leaf crate `exact-route` (the value, the verbs, matching, the canonical location); Contract (a `routes` declaration, four compiler-declared shapes, roster reads and verbs, `path()`); Plan (a `routes` table, the router slot in the header, baked resource arguments); Runner (the launch location as a boot fact, the slot filled at boot, the compiled-value rule); Web host (address bar, session history, the launch location, serving fallback); Apple and Linux hosts (URL entry points, the hide-and-inert rule, the push-or-swap rule); TypeScript sources (the same crate behind three functions); Agent API (`state.navigation.url`, a URL as a form of `type`)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
-**Implementer:** Astra (`gpt-6-astra` through Codex), assigned by Charlie 2026-09-14: LLP 1039 first, then slice 1 (§9), sequentially in one worktree; slice 2 fans out to two lanes (the web's history and serving; the native URL entry points); the TS binding (slice 3) with the first source that needs it. Not started.
+**Implementer:** Astra (`gpt-6-astra` through Codex), assigned by Charlie 2026-09-14. Slice 1 (§9, chunks a–e) landed in `248f322`/`887caa6`, `3ff55a0`/`aac382c`, `63cf660`, `319d847`, and `2a3d793`/`e476354`, with follow-up fixes through `330177a` and the S6–S11 review fixes here. Slice 2's web history/serving and native URL lanes were integrated through `5444575`; Codex prepared delivery and addressed review findings on 2026-09-15. The TS binding (slice 3) waits for its first source consumer.
 **Date:** 2026-09-14
 **Related:** LLP 1035.001 D1 (the route props, the Back control), D2 (the three outcomes), D6 (refusals are journal lines), D10 (the Router's semantic core — this RFC is the "later contract decision" its last bullet names); LLP 1005 §5–§8 (roster, boot, settlement, row slots); LLP 1006 (the compiler); LLP 1007 §4 (the glue), §6 (reload carries state); LLP 1012 (the eight operations); LLP 1017 P4c (per-instance state, and why a row holds no resource), P7 (tests in the language); LLP 1018 (the store); LLP 1023 §3 (the URL is the app); LLP 1027.001 §2 (Contract owns UI state; sources receive and return values), D1 (the standard utility surface); LLP 1030 D7 (a fact the runner answers itself); LLP 1031 D5 (navigation is an intention); LLP 1039 (the viewport fact the rail needs); `rules/NOT-DOING.md` (no interactive-navigation model, no route payloads, no platform-suffixed routes). Research, never authority: exact1 LLP 0010, 0051, 0282, 0290, 0305, 0310, 0311, 0494; `~/projects/exact/router-core` and `packages/exact-router/src/browser.ts`
 
@@ -162,9 +162,12 @@ and the corpus in §8 holds every sentence.
 **Location.** A string `path[?query]`: an absolute path (`/`, segments
 separated by `/`) and an optional query. Never a scheme, host, or fragment.
 Its **canonical form** is what a browser yields for
-`new URL(location, "https://x")` as `pathname + search`: dot segments
+`new URL("https://x" + location)` as `pathname + search`, prefixing `/`
+first when the location does not start with it: dot segments
 resolved, the path percent-encode set applied per segment, the query's
 percent-encode set applied to the query, everything else left as typed.
+Prefixing the origin makes every location an absolute path, so `//b` stays
+`//b` and canonicalization is idempotent even after dot-segment removal.
 Two locations name the same screen exactly when their canonical forms are
 equal. `location_of(href)` derives a location from any absolute URL: for
 `http`/`https`, `pathname + search`; for any other scheme, `"/"` followed
@@ -180,7 +183,8 @@ is a route with `tab = true`; every route belongs to one tab (the nearest
 tab ancestor, else the first tab); a table with no tab rows has one tab
 named for its first route. Static checks (the compiler's rejects, D2):
 duplicate names; a pattern fully shadowed by an earlier one; a parent whose
-`:name` the child cannot supply; a `:name` that is not an identifier.
+`:name` the child cannot supply; a `:name` that is not an identifier;
+no pattern matching `/` and no `notfound` for the boot location.
 
 **Match.** `match(table, location) → {name, params} | none`: canonicalize;
 split the path into segments (a trailing slash is an empty last segment and
@@ -194,7 +198,8 @@ query is never matched; it rides in the entry's location.
 and never reused. `url` is the canonical location.
 
 **Router.** `{tab: string, tabs: [{name, stack: [Entry]}], next: number}`.
-Every tab's stack is non-empty and begins with that tab's root entry. The
+Every tab's stack is non-empty and begins with an entry matching that tab's
+own root route, whose query or parameters may change through `replace`. The
 **selected stack** is the stack of `tab`; its last entry is the **top**.
 Reads: `stack(r)`, `top(r)`, `depth(r)`, `params(r, name)` (that `:name`'s
 non-empty values over the selected stack, root first, duplicates kept),
@@ -215,7 +220,7 @@ reports one refusal (the caller journals it, 1035.001 D6).
 |---|---|
 | `open(r, loc)` | Select the matched route's tab; replace that tab's stack with `chain(loc)`. Positions whose existing entry has the same `url` keep their `id`; the rest are fresh. Other tabs are untouched. A launch, a reload, a notification, a deep link. |
 | `push(r, loc)` | Append a fresh entry for `loc` to the selected stack — on the selected tab whatever tab the route is declared under. A post opened from Search sits on Search. |
-| `replace(r, loc)` | Give the top entry `loc`'s name, url and params; keep its `id`. A search query mirrored into the URL; a redirect. |
+| `replace(r, loc)` | Give the top entry `loc`'s name, url and params; keep its `id`. A search query mirrored into the URL; a redirect. At depth 1, only a location matching the tab's own root route is allowed; another route leaves the value unchanged with one refusal. |
 | `back(r)` | Drop the top entry. At depth 1, unchanged. |
 | `select(r, t)` | Select tab `t`, showing its retained stack. Selecting the selected tab pops it to its root (the platform convention: `UITabBarController`, Twitter). Unknown `t`: unchanged, refused. |
 | `go(r, loc)` | Traverse: if `loc` is the top, unchanged; else if it is in the selected stack, pop to its nearest occurrence (ids kept); else if it is the top of another tab, `select` that tab; else `push`. A browser Back or Forward past one step; a pasted in-app link. |
@@ -263,7 +268,8 @@ routes nav
 `style` (`contract/syntax/src/parser.rs:196-230`); it declares the root
 slot that holds the value, exactly one per app, refused in a file with no
 root component (`analyze-routes-not-root`). Indentation declares the
-parent; `tab` declares a tab; the first tab is the default. Messages reads
+parent; `tab` declares a tab; the first tab is the default.
+A tab route named `tab` is written unambiguously as `tab tab "/x"`. Messages reads
 `routes nav` / `inbox "/"` / `  thread "/t/:thread"` /
 `    details "/t/:thread/details"` / `      newContact "/t/:thread/contact"`
 / `  compose "/new"`.
@@ -273,7 +279,8 @@ The rejects, one fixture each in `contract/corpus/rejects.txt`:
 (a segment that is neither a literal nor a `:identifier`), `route-no-match`
 (a string literal passed to a verb that no pattern matches), `route-unknown`
 (`path()` names no route, or with the wrong count of parameters),
-`route-template` (a template literal passed to a verb, D3).
+`route-template` (a template literal passed to a verb, D3), and `route-root`
+(the table must match `/` by pattern or declare `notfound`).
 
 The plan gains a `routes` table (`name`, `pattern`, `parent: opt:routes`,
 `tab: bool`, `notfound: bool`) and the header gains `router: opt:slots`,
@@ -306,14 +313,17 @@ under their web names: `encodeURIComponent(string): string` and
 
 `path(name, args…)` is not a roster entry: the compiler expands it at the
 call site into a template of the route's pattern with each `:name`
-interpolated through `encodeURIComponent`, arity-checked against the table
+interpolated through `encodeRouteSegment` (shared with `Table::path`), arity-checked against the table
 (`route-unknown`). No per-route codegen, no typed parameter records —
-0290's lesson — and no way to forget the encoding.
+0290's lesson — and no way to forget the encoding. The segment encoder uses
+`encodeURIComponent`, but refuses empty, `.` and `..` parameters (literal
+`route-unknown`, otherwise a journaled runtime refusal): WHATWG URL parsing
+removes even `%2E` and `%2E%2E`, so those values cannot survive as path segments.
 
 A verb's location argument is one of three things (ruled 2026-09-14): a
-string literal, checked against the table at compile time
-(`route-no-match`); a `path()` call; or any expression that is not a
-template — a variable, a field, the location `navigate` delivered, a string
+string literal, checked against the patterns at compile time
+(`route-no-match`; `notfound` does not make a literal valid); a `path()` call;
+or any expression that is not a template — a variable, a field, the location `navigate` delivered, a string
 a source returned — checked at run time and journaled when nothing matches.
 A template literal is refused (`route-template`: "use `path()`"), because a
 hand-built `` `/people/${id}` `` breaks the moment `id` holds a `/`, `?` or
@@ -342,7 +352,8 @@ with no URL passes `/`. The web passes `location.pathname + location.search`.
 A reload carries the slot by name like any root slot (`Runner::carry`,
 `runner.rs:309-320`; LLP 1007 §6), so editing `app.contract` in the dev loop
 keeps the screen. The carried value is re-checked against the new table:
-when every entry still matches to the same route name it is kept; otherwise
+when every entry still matches to the same route name and the tab roster
+(names, in order) is unchanged, it is kept; otherwise
 the runner keeps `open(empty, top.url)` of the old top, which is a restart
 with the address bar honored.
 
@@ -355,7 +366,9 @@ arguments equal them; otherwise the source is asked, as after an action. For
 every existing app the comparison is always true; for a launch at
 `/post/42` the resources that read `nav` are asked and the rest keep their
 first frame. This is the general form of the rule LLP 1030 D7 wrote for
-`delivery` alone.
+`delivery` alone. A source that is not ready at boot answers its compiled
+placeholder regardless of arguments, marks it stale, and is asked again with
+the current arguments at `data_ready`.
 
 ### D6 — Screens are `each` over the selected stack; the landed projection is unchanged; two hosts catch up
 
@@ -389,8 +402,10 @@ entries reach history.
 Two host changes, both small. **iOS:** `setViewControllers(_:animated:)`
 animates whenever the last owner changes (`NavigationIOS.swift:178`); it
 becomes a push or pop only when one controller list is a prefix of the
-other, and a swap without a transition otherwise — a tab switch and an
-`open` are replacements (D10: "tab switching is not a push"). **macOS and
+other, and a swap without a transition otherwise. The animation follows the
+prefix relationship of the controller lists, whatever verb produced it: an
+`open` that extends the current stack animates as a push, one that replaces
+it swaps. **macOS and
 Linux:** adopt the web's rule (`glue.js:824-836`): every route but the
 selected one, and the one beneath a modal, is hidden and inert. Without it
 the rows would paint on top of each other on the two hosts that never
@@ -407,7 +422,10 @@ the slot; no host infers intent from a DOM diff; a non-web host keeps the
 op only to answer `state.navigation.url` (D11). The glue keeps `written[]`,
 the entries it has put into session history, each stamped
 `{exact: index, id, url}`, `gone`, the set of removed ids, and `cursor`,
-the current index. Boot `replaceState`s index 0 with the first op.
+the current index. Fresh boot `replaceState`s index 0 with the first op.
+An in-document reboot retains the mirror if its first router op has
+`top == written[cursor].id` (the router carried); otherwise it resets to
+index 0. A DOM teardown alone never erases the session-history mirror.
 
 | on a `router` op | history |
 |---|---|
@@ -423,8 +441,16 @@ the way Twitter's web app behaves.
 | on `popstate` to index `j` | delivered as |
 |---|---|
 | an expected echo | consumed |
-| `j == cursor-1` and `written[j].id` is the key of the route directly beneath the selected one | a completed pop: press the `navigationBack` control, as Escape on a sheet does (`glue.js:1486-1493`) and as a finished swipe does (1035.001 D2). If the commit did not select that key — no enabled control, or the action did something else — `history.go(cursor-j)` restores the entry, echo consumed, one journal line |
-| anything else (Forward, a multi-step Back, a tab switch undone, an entry this page did not write) | the root's `navigate` handler with `written[j].url` (or `location.pathname + search`). If the commit's `router` op does not land on that url, restore the same way; if it does, `written[j].id` takes the new top's id |
+| `j == cursor-1` and `written[j].id` is the key of the route directly beneath the selected one | a completed pop: press the `navigationBack` control, as Escape on a sheet does (`glue.js:1486-1493`) and as a finished swipe does (1035.001 D2). If the commit selected that key, stamp the accepted entry with its id and URL; otherwise use the refusal/redirect rule below |
+| anything else (Forward, a multi-step Back, a tab switch undone, an entry this page did not write) | the root's `navigate` handler with `written[j].url` (or `location.pathname + search`). If the commit's `router` op lands on that url, `written[j].id` takes the new top's id; otherwise use the refusal/redirect rule below |
+
+A commit with no router change is a refusal: `history.go(cursor-j)` restores
+the entry, consumes the echo and journals once. If the router changed but
+did not accept the requested key/URL, restore the History entry first, then
+mirror that op through the ordinary commit table from the restored cursor
+(e.g. a handler pushing `/other` writes a new entry with `pushState`).
+After Forward, that push truncates the forward tail, so the new entry need
+not grow the total `history.length`.
 
 Popstates are handled one at a time; a commit is synchronous in this host,
 so a second one waits in a queue rather than interleaving (0311's rule). A
@@ -436,7 +462,9 @@ missed it yet (§7). The handler's name is the web Navigation API's event.
 under `/.exact/` or `/__dev/` answers `index.html`; the document gains
 `<base href="/">` so its script, assets and module fetches resolve at the
 origin root from any path (`index.html:48`, `glue.js:120-131`).
-`serve.mjs`, `dev.mjs` and `origin.mjs` share the rule.
+`serve.mjs`, `dev.mjs` and `origin.mjs` share the rule. Before URL
+normalization, their shared raw-target guard refuses encoded dot segments,
+`..`, backslashes and `%00` with 404 and `Cache-Control: no-store`.
 
 ### D8 — An incoming URL is one `navigate` event; before first pixel it is the launch location
 
@@ -510,6 +538,8 @@ input calls `change`. On the web, browser Back and Forward are `tap
 on macOS. No ninth operation.
 
 ### D12 — Presentation is the app's; the one platform difference is tab history
+
+The viewport fact for this presentation is LLP 1039’s `exactViewport`: width and height are host boot facts, refreshed on resize. The rail branches on width without changing route state or introducing a router-owned size class.
 
 The router never learns how an entry is shown. From one value:
 
@@ -659,11 +689,172 @@ binds; nothing comes off it, because none of this was ever on it.
    op, the web's address bar (`replaceState` of its url only), launch
    location and `<base>`; `state.navigation.url`. Interview moves to `routes`; the
    verification rows for the corpus, rejects, launch, swipes and tabs.
+   chunk (a) landed 2026-09-14: `exact-route`, 226 corpus cases.
+   chunk (b) landed 2026-09-14: plan routes/header/cache keys and typed roster; runner launch, conversions, carry, `take_router_change()` beside unchanged kernel receipts, and corpus replay through the VM.
+   chunk (c) landed 2026-09-14: Contract routes grammar, root slot and four positional shapes, table/header emission, typed roster reads and verbs, encoded `path()` expansion, all nine compiler rejects, Interview fixture and runner tests including 66 shared corpus steps; LLP 1006 updated. Host projection and app migration remain chunks (d)/(e).
+   chunk (d) landed 2026-09-14: coalesced router ops in web/Apple batches
+   and retained on Linux; web launch pathname/query, current URL on module
+   reboot, replaceState-only address bar and origin-root base; navigation.js
+   split (boot count 1 → 2); iOS prefix-only push/pop versus immediate swap;
+   macOS/Linux hide-and-inert projection and agent URL observations (Linux
+   stays unavailable). Asked sources are named in the existing journal so
+   the launch row distinguishes queries from compiled resource values.
+
+   **Decided (chunk d):** Linux has no foreign batch consumer, so it retains
+   `RouterChange` at boot/commit rather than adding a batch mirror. Native
+   launch remains `/`; its URL is asserted from Linux's router value while
+   `state.navigation` remains unavailable. The web's unmatched-key case now
+   preserves projection and journals, bringing its implementation up to
+   1035.001 D6. The new web module joins the existing static-file allowlist,
+   build copy and source fingerprint; serving routing is unchanged. Host
+   drives use the existing routes fixture baked by its test data source;
+   temporary `loadQuestions` support in the Caltrain carrier is restored
+   before checks and commits, with no app migration. UIKit's second
+   `willShow` during cancellation keeps the interactive source until `didShow`;
+   the cancelled stack stays unchanged, the phase is `cancelled`, and no Back
+   is dispatched. Physical input used the existing pointer helper mapped from
+   Simulator's AX `iOSContentGroup` and the agent's screen bounds after the
+   driver's hover calibration was unavailable. The existing iOS canvas smoke
+   now crops at that reported screen origin; treating both safe areas as a
+   title bar had shifted the crop down 34 points (76.65% differing pixels;
+   the same capture at the correct origin differs by 0.73%, within its 1% band).
+
+   **Observed (chunk d):** `/tmp/lane-router/1038d/` holds the drives and
+   check logs. Web deep launch reports `/prompt/5/write`, keys `1,5,6`, and
+   `query questions: loadQuestions`; native launch is `/`. iOS cancellation
+   preserves `0,5,6,7` with phase `cancelled` and zero Back calls; three
+   completed swipes yield `0,5,6`, `0,5`, `0`, with three Back calls. Tab
+   select/restore/open stayed `idle` under platform timing; re-select popped
+   to root. Mac at 1280 × 900 and Linux report hidden/inert retained routes
+   and refuse their controls; only the modal's immediate underlay is visible
+   but inert. Existing `when`-selected routes still project on all four hosts.
+   The nested-document dev drive loads root-relative modules/assets and dev
+   generation payloads, preserving `?agent=1` and a controlled clock, using
+   browser document interception without adding a serving fallback.
+
+
+   chunk (e) implementation landed 2026-09-14: Interview on `routes` —
+   4 slots and 0 actions deleted net (33 → 29 slots, 46 → 46 actions),
+   all 14 scroll-reset writes removed. `Screen(entry: Entry)` owns drafts,
+   editor and chrome state; shared values/actions use `provide`/`inject`.
+   Root SQLite reads answer stacked question/person/post IDs, with keyed
+   detail/profile lists and stacked posts outside the filtered feed. The
+   pre-replica backend still receives the first scalar IDs; list arguments
+   remain owed in Interview’s own LLP. The compiler’s stale child-state
+   scope for curried action arguments is fixed, with origin spans preserved
+   and an `instance-args.contract` dispatch/diagnostic regression fixture.
+
+   **Decided (chunk e):** Repeated route IDs share one data record in
+   first-occurrence stack order so `each d key=d.question.id` stays unique;
+   screens retain independent entry keys and local state. Root mutations
+   retain their submitting entry ID so a new composer cannot inherit an old
+   success notice. No `navigate` handler, serving fallback or history mirror
+   is added. The web launch evidence harness only serves the app document at
+   the requested deep pathname; it does not implement slice 2 serving.
+
+   **Observed (chunk e):** `/tmp/lane-router/1038e/report.md` records all
+   evidence. The Rust/runner corpus and six Contract router tests pass;
+   all nine rejects pass. Interview’s three native replica, six adapter and
+   five Node tests pass; Exact’s five checks and Caltrain web/macOS/iOS smokes
+   pass. Web traverses keys `6,7,8,9` through Home/post/person/post with real
+   SQLite records and restores the retained stack on tab select. iOS restores
+   Settings depth 2 with 16 `idle` samples, re-selects to depth 1, and cancels
+   a held edge swipe with `4,6` unchanged, phase `cancelled`, zero Back calls.
+   Web/macOS show bar at 420 × 900 and rail at 1280 × 900. Native launch is `/`;
+   Linux reports it through `nav` while navigation remains unavailable.
+
+   **Decided (F9–F11, orchestrator, 2026-09-14):** A deferred source with a
+   compiled value answers that stale placeholder at boot regardless of
+   argument mismatch, then answers current arguments at `data_ready`; this
+   closes a slice-1 rule gap. F10 uses the static routes fixture because
+   Interview’s native agent mode withholds SQLite. The F11 browser harness
+   pauses the deferred module until first-pixel capture and clears its driver
+   query before wasm boot, retaining the controlled clock while allowing the
+   ordinary SQLite path; no agent storage policy or serving behavior changes.
+
+   Slice 1 implementation landed 2026-09-14: chunks (a) `248f322`/`887caa6`, (b) `3ff55a0`/`aac382c`, (c) `63cf660`, (d) `319d847`, and (e) Interview `2a3d793`/`e476354` with compiler fix `1741d80`; F9 `0c078e3`, F10 fixture `8fa89a7`/`8265f5b`, and Interview F11 evidence note `5ec1dd9` follow. §8 rows 1–2 pass in Rust/runner/Contract (17 route tests, six Contract router tests, 66 shared steps, nine rejects). Row 3 now passes on Interview web: `/prompt/5/write`, keys `1,5,6`, first pixel 68.8 ms with the module held; `data_ready` asks `app(false,["5","5"],[],[],"Latest","",0,0,0)` and saved SQLite question 5 appears after sign-in/sync; native launches remain `/`. F10’s iOS static fixture taps Home/post A/person P/post B through keys `0` → `0,5` → `0,5,6` → `0,5,6,7`, displaying their own titles/name, after scrolling feed node 22 to 240; row 4’s three held swipes and restored offset remain unverified because other desktop apps repeatedly cover Simulator and the pointer helper refuses the contact. Interview row 5 preserves `4,6`, phase `cancelled`, zero Back calls; row 6 restores Settings depth 2, re-selects to depth 1, and samples swaps/open 16 times each at `idle`; Interview web paths follow the top using slice-1 `replaceState`. Evidence and final checks are in `/tmp/lane-router/1038e/followup-report.md`. Remaining work is the unobscured fixture contact drive, Interview row 4 with a seeded agent-mode replica, iPad-wide iOS, backend list arguments, and slice 2’s Messages/history/serving/native URL work; slice 1 is not declared fully verified while row 4 is blocked.
+
 2. **Slice 2 — the web's history and the URL entry points, two lanes.**
    Lane a: D7's mirror and `popstate`, the serving fallback, the browser
    rows. Lane b: the `navigate` event on every host with the `type`/`tap`
    forms (D8, D11), the URL-while-running row. Messages moves to `routes`
    in whichever lands second.
+   Lane a implementation (2026-09-14): `navigation.js` implements D7's two
+   tables and queues traversals through restoration echoes; Escape and a
+   completed browser pop share the selected route's Back control. D11's
+   history tap uses `history.go` on the web and replies unsupported in every
+   other agent carrier. `serve.mjs`, `dev.mjs` and the published directory
+   origin share an extensionless document fallback with reserved-path/file
+   precedence; publication replaces the bake's root base with the immutable
+   release prefix. LLP 1007 §4, LLP 1023 §7 and LLP 1012 §1 record the landed
+   paths. The host-side `navigate(location)` seam journals its explicit
+   lane-a refusal and restores: Forward, multi-step Back and undoing a tab
+   switch await lane b's one-line event dispatch replacement. Their successful
+   URL-handling rows are not claimed by this lane.
+
+   Lane b implementation (2026-09-14): `navigate` is EventKind 13 and ABI
+   dispatch kind 14 on Apple/web (Linux dispatches the Rust event); one string
+   or no action parameter, first navigation root only (`lower-navigate-root`).
+   Web exposes synchronous `exact.navigate(location)`, returning the applied
+   batch; lane a owns its popstate caller. Native launch locations now reach
+   initializers and first settlement, including prepared plans. Apple derives
+   them through `exact_location_of`; iOS URL contexts and browsing-web activities,
+   macOS non-file Launch Services URLs, and Linux argv supply them. Explicit
+   development links remain separate. The driver accepts a native scheme/path
+   through `--url` for cold launch. Manifest schemes reach both Apple plists;
+   associated-domain arrays reach the iOS entitlement (the boolean origin form stays).
+
+   Messages moved here: the six-line routes table, one keyed row per entry,
+   the selection ternary removed, and constant `navigationBack="back"`. The eight
+   named actions plus forward/send/save-contact write `nav`; `open` and `back`
+   retain their action names. `followLink` uses the `open` verb. `thread` reads
+   the top's parameter; while composing, `chatThread` reads the entry beneath
+   the sheet so its conversation resource, reply timer and forwarding editor
+   keep the underlying conversation.
+   Draft, reply and selection slots remain application state; presentation,
+   source and close-policy props stay on the same screen nodes.
+
+   Evidence: `/tmp/lane-router/s2b/`. Row 9 passes with one `navigate` on web
+   root type, macOS `open`, and iOS `simctl openurl` on the carrier's device
+   (multiple simulators were booted; the OS Open consent was accepted).
+   Linux root type also passes. Native cold driver launches show `/post/42`
+   in the initializer and first frame, with zero navigate dispatches; macOS
+   also passes a real cold Launch Services URL. Scheme/entitlement generation
+   is exercised in `manifest.json`. The routes corpus ran in a temporary
+   Caltrain carrier with an isolated bundle id and three fixture data replies;
+   those carrier source/manifest edits were restored before checks or commit.
+   Messages' iOS/macOS smokes and web app-only smoke pass. Full web smoke refuses
+   an unrelated bare-plan fixture with `module reload requires a paired generation`.
+   Direct iOS/web drives
+   additionally cover draft/Back/focus and the root event; web covers empty
+   Escape and populated forwarding refusal, including a reply arriving beneath
+   the forwarding sheet without changing its draft or active-thread read state.
+   The macOS viewport fixture caught the deferred boot taking the content rect;
+   retaining `session.viewportSize` restores the full cover viewport. The original and migrated macOS
+   Contracts both hit the pre-existing painted-agent-popover obstruction
+   (`QUEUE.md`); no held-contact sweep is claimed by these drives.
+   The five checks pass with development trust and default `TMPDIR`: build,
+   752 workspace tests, clippy/format, staged caps and boot imports. Web's
+   app-only assertions also exit zero through a caller that exits after the
+   smoke module completes; its natural-exit pipe issue is recorded in `QUEUE.md`.
+
+   Integration (2026-09-14): lane a, then lane b, merged after the slice-1
+   review fixes. The glue's history callback now calls `exact.navigate`;
+   the mirror still requires the synchronous commit to land on the requested
+   URL and restores otherwise. The routes corpus uses `navigate=followLink`
+   with `go`. The browser sweep asserts one handler dispatch and the landed
+   URL for Forward, multi-step Back and tab undo, and retains refusal/restore
+   coverage for both Back and a handler that does not land.
+
+   Delivery review (2026-09-15): Messages' URL handler now saves the outgoing
+   conversation's composer and opens the destination's declared ancestry.
+   Edited draft/reply overrides belong to a conversation; a separate saved
+   composer resource restores a destination on cold launch and browser Forward.
+   Cross-thread links clear selection and editing state. Deterministic ancestry
+   also prevents multiple retained thread rows from displaying one shared chat
+   resource. The app runner regression covers saved drafts/replies, links, Back,
+   Forward, details and the compose underlay.
+
 3. **Slice 3 — TypeScript.** The pure-door binding and the corpus under
    Hermes and Chrome; the Chrome-generated canonicalization fixture. Lands
    with the first source that needs `match` or `path`.

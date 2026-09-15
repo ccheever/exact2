@@ -77,7 +77,7 @@ fn view(host: &Host<Later>, test_id: &str) -> u32 {
 fn a_send_leaves_as_a_request_op_and_the_reply_commits() {
     let plan = contract::compile(SRC).unwrap();
     let baked = contract::bake(plan, Later).unwrap();
-    let (mut host, first) = Host::boot(&baked.encode(), Later).unwrap();
+    let (mut host, first) = Host::boot(&baked.encode(), Later, Default::default(), "/").unwrap();
     assert!(
         first.contains("{\"op\":\"grants\",\"lines\":[\"net.fetch https://api.castle.test\"]}"),
         "{first}"
@@ -133,9 +133,9 @@ fn module_replacement_preserves_the_owner_of_an_in_flight_post() {
     let plan = contract::bake(contract::compile(SRC).unwrap(), Later)
         .unwrap()
         .encode();
-    let (host, _) = Host::boot(&plan, Later).unwrap();
+    let (host, _) = Host::boot(&plan, Later, Default::default(), "/").unwrap();
     let mut bridge = exact_web::abi::Bridge::new();
-    bridge.boot(&plan, Later);
+    bridge.boot(&plan, Later, 390.0, 844.0, "/");
     bridge.input_write(b"ada");
     bridge.dispatch(view(&host, "who"), 1, 3, 0.0);
     bridge.dispatch(view(&host, "login"), 0, 0, 0.0);

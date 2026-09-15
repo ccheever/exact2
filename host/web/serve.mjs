@@ -12,7 +12,7 @@ import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from '
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
 import { developmentURLScheme } from '../../scripts/app.mjs';
-import { parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
+import { appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
 import { INSTALL_FILES, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
 
@@ -20,14 +20,14 @@ const PUBLIC_FILES = new Set([
   ...INSTALL_FILES,
   '/rust-glue.js', '/app.js', '/app.hbc', '/app.module.json', '/module-glue.js', '/module-prelude.js',
   '/storage-request.js', '/storage.js', '/storage-fs.js', '/storage-sqlite.js', '/storage-worker.js', '/sqlite3.mjs', '/sqlite3.wasm',
-  '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/gpu-glue.js',
+  '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/navigation.js', '/gpu-glue.js',
   '/gpu.js', '/gpu_bg.wasm', '/index.html', '/manifest.json',
   // The one dot path a static origin serves: the deep-link association
   // file bake generates (LLP 1030 D1), read by Apple's CDN over HTTPS.
   '/.well-known/apple-app-site-association',
 ]);
 const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/'];
-const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', 'index.html', 'manifest.json'];
+const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', 'navigation.js', 'index.html', 'manifest.json'];
 // An origin's update streams (LLP 1030.000 D7; `scripts/origin.mjs`):
 // `.exact/blobs/<sha256>` and `.exact/<channel>/<compatibility id>/…` — the
 // one dot path a client fetches. Inside it every other dot name (the
@@ -547,14 +547,46 @@ export function webCacheControl(found) {
     ? 'public, max-age=31536000, immutable' : 'no-store';
 }
 
+// @ref LLP 1038 D7 — preserve file precedence and negotiate the app
+// document after resolving the shared extensionless-location fallback.
+export async function readWebRequest(dist, pathname, accept = '') {
+  if (!webRequestURL(pathname)) return { found: null, index: false };
+  let route = pathname;
+  let found = await readStaticFileAsync(dist, route);
+  if (!found && appDocumentPath(route)) {
+    route = '/index.html';
+    found = await readStaticFileAsync(dist, route);
+  }
+  const index = route === '/' || route === '/index.html' || found?.route === '/index.html';
+  if (index && accept.includes('application/vnd.exact.envelope+json')) {
+    const release = found?.immutable && /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\//.exec(decodeURIComponent(pathname));
+    route = release ? release[0] + 'exact.json' : '/exact.json';
+    found = await readStaticFileAsync(dist, route);
+    // An envelope resolves against its response URL, not HTML's <base>.
+    // A deep location must still name the root's payloads (1023 D2).
+    if (found && !found.published && route === '/exact.json' && pathname !== '/' && pathname !== '/index.html') {
+      const body = JSON.stringify(JSON.parse(found.body), (key, value) => {
+        if (key !== 'url' || typeof value !== 'string') return value;
+        const url = new URL(value, 'http://exact.invalid/');
+        return url.origin === 'http://exact.invalid' ? url.pathname + url.search + url.hash : value;
+      });
+      found = { ...found, body: Buffer.from(body) };
+    }
+  } else if (index && found && !found.published) {
+    // Native HTML discovery scans the alternate link without executing HTML.
+    found = { ...found, body: Buffer.from(found.body.toString().replace('href="./exact.json"', 'href="/exact.json"')) };
+  }
+  return { found, index };
+}
+
 /** The production directory origin and diagnostic server share actual HTTP
  * handling, including no-store deletions and the native envelope rung. */
 export async function serveStatic(dist, req, res, listener) {
+  const target = webRequestURL(req.url);
+  if (!target) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { 'cache-control': 'no-store' }); res.end(); return; }
-  let route = new URL(req.url, 'http://exact.invalid').pathname;
-  const index = route === '/' || route.endsWith('/index.html') && !route.includes(INSTALL_ROOT);
-  if (index && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json')) route = route === '/' ? '/exact.json' : route.slice(0, -10) + 'exact.json';
-  const found = await readStaticFileAsync(dist, route);
+  const route = target.pathname;
+  const { found, index } = await readWebRequest(dist, route, req.headers.accept);
   if (!found) { res.writeHead(404, { 'cache-control': 'no-store', ...(index ? { vary: 'Accept' } : {}) }); res.end(); return; }
   res.writeHead(200, { 'content-type': webContentType(found.route), 'cache-control': webCacheControl(found), ...(index ? { vary: 'Accept' } : {}) });
   let body = !found.immutable && INSTALL_FILES.includes(found.route) ? found.body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', found.published ? 'Hosted release' : 'Development server') : found.body;

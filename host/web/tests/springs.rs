@@ -21,7 +21,7 @@ fn boot() -> (Host<NoData>, String) {
     ))
     .unwrap();
     let plan = contract::compile(&src).unwrap();
-    Host::boot(&plan.encode(), NoData).unwrap()
+    Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap()
 }
 
 fn view(host: &Host<NoData>, test_id: &str) -> u32 {

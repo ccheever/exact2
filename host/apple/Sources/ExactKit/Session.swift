@@ -455,6 +455,7 @@ public final class ExactSession {
             // A fresh boot over a running app (the dev menu's reload from
             // the baked plan) starts the views over; the library already
             // replaced its host.
+            routerOp = nil
             if booted { presenter.reset() }
             booted = true
             generation += 1
@@ -524,6 +525,7 @@ public final class ExactSession {
     }
 
     func presentCommitted(_ batch: Batch, label: String) {
+        routerOp = nil
         presenter.reset()
         booted = true
         app.lifecycle?.generationStarted(app, token: updateToken)
@@ -546,10 +548,14 @@ public final class ExactSession {
 
     /// A batch into the presenter; frames and the clock follow it; its
     /// commands go to the delegate after it.
+    /// @ref LLP 1038 D7/D11 — observation only; Swift never interprets slots.
+    private(set) var routerOp: [String: Any]?
+
     func apply(_ batch: Batch) {
         guard state != .destroyed else { return }
         let outermost = !applying
         applying = true
+        for op in batch.ops where op["op"] as? String == "router" { routerOp = op }
         presenter.apply(batch)
         frames.motion = batch.motion
         // The GPU module: after the first painted frame, only when a canvas exists.
@@ -637,6 +643,24 @@ public final class ExactSession {
         let matches = presenter.views.values.filter { $0.props["testId"] == testId && $0.handlers.contains("change") }
         guard matches.count == 1, let node = matches.first else { return false }
         let batch = runtime.change(node.id, value, now: now())
+        apply(batch)
+        return batch.error == nil
+    }
+    /// A host URL before boot is a launch fact; afterwards it is one event.
+    /// @ref LLP 1038 D8/D11 — development links are consumed by the adapter first.
+    @discardableResult public func openURL(_ url: URL) -> Bool {
+        guard state != .destroyed else { return false }
+        let location = runtime.location(of: url.absoluteString)
+        if !booted { runtime.launch(location); return true }
+        return navigate(location)
+    }
+    @discardableResult public func navigate(_ location: String) -> Bool {
+        guard state != .destroyed, booted else { return false }
+        guard let node = presenter.views.values.first(where: { $0.props["navigationBack"] != nil && $0.handlers.contains("navigate") }) else {
+            log("navigate refused: no navigation root handler")
+            return false
+        }
+        let batch = runtime.navigate(node.id, location, now: now())
         apply(batch)
         return batch.error == nil
     }

@@ -90,8 +90,14 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
         !candidate.module.is_loaded(),
         "admission and first frame need no engine"
     );
-    let mut live =
-        Runner::boot(candidate.plan, candidate.module, Kernel::with_monospace()).unwrap();
+    let mut live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert_eq!(live.resource("message"), Some(&Value::str("old: 0")));
     assert!(
         !live.data().is_loaded(),
@@ -113,8 +119,15 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
     let mut next = paired(&second);
     next.module.load().unwrap();
     let carried = live.carry();
-    let mut changed =
-        Runner::boot_carrying(next.plan, next.module, Kernel::with_monospace(), &carried).unwrap();
+    let mut changed = Runner::boot_carrying(
+        next.plan,
+        next.module,
+        Kernel::with_monospace(),
+        &carried,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert_eq!(changed.slot("count"), Some(&Value::Number(1.0)));
     assert_eq!(
         changed.resource("message"),
@@ -129,6 +142,8 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
         same.module,
         Kernel::with_monospace(),
         &changed.carry(),
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert!(
@@ -376,7 +391,14 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
         "../../../../ibex/crates/ibex2/src/bindings/storage.d.ts"
     )));
     let candidate = paired(&baked);
-    let live = Runner::boot(candidate.plan, candidate.module, Kernel::with_monospace()).unwrap();
+    let live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert_eq!(live.resource("message"), Some(&Value::str("old: 0")));
     f.write(
         "app.ts",

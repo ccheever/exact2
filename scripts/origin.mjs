@@ -17,7 +17,7 @@
 // files; an object-store adapter (`If-Match` on the ETag, which S3, GCS, R2,
 // and Azure all have) is owed, and `--yes` against https refuses by name.
 import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { extname, resolve } from 'node:path';
 import { filesystem, filesystemLock } from './filesystem.mjs';
 
 /** SHA-256, lowercase hex — the digest every card and blob name carries (LLP 1023 D2). */
@@ -39,6 +39,33 @@ export const blobPath = (digest) => `.exact/blobs/${digest}`;
 export const webRootStream = { channel: 'root', compatibilityId: 'web' };
 export const webRootPath = `${streamPath(webRootStream)}/exact.json`;
 export const webReleasePath = (id) => `.exact/root/web/releases/${id}`;
+// @ref LLP 1038 D7; LLP 1023 §7 — the directory origin, dev and static
+// server share this document fallback. Try a public file first; absent
+// extensionless paths are locations. Reserved/private paths stay files.
+// Inspect the raw request target before WHATWG URL removes dot segments.
+// Used by static hosting, the dev server and the document fallback.
+export function webRequestURL(target) {
+  if (typeof target !== 'string' || target.includes('\\') || /%00/i.test(target)) return null;
+  try {
+    const path = target.split(/[?#]/, 1)[0];
+    if (decodeURIComponent(path).includes('\\') || path.includes('\0')) return null;
+    for (const segment of path.replace(/%2f/ig, '/').split('/')) {
+      const decoded = decodeURIComponent(segment);
+      if (decoded === '..' || decoded === '.' && segment !== '.') return null;
+    }
+    return new URL(target, 'http://exact.invalid');
+  } catch { return null; }
+}
+
+export function appDocumentPath(pathname) {
+  if (!webRequestURL(pathname)) return false;
+  let path;
+  try { path = decodeURIComponent(pathname); } catch { return false; }
+  return path.startsWith('/') && !path.includes('\\') && !path.includes('\0')
+    && !path.split('/').some(part => part.startsWith('.'))
+    && path !== '/__dev' && !path.startsWith('/__dev/')
+    && extname(path.replace(/\/+$/, '')) === '';
+}
 export function parseWebRoot(bytes) {
   const root = JSON.parse(bytes.toString('utf8'));
   if (root.webRoot !== 1 || !/^[0-9a-f]{64}$/.test(root.id ?? '') || !Array.isArray(root.files)) throw new Error('invalid web root pointer');

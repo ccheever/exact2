@@ -339,6 +339,7 @@ version = "0.1.0"
 dependencies = [
  "contract-syntax",
  "exact-plan",
+ "exact-route",
 ]
 
 [[package]]
@@ -610,6 +611,7 @@ dependencies = [
  "exact-kernel",
  "exact-motion",
  "exact-plan",
+ "exact-route",
  "exact-runner",
  "ibex2",
 ]
@@ -758,6 +760,7 @@ dependencies = [
  "exact-kernel",
  "exact-motion",
  "exact-plan",
+ "exact-route",
  "exact-runner",
  "ibex2",
  "libc",
@@ -835,11 +838,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-route"
+version = "0.1.0"
+dependencies = [
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "exact-runner"
 version = "0.1.0"
 dependencies = [
  "exact-kernel",
  "exact-plan",
+ "exact-route",
 ]
 
 [[package]]
@@ -1650,6 +1665,7 @@ dependencies = [
  "exact-js",
  "exact-js-bake",
  "exact-js-value",
+ "exact-kernel",
  "exact-logic",
  "exact-plan",
  "exact-runner",

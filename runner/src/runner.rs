@@ -11,8 +11,11 @@ mod source;
 pub use source::{DataError, DataSource};
 mod delivery;
 mod kept;
+pub mod router;
 mod settlement;
+mod viewport;
 pub use carry::Carried;
+pub use router::RouterChange;
 
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Outcome, Request, RequestOut};
@@ -86,6 +89,8 @@ pub enum Event {
     Swiperight,
     /// A changed scroll position, in CSS pixels (left, top).
     Scroll(f64, f64),
+    /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
+    Navigate(String),
 }
 
 impl Event {
@@ -140,6 +145,10 @@ pub enum RunnerError {
     Poisoned,
     /// `advance` was given a non-finite time.
     NonFiniteClock,
+    /// A viewport dimension is non-finite or non-positive.
+    InvalidViewport,
+    /// The declared router shapes, table, launch fallback or value is invalid.
+    Router(String),
     /// A clock value exceeds the exact integer-millisecond domain.
     ClockOutOfRange,
     /// Adding a timer interval did not advance its next due time.
@@ -249,7 +258,7 @@ pub struct Runner<D: DataSource> {
     /// Which resources consulted the store when they settled (bake gives
     /// them no compiled value, LLP 1018 D4).
     store_readers: Vec<bool>,
-    /// Store-reading resources shown from a placeholder — a kept answer or
+    /// Deferred resources shown from a placeholder — a kept answer or
     /// the compiled empty-store value — to ask again at `data_ready`.
     stale: Vec<bool>,
     /// Whether fresh answers of store-reading resources are kept for the
@@ -259,6 +268,9 @@ pub struct Runner<D: DataSource> {
     /// What this binary and its update store know about delivery (LLP 1030
     /// D4, D7): the embedded answer until a host says otherwise.
     delivery: crate::delivery::Delivery,
+    // @ref LLP 1039 D2 — the layout size before settlement.
+    viewport: crate::Viewport,
+    router: Option<router::RouterContext>,
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
     journal: std::collections::VecDeque<String>,
@@ -279,8 +291,23 @@ impl<D: DataSource> Runner<D> {
     /// Boot: refuse a plan built against another kernel schema, evaluate
     /// initial state, settle resources (compiled data first, the source
     /// otherwise), realize the tree, and apply the first frame's ops.
-    pub fn boot(plan: Plan, data: D, kernel: Kernel) -> Result<Runner<D>, RunnerError> {
-        Runner::boot_inner(plan, data, kernel, None, Vec::new(), Default::default())
+    pub fn boot(
+        plan: Plan,
+        data: D,
+        kernel: Kernel,
+        viewport: crate::Viewport,
+        launch: &str,
+    ) -> Result<Runner<D>, RunnerError> {
+        Runner::boot_inner(
+            plan,
+            data,
+            kernel,
+            None,
+            Vec::new(),
+            Default::default(),
+            viewport,
+            launch,
+        )
     }
 
     /// Boot a new plan with the state of an old runner (a dev reload that
@@ -294,6 +321,8 @@ impl<D: DataSource> Runner<D> {
         data: D,
         kernel: Kernel,
         carried: &Carried,
+        viewport: crate::Viewport,
+        launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
         Runner::boot_inner(
             plan,
@@ -302,12 +331,15 @@ impl<D: DataSource> Runner<D> {
             Some(carried),
             carried.store.clone(),
             Default::default(),
+            viewport,
+            launch,
         )
     }
 
     /// Everything a reload keeps.
     pub fn carry(&self) -> Carried {
         Carried {
+            router: self.carry_router(),
             data_revision: self.data.revision().map(str::to_owned),
             keeps_answers: self.keeps_answers,
             slots: self
@@ -348,6 +380,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn boot_inner(
         plan: Plan,
         mut data: D,
@@ -355,7 +388,11 @@ impl<D: DataSource> Runner<D> {
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         delivery: crate::delivery::Delivery,
+        // @ref LLP 1039 D2 — the layout size before settlement.
+        viewport: crate::Viewport,
+        launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
+        viewport.validate()?;
         if let Some(carried) = carried {
             if !carried.now_ms.is_finite() {
                 return Err(RunnerError::NonFiniteClock);
@@ -410,6 +447,7 @@ impl<D: DataSource> Runner<D> {
             .map(|resource| {
                 resource.reader
                     || plan.str(resource.source) == crate::delivery::SOURCE
+                    || plan.str(resource.source) == crate::viewport::SOURCE
                     || (same_logic
                         && carried.is_some_and(|carried| {
                             let name = plan.str(resource.name);
@@ -417,6 +455,7 @@ impl<D: DataSource> Runner<D> {
                         }))
             })
             .collect();
+        let router = router::RouterContext::from_plan(&plan)?;
         let mut runner = Runner {
             plan,
             data,
@@ -443,36 +482,13 @@ impl<D: DataSource> Runner<D> {
             stale: Vec::new(),
             keeps_answers: false,
             delivery,
+            viewport,
+            router,
             poisoned: false,
             journal: std::collections::VecDeque::new(),
             journal_start: 0,
         };
-        // Slots: carried values where the name and type still fit, else
-        // initial values, in order (an initializer may read earlier slots).
-        for i in 0..runner.plan.slots.len() {
-            let ty = runner.plan.slots[i].ty;
-            let name = runner.plan.str(runner.plan.slots[i].name);
-            if runner.plan.slots[i].owner.is_some() {
-                // A row slot (LLP 1017 P4c) lives on its rows, initialized as
-                // each row is created; nothing to carry, nothing to hold here.
-                runner.slots.push(Value::Unit);
-                continue;
-            }
-            let kept = carried
-                .and_then(|c| c.slots.iter().find(|(n, _)| n == name))
-                .map(|(_, v)| v.clone())
-                .filter(|v| v.conforms(&runner.plan, ty));
-            let v = match kept {
-                Some(v) => v,
-                None => runner.eval(runner.plan.slots[i].init, &[], &[])?,
-            };
-            if !v.conforms(&runner.plan, ty) {
-                return Err(RunnerError::SlotType {
-                    slot: name.to_string(),
-                });
-            }
-            runner.slots.push(v);
-        }
+        runner.init_slots(carried, launch)?;
         runner.derives = vec![None; runner.plan.derives.len()];
         // Resources: carried where the name is still declared and the value
         // still fits the declared shape; a carried value can refuse nothing.
@@ -610,6 +626,7 @@ impl<D: DataSource> Runner<D> {
             }
             Err(e) => format!("{what} refused: {e:?}"),
         };
+        self.log_router_refusals();
         self.log(line);
     }
 
@@ -768,6 +785,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Dblclick => "dblclick",
                 Event::Swiperight => "swiperight",
                 Event::Scroll(_, _) => "scroll",
+                Event::Navigate(_) => "navigate",
             }
         );
         let was_poisoned = self.poisoned;
@@ -801,6 +819,9 @@ impl<D: DataSource> Runner<D> {
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
             Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
+            Event::Navigate(location) => {
+                (EventKind::Navigate, Some(Value::str(location)), "navigate")
+            }
         };
         let row = self.plan.node(node);
         let handler = row
@@ -816,7 +837,10 @@ impl<D: DataSource> Runner<D> {
             args.push(self.eval(code, &[], &frames)?);
         }
         if let Some(p) = payload {
-            args.push(p);
+            // A navigate action may deliberately ignore its location (D8).
+            if kind != EventKind::Navigate || !self.plan.action(handler.action).params.is_empty() {
+                args.push(p);
+            }
         }
         if let Event::Scroll(left, top) = event {
             args.extend([Value::Number(left), Value::Number(top)]);
@@ -1112,7 +1136,7 @@ impl<D: DataSource> Runner<D> {
             }
         }
         self.refresh_next = outcome.refreshes.iter().map(|r| *r as usize).collect();
-        if let Err(e) = self.settle(false) {
+        if let Err(e) = self.router_change().and_then(|_| self.settle(false)) {
             self.slots = saved_slots;
             for (rows, slot, old) in row_undo.into_iter().rev() {
                 match old {
@@ -1209,13 +1233,17 @@ impl<D: DataSource> Runner<D> {
     }
 
     fn apply(&mut self, ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
+        let change = self.router_change()?;
         self.batch += 1;
-        Ok(self.kernel.apply(0, self.batch, &ops)?)
+        let receipt = self.kernel.apply(0, self.batch, &ops)?;
+        self.commit_router(change);
+        Ok(receipt)
     }
 
     fn env<'a>(&'a self, params: &'a [Value], frames: &'a [Frame]) -> Env<'a> {
         Env {
             plan: &self.plan,
+            router: self.router.as_ref(),
             slots: &self.slots,
             derives: &self.derives,
             resources: &self.resource_values,
@@ -1246,6 +1274,15 @@ impl<D: DataSource> Runner<D> {
                 .map(Answer::Now)
                 .map_err(|error| RunnerError::Data { resource, error });
         }
+        // @ref LLP 1039 D1 — host facts never reach the app data source.
+        if source == crate::viewport::SOURCE {
+            return self
+                .viewport_answer(i)
+                .map(Answer::Now)
+                .map_err(|error| RunnerError::Data { resource, error });
+        }
+        // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
+        self.log(format!("query {resource}: {source}"));
         self.data
             .answer(&mut self.store, &source, args)
             .map_err(|error| RunnerError::Data { resource, error })
@@ -1431,7 +1468,7 @@ impl<D: DataSource> Runner<D> {
                 self.slots[slot] = Value::some(value);
             }
         }
-        if let Err(e) = self.settle(false) {
+        if let Err(e) = self.router_change().and_then(|_| self.settle(false)) {
             self.slots = saved_slots;
             self.resources = saved_resources;
             return Err(e);

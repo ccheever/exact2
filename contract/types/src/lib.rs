@@ -18,6 +18,8 @@
 #![deny(missing_docs)]
 
 mod checks;
+/// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
+pub mod routes;
 
 use contract_syntax::{BinOp, Component, Expr, File, Node, Span, TemplatePart, TypeExpr, UnOp};
 use exact_plan::Stdlib;
@@ -111,7 +113,7 @@ impl Ty {
             "string" => *self == Ty::String,
             "bool" => *self == Ty::Bool,
             "any" => matches!(self, Ty::Number | Ty::String | Ty::Bool | Ty::List(_)),
-            _ => false,
+            _ => *self == Self::from_roster(spec) && *self != Ty::Unknown,
         }
     }
 
@@ -121,6 +123,9 @@ impl Ty {
             "number" => Ty::Number,
             "string" => Ty::String,
             "bool" => Ty::Bool,
+            "Router" | "Entry" => Ty::Record(spec.into()),
+            "list<Entry>" => Ty::List(Box::new(Ty::Record("Entry".into()))),
+            "list<string>" => Ty::List(Box::new(Ty::String)),
             _ => Ty::Unknown,
         }
     }
@@ -154,6 +159,8 @@ fn err<T>(id: &'static str, message: impl Into<String>, span: Span) -> Result<T,
 /// The shapes a file declares.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Shapes {
+    /// Checked app route table, when declared. @ref LLP 1038 D2/D3.
+    pub routes: Option<exact_route::Table>,
     /// Shape name → fields in order.
     pub map: BTreeMap<String, Vec<(String, Ty)>>,
     /// `fn` name → (parameter types, result type) (LLP 1017 P5).
@@ -474,6 +481,10 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             }
         }
         Expr::Call(name, args, span) => {
+            if name == "path" && !shapes.fns.contains_key(name) {
+                routes::expand_path(args, *span, scope, shapes)?;
+                return Ok(Ty::String);
+            }
             if name == "pending" {
                 // `pending(x)`: whether resource or mutation `x` has a
                 // request in flight (LLP 1016 D3). Not a roster call: its
@@ -519,31 +530,11 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 }
                 return Ok(ret.clone());
             }
-            if let Some(f) = Stdlib::from_name(name) {
-                if args.len() != f.arity() {
-                    return err(
-                        "type-arity",
-                        format!(
-                            "`{name}` takes {} argument(s), given {}",
-                            f.arity(),
-                            args.len()
-                        ),
-                        *span,
-                    );
-                }
-                for (arg, spec) in args.iter().zip(f.params()) {
-                    let t = infer(arg, scope, shapes)?;
-                    if !t.matches_roster(spec) {
-                        return err(
-                            "type-argument",
-                            format!("`{name}` expects `{spec}`, given `{t}`"),
-                            arg.span(),
-                        );
-                    }
-                }
-                Ty::from_roster(f.returns())
-            } else if let Some((Ref::Action(_) | Ref::Prop(_), Ty::Action(params))) =
-                scope.lookup(name)
+            // @ref LLP 1038 D3 — adding roster names must not capture existing
+            // scoped action/prop references, e.g. a reader's `open(path)` handler.
+            if let Some((Ref::Action(_) | Ref::Prop(_), Ty::Action(params))) = scope
+                .lookup(name)
+                .filter(|_| !routes::value_call(name, args, scope, shapes))
             {
                 // A curried action reference: `action(args)` binds the leading parameters.
                 if args.len() > params.len() && !params.is_empty() {
@@ -568,6 +559,31 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     }
                 }
                 Ty::Action(params.iter().skip(args.len()).cloned().collect())
+            } else if let Some(f) = Stdlib::from_name(name) {
+                routes::require_table(f, shapes, *span)?;
+                if args.len() != f.arity() {
+                    return err(
+                        "type-arity",
+                        format!(
+                            "`{name}` takes {} argument(s), given {}",
+                            f.arity(),
+                            args.len()
+                        ),
+                        *span,
+                    );
+                }
+                for (arg, spec) in args.iter().zip(f.params()) {
+                    let t = infer(arg, scope, shapes)?;
+                    if !t.matches_roster(spec) {
+                        return err(
+                            "type-argument",
+                            format!("`{name}` expects `{spec}`, given `{t}`"),
+                            arg.span(),
+                        );
+                    }
+                }
+                routes::location(f, args, shapes)?;
+                Ty::from_roster(f.returns())
             } else {
                 return err("type-unknown-function", format!("`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"), *span);
             }
@@ -748,6 +764,8 @@ fn calls_in(e: &Expr, out: &mut Vec<String>) {
 
 /// Check a file: shapes, then every component.
 pub fn check(file: &File) -> Result<Types, TypeError> {
+    let mut shapes = Shapes::default();
+    routes::declare(file, &mut shapes)?;
     if file.components.is_empty() {
         return err(
             "analyze-no-component",
@@ -755,7 +773,6 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
             Span { line: 1, col: 1 },
         );
     }
-    let mut shapes = Shapes::default();
     for s in &file.shapes {
         if shapes.map.contains_key(&s.name) {
             return err(
@@ -924,12 +941,17 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
             .iter()
             .position(|x| x.name == c.name)
             .unwrap()];
-        check_uses(&c.view, &types.component_scope(c, ct), &types, file)?;
+        let scoped = if c.name == expanded.root.name {
+            &expanded.root
+        } else {
+            c
+        };
+        check_uses(&c.view, &types.component_scope(scoped, ct), &types, file)?;
     }
     let root = &file.components[0];
     check_injects(
         &root.view,
-        &types.component_scope(root, &types.components[0]),
+        &types.component_scope(&expanded.root, &types.components[0]),
         &types,
         file,
     )?;
@@ -1110,7 +1132,9 @@ fn check_component(
         }
         for (i, s) in c.states.iter().enumerate() {
             scope.frames_reset(&names);
-            let t = if owners
+            let t = if i == 0 && owners.is_some() && shapes.routes.is_some() {
+                Ty::Record("Router".into())
+            } else if owners
                 .and_then(|owners| owners.get(i))
                 .is_some_and(Option::is_some)
             {
@@ -1184,6 +1208,9 @@ fn check_component(
     }
     infer_owned_state_initializers(c, &mut ct, types, owners)?;
     // Handler call sites give untyped parameters their types.
+    // Row initializers have just resolved the lifted child slots. Curried
+    // action-prop arguments must see those types too, not the earlier scope.
+    let scope = types_scope(c, &ct, types);
     refine_params_from_view(&c.view, &scope, c, &mut ct, shapes)?;
     // Action bodies: writes refine slots; assignments must unify.
     for (ai, a) in c.actions.iter().enumerate() {
@@ -1300,6 +1327,7 @@ fn refine_params_from_view(
                             | "dblclick"
                             | "swiperight"
                             | "scroll"
+                            | "navigate"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),
@@ -1318,7 +1346,7 @@ fn refine_params_from_view(
                             // Event payloads: change/key/message are strings;
                             // hover is whether the pointer is over.
                             let payload = match a.name.as_str() {
-                                "change" | "key" | "message" => vec![Ty::String],
+                                "change" | "key" | "message" | "navigate" => vec![Ty::String],
                                 "hover" => vec![Ty::Bool],
                                 "scroll" => vec![Ty::Number, Ty::Number],
                                 _ => vec![],

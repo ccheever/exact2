@@ -99,7 +99,11 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
     }
 
     func sync() {
-        let owners = presenter.views.values.filter { $0.props["accessibilityRole"] == "tablist" }
+        // @ref LLP 1039 D6 — only explicit vertical tablists opt out; ignore invalid ARIA values.
+        let owners = presenter.views.values.filter {
+            $0.props["accessibilityRole"] == "tablist" &&
+                $0.props["accessibilityOrientation"] != "vertical"
+        }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) where !live.contains(id) { restore(owner: id) }
         for owner in owners {

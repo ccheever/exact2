@@ -8,9 +8,14 @@ use exact_web::Host;
 
 fn boot() -> Host<caltrain_data::Caltrain> {
     let plan = caltrain::build().unwrap();
-    Host::boot(&plan.encode(), caltrain_data::Caltrain)
-        .unwrap()
-        .0
+    Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+    .0
 }
 
 fn view_with_test_id(host: &Host<caltrain_data::Caltrain>, test_id: &str) -> u32 {
@@ -104,9 +109,11 @@ fn logs_journal_boot_events_refusals_and_the_clock() {
         logs.contains("t=2500 advance → 2 timers fired, epoch"),
         "{logs}"
     );
+    let next = host.runner().journal_start() + host.runner().journal().count();
     let again = host.agent(r#"{"op":"logs","since":99}"#);
     assert_eq!(
-        again, "{\"next\":4,\"from\":4,\"lines\":[]}",
+        again,
+        format!("{{\"next\":{next},\"from\":{next},\"lines\":[]}}"),
         "a cursor past the end clamps to it"
     );
     assert_eq!(
@@ -115,7 +122,7 @@ fn logs_journal_boot_events_refusals_and_the_clock() {
     );
     // An unknown action is journaled as a refusal too.
     let _ = host.runner_mut().act("fly", Vec::new());
-    let last = host.agent(r#"{"op":"logs","since":4}"#);
+    let last = host.agent(&format!("{{\"op\":\"logs\",\"since\":{next}}}"));
     assert!(last.contains("act fly refused: NoHandler"), "{last}");
 }
 

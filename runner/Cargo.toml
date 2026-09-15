@@ -18,3 +18,4 @@ crate-type = ["rlib"]
 [dependencies]
 exact-kernel = { path = "../kernel" }
 exact-plan = { path = "../plan" }
+exact-route = { path = "../route" }

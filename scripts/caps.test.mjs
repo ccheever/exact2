@@ -441,7 +441,7 @@ for (const [name, html, files, expectCode, expect] of [
   writeFileSync(join(dir, 'exact.json'), JSON.stringify({ exact: 1, app: { id, name: app.displayName }, plan: { url: './app.plan', sha256: planDigest, bytes: plan.length } }));
   result('dev startup rejects an incomplete dist', !builtAppMatches(dir, app));
   writeFileSync(join(dir, 'app.plan'), plan);
-  writeFileSync(join(dir, 'glue.js'), '');
+  for (const name of ['glue.js', 'navigation.js']) writeFileSync(join(dir, name), '');
   writeFileSync(join(dir, 'index.html'), '');
   writeFileSync(join(dir, 'manifest.json'), '{}');
   writeFileSync(join(dir, '.exact-build.json'), JSON.stringify({ exactBuild: 1,

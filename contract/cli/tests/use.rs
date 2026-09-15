@@ -30,7 +30,14 @@ fn corpus(name: &str) -> PathBuf {
 fn a_used_component_brings_its_shape_and_style_and_the_using_file_stays_the_root() {
     let plan = contract::compile_path(&corpus("use/app.contract")).unwrap();
     let plan = contract::bake(plan, Stations).unwrap();
-    let mut r = Runner::boot(plan, Stations, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Stations,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let k = r.kernel();
     assert_eq!(k.find_by_test_id("station-mv").len(), 1);
     assert_eq!(k.find_by_test_id("station-pa").len(), 1);
@@ -49,7 +56,14 @@ fn provided_root_bytes_keep_their_path_for_uses() {
     let src = std::fs::read_to_string(&path).unwrap();
     let plan = contract::compile_path_source(&path, &src).unwrap();
     let plan = contract::bake(plan, Stations).unwrap();
-    let r = Runner::boot(plan, Stations, Kernel::with_monospace()).unwrap();
+    let r = Runner::boot(
+        plan,
+        Stations,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert_eq!(r.kernel().find_by_test_id("station-mv").len(), 1);
 }
 

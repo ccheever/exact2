@@ -57,9 +57,13 @@ component A
     text "a"
 ---
 == type-unknown-function
-component A
+shape Router
+  label: string
+component App
+  resource value = loadRouter() as shape Router
+  derive invalid = open(value, "/")
   view
-    text getDirectionBoard("mv")
+    text "home"
 ---
 == type-each-list
 component A
@@ -595,3 +599,108 @@ component A
   view
     text one.a
 ---
+== bake-viewport-field
+# LLP 1039 D1: the runner cannot fill an unknown viewport field.
+shape Viewport
+  depth: number
+component A
+  resource viewport = exactViewport() as shape Viewport
+  view
+    text `${viewport.depth}`
+---
+---
+== route-duplicate
+routes nav
+  home "/"
+  home "/other"
+component App
+  view
+    text "home"
+---
+== route-shadowed
+routes nav
+  home "/"
+  person "/people/:person"
+  newPerson "/people/new"
+component App
+  view
+    text "home"
+---
+== route-parent-param
+routes nav
+  home "/"
+    post "/post/:post"
+      edit "/edit"
+component App
+  view
+    text "home"
+---
+== route-pattern
+routes nav
+  home "/"
+  wildcard "/posts/*"
+component App
+  view
+    text "home"
+---
+== route-no-match
+routes nav
+  home "/"
+  notfound
+component App
+  action visit writes nav
+    nav = open(nav, "/missing")
+  view
+    text "home"
+---
+== route-root
+routes nav
+  tab search "/search"
+component App
+  view
+    text "search"
+---
+== route-unknown
+routes nav
+  home "/"
+component App
+  action visit writes nav
+    nav = push(nav, path("missing"))
+  view
+    text "home"
+---
+== route-template
+routes nav
+  home "/"
+    post "/post/:post"
+component App
+  action visit(id: string) writes nav
+    nav = push(nav, `/post/${id}`)
+  view
+    text "home"
+---
+== analyze-routes-not-root
+routes nav
+  home "/"
+shape Shared
+  label: string
+---
+== type-shape-reserved
+routes nav
+  home "/"
+shape Entry
+  url: string
+component App
+  view
+    text "home"
+
+---
+== lower-navigate-root
+component A
+  state location = ""
+  action follow(url: string) writes location
+    location = url
+  view
+    main navigationKey="home" navigationBack="back"
+      column navigate=follow navigationKey="home"
+        text "Home"

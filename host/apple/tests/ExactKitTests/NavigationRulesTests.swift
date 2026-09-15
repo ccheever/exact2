@@ -10,6 +10,15 @@ import XCTest
 @testable import ExactKit
 
 final class NavigationRulesTests: XCTestCase {
+    // @ref LLP 1038 D6 — shared first controller is insufficient for a swap.
+    func testPushOrPopRequiresACompletePrefix() {
+        XCTAssertTrue(NavigationRules.isPushOrPop(from: [1], to: [1, 2, 3]))
+        XCTAssertTrue(NavigationRules.isPushOrPop(from: [1, 2, 3], to: [1]))
+        XCTAssertTrue(NavigationRules.isPushOrPop(from: [1, 2], to: [1, 2]))
+        XCTAssertFalse(NavigationRules.isPushOrPop(from: [1, 2], to: [1, 3]))
+        XCTAssertFalse(NavigationRules.isPushOrPop(from: [1, 2], to: [4, 5]))
+    }
+
     /// D1: the stack is the prefix through the selected route; a key that
     /// matches no route leaves the stack alone.
     func testTheStackIsThePrefixThroughTheSelectedRoute() {

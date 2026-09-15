@@ -37,6 +37,7 @@ pub mod request;
 pub mod runner;
 pub mod stdlib;
 pub mod store;
+pub mod viewport;
 pub mod vm;
 
 pub use delivery::Delivery;
@@ -44,8 +45,9 @@ pub use exact_plan::Value;
 pub use instance::SurfaceUpdate;
 pub use request::{Answer, FailureKind, Outcome, Request, RequestOut, Response};
 pub use runner::{
-    Advanced, Carried, Command, DataError, DataSource, Event, Runner, RunnerError, Timed,
-    JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
+    Advanced, Carried, Command, DataError, DataSource, Event, RouterChange, Runner, RunnerError,
+    Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
+pub use viewport::Viewport;
 pub use vm::Trap;

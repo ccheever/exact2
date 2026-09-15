@@ -3,17 +3,49 @@
 //! @ref LLP 1004 D4 (formatting is a roster entry, added by fixture)
 //!
 //! Every entry the plan format's `stdlib` table names has exactly one body
-//! in this file. Time formatting is UTC and locale-free by design: the v1 app
+//! here or in the router conversion module. Time formatting is UTC and locale-free by design: the v1 app
 //! is a schedule board, and a deterministic string is what the corpus and the
 //! agent compare.
 
-use exact_plan::{Stdlib, Value};
+use exact_plan::{Plan, Stdlib, Value};
 use std::rc::Rc;
 
 /// Call `f` with `args` (already arity-checked). `None` on a type mismatch.
-pub fn call(f: Stdlib, args: &[Value], now_ms: f64) -> Option<Value> {
+pub fn call(
+    f: Stdlib,
+    args: &[Value],
+    now_ms: f64,
+    plan: &Plan,
+    router: Option<&crate::runner::router::RouterContext>,
+) -> Option<Value> {
     let num = |i: usize| args.get(i).and_then(Value::as_number);
     Some(match f {
+        // @ref LLP 1038 D3/D9 — pure verbs and typed reads over the plan shapes.
+        Stdlib::Open
+        | Stdlib::Push
+        | Stdlib::Replace
+        | Stdlib::Back
+        | Stdlib::Select
+        | Stdlib::Go
+        | Stdlib::Stack
+        | Stdlib::Top
+        | Stdlib::Depth
+        | Stdlib::Params
+        | Stdlib::SearchParam => {
+            return router?.call(plan, f, args);
+        }
+        Stdlib::EncodeURIComponent => {
+            Value::str(&exact_route::encode_uri_component(args.first()?.as_str()?))
+        }
+        Stdlib::EncodeRouteSegment => {
+            match exact_route::encode_route_segment(args.first()?.as_str()?) {
+                Ok(encoded) => Value::str(&encoded),
+                Err(error) => {
+                    router?.refuse("path", &error.message);
+                    return None;
+                }
+            }
+        }
         Stdlib::Now => Value::Number(now_ms),
         Stdlib::FormatClockTime => Value::str(&format_clock_time(num(0)?)),
         Stdlib::FormatCountdownMinutes => {
@@ -54,11 +86,15 @@ pub fn call(f: Stdlib, args: &[Value], now_ms: f64) -> Option<Value> {
     })
 }
 
-/// A number the way JavaScript prints it for integers, else with the
-/// shortest round-trip representation.
+/// JavaScript's decimal/exponent boundaries over Rust's shortest-round-trip printer.
 pub fn format_number(n: f64) -> String {
-    if n.is_finite() && n.fract() == 0.0 && n.abs() < 1e15 {
-        format!("{}", n as i64)
+    if n == 0.0 {
+        "0".into()
+    } else if n.is_finite() && (n.abs() >= 1e21 || n.abs() < 1e-6) {
+        let scientific = format!("{n:e}");
+        let (mantissa, exponent) = scientific.split_once('e').expect("scientific notation");
+        let exponent: i32 = exponent.parse().expect("decimal exponent");
+        format!("{mantissa}e{exponent:+}")
     } else {
         format!("{n}")
     }
@@ -77,4 +113,35 @@ pub fn format_clock_time(ms: f64) -> String {
         _ => (hours - 12, "PM"),
     };
     format!("{h12}:{minutes:02} {suffix}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn to_string_uses_javascript_decimal_and_exponent_boundaries() {
+        let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
+            .finish()
+            .unwrap();
+        for (value, expected) in [
+            (0.0, "0"),
+            (-0.0, "0"),
+            (1e-7, "1e-7"),
+            (-1e-7, "-1e-7"),
+            (1e-6, "0.000001"),
+            (-1e-6, "-0.000001"),
+            (1e20, "100000000000000000000"),
+            (1e21, "1e+21"),
+            (-1e21, "-1e+21"),
+            (1.234e22, "1.234e+22"),
+            (f64::MIN_POSITIVE, "2.2250738585072014e-308"),
+        ] {
+            assert_eq!(
+                call(Stdlib::ToString, &[Value::Number(value)], 0.0, &plan, None),
+                Some(Value::str(expected)),
+                "{value}"
+            );
+        }
+    }
 }

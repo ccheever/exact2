@@ -10,6 +10,12 @@
 import Foundation
 
 enum NavigationRules {
+    /// @ref LLP 1038 D6 — controller identities, not URLs: animate a
+    /// push/pop only when either complete list is a prefix of the other.
+    static func isPushOrPop<T: Equatable>(from: [T], to: [T]) -> Bool {
+        from.starts(with: to) || to.starts(with: from)
+    }
+
     /// D1: the routes are the first root's children carrying a
     /// `navigationKey`, in tree order, and the stack is the prefix through
     /// the one whose key is the root's. `nil` when the root's key matches

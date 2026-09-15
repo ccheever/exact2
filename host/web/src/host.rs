@@ -82,13 +82,19 @@ pub struct Host<D: DataSource> {
     font_names: Vec<String>,
     /// The plan-owned face catalog, queried separately from op batches.
     font_catalog: String,
+    location: String,
 }
 
 impl<D: DataSource> Host<D> {
     /// Boot from plan bytes: decode (a validation pass), boot the runner, and
     /// produce the first batch, which creates the whole tree.
-    pub fn boot(plan_bytes: &[u8], data: D) -> Result<(Host<D>, String), HostError> {
-        Host::boot_delivered(plan_bytes, data, None, Vec::new(), None)
+    pub fn boot(
+        plan_bytes: &[u8],
+        data: D,
+        viewport: exact_runner::Viewport,
+        launch: &str,
+    ) -> Result<(Host<D>, String), HostError> {
+        Host::boot_delivered(plan_bytes, data, None, Vec::new(), None, viewport, launch)
     }
 
     /// Boot with the page's snapshot of the app's kept secrets (LLP 1018
@@ -98,8 +104,10 @@ impl<D: DataSource> Host<D> {
         plan_bytes: &[u8],
         data: D,
         snapshot: Vec<(String, String)>,
+        viewport: exact_runner::Viewport,
+        launch: &str,
     ) -> Result<(Host<D>, String), HostError> {
-        Host::boot_delivered(plan_bytes, data, None, snapshot, None)
+        Host::boot_delivered(plan_bytes, data, None, snapshot, None, viewport, launch)
     }
 
     /// Boot carrying an earlier host's state (the dev loop's reload, LLP
@@ -110,8 +118,18 @@ impl<D: DataSource> Host<D> {
         plan_bytes: &[u8],
         data: D,
         carried: Option<&Carried>,
+        viewport: exact_runner::Viewport,
+        launch: &str,
     ) -> Result<(Host<D>, String), HostError> {
-        Host::boot_delivered(plan_bytes, data, carried, Vec::new(), None)
+        Host::boot_delivered(
+            plan_bytes,
+            data,
+            carried,
+            Vec::new(),
+            None,
+            viewport,
+            launch,
+        )
     }
 
     /// Boot knowing what this wasm was built as (LLP 1030 D7): `compat` is
@@ -123,16 +141,21 @@ impl<D: DataSource> Host<D> {
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         compat: Option<&str>,
+        viewport: exact_runner::Viewport,
+        launch: &str,
     ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         let font_names = font_names(&plan);
         let font_faces = font_faces(&plan);
         let font_catalog = font_catalog(&font_faces);
         let kernel = Kernel::with_monospace();
-        let runner = match carried {
-            Some(c) => Runner::boot_carrying(plan, data, kernel, c),
-            None => Runner::boot_stored(plan, data, kernel, snapshot),
-        }
+        // @ref LLP 1039 D3 — both host facts precede the first settlement.
+        let delivery = compat.map_or_else(Default::default, |json| {
+            exact_runner::Delivery::default().with_compat(json)
+        });
+        let runner = Runner::boot_with_delivery(
+            plan, data, kernel, carried, snapshot, delivery, viewport, launch,
+        )
         .map_err(HostError::Runner)?;
         let mut host = Host {
             runner,
@@ -143,14 +166,8 @@ impl<D: DataSource> Host<D> {
             now_ms: 0.0,
             font_names,
             font_catalog,
+            location: launch.into(),
         };
-        // The binary's delivery facts before the first frame (LLP 1030 D7):
-        // the batch below creates the whole tree from the kernel as it then
-        // stands, so a `delivery` resource re-answered here needs no ops of
-        // its own.
-        if let Some(json) = compat {
-            host.set_delivery_from_compat(json)?;
-        }
         let mut batch = Batch::new();
         // Everything live is new to the page.
         let roots = host.runner.roots();
@@ -177,6 +194,11 @@ impl<D: DataSource> Host<D> {
         for s in host.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
         }
+        // @ref LLP 1038 D7 — drain once, after all commits in this batch.
+        if let Some(change) = host.runner.take_router_change() {
+            host.location = change.url.clone();
+            batch.router(&change);
+        }
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args);
         }
@@ -195,6 +217,12 @@ impl<D: DataSource> Host<D> {
         Ok((host, batch.finish(timers, clock, None)))
     }
 
+    /// The latest top URL, also the module re-boot's launch fact.
+    /// @ref LLP 1038 D5/D7 — a replacement keeps the host's current location.
+    pub fn location(&self) -> &str {
+        &self.location
+    }
+
     /// The runner.
     pub fn runner(&self) -> &Runner<D> {
         &self.runner
@@ -203,17 +231,6 @@ impl<D: DataSource> Host<D> {
     /// The runner, mutably — for tests that drive it past the host.
     pub fn runner_mut(&mut self) -> &mut Runner<D> {
         &mut self.runner
-    }
-
-    /// Tell the runner what this binary knows about its delivery (LLP 1030
-    /// D7), from the archive's `compat.json`. Called by a boot, before the
-    /// first batch — the commit a re-answered `delivery` resource makes is
-    /// the boot's own.
-    pub(crate) fn set_delivery_from_compat(&mut self, json: &str) -> Result<(), HostError> {
-        self.runner
-            .set_delivery_from_compat(json)
-            .map(|_| ())
-            .map_err(HostError::Runner)
     }
 
     /// The current plan's declared face catalog for the host-owned web
@@ -286,6 +303,30 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&a.receipts, error.as_deref())
     }
 
+    /// Layout viewport changes re-answer the app in the same returned batch.
+    /// @ref LLP 1039 D2
+    pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> String {
+        let a = self.runner.advance_timed(now_ms);
+        self.now_ms = a.now_ms.max(self.now_ms);
+        let mut receipts = a.receipts;
+        let mut error = a.error.map(|e| format!("{e:?}"));
+        match self.runner.set_viewport(width, height) {
+            Ok(Some(receipt)) => receipts.push(Timed {
+                at_ms: self.now_ms,
+                receipt,
+            }),
+            Ok(None) => {}
+            Err(e) => {
+                let viewport_error = format!("viewport: {e:?}");
+                error = Some(match error {
+                    Some(timer_error) => format!("{timer_error}; {viewport_error}"),
+                    None => viewport_error,
+                });
+            }
+        }
+        self.batch_for(&receipts, error.as_deref())
+    }
+
     /// Activate deferred logic after the page's first rendering opportunity.
     pub fn data_ready(&mut self) -> String {
         if let Err(error) = self.runner.data().activate() {
@@ -356,6 +397,11 @@ impl<D: DataSource> Host<D> {
         // from commits that applied.
         for s in self.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
+        }
+        // @ref LLP 1038 D7 — drain once, after all commits in this batch.
+        if let Some(change) = self.runner.take_router_change() {
+            self.location = change.url.clone();
+            batch.router(&change);
         }
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args);
@@ -450,6 +496,7 @@ impl<D: DataSource> Host<D> {
                 EventKind::Dblclick => "dblclick",
                 EventKind::Swiperight => "swiperight",
                 EventKind::Scroll => "scroll",
+                EventKind::Navigate => "navigate",
             })
             .collect();
         let pairs: Vec<(&str, String)> =
@@ -665,6 +712,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::AccessibilityKeyShortcuts => "aria-keyshortcuts",
             PropId::AccessibilityRole => "role",
             PropId::AccessibilityHint => "aria-description",
+            PropId::AccessibilityOrientation => "aria-orientation",
             PropId::AccessibilityHeadingLevel => "aria-level",
             PropId::Placeholder => "placeholder",
             PropId::Type => "type",
@@ -711,6 +759,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::Commandfor => "commandfor",
             PropId::Command => "command",
             PropId::AccessibilityChecked => "aria-checked",
+            PropId::AccessibilitySelected => "aria-selected",
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 out.insert(format!("data-{}", other.name().to_lowercase()), text);

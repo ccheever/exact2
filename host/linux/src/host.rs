@@ -46,6 +46,8 @@ pub struct Host<D: DataSource> {
     viewport: (f32, f32),
     now_ms: f64,
     data_activated: bool,
+    router_op: Option<exact_runner::RouterChange>,
+    navigation: crate::navigation::Navigation,
 }
 
 impl<D: DataSource> Host<D> {
@@ -71,6 +73,23 @@ impl<D: DataSource> Host<D> {
         carried: Option<&Carried>,
         delivery: Option<exact_runner::Delivery>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
+        Self::boot_at(
+            plan_bytes, data, measurer, width, height, carried, delivery, "/",
+        )
+    }
+
+    /// Boot with the native launch location. @ref LLP 1038 D5/D8
+    #[allow(clippy::too_many_arguments)]
+    pub fn boot_at(
+        plan_bytes: &[u8],
+        data: D,
+        measurer: Box<dyn TextMeasurer>,
+        width: f32,
+        height: f32,
+        carried: Option<&Carried>,
+        delivery: Option<exact_runner::Delivery>,
+        launch: &str,
+    ) -> Result<(Host<D>, Option<String>), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         let kernel = Kernel::new(measurer);
         let runner = Runner::boot_with_delivery(
@@ -80,6 +99,11 @@ impl<D: DataSource> Host<D> {
             carried,
             Vec::new(),
             delivery.unwrap_or_default(),
+            exact_runner::Viewport {
+                width: width as f64,
+                height: height as f64,
+            },
+            launch,
         )
         .map_err(HostError::Runner)?;
         let mut host = Host {
@@ -90,6 +114,8 @@ impl<D: DataSource> Host<D> {
             viewport: (width, height),
             now_ms: 0.0,
             data_activated: false,
+            router_op: None,
+            navigation: Default::default(),
         };
         // The engine hears the whole tree once: values, no transitions.
         let mut sync = MotionSync::default();
@@ -111,6 +137,7 @@ impl<D: DataSource> Host<D> {
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
         let error = host.layout().err();
+        host.project_navigation();
         host.present();
         Ok((host, error))
     }
@@ -394,7 +421,21 @@ impl<D: DataSource> Host<D> {
 
     /// The viewport changed: lay out again.
     pub fn resize(&mut self, width: f32, height: f32) -> Option<String> {
+        // @ref LLP 1039 D2 — merge re-answer and relayout, once.
+        let receipt = match self.runner.set_viewport(width as f64, height as f64) {
+            Ok(receipt) => receipt,
+            Err(e) => return Some(format!("viewport: {e:?}")),
+        };
         self.viewport = (width, height);
+        if let Some(receipt) = receipt {
+            return self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            );
+        }
         self.layout().err()
     }
 
@@ -442,8 +483,31 @@ impl<D: DataSource> Host<D> {
         }
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        self.project_navigation();
         self.present();
         error.or(layout_error)
+    }
+
+    // @ref LLP 1038 D6/D7/D11 — no batch consumer on this host. Keep the
+    // last coalesced op for inspection; navigation's agent section stays unavailable.
+    fn project_navigation(&mut self) {
+        if let Some(change) = self.runner.take_router_change() {
+            self.router_op = Some(change);
+        }
+        for line in self.navigation.sync(self.runner.kernel(), &self.preorder()) {
+            self.runner.log(line);
+        }
+    }
+
+    /// The last router op; this host has no foreign batch consumer.
+    pub fn router_op(&self) -> Option<&exact_runner::RouterChange> {
+        self.router_op.as_ref()
+    }
+
+    /// Hidden/inert through the route and authored inert ancestors.
+    /// @ref LLP 1038 D6 — shared by painting, input, and agent layout.
+    pub fn route_visibility(&self, id: ViewId) -> (bool, bool) {
+        self.navigation.visibility(self.runner.kernel(), id)
     }
 
     fn layout(&mut self) -> Result<(), String> {

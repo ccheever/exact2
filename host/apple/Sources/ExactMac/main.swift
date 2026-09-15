@@ -82,6 +82,12 @@ final class Adapter: ExactSessionDelegate {
 let adapter = Adapter()
 let session = exact.makeSession(delegate: adapter, label: "main")
 if agentMode { session.clock = 0 }
+let launchURL = ExactEnv.environment["EXACT_LAUNCH_URL"].flatMap { URL(string: $0) }
+var launchDevelopmentURL: URL?
+if let url = launchURL {
+    if ExactDevelopmentLink.page(url) != nil { launchDevelopmentURL = url }
+    else { session.openURL(url) }
+}
 let view = ExactView(session: session)
 ExactEnv.stamp("Presenter (NSScrollView)")
 
@@ -101,14 +107,12 @@ if !agentMode && !smoke && !windowConfig.isEmpty {
     window.contentMinSize = minimum
     window.setContentSize(NSSize(width: max(size.width, minimum.width), height: max(size.height, minimum.height)))
 }
-window.contentView = view
 // Nothing is focused at launch — the web's rule (a page focuses no field on
 // load). AppKit would otherwise make the first key view the first responder
 // when the window becomes key, and a canvas holding an input would show a
 // caret from its first frame (found by the readback fixture, LLP 1014).
 window.initialFirstResponder = view
 window.autorecalculatesKeyViewLoop = false
-ExactEnv.stamp("contentView")
 window.center()
 if !agentMode && !smoke && !windowConfig.isEmpty,
    let identity = ExactEnv.appMetadata["CFBundleIdentifier"] as? String {
@@ -127,23 +131,35 @@ ExactEnv.stamp("center")
 
 final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-    func applicationDidFinishLaunching(_ notification: Notification) { ExactEnv.stamp("didFinishLaunching") }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        ExactEnv.stamp("didFinishLaunching")
+        finishLaunching()
+    }
     /// Launch Services brought something: a development link, or documents —
     /// a Finder double-click, an Open With, `open -a`, or a second `mdview`
     /// while this one runs. A document arriving now is why the app comes
     /// forward; one that opens nothing leaves the window where it was.
     func application(_ application: NSApplication, open urls: [URL]) {
-        if let url = urls.first, ExactDevelopmentLink.open(url) {
+        if let url = urls.first, ExactDevelopmentLink.page(url) != nil {
+            if !session.booted { launchDevelopmentURL = url; return }
+            ExactDevelopmentLink.open(url)
             front(application)
             return
         }
+        // @ref LLP 1038 D8 — Launch Services delivers cold URLs before didFinishLaunching.
+        if let url = urls.first(where: { !$0.isFileURL }) {
+            if session.openURL(url) { front(application) }
+            return
+        }
         let documents = ExactDocuments.paths(of: urls)
+        if !session.booted { launchDocuments += documents; return }
         guard !documents.isEmpty, ExactDocuments.deliver(documents, to: session) else { return }
         if let first = documents.first { application.windows.first?.title = ExactDocuments.windowTitle(for: first) }
         front(application)
     }
 
     private func front(_ application: NSApplication) {
+        guard session.booted else { return }
         application.windows.first?.makeKeyAndOrderFront(nil)
         application.activate(ignoringOtherApps: true)
     }
@@ -186,104 +202,125 @@ let delegate = Delegate()
 app.delegate = delegate
 window.delegate = delegate
 
-ExactEnv.stamp("before boot")
-let tBoot = CACurrentMediaTime()
-// The dev loop (LLP 1007 §6, here): EXACT_DEV_PLAN names the plan the
-// resident compiler writes; when it changes, restart from it, state carried.
-// A URL instead of a path is the wire form (LLP 1023 Stage 1): the app URL,
-// resolved and re-fetched by the app's one connection (LLP 1031 D11).
 var planWatch: DispatchSourceTimer?
 var devPlanPath: String?
-if let planPath = ExactEnv.environment["EXACT_DEV_PLAN"] {
-    if planPath.hasPrefix("http://") || planPath.hasPrefix("https://") {
-        exact.connect(planPath)
-    } else {
-        devPlanPath = planPath
-        let candidate = ExactDevelopmentPlan(planPath)
-        var last = candidate.hasModule ? [] : candidate.revision
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + 0.1, repeating: 0.1)
-        t.setEventHandler {
-            let revision = candidate.revision
-            guard revision != last else { return }
-            if candidate.apply(to: exact) || !exact.generationPending { last = revision }
-        }
-        t.resume()
-        planWatch = t
-    }
-}
-DevMenu.install(session: session, planPath: devPlanPath ?? ExactEnv.environment["EXACT_PLAN"])
-
-// EXACT_PLAN=<file> boots that plan instead of the one baked into the
-// library — any compiled contract, no rebuild (smokes, fixtures).
-let boot: Batch = {
-    let size = session.viewportSize
-    let path = ExactEnv.environment["EXACT_PLAN"] ?? devPlanPath
-    if let path, ExactDevelopmentPlan(path).hasModule, ExactEnv.environment["EXACT_PLAN"] != nil {
-        DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
-    }
-    if let path, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
-        return session.boot(plan: bytes, size: size)
-    }
-    return session.boot(size: size)
-}()
-let rustMs = session.rustMs
-let applyMs = session.applyMs
-let bootMs = session.bootMs
-// Becoming key can synchronously announce readiness. Initialize the guard
-// before ordering the window, not afterward (two stdin readers otherwise).
+var appearanceWatch: NSObjectProtocol?
+var launchDocuments: [String] = []
 nonisolated(unsafe) var readySent = false
-window.makeKeyAndOrderFront(nil)
-ExactEnv.stamp("makeKeyAndOrderFront")
-// Under a script: in front regardless, so the window is seen (a covered
-// window's canvases render nothing, LLP 1009 D4) — but never activated.
-if agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
-ExactEnv.stamp("activate")
 
-// The documents named on the command line, now that the first frame has
-// mounted the app's own nodes. Launch Services' route into a *running* app is
-// `application(_:open urls:)` above; a terminal's is this, and the two are
-// the same from here down. Not under a script or the smoke: those drive the
-// app themselves and a stray argument is not a document. @ref LLP 1033 D3
-if !agentMode && !smoke {
-    let opened = ExactDocuments.paths(in: CommandLine.arguments)
-    ExactDocuments.deliver(opened, to: session)
-    // The window says which project is open, not just which app this is
-    // (LLP 1033 D7). The path the OS handed over is the one to name it by.
-    if let first = opened.first { window.title = ExactDocuments.windowTitle(for: first) }
+// Delay both attachment and boot until Launch Services has delivered launch URLs.
+// @ref LLP 1038 D5/D8
+func finishLaunching() {
+    window.contentView = view
+    ExactEnv.stamp("contentView")
+    ExactEnv.stamp("before boot")
+    let tBoot = CACurrentMediaTime()
+    // The dev loop (LLP 1007 §6, here): EXACT_DEV_PLAN names the plan the
+    // resident compiler writes; when it changes, restart from it, state carried.
+    // A URL instead of a path is the wire form (LLP 1023 Stage 1): the app URL,
+    // resolved and re-fetched by the app's one connection (LLP 1031 D11).
+    if let planPath = ExactEnv.environment["EXACT_DEV_PLAN"] {
+        if planPath.hasPrefix("http://") || planPath.hasPrefix("https://") {
+            exact.connect(planPath)
+        } else {
+            devPlanPath = planPath
+            let candidate = ExactDevelopmentPlan(planPath)
+            var last = candidate.hasModule ? [] : candidate.revision
+            let t = DispatchSource.makeTimerSource(queue: .main)
+            t.schedule(deadline: .now() + 0.1, repeating: 0.1)
+            t.setEventHandler {
+                let revision = candidate.revision
+                guard revision != last else { return }
+                if candidate.apply(to: exact) || !exact.generationPending { last = revision }
+            }
+            t.resume()
+            planWatch = t
+        }
+    }
+    DevMenu.install(session: session, planPath: devPlanPath ?? ExactEnv.environment["EXACT_PLAN"])
+
+    // EXACT_PLAN=<file> boots that plan instead of the one baked into the
+    // library — any compiled contract, no rebuild (smokes, fixtures).
+    let boot: Batch = {
+        let size = session.viewportSize
+        let path = ExactEnv.environment["EXACT_PLAN"] ?? devPlanPath
+        if let path, ExactDevelopmentPlan(path).hasModule, ExactEnv.environment["EXACT_PLAN"] != nil {
+            DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
+        }
+        if let path, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
+            return session.boot(plan: bytes, size: size)
+        }
+        return session.boot(size: size)
+    }()
+    let rustMs = session.rustMs
+    let applyMs = session.applyMs
+    let bootMs = session.bootMs
+    // Becoming key can synchronously announce readiness. Initialize the guard
+    // before ordering the window, not afterward (two stdin readers otherwise).
+    coverChrome()
+    window.makeKeyAndOrderFront(nil)
+    if let url = launchDevelopmentURL {
+        launchDevelopmentURL = nil
+        DispatchQueue.main.async { ExactDevelopmentLink.open(url) }
+    }
+    ExactEnv.stamp("makeKeyAndOrderFront")
+    // Under a script: in front regardless, so the window is seen (a covered
+    // window's canvases render nothing, LLP 1009 D4) — but never activated.
+    if agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
+    ExactEnv.stamp("activate")
+
+    if !launchDocuments.isEmpty {
+        ExactDocuments.deliver(launchDocuments, to: session)
+        window.title = ExactDocuments.windowTitle(for: launchDocuments[0])
+        launchDocuments.removeAll()
+    }
+    // The documents named on the command line, now that the first frame has
+    // mounted the app's own nodes. Launch Services' route into a *running* app is
+    // `application(_:open urls:)` above; a terminal's is this, and the two are
+    // the same from here down. Not under a script or the smoke: those drive the
+    // app themselves and a stray argument is not a document. @ref LLP 1033 D3
+    if !agentMode && !smoke {
+        let opened = ExactDocuments.paths(in: CommandLine.arguments)
+        ExactDocuments.deliver(opened, to: session)
+        // The window says which project is open, not just which app this is
+        // (LLP 1033 D7). The path the OS handed over is the one to name it by.
+        if let first = opened.first { window.title = ExactDocuments.windowTitle(for: first) }
+    }
+    // What the system is set to, now and whenever it changes (LLP 1033 D6). An
+    // app that draws its own palette needs this to follow the system at all: the
+    // window's appearance is the host's, and the page's colours are the app's.
+    // Delivered under a script too — a reader's palette is part of what a driver
+    // reads, and unlike a command-line argument this is not a stray.
+    ExactDocuments.reportAppearance(to: session)
+    appearanceWatch = ExactDocuments.watchAppearance(session)
+
+    /// Agent mode: the driver owns the process from here — one JSON line in,
+    /// one out. `ready` goes out once the first frame is applied and the window
+    /// ordered front; an accessory app's window is not key until something
+    /// asks, and a `type` asks (`AgentMac`).
+
+    if agentMode {
+        DispatchQueue.main.async { agentReady() }
+    }
+    if smoke {
+        print("boot \(String(format: "%.1f", bootMs)) ms; \(session.viewCount) views; root \(Int(session.rootSize.width))x\(Int(session.rootSize.height)); error \(boot.error ?? "none")")
+        print("startup: exec→main \(execToMainMs.map { String(format: "%.1f", $0) } ?? "?") ms; main→NSApplication \(String(format: "%.1f", appReadyMs)) ms; →window \(String(format: "%.1f", (tBoot - ExactEnv.t0) * 1000 - appReadyMs)) ms")
+        print("phases: process→boot \(String(format: "%.1f", (tBoot - ExactEnv.t0) * 1000)) ms; runner+layout \(String(format: "%.1f", rustMs)) ms of which \(session.measureCount) text measurements (\(session.measureHits) cached) \(String(format: "%.1f", session.measureSeconds * 1000)) ms in CoreText; apply \(String(format: "%.1f", applyMs)) ms")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            print("painted \(session.firstDrawMs.map { String(format: "%.1f", $0) } ?? "?") ms")
+            print("stamps: " + ExactEnv.stamps.map { "\($0.0) \(String(format: "%.1f", $0.1))" }.joined(separator: " · ") + " · first layout \(session.firstLayoutMs.map { String(format: "%.1f", $0) } ?? "?") · first draw \(session.firstDrawMs.map { String(format: "%.1f", $0) } ?? "?")")
+            print("gpu: \(session.gpuStatus)")
+            print("web: \(session.webStatus)")
+            print("smoke ok")
+            exit(0)
+        }
+    }
 }
-// What the system is set to, now and whenever it changes (LLP 1033 D6). An
-// app that draws its own palette needs this to follow the system at all: the
-// window's appearance is the host's, and the page's colours are the app's.
-// Delivered under a script too — a reader's palette is part of what a driver
-// reads, and unlike a command-line argument this is not a stray.
-ExactDocuments.reportAppearance(to: session)
-let appearanceWatch = ExactDocuments.watchAppearance(session)
 
-/// Agent mode: the driver owns the process from here — one JSON line in,
-/// one out. `ready` goes out once the first frame is applied and the window
-/// ordered front; an accessory app's window is not key until something
-/// asks, and a `type` asks (`AgentMac`).
 func agentReady() {
     guard agentMode, !readySent else { return }
     readySent = true
-    Agent.reply(["ready": true, "boot": bootMs, "views": session.viewCount, "error": boot.error ?? NSNull()])
+    Agent.reply(["ready": true, "boot": session.bootMs, "views": session.viewCount, "error": session.bootError ?? NSNull()])
     Agent.startStdio(sessions: [("main", session)])
-}
-if agentMode {
-    DispatchQueue.main.async { agentReady() }
-}
-if smoke {
-    print("boot \(String(format: "%.1f", bootMs)) ms; \(session.viewCount) views; root \(Int(session.rootSize.width))x\(Int(session.rootSize.height)); error \(boot.error ?? "none")")
-    print("startup: exec→main \(execToMainMs.map { String(format: "%.1f", $0) } ?? "?") ms; main→NSApplication \(String(format: "%.1f", appReadyMs)) ms; →window \(String(format: "%.1f", (tBoot - ExactEnv.t0) * 1000 - appReadyMs)) ms")
-    print("phases: process→boot \(String(format: "%.1f", (tBoot - ExactEnv.t0) * 1000)) ms; runner+layout \(String(format: "%.1f", rustMs)) ms of which \(session.measureCount) text measurements (\(session.measureHits) cached) \(String(format: "%.1f", session.measureSeconds * 1000)) ms in CoreText; apply \(String(format: "%.1f", applyMs)) ms")
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-        print("painted \(session.firstDrawMs.map { String(format: "%.1f", $0) } ?? "?") ms")
-        print("stamps: " + ExactEnv.stamps.map { "\($0.0) \(String(format: "%.1f", $0.1))" }.joined(separator: " · ") + " · first layout \(session.firstLayoutMs.map { String(format: "%.1f", $0) } ?? "?") · first draw \(session.firstDrawMs.map { String(format: "%.1f", $0) } ?? "?")")
-        print("gpu: \(session.gpuStatus)")
-        print("web: \(session.webStatus)")
-        print("smoke ok")
-        exit(0)
-    }
 }
 app.run()

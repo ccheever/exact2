@@ -8,7 +8,8 @@ use std::fmt::Write;
 ///
 /// `Sources` checks each provider independently; `Answer` checks the module's
 /// dispatcher. Types describe JSON values, not Rust's positional records.
-/// The runner-owned `exactDelivery` source is not an app implementation duty.
+/// Runner-owned `exactDelivery` and `exactViewport` are not app implementation duties.
+/// @ref LLP 1039 D1
 /// This is a build-time artifact, never a runtime import or committed file.
 pub fn typescript(plan: &Plan) -> Result<String, String> {
     // Public callers may construct a Plan directly. Refuse malformed tables
@@ -61,7 +62,7 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
     out.push_str("\nexport interface SourceMap {\n");
     for row in &plan.sources {
         let name = plan.str(row.name);
-        if name == "exactDelivery" {
+        if matches!(name, "exactDelivery" | "exactViewport") {
             continue;
         }
         write!(out, "  {}: {{ args: [", quoted(name)).unwrap();

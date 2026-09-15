@@ -122,6 +122,7 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
                     EventKind::Dblclick => "dblclick",
                     EventKind::Swiperight => "swiperight",
                     EventKind::Scroll => "scroll",
+                    EventKind::Navigate => "navigate",
                 },
                 &mut s,
             );

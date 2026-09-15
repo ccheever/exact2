@@ -4,6 +4,8 @@
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
 // Nothing here runs per frame; layout and motion are the browser's.
 
+import { navigation } from "./navigation.js";
+
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
 const animations = new Map(); // "view/property" -> Animation (a spring in flight)
@@ -301,7 +303,11 @@ function positionContexts() {
     }
   }
 }
-addEventListener("resize", () => requestAnimationFrame(positionContexts));
+// @ref LLP 1039 D2 — layout viewport facts, on every resize, without debounce.
+addEventListener("resize", () => {
+  if (wasm && root.childElementCount) applyBatch(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now()))));
+  requestAnimationFrame(positionContexts);
+});
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
 // LLP 1035.004: portable roles are images; their artwork and tint are host-owned.
 const symbolStyle = document.createElement("style");
@@ -628,6 +634,7 @@ function apply(batch) {
   for (const op of batch.ops ?? []) {
     try {
       switch (op.op) {
+      case "router": navigation.apply(op); break;
       case "create": {
         // A canvas node is a <div> hosting its surface <canvas> under its
         // children (LLP 1014 D2): the kernel's children are laid out in the
@@ -821,20 +828,7 @@ function apply(batch) {
       console.error(`exact: ${String(op?.op ?? "unknown")} op failed`, e);
     }
   }
-  // Navigation keeps its routes mounted; only the selected route receives
-  // input or participates in accessibility. UIKit projects these into its
-  // own controller stack; the browser retains the same declarative state.
-  for (const nav of root.querySelectorAll("[navigationBack]")) {
-    const routes = [...nav.children].filter(route => route.hasAttribute("navigationKey"));
-    const selected = routes.findIndex(route => route.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
-    const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
-    for (const [index, route] of routes.entries()) {
-      const active = index === selected;
-      if (!active && route.contains(document.activeElement)) document.activeElement.blur();
-      route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
-      route.inert = !active || !!route.authoredInert;
-    }
-  }
+  navigation.project(root, log);
   refreshSymbols();
   for (const s of followedScrolls.values()) settleFollow(s);
   for (const [el, offsets] of pendingScrolls) if (el.isConnected) {
@@ -1195,19 +1189,7 @@ function agent(request) {
         const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));
         const policy = document.querySelector("[interactiveWidget]")?.getAttribute("interactiveWidget") ?? "resizes-visual";
         st.keyboard = { visible: overlap > 0, overlap: r2(overlap), policy, interactive: false };
-        const nav = document.querySelector("[navigationBack]");
-        const routes = nav ? [...nav.children].filter((r) => r.hasAttribute("navigationKey")) : [];
-        const key = nav?.getAttribute("navigationKey") ?? null;
-        const index = routes.findIndex((r) => r.getAttribute("navigationKey") === key);
-        const selected = index >= 0 ? routes[index] : null;
-        st.navigation = {
-          route: key,
-          stack: index >= 0 ? routes.slice(0, index + 1).map((r) => r.getAttribute("navigationKey")) : [],
-          presentation: ["modal", "fullscreen"].includes(selected?.getAttribute("navigationPresentation")) ? selected.getAttribute("navigationPresentation") : null,
-          source: selected?.getAttribute("navigationSource") ?? null,
-          closedby: selected?.getAttribute("closedby") ?? null,
-          transition: { interactive: false, phase: "idle" },
-        };
+        st.navigation = navigation.observation(root);
         return st;
       }
       case "layout": {
@@ -1245,10 +1227,15 @@ function agent(request) {
       }
       case "tap": {
         const frame = views.get(request.id);
+        if (request.history !== undefined) return navigation.travel(frame, request.history);
         return frame instanceof HTMLIFrameElement ? guestTap(frame, request) : { guest: false };
       }
       case "type": {
         const frame = views.get(request.id);
+        if (frame?.hasAttribute("navigationBack") && request.key == null) {
+          const batch = globalThis.exact.navigate(request.text ?? "");
+          return { typed: request.id, delivery: "recognized", handled: true, ...(batch.error ? { error: batch.error } : {}) };
+        }
         return frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false };
       }
       case "clock":
@@ -1324,6 +1311,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   const preparedFonts = await prepareFonts(faces, assets);
   const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
   if (!current() || request !== bootAttempt) return null;
+  const launch = encoder.encode(location.pathname + location.search); // @ref LLP 1038 D5
   let len;
   if (module) {
     const id = module.rust ?? new TextEncoder().encode(JSON.stringify(module.realm.id));
@@ -1332,13 +1320,19 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
     ptr = wasm.exact_in(payload.length); new Uint8Array(memory.buffer, ptr, payload.length).set(payload);
     len = wasm.exact_boot_module(plan.length, module.receipt.length, id.length);
   } else if (bytes) {
-    ptr = wasm.exact_in(bytes.length);
-    new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
-    len = wasm.exact_boot_plan(bytes.length);
-  } else len = wasm.exact_boot();
+    ptr = wasm.exact_in(bytes.length + launch.length);
+    const payload = new Uint8Array(memory.buffer, ptr, bytes.length + launch.length);
+    payload.set(bytes); payload.set(launch, bytes.length);
+    len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length);
+  } else {
+    ptr = wasm.exact_in(launch.length);
+    new Uint8Array(memory.buffer, ptr, launch.length).set(launch);
+    len = wasm.exact_boot(innerWidth, innerHeight, launch.length);
+  }
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
   if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); }
+  navigation.reset(batch.ops.find(op => op.op === "router"));
   const oldAssets = devAssets;
   devAssets = assets;
   shaderCommit?.();
@@ -1378,6 +1372,13 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
 // surface and no clock but the browser's.
 let ready;
 globalThis.exact = {
+  // @ref LLP 1038 D8/D11 — synchronous for the serialized popstate caller.
+  navigate: (location) => {
+    const nav = root.firstElementChild;
+    if (!inputReady || !nav?.hasAttribute("navigationBack")) return { ops: [], error: "no navigation root" };
+    const batch = JSON.parse(readOut(wasm.exact_dispatch(Number(nav.dataset.view), 14, writeIn(location), now())));
+    applyBatch(batch); return batch;
+  },
   // A dev-plan event can arrive while the wasm is still fetching. Queue it
   // behind the initial boot instead of acknowledging a reload that did not
   // happen.
@@ -1474,22 +1475,6 @@ async function main() {
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
 
-document.addEventListener("keydown", event => {
-  if (event.key !== "Escape" || event.defaultPrevented) return;
-  // Making a covered editor inert can leave focus on the page body. That
-  // neutral focus still belongs to the presentation; a host input outside
-  // Exact keeps its own keys.
-  if (!root.contains(event.target) && event.target !== document.body && event.target !== document.documentElement) return;
-  // The browser's top layer gets the close request before an authored modal.
-  // Preventing Escape here would also prevent the popover's default dismissal.
-  if (document.querySelector("dialog:modal") || [...document.querySelectorAll(":popover-open")].some(pop => pop.popover === "auto" || pop.popover === "hint")) return;
-  for (const nav of root.querySelectorAll("[navigationBack]")) {
-    const route = [...nav.children].find(child => child.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
-    if (!["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"))) continue;
-    event.preventDefault();
-    if (route.getAttribute("closedby") === "none") return;
-    const control = [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack"));
-    if (control && !control.disabled) control.click();
-    return;
-  }
-});
+// @ref LLP 1038 D7/D8/D11 — the mirror observes the handler's synchronous commit.
+function navigate(location) { return globalThis.exact.navigate(location); }
+navigation.connect(root, navigate, log);

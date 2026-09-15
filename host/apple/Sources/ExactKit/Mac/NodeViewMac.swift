@@ -200,6 +200,16 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var imageSource: String?
     var loadGeneration = 0
     var pressed = false
+    // @ref LLP 1038 D6 — projection does not overwrite authored inert.
+    var routeInert = false
+    var inert: Bool {
+        var ancestor: NSView? = self
+        while let view = ancestor {
+            if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { return true }
+            ancestor = view.superview
+        }
+        return false
+    }
     var disabled: Bool { props["disabled"] == "true" }
     /// The pointer's tracking, for a `hover` handler (LLP 1005 §3).
     var tracking: NSTrackingArea?
@@ -213,7 +223,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. A pressable is in the tab order the way a `<button>` is.
     override var acceptsFirstResponder: Bool {
-        if disabled { return false }
+        if disabled || inert || isHiddenOrHasHiddenAncestor { return false }
         if field != nil || textArea != nil { return false }
         if isParagraph { return true }
         return handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
@@ -630,6 +640,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// (children the surface left in place) is tested in AppKit's order
     /// without them, and then the canvas itself is the hit.
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !inert, !isHiddenOrHasHiddenAncestor else { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview)) { return nil }
         guard let overlay, let sup = superview else { return super.hitTest(point) }
         let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil }

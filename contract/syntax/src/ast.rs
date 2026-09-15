@@ -5,6 +5,8 @@ use crate::Span;
 /// One source file.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct File {
+    /// The app's router declaration. @ref LLP 1038 D2/D3.
+    pub routes: Option<RoutesDecl>,
     /// `use Name from "./file.contract"` declarations, in order (LLP 1017 P8);
     /// resolved by the driver, which merges the used file's declarations in.
     pub uses: Vec<UseDecl>,
@@ -21,6 +23,34 @@ pub struct File {
     pub tests: Vec<TestDecl>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
+}
+
+/// `routes <slot>` with rows in declaration order. @ref LLP 1038 D2.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoutesDecl {
+    /// The root slot filled at launch.
+    pub slot: String,
+    /// The table, flattened from indentation.
+    pub rows: Vec<RouteDecl>,
+    /// Where.
+    pub span: Span,
+}
+
+/// One route line. Parent indices refer to earlier rows of the same table.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RouteDecl {
+    /// Route name, or `notfound` for the fallback.
+    pub name: String,
+    /// Absolute pattern; empty for `notfound`.
+    pub pattern: String,
+    /// Enclosing route, if any.
+    pub parent: Option<usize>,
+    /// A tab root.
+    pub tab: bool,
+    /// The bare fallback line.
+    pub notfound: bool,
+    /// Where.
+    pub span: Span,
 }
 
 /// A declared font family. Faces are static in v1: one path, weight, style.

@@ -60,6 +60,11 @@ impl<D: DataSource> Runner<D> {
         if !self.keeps_answers || !self.store_readers[i] {
             return;
         }
+        // @ref LLP 1039 D3 / LLP 1030 D7 — runner facts are never kept answers.
+        let source = self.plan.str(self.plan.resources[i].source);
+        if source == crate::viewport::SOURCE || source == crate::delivery::SOURCE {
+            return;
+        }
         let encoded = encode(args, value);
         if encoded.len() > MAX_KEPT_BYTES {
             return;
@@ -69,7 +74,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The data source is ready — a host loaded its TypeScript module after
-    /// the first pixel (LLP 1027 D4): every store-reading resource shown
+    /// the first pixel (LLP 1027 D4): every deferred resource shown
     /// from a placeholder is asked again, in one commit. `None` when nothing
     /// was waiting, or when the source is still not ready.
     pub fn data_ready(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {

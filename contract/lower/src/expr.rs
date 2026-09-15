@@ -125,6 +125,10 @@ pub(crate) fn compile(
             asm.field(index as u16);
         }
         Expr::Call(name, args, span) => {
+            if name == "path" && !l.fns.contains_key(name) {
+                let template = l.path_expr(args, *span, scope)?;
+                return compile(l, asm, &template, scope, locals);
+            }
             if name == "pending" {
                 // Typed already: one name, a resource or a mutation.
                 let Some(Expr::Ident(target, _)) = args.first() else {

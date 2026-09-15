@@ -8,7 +8,72 @@ use exact_web::Host;
 
 fn boot() -> (Host<caltrain_data::Caltrain>, String) {
     let plan = caltrain::build().unwrap();
-    Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap()
+    Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_deferred_deep_launch_paints_before_its_source_activates() {
+    struct Deferred(bool);
+    impl exact_runner::DataSource for Deferred {
+        fn ready(&self) -> bool {
+            self.0
+        }
+        fn activate(&mut self) -> Result<(), exact_runner::DataError> {
+            self.0 = true;
+            Ok(())
+        }
+        fn query(
+            &mut self,
+            _: &str,
+            args: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            assert!(self.0, "source ran before first pixel");
+            Ok(args[0].clone())
+        }
+    }
+    let plan = contract::bake(
+        contract::compile(
+            r#"
+routes nav
+  tab home "/"
+    post "/post/:post"
+      write "/post/:post/write"
+component App
+  resource page = loadPage(top(nav).url) as shape string
+  view
+    main navigationKey=`${top(nav).id}`
+      text page testId="page"
+"#,
+        )
+        .unwrap(),
+        Deferred(true),
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        Deferred(false),
+        Default::default(),
+        "/post/5/write",
+    )
+    .unwrap();
+    assert!(first.contains("\"text\":\"/\""), "{first}");
+    assert!(first.contains("\"url\":\"/post/5/write\""), "{first}");
+    assert_eq!(
+        host.runner().resource_args("page"),
+        Some([exact_runner::Value::str("/post/5/write")].as_slice())
+    );
+    let answered = host.data_ready();
+    assert!(
+        answered.contains("\"text\":\"/post/5/write\""),
+        "{answered}"
+    );
+    assert!(answered.contains("\"error\":null"), "{answered}");
 }
 
 #[test]
@@ -25,7 +90,13 @@ fn symbol_roles_carry_host_paths_and_decorative_images() {
 "##,
     )
     .unwrap();
-    let (mut host, first) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(first.contains("\"src\":\"symbol:search\""));
     assert!(first.contains("\"data-symbol-path\":\"M16 10"));
     assert!(first.contains("\"alt\":\"\""));
@@ -290,7 +361,7 @@ fn a_transition_authored_in_contract_reaches_the_page_as_css() {
     ))
     .unwrap();
     let plan = contract::compile(&src).unwrap();
-    let (mut host, batch) = Host::boot(&plan.encode(), NoData).unwrap();
+    let (mut host, batch) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
     assert!(batch.contains("opacity:1;"), "{batch}");
     assert!(
         batch.contains("transition:opacity 0.25s ease-in-out 0s;"),
@@ -341,7 +412,7 @@ fn an_input_uses_html_type_and_inputmode_attributes() {
         "component App\n  view\n    input type=\"password\" inputmode=\"email\" testId=\"secret\"\n",
     )
     .unwrap();
-    let (_, batch) = Host::boot(&plan.encode(), NoData).unwrap();
+    let (_, batch) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
     let at = batch.find("\"tag\":\"input\"").unwrap();
     let create = &batch[at..];
     assert!(create.contains("\"type\":\"password\""), "{create}");
@@ -362,7 +433,7 @@ fn only_text_under_text_is_an_inline_span() {
         "component App\n  view\n    column\n      text \"block leaf\" testId=\"leaf\"\n      text testId=\"paragraph\"\n        text \"inline run\" testId=\"run\"\n",
     )
     .unwrap();
-    let (_, batch) = Host::boot(&plan.encode(), NoData).unwrap();
+    let (_, batch) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
     let create_for = |test_id: &str| {
         let prop = batch
             .find(&format!("\"data-testid\":\"{test_id}\""))
@@ -390,7 +461,7 @@ fn declared_font_identity_reaches_the_readiness_barrier_and_css() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../scripts/fixtures/fonts/app.contract");
     let plan = contract::compile_path(&path).unwrap();
-    let (host, batch) = Host::boot(&plan.encode(), NoData).unwrap();
+    let (host, batch) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
     let catalog = host.font_catalog();
     assert_eq!(
         catalog,
@@ -429,7 +500,7 @@ fn declared_font_identity_reaches_the_readiness_barrier_and_css() {
         b"[]",
         "font inspection must not start a host"
     );
-    let len = bridge.boot(&encoded, NoData);
+    let len = bridge.boot(&encoded, NoData, 390.0, 844.0, "/");
     let boot = String::from_utf8_lossy(bridge.output_bytes(len as usize));
     assert!(!boot.contains("\"fonts\""), "{boot}");
     let len = bridge.fonts();
@@ -454,7 +525,7 @@ fn an_iframe_is_the_element_with_html_props_and_handlers() {
     ))
     .unwrap();
     let plan = contract::compile(&src).unwrap();
-    let (host, batch) = Host::boot(&plan.encode(), NoData).unwrap();
+    let (host, batch) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
     let key = host.runner().kernel().find_by_test_id("deck")[0];
     let deck = host.runner().kernel().node_by_key(key).unwrap().id;
     let at = batch
@@ -490,7 +561,13 @@ fn scroll_offsets_are_dom_properties_sent_only_when_their_bindings_change() {
 "#,
     )
     .unwrap();
-    let (mut host, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let (mut host, batch) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(batch.contains("\"scrollTop\":\"0\""), "{batch}");
     assert!(batch.contains("\"scrollLeft\":\"0\""), "{batch}");
     let bottom = view_with_test_id(&host, "bottom");
@@ -515,7 +592,13 @@ fn textarea_preserves_multiline_values_through_the_change_seam() {
 "#,
     )
     .unwrap();
-    let (mut host, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let (mut host, batch) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(batch.contains("\"tag\":\"textarea\""), "{batch}");
     assert!(batch.contains("white-space:pre-wrap"), "{batch}");
     let id = view_with_test_id(&host, "note");
@@ -547,7 +630,13 @@ fn readonly_uses_existing_editable_prop_and_reacts_to_changes() {
 "#,
     )
     .unwrap();
-    let (mut host, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let (mut host, batch) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(batch.contains("\"readonly\":\"true\""), "{batch}");
     let id = view_with_test_id(&host, "output");
     assert_eq!(
@@ -590,7 +679,13 @@ fn inert_is_a_boolean_dom_attribute_without_removing_its_subtree() {
 "#,
     )
     .unwrap();
-    let (mut host, first) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(first.contains("\"inert\":\"true\""), "{first}");
     assert!(!first.contains("data-inert"), "{first}");
     let region = view_with_test_id(&host, "region");
@@ -630,7 +725,13 @@ fn declared_keyboard_shortcuts_are_standard_aria_attributes() {
 "#,
     )
     .unwrap();
-    let (mut host, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let (mut host, batch) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(
         batch.contains("\"aria-keyshortcuts\":\"Meta+S Control+S\""),
         "{batch}"
@@ -661,7 +762,13 @@ fn dialog_invokers_preserve_html_commands_and_live_action_labels() {
 "#,
     )
     .unwrap();
-    let (mut host, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let (mut host, batch) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(batch.contains("\"tag\":\"dialog\""), "{batch}");
     assert!(batch.contains("\"closedby\":\"any\""), "{batch}");
     assert!(batch.contains("\"commandfor\":\"confirm\""), "{batch}");
@@ -726,7 +833,13 @@ fn a_multi_timer_advance_creates_children_before_attaching_them() {
 "#,
     )
     .unwrap();
-    let (mut host, _) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let (mut host, _) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let advance = host.advance(200.0);
     let kernel = host.runner().kernel();
     let reply = kernel
@@ -767,7 +880,13 @@ fn editor_hints_and_picker_policy_reach_the_dom_and_update() {
 "#,
     )
     .unwrap();
-    let (mut host, initial) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let (mut host, initial) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(initial.contains("\"autocapitalize\":\"none\""));
     assert!(initial.contains("\"autocapitalize\":\"off\""));
     assert_eq!(initial.matches("\"autocorrect\":\"off\"").count(), 2);
@@ -824,4 +943,147 @@ fn css_line_height_retains_ratio_length_normal_and_zero() {
         style.set_dynamic(StyleId::LineHeight, &value).unwrap();
         assert_eq!(exact_web::css::css_text(&style, &[]).0, css);
     }
+}
+
+// @ref LLP 1039 §5 — observe actual host batches across the breakpoint.
+#[test]
+fn viewport_boot_and_resize_use_one_batch_and_emit_aria_orientation() {
+    struct NoData;
+    impl exact_runner::DataSource for NoData {
+        fn query(
+            &mut self,
+            name: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            panic!("host fact reached {name}")
+        }
+    }
+    let plan = contract::bake(
+        contract::compile(include_str!("../../../contract/corpus/viewport.contract")).unwrap(),
+        NoData,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        exact_runner::Viewport {
+            width: 1280.0,
+            height: 900.0,
+        },
+        "/",
+    )
+    .unwrap();
+    assert_eq!(host.runner().kernel().epoch(), 1);
+    assert!(first.contains("aria-orientation") && first.contains("vertical"));
+    assert!(!host.runner().kernel().find_by_test_id("wide").is_empty());
+    let batch = host.resize(390.0, 844.0, 0.0);
+    assert!(batch.contains("\"error\":null"), "{batch}");
+    assert_eq!(host.runner().kernel().epoch(), 2);
+    assert!(!host.runner().kernel().find_by_test_id("narrow").is_empty());
+    host.resize(390.0, 844.0, 0.0);
+    assert_eq!(host.runner().kernel().epoch(), 2);
+}
+
+// @ref LLP 1039 D2 — a refused timer cannot swallow the browser's resize.
+#[test]
+fn viewport_resize_and_a_due_timer_refusal_share_one_batch() {
+    let plan = contract::compile(
+        r#"shape Viewport
+  width: number
+component App
+  state count = 0
+  resource viewport = exactViewport() as shape Viewport
+  action refuse writes count
+    count = 1 / 0
+  task clock mount
+    every(100, refuse)
+  view
+    text `${viewport.width}` testId="width"
+"#,
+    )
+    .unwrap();
+    let (mut host, _) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let batch = host.resize(1280.0, 900.0, 200.0);
+    assert!(batch.contains("SlotType"), "{batch}");
+    assert!(batch.contains("\"text\":\"1280\""), "{batch}");
+    assert_eq!(host.runner().viewport().width, 1280.0);
+    assert_eq!(host.runner().kernel().epoch(), 2);
+    assert_eq!(
+        host.runner().slot("count"),
+        Some(&exact_runner::Value::Number(0.0))
+    );
+}
+
+// @ref LLP 1038 D5/D7 — boot sources see the launch, each batch drains once.
+#[test]
+fn router_batches_follow_launch_and_committed_actions() {
+    #[derive(Default)]
+    struct Questions {
+        asked: Vec<Vec<exact_plan::Value>>,
+    }
+    impl exact_runner::DataSource for Questions {
+        fn query(
+            &mut self,
+            name: &str,
+            args: &[exact_plan::Value],
+        ) -> Result<exact_plan::Value, exact_runner::DataError> {
+            match name {
+                "loadQuestions" => {
+                    self.asked.push(args.to_vec());
+                    Ok(args[0].clone())
+                }
+                "loadPosts" | "loadPeople" => Ok(exact_plan::Value::list(vec![])),
+                _ => panic!("unexpected route source: {name}"),
+            }
+        }
+    }
+    let plan = contract::bake(
+        contract::compile(include_str!("../../../contract/corpus/routes.contract")).unwrap(),
+        Questions::default(),
+    )
+    .unwrap();
+    let (mut host, batch) = Host::boot(
+        &plan.encode(),
+        Questions::default(),
+        Default::default(),
+        "/prompt/5/write",
+    )
+    .unwrap();
+    assert_eq!(host.location(), "/prompt/5/write");
+    assert!(host
+        .agent("{\"op\":\"logs\"}")
+        .contains("query questions: loadQuestions"));
+    assert_eq!(
+        host.runner().data_ref().asked,
+        vec![vec![exact_plan::Value::list(vec![
+            exact_plan::Value::str("5"),
+            exact_plan::Value::str("5")
+        ])]]
+    );
+    assert_eq!(batch.matches("\"op\":\"router\"").count(), 1);
+    assert!(batch.contains("\"url\":\"/prompt/5/write\",\"removed\":[]"));
+    println!("launch batch: {batch}");
+    let unchanged = host.resize(1280.0, 900.0, 0.0);
+    assert!(!unchanged.contains("\"op\":\"router\""));
+    let key = host.runner().kernel().find_by_test_id("select-home-6")[0];
+    let id = host.runner().kernel().node_by_key(key).unwrap().id;
+    let batch = host.dispatch_at(id, Event::Press, 0.0);
+    assert_eq!(batch.matches("\"op\":\"router\"").count(), 1);
+    assert!(batch.contains("\"url\":\"/\",\"removed\":[]"));
+    assert_eq!(host.location(), "/");
+    let (home, _) = Host::boot(
+        &plan.encode(),
+        Questions::default(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(home.runner().data_ref().asked.is_empty());
+    assert!(!home.agent("{\"op\":\"logs\"}").contains("loadQuestions"));
 }

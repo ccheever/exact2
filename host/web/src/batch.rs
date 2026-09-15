@@ -57,6 +57,21 @@ impl Batch {
         Batch::default()
     }
 
+    /// @ref LLP 1038 D7 — one coalesced router change beside commands.
+    pub fn router(&mut self, change: &exact_runner::RouterChange) {
+        let mut s = format!("{{\"op\":\"router\",\"top\":{},\"url\":", change.top);
+        quote(&change.url, &mut s);
+        s.push_str(",\"removed\":[");
+        for (i, id) in change.removed.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            let _ = write!(s, "{id}");
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
     /// Whether nothing was recorded.
     pub fn is_empty(&self) -> bool {
         self.ops.is_empty()

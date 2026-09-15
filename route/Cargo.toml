@@ -1,0 +1,18 @@
+# The router value and its pure functions. @ref LLP 1038 §3, D9.
+# Serde is the only runtime dependency; JSON is only the fixture reader.
+[package]
+name = "exact-route"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A location, a retained stack per tab, and six pure verbs"
+publish = false
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0"
+exact-plan = { path = "../plan" }
+exact-kernel = { path = "../kernel" }
+exact-runner = { path = "../runner" }

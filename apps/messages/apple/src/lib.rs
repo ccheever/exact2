@@ -39,6 +39,80 @@ mod tests {
     }
 
     #[test]
+    fn router_links_back_forward_and_cold_launch_keep_each_threads_composer() {
+        use exact_runner::{Event, Runner};
+        let plan = Plan::decode(super::PLAN).unwrap();
+        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        module.bind(&plan);
+        module.activate().unwrap();
+        for (id, draft, reply) in [("maya", "Saved Maya", "m10"), ("dad", "Saved Dad", "")] {
+            call(
+                &mut module,
+                &plan,
+                "saveDraft",
+                vec![Value::str(id), Value::str(draft), Value::str(reply)],
+            );
+        }
+        let mut runner = Runner::boot(
+            plan,
+            module,
+            exact_kernel::Kernel::with_monospace(),
+            Default::default(),
+            "/t/maya",
+        )
+        .unwrap();
+        let assert_composer = |r: &Runner<Module>, thread: &str, draft: &str, reply: &str| {
+            assert_eq!(r.derive("chatThread"), Some(&Value::str(thread)));
+            assert_eq!(r.derive("draft"), Some(&Value::str(draft)));
+            assert_eq!(r.derive("replying"), Some(&Value::str(reply)));
+        };
+        let navigate = |r: &mut Runner<Module>, url: &str| {
+            r.dispatch(r.roots()[0], Event::Navigate(url.into()))
+                .unwrap();
+        };
+        assert_composer(&runner, "maya", "Saved Maya", "m10");
+        runner
+            .act("write", vec![Value::str("Maya edited")])
+            .unwrap();
+        let before_refusal = runner.slot("nav").cloned();
+        navigate(&mut runner, "/missing-route");
+        assert_eq!(runner.slot("nav"), before_refusal.as_ref());
+        assert_composer(&runner, "maya", "Maya edited", "m10");
+        runner
+            .act("chooseMessage", vec![Value::str("m10")])
+            .unwrap();
+        runner.act("more", vec![]).unwrap();
+        navigate(&mut runner, "/t/dad");
+        assert_composer(&runner, "dad", "Saved Dad", "");
+        assert_eq!(runner.slot("selecting"), Some(&Value::Bool(false)));
+        assert_eq!(runner.slot("selection"), Some(&Value::str("")));
+        let state: Json = serde_json::from_str(&exact_runner::agent::state(&runner)).unwrap();
+        let stack = state["slots"]["nav"]["tabs"][0]["stack"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            stack.len(),
+            2,
+            "one inbox and one conversation, with a correct swipe underlay"
+        );
+        runner.act("write", vec![Value::str("Dad edited")]).unwrap();
+        // Browser predecessor traversal dispatches Back; Forward dispatches Navigate.
+        runner.act("back", vec![]).unwrap();
+        navigate(&mut runner, "/t/dad");
+        assert_composer(&runner, "dad", "Dad edited", "");
+        navigate(&mut runner, "/t/maya/details");
+        assert_composer(&runner, "maya", "Maya edited", "m10");
+        runner.act("closeDetails", vec![]).unwrap();
+        assert_composer(&runner, "maya", "Maya edited", "m10");
+        runner.act("newMessage", vec![]).unwrap();
+        assert_composer(&runner, "maya", "Maya edited", "m10");
+        navigate(&mut runner, "/t/dad");
+        assert_composer(&runner, "dad", "Dad edited", "");
+        navigate(&mut runner, "/t/maya");
+        assert_composer(&runner, "maya", "Maya edited", "m10");
+    }
+
+    #[test]
     fn bubble_runs_use_precise_elapsed_time_and_recompute_after_deletion() {
         let plan = Plan::decode(super::PLAN).unwrap();
         let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);

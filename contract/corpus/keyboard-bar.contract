@@ -4,7 +4,12 @@
 // it is up. Chrome's opt-in; the default, `resizes-visual`, is
 // `insets.contract`. On iOS the frames move inside the keyboard's own
 // animation (LLP 1008 §9).
+// @ref LLP 1039 §5 — the app sees the same keyboard-adjusted viewport.
+shape Viewport
+  width: number
+  height: number
 component KeyboardBar
+  resource viewport = exactViewport() as shape Viewport
   state note = ""
   state focused = false
   action setNote(value) writes note

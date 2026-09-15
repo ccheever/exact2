@@ -64,6 +64,7 @@ const shaders = resolve(app.dir, 'gpu', 'shaders');
 copyStaticTreeIfPresent(shaders, resolve(stage, 'shaders'));
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
 copyFileSync(resolve(root, 'host/web/glue.js'), resolve(stage, 'glue.js'));
+copyFileSync(resolve(root, 'host/web/navigation.js'), resolve(stage, 'navigation.js'));
 
 // The plan and its pointer card (LLP 1023 D1/D2): extract the exact bytes
 // baked into the produced, optimized wasm. Compiling app.contract a second

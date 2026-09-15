@@ -115,6 +115,17 @@ final class Runtime {
         let n = write(value)
         return read(exact_dispatch(rt, view, 1, n, now))
     }
+    // @ref LLP 1038 D8/D11 — Rust owns URL interpretation on every host.
+    func location(of href: String) -> String {
+        let n = write(href)
+        let len = exact_location_of(rt, n)
+        return String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+    }
+    func launch(_ location: String) { let n = write(location); _ = exact_set_launch_location(rt, n) }
+    func navigate(_ view: UInt32, _ location: String, now: Double) -> Batch {
+        let n = write(location)
+        return read(exact_dispatch(rt, view, 14, n, now))
+    }
     func advance(now: Double) -> Batch { read(exact_advance(rt, now)) }
     func resize(width: CGFloat, height: CGFloat) -> Batch { read(exact_resize(rt, Float(width), Float(height))) }
     func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { read(exact_insets(rt, Float(top), Float(right), Float(bottom), Float(left))) }

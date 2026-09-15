@@ -175,7 +175,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             let nav = owners[index], stack = Array(wanted[parts[index]])
             let same = nav.viewControllers.count == stack.count && zip(nav.viewControllers, stack).allSatisfy { $0 === $1 }
             if !same {
-                nav.setViewControllers(stack, animated: index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && nav.view.window != nil)
+                // @ref LLP 1038 D6 — replacements (tabs/open) swap immediately.
+                let pushOrPop = NavigationRules.isPushOrPop(from: nav.viewControllers.map(ObjectIdentifier.init), to: stack.map(ObjectIdentifier.init))
+                nav.setViewControllers(stack, animated: pushOrPop && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && nav.view.window != nil)
             }
             nav.view.layoutIfNeeded()
         }
@@ -373,6 +375,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // A presented owner's appearance also calls willShow, using its
         // enclosing presentation coordinator. Only a transition to this route
         // belongs to navigation and has a matching didShow completion.
+        // @ref LLP 1038 D6/D11; LLP 1035.001 D2 — cancellation calls
+        // willShow again for the source, although the coordinator's .to is
+        // still the pop destination. Keep that contact's source until didShow.
+        if interactiveTransition, interactiveSource != nil { return }
         let transition = navigationController.transitionCoordinator
         changing = animated && transition?.viewController(forKey: .to) === viewController
         interactiveTransition = changing && transition?.initiallyInteractive == true

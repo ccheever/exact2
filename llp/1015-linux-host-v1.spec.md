@@ -41,6 +41,16 @@ The painter excludes their subtree from pixels and hit boxes; a press reaching
 
 ## 1. The host (`host/linux/src/host.rs`)
 
+LLP 1039 passes the boot size to the runner as `exactViewport`; the existing resize path re-answers it before laying out once and updates the presenter from that same commit. The resource and the agent’s `layout.viewport` report the same CSS-pixel dimensions.
+
+**Locations (LLP 1038 D5/D8/D11, 2026-09-14).** The common app entry reads
+the first non-flag argument beginning with `/` or a valid scheme, derives its
+location with `exact_route::location_of`, and supplies it before the first
+settlement, including a selected plan or fallback. No argument means `/`.
+`type <navigation root> "/post/42"` dispatches `Event::Navigate(String)` once;
+Linux has no integer dispatch ABI or running-URL OS callback. The agent still
+reports navigation as unavailable; the router value remains in `state.slots`.
+
 **Requests (LLP 1016 D2, built 2026-08-30).** `host/linux/src/executor.rs`
 is the Apple host's executor with a wake the loop can poll: one
 `ibex2::host::Host` on a worker thread — rustls off Apple (ibex LLP 0068
@@ -274,6 +284,18 @@ stays first, the browser's rule. `tests/text.rs` holds it against the
 fonts' own advances (Book 98.6, Bold 111.1 for "Change station" at 13 pt).
 
 ## 4. The presenter (`host/linux/src/presenter.rs`, `image.rs`)
+
+**Router projection (LLP 1038 D6/D7/D11, 2026-09-14).** At boot and after
+commits the host drains `take_router_change()` and retains the last op; no
+foreign batch consumer is added. Launch is deliberately `/`; the agent's
+`navigation` remains `{"unavailable":true}`. `route_visibility` projects every
+container carrying `navigationBack` over its direct keyed children. The selected
+route is visible and interactive; its immediate predecessor is visible but inert
+when the selected presentation is `modal`; all others are hidden and inert.
+A key matching no route preserves projection and journals once per key.
+Hidden route subtrees produce no pixels or hit boxes; inert ancestors refuse
+input. `layout <node>` reports `visible.hidden` and `visible.inert` even when
+a retained route has no painted box.
 
 The headless/DRM host has no system clipboard. `copyText(text)` is recognized
 and reports `unsupported` on stderr; it neither saves a pretend clipboard nor

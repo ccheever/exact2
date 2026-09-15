@@ -297,6 +297,8 @@ fn the_runner_drives_a_typescript_login_and_a_two_request_profile() {
         baked,
         Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
         Kernel::with_monospace(),
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert!(has(&r, "signed-out"));
@@ -370,6 +372,8 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
         baked.clone(),
         Module::new(HBC.to_vec(), APP, GRANTS),
         Kernel::with_monospace(),
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert_eq!(text_of(&r, "remembered").as_deref(), Some(""));
@@ -392,6 +396,8 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
         Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
         Kernel::with_monospace(),
         &r.carry(),
+        Default::default(),
+        "/",
     )
     .unwrap();
 
@@ -425,6 +431,8 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
         Module::new(HBC.to_vec(), APP, GRANTS),
         Kernel::with_monospace(),
         snapshot.clone(),
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert_eq!(text_of(&next, "remembered").as_deref(), Some("ada"));
@@ -443,6 +451,8 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
         Module::new(HBC.to_vec(), APP, GRANTS),
         Kernel::with_monospace(),
         cleared,
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert_eq!(text_of(&stale, "remembered").as_deref(), Some("ada"));

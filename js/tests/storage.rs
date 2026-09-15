@@ -268,7 +268,14 @@ fn unload_invalidates_continuations_and_configuration_survives_reload() {
 #[test]
 fn runner_settles_storage_actions_from_an_unloaded_first_frame() {
     let root = Root::new();
-    let mut runner = Runner::boot(plan(), root.module(), Kernel::with_monospace()).unwrap();
+    let mut runner = Runner::boot(
+        plan(),
+        root.module(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(!runner.data().is_loaded(), "boot cannot run app bytecode");
     assert!(!root.0.exists(), "boot cannot open app storage");
     assert!(!runner.kernel().find_by_test_id("empty").is_empty());
@@ -356,7 +363,14 @@ component App
     .unwrap();
     let baked = contract::bake(source, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
     let root = Root::new();
-    let mut runner = Runner::boot(baked.clone(), root.module(), Kernel::with_monospace()).unwrap();
+    let mut runner = Runner::boot(
+        baked.clone(),
+        root.module(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(runner.resource_reads_store("library"));
     assert_eq!(text(runner.resource("library").unwrap().clone()), "empty");
     assert!(!runner.data().is_loaded());
@@ -390,8 +404,15 @@ component App
         .any(|(name, _)| name == "exact.kept.library"));
     assert!(!snapshot.iter().any(|(name, _)| name == "session"));
     drop(runner);
-    let mut next =
-        Runner::boot_stored(baked, root.module(), Kernel::with_monospace(), snapshot).unwrap();
+    let mut next = Runner::boot_stored(
+        baked,
+        root.module(),
+        Kernel::with_monospace(),
+        snapshot,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(!next.data().is_loaded());
     assert!(next.take_requests().is_empty());
     assert_eq!(

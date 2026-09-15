@@ -42,6 +42,7 @@ import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 const routes = {'/module-glue.js':'host/web/module-glue.js','/module-prelude.js':'js/src/prelude.js'};
 routes['/startup/glue.js']='host/web/glue.js';
+routes['/startup/navigation.js']=routes['/navigation.js']='host/web/navigation.js';
 const hostPage=readFileSync('host/web/index.html','utf8');
 const modulePage=hostPage.replace(/<script type="module" src="\.\/glue\.js"><\/script>/,'');
 const startupStub=()=>{

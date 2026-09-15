@@ -25,7 +25,14 @@ fn corpus(name: &str) -> String {
 fn boot(name: &str) -> Runner<NoData> {
     let plan = contract::compile(&corpus(name)).unwrap();
     let plan = contract::bake(plan, NoData).unwrap();
-    Runner::boot(plan, NoData, Kernel::with_monospace()).unwrap()
+    Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
 }
 
 #[test]
@@ -71,7 +78,14 @@ fn a_provide_fills_an_inject_and_the_innermost_wins() {
 fn a_provided_value_may_be_state_and_follows_it() {
     let src = "component App\n  state ink = \"#112233\"\n  action paint writes ink\n    ink = \"#00ff00\"\n  view\n    column testId=\"root\"\n      provide accent = ink\n        Label(text=\"x\")\ncomponent Label\n  props\n    text: string\n  inject\n    accent: string\n  view\n    text text color=accent testId=`label-${text}`\n";
     let plan = contract::compile(src).unwrap();
-    let mut r = Runner::boot(plan, NoData, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     r.act("paint", vec![]).unwrap();
     let k = r.kernel();
     let key = k.find_by_test_id("label-x")[0];

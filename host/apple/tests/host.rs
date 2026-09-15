@@ -673,7 +673,8 @@ fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
 }
 
 #[test]
-fn a_first_layout_refusal_keeps_the_running_host() {
+fn an_invalid_viewport_plan_boot_keeps_the_running_host() {
+    // @ref LLP 1039 D2 — refuse the size before layout; keep the old host.
     let plan = contract::compile("component Running\n  view\n    text \"running\"\n")
         .unwrap()
         .encode();
@@ -710,8 +711,7 @@ fn a_first_layout_refusal_keeps_the_running_host() {
         844.0,
     );
     let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
-    assert!(refusal.contains("boot: Layout"), "{refusal}");
-    assert!(refusal.contains("InvalidOffer"), "{refusal}");
+    assert!(refusal.contains("InvalidViewport"), "{refusal}");
 
     let len = bridge.resize(500.0, 844.0);
     let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
@@ -720,7 +720,7 @@ fn a_first_layout_refusal_keeps_the_running_host() {
 }
 
 #[test]
-fn a_failed_initial_layout_publishes_no_host() {
+fn an_invalid_initial_viewport_publishes_no_host() {
     let plan = contract::compile("component Candidate\n  view\n    text \"candidate\"\n")
         .unwrap()
         .encode();
@@ -738,7 +738,7 @@ fn a_failed_initial_layout_publishes_no_host() {
         844.0,
     );
     let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
-    assert!(refusal.contains("boot: Layout"), "{refusal}");
+    assert!(refusal.contains("InvalidViewport"), "{refusal}");
     let len = bridge.resize(500.0, 844.0);
     let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
     assert!(after.contains("not booted"), "{after}");
@@ -765,8 +765,7 @@ fn a_refused_fresh_boot_keeps_the_running_host() {
 
     let len = bridge.boot(&candidate, NoData, hooks, f32::NAN, 844.0);
     let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
-    assert!(refusal.contains("boot: Layout"), "{refusal}");
-    assert!(refusal.contains("InvalidOffer"), "{refusal}");
+    assert!(refusal.contains("InvalidViewport"), "{refusal}");
 
     let len = bridge.resize(500.0, 844.0);
     let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
@@ -798,7 +797,7 @@ fn two_prepared_sessions_keep_their_live_hosts_until_both_accept() {
     let n = a.prepare_plan(candidate.len(), NoData, hooks, 390.0, 844.0);
     assert!(String::from_utf8_lossy(a.output_bytes(n as usize)).contains("\"error\":null"));
     let n = b.prepare_plan(candidate.len(), NoData, hooks, f32::NAN, 844.0);
-    assert!(String::from_utf8_lossy(b.output_bytes(n as usize)).contains("InvalidOffer"));
+    assert!(String::from_utf8_lossy(b.output_bytes(n as usize)).contains("InvalidViewport"));
     a.discard_plan();
     b.discard_plan();
     for bridge in [&mut a, &mut b] {

@@ -43,7 +43,7 @@ extension Agent {
                                          "transition": ["interactive": false, "phase": "idle"]]
         if let container = presenter.views.values.filter({ $0.props["navigationBack"] != nil }).min(by: { $0.id < $1.id }) {
             let key = container.props["navigationKey"] ?? ""
-            let routes = presenter.views.values.filter { $0 !== container && $0.props["navigationKey"] != nil }.sorted { $0.id < $1.id }
+            let routes = container.container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["navigationKey"] != nil }
             let keys = routes.map { $0.props["navigationKey"] ?? "" }
             navigation["route"] = key
             if let range = NavigationRules.stack(routeKeys: keys, selected: key) {
@@ -53,6 +53,8 @@ extension Agent {
                 navigation["closedby"] = selected.props["closedby"] ?? NSNull()
             }
         }
+        // @ref LLP 1038 D11 — last op, never inferred from route props.
+        navigation["url"] = session.routerOp?["url"] ?? NSNull()
         return ["focus": focus, "keyboard": keyboard, "navigation": navigation]
     }
 
@@ -141,7 +143,7 @@ extension Agent {
     /// viewport, the window and the screen (both reported y-down from the
     /// top, as every space here is), the scroll and clip chains above it,
     /// whether it is hidden, in the viewport or clipped away, and what was
-    /// mounted for it. AppKit has no `inert`, so it is reported false, never
+    /// mounted for it. Hidden and inert ancestors are observed, never
     /// guessed. A stale id is refused by name.
     func layout(_ req: [String: Any]) -> [String: Any] {
         var reply = layout()
@@ -186,7 +188,7 @@ extension Agent {
         }
         node["scroll"] = scroll
         node["clip"] = clip
-        var visible: [String: Any] = ["hidden": host.isHiddenOrHasHiddenAncestor, "inert": false, "inViewport": b.intersects(NSRect(origin: .zero, size: clipView.bounds.size)), "clipped": clipped]
+        var visible: [String: Any] = ["hidden": host.isHiddenOrHasHiddenAncestor, "inert": host.inert, "inViewport": b.intersects(NSRect(origin: .zero, size: clipView.bounds.size)), "clipped": clipped]
         if host.isHiddenOrHasHiddenAncestor {
             // Name the ancestor that hides it, never leave a reader guessing.
             var s: NSView? = host
@@ -282,6 +284,7 @@ extension Agent {
                 : ["error": "native segment #\(id) is unavailable"]
         }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard !v.isHiddenOrHasHiddenAncestor, !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         let b = box(v)
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window.
@@ -358,8 +361,14 @@ extension Agent {
     /// the text inserted — the delegate hears one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard !v.isHiddenOrHasHiddenAncestor, !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
+        // @ref LLP 1038 D11 — type on the root delivers a location.
+        if v.props["navigationBack"] != nil, req["key"] == nil {
+            let location = req["text"] as? String ?? ""
+            return session.navigate(location) ? ["typed": Int(v.id), "value": location, "delivery": "recognized"] : ["error": "navigate refused"]
+        }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
         if let chord = req["key"] as? String {
             let parts = chord.split(separator: "+").map(String.init)

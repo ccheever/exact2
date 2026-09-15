@@ -28,7 +28,14 @@ fn corpus(name: &str) -> String {
 fn viewport_fit_and_env_lengths_reach_the_kernel_and_follow_the_insets() {
     let plan = contract::compile(&corpus("insets.contract")).unwrap();
     let plan = contract::bake(plan, NoData).unwrap();
-    let mut r = Runner::boot(plan, NoData, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let id_of = |k: &Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
     let (root, content) = (id_of(r.kernel(), "root"), id_of(r.kernel(), "content"));
     {
@@ -62,7 +69,14 @@ fn viewport_fit_and_env_lengths_reach_the_kernel_and_follow_the_insets() {
 fn resizes_content_reaches_the_kernel_and_a_bottom_bar_follows_the_viewport() {
     let plan = contract::compile(&corpus("keyboard-bar.contract")).unwrap();
     let plan = contract::bake(plan, NoData).unwrap();
-    let mut r = Runner::boot(plan, NoData, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let id_of = |k: &Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
     let (root, bar) = (id_of(r.kernel(), "root"), id_of(r.kernel(), "bar"));
     let k = r.kernel_mut();

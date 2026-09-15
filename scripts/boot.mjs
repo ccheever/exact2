@@ -10,7 +10,7 @@ import vm from 'node:vm';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ALLOWED = new Set(['host/web/glue.js']);
+const ALLOWED = new Set(['host/web/glue.js', 'host/web/navigation.js']);
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
 // The page is deliberately small, so a fail-closed tokenizer is preferable

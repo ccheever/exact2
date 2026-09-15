@@ -192,11 +192,13 @@ impl<D: DataSource> Presenter<D> {
             Assets::embedded(assets),
             choice,
             None,
+            "/",
         )
     }
 
     /// Boot from entry zero or one selected generation. The selected asset
     /// roster is complete: absent names cannot fall through to `root`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_selected(
         plan: &[u8],
         data: D,
@@ -205,6 +207,7 @@ impl<D: DataSource> Presenter<D> {
         root: PathBuf,
         selected: Option<AssetResolver>,
         (compat, delivery): (&str, exact_runner::Delivery),
+        launch: &str,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let assets = match selected {
             Some(set) => Assets::selected(root, set),
@@ -218,11 +221,13 @@ impl<D: DataSource> Presenter<D> {
             assets,
             PainterChoice::from_env(),
             Some(delivery),
+            launch,
         )?;
         presenter.compat = compat.to_string();
         Ok((presenter, error))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn boot_with_assets(
         plan: &[u8],
         data: D,
@@ -231,6 +236,7 @@ impl<D: DataSource> Presenter<D> {
         assets: Assets,
         choice: PainterChoice,
         delivery: Option<exact_runner::Delivery>,
+        launch: &str,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let t = std::time::Instant::now();
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
@@ -240,7 +246,7 @@ impl<D: DataSource> Presenter<D> {
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
         let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
-        let (mut host, error) = Host::boot_with(
+        let (mut host, error) = Host::boot_at(
             plan,
             data,
             Box::new(Measurer(text.clone())),
@@ -248,6 +254,7 @@ impl<D: DataSource> Presenter<D> {
             viewport.1,
             None,
             delivery,
+            launch,
         )?;
         let mut images = Images::with_assets(assets.clone());
         if assets.is_selected() {
@@ -710,11 +717,12 @@ impl<D: DataSource> Presenter<D> {
 
     /// The viewport changed.
     pub fn resize(&mut self, width: f32, height: f32) -> Option<String> {
+        let error = self.host.resize(width, height);
+        if error.is_some() {
+            return error;
+        }
         self.viewport = (width, height);
-        let e = self.host.resize(width, height);
-        self.dirty = true;
-        self.clamp_scroll();
-        e
+        self.after_commit()
     }
 
     /// After anything that may have committed: images follow the tree,
@@ -747,7 +755,7 @@ impl<D: DataSource> Presenter<D> {
             });
         }
         if let Some(f) = self.focus {
-            if self.host.kernel().node(f).is_none() {
+            if self.host.kernel().node(f).is_none() || self.host.route_visibility(f).1 {
                 self.focus = None;
             }
         }
@@ -825,6 +833,7 @@ impl<D: DataSource> Presenter<D> {
         let presented = |id: ViewId| host.presented(id);
         let scene = Scene {
             kernel: host.kernel(),
+            hidden: &|id| host.route_visibility(id).0,
             roots: &roots,
             presented: &presented,
             scroll: &self.scroll,
@@ -926,6 +935,13 @@ impl<D: DataSource> Presenter<D> {
             if detail.ends_with('}') {
                 detail.pop();
             }
+            // @ref LLP 1038 D6; LLP 1035.002 D1 — hidden rows remain in
+            // the kernel, but have no painted box and refuse input.
+            let (hidden, inert) = self.host.route_visibility(id);
+            let _ = write!(
+                detail,
+                ",\"visible\":{{\"hidden\":{hidden},\"inert\":{inert}}}"
+            );
             match boxes.iter().find(|b| b.id == id) {
                 Some(b) => {
                     let _ = write!(
@@ -954,15 +970,19 @@ impl<D: DataSource> Presenter<D> {
     /// The deepest painted box under a point (viewport points), through
     /// every clip.
     pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
-        self.boxes()
+        self.boxes();
+        self.boxes
             .iter()
             .rev()
-            .find(|b| b.contains(x, y))
+            .find(|b| b.contains(x, y) && !self.host.route_visibility(b.id).1)
             .map(|b| b.id)
     }
 
     /// The nearest node at or above `id` with a handler for `kind`.
     fn handler_target(&self, id: ViewId, kind: EventKind) -> Option<ViewId> {
+        if self.host.route_visibility(id).1 {
+            return None;
+        }
         let kernel = self.host.kernel();
         let mut at = Some(id);
         while let Some(n) = at {
@@ -1007,6 +1027,9 @@ impl<D: DataSource> Presenter<D> {
     /// The agent's `tap`: a press at the node's center through the same
     /// path a pointer takes.
     pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
+        if self.host.route_visibility(id).1 {
+            return Err(format!("view {id} is hidden or inert"));
+        }
         let b = self
             .box_of(id)
             .ok_or_else(|| format!("no view {id} on screen"))?;
@@ -1083,6 +1106,9 @@ impl<D: DataSource> Presenter<D> {
 
     /// The agent's wheel: over the node's center.
     pub fn wheel(&mut self, id: ViewId, dx: f32, dy: f32) -> Result<String, String> {
+        if self.host.route_visibility(id).1 {
+            return Err(format!("view {id} is hidden or inert"));
+        }
         let b = self
             .box_of(id)
             .ok_or_else(|| format!("no view {id} on screen"))?;
@@ -1100,8 +1126,25 @@ impl<D: DataSource> Presenter<D> {
     /// Set an input's value as typing does: focused, the value replaced,
     /// one `change` heard by the runner.
     pub fn type_text(&mut self, id: ViewId, text: &str) -> Result<String, String> {
+        if self.host.route_visibility(id).1 {
+            return Err(format!("view {id} is hidden or inert"));
+        }
         let kernel = self.host.kernel();
         let node = kernel.node(id).ok_or_else(|| format!("no view {id}"))?;
+        // @ref LLP 1038 D11 — the agent's root text is a location.
+        if node.props.str(PropId::NavigationBack).is_some() {
+            if node.props.bool(PropId::Disabled) == Some(true) {
+                return Err(format!("view {id} is disabled"));
+            }
+            let error =
+                self.host
+                    .dispatch_at(id, Event::Navigate(text.to_owned()), self.host.now());
+            let after = self.after_commit();
+            if let Some(error) = error.or(after) {
+                return Err(error);
+            }
+            return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));
+        }
         if node.node_type != NodeType::TextInput {
             return Err(format!("view {id} is not an input"));
         }

@@ -39,7 +39,13 @@ len into the data pool).
 
 Tables: `types`, `fields`, `slots`, `derives`, `resources`, `args`, `actions`,
 `params`, `writes`, `timers`, `regions`, `arms`, `nodes`, `bindings`,
-`handlers`. **No kernel vocabulary is declared here**: `nodes.node_type`,
+`handlers`, and `routes`. LLP 1038 D2 adds `routes(name: str, pattern: str,
+parent: opt:routes, tab: bool, notfound: bool)` in declaration order, and
+`router: opt:slots` in the header after `app_id`. Parents must precede their
+children; at most one row is `notfound`; the header names an existing root
+slot typed as a record. `resources.initial_args: bytes` accompanies compiled
+values (§8). The format digest changes; every plan re-bakes.
+**No kernel vocabulary is declared here**: `nodes.node_type`,
 `bindings.id` are the kernel's ordinals as numbers (LLP 1004 D2); the plan
 header carries the kernel's `SCHEMA_DIGEST` so a mismatch is refused at boot.
 The value bridge consults the row's generated codec before interpreting `auto`:
@@ -49,7 +55,8 @@ rows such as `align-self`, `overscroll-behavior`, and `scrollbar-width`.
 ## 2. Bytes (`Plan::encode` / `Plan::decode`)
 
 Header: magic `EXPL`, `FORMAT_VERSION` u32, `FORMAT_DIGEST` u64, kernel schema
-digest u64, compiler identity u64. Then the three pools (strings as count +
+digest u64, compiler identity u64, `app_id` (length-prefixed UTF-8), and
+`router` (u32 slot index or `0xFFFFFFFF`). Then the three pools (strings as count +
 length-prefixed UTF-8; code and data as length + bytes), then every table in
 declaration order as count + fixed-width rows. Equal plans encode to equal
 bytes (`a_plan_round_trips_and_its_bytes_are_canonical`).
@@ -104,26 +111,91 @@ Each `stdlib` entry has one body: `now`, `formatClockTime` (UTC `h:mm AM`),
 as JavaScript does), `floor`, `max`, `min`. Deterministic and locale-free by
 design. The compiler type-checks calls against the same table (LLP 1006 §3).
 
+LLP 1038 D3 adds these signatures, preserving the existing roster entries
+and ordinals. Scoped action and action-prop references take precedence over
+roster names, preserving existing `open(...)` handlers when this roster grows.
+Reserved shape names and `list<Router>`, `list<Entry>`,
+`list<string>` are accepted type spellings in parameters and returns.
+
+| entry | parameters | return |
+|---|---|---|
+| `open`, `push`, `replace`, `select`, `go` | `Router, string` | `Router` |
+| `back` | `Router` | `Router` |
+| `stack` | `Router` | `list<Entry>` |
+| `top` | `Router` | `Entry` |
+| `depth` | `Router` | `number` |
+| `params` | `Router, string` | `list<string>` |
+| `searchParam` | `Entry, string` | `string` |
+| `encodeURIComponent` | `string` | `string` |
+
+The VM passes the plan and its boot-checked route context to the roster.
+Conversions follow the header slot's types: `Router {tab, tabs, next}` →
+`Tab {name, stack}` → `Entry {id, name, url, tab, params}` → `Params` with
+one string field per distinct `:name`, in first-declaration order. This is
+also field order in each positional record; chunk (c)'s compiler must emit
+it. Lists carry records or strings as their signatures say. The six verbs
+call `exact-route`; a refused verb returns the original value and journals
+each distinct intent/reason once per commit, including settlement retries
+(LLP 1035.001 D6). Query reads and component encoding use the crate's web
+semantics. The agent's `state` prints the slot through its declared shapes,
+with field names, using its existing typed-JSON path (LLP 1038 D11).
+
 ## 6. The runner (`runner/src/runner.rs`, `instance.rs`)
 
-`Runner::boot(plan, data, kernel)` refuses a plan whose kernel schema digest
+LLP 1039 adds `exactViewport` beside `exactDelivery`: a host boot fact, filled by field name before settlement and never taken from a compiled or carried answer. `set_viewport` re-answers its readers through `recommit` in one commit; unchanged or unread facts return `None`, and non-finite or non-positive sizes are journaled refusals.
+
+`Runner::boot(plan, data, kernel, viewport, launch)` refuses a plan whose kernel schema digest
 is not the linked kernel's, with other than one root site, or with a region at
 the root (`RootRegion` — kernel roots are attach-ordered, so a keyed root could
 not reorder); evaluates slot initializers in order and checks each against its
 declared type (`SlotType`); **settles** derives and resources; realizes the
 tree; applies the first frame as one batch.
 
-`Runner::boot_with_delivery` takes the host's complete delivery facts before
-that first settlement (LLP 1030 D7). The reserved delivery source ignores baked
-and carried answers; its dependents carry device-data provenance, so a request
+All boot entry points take the viewport and `launch: &str` before first settlement: `boot_carrying`
+adds carried state, `boot_stored` adds a store snapshot, and `boot_with_delivery`
+takes optional carried state, a snapshot and complete delivery facts (LLP 1030 D7).
+The reserved delivery source ignores baked and carried answers; its dependents carry device-data provenance, so a request
 or conditional asset cannot first observe the bake's sequence.
+
+LLP 1038 D5 fills the header's router slot with `Router::launch(table, launch)`
+**before any slot initializer**, even if the slot is declared later. Bake and
+hosts without a location pass `/`. An unmatched launch with no `notfound`
+is journaled and retried at `/`; if `/` also matches nothing, boot refuses
+with `RunnerError::Router`. Boot validates the four shapes and reads the
+route table once, then shares it with all VM evaluations.
+
+A dev reload carries the router by slot name. `Carried::router` retains the
+value decoded through the old plan's shapes, so Params field-order changes
+cannot reinterpret a value. Every entry in every retained tab must still
+match the new table to the same route name, and the tab roster (names, in
+order) must be unchanged. If so, visits, stacks and ids
+are retained and Params are rebound by name from each URL; otherwise the
+new value is `Router::launch(new_table, old_top.url)`, with the same fallback
+rule. Other root slots and matching resources retain their existing carry
+behavior; row slots are never carried.
+
+Runner commits continue to return `exact_kernel::CommitReceipt` unchanged.
+`Runner::take_router_change() -> Option<RouterChange>` is a separate drain
+beside `take_commands()`, `take_requests()`, and `take_store_writes()`
+(LLP 1038 D7; orchestrator ruling, 2026-09-14). `RouterChange` is `{top: u64,
+url, removed: Vec<u64>}`: the selected top and ids removed from any tab.
+A successful commit that changes the router slot publishes it, including
+boot's initial change with no removed ids; unchanged and refused commits
+leave the pending change alone. Taking clears it; absent a router, or after
+a take until navigation changes again, the result is `None`. Multiple commits
+before a take retain the latest top/url and every removed id once, in
+first-removal order (each commit traverses old tab/stack order). Hosts drain
+it beside commands and translate it into the `router` op in chunk (d).
 
 **Settlement** (`settle`): derives and resources may depend on each other in
 either direction, so plan order cannot order them. Each pass evaluates every
 unsettled derive and resource in plan order; one that reads something unsettled
 traps `Pending` and is retried next pass; the loop ends when everything settled
 or nothing progressed (`RunnerError::Cycle`). On boot a resource takes its
-compiled value when it has one, else queries the source. After an action, a
+compiled value only when its evaluated arguments equal `initial_args`, else
+queries the source; a source not ready at boot uses the compiled value as a
+stale placeholder regardless of arguments and is asked again with current
+arguments at `data_ready` (LLP 1038 D5; LLP 1027 D4; §8). After an action, a
 resource is re-requested only when its argument values changed. Settlement is
 transactional: it works on a copy of the resource caches and publishes only
 when the whole pass succeeds. A value that does not conform to its shape is
@@ -162,8 +234,14 @@ Style values go through the kernel's own `StyleProps::set_dynamic`
 (`runner/src/bridge.rs`; LLP 1001 gained it in this landing) — a string is an
 enum name, `auto`, `N%`, or a hex color; a number is the row's number.
 
+`Navigate` (LLP 1038 D8/D11, 2026-09-14) carries one string location to the
+navigation root. Apple and web dispatch kind **14** follows scroll (13);
+Linux uses `Event::Navigate` directly. The handler chooses the router verb.
+An action taking no parameters ignores the location; otherwise it takes one string.
+A URL before boot is the launch fact, with no navigate dispatch.
+
 **Events.** `dispatch(view, Press | Change(text) | Hover(over) | Focus | Blur
-| Key(name) | Submit | Load | Message(text) | Contextmenu | Dblclick | Swiperight | Scroll(left, top))` finds the site and the frames in force at that view, evaluates
+| Key(name) | Submit | Load | Message(text) | Contextmenu | Dblclick | Swiperight | Scroll(left, top) | Navigate(location))` finds the site and the frames in force at that view, evaluates
 the handler's curried arguments there at dispatch time, appends the event
 payload — a change's text, a hover's `over` (in or out: one kind, one handler,
 one action), a key's web name (`Enter`, `Escape`, `ArrowDown`, `a` — the
@@ -218,7 +296,7 @@ is refused (`NonFiniteClock`).
 
 ## 7. Boundaries
 
-The runner depends on `exact-kernel` and `exact-plan`; the plan crate on
+The runner depends on `exact-kernel`, `exact-plan`, and the `exact-route` leaf; the plan crate on
 nothing. The data seam is one trait, `DataSource::query(source, args) →
 Result<Value, DataError>`, synchronous, beside `answer(source, args) →
 Result<Answer, DataError>` (default: `query`, now) and `parse(source, args,
@@ -227,7 +305,27 @@ request (LLP 1016 D1; `Request`, `Response`, `Outcome` are the runner's own
 structs, ibex2's fields). The runner still does no I/O: requests leave through `take_requests` and replies enter through `fulfill`. Durable client state (LLP 1018) is a `Store` the host fills before boot (`Runner::boot_stored`; a reload carries it in `Carried::store`) and drains after each commit (`take_store_writes`); `answer` and `parse` receive it — a read is a map lookup, a write is a `StoreWrite` for the host, rolled back with a refused action or reply — so the rule holds literally. Bake gives a resource that read the store no compiled value (`resource_reads_store`): it answers from the device at boot. No threads, no host, no timers
 of its own. Both crates build for `wasm32-unknown-unknown`.
 
-## 8. Not in v1 (and where each is declared)
+## 8. Compiled arguments and remaining limits
+
+`resources.initial_args` (LLP 1038 D5) is a canonical `Value::List` of the
+arguments evaluated by bake, using the same value encoding as `initial`.
+Both references are empty when there is no compiled value. A compiled
+zero-argument resource has an encoded empty list, not empty bytes. Plan
+validation requires the encoded list's length to equal the argument count.
+`PlanBuilder::set_resource_initial_args` writes it;
+`Runner::resource_args(name)` exposes the settled arguments bake records.
+
+With a ready source at boot, only equal evaluated arguments admit the compiled
+value. A deferred source uses its compiled placeholder regardless of arguments,
+marks it stale, and is asked again at `data_ready`. A deep
+launch that changes a resource's query asks its source; unrelated resources
+retain their baked first frame. Delivery, viewport and store provenance keep
+their stricter existing rules. If a source answers later, a previous settled
+value may remain pending; compiled data is a fallback only for matching
+arguments. A fresh boot with a ready source, different arguments, a later answer, and no
+value to retain refuses, as any boot without an available first value does.
+
+Still outside v1:
 
 A Deps table and dirty-set sweep (the runner re-evaluates every site; 0485
 §8.3's incremental sweep is a measured optimization for later); per-instance
@@ -236,7 +334,8 @@ derives or resources inside `each` rows (per-instance *state* landed
 holds the value on its `Frame` — `RowSlots` — read through the frames like
 `LoadItem`, written on commit with the same rollback, never carried; a
 child's derive is a substituted expression, and a child's resource is
-refused); state-preserving reload (LLP 1004 D5); a request's cancellation on
+refused); carrying per-instance state across reload (root state carries under
+LLP 1007 §6); a request's cancellation on
 the wire (a forgotten ticket is dropped on arrival, LLP 1016 D5);
 cursors, cells, confidentiality, cost claims, speculation (LLP 1004 §3).
 

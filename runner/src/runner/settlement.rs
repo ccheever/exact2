@@ -71,8 +71,9 @@ impl<D: DataSource> Runner<D> {
     /// order, to a fixpoint: an expression that reads something not yet
     /// settled this pass is retried after it settles. Deterministic, and a
     /// cycle is a typed refusal. On boot a resource takes its compiled value
-    /// if it has one; afterwards it is re-requested only when its arguments
-    /// changed, so every derive that reads it sees the new value in the same
+    /// if its evaluated arguments equal the baked arguments (LLP 1038 D5);
+    /// afterwards it is re-requested only when its arguments changed, so
+    /// every derive that reads it sees the new value in the same
     /// pass.
     pub(super) fn settle(&mut self, boot: bool) -> Result<(), RunnerError> {
         // LLP 1016: what an action asked to re-request, the requests this
@@ -112,6 +113,7 @@ impl<D: DataSource> Runner<D> {
                     let result = {
                         let env = Env {
                             plan: &self.plan,
+                            router: self.router.as_ref(),
                             slots: &self.slots,
                             derives: &derives,
                             resources: &resources,
@@ -153,6 +155,7 @@ impl<D: DataSource> Runner<D> {
                         let result = {
                             let env = Env {
                                 plan: &self.plan,
+                                router: self.router.as_ref(),
                                 slots: &self.slots,
                                 derives: &derives,
                                 resources: &resources,
@@ -197,6 +200,7 @@ impl<D: DataSource> Runner<D> {
                         .filter(|s| {
                             s.args == args
                                 && self.plan.str(row.source) != crate::delivery::SOURCE
+                                && self.plan.str(row.source) != crate::viewport::SOURCE
                                 && !forced
                                 && (!self.store_readers[i]
                                     || s.store_revision == self.store.revision())
@@ -206,13 +210,21 @@ impl<D: DataSource> Runner<D> {
                         Some(v) => v,
                         None if boot
                             && self.plan.str(row.source) != crate::delivery::SOURCE
+                            && self.plan.str(row.source) != crate::viewport::SOURCE
                             && row.initial.len > 0
-                            && (!self.store_readers[i] || self.stale[i]) =>
+                            && (!self.data.ready()
+                                || (Value::from_bytes(self.plan.bytes(row.initial_args))
+                                    .map_err(RunnerError::Plan)?
+                                    == Value::list(args.clone())
+                                    && (!self.store_readers[i] || self.stale[i]))) =>
                         {
-                            // A store-reading resource whose source is not
-                            // ready at boot takes its compiled empty-store
-                            // placeholder (LLP 1027 D4) and is asked again at
-                            // `data_ready`.
+                            // Deferred sources cannot answer before first pixel.
+                            // Their compiled value is a placeholder even when a
+                            // deep launch changed its arguments (LLP 1038 D5,
+                            // LLP 1027 D4); data_ready asks the current arguments.
+                            if !self.data.ready() {
+                                self.stale[i] = true;
+                            }
                             Value::from_bytes(self.plan.bytes(row.initial))
                                 .map_err(RunnerError::Plan)?
                         }
@@ -246,12 +258,16 @@ impl<D: DataSource> Runner<D> {
                                     // its compiled boot value (LLP 1016 D3).
                                     let kept =
                                         states[i].as_ref().map(|s| s.value.clone()).or_else(|| {
-                                            (row.initial.len > 0)
-                                                .then(|| {
-                                                    Value::from_bytes(self.plan.bytes(row.initial))
-                                                        .ok()
-                                                })
-                                                .flatten()
+                                            (row.initial.len > 0
+                                                && Value::from_bytes(
+                                                    self.plan.bytes(row.initial_args),
+                                                )
+                                                .ok()
+                                                    == Some(Value::list(args.clone())))
+                                            .then(|| {
+                                                Value::from_bytes(self.plan.bytes(row.initial)).ok()
+                                            })
+                                            .flatten()
                                         });
                                     let Some(kept) = kept else {
                                         return Err(RunnerError::Data {

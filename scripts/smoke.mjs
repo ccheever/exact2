@@ -814,7 +814,9 @@ if (caltrainFixture) {
       await f.screenshot(shotPath, true);
       const image = decodePng(readFileSync(shotPath));
       const scale = image.width / l.viewport.w;
-      const top = image.height - Math.round(l.viewport.h * scale); // a window shot carries the title bar above the content
+      // iOS's screen also has a bottom safe area; use its reported viewport
+      // origin (LLP 1035.002 D4), not all pixels outside the viewport as a title bar.
+      const top = host === 'ios' ? Math.round(l.screen.y * scale) : image.height - Math.round(l.viewport.h * scale);
       const region = crop(image, Math.round(sky.x * scale), top + Math.round(sky.y * scale), Math.round(sky.w * scale), Math.round(sky.h * scale));
       const reference = resolve(ROOT, `scripts/fixtures/canvas-sky.${host}.png`);
       if (recordCanvas) { writeFileSync(reference, encodePng(region)); console.log(`recorded ${reference.replace(ROOT + '/', '')} (${region.width}×${region.height})`); }
@@ -1051,12 +1053,17 @@ if (deckFixture) {
     try {
       let l = await f.layout();
       const viewport0 = l.viewport, bottom0 = l.env['safe-area-inset-bottom'];
+      const fact0 = (await f.state()).resources.viewport;
+      check(fact0.width === l.viewport.w && fact0.height === l.viewport.h, `boot viewport fact ${JSON.stringify(fact0)} differs from layout ${JSON.stringify(l.viewport)}`);
       const bar0 = box(l, 'bar');
       check(bar0 && Math.abs(bar0.y + bar0.h - (l.viewport.h - bottom0)) < 0.01, `the bar sits on the bottom inset: ${JSON.stringify(bar0)} in ${JSON.stringify(l.viewport)}, inset ${bottom0}`);
       await f.type('note', 'hi');
       let kb = 0;
       for (let i = 0; i < 40; i++) { l = await f.layout(); kb = l.env['keyboard-inset-height']; if (host !== 'ios' || kb > 0) break; await sleep(50); }
       const bar = box(l, 'bar');
+      const fact = (await f.state()).resources.viewport;
+      check(fact.width === l.viewport.w && fact.height === l.viewport.h, `keyboard viewport fact ${JSON.stringify(fact)} differs from layout ${JSON.stringify(l.viewport)}`);
+      console.log(`${host} viewport fact: ${fact0.width}×${fact0.height} → ${fact.width}×${fact.height}; layout ${l.viewport.w}×${l.viewport.h}; keyboard ${kb}`);
       if (host === 'ios') {
         check(kb > 100, `the software keyboard rose: keyboard-inset-height ${kb}`);
         check(Math.abs(l.viewport.h - (viewport0.h - kb)) < 0.01 && box(l, 'root').h === l.viewport.h, `the layout viewport ends at the keyboard: ${JSON.stringify(l.viewport)} (was ${JSON.stringify(viewport0)}, keyboard ${kb}), root ${JSON.stringify(box(l, 'root'))}`);
@@ -1096,6 +1103,14 @@ if (existsSync(appTests)) {
   const t = await runTests({ host, file: appTests });
   for (const r of t.results) for (const f of r.failures) check(false, `test "${r.name}": ${f}`);
   console.log(`${host} tests: ${t.passed} passed, ${t.failed} failed (${app.name}/app.test.contract)`);
+}
+
+// The oracle sweep is explicit browser work, never an implicit Cargo pass.
+if (host === 'web' && !argv.includes('--app-only')) {
+  const sweep = spawnSync('cargo', ['test', '-p', 'exact-web', '--test', 'navigation', '--', '--ignored', '--nocapture'], {
+    cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_ROUTER_DIST: selectedWebDist },
+  });
+  check(sweep.status === 0, 'router browser sweep failed');
 }
 
 console.log(`${host} smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);

@@ -131,7 +131,7 @@ fn the_bridge_boots_from_bytes_in_its_input_buffer() {
     // Natively the test writes through the safe path the glue's write is
     // equivalent to: the buffer is the bridge's own Vec.
     let n = bridge.input_write(&plan);
-    let len = bridge.boot_plan(n, NoData);
+    let len = bridge.boot_plan(n, NoData, 390.0, 844.0, "/");
     let batch = String::from_utf8(bridge.output_bytes(len as usize).to_vec()).unwrap();
     assert!(batch.starts_with("{\"ops\":[{\"op\":\"create\""), "{batch}");
     assert!(batch.contains("\"text\":\"one\""), "{batch}");
@@ -159,7 +159,7 @@ fn text_of(host: &Host<NoData>, test_id: &str) -> String {
 #[test]
 fn a_reload_carries_state_by_name_where_the_type_still_fits() {
     let plan = contract::compile(COUNTER).unwrap().encode();
-    let (mut host, _) = Host::boot(&plan, NoData).unwrap();
+    let (mut host, _) = Host::boot(&plan, NoData, Default::default(), "/").unwrap();
     let inc = view_of(&host, "inc");
     for _ in 0..3 {
         host.dispatch(inc, exact_runner::Event::Press);
@@ -168,7 +168,8 @@ fn a_reload_carries_state_by_name_where_the_type_still_fits() {
     let carried = host.carry();
 
     // The same shape: the count survives.
-    let (host, batch) = Host::boot_with(&plan, NoData, Some(&carried)).unwrap();
+    let (host, batch) =
+        Host::boot_with(&plan, NoData, Some(&carried), Default::default(), "/").unwrap();
     assert_eq!(text_of(&host, "n"), "4");
     assert!(
         batch.contains("\"text\":\"4\""),
@@ -184,7 +185,8 @@ fn a_reload_carries_state_by_name_where_the_type_still_fits() {
     )
     .unwrap()
     .encode();
-    let (host, _) = Host::boot_with(&restrung, NoData, Some(&carried)).unwrap();
+    let (host, _) =
+        Host::boot_with(&restrung, NoData, Some(&carried), Default::default(), "/").unwrap();
     assert_eq!(text_of(&host, "n"), "x");
 
     // The slot was renamed: nothing carries to it.
@@ -197,7 +199,8 @@ fn a_reload_carries_state_by_name_where_the_type_still_fits() {
     )
     .unwrap()
     .encode();
-    let (host, _) = Host::boot_with(&renamed, NoData, Some(&carried)).unwrap();
+    let (host, _) =
+        Host::boot_with(&renamed, NoData, Some(&carried), Default::default(), "/").unwrap();
     assert_eq!(text_of(&host, "n"), "1");
 }
 
@@ -206,7 +209,7 @@ fn the_bridge_carries_state_across_boots_from_bytes() {
     let plan = contract::compile(COUNTER).unwrap().encode();
     let mut bridge: exact_web::abi::Bridge<NoData> = exact_web::abi::Bridge::new();
     let n = bridge.input_write(&plan);
-    let len = bridge.boot_plan(n, NoData);
+    let len = bridge.boot_plan(n, NoData, 390.0, 844.0, "/");
     let batch = String::from_utf8(bridge.output_bytes(len as usize).to_vec()).unwrap();
     // The button's view id, from its create op.
     let at = batch.find("\"data-testid\":\"inc\"").unwrap();
@@ -218,7 +221,7 @@ fn the_bridge_carries_state_across_boots_from_bytes() {
         bridge.dispatch(inc, 0, 0, 0.0);
     }
     let n = bridge.input_write(&plan);
-    let len = bridge.boot_plan(n, NoData);
+    let len = bridge.boot_plan(n, NoData, 390.0, 844.0, "/");
     let batch = String::from_utf8(bridge.output_bytes(len as usize).to_vec()).unwrap();
     assert!(
         batch.contains("\"text\":\"3\""),
@@ -269,7 +272,7 @@ fn a_refused_bridge_reload_keeps_the_running_host() {
     let plan = contract::compile(COUNTER).unwrap().encode();
     let mut bridge: exact_web::abi::Bridge<NoData> = exact_web::abi::Bridge::new();
     let n = bridge.input_write(&plan);
-    let len = bridge.boot_plan(n, NoData);
+    let len = bridge.boot_plan(n, NoData, 390.0, 844.0, "/");
     let inc: u32 = {
         let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize));
         let at = batch.find("\"data-testid\":\"inc\"").unwrap();
@@ -282,7 +285,7 @@ fn a_refused_bridge_reload_keeps_the_running_host() {
     bridge.dispatch(inc, 0, 0, 0.0);
     let bad = b"not an Exact plan";
     let n = bridge.input_write(bad);
-    let len = bridge.boot_plan(n, NoData);
+    let len = bridge.boot_plan(n, NoData, 390.0, 844.0, "/");
     let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
     assert!(refusal.contains("\"error\":\"boot:"), "{refusal}");
 

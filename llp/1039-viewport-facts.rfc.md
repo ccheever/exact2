@@ -1,7 +1,7 @@
 # LLP 1039: Viewport facts — the width an app may branch on
 
 **Type:** RFC
-**Status:** Accepted by Charlie, 2026-09-14 ("maybe Contract should be given access to viewport-width?" — "sounds good, do the thing"; the implementer and order ruled with LLP 1038 §10 Q5). Not started.
+**Status:** Accepted by Charlie, 2026-09-14 ("maybe Contract should be given access to viewport-width?" — "sounds good, do the thing"; the implementer and order ruled with LLP 1038 §10 Q5). Implemented; the initial iOS cover viewport and Chrome software-keyboard follow-ups in §7 remain.
 **Systems:** Runner (a second reserved source, `exactViewport`, answered by the runner; `set_viewport`; the viewport as a boot fact); Contract compiler (the bake's shape check, the TypeScript declaration and the receipt skip it as they skip `exactDelivery`; `aria-orientation`); Web host (`exact_boot` under a viewport, an `exact_resize` export, the `resize` listener); Apple and Linux hosts (their resize paths tell the runner); macOS presenter (the tablist projection leaves a vertical tablist alone); Agent API (nothing new — `layout` already reports the viewport)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Implementer:** Astra (`gpt-6-astra` through Codex), assigned by Charlie 2026-09-14, before LLP 1038's slice 1 in the same worktree; it stands alone and is about 200 lines
@@ -232,6 +232,28 @@ listener; `aria-orientation`; the `SegmentsMac` guard; the fixture and the
 reject; Interview's rail. It keeps the five checks and the 1,500-line cap.
 No question is open: the shape follows `exactDelivery`, which LLP 1030 D7
 already ruled.
+
+**Implemented — 2026-09-14 (Astra).** `68c8b86` lands the runner fact,
+boot and resize paths on all three hosts, bake refusal and executor skips,
+ARIA orientation and the two native projection guards, fixtures and the
+amendments below; `fd551c0` keeps the web test on its existing batch
+assertions. Interview's `rail` worktree lands the authored rail in
+`2880119`. Apple boot rollback tests (`8041f72`) keep their old-host checks and expect
+the runner's earlier `InvalidViewport` refusal. The two-size drives report
+420 × 900 and 1280 × 900 on web,
+macOS and Linux, with equal layout and resource dimensions; a live Mac
+420 → 1000 → 420 resize keeps the content's scroll at 100. The iOS keyboard
+reports 402 × 874 → 402 × 539 with a 335-point inset, then restores 874.
+Evidence and the final check results are under `/tmp/lane-router/1039/`
+(`report.md`, `*-420.json`, `*-1280.json`, `macos-scroll-resize.json`,
+`macos-vertical-native.json`, `ios-keyboard.json`, and the check logs).
+Desktop Chrome has no software keyboard; its shrinking-keyboard check is
+still owed on a device with one. Known on iOS: under `viewport-fit="cover"`
+the session boots at the safe-area frame, learns `cover` from the first batch,
+and resizes before first draw, so a resource reading `viewport.height` in its
+arguments may be asked twice at boot; having the host read the root's
+`viewportFit` from the plan before boot is the owed remedy, not yet implemented.
+This note does not change the Status.
 
 ## 8. What this amends, at acceptance
 

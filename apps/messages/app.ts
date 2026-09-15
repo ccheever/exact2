@@ -214,6 +214,7 @@ const sources: Sources = {
       last:selected[selected.length-1]?.id || '',withoutLast:selected.slice(0,-1).map(p=>p.id).join('|'),
       target:recipientTarget(resolved?selectedPeople(resolved):selected),canSend:(selected.length>0 || !!pending) && (!text || !!pending) && !!body.trim()};
   },
+  conversationDraft: ([id,_revision])=>({thread:id,...(drafts.get(id)||{draft:'',reply:''})}),
   conversation: ([id,_revision,replying,selection])=>conversation(id,replying,selection),
   markRead: ([id])=>{const p=people.find(p=>p.id===id);if(p)p.unread=false;revision++;return changed();},
   setConversationUnread: ([id,unread])=>{

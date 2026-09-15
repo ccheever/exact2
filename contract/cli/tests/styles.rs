@@ -25,7 +25,14 @@ fn corpus(name: &str) -> String {
 fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     let plan = contract::compile(&corpus("styles.contract")).unwrap();
     let plan = contract::bake(plan, NoData).unwrap();
-    let r = Runner::boot(plan, NoData, Kernel::with_monospace()).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let k = r.kernel();
     let style_of = |id: &str| {
         let key = k.find_by_test_id(id)[0];

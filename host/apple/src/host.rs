@@ -142,6 +142,7 @@ impl<D: DataSource> Host<D> {
             None,
             None,
             None,
+            "/",
             |_| {},
         )?;
         host.commit_boot();
@@ -164,6 +165,7 @@ impl<D: DataSource> Host<D> {
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
+        launch: &str,
         prepare: impl FnOnce(&Plan),
     ) -> Result<(Host<D>, String), HostError> {
         if let Some(json) = compat {
@@ -186,8 +188,20 @@ impl<D: DataSource> Host<D> {
             }
             facts
         });
-        let runner = Runner::boot_with_delivery(plan, data, kernel, carried, snapshot, facts)
-            .map_err(HostError::Runner)?;
+        let runner = Runner::boot_with_delivery(
+            plan,
+            data,
+            kernel,
+            carried,
+            snapshot,
+            facts,
+            exact_runner::Viewport {
+                width: width as f64,
+                height: height as f64,
+            },
+            launch,
+        )
+        .map_err(HostError::Runner)?;
         // The candidate catalog is installed before first text measurement.
         // Platform registration is deferred until the app accepts it.
         prepare(runner.plan());
@@ -216,6 +230,10 @@ impl<D: DataSource> Host<D> {
         batch.roots(&host.roots.clone());
         for s in host.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
+        }
+        // @ref LLP 1038 D7 — drain once, after all commits in this batch.
+        if let Some(change) = host.runner.take_router_change() {
+            batch.router(&change);
         }
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args);
@@ -491,7 +509,21 @@ impl<D: DataSource> Host<D> {
     /// The viewport changed: lay out again; the batch carries the frames
     /// that moved.
     pub fn resize(&mut self, width: f32, height: f32) -> String {
+        // @ref LLP 1039 D2 — merge re-answer and relayout, once.
+        let receipt = match self.runner.set_viewport(width as f64, height as f64) {
+            Ok(receipt) => receipt,
+            Err(e) => return self.finish(Batch::new(), Some(format!("viewport: {e:?}"))),
+        };
         self.viewport = (width, height);
+        if let Some(receipt) = receipt {
+            return self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            );
+        }
         let mut batch = Batch::new();
         let error = self.layout(&mut batch).err();
         self.finish(batch, error)
@@ -668,6 +700,10 @@ impl<D: DataSource> Host<D> {
             batch.surface(s.view, &s.name, &s.values);
         }
         // The capabilities the actions called, after their commits, in order.
+        // @ref LLP 1038 D7 — drain once, after all commits in this batch.
+        if let Some(change) = self.runner.take_router_change() {
+            batch.router(&change);
+        }
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args);
         }
@@ -806,6 +842,7 @@ impl<D: DataSource> Host<D> {
                 EventKind::Dblclick => "dblclick",
                 EventKind::Swiperight => "swiperight",
                 EventKind::Scroll => "scroll",
+                EventKind::Navigate => "navigate",
             })
             .collect();
         let pairs: Vec<(&str, String)> =

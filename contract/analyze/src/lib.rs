@@ -48,8 +48,24 @@ fn err<T>(id: &'static str, message: impl Into<String>, span: Span) -> Result<T,
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Analysis {}
 
+/// Check before merging `use` files so imported declarations cannot claim
+/// the app's root slot. @ref LLP 1038 D2/D3.
+pub fn check_routes_root(file: &File, root_file: bool) -> Result<(), AnalyzeError> {
+    if let Some(routes) = &file.routes {
+        if !root_file || file.components.is_empty() {
+            return err(
+                "analyze-routes-not-root",
+                "`routes` belongs to the app's root file",
+                routes.span,
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Check a file against its types.
 pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
+    check_routes_root(file, true)?;
     let Some(root) = file.components.first() else {
         return err(
             "analyze-no-component",
@@ -67,10 +83,16 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
     // A child may own `state`, `derive`, and `action` (LLP 1017 P4c); that it
     // owns no `resource`, `mutation`, or `task` is the type pass's refusal
     // (`type-child-resource`), made before its view is checked.
+    let expanded = contract_syntax::expand(file).map_err(|e| AnalyzeError {
+        id: e.id,
+        message: e.message,
+        span: e.span,
+    })?;
     for (ci, c) in file.components.iter().enumerate() {
         let ct = &types.components[ci];
-        let scope = types.component_scope(c, ct);
-        check_actions(c)?;
+        let scoped = if ci == 0 { &expanded.root } else { c };
+        let scope = types.component_scope(scoped, ct);
+        check_actions(scoped)?;
         check_tasks(c)?;
         check_view(&c.view, &scope, file)?;
     }
@@ -162,7 +184,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 13] = [
+pub const HANDLERS: [&str; 14] = [
     "press",
     "change",
     "hover",
@@ -176,6 +198,7 @@ pub const HANDLERS: [&str; 13] = [
     "dblclick",
     "swiperight",
     "scroll",
+    "navigate",
 ];
 
 /// What a handler's event carries as its action's last argument: `change`
@@ -183,7 +206,7 @@ pub const HANDLERS: [&str; 13] = [
 /// `message` the iframe guest's string; the others nothing.
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
-        "change" | "key" | "message" => Some("string"),
+        "change" | "key" | "message" | "navigate" => Some("string"),
         "hover" => Some("bool"),
         _ => None,
     }
@@ -300,7 +323,12 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
         } else {
             usize::from(handler_payload(attr).is_some())
         };
-        if given + payload != params.len() {
+        let valid = if attr == "navigate" {
+            given == 0 && params.len() <= 1
+        } else {
+            given + payload == params.len()
+        };
+        if !valid {
             return err(
                 "analyze-handler-arity",
                 format!(

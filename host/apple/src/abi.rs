@@ -72,6 +72,7 @@ pub struct Bridge<D: DataSource> {
     /// binary's cohort, its update store, and its executors.
     compat: Option<&'static str>,
     delivery: Option<&'static crate::delivery::Hooks>,
+    launch: Option<String>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -100,8 +101,24 @@ impl<D: DataSource> Bridge<D> {
             fonts_ctx: std::ptr::null_mut(),
             compat: None,
             delivery: None,
+            launch: None,
             input: Vec::new(),
             output: Vec::new(),
+        }
+    }
+
+    /// Canonical location from the input URL, in the output buffer. @ref LLP 1038 D8
+    pub fn location_of(&mut self, len: usize) -> u32 {
+        let href = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        self.emit(exact_route::location_of(&href))
+    }
+
+    /// A pre-boot location; a live session receives dispatch kind 14 instead.
+    pub fn set_launch_location(&mut self, len: usize) {
+        if self.host.is_none() {
+            self.launch = Some(
+                String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned(),
+            );
         }
     }
 
@@ -291,6 +308,7 @@ impl<D: DataSource> Bridge<D> {
             self.compat,
             self.delivery,
             None,
+            self.launch.as_deref().unwrap_or("/"),
             move |decoded| {
                 if let Some(callback) = fonts {
                     install_fonts(decoded, callback, fonts_ctx);
@@ -520,6 +538,7 @@ impl<D: DataSource> Bridge<D> {
             self.compat,
             self.delivery,
             delivery,
+            self.launch.as_deref().unwrap_or("/"),
             move |decoded| {
                 if let Some(callback) = fonts {
                     install_fonts(decoded, callback, fonts_ctx);
@@ -604,6 +623,7 @@ impl<D: DataSource> Bridge<D> {
     /// 2 = hover in, 3 = hover out, 4 = focus, 5 = blur, 6 = key, 7 = submit,
     /// 8 = load, 9 = message (the payload — a change's text, a key's name,
     /// or a guest message — is the input buffer's first `len` bytes, UTF-8).
+    /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
     pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -627,6 +647,8 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
+            // @ref LLP 1038 D8 — the next ABI kind after scroll.
+            14 => Event::Navigate(payload),
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
@@ -981,6 +1003,18 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_baked_compat(rt: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.baked_compat($compat), |n| n)
+        }
+
+        /// Derive the location of the input URL; UTF-8 output, no boot required.
+        #[no_mangle]
+        pub extern "C" fn exact_location_of(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.location_of(len), |n| n)
+        }
+
+        /// Supply the launch location before the first boot. @ref LLP 1038 D5/D8
+        #[no_mangle]
+        pub extern "C" fn exact_set_launch_location(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_launch_location(len); 0 }, |n| n)
         }
 
         /// Boot the selected plan — the update store's entry when one is

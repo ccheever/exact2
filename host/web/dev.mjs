@@ -34,7 +34,8 @@ import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/ru
 import { rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { phones, simulators } from '../apple/build.mjs';
-import { applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
+import { webRequestURL } from '../../scripts/origin.mjs';
+import { applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -763,7 +764,8 @@ function rebuild() {
 }
 
 const server = createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://x');
+  const url = webRequestURL(req.url);
+  if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
   const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted';
   const localInstall = url.pathname === LOCAL_IOS_INSTALL_ENDPOINT;
   if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (devBeacon || localInstall))) { res.writeHead(405); res.end(); return; }
@@ -850,8 +852,10 @@ const server = createServer(async (req, res) => {
   // Served at /exact.json, and — Stage 2's negotiation — for a GET of the
   // app URL itself whose Accept names the envelope type: the dev-server
   // shortcut past the link rung (D1); a browser never sends it.
+  // @ref LLP 1038 D7 — resolve files and extensionless locations before negotiation.
+  const { found, index } = await readWebRequest(dist, url.pathname);
   const wantsEnvelope = url.pathname === '/exact.json'
-    || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'));
+    || (index && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'));
   if (wantsEnvelope) {
     try {
       if (!current) throw new Error('no current generation');
@@ -863,15 +867,14 @@ const server = createServer(async (req, res) => {
   const file = url.pathname === '/' ? '/index.html' : url.pathname;
   if (file === '/dev.js') { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(resolve(root, 'host/web/dev.js'))); return; }
   try {
-    const found = await readStaticFileAsync(dist, file);
     if (!found) { res.writeHead(404); res.end(); return; }
     let body = found.body;
-    if (file === '/index.html') body = body.toString().replace('<script type="module" src="./glue.js"></script>', '<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>');
+    if (index) body = body.toString().replace('<script type="module" src="./glue.js"></script>', '<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>');
     if (INSTALL_FILES.includes(found.route)) body = process.platform === 'darwin'
       ? developmentInstallPage(body.toString(), localInstallToken)
       : body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', 'Development server');
     if (INSTALL_FILES.includes(found.route)) body = installNetworkPage(body.toString(), {host,port});
-    res.writeHead(200, { 'content-type': webContentType(found.route), ...(file === '/index.html' ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
+    res.writeHead(200, { 'content-type': webContentType(found.route), ...(index ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : body);
   } catch { try { res.writeHead(404); res.end(); } catch { /* mid-write */ } }
 });

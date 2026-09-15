@@ -64,6 +64,7 @@ final class Presenter {
     private var visibleText: [UInt32: NSRect] = [:]
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
+    lazy var navigation = NavigationHost(presenter: self)
     lazy var segments = SegmentHost(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
@@ -128,6 +129,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        navigation.reset()
         segments.reset()
         session?.canvases.reset()
         views.values.forEach { $0.forget() }
@@ -164,7 +166,7 @@ final class Presenter {
               target.bounds.width > 0, target.bounds.height > 0 else { return }
         var ancestor: NSView? = target
         while let view = ancestor {
-            if view.isHidden || (view as? NodeView)?.props["inert"] == "true" { return }
+            if view.isHidden || (view as? NodeView)?.inert == true { return }
             ancestor = view.superview
         }
         if selectText, target.textArea == nil, target.field == nil { return }
@@ -197,6 +199,7 @@ final class Presenter {
     weak var hovered: NodeView?
 
     func press(_ id: UInt32) {
+        guard let node = views[id], !node.inert else { return }
         onPress?(id)
         // An invoker's press also drops its menu (LLP 1021 D3).
         menus.pressed(id)
@@ -324,6 +327,7 @@ final class Presenter {
             default: break
             }
         }
+        navigation.sync()
         fitDocument()
         // The page's canvas colour is the first root's background — what
         // shows beyond a document shorter than the viewport, as a browser
@@ -375,7 +379,7 @@ final class Presenter {
     func syncKeyViewLoop() {
         var listed: [NodeView] = []
         func walk(_ v: NodeView) {
-            if v.props["inert"] == "true" || v.isHidden { return }
+            if v.inert || v.isHidden { return }
             if Self.tabbable(v) { listed.append(v) }
             for child in v.container.subviews.compactMap({ $0 as? NodeView }) { walk(child) }
         }
