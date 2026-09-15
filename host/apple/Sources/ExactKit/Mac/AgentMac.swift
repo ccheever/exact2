@@ -110,6 +110,9 @@ extension Agent {
         for (id, v) in presenter.views.sorted(by: { $0.key < $1.key }) where v.window != nil {
             let r = box(v)
             var n: [String: Any] = ["id": Int(id), "x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)]
+            if let toolbar = presenter.toolbar.observation(v) {
+                n = ["id": Int(id), "native": toolbar]
+            }
             if let sv = v.scroll {
                 let o = sv.contentView.bounds.origin
                 n["sx"] = Agent.r2(o.x)
@@ -201,6 +204,15 @@ extension Agent {
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.currentEditor() != nil }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
+        if let toolbar = presenter.toolbar.observation(host) {
+            native["windowToolbar"] = toolbar
+            // The kernel frame is authored fallback geometry, not the native
+            // titlebar item's bounds. AppKit exposes no public item frame.
+            node["space"] = ["placement": "window-toolbar", "geometry": "system-owned"]
+            node["scroll"] = [] as [Int]; node["clip"] = [] as [Int]
+            node["visible"] = ["hidden": !presenter.toolbar.visible(host), "inert": host.inert,
+                               "inViewport": false, "clipped": false]
+        }
         if let leaf = host.symbolView {
             let size = leaf.image?.size ?? .zero
             native["symbol"] = ["renderer": String(describing: Swift.type(of: leaf)), "name": host.props["symbolName"] ?? "", "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
@@ -242,6 +254,7 @@ extension Agent {
         case "down":
             guard contact == nil else { return ["error": "a contact is already down; up it first"] }
             guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+            if presenter.toolbar.suppresses(v) { return ["error": "native toolbar geometry is system-owned; use tap host activation"] }
             let b = box(v)
             let p = CGPoint(x: req["x"] as? Double ?? b.midX, y: req["y"] as? Double ?? b.midY)
             send(.leftMouseDown, p)
@@ -282,12 +295,21 @@ extension Agent {
         if let phase = req["phase"] as? String { return contact(phase, req) }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let activated = presenter.toolbar.activate(node) {
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "NSToolbarItem"]
+                : ["error": "native toolbar item #\(id) is unavailable"]
+        }
+        if let node = view(req), presenter.toolbar.suppresses(node) {
+            return ["error": "native toolbar geometry is system-owned; only button host activation is supported"]
+        }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let activated = presenter.segments.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
                 : ["error": "native segment #\(id) is unavailable"]
         }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
-        guard !v.isHiddenOrHasHiddenAncestor, !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
+        guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         let b = box(v)
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window.
@@ -364,7 +386,7 @@ extension Agent {
     /// the text inserted — the delegate hears one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
-        guard !v.isHiddenOrHasHiddenAncestor, !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
+        guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
@@ -389,7 +411,9 @@ extension Agent {
             // First responder only if it is not held already: re-making an
             // editing field first responder ends its editing (a blur the
             // app would see) and begins it again with no focus.
-            if let f = v.textArea {
+            if presenter.toolbar.contains(v) {
+                if let view = session.view { win.makeFirstResponder(view) }
+            } else if let f = v.textArea {
                 if win.firstResponder !== f { win.makeFirstResponder(f) }
             } else if let f = v.field {
                 let editing = f.currentEditor().map { win.firstResponder === $0 } ?? false

@@ -67,6 +67,7 @@ final class Presenter {
     lazy var navigation = NavigationHost(presenter: self)
     lazy var segments = SegmentHost(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
+    lazy var toolbar = WindowToolbarHost(self)
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
     /// last batch; `onViewportFit` fires when it changes. macOS maps `cover`
     /// to a full-size-content window (the titlebar overlays the viewport;
@@ -129,6 +130,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        toolbar.reset()
         navigation.reset()
         segments.reset()
         session?.canvases.reset()
@@ -240,6 +242,7 @@ final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
+        toolbar.prepare()
         for node in views.values { node.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         let outermost = !applying
@@ -342,6 +345,7 @@ final class Presenter {
         segments.sync()
         menus.sync()
         positionContexts()
+        toolbar.sync()
         shortcuts.sync()
         if structureChanged { selection.structureChanged() }
         refreshVisibleText()

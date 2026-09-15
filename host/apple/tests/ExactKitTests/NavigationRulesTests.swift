@@ -257,4 +257,156 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(presses, 0)
     }
 }
+final class MacToolbarTests: XCTestCase {
+    private func fixture() -> (Presenter, NSWindow, NodeView, NodeView, NodeView) {
+        _ = NSApplication.shared
+        let p = Presenter()
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+                         styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false; w.title = "Original"; w.contentView = p.root
+        let bar = NodeView(id: 1, kind: "view", presenter: p)
+        bar.props = ["accessibilityRole": "toolbar", "toolbarPlacement": "window"]
+        let heading = NodeView(id: 2, kind: "text", presenter: p)
+        heading.props = ["text": "Home", "accessibilityRole": "heading"]
+        let action = NodeView(id: 3, kind: "button", presenter: p)
+        action.props = ["accessibilityLabel": "Compose", "accessibilityKeyShortcuts": "Meta+n"]
+        action.handlers = ["press"]
+        p.root.addSubview(bar); bar.addSubview(heading); bar.addSubview(action)
+        for n in [bar, heading, action] { p.views[n.id] = n }
+        return (p, w, bar, heading, action)
+    }
+
+    func testRequiresBothExplicitDeclarationAndWindowOwnerAttachment() {
+        let (p, w, bar, _, _) = fixture()
+        defer { p.toolbar.detach(); w.close() }
+        p.toolbar.sync()
+        XCTAssertNil(w.toolbar); XCTAssertFalse(bar.isHidden)
+        bar.props.removeValue(forKey: "toolbarPlacement")
+        XCTAssertTrue(p.toolbar.attach(to: w))
+        XCTAssertNil(w.toolbar); XCTAssertFalse(bar.isHidden)
+        bar.props["toolbarPlacement"] = "window"
+        p.toolbar.sync()
+        XCTAssertTrue(w.toolbar === p.toolbar.toolbar); XCTAssertTrue(bar.isHidden)
+        XCTAssertTrue(bar.isAccessibilityHidden())
+        p.toolbar.detach()
+        XCTAssertFalse(bar.isHidden); XCTAssertFalse(bar.isAccessibilityHidden())
+    }
+
+    func testStableNativeObjectsAndOneActionForToolbarAndShortcut() {
+        let (p, w, _, heading, action) = fixture()
+        defer { p.toolbar.detach(); w.close() }
+        let icon = NodeView(id: 5, kind: "image", presenter: p)
+        icon.props["symbolName"] = "square.and.pencil"
+        action.addSubview(icon); p.views[icon.id] = icon
+        XCTAssertTrue(p.toolbar.attach(to: w))
+        let toolbar = w.toolbar, item = p.toolbar.items[action.id]
+        let image = item?.image
+        XCTAssertEqual(w.title, "Home"); XCTAssertNotNil(item); XCTAssertNil(item?.view)
+        var presses: [UInt32] = []; p.onPress = { presses.append($0) }
+        XCTAssertEqual(p.toolbar.activate(action), true)
+        let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+                                  timestamp: 0, windowNumber: w.windowNumber, context: nil,
+                                  characters: "n", charactersIgnoringModifiers: "n", isARepeat: false, keyCode: 45)!
+        XCTAssertTrue(p.shortcuts.perform(key))
+        XCTAssertEqual(presses, [action.id, action.id])
+        p.touched(heading.id, textChanged: true)
+        heading.applyProps(set: ["text": "Profile"], clear: [])
+        action.props["accessibilityLabel"] = "New Prompt"
+        p.toolbar.sync()
+        XCTAssertTrue(w.toolbar === toolbar); XCTAssertTrue(p.toolbar.items[action.id] === item)
+        XCTAssertTrue(item?.image === image)
+        XCTAssertEqual(w.title, "Profile"); XCTAssertEqual(item?.label, "New Prompt")
+        XCTAssertEqual(p.toolbar.observation(action)?["geometry"] as? String, "system-owned")
+    }
+
+    func testDisabledInertHiddenRemovedAndStaleItemsCannotActivate() {
+        let (p, w, bar, _, action) = fixture()
+        defer { p.toolbar.detach(); w.close() }
+        p.toolbar.attach(to: w)
+        let stale = p.toolbar.items[action.id]!
+        var presses = 0; p.onPress = { _ in presses += 1 }
+        action.props["disabled"] = "true"; p.toolbar.sync()
+        XCTAssertFalse(stale.isEnabled); XCTAssertEqual(p.toolbar.activate(action), false)
+        action.props["disabled"] = "false"; bar.props["inert"] = "true"; p.toolbar.sync()
+        XCTAssertFalse(p.toolbar.validateToolbarItem(stale)); XCTAssertEqual(p.toolbar.activate(action), false)
+        bar.props["inert"] = "false"; action.isHidden = true; p.toolbar.sync()
+        XCTAssertNil(w.toolbar); XCTAssertFalse(bar.isHidden)
+        XCTAssertFalse(p.toolbar.validateToolbarItem(stale))
+        action.isHidden = false; p.toolbar.sync()
+        p.toolbar.reset()
+        XCTAssertNil(w.toolbar); XCTAssertEqual(w.title, "Original")
+        XCTAssertFalse(p.toolbar.validateToolbarItem(stale)); XCTAssertEqual(presses, 0)
+    }
+
+    func testCannotReplaceExistingOrSubsequentlyInstalledHostToolbar() {
+        let (p, w, bar, _, _) = fixture()
+        defer { p.toolbar.detach(); w.close() }
+        let host = NSToolbar(identifier: "host")
+        w.toolbar = host
+        XCTAssertFalse(p.toolbar.attach(to: w)); XCTAssertFalse(bar.isHidden)
+        XCTAssertTrue(w.toolbar === host)
+        w.toolbar = nil
+        XCTAssertTrue(p.toolbar.attach(to: w))
+        w.toolbar = host
+        p.toolbar.sync(); p.toolbar.detach()
+        XCTAssertTrue(w.toolbar === host); XCTAssertFalse(bar.isHidden)
+    }
+
+    func testAmbiguousDeclarationsAndUnmountRestoreAuthoredRendering() {
+        let (p, w, bar, _, _) = fixture()
+        defer { p.toolbar.detach(); w.close() }
+        p.toolbar.attach(to: w)
+        let other = NodeView(id: 4, kind: "view", presenter: p)
+        other.props = bar.props; p.views[other.id] = other; p.root.addSubview(other)
+        p.toolbar.sync()
+        XCTAssertNil(w.toolbar); XCTAssertFalse(bar.isHidden)
+        other.removeFromSuperview(); p.views.removeValue(forKey: other.id)
+        p.toolbar.sync(); XCTAssertNotNil(w.toolbar)
+        p.root.removeFromSuperview(); p.toolbar.sync()
+        XCTAssertNil(w.toolbar); XCTAssertFalse(bar.isHidden)
+    }
+
+    func testEveryToolbarActionHasAMenuItemEvenWithoutShortcut() {
+        let (p, w, _, _, action) = fixture()
+        defer { p.toolbar.detach(); w.close() }
+        action.props.removeValue(forKey: "accessibilityKeyShortcuts")
+        p.toolbar.attach(to: w)
+        let menu = NSMenu(title: "File")
+        p.shortcuts.attach(menu)
+        XCTAssertEqual(menu.items.first?.title, "Compose")
+        XCTAssertEqual(menu.items.first?.keyEquivalent, "")
+        let item = menu.items.first
+        p.toolbar.sync(); p.shortcuts.sync()
+        XCTAssertTrue(menu.items.first === item)
+    }
+
+    func testCSSDisplayNoneAndProjectedDescendants() {
+        let (p, w, bar, _, action) = fixture()
+        defer { p.toolbar.detach(); w.close() }
+        let icon = NodeView(id: 5, kind: "image", presenter: p)
+        action.addSubview(icon); p.views[icon.id] = icon
+        p.toolbar.attach(to: w)
+        XCTAssertTrue(p.toolbar.suppresses(action)); XCTAssertTrue(p.toolbar.suppresses(icon))
+        action.applyStyle(["display": "none"]); p.toolbar.sync()
+        XCTAssertNil(w.toolbar); XCTAssertFalse(p.toolbar.visible(action))
+        action.applyStyle([:]); p.toolbar.sync(); XCTAssertNotNil(w.toolbar)
+        bar.applyStyle(["display": "none"]); p.toolbar.sync()
+        XCTAssertNil(w.toolbar); XCTAssertFalse(p.toolbar.visible(action))
+        bar.applyStyle([:]); p.toolbar.sync(); XCTAssertNotNil(w.toolbar)
+        p.toolbar.detach()
+        XCTAssertFalse(p.toolbar.suppresses(icon)); XCTAssertFalse(bar.isAccessibilityHidden())
+    }
+
+    func testNativeSheetBlocksToolbarActivation() {
+        let (p, w, _, _, action) = fixture()
+        defer { p.toolbar.detach(); w.close() }
+        p.toolbar.attach(to: w)
+        let sheet = NSWindow(contentRect: .zero, styleMask: .titled, backing: .buffered, defer: false)
+        sheet.isReleasedWhenClosed = false
+        w.beginSheet(sheet)
+        defer { w.endSheet(sheet); sheet.close() }
+        XCTAssertEqual(p.toolbar.activate(action), false)
+        XCTAssertFalse(p.toolbar.validateToolbarItem(p.toolbar.items[action.id]!))
+    }
+}
 #endif

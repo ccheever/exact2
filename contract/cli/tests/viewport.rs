@@ -3,6 +3,27 @@ use exact_kernel::{Kernel, PropId};
 use exact_runner::{agent, DataError, DataSource, Runner, RunnerError, Value, Viewport};
 
 struct NoData;
+
+#[test]
+fn window_toolbar_intention_survives_compile_bake_and_boot() {
+    let plan = contract::compile(
+        "component App\n  view\n    row role=\"toolbar\" toolbarPlacement=\"window\" testId=\"commands\"\n      text \"Home\" role=\"heading\" aria-level=1\n",
+    )
+    .unwrap();
+    let runner = Runner::boot(
+        contract::bake(plan, NoData).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let key = runner.kernel().find_by_test_id("commands")[0];
+    let props = &runner.kernel().node_by_key(key).unwrap().props;
+    assert_eq!(props.str(PropId::ToolbarPlacement), Some("window"));
+    assert_eq!(props.str(PropId::AccessibilityRole), Some("toolbar"));
+}
+
 impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
         panic!("host fact reached data: {source}")

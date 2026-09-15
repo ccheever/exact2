@@ -867,7 +867,7 @@ export function render(op, r) {
       // stretched rubber band, which the offset alone cannot distinguish
       // from an ordinary scroll position. Printed only when there is one.
       const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
-      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`));
+      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
       if (r.node) lines.push(...renderNode(r.node));
       return lines.join('\n');
     }

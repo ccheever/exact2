@@ -181,16 +181,17 @@ func coverChrome() {
     let cover = view.viewportFit == "cover"
     if cover {
         if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = !view.hasWindowToolbar
+        window.titleVisibility = view.hasWindowToolbar ? .visible : .hidden
         window.backgroundColor = session.pageBackground
-        if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = .none }
+        if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = view.hasWindowToolbar ? .automatic : .none }
     } else {
         if window.styleMask.contains(.fullSizeContentView) { window.styleMask.remove(.fullSizeContentView) }
         window.titlebarAppearsTransparent = false
         window.titleVisibility = .visible
         if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = .automatic }
     }
+    if view.hasWindowToolbar { window.toolbarStyle = .unifiedCompact }
     view.syncInsets()
 }
 view.onViewportFit = { coverChrome() }
@@ -212,6 +213,7 @@ nonisolated(unsafe) var readySent = false
 // @ref LLP 1038 D5/D8
 func finishLaunching() {
     window.contentView = view
+    view.attachWindowToolbar(to: window)
     ExactEnv.stamp("contentView")
     ExactEnv.stamp("before boot")
     let tBoot = CACurrentMediaTime()

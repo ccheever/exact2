@@ -25,6 +25,22 @@ public final class ExactView: NSView {
     /// computed here.
     public var onViewportFit: (() -> Void)?
 
+    /// The window owner opts in; embedded Exact views never claim chrome by
+    /// mounting. Returns false rather than replacing an existing toolbar.
+    @discardableResult public func attachWindowToolbar(to window: NSWindow) -> Bool {
+        guard self.window === window else { return false }
+        session.presenter.toolbar.onChange = { [weak self] in
+            self?.onViewportFit?()
+            self?.syncInsets()
+        }
+        return session.presenter.toolbar.attach(to: window)
+    }
+    public func detachWindowToolbar() { session.presenter.toolbar.detach() }
+    public var hasWindowToolbar: Bool {
+        guard let toolbar = session.presenter.toolbar.toolbar else { return false }
+        return window?.toolbar === toolbar
+    }
+
     public init(session: ExactSession) {
         self.session = session
         super.init(frame: .zero)
@@ -50,7 +66,10 @@ public final class ExactView: NSView {
         return super.performKeyEquivalent(with: event)
     }
 
-    deinit { if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor) } }
+    deinit {
+        if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor) }
+        session.presenter.toolbar.detach()
+    }
 
     required init?(coder: NSCoder) { nil }
 
@@ -90,6 +109,8 @@ public final class ExactView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if session.presenter.toolbar.window !== window { session.presenter.toolbar.detach() }
+        else { session.presenter.toolbar.sync() }
         if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor); self.shortcutMonitor = nil }
         if window != nil {
             // Text editors can consume control chords before the responder chain.

@@ -529,6 +529,38 @@ is not implemented. Linux currently leaves materials transparent. This explicit
 host policy does not alter the existing CSS `backdrop-blur` style row or claim
 pixel parity between a UIKit material and a CSS filter.
 
+### Window toolbars
+
+Charlie requested native window-toolbar presentation for Interview on 2026-09-15;
+implementer: Codex, same date. `toolbarPlacement="window"` (string prop 74) on
+`role="toolbar"` explicitly requests window chrome. A toolbar role alone does
+not. AppKit projects one visible declaration with direct pressable buttons and
+at most one direct `role="heading"` text child. The heading supplies the window
+title and a flexible spacer at its position among the buttons. Button accessible
+names, images, visible text, disabled/inert state and existing press actions supply
+standard `NSToolbarItem`s; AppKit owns their sizing, overflow and appearance.
+All toolbar actions also appear in the native menu, even without a shortcut.
+Customization is not enabled in this first slice.
+
+The containing app must call `ExactView.attachWindowToolbar(to:)`; mounting an
+embedded view never claims the containing window. An existing foreign toolbar is
+not replaced. Detach, unmount and session reset release only Exact's toolbar;
+route updates retain the toolbar and item identities. Unsupported or ambiguous
+declarations retain their authored rendering. Web, iOS and Linux retain authored
+layout. No CSS row changes meaning and no general NativeView loader is introduced.
+The standalone Mac adapter opts in and uses unified compact window chrome.
+With `viewport-fit=cover`, the actual window safe area includes the toolbar;
+the app pads content with `env(safe-area-inset-top)`, not a fixed toolbar height.
+Window-chrome declarations should be outside content flow; applications targeting
+an embedder without attachment must provide an appropriate content layout.
+
+The agent's existing `tap` reports `host-activation` through the native target/action;
+`layout` identifies `NSToolbar`/`NSToolbarItem`, enabled state and overflow. Standard
+items have no public frame API: native `space` is explicitly system-owned, while
+the kernel `frame` remains authored fallback geometry. Held pointer injection at
+that logical item is refused, not delivered to the fallback box. Window screenshots
+capture the actual chrome. This is not a physical-click or manual VoiceOver claim.
+
 ### Touch panning directions
 
 `touch-action` (style bit 86, initial `auto`) admits the keyword combinations

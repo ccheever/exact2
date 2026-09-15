@@ -53,8 +53,8 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     private func nodes() -> [NodeView] {
         guard let presenter else { return [] }
         return presenter.views.values.filter {
-            $0.kind == "button" && $0.handlers.contains("press") && !$0.isHiddenOrHasHiddenAncestor
-                && $0.window != nil && $0.props["accessibilityKeyShortcuts"] != nil
+            $0.kind == "button" && $0.handlers.contains("press") && presenter.toolbar.visible($0)
+                && ($0.props["accessibilityKeyShortcuts"] != nil || presenter.toolbar.contains($0))
         }.sorted { $0.id < $1.id }
     }
     func perform(_ event: NSEvent) -> Bool {
@@ -74,23 +74,24 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         var live: Set<UInt32> = []
         for view in nodes() {
             // A platform alternative does not create a second menu item.
-            guard let shortcut = declarations(view).first(where: { $0.modifiers.contains(.command) }) else { continue }
+            let shortcut = declarations(view).first(where: { $0.modifiers.contains(.command) })
+            guard shortcut != nil || presenter?.toolbar.contains(view) == true else { continue }
             live.insert(view.id)
             let item = items[view.id] ?? NSMenuItem(title: "", action: #selector(activate(_:)), keyEquivalent: "")
             items[view.id] = item
             item.title = title(view)
-            item.keyEquivalent = shortcut.key
-            item.keyEquivalentModifierMask = shortcut.modifiers
+            item.keyEquivalent = shortcut?.key ?? ""
+            item.keyEquivalentModifierMask = shortcut?.modifiers ?? []
             item.target = self
             item.representedObject = NSNumber(value: view.id)
             item.isEnabled = !view.disabled && !view.inert && view.window?.attachedSheet == nil
             item.state = view.props["accessibilitySelected"] == "true" ? .on : .off
             // Placement follows declared semantics and standard chords, never
             // app names, test ids, or a second registry of commands.
-            if shortcut.key == ",", shortcut.modifiers == .command, applicationMenu != nil {
+            if shortcut?.key == ",", shortcut?.modifiers == .command, applicationMenu != nil {
                 item.title = "Settings…"
                 application.append(item)
-            } else if navigationMenu != nil, isNavigation(view, shortcut: shortcut) {
+            } else if navigationMenu != nil, let shortcut, isNavigation(view, shortcut: shortcut) {
                 navigation.append(item)
             } else {
                 file.append(item)
