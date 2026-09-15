@@ -6,6 +6,7 @@
 //
 // @ref LLP 1035.001 D1–D5, D8; `rules/RULES.md` §Loop shape
 #if os(macOS)
+import AppKit
 import XCTest
 @testable import ExactKit
 
@@ -132,6 +133,128 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(NavigationRules.focusRefusal(mounted: true, disabled: false, zeroSize: false, hiddenAncestor: false, inertAncestor: false))
         XCTAssertEqual(NavigationRules.focusRefusal(mounted: false, disabled: true, zeroSize: true, hiddenAncestor: true, inertAncestor: true), "not mounted")
         XCTAssertEqual(NavigationRules.focusRefusal(mounted: true, disabled: false, zeroSize: false, hiddenAncestor: false, inertAncestor: true), "inert ancestor")
+    }
+}
+
+final class MacShortcutTests: XCTestCase {
+    private func window(_ presenter: Presenter) -> NSWindow {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.root
+        return window
+    }
+
+    private func button(_ id: UInt32, _ title: String, _ shortcut: String, in presenter: Presenter, parent: NSView? = nil) -> NodeView {
+        let node = NodeView(id: id, kind: "button", presenter: presenter)
+        node.props = ["accessibilityLabel": title, "accessibilityKeyShortcuts": shortcut]
+        node.handlers = ["press"]
+        presenter.views[id] = node
+        (parent ?? presenter.root).addSubview(node)
+        return node
+    }
+
+    private func event(_ key: String, window: NSWindow, repeat repeating: Bool = false) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+                         timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                         characters: key, charactersIgnoringModifiers: key, isARepeat: repeating, keyCode: 0)!
+    }
+
+    func testMenuSyncPreservesStaticCommandsAndUsesNativePlacement() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        let previousServices = NSApp.servicesMenu
+        let previousWindows = NSApp.windowsMenu
+        defer { NSApp.servicesMenu = previousServices; NSApp.windowsMenu = previousWindows }
+        let compose = button(1, "New Post", "Meta+n Control+n", in: presenter)
+        _ = button(2, "Preferences", "Meta+,", in: presenter)
+        _ = button(6, "Back", "Meta+[", in: presenter)
+        let tabs = NodeView(id: 4, kind: "column", presenter: presenter)
+        tabs.props["accessibilityRole"] = "tablist"
+        presenter.root.addSubview(tabs)
+        let home = button(5, "Home", "Meta+1", in: presenter, parent: tabs)
+        home.props["accessibilityRole"] = "tab"
+        home.props["accessibilitySelected"] = "true"
+        let bar = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: true)
+        let app = bar.items[0].submenu!
+        let file = bar.items.first { $0.submenu?.title == "File" }!.submenu!
+        let go = bar.items.first { $0.submenu?.title == "Go" }!.submenu!
+        let open = file.items.first { $0.keyEquivalent == "o" }!
+        let close = file.items.first { $0.keyEquivalent == "w" }!
+        let new = file.items.first { $0.keyEquivalent == "n" }!
+        XCTAssertEqual(app.items[2].title, "Settings…")
+        XCTAssertEqual(app.items[2].keyEquivalent, ",")
+        XCTAssertEqual(go.items.map(\.title), ["Back", "Home"])
+        XCTAssertEqual(go.items[1].state, .on)
+        XCTAssertFalse(file.items.contains { $0.keyEquivalent == "," || $0.keyEquivalent == "[" })
+        XCTAssertNotNil(app.items.first { $0.action == #selector(NSApplication.hideOtherApplications(_:)) })
+        XCTAssertNotNil(bar.items.first { $0.submenu?.title == "Window" })
+        for _ in 0..<3 { presenter.shortcuts.sync() }
+        XCTAssertTrue(file.items.first { $0.keyEquivalent == "o" } === open)
+        XCTAssertTrue(file.items.first { $0.keyEquivalent == "w" } === close)
+        XCTAssertTrue(file.items.first { $0.keyEquivalent == "n" } === new)
+        XCTAssertEqual(file.items.filter { $0.keyEquivalent == "n" }.count, 1)
+        compose.props["disabled"] = "true"
+        home.props["inert"] = "true"
+        presenter.shortcuts.sync()
+        XCTAssertFalse(new.isEnabled)
+        XCTAssertFalse(go.items[1].isEnabled)
+        compose.removeFromSuperview()
+        presenter.views.removeValue(forKey: compose.id)
+        presenter.shortcuts.sync()
+        XCTAssertFalse(file.items.contains { $0 === new })
+        XCTAssertTrue(file.items.first === open)
+    }
+
+    func testShortcutsRespectDisabledInertHiddenRepeatedAndWindowOwnership() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        let owner = NodeView(id: 1, kind: "column", presenter: presenter)
+        presenter.root.addSubview(owner)
+        let node = button(2, "New Post", "Meta+n", in: presenter, parent: owner)
+        var presses: [UInt32] = []
+        presenter.onPress = { presses.append($0) }
+        let key = event("n", window: window)
+        XCTAssertTrue(presenter.shortcuts.perform(key))
+        XCTAssertEqual(presses, [2])
+        node.props["disabled"] = "true"
+        XCTAssertTrue(presenter.shortcuts.perform(key))
+        node.props["disabled"] = nil
+        XCTAssertTrue(presenter.shortcuts.perform(event("n", window: window, repeat: true)))
+        owner.props["inert"] = "true"
+        XCTAssertFalse(presenter.shortcuts.perform(key))
+        owner.props["inert"] = nil
+        owner.routeInert = true
+        XCTAssertFalse(presenter.shortcuts.perform(key))
+        owner.routeInert = false
+        owner.isHidden = true
+        XCTAssertFalse(presenter.shortcuts.perform(key))
+        owner.isHidden = false
+        let other = self.window(Presenter())
+        defer { other.close() }
+        XCTAssertFalse(presenter.shortcuts.perform(event("n", window: other)))
+        XCTAssertEqual(presses, [2])
+        node.removeFromSuperview()
+        XCTAssertFalse(presenter.shortcuts.perform(key))
+    }
+
+    func testShortcutsCannotActivateBehindANativeSheet() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        _ = button(1, "New Post", "Meta+n", in: presenter)
+        var presses = 0
+        presenter.onPress = { _ in presses += 1 }
+        let sheet = NSWindow(contentRect: .zero, styleMask: .titled, backing: .buffered, defer: false)
+        sheet.isReleasedWhenClosed = false
+        window.beginSheet(sheet)
+        defer { window.endSheet(sheet); sheet.close() }
+        XCTAssertTrue(window.attachedSheet === sheet)
+        XCTAssertFalse(presenter.shortcuts.perform(event("n", window: window)))
+        XCTAssertEqual(presses, 0)
     }
 }
 #endif
