@@ -60,13 +60,14 @@ const url = `http://127.0.0.1:${server.address().port}`;
 const child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${dir}/chrome`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
 const cdp = new Cdp(child.stdio[3], child.stdio[4]);
 const exited = new Promise(r => child.on('exit', () => { cdp.fail('Chrome closed'); r(); }));
-const rows = [], failures = [], consoleLines = [];
+const rows = [], failures = [], consoleLines = [], consoleErrors = [];
 try {
   const { targetInfos } = await cdp.send('Target.getTargets');
   const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: targetInfos.find(t => t.type === 'page').targetId, flatten: true });
   const call = (method, params) => cdp.send(method, params, sessionId);
   cdp.listeners.push(msg => {
     if (msg.sessionId === sessionId && msg.method === 'Runtime.exceptionThrown') consoleLines.push(msg.params.exceptionDetails.exception?.description ?? msg.params.exceptionDetails.text);
+    if (msg.sessionId === sessionId && msg.method === 'Runtime.consoleAPICalled' && msg.params.type === 'error') consoleErrors.push(msg.params.args.map(arg=>arg.value??arg.description).join(' '));
   });
   await call('Page.enable'); await call('Runtime.enable');
   const evaluate = async expression => {
@@ -118,6 +119,30 @@ try {
     assert.equal(row.stamp.url, row.navigation.url);
     assert.equal(String(row.stamp.id), row.navigation.route);
   };
+  await run('focused route teardown ignores retired blur but preserves live blur', async () => {
+    await fresh('/post/42');
+    const beforeErrors = consoleErrors.length;
+    const key = (await state()).navigation.route;
+    await evaluate(`document.querySelector('[data-testid="editor-${key}"]').focus()`);
+    await evaluate(`document.activeElement.blur()`);
+    assert.equal((await state()).slots.blurPresses, 1, 'a live editor delivers blur');
+    await evaluate(`document.querySelector('[data-testid="editor-${key}"]').focus()`);
+    // A URL event leaves focus on the old editor until the route's ancestor
+    // is removed. Clicking a different control first would hide this bug.
+    await evaluate(`exact.agent({op:'type',id:exact.agent({op:'tree'}).roots[0],text:'/'})`);
+    await until(`location.pathname==='/'`);
+    const landed = await state();
+    assert.equal(landed.slots.blurPresses, 1, 'retired editor must not dispatch blur');
+    assert.deepEqual(consoleErrors.slice(beforeErrors), [], 'no teardown console errors');
+    const logs = await evaluate(`exact.agent({op:'logs'})`);
+    assert.equal(logs.lines.some(line=>line.includes('UnknownView')), false, 'no stale dispatch in runner journal');
+    assert.equal(await evaluate(`document.querySelector('[data-testid="editor-${key}"]')===null`), true);
+    const retained = landed.navigation.route;
+    await evaluate(`document.querySelector('[data-testid="editor-${retained}"]').focus()`);
+    await evaluate(`document.activeElement.blur()`);
+    assert.equal((await state()).slots.blurPresses, 2, 'the retained live editor still delivers blur');
+    rows.push({name:'focused route teardown',blurPresses:2,errors:consoleErrors.slice(beforeErrors),logs});
+  });
   await run('Back, Forward, replace and programmatic pop', async () => {
     const n = await fresh();
     await record('boot', '/', n, 1, 0);

@@ -36,6 +36,10 @@ fn browser_session_history_and_published_deep_locations() {
         .replace("params(nav, \"person\")", "")
         .replace(
             "  state initialUrl",
+            "  state blurPresses = 0\n  action editorBlur writes blurPresses\n    blurPresses = blurPresses + 1\n  state initialUrl",
+        )
+        .replace(
+            "  state initialUrl",
             "  state redirectLink = false\n  state followEnabled = true\n  state navigatePresses = 0\n  state backEnabled = true\n  state backReplacement = false\n  state backPresses = 0\n  state initialUrl",
         )
         .replace(
@@ -48,7 +52,7 @@ fn browser_session_history_and_published_deep_locations() {
         )
         .replace(
             "          button id=\"back\"",
-            "          button press=redirectNextLink testId=`redirect-link-${e.id}`\n            text \"Redirect link\"\n          button press=refuseLink testId=`refuse-link-${e.id}`\n            text \"Refuse link\"\n          button press=open(\"//evil.invalid/x\") testId=`open-unknown-${e.id}`\n            text \"Open unknown\"\n          button press=replace(\"//evil.invalid/y\") testId=`replace-unknown-${e.id}`\n            text \"Replace unknown\"\n          button id=\"back\"",
+            "          textarea blur=editorBlur testId=`editor-${e.id}` height=32\n          button press=redirectNextLink testId=`redirect-link-${e.id}`\n            text \"Redirect link\"\n          button press=refuseLink testId=`refuse-link-${e.id}`\n            text \"Refuse link\"\n          button press=open(\"//evil.invalid/x\") testId=`open-unknown-${e.id}`\n            text \"Open unknown\"\n          button press=replace(\"//evil.invalid/y\") testId=`replace-unknown-${e.id}`\n            text \"Replace unknown\"\n          button id=\"back\"",
         )
         .replace("button id=\"back\" press=back", "button id=\"back\" disabled=(!backEnabled) press=back")
         .replace(

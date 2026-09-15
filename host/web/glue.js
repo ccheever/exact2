@@ -8,6 +8,7 @@ import { navigation } from "./navigation.js";
 
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
+const retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const animations = new Map(); // "view/property" -> Animation (a spring in flight)
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
@@ -473,7 +474,7 @@ function attach(el, id, handlers) {
   // Teardown can synchronously blur the old input after the new runner is
   // live. Only the element currently owning this id may dispatch into it.
   const on = (event, handle) => el.addEventListener(event, (e) => {
-    if (views.get(id) === el && (inputReady || event === "load")) handle(e);
+    if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load")) handle(e);
   });
   if (el instanceof HTMLIFrameElement) {
     if (!iframeLoading.has(el)) iframeLoading.set(el, true);
@@ -627,6 +628,15 @@ function viewFor(op, id) {
 }
 
 function apply(batch) {
+  // The runner has already removed these views. A preceding children op can
+  // detach a focused descendant (and synchronously blur it) before its destroy
+  // op arrives. Retire dispatch first, while keeping the DOM lookup for cleanup.
+  for (const op of batch.ops ?? []) {
+    if (op.op === "destroy") {
+      const el = views.get(op.id);
+      if (el) retiredViews.add(el);
+    }
+  }
   prepareContexts(batch);
   for (const s of followedScrolls.values()) s.scrolled();
   const focusCommands = [];
@@ -802,7 +812,7 @@ function apply(batch) {
         else console.warn(`exact: unknown command ${op.name}`);
         break;
       }
-      case "destroy": { const el = views.get(op.id); if (el) { followScroll(el, false); messageFrames.delete(el); el.remove(); } views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
+      case "destroy": { const el = views.get(op.id); if (el) { retiredViews.add(el); followScroll(el, false); messageFrames.delete(el); el.remove(); } views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
       case "roots": {
         const roots = [];
         for (const id of op.ids) {

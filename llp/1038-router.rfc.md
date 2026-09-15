@@ -853,7 +853,10 @@ binds; nothing comes off it, because none of this was ever on it.
    Cross-thread links clear selection and editing state. Deterministic ancestry
    also prevents multiple retained thread rows from displaying one shared chat
    resource. The app runner regression covers saved drafts/replies, links, Back,
-   Forward, details and the compose underlay.
+   Forward, details and the compose underlay. The web host retires event
+   dispatch for committed removals before applying DOM operations, so removing
+   a focused route cannot dispatch a stale blur into a destroyed runner view;
+   live and retained editors still receive ordinary blur events.
 
 3. **Slice 3 — TypeScript.** The pure-door binding and the corpus under
    Hermes and Chrome; the Chrome-generated canonicalization fixture. Lands
