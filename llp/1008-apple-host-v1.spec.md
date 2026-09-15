@@ -320,9 +320,15 @@ and ignores character-key case.
 The same mounted button and its `disabled` state govern clicks, keys, and
 native menu actions; disabled matches and held-key repeats are consumed
 without dispatch. macOS routes commands before text editing, scoped to the
-focused Exact view, and derives File menu labels and Command equivalents
-from those buttons (one menu entry per button; Control alternatives do not
-create duplicates). Menus revalidate the current mounted, enabled node.
+focused Exact view, and derives menu labels and Command equivalents from
+those buttons (one menu entry per button; Control alternatives do not create
+duplicates). On macOS, `Meta+,` appears as Settings in the application menu;
+tablist tab commands and `Meta+[` / `Meta+]` appear in Go; other declared
+commands appear in File. The standalone adapter supplies About, Services,
+Hide, Quit, Close Window, Full Screen, Minimize, Zoom and Bring All to Front
+through AppKit. Reconciliation preserves those static commands and unchanged
+declared menu items. Menus revalidate mounted, enabled, non-inert nodes in
+the key window and refuse under a native sheet (2026-09-15, Interview).
 An action may issue `focus("html-id")` to move focus after its batch has
 mounted nodes and applied values. It resolves the existing HTML `id` within
 that session/root, never `testId`; missing, disabled, hidden, or inert targets

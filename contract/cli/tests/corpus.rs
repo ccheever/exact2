@@ -23,6 +23,9 @@ fn symbols_admit_roles_and_refuse_platform_names_or_misspellings() {
         "forward",
         "home",
         "person",
+        "messages",
+        "notifications",
+        "settings",
     ] {
         contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
     }
