@@ -130,6 +130,8 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        resetting = true
+        defer { resetting = false }
         toolbar.reset()
         navigation.reset()
         segments.reset()
@@ -213,6 +215,17 @@ final class Presenter {
     /// host), and never while a batch is being applied — it waits for the
     /// batch to finish, then goes if its view survived it.
     private var applying = false
+    private var resetting = false
+    private var pendingGeometry: (() -> Void)?
+
+    /// Window chrome can synchronously resize ExactView while an older batch
+    /// is still being installed. Commit its geometry after that batch, so the
+    /// remainder cannot overwrite the newer inset/layout result.
+    func deferGeometry(_ update: @escaping () -> Void) -> Bool {
+        guard applying || resetting else { return false }
+        pendingGeometry = update
+        return true
+    }
     private var waiting: [(UInt32, () -> Void)] = []
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
         guard views[id] != nil else { return }
@@ -250,8 +263,11 @@ final class Presenter {
         defer {
             if outermost {
                 applying = false
+                let geometry = pendingGeometry
+                pendingGeometry = nil
                 let q = waiting
                 waiting = []
+                geometry?()
                 for (id, f) in q where views[id] != nil { f() }
             }
         }

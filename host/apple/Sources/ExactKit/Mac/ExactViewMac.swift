@@ -90,6 +90,7 @@ public final class ExactView: NSView {
     /// Boot at the first real size (an embedder's view), else resize; the
     /// insets follow.
     private func fit() {
+        if session.presenter.deferGeometry({ [weak self] in self?.fit() }) { return }
         let size = session.presenter.viewportSize
         guard size.width > 0, size.height > 0 else { return }
         if !session.booted {
@@ -130,6 +131,7 @@ public final class ExactView: NSView {
     /// safe area (the titlebar, when the window's content includes it);
     /// zero otherwise.
     public func syncInsets() {
+        if session.presenter.deferGeometry({ [weak self] in self?.fit() }) { return }
         let next = viewportFit == "cover" ? safeAreaInsets : NSEdgeInsetsZero
         let prev = session.presenter.insets
         guard next.top != prev.top || next.left != prev.left || next.bottom != prev.bottom || next.right != prev.right else { return }

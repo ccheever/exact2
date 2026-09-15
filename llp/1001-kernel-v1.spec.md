@@ -539,6 +539,8 @@ at most one direct `role="heading"` text child. The heading supplies the window
 title and a flexible spacer at its position among the buttons. Button accessible
 names, images, visible text, disabled/inert state and existing press actions supply
 standard `NSToolbarItem`s; AppKit owns their sizing, overflow and appearance.
+An action with `toolbarPlacement="navigation"` uses AppKit's leading navigation
+placement (`isNavigational`), so Back does not migrate into trailing actions.
 All toolbar actions also appear in the native menu, even without a shortcut.
 Customization is not enabled in this first slice.
 
@@ -551,6 +553,10 @@ layout. No CSS row changes meaning and no general NativeView loader is introduce
 The standalone Mac adapter opts in and uses unified compact window chrome.
 With `viewport-fit=cover`, the actual window safe area includes the toolbar;
 the app pads content with `env(safe-area-inset-top)`, not a fixed toolbar height.
+Geometry callbacks caused by window chrome during presentation or reset are
+coalesced until the incoming batch finishes, before queued input. Otherwise a
+reset can update the new runner's insets before its older boot snapshot is drawn,
+leaving native frames behind the kernel even though the inset value is correct.
 Window-chrome declarations should be outside content flow; applications targeting
 an embedder without attachment must provide an appropriate content layout.
 

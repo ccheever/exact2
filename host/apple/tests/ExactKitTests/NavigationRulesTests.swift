@@ -297,10 +297,12 @@ final class MacToolbarTests: XCTestCase {
         defer { p.toolbar.detach(); w.close() }
         let icon = NodeView(id: 5, kind: "image", presenter: p)
         icon.props["symbolName"] = "square.and.pencil"
+        action.props["toolbarPlacement"] = "navigation"
         action.addSubview(icon); p.views[icon.id] = icon
         XCTAssertTrue(p.toolbar.attach(to: w))
         let toolbar = w.toolbar, item = p.toolbar.items[action.id]
         let image = item?.image
+        XCTAssertEqual(item?.isNavigational, true)
         XCTAssertEqual(w.title, "Home"); XCTAssertNotNil(item); XCTAssertNil(item?.view)
         var presses: [UInt32] = []; p.onPress = { presses.append($0) }
         XCTAssertEqual(p.toolbar.activate(action), true)
@@ -407,6 +409,41 @@ final class MacToolbarTests: XCTestCase {
         defer { w.endSheet(sheet); sheet.close() }
         XCTAssertEqual(p.toolbar.activate(action), false)
         XCTAssertFalse(p.toolbar.validateToolbarItem(p.toolbar.items[action.id]!))
+    }
+
+    func testWindowGeometryWaitsForTheOutermostBatchAndCoalesces() {
+        let p = Presenter()
+        var events: [String] = []
+        p.onKey = { _, _ in events.append("input") }
+        p.onViewportFit = {
+            events.append("chrome")
+            XCTAssertTrue(p.deferGeometry { events.append("obsolete") })
+            XCTAssertTrue(p.deferGeometry {
+                events.append("geometry")
+                XCTAssertFalse(p.deferGeometry { events.append("unexpected") })
+            })
+            p.key(1, "x")
+            XCTAssertEqual(events, ["chrome"])
+        }
+        p.apply(Batch(ops: [
+            ["op": "create", "id": 1, "kind": "view", "props": ["viewportFit": "cover"]],
+            ["op": "roots", "ids": [1]]
+        ], timers: false, motion: false, clock: nil, error: nil))
+        XCTAssertEqual(events, ["chrome", "geometry", "input"])
+    }
+
+    func testResetDoesNotApplyGeometryAheadOfTheIncomingBootBatch() {
+        let (p, w, _, _, _) = fixture()
+        defer { p.toolbar.detach(); w.close() }
+        p.toolbar.attach(to: w)
+        var geometryApplied = false
+        p.toolbar.onChange = {
+            XCTAssertTrue(p.deferGeometry { geometryApplied = true })
+        }
+        p.reset()
+        XCTAssertFalse(geometryApplied)
+        p.apply(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
+        XCTAssertTrue(geometryApplied)
     }
 }
 #endif

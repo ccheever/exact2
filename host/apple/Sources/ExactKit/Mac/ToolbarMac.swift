@@ -155,6 +155,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
                 symbols[node.id] = symbol
             }
             item.isBordered = true
+            item.isNavigational = node.props["toolbarPlacement"] == "navigation"
             // Text-bearing authored buttons remain labeled in icon-only mode.
             let title = text(node)
             if item.title != title { item.title = title }
