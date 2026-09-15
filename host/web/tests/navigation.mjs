@@ -120,13 +120,16 @@ try {
     assert.equal(String(row.stamp.id), row.navigation.route);
   };
   await run('focused route teardown ignores retired blur but preserves live blur', async () => {
+    await call('Emulation.setDeviceMetricsOverride', {width:800,height:1200,deviceScaleFactor:1,mobile:false});
     await fresh('/post/42');
+    await until(`exact.root.getAttribute('aria-busy')==='false'`);
     const beforeErrors = consoleErrors.length;
     const key = (await state()).navigation.route;
-    await evaluate(`document.querySelector('[data-testid="editor-${key}"]').focus()`);
+    await tap('editor');
+    assert.equal(await evaluate(`document.activeElement?.dataset.testid`), `editor-${key}`, 'the browser focused the editor');
     await evaluate(`document.activeElement.blur()`);
     assert.equal((await state()).slots.blurPresses, 1, 'a live editor delivers blur');
-    await evaluate(`document.querySelector('[data-testid="editor-${key}"]').focus()`);
+    await tap('editor');
     // A URL event leaves focus on the old editor until the route's ancestor
     // is removed. Clicking a different control first would hide this bug.
     await evaluate(`exact.agent({op:'type',id:exact.agent({op:'tree'}).roots[0],text:'/'})`);
@@ -137,8 +140,7 @@ try {
     const logs = await evaluate(`exact.agent({op:'logs'})`);
     assert.equal(logs.lines.some(line=>line.includes('UnknownView')), false, 'no stale dispatch in runner journal');
     assert.equal(await evaluate(`document.querySelector('[data-testid="editor-${key}"]')===null`), true);
-    const retained = landed.navigation.route;
-    await evaluate(`document.querySelector('[data-testid="editor-${retained}"]').focus()`);
+    await tap('editor');
     await evaluate(`document.activeElement.blur()`);
     assert.equal((await state()).slots.blurPresses, 2, 'the retained live editor still delivers blur');
     rows.push({name:'focused route teardown',blurPresses:2,errors:consoleErrors.slice(beforeErrors),logs});
