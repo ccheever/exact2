@@ -1,0 +1,10 @@
+[package]
+name = "exact-game-render"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+exact-gpu = { path = "../../gpu" }
+glam = { version = "0.33", default-features = false, features = ["std", "scalar-math", "libm"] }

@@ -36,7 +36,11 @@ var _script := PackedFloat64Array()
 
 
 func _ready() -> void:
-	for a in OS.get_cmdline_user_args():
+	var args := OS.get_cmdline_user_args()
+	# The web export has no command line: the page's query string stands in.
+	if OS.has_feature("web"):
+		args = PackedStringArray(str(JavaScriptBridge.eval("location.search.slice(1)")).split("&"))
+	for a in args:
 		var kv := a.trim_prefix("--").split("=")
 		if kv.size() != 2:
 			continue
@@ -210,3 +214,5 @@ func _report() -> void:
 		"draws": _draws, "objects": _objects,
 	}
 	print("BENCH " + JSON.stringify(out))
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("navigator.sendBeacon('/__bench', %s)" % JSON.stringify(JSON.stringify(out)))
