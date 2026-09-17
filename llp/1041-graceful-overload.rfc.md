@@ -897,8 +897,7 @@ It retains the full shaped Buffer and leaves the GPU stream unchanged. Unknown
 or ill-conditioned bounds fall back to exhaustive painting. One lazy index per
 paragraph/catalog/scale has an 8 MiB array-capacity limit; old arrays drop before
 replacement, and bounded envelope scratch does not retain extra glyph rasters.
-First paint still builds the complete index; no giant-fixture speedup is claimed
-before actual-Linux measurement. A 1,200-line pixel oracle visits under five
+First paint still builds the complete index. A 1,200-line pixel oracle visits under five
 percent of glyphs at top/middle/end while matching exhaustive RGBA output.
 
 Current ink array capacities enter catalog, measured-handoff, retiring-owner and
@@ -912,6 +911,28 @@ macOS. This is not execution on Linux or physical presentation evidence.
 Sources, pixel oracles, raw failures and integration logs are retained under
 `target/linux-visible-text-validation/`. The 4 MiB accepted-plus-working peak,
 shared shaping and asynchronous presentation remain unresolved.
+
+The subsequent actual Ubuntu ARM64 comparison uses three fresh-process pairs
+of the unchanged 1 MiB document, identical fonts and matching diagnostic
+instrumentation. All six cells complete within the retained 2.5 GiB address-space
+and 60-second process guards. Forty-eight checkpoints match full shaped source,
+tree geometry and RGBA pixels. Across 45 settled typing/scrolling samples per arm,
+acknowledgement p50/p95 falls from 196.809/202.802 ms to 3.123/4.024 ms. The giant
+paragraph's inclusive draw median falls from 195.141 ms to 0.683 ms; median glyph
+visits fall from 978,600 to 1,127, with 51 index nodes visited. These warm samples
+perform no shaping or index construction and no index fallback.
+
+Cold work remains separate: each arm builds 21 full paragraphs across setup and
+width changes. The new arm builds 21 ink indices, at median 13.280 ms and at most
+1,272,272 array-capacity bytes each. Combined cold-request acknowledgement median
+is 662.985→496.942 ms, still far above an interactive frame budget. This is a
+nonquiet, instrumented CPU/IPC comparison, not physical presentation or a 4 MiB
+peak-memory result. Exact sources, six raw traces, pixels, commands and repeated
+comparisons are retained in `target/linux-text-trace/ink-20260917/`. The corrected
+executable SHA-256 is
+`8e67ca398830bf13fcf76ab40b165636f642b78d3d7bf8e16c239917b7eede2a`.
+Full-source synchronous wrapping and accepted-plus-working storage remain the
+next bottlenecks; the warm paint improvement does not resolve them.
 
 The wider parallel suite also exposed an image-worker scheduling edge: a decode
 obtained through `wait_decode` did not give the next turn to metadata. A
