@@ -163,9 +163,11 @@ paging, eager mode, finite producer checks and reset. Screenshots were inspected
 All four app crates passed Clippy and formatting after fixing the Linux bake's
 borrowed-grants lifetime. The same smoke cases also passed on actual Ubuntu
 24.04 ARM64 in Lima/VZ (Linux 6.8.0-134, 4 vCPUs, 4 GiB RAM, CPU raster).
+
 Those are functional assertions, not visual parity: the Linux mixed-document
 screenshot exposes incorrectly positioned nested inline text, overlapping later
-blocks. The AppKit screenshot renders those paragraphs and tables correctly.
+blocks. The saved web and AppKit `mixed.png` artifacts were re-inspected:
+paragraph runs span the reading column and code/table blocks remain separate.
 Linux paragraph painting is a separate framework fix; the fixture retains it
 as a reproduction.
 
@@ -212,3 +214,58 @@ waiting for the event to be dispatched, so the small DOM numbers do not prove
 that synchronous parsing left input responsive. Native queued-command samples
 above expose a different part of that delay. Reproduce the web cases with
 `--tap profile-blocks`, adding `--tap size-1048576 --tap start` for the loaded run.
+
+## Parser suffix fix: paired evidence, 2026-09-16
+
+The suspected UTF-8 cost was confirmed by changing only the inline parser's
+suffix access. It now retains the original `&str` alongside its byte view and
+uses a checked `&text[at..]` slice. The cursor advances by whole scalars or past
+ASCII delimiters, so slicing checks a boundary without validating the entire
+remaining paragraph. No unsafe conversion, input truncation, chunking, fixture
+change, worker or rendering change was introduced. Other parser algorithms are
+unchanged; this is not a claim that every Markdown input now parses linearly.
+
+Same M4/macOS/Rust environment as above. Two frozen executables of the existing
+`parse-cost` diagnostic, built with the same isolated manifest/lock and native
+release settings (`opt-level=3`, no LTO), ran three before/after pairs per case.
+Each invocation measured one parse of the unchanged generated input; neither
+binary was rebuilt during the measurements. No cargo/rustc/Swift compiler
+processes were observed in the 96 process snapshots immediately before/after
+the 48 samples. This is not proof that the VM or other background work was idle.
+
+| Fixture | Source budget | Before median | After median |
+| --- | --- | ---: | ---: |
+| One paragraph | 16 KiB | 0.503 ms | 0.129 ms |
+| One paragraph | 256 KiB | 82.019 ms | 1.790 ms |
+| One paragraph | 1 MiB | 1,339.868 ms | 7.351 ms |
+| One paragraph | 4 MiB | 20,991.428 ms | 30.458 ms |
+| One code block | 4 MiB | 1.257 ms | 1.248 ms |
+| Many blocks | 1 MiB | 17.367 ms | 17.190 ms |
+| Mixed | 1 MiB | 9.041 ms | 7.844 ms |
+| Giant table | 1 MiB | 9.168 ms | 9.188 ms |
+
+The 4 MiB paragraph contains exactly 4,194,181 source bytes and still parses to
+two blocks. Before samples were 20,969.215 / 20,991.428 / 21,646.716 ms; after
+samples were 30.165 / 33.057 / 30.458 ms. Median speedup is approximately 689×.
+Near-equal control results should be treated as noise, not wins or regressions
+established by three samples. Raw observations, executable/source SHA-256s and
+the local comparison driver are in
+`apps/markdown/parse/target/utf8-baseline/comparison.json` and `compare.py`.
+
+Output preservation was checked separately by compiling the pre-change parser
+from its Git source snapshot beside the modified parser. All five profiles at
+all four sizes (20 documents) produced exactly equal titles and shared block
+values, including every text/run/cell and link/style field. The largest
+many-block document still has 107,545 blocks. This equivalence drive is recorded
+in `apps/markdown/parse/target/utf8-baseline/equivalence.log`; it ran after timing
+finished. Sixteen parser tests pass, including four new exact Unicode/URL-output
+regressions. The opt-in 4 MiB paragraph/code integrity test, parser Clippy and
+formatting also pass.
+
+The remaining budget matters: 30.458 ms is about 3.7 entire 120 Hz intervals,
+and the 1 MiB paragraph's 7.351 ms leaves little time for anything else if run on
+the UI thread. These are parse-only numbers, not a new host responsiveness or
+120 FPS result. Existing web/native baseline artifacts were not rebuilt for this
+parser comparison. The production reader's native continuation already moves
+parsing off the UI thread; the synthetic synchronous source and eventual text
+layout still need their own scheduling and frame-budget work.

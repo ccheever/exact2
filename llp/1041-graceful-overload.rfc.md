@@ -401,3 +401,21 @@ Native resize baselines include an older captured Rust archive on macOS while
 the Swift diagnostic was being added. Source checkout identity alone does not
 identify all build inputs. These reports expose resize cost but are not a
 before/after measurement of §8.1; a complete rebuild is required for that comparison.
+
+### 8.3 Remove repeated Markdown suffix validation
+
+The next parser experiment confirmed the §8.2 candidate. Keeping the original
+validated string and slicing it at the existing character-boundary cursor
+avoids revalidating the remaining source at every possible bare-URL prefix.
+Three paired runs of frozen before/after diagnostic binaries on the M4 reduced
+the same 4,194,181-byte paragraph's median parse time from **20,991.428 ms to
+30.458 ms**. The 1 MiB paragraph fell from 1,339.868 ms to 7.351 ms. Controls,
+raw samples and build identities are in the Markdown stress README.
+
+All twenty profile/size combinations produced exactly equal titles and block
+values against the old parser, including text, styles, cells and links. Sixteen
+parser tests and the opt-in 4 MiB integrity test pass. The change uses checked
+string slicing, keeps the complete input, and does not alter worker placement.
+Other potentially expensive Markdown algorithms are unchanged. Thirty
+milliseconds still exceeds the entire 8.33 ms target interval before layout;
+this throughput improvement does not establish smooth giant-block rendering.

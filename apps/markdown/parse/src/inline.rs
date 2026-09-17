@@ -33,6 +33,7 @@ impl Run {
 /// The runs of `line`, with `bold`/`italic`/`href` inherited from the
 /// context a nested parse started in (a link's label, an emphasis span).
 struct Parser<'a> {
+    text: &'a str,
     src: &'a [u8],
     at: usize,
     runs: Vec<Run>,
@@ -46,6 +47,7 @@ struct Parser<'a> {
 /// host that opens it has no idea where the document came from.
 pub fn runs(text: &str, link: &dyn Fn(&str) -> String) -> Vec<Run> {
     let mut p = Parser {
+        text,
         src: text.as_bytes(),
         at: 0,
         runs: Vec::new(),
@@ -62,7 +64,10 @@ impl<'a> Parser<'a> {
     }
 
     fn rest(&self) -> &'a str {
-        std::str::from_utf8(&self.src[self.at..]).unwrap_or("")
+        // Input is already valid UTF-8. The cursor advances by whole scalars
+        // or past ASCII delimiters, so this checked slice is O(1). Revalidating
+        // the entire suffix at each ordinary 'h' made bare-URL probing quadratic.
+        &self.text[self.at..]
     }
 
     /// Close the run being accumulated, if it has anything in it.
