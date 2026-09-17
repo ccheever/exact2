@@ -385,8 +385,9 @@ cancelled work retains its reservation until its actual allocations drop.
 Native payload destruction occurs outside accounting locks.
 
 Pending job metadata is capped at 64 unique jobs per session, live subscriptions
-at 1,024, and cold cache entries at 64. Overflow/defer reasons are observable;
-no per-visited-source or failed-request history is retained. Temporary byte
+plus detached pinned-cache identities at 1,024, and unpinned cold cache entries
+at 64. Overflow/defer reasons are observable; no per-visited-source or
+failed-request history is retained. Temporary byte
 pressure waits for capacity; the host can replace demand with a smaller decode.
 Natural image size remains independent of decoded pixel dimensions in layout
 and `object-fit: none`/`scale-down`, as well as aspect-ratio-preserving fits.
@@ -395,6 +396,44 @@ metadata limits and thumbnail output dimensions alone do not prove a bound on
 opaque codec internals. Record known owned raster/copy/scratch charges, encoded
 storage and process memory separately. This paragraph is the implementation
 assignment and selected policy, not evidence that either native loader passes.
+
+Adapter source identity must survive as long as the same immutable backing can
+be reused. A weak resolver index points to an immutable source owner retained
+by current interests, workers and the native backing/provider. A bounded cold
+metadata cache may also retain it. Removing a view cannot assign a different
+source ID while the old pixels remain cached or pinned; a new asset generation
+cannot alias those pixels. Dead weak records are pruned and the index has a
+named admission limit, including providers that outlive core view leases.
+
+The two native workers also inspect metadata. Decode traffic must grant bounded
+metadata turns so a new session can become eligible for admission. Cancelling
+the last interest in a remote metadata load must cancel its download; a retired
+session cannot occupy both workers until network timeouts. These are image-loader
+lifetime rules, not additions to the application effect scheduler.
+
+The initial adapters distinguish owned output from opaque library allocation.
+Apple uses ImageIO thumbnails and reserves a conservative reduced-thumbnail
+allowance; ImageIO's internal allocation peak is not contractually bounded by
+that allowance. Linux's row decoder must account its observed scratch capacities
+and avoid a second full-frame conversion allocation. Selected asset resolvers
+can materialize encoded bytes before the raster loader sees their length, so
+the encoded-size admission limit is not a pre-allocation bound on those reads.
+Encoded caches, GPU/framework storage and whole-process footprint are reported
+separately from the 32 MiB Exact-owned raster account.
+
+**Shared core verified 2026-09-17:** `exact-raster` passes 18 ownership tests
+and strict all-targets Clippy. Tests retain 20 MiB of displayed backing while
+two cancelled 6 MiB decodes still own their allocations; cancellation and reset
+cannot refund them early. Two unconsumed results in one session do not block
+another session's worker admission. Shared native aliases remain charged after
+view/cache/session release; destructors reenter the gate outside its locks.
+Pinned dedup survives pressure, metadata caps reject replacement atomically,
+and blocked budget waiters resume when the last allocation owner drops.
+The priority regression also fails before its fix: reclaimable 28 MiB cold
+storage must be destroyed before choosing an overscan 4 MiB request ahead of a
+visible 8 MiB request. An external owner that prevents actual reclamation stays
+charged without making the gate spin. This verifies core policy and ownership;
+native codec, provider, GPU and whole-document traversal acceptance remains open.
 
 ### 6.4 Acceptance and landing
 
