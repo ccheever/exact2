@@ -172,6 +172,9 @@ mod seams {
             std::mem::take(&mut self.0)
         }
         fn agent(&mut self, request: &str) -> Option<String> {
+            if request == "null" {
+                return None;
+            }
             self.0.push("agent".into());
             (request != "{}").then(|| request.to_string())
         }
@@ -219,11 +222,11 @@ mod seams {
             )
         };
         assert_ne!(id, 0, "{}", exact_gpu::native::error());
-        assert!(gpu_wants_input(id));
+        assert_eq!(gpu_wants_input(id), 1);
         assert_eq!(exact_gpu::native::bind(id, "[]"), 0);
         gpu_seekable(true);
         let event = br#"{"t":"blur","at":12.5}"#;
-        assert!(unsafe { gpu_input(id, event.as_ptr(), event.len()) });
+        assert_eq!(unsafe { gpu_input(id, event.as_ptr(), event.len()) }, 0);
         assert_eq!(
             exact_gpu::native::messages(id),
             r#"["Blur { at_ms: 12.5 }"]"#
@@ -252,10 +255,19 @@ mod seams {
         assert_eq!(result, 0, "{}", exact_gpu::native::error());
         assert_eq!(exact_gpu::native::messages(id), r#"["render"]"#);
         FRAMES.with(|f| assert!(!f.borrow().last().unwrap().seekable));
-        assert!(!unsafe { gpu_input(id, std::ptr::null(), 1) });
+        assert_eq!(gpu_dirty(id), 0);
+        assert_eq!(unsafe { gpu_agent(id, b"null".as_ptr(), 4) }, 0);
+        assert_eq!(gpu_dirty(id), 0, "an unanswered read costs no frame");
+        assert_eq!(unsafe { gpu_agent(id, b"{}".as_ptr(), 2) }, 0);
+        assert_eq!(gpu_dirty(id), 1, "a posted message dirties the surface");
+        assert_eq!(gpu_render(id, 4.0, 4.0, 1.0, 13.0), 0);
+        assert_ne!(unsafe { gpu_agent(id, request.as_ptr(), request.len()) }, 0);
+        assert_eq!(gpu_dirty(id), 1, "an answer dirties the surface");
+        assert_eq!(unsafe { gpu_input(id, std::ptr::null(), 1) }, 1);
         assert!(exact_gpu::native::error().contains("gpu_input"));
-        assert!(!unsafe { gpu_input(id, [255].as_ptr(), 1) });
+        assert_eq!(unsafe { gpu_input(id, [255].as_ptr(), 1) }, 1);
         assert!(exact_gpu::native::error().contains("UTF-8"));
         gpu_destroy(id);
+        exact_gpu::native::unload();
     }
 }

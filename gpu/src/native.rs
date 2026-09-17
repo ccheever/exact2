@@ -75,6 +75,15 @@ pub fn load(registry: &'static Registry) -> u32 {
     }
 }
 
+/// Drop the device and every canvas; [`load`] may run again. A thread that
+/// loaded a module must not leave it for thread-local teardown: wgpu's own
+/// thread-locals may already be gone by then, and dropping a device without
+/// them aborts the process (found by the first test to load one off the main thread).
+pub fn unload() {
+    let module = MODULE.with(|m| m.borrow_mut().take());
+    drop(module);
+}
+
 /// Create a canvas's surface on a `CAMetalLayer`. Returns the canvas id,
 /// or 0 on failure.
 ///
@@ -500,16 +509,16 @@ macro_rules! module {
 
         /// Whether a canvas wants raw input.
         #[no_mangle]
-        pub extern "C" fn gpu_wants_input(id: u32) -> bool { $crate::native::wants_input(id) }
+        pub extern "C" fn gpu_wants_input(id: u32) -> u32 { u32::from($crate::native::wants_input(id)) }
 
-        /// Deliver one JSON event; true on success.
+        /// Deliver one JSON event; 0 on success, 1 on refusal.
         /// # Safety
         /// `text` is `len` readable bytes.
         #[no_mangle]
-        pub unsafe extern "C" fn gpu_input(id: u32, text: *const u8, len: usize) -> bool {
-            let Some(text) = (unsafe { $crate::native::bytes("gpu_input", text, len) }) else { return false };
-            let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_input: the event is not UTF-8"); return false };
-            $crate::native::input(id, text)
+        pub unsafe extern "C" fn gpu_input(id: u32, text: *const u8, len: usize) -> u32 {
+            let Some(text) = (unsafe { $crate::native::bytes("gpu_input", text, len) }) else { return 1 };
+            let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_input: the event is not UTF-8"); return 1 };
+            u32::from(!$crate::native::input(id, text))
         }
 
         /// Drain messages into the shared output buffer; returns its byte length.

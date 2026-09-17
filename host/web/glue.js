@@ -12,6 +12,7 @@ const retiredViews = new WeakSet(); // committed removals must not dispatch tear
 const animations = new Map(); // "view/property" -> Animation (a spring in flight)
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
+const messageViews = new Set();
 const messageFrames = new Set(); // iframes whose node handles `message`
 let messageListening = false;
 let wasm = null;
@@ -471,6 +472,7 @@ function environment() {
 
 function attach(el, id, handlers) {
   el.dataset.view = String(id);
+  if (handlers.includes("message")) messageViews.add(id);
   // Teardown can synchronously blur the old input after the new runner is
   // live. Only the element currently owning this id may dispatch into it.
   const on = (event, handle) => el.addEventListener(event, (e) => {
@@ -812,7 +814,7 @@ function apply(batch) {
         else console.warn(`exact: unknown command ${op.name}`);
         break;
       }
-      case "destroy": { const el = views.get(op.id); if (el) { retiredViews.add(el); followScroll(el, false); messageFrames.delete(el); el.remove(); } views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
+      case "destroy": { const el = views.get(op.id); if (el) { retiredViews.add(el); followScroll(el, false); messageFrames.delete(el); el.remove(); } views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
       case "roots": {
         const roots = [];
         for (const id of op.ids) {
@@ -1181,11 +1183,15 @@ async function waitForInflight(deadline) {
   }
   return true;
 }
-function agent(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
+async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; await globalThis.exact.gpu?.settled(); }
+// A surface pending creation is in flight (LLP 1016): the reply waits for it. With
+// none pending the reply stays synchronous, as the page's own tests call it.
+function agent(request) { return agentMode && globalThis.exact.pendingSurfaces.length ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
+function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
 function agentReply(request) {
   try {
     if (!wasm) return { error: "not booted" };
-    if (globalThis.exact.gpu?.answers?.(request)) return globalThis.exact.gpu.handle(request, ask, tagged);
+    if (request.entity !== undefined || request.world === true) return globalThis.exact.gpu?.handle(request, ask, tagged) ?? { error: `view ${request.id} has no world` };
     switch (request.op) {
       case "state": {
         // The runner's state, then what the page observes (LLP 1035.002
@@ -1263,7 +1269,6 @@ function agentReply(request) {
     return { error: String(e) };
   }
 }
-
 // Every reply carries the runner's `epoch`, `incarnation` and `clock` (LLP
 // 1035.002 D3), read after the operation; a reply's own `clock` (where a
 // `clock` call landed) is kept, and an error is left alone. The driver
@@ -1286,19 +1291,22 @@ async function clock(request) {
   const settle = !!request.settle;
   const deadline = settle ? performance.now() + SETTLE_DEADLINE_MS : 0;
   let world = {};
+  const reply = (settled) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : {}) });
   for (let rounds = 0; ; rounds++) {
-    if (settle && !(await waitForInflight(deadline))) return { clock: agentClock, settled: false, ...world.reply, ...(world.pending ? { reason: "world" } : {}) };
+    if (settle && !(await waitForInflight(deadline))) return reply(false);
+    await settleGpu();
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
     const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to))));
     globalThis.exact.gpu?.schedule?.();
     if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock };
+    await settleGpu();
     world = globalThis.exact.gpu?.clock?.(settle) ?? {};
-    if (!settle) return { clock: agentClock, ...world.reply };
-    if (inflight.size) { if (rounds >= 15) return { clock: agentClock, settled: false, ...world.reply, ...(world.pending ? { reason: "world" } : {}) }; continue; }
+    if (!settle) return reply();
+    if (inflight.size) { if (rounds >= 15) return reply(false); continue; }
     const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
-    if (next <= agentClock && !world.pending) return { clock: agentClock, settled: true, ...world.reply };
-    if (rounds >= 15) return { clock: agentClock, settled: false, ...world.reply, ...(world.pending ? { reason: "world" } : {}) };
+    if (next <= agentClock && !world.pending) return reply(true);
+    if (rounds >= 15) return reply(false);
   }
 }
 
@@ -1366,7 +1374,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   for (const el of followedScrolls.keys()) followScroll(el, false);
   pendingScrolls.clear();
   views.clear();
-  messageFrames.clear();
+  messageFrames.clear(); messageViews.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = [];
   for (const controller of controllers) controller.abort();
@@ -1423,23 +1431,18 @@ globalThis.exact = {
       if (candidate && activeModule !== candidate) candidate.realm?.dispose();
     }
   },
-  message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
+  message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
   ...(agentMode ? { agent, now } : {}), views, root, generation: 0, pendingSurfaces: [],
 };
-
 // The GPU module, on demand: a script element after a rendering opportunity
 // (two animation-frame callbacks), never an eager import, and only when a
 // canvas is on the page.
-let gpuRequested = false;
+let gpuLoading = null;
 function loadGpuIfNeeded() {
-  if (gpuRequested || !(globalThis.exact.pendingSurfaces ?? []).length) return;
-  gpuRequested = true;
-  const s = document.createElement("script");
-  s.type = "module";
-  s.src = new URL("./gpu-glue.js", import.meta.url).href;
-  document.head.append(s);
+  if (gpuLoading || !(globalThis.exact.pendingSurfaces ?? []).length) return;
+  gpuLoading = loadAfterPaint('./gpu-glue.js', 'gpu').catch(error => console.error("exact gpu:", error));
 }
 
 async function main() {

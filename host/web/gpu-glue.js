@@ -6,7 +6,10 @@
 import init, * as gpu from "./gpu.js";
 
 const exact = globalThis.exact;
-const surfaces = new Map(); // view id -> { el, name, values, id, wants }
+const surfaces = new Map(); // view id -> surface, input listeners and journal cursor
+const inputStyle = document.createElement("style");
+inputStyle.textContent = "[data-gpu-input]:focus{outline:none}";
+document.head.append(inputStyle);
 let loaded = false;
 let raf = null;
 let finishReady;
@@ -57,7 +60,8 @@ function ensure(entry) {
   // (`render` takes the agent's clock over that timestamp in agent mode.)
   entry.observer.observe(entry.el);
   if (!gpu.gpu_bind(entry.id, JSON.stringify(entry.values))) console.error("exact gpu:", gpu.gpu_error());
-  if (gpu.gpu_wants_input(entry.id)) listen(entry);
+  entry.wantsInput = gpu.gpu_wants_input(entry.id);
+  if (entry.wantsInput) listen(entry);
   schedule();
 }
 
@@ -73,9 +77,9 @@ function messages(entry) {
 }
 function listen(entry) {
   const el = entry.host, listeners = [];
-  const previous = { touchAction: el.style.touchAction, outline: el.style.outline, tabindex: el.getAttribute("tabindex") };
-  el.style.touchAction = "none";
-  el.style.outline = "none";
+  const previous = { touchAction: entry.el.style.touchAction, tabindex: el.getAttribute("tabindex") };
+  entry.el.style.touchAction = "none";
+  el.dataset.gpuInput = "";
   if (el.tabIndex < 0) el.tabIndex = 0;
   const on = (name, fn, options) => { el.addEventListener(name, fn, options); listeners.push([name, fn, options]); };
   const send = (event, value) => {
@@ -88,7 +92,7 @@ function listen(entry) {
   const point = (event) => { const r = el.getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; };
   for (const phase of ["down", "move", "up", "cancel"]) on(`pointer${phase}`, (event) => {
     if (!fallsThrough(event)) return;
-    if (phase === "down") { el.focus(); el.setPointerCapture(event.pointerId); }
+    if (phase === "down") { el.focus({ preventScroll: true }); try { el.setPointerCapture(event.pointerId); } catch {} }
     send(event, { t: "pointer", phase, id: event.pointerId, ...point(event), kind: event.pointerType || "mouse", buttons: event.buttons });
   });
   on("wheel", (event) => {
@@ -104,21 +108,24 @@ function listen(entry) {
   on("blur", (event) => send(event, { t: "blur" }));
   entry.unlisten = () => {
     for (const [name, fn, options] of listeners) el.removeEventListener(name, fn, options);
-    el.style.touchAction = previous.touchAction; el.style.outline = previous.outline;
+    entry.el.style.touchAction = previous.touchAction; delete el.dataset.gpuInput;
     if (previous.tabindex === null) el.removeAttribute("tabindex"); else el.setAttribute("tabindex", previous.tabindex);
   };
+  queueMicrotask(() => { if (live(entry.view) === entry && (!document.activeElement || document.activeElement === document.body)) el.focus({ preventScroll: true }); });
 }
 function agent(view, request) {
   const entry = live(view);
   if (!entry) return null;
   const { w, h, s } = size(entry.host);
-  const reply = gpu.gpu_agent(entry.id, JSON.stringify({ ...request, now: clockFor(performance.now()), width: w, height: h, scale: s }));
+  const reply = gpu.gpu_agent(entry.id, JSON.stringify({ ...request, ...(exact.now ? { now: exact.now() } : {}), width: w, height: h, scale: s }));
   messages(entry);
   schedule();
   if (!reply) return null;
-  const value = JSON.parse(reply);
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`view ${view}: world reply must be an object`);
-  return value;
+  try {
+    const value = JSON.parse(reply);
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("world reply must be an object");
+    return value;
+  } catch (error) { console.error(`exact gpu: view ${view}:`, error); return null; }
 }
 function worlds(request) {
   const out = [];
@@ -132,17 +139,25 @@ function worlds(request) {
 
 exact.gpu = {
   agent,
+  settled: () => ready,
+  wantsInput: (view) => live(view)?.wantsInput === true,
   answers: (request) => request.entity !== undefined || request.world === true,
   handle(request, ask, tagged) {
     const entry = live(request.id);
     if (!entry) return { error: `view ${request.id} has no world` };
-    if (request.op === "focus") { entry.host.focus(); return tagged({ ok: document.activeElement === entry.host }); }
+    if (request.op === "focus") {
+      if (!entry.wantsInput) return { error: `view ${request.id}'s surface does not take input` };
+      entry.host.focus({ preventScroll: true }); return tagged({ ok: document.activeElement === entry.host });
+    }
     if (!["layout", "state", "tree", "pick"].includes(request.op)) return { error: `world does not answer ${request.op}` };
     if (request.op === "pick") {
       const r = entry.host.getBoundingClientRect();
       request = { ...request, x: request.x - r.left, y: request.y - r.top };
     }
-    return tagged(agent(request.id, request) ?? { error: `view ${request.id} has no world` });
+    const reply = agent(request.id, request) ?? { error: `view ${request.id} has no world` };
+    const r = entry.host.getBoundingClientRect();
+    for (const box of [reply.entity?.screen, reply.hit?.screen]) if (box) { box.x += r.left; box.y += r.top; }
+    return tagged(reply);
   },
   decorate(request, reply) {
     if (reply?.then) return reply.then((r) => exact.gpu.decorate(request, r));
@@ -153,6 +168,17 @@ exact.gpu = {
     }
     if (request.op === "state") {
       const world = worlds({ op: "state" });
+      if (world.length) reply.world = world;
+    }
+    if (request.op === "logs") {
+      const world = [];
+      for (const [canvas, entry] of surfaces) {
+        const journal = agent(canvas, { op: "logs", since: entry.logCursor });
+        if (!journal || journal.error || !Array.isArray(journal.lines)) continue;
+        const { from, next, lines } = journal;
+        world.push({ canvas, from, next, lines, dropped: Math.max(0, from - entry.logCursor) });
+        entry.logCursor = next;
+      }
       if (world.length) reply.world = world;
     }
     return reply;
@@ -173,7 +199,7 @@ exact.gpu = {
     let entry = surfaces.get(view);
     if (entry && entry.el !== el) { this.destroy(view); entry = null; } // a reload reuses ids
     if (entry && entry.name !== name) { this.destroy(view); entry = null; } // one id cannot retain another plan's surface
-    if (!entry) { entry = { view, host, el, name, values, id: 0, wants: false }; surfaces.set(view, entry); ensure(entry); return; }
+    if (!entry) { entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0 }; surfaces.set(view, entry); ensure(entry); return; }
     entry.values = values;
     if (entry.id) { if (!gpu.gpu_bind(entry.id, JSON.stringify(values))) console.error("exact gpu:", gpu.gpu_error()); schedule(); }
   },
@@ -225,7 +251,6 @@ try {
   await init();
   await gpu.gpu_load();
   if (exact.now) gpu.gpu_seekable(true);
-  loaded = true;
   const rows = [];
   if (exact.devAssets === null) for (const name of JSON.parse(gpu.gpu_shader_names())) {
     const r = await fetch(new URL(`./shaders/${name}.wgsl`, import.meta.url));
@@ -235,11 +260,13 @@ try {
   // A generation may have committed while the module or baked shaders
   // downloaded. Its pinned complete namespace wins before any surface exists.
   replaceShaders(exact.devAssets === null ? rows : shaderRows(exact.devAssets));
+  loaded = true;
 } catch (error) { console.error("exact gpu:", error); }
-finally { finishReady(loaded); }
 if (loaded) exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
 // A smoke run asks (`?smoke=1`) to be told when the module is up.
 if (loaded && new URLSearchParams(location.search).get("smoke") === "1") navigator.sendBeacon(`/__gpu?ms=${exact.root.dataset.gpuMs}`);
-for (const s of exact.pendingSurfaces ?? []) if (s.generation === exact.generation) exact.gpu.surface(s.id, s.name, s.values);
-exact.pendingSurfaces = [];
-for (const entry of surfaces.values()) ensure(entry);
+try {
+  for (const s of exact.pendingSurfaces ?? []) if (s.generation === exact.generation) exact.gpu.surface(s.id, s.name, s.values);
+  exact.pendingSurfaces = [];
+  for (const entry of surfaces.values()) ensure(entry);
+} finally { finishReady(loaded); }

@@ -1281,7 +1281,7 @@ impl<'a> Lowerer<'a> {
                                 "hover" => " plus whether the pointer is over",
                                 "key" => " plus the key's name",
                                 "change" => " plus the new value",
-                                "message" => " plus the guest's message",
+                                "message" => " plus the message",
                                 "scroll" => " plus scrollLeft and scrollTop",
                                 _ => "",
                             }

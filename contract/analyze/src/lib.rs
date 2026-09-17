@@ -203,7 +203,7 @@ pub const HANDLERS: [&str; 14] = [
 
 /// What a handler's event carries as its action's last argument: `change`
 /// the new text, `hover` whether the pointer is over, `key` the key's name,
-/// `message` the iframe guest's string; the others nothing.
+/// `message` the posted string; the others nothing.
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
         "change" | "key" | "message" | "navigate" => Some("string"),
@@ -337,7 +337,7 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
                     match handler_payload(attr) {
                         Some("bool") => " plus whether the pointer is over",
                         Some(_) if attr == "key" => " plus the key's name",
-                        Some(_) if attr == "message" => " plus the guest's message",
+                        Some(_) if attr == "message" => " plus the message",
                         Some(_) => " plus the new value",
                         None if attr == "scroll" => " plus scrollLeft and scrollTop",
                         None => "",

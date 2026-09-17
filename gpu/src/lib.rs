@@ -394,14 +394,15 @@ impl Module {
             .unwrap_or_default()
     }
 
-    /// Ask this canvas an agent question and mark it dirty.
+    /// Ask this canvas an agent question; an answer or posted message marks it dirty.
     pub fn agent(&mut self, id: u32, request: &str) -> Option<String> {
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail("no such canvas");
         };
         let reply = inst.surface.agent(request);
-        inst.messages.extend(inst.surface.messages());
-        inst.dirty = true;
+        let messages = inst.surface.messages();
+        inst.dirty |= reply.is_some() || !messages.is_empty();
+        inst.messages.extend(messages);
         reply
     }
 

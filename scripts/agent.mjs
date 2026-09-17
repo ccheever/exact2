@@ -201,8 +201,8 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
           await frame();
           return reply;
         }
-        if (kind === 'key' && opts.phase != null) {
-          if (!['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
+        if (kind === 'key' && (opts.phase != null || await evaluate(`exact.gpu?.wantsInput(${id}) ?? false`))) {
+          if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
           const f = await ask({ op: 'focus', id, world: true });
           if (f.error || !f.ok) throw new Error(f.error ?? `view ${id} could not take focus`);
           let code = opts.key, key, vk;
@@ -214,9 +214,9 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
             [key, vk] = special;
             if (code === 'Shift') code = 'ShiftLeft';
           }
-          await call('Input.dispatchKeyEvent', { type: opts.phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk });
+          for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk });
           await frame();
-          return { typed: id, key: opts.key, phase: opts.phase, delivery: 'platform' };
+          return { typed: id, key: opts.key, ...(opts.phase != null ? { phase: opts.phase } : {}), delivery: 'platform' };
         }
         const r = id == null ? null : (await ask({ op: 'layout' })).nodes.find((n) => n.id === id);
         if (id != null && (!r || (r.w === 0 && r.h === 0))) throw new Error(`view ${id} has no box on screen`);
@@ -735,7 +735,7 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       const r = await s.op({ op: 'logs', since: s.logCursor });
       const dropped = Math.max(0, r.from - s.logCursor);
       s.logCursor = r.next;
-      return { lines: r.lines, host: carrier.hostLines.splice(0), from: r.from, next: r.next, dropped };
+      return { lines: r.lines, host: carrier.hostLines.splice(0), from: r.from, next: r.next, dropped, ...(r.world ? { world: r.world } : {}) };
     },
     /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. With a target, `node` explains that one node (LLP 1035.002 D1): every row it sets or inherits with where the value came from, its box in each coordinate space the host has, the scroll and clip chains above it, whether it is hidden, inert, in the viewport or clipped away, and what the host mounted for it — observations of the runner's memory and the host's view tree, never a second model. */
     async layout(target, at) {
@@ -750,14 +750,16 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
     },
     async target(target) {
       const text = String(target), colon = text.indexOf(':');
-      const node = await s.find(colon < 0 ? target : text.slice(0, colon));
-      return { id: node.id, ...(colon < 0 ? {} : { entity: text.slice(colon + 1) }) };
+      const node = await s.find(target, false);
+      if (node) return { id: node.id };
+      if (colon < 0) throw new Error(`no view matches ${target}`);
+      return { id: (await s.find(text.slice(0, colon))).id, entity: text.slice(colon + 1) };
     },
     /** The node for a target: a testId (first in preorder) or a view id. */
-    async find(target) {
+    async find(target, required = true) {
       const t = await s.tree();
       const node = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.find((n) => n.id === Number(target)) : t.nodes.find((n) => n.props.testId === target);
-      if (!node) throw new Error(`no view matches ${target}`);
+      if (!node && required) throw new Error(`no view matches ${target}`);
       return node;
     },
     /**
@@ -777,7 +779,21 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
     contact: null,
     /** A press on the target through the host's input path (an iframe target accepts guest `selector` or `x`/`y`); with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over); with `{ down: true[, at: [x, y]] }`, a contact goes down on it (at its centre, or at an offset from its corner) and stays down until `pointer('up')` (LLP 1035.003 D1). Every reply says how it was delivered (`delivery`), by which carrier, in which mode. */
     async tap(target, opts = {}) {
-      const node = await s.find(target);
+      const node = await s.target(target);
+      if (node.entity !== undefined) {
+        const { entity } = await s.op({ op: 'layout', ...node });
+        if (entity?.visible?.inFrustum === false || entity?.visible?.behindCamera === true) throw new Error(`${target} is off screen`);
+        const b = entity?.screen;
+        if (!b || ![b.x, b.y, b.w, b.h].every(Number.isFinite)) throw new Error(`${target} has no screen box`);
+        const x = b.x + b.w / 2, y = b.y + b.h / 2;
+        const { hit } = await s.op({ op: 'pick', id: node.id, world: true, x, y });
+        if (!hit) throw new Error(`${target} is not hit at ${x},${y}`);
+        if (hit.id !== entity.id) throw new Error(`${target} is behind ${hit.name ?? hit.id} at ${x},${y}`);
+        if (s.contact) throw new Error('a contact is already down; up or cancel it first');
+        const down = await carrier.input(node.id, 'down', { x, y });
+        const { phase, ...r } = down.delivery === 'unsupported' ? down : await carrier.input(null, 'up', {});
+        return s.tagged({ ...r, tapped: node.id, target, entity: node.entity, at: [x, y], delivery: r.delivery ?? s.input.delivery('down'), carrier: host, mode: timing });
+      }
       // @ref LLP 1038 D11 — no native carrier turns browser history into a press.
       if (opts.history !== undefined && host !== 'web') return s.tagged({ tapped: node.id, target, history: opts.history, delivery: 'unsupported', carrier: host, mode: timing });
       // A gesture is the platform's, and only the AppKit carrier can phase
@@ -899,7 +915,7 @@ export function render(op, r) {
       return lines.join('\n');
     }
     case 'logs':
-      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
+      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
     case 'state':
       return q(r, null, 2);
     default:
