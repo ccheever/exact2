@@ -431,12 +431,71 @@ impl StyleValue {
     pub(crate) fn vec2(&self, style: StyleId) -> Result<Vec2, StyleValueError> {
         match self {
             StyleValue::Vec2(x, y) if x.is_finite() && y.is_finite() => Ok(Vec2 { x: *x, y: *y }),
+            StyleValue::Text(t) if style == StyleId::Translate => {
+                parse_translate(t).ok_or(StyleValueError::WrongKind {
+                    style,
+                    expected: "one or two pixel lengths (unitless zero allowed)",
+                })
+            }
             _ => Err(StyleValueError::WrongKind {
                 style,
                 expected: "vec2",
             }),
         }
     }
+}
+
+// Fixed 2D CSS subset for Contract text authoring. `none` is deliberately not
+// zero: CSS gives those different containing-block/stacking semantics. Percent,
+// calc and a third axis need a richer row, not a lossy conversion to this Vec2.
+fn parse_translate(text: &str) -> Option<Vec2> {
+    fn axis(token: &str) -> Option<f32> {
+        let pixels = token
+            .get(token.len().saturating_sub(2)..)
+            .is_some_and(|unit| unit.eq_ignore_ascii_case("px"));
+        let number = if pixels {
+            &token[..token.len() - 2]
+        } else {
+            token
+        };
+        // Rust floats accept spellings outside CSS number tokens. Check the
+        // decimal/exponent grammar before the range-preserving conversion.
+        let unsigned = number.strip_prefix(['+', '-']).unwrap_or(number);
+        let (mantissa, exponent) = unsigned.find(['e', 'E']).map_or((unsigned, None), |i| {
+            (&unsigned[..i], Some(&unsigned[i + 1..]))
+        });
+        let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+        let valid_mantissa = match mantissa.split_once('.') {
+            Some((whole, fraction)) => (whole.is_empty() || digits(whole)) && digits(fraction),
+            None => digits(mantissa),
+        };
+        if !valid_mantissa
+            || exponent.is_some_and(|e| !digits(e.strip_prefix(['+', '-']).unwrap_or(e)))
+        {
+            return None;
+        }
+        let value: f64 = number.parse().ok()?;
+        if !value.is_finite()
+            || value.abs() > f32::MAX as f64
+            || (!pixels && mantissa.bytes().any(|b| b.is_ascii_digit() && b != b'0'))
+        {
+            return None;
+        }
+        Some(value as f32)
+    }
+    // CSS whitespace is TAB, LF, FF, CR and SPACE; ASCII VT is not included.
+    let mut parts = text
+        .split(['\t', '\n', '\u{c}', '\r', ' '])
+        .filter(|s| !s.is_empty());
+    let x = axis(parts.next()?)?;
+    let y = match parts.next() {
+        Some(s) => axis(s)?,
+        None => 0.0,
+    };
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(Vec2 { x, y })
 }
 
 /// A colour as authored, which may not be a single colour yet.

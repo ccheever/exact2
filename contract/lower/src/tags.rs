@@ -197,6 +197,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scroll" => AttrTarget::Handler("scroll"),
         "navigate" => AttrTarget::Handler("navigate"),
         "heightrelease" => AttrTarget::Handler("heightrelease"),
+        "transformgeometry" => AttrTarget::Handler("transformgeometry"),
+        "transformrelease" => AttrTarget::Handler("transformrelease"),
+        "transformDragFor" => AttrTarget::Prop(p("transformDragFor")),
         "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
         // the canvas's surface (LLP 1009 D3)
         "surface" => AttrTarget::Surface,
@@ -378,6 +381,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "overscroll-behavior-y" => styles(&["overscroll_behavior_y"]),
         "z-index" => styles(&["z_index"]),
         "transition" => styles(&["transition"]),
+        "translate" => styles(&["translate"]),
         "scale" => styles(&["scale"]),
         "rotate" => styles(&["rotate"]),
         _ => return None,

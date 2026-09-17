@@ -146,6 +146,35 @@ must never be cancelled by cleanup of the old pair. This provides atomic engine
 takeover for the photo consumer; it does not add physical pan/pinch recognition,
 photo bounds, shared-element return or another motion executor.
 
+**Authored photo trial (Tuft / Zeno, 2026-09-17).** The common seam is
+`transformDragFor="photo"` plus `transformgeometry(bw, bh, pw, ph)` and
+`transformrelease(x, y, scale, vx, vy, vscale)`. Both handlers are required by
+physical adapters. The kernel returns coherent handle/target/direct-clip
+generations in O(depth): unique strict ancestor `id`, attached enabled path,
+full-size border-box View, zero effective border/padding/margins/displacement,
+positive uniform scale, no rotation, and identity transforms elsewhere on the
+path. The direct View parent clips both axes with zero border/padding. Hosts
+must additionally prove current centered fill, untransformed dimensions and
+coordinate mapping; authored eligibility is not presentation proof.
+
+Geometry is changed-only feedback for this one binding, not general measurement.
+Zero dimensions suspend physical admission. Geometry/source/lifetime changes
+invalidate the active pair before feedback; equal feedback does not loop or
+cancel on unrelated typing. Release writes local Contract targets synchronously
+while both tokens remain held, then follows the latest declarations. Controls
+may change zoom during a hold; release must not overwrite it with caught scale.
+The consumer owns contain/letterbox bounds and a 0/1 viewer list keyed by its
+checked viewer token; state resets when that accepted source lifetime changes.
+This common increment supplies no physical adapter, pinch or thumbnail return,
+and establishes no frame-rate result.
+
+Contract can author `translate` through its existing text path, including
+`${panX}px ${panY}px`: one or two finite pixel lengths, with unitless zero and
+one-axis y=0. Percent, calc, third-axis, and `none` remain unsupported; `none`
+cannot be collapsed into identity translation without losing CSS semantics.
+Explicit Rust `StyleValue::Vec2` remains available; no new vector expression or
+generic bridge coercion is added.
+
 D2 remains unchanged. Native hosts drain Engine presentation; browser hosts
 preserve a held-property overlay across style commits, cancel only its playback
 at takeover, and restore the latest authored declaration on release, including

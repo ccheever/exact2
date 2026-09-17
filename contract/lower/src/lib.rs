@@ -1249,7 +1249,11 @@ impl<'a> Lowerer<'a> {
                 // prop names the real action here: its arity is checked now,
                 // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
                 let params = self.root.actions[ai].params.len();
-                let payload = if matches!(event, "scroll" | "heightrelease") {
+                let payload = if event == "transformgeometry" {
+                    4
+                } else if event == "transformrelease" {
+                    6
+                } else if matches!(event, "scroll" | "heightrelease") {
                     2
                 } else {
                     usize::from(matches!(
@@ -1275,20 +1279,24 @@ impl<'a> Lowerer<'a> {
                                 "message" => " plus the guest's message",
                                 "scroll" => " plus scrollLeft and scrollTop",
                                 "heightrelease" => " plus height and velocity",
+                                "transformgeometry" => " plus four geometry numbers",
+                                "transformrelease" => " plus six transform release numbers",
                                 _ => "",
                             }
                         ),
                         a.span,
                     );
                 }
-                if event == "heightrelease"
-                    && self.types.components[0].actions[ai][args.len()..]
-                        .iter()
-                        .any(|ty| *ty != Ty::Number)
+                if matches!(
+                    event,
+                    "heightrelease" | "transformgeometry" | "transformrelease"
+                ) && self.types.components[0].actions[ai][args.len()..]
+                    .iter()
+                    .any(|ty| *ty != Ty::Number)
                 {
                     return err(
                         "lower-handler-type",
-                        "`heightrelease` supplies two numbers: height and signed velocity",
+                        format!("`{event}` supplies only numeric payload parameters"),
                         a.span,
                     );
                 }
@@ -1312,6 +1320,8 @@ impl<'a> Lowerer<'a> {
                     "scroll" => EventKind::Scroll,
                     "navigate" => EventKind::Navigate,
                     "heightrelease" => EventKind::Heightrelease,
+                    "transformgeometry" => EventKind::Transformgeometry,
+                    "transformrelease" => EventKind::Transformrelease,
                     _ => unreachable!("tag table admitted an unknown handler"),
                 };
                 handlers.push((kind, self.actions[ai], codes));

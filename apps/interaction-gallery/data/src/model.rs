@@ -6,6 +6,10 @@ pub const PAGE_SIZE: usize = 12;
 pub const MAX_ITEMS: usize = 25_000;
 pub const MAX_SERIAL: u32 = 99_999;
 pub const ASSET_COUNT: usize = 6;
+/// Original, oriented source pixels, verified against all six PNG headers.
+/// Decoded raster size and display density do not change this metadata.
+pub const PHOTO_WIDTH: usize = 1448;
+pub const PHOTO_HEIGHT: usize = 1086;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Id(pub u32);
@@ -255,6 +259,10 @@ impl Gallery {
         if self.position(id).is_none() {
             return Err("this record no longer exists");
         }
+        if self.viewer && self.selected != Some(id) {
+            // Reserve a fresh lifetime before changing the accepted source.
+            return self.open(id);
+        }
         self.selected = Some(id);
         Ok(())
     }
@@ -313,6 +321,7 @@ impl Gallery {
     pub fn lift(&mut self, id: Id) -> Result<u32, &'static str> {
         let pos = self.position(id).ok_or("this record no longer exists")?;
         let token = self.token()?;
+        self.viewer = false;
         self.moving = Some(Move {
             token,
             item: id,

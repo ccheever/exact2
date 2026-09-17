@@ -159,6 +159,34 @@ validate both binding generations and a live Height token for physical delivery.
 LLP 1002 D7 specifies one-target/multiple-handle ownership and action-before-end
 ordering; this does not expand ordinary numeric target adoption.
 
+The photo authoring trial (Tuft / Zeno, 2026-09-17; LLP 1002 D4) appends string
+prop `TransformDragFor`/`transformDragFor` (76), plan `Transformgeometry` (15)
+and `Transformrelease` (16), corresponding to host kinds16/17. Existing ordinals
+are unchanged. `Kernel::transform_drag_binding(handle)` returns
+`Option<TransformDragBinding { handle, target, clip }>` with three `NodeKey`s;
+it validates source eligibility without retaining geometry or adopting holds.
+The direct zero-inset clip and full-size target still require actual centered
+fill/current-presentation validation by adapters after coherent publication.
+
+`Event::TransformGeometry { box_width, box_height, port_width, port_height }`
+contains four f64 logical-pixel dimensions in `[0, f32::MAX]`. Zero is valid
+feedback, never physical admission. `Event::TransformRelease { x, y, scale,
+vx, vy, vscale }` contains parent-space unscaled translation in
+`[-f32::MAX, f32::MAX]`, positive finite scale whose f32 conversion stays
+positive/finite, and finite signed velocities (pixels/sec, scale-units/sec).
+Primary pan supplies zero scale velocity. The two `transform_*_payload` helpers
+parse exact comma tuples; typed dispatch repeats validation before action.
+Contract requires four/six trailing number parameters, including after inlining.
+Generic synthesized events do not prove token, geometry or incarnation liveness.
+Physical hosts validate the whole pair and three keys before clock/action, act
+while both are held, and end only surviving original tokens (LLP 1002 D4).
+
+Only the Translate row additionally accepts CSS text through `set_dynamic`:
+one/two ASCII-whitespace-separated px lengths or unitless zeros; one sets y=0.
+Decimal/exponent numbers must be finite and within f32 range. Other units,
+percent, calc, commas, third axis and `none` refuse without changing row/mask.
+The explicit Vec2 Rust path and other vec2 rows are unchanged.
+
 LLP 1002 D7 names the measured admission and adapter obligations: one native
 `PresentedHeight`, actual collection geometry, constrained-height takeover, and
 CSS/WAAPI execution on web. The kernel retains ordinary box sizing, min/max

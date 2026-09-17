@@ -56,6 +56,18 @@ impl Gallery {
         };
         // The placeholder is never rendered without hasSelection.
         let fallback = model::photo(Id(0), 0);
+        let viewer = if m.mode == Mode::Photos && m.viewer {
+            selected.as_ref().map(|photo| {
+                Value::record(vec![
+                    number(m.viewer_token as usize),
+                    record(photo.clone()),
+                    number(model::PHOTO_WIDTH),
+                    number(model::PHOTO_HEIGHT),
+                ])
+            })
+        } else {
+            None
+        };
         Value::record(vec![
             Value::str(m.mode.name()),
             number(m.ids().len()),
@@ -94,6 +106,8 @@ impl Gallery {
             Value::Bool(m.can_insert()),
             Value::Bool(m.page > 0),
             Value::Bool(m.page + 1 < m.pages()),
+            // A keyed component lifetime, never a second copy of all rows.
+            Value::list(viewer.into_iter().collect()),
         ])
     }
 
@@ -307,8 +321,8 @@ mod tests {
         };
         assert_eq!(
             fields.len(),
-            25,
-            "sheet/percentage height are Contract presentation state"
+            26,
+            "viewer lifetime is appended; sheet/height remain Contract state"
         );
         for stop in ["peek", "read", "full"] {
             assert!(source
@@ -318,6 +332,74 @@ mod tests {
                 )
                 .is_err());
             assert_eq!(source.snapshot(), before);
+        }
+    }
+
+    fn fields(value: &Value) -> &[Value] {
+        let Value::Record(fields) = value else {
+            panic!("expected a record")
+        };
+        fields
+    }
+
+    fn viewer(value: &Value) -> &[Value] {
+        let fields = fields(value);
+        assert_eq!(fields.len(), 26);
+        let Value::List(viewer) = &fields[25] else {
+            panic!("appended viewer must be a list")
+        };
+        assert!(viewer.len() <= 1);
+        viewer
+    }
+
+    #[test]
+    fn viewer_wire_is_one_keyed_lifetime_without_changing_photo_rows() {
+        let mut source = Gallery::default();
+        assert!(viewer(&source.snapshot()).is_empty());
+        let revision = source.model.revision;
+        let rows = list(source.rows(revision, 0, true).unwrap());
+        assert!(rows.iter().all(|row| fields(row).len() == 8));
+        source.action("open", "photo-00002", 0).unwrap();
+        let snapshot = source.snapshot();
+        let item = fields(&viewer(&snapshot)[0]);
+        assert_eq!(item.len(), 4);
+        assert_eq!(item[0], fields(&snapshot)[11]);
+        assert_eq!(item[1], fields(&snapshot)[8]);
+        assert_eq!(fields(&item[1]).len(), 8);
+        assert_eq!(item[2], Value::Number(1448.));
+        assert_eq!(item[3], Value::Number(1086.));
+        assert!(Rc::ptr_eq(
+            &rows,
+            &list(source.rows(revision, 0, true).unwrap())
+        ));
+        let token = source.model.viewer_token;
+        source.action("page", "", 3).unwrap();
+        assert_eq!(viewer(&source.snapshot()), viewer(&snapshot));
+        source.action("select", "photo-00002", 0).unwrap();
+        assert_eq!(source.model.viewer_token, token);
+        source.action("select", "photo-00003", 0).unwrap();
+        assert_ne!(source.model.viewer_token, token);
+        assert!(Rc::ptr_eq(
+            &rows,
+            &list(source.rows(revision, 0, true).unwrap())
+        ));
+        source.action("mode", "sheet", 0).unwrap();
+        assert!(viewer(&source.snapshot()).is_empty());
+    }
+
+    #[test]
+    fn viewer_wire_clears_on_close_delete_load_and_accepted_lift() {
+        for op in ["close", "delete", "load", "lift"] {
+            let mut source = Gallery::default();
+            source.action("open", "photo-00000", 0).unwrap();
+            let token = source.model.viewer_token;
+            let before = source.snapshot();
+            assert!(source.action("open", "photo-99999", 0).is_err());
+            assert_eq!(source.snapshot(), before);
+            source
+                .action(op, "photo-00000", if op == "load" { 1000 } else { token })
+                .unwrap();
+            assert!(viewer(&source.snapshot()).is_empty(), "{op}");
         }
     }
 

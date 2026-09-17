@@ -41,6 +41,7 @@ pub mod props;
 pub mod selector;
 pub mod style;
 pub mod text;
+pub mod transform;
 pub mod txn;
 pub mod wire;
 
@@ -61,5 +62,6 @@ pub use text::{
     MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun,
     TextStyle,
 };
+pub use transform::TransformDragBinding;
 pub use txn::CommitReceipt;
 pub use wire::{FrameBuilder, Op};

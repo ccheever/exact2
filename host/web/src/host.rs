@@ -718,6 +718,8 @@ impl<D: DataSource> Host<D> {
                 EventKind::Scroll => "scroll",
                 EventKind::Navigate => "navigate",
                 EventKind::Heightrelease => "heightrelease",
+                EventKind::Transformgeometry => "transformgeometry",
+                EventKind::Transformrelease => "transformrelease",
             })
             .collect();
         let pairs: Vec<(&str, String)> =

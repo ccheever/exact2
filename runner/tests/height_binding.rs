@@ -41,7 +41,7 @@ fn boot() -> Runner<NoData> {
     let plan = b.finish().unwrap();
     assert_eq!(EventKind::Heightrelease as u8, 14);
     assert_eq!(EventKind::Navigate as u8, 13);
-    assert_eq!(EventKind::from_wire(15), None);
+    assert_eq!(EventKind::from_wire(17), None);
     let plan = Plan::decode(&plan.encode()).unwrap();
     Runner::boot(
         plan,

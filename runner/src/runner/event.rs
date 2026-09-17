@@ -46,9 +46,101 @@ pub enum Event {
         /// Finite signed logical pixels per second.
         velocity: f64,
     },
+    /// Untransformed target/clip dimensions for one authored transform binding.
+    /// Zero dimensions are valid feedback but cannot admit a physical hold.
+    TransformGeometry {
+        /// Target border-box width, finite logical pixels in [0, f32::MAX].
+        box_width: f64,
+        /// Target border-box height, in the same domain.
+        box_height: f64,
+        /// Direct clip's inner width, in the same domain.
+        port_width: f64,
+        /// Direct clip's inner height, in the same domain.
+        port_height: f64,
+    },
+    /// Final Translate/Scale presentation and signed release velocity.
+    /// This synthesized event does not prove live physical ownership.
+    TransformRelease {
+        /// Parent-space logical pixels, finite and f32-representable in range.
+        x: f64,
+        /// Parent-space logical pixels, in the same domain.
+        y: f64,
+        /// Positive finite scale whose f32 conversion remains positive/finite.
+        scale: f64,
+        /// Finite signed x velocity, logical pixels per second.
+        vx: f64,
+        /// Finite signed y velocity, logical pixels per second.
+        vy: f64,
+        /// Finite signed scale units per second; primary pan supplies zero.
+        vscale: f64,
+    },
 }
 
 impl Event {
+    /// Decode exactly four comma-separated geometry dimensions. Hosts validate
+    /// binding identity/mapping before delivery; zero suspends physical admission.
+    pub fn transform_geometry_payload(payload: &str) -> Option<Self> {
+        let [box_width, box_height, port_width, port_height] = tuple(payload)?;
+        let event = Self::TransformGeometry {
+            box_width,
+            box_height,
+            port_width,
+            port_height,
+        };
+        event.invalid_payload().is_none().then_some(event)
+    }
+
+    /// Decode exactly `x,y,scale,vx,vy,vscale`. Physical hosts separately check
+    /// both tokens, all three binding keys, incarnation and geometry before time.
+    pub fn transform_release_payload(payload: &str) -> Option<Self> {
+        let [x, y, scale, vx, vy, vscale] = tuple(payload)?;
+        let event = Self::TransformRelease {
+            x,
+            y,
+            scale,
+            vx,
+            vy,
+            vscale,
+        };
+        event.invalid_payload().is_none().then_some(event)
+    }
+
+    fn invalid_payload(&self) -> Option<&'static str> {
+        match *self {
+            Self::HeightRelease { height, velocity } if !valid_height_release(height, velocity) => {
+                Some("heightrelease")
+            }
+            Self::TransformGeometry {
+                box_width,
+                box_height,
+                port_width,
+                port_height,
+            } if ![box_width, box_height, port_width, port_height]
+                .into_iter()
+                .all(|v| pixel(v) && v >= 0.0) =>
+            {
+                Some("transformgeometry")
+            }
+            Self::TransformRelease {
+                x,
+                y,
+                scale,
+                vx,
+                vy,
+                vscale,
+            } if !pixel(x)
+                || !pixel(y)
+                || !pixel(scale)
+                || scale <= 0.0
+                || (scale as f32) <= 0.0
+                || ![vx, vy, vscale].into_iter().all(f64::is_finite) =>
+            {
+                Some("transformrelease")
+            }
+            _ => None,
+        }
+    }
+
     /// Decode exactly `height,velocity`. Hosts must parse before advancing time.
     /// This synthesizes an event; physical delivery separately validates both
     /// binding generations and a live Height token before clock or action.
@@ -64,6 +156,19 @@ impl Event {
         let (left, top) = (left.parse::<f64>().ok()?, top.parse::<f64>().ok()?);
         (left.is_finite() && top.is_finite()).then_some(Self::Scroll(left, top))
     }
+}
+
+fn tuple<const N: usize>(payload: &str) -> Option<[f64; N]> {
+    let mut parts = payload.split(',');
+    let mut values = [0.0; N];
+    for value in &mut values {
+        *value = parts.next()?.parse().ok()?;
+    }
+    parts.next().is_none().then_some(values)
+}
+
+fn pixel(v: f64) -> bool {
+    v.is_finite() && v.abs() <= f32::MAX as f64
 }
 
 fn valid_height_release(height: f64, velocity: f64) -> bool {
@@ -93,6 +198,8 @@ impl<D: DataSource> Runner<D> {
                 Event::Scroll(_, _) => "scroll",
                 Event::Navigate(_) => "navigate",
                 Event::HeightRelease { .. } => "heightrelease",
+                Event::TransformGeometry { .. } => "transformgeometry",
+                Event::TransformRelease { .. } => "transformrelease",
             }
         );
         let was_poisoned = self.poisoned;
@@ -107,12 +214,8 @@ impl<D: DataSource> Runner<D> {
         event: Event,
         what: &mut String,
     ) -> Result<CommitReceipt, RunnerError> {
-        if let Event::HeightRelease { height, velocity } = &event {
-            if !valid_height_release(*height, *velocity) {
-                return Err(RunnerError::InvalidEvent {
-                    event: "heightrelease",
-                });
-            }
+        if let Some(event) = event.invalid_payload() {
+            return Err(RunnerError::InvalidEvent { event });
         }
         let (node, frames) = self
             .tree
@@ -134,6 +237,12 @@ impl<D: DataSource> Runner<D> {
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
             Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
             Event::HeightRelease { .. } => (EventKind::Heightrelease, None, "heightrelease"),
+            Event::TransformGeometry { .. } => {
+                (EventKind::Transformgeometry, None, "transformgeometry")
+            }
+            Event::TransformRelease { .. } => {
+                (EventKind::Transformrelease, None, "transformrelease")
+            }
             Event::Navigate(location) => {
                 (EventKind::Navigate, Some(Value::str(location)), "navigate")
             }
@@ -161,6 +270,24 @@ impl<D: DataSource> Runner<D> {
             Event::Scroll(left, top) => args.extend([Value::Number(left), Value::Number(top)]),
             Event::HeightRelease { height, velocity } => {
                 args.extend([Value::Number(height), Value::Number(velocity)]);
+            }
+            Event::TransformGeometry {
+                box_width,
+                box_height,
+                port_width,
+                port_height,
+            } => {
+                args.extend([box_width, box_height, port_width, port_height].map(Value::Number));
+            }
+            Event::TransformRelease {
+                x,
+                y,
+                scale,
+                vx,
+                vy,
+                vscale,
+            } => {
+                args.extend([x, y, scale, vx, vy, vscale].map(Value::Number));
             }
             _ => {}
         }

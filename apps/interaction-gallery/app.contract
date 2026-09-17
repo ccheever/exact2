@@ -1,4 +1,7 @@
-// LLP 1041 §8.5: shared viewport collections and an explicit header-height binding.
+// LLP 1041 §8.5: shared viewport collections and explicit height/transform bindings.
+fn photoFit(bw: number, bh: number, nw: number, nh: number): number = bw > 0 and bh > 0 and nw > 0 and nh > 0 ? min(bw / nw, bh / nh) : 0
+fn photoClamp(value: number, natural: number, fit: number, zoom: number, port: number): number = min(max(value, -max(0, (natural * fit * zoom - port) / 2)), max(0, (natural * fit * zoom - port) / 2))
+
 shape Theme
   page: string
   card: string
@@ -17,6 +20,12 @@ shape Photo
   tone: string
   notes: string
   rank: number
+
+shape ViewerState
+  viewerToken: number
+  photo: Photo
+  naturalWidth: number
+  naturalHeight: number
 
 shape GalleryState
   mode: string
@@ -44,6 +53,7 @@ shape GalleryState
   canInsert: bool
   canPagePrevious: bool
   canPageNext: bool
+  viewer: list<ViewerState>
 
 component InteractionGallery
   resource initial = gallery() as shape GalleryState
@@ -119,7 +129,8 @@ component InteractionGallery
             text `${length(rows)} supplied · ${gallery.total} logical · ${rendering == "windowed" ? "viewport rows mounted" : rendering == "eager" ? "all supplied rows mounted" : "manual page"}` testId="supplied-count" font-size=11 color=theme.muted
         when gallery.mode == "photos"
           when gallery.viewerOpen
-            Viewer(gallery=gallery, command=command)
+            each viewer in gallery.viewer key=viewer.viewerToken
+              Viewer(viewer=viewer, gallery=gallery, command=command)
           else
             scroll testId="photos-scroll" flex=1 min-height=0 overflow-x="hidden"
               column padding=24 gap=20 width="100%" box-sizing="border-box"
@@ -235,25 +246,74 @@ component Viewer
   inject
     theme: Theme
   props
+    viewer: ViewerState
     gallery: GalleryState
     command: action
+  state panX = 0
+  state panY = 0
+  state zoom = 1
+  state boxWidth = 0
+  state boxHeight = 0
+  state portWidth = 0
+  state portHeight = 0
+  derive geometryReady = boxWidth > 0 and boxHeight > 0 and portWidth > 0 and portHeight > 0
+  derive fit = photoFit(boxWidth, boxHeight, viewer.naturalWidth, viewer.naturalHeight)
+
+  action chooseZoom(value: number) writes zoom, panX, panY
+    if value == 1 or value == 2
+      zoom = value
+      panX = geometryReady ? photoClamp(panX, viewer.naturalWidth, fit, value, portWidth) : 0
+      panY = geometryReady ? photoClamp(panY, viewer.naturalHeight, fit, value, portHeight) : 0
+
+  action resetPhoto writes zoom, panX, panY
+    zoom = 1
+    panX = 0
+    panY = 0
+
+  action photoGeometry(bw: number, bh: number, pw: number, ph: number) writes boxWidth, boxHeight, portWidth, portHeight, panX, panY
+    if bw != boxWidth or bh != boxHeight or pw != portWidth or ph != portHeight
+      boxWidth = bw
+      boxHeight = bh
+      portWidth = pw
+      portHeight = ph
+      if bw > 0 and bh > 0 and pw > 0 and ph > 0
+        panX = photoClamp(panX, viewer.naturalWidth, photoFit(bw, bh, viewer.naturalWidth, viewer.naturalHeight), zoom, pw)
+        panY = photoClamp(panY, viewer.naturalHeight, photoFit(bw, bh, viewer.naturalWidth, viewer.naturalHeight), zoom, ph)
+      else
+        panX = 0
+        panY = 0
+
+  action releasePhoto(x: number, y: number, scale: number, vx: number, vy: number, vscale: number) writes panX, panY
+    panX = geometryReady ? photoClamp(x, viewer.naturalWidth, fit, zoom, portWidth) : 0
+    panY = geometryReady ? photoClamp(y, viewer.naturalHeight, fit, zoom, portHeight) : 0
+
   view
     scroll flex=1 min-height=0 testId="viewer-scroll" overflow-x="hidden"
       column padding=20 gap=14 align-items="center"
         row width="100%" gap=8 align-items="center" flex-wrap="wrap"
-          ActionButton(id="close-viewer", label="Back to collection", op="close", target="", n=gallery.viewerToken, shortcut="Escape", command=command)
-          text `${gallery.selected.rank} / ${gallery.total}` font-size=12 color=theme.muted flex=1
-          button press=command("previous", "", gallery.viewerToken) testId="previous-photo" disabled=(not gallery.hasPrevious) aria-keyshortcuts="Meta+[ Control+[" padding=8 border-width=0 border-radius=6 background-color=theme.card
+          ActionButton(id="close-viewer", label="Back to collection", op="close", target="", n=viewer.viewerToken, shortcut="Escape", command=command)
+          text `${viewer.photo.rank} / ${gallery.total}` font-size=12 color=theme.muted flex=1
+          button press=command("previous", "", viewer.viewerToken) testId="previous-photo" disabled=(not gallery.hasPrevious) aria-keyshortcuts="Meta+[ Control+[" padding=8 border-width=0 border-radius=6 background-color=theme.card
             text "Previous" font-size=12 color=theme.ink
-          button press=command("next", "", gallery.viewerToken) testId="next-photo" disabled=(not gallery.hasNext) aria-keyshortcuts="Meta+] Control+]" padding=8 border-width=0 border-radius=6 background-color=theme.card
+          button press=command("next", "", viewer.viewerToken) testId="next-photo" disabled=(not gallery.hasNext) aria-keyshortcuts="Meta+] Control+]" padding=8 border-width=0 border-radius=6 background-color=theme.card
             text "Next" font-size=12 color=theme.ink
-        image gallery.selected.asset aria-label=gallery.selected.alt width="100%" height=410 object-fit="contain" border-radius=12 background-color="#172521" testId="viewer-image"
+        row width="100%" gap=8 align-items="center" flex-wrap="wrap"
+          button press=chooseZoom(1) testId="viewer-zoom-fit" aria-label=`Fit${zoom == 1 ? ", selected" : ""}` padding=8 border-width=0 border-radius=6 background-color=(zoom == 1 ? theme.wash : theme.card)
+            text "Fit" font-size=12 color=theme.ink
+          button press=chooseZoom(2) testId="viewer-zoom-detail" aria-label=`2×${zoom == 2 ? ", selected" : ""}` padding=8 border-width=0 border-radius=6 background-color=(zoom == 2 ? theme.wash : theme.card)
+            text "2×" font-size=12 color=theme.ink
+          button press=resetPhoto testId="viewer-reset" aria-label="Reset photo position and zoom" padding=8 border-width=0 border-radius=6 background-color=theme.card
+            text "Center and fit" font-size=12 color=theme.ink
+        box testId="viewer-clip" width="100%" height=410 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12 background-color="#172521"
+          box id="viewer-transform" testId="viewer-transform" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate spring(300, 30, 1), scale spring(300, 30, 1)"
+            image viewer.photo.asset aria-label=viewer.photo.alt position="absolute" left=0 top=0 width="100%" height="100%" object-fit="contain" testId="viewer-image"
+            box transformDragFor="viewer-transform" transformgeometry=photoGeometry transformrelease=releasePhoto touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="viewer-handle" aria-label=`Pan ${viewer.photo.title}`
         column width="100%" max-width=740 gap=7
           row gap=10 align-items="center"
-            text gallery.selected.title font-size=28 font-weight=600 color=theme.ink flex=1
-            ActionButton(id="delete-photo", label="Remove study", op="delete", target=gallery.selected.id, n=0, shortcut="", command=command)
-          text gallery.selected.subtitle font-size=12 color=theme.muted
-          text gallery.selected.notes font-size=15 line-height=1.5 color=theme.ink
+            text viewer.photo.title font-size=28 font-weight=600 color=theme.ink flex=1
+            ActionButton(id="delete-photo", label="Remove study", op="delete", target=viewer.photo.id, n=0, shortcut="", command=command)
+          text viewer.photo.subtitle font-size=12 color=theme.muted
+          text viewer.photo.notes font-size=15 line-height=1.5 color=theme.ink
           text "Generated photographic illustration · bundled locally" font-size=10 color=theme.muted
 
 component ArrangeCard

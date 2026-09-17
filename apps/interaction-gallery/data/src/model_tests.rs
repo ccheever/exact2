@@ -117,16 +117,77 @@ fn photo_returns_to_current_identity_after_page_change_and_reorder() {
     let token = g.viewer_token;
     g.page_to(0);
     let movement = g.lift(Id(80)).unwrap();
+    assert!(!g.viewer, "an accepted lift ends the photo lifetime");
+    let lifted = g.clone();
+    g.close(token);
+    assert_eq!(g, lifted, "old viewer close cannot finish the new move");
     g.before(movement, Some(Id(25))).unwrap();
     g.commit(movement);
+    g.open(Id(80)).unwrap();
+    let current = g.viewer_token;
+    assert_ne!(current, token);
     g.page_to(0);
-    g.close(token);
+    g.close(current);
     assert_eq!(g.returned, Return::Item(Id(80)));
     assert!(g.rows().iter().any(|p| p.id == Id(80).key()));
     g.open(Id(80)).unwrap();
     g.remove(Id(80)).unwrap();
     assert!(!g.viewer);
     assert_eq!(g.returned, Return::Removed);
+}
+
+#[test]
+fn selecting_a_different_open_photo_replaces_its_token_but_same_item_does_not() {
+    let mut g = Gallery::default();
+    g.open(Id(0)).unwrap();
+    let original = g.clone();
+    g.select(Id(0)).unwrap();
+    assert_eq!(g, original);
+    g.select(Id(1)).unwrap();
+    assert!(g.viewer);
+    assert_eq!(g.selected, Some(Id(1)));
+    assert!(g.viewer_token > original.viewer_token);
+    let replacement = g.clone();
+    g.close(original.viewer_token);
+    assert_eq!(g, replacement);
+}
+
+#[test]
+fn rejected_viewer_selection_preserves_every_field_even_at_token_exhaustion() {
+    let mut g = Gallery::default();
+    g.open(Id(0)).unwrap();
+    let original = g.clone();
+    assert!(g.select(Id(99_999)).is_err());
+    assert_eq!(g, original);
+    g.epoch = u32::MAX;
+    let exhausted = g.clone();
+    assert!(g.select(Id(1)).is_err());
+    assert_eq!(g, exhausted);
+    // Keeping the already accepted source needs no replacement token.
+    g.select(Id(0)).unwrap();
+    assert_eq!(g, exhausted);
+}
+
+#[test]
+fn lift_closes_viewer_only_after_identity_and_token_validation() {
+    let mut g = Gallery::default();
+    g.open(Id(0)).unwrap();
+    let original = g.clone();
+    assert!(g.lift(Id(99_999)).is_err());
+    assert_eq!(g, original);
+    g.epoch = u32::MAX;
+    let exhausted = g.clone();
+    assert!(g.lift(Id(1)).is_err());
+    assert_eq!(g, exhausted);
+    g = original;
+    let old = g.viewer_token;
+    let moving = g.lift(Id(1)).unwrap();
+    assert!(!g.viewer);
+    assert_eq!(g.selected, Some(Id(1)));
+    assert_eq!(g.moving.unwrap().token, moving);
+    let accepted = g.clone();
+    g.close(old);
+    assert_eq!(g, accepted);
 }
 
 #[test]

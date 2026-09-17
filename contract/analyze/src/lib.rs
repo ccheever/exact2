@@ -184,7 +184,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 15] = [
+pub const HANDLERS: [&str; 17] = [
     "press",
     "change",
     "hover",
@@ -200,6 +200,8 @@ pub const HANDLERS: [&str; 15] = [
     "scroll",
     "navigate",
     "heightrelease",
+    "transformgeometry",
+    "transformrelease",
 ];
 
 /// What a handler's event carries as its action's last argument: `change`
@@ -319,7 +321,11 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
     }
     // A prop of bare `action` type has unknown arity; only a real action is checked.
     if matches!(r, Ref::Action(_)) {
-        let payload = if matches!(attr, "scroll" | "heightrelease") {
+        let payload = if attr == "transformgeometry" {
+            4
+        } else if attr == "transformrelease" {
+            6
+        } else if matches!(attr, "scroll" | "heightrelease") {
             2
         } else {
             usize::from(handler_payload(attr).is_some())
@@ -342,16 +348,22 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
                         Some(_) => " plus the new value",
                         None if attr == "scroll" => " plus scrollLeft and scrollTop",
                         None if attr == "heightrelease" => " plus height and velocity",
+                        None if attr == "transformgeometry" => " plus four geometry numbers",
+                        None if attr == "transformrelease" => " plus six transform release numbers",
                         None => "",
                     }
                 ),
                 span,
             );
         }
-        if attr == "heightrelease" && params[given..].iter().any(|ty| *ty != Ty::Number) {
+        if matches!(
+            attr,
+            "heightrelease" | "transformgeometry" | "transformrelease"
+        ) && params[given..].iter().any(|ty| *ty != Ty::Number)
+        {
             return err(
                 "analyze-handler-type",
-                "`heightrelease` supplies two numbers: height and signed velocity",
+                format!("`{attr}` supplies only numeric payload parameters"),
                 span,
             );
         }

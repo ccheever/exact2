@@ -5,15 +5,17 @@ One Contract shell, one logical data owner, six local photographic illustrations
 Arrange and Read now use the shared viewport collection over complete records.
 Photos retains explicit manual pages. Read authors a header-only numeric-height
 binding; gesture recognition and hold delivery belong to the shared host adapters.
-Continuous photo zoom/drag, animated reorder with edge scrolling, and
-sheet/inner-scroll ownership transfer are **not connected**.
+Photos authors fit/2× controls and a paired transform binding. Physical photo
+drag delivery, animated reorder with edge scrolling, and sheet/inner-scroll
+ownership transfer require their separate host integrations and evidence.
 
 ## What works
 
 - **Photos:** a wrapping grid, full-image reading surface, previous/next, deletion,
   and return to the current page of the selected stable identity. A moved or
   off-page source is located in the current order; a deleted source closes the
-  viewer without resurrecting it. There is no claimed zoom animation yet.
+  viewer without resurrecting it. Fit/2× and reset are synchronous local actions;
+  an authored drag surface targets the contained image's transform wrapper.
 - **Arrange:** pick up, preview earlier/later or before another card, Place, and
   Cancel. Preview never changes order. Place consumes an interaction token once;
   stale callbacks are inert. Concurrent insertion preserves the destination ID;
@@ -59,6 +61,40 @@ hold once with release velocity. Cancellation sends no snap action. The declared
 transition is `height spring(300, 30, 1)`; projection changes the actual nested
 List port on every presentation sample, without writing sampled height back into
 `sheetPx`. The header's binding uses an authored IDREF, never `testId` inference.
+
+Photos appends one bounded `viewer: list<ViewerState>` to gallery metadata. It is
+empty when closed and contains one `{viewerToken, photo, naturalWidth,
+naturalHeight}` while open. The existing eight-field Photo records and full-row
+resource are unchanged. `each viewer in gallery.viewer key=viewer.viewerToken`
+owns a child component whose `panX=0`, `panY=0`, `zoom=1` and geometry reset only
+when that accepted lifetime changes. Open/Previous/Next and selecting a different
+open photo reserve a new token before replacement; same-item selection, typing,
+page and rank changes preserve the child. A successful lift closes the viewer;
+an invalid ID or exhausted token refuses without replacing it.
+
+The transformed wrapper fills its direct clip, with zero border, padding,
+margin and positional displacement. Its centered origin, contained image and
+transparent non-button descendant handle share that center. The handle declares
+`transformDragFor="viewer-transform"`, `transformgeometry` and `transformrelease`;
+controls remain outside the wrapper. The six verified source dimensions are
+1448×1086, independent of decoded thumbnail resolution or display density.
+
+`transformgeometry(boxWidth, boxHeight, portWidth, portHeight)` updates local
+geometry and reclamps pan. For source dimensions `nw,nh`, the fit is
+`min(boxWidth/nw, boxHeight/nh)`; each pan bound is
+`max(0, (naturalSide*fit*zoom - portSide)/2)`. This accounts for letterboxing.
+Zero/unavailable geometry keeps pan centered and cannot admit a physical hold.
+Equal geometry makes no state writes. A changed geometry cancels the current
+gesture in the host before new feedback; seamless resize rebasing is not claimed.
+
+Fit and 2× write the latest authored zoom synchronously and clamp pan using that
+new zoom. Reset centers and fits. `transformrelease(x,y,scale,vx,vy,vscale)` writes
+only pan, clamped against the **current authored zoom**, never the caught scale.
+The host validates the complete terminal tuple, applies the final paired sample,
+dispatches this action while both holds are live, then ends each surviving owned
+token once. Velocities go to the shared spring; the app does not project another
+zoom target or issue a data request. Cancellation dispatches no release action.
+Both declarations use `spring(300, 30, 1)`; there is no app timer or frame loop.
 
 Each windowed row owns its spacing; the shared list receives the actual nested
 scrollport and measured row heights. The sheet changes that port's height.
@@ -113,7 +149,9 @@ Agent IDs: `count-100`, `count-1000`, `count-25000`, `mode-photos`,
 `mode-reorder`, `mode-sheet`, `previous-page`, `next-page`, `insert`, `reset`,
 `gallery-input`; initially `open-photo-00000` through `open-photo-00011`.
 Rendering: `render-windowed`, `render-manual`, `render-eager`, `supplied-count`.
-Viewer: `close-viewer`, `previous-photo`, `next-photo`, `delete-photo`.
+Viewer: `close-viewer`, `previous-photo`, `next-photo`, `delete-photo`,
+`viewer-zoom-fit`, `viewer-zoom-detail`, `viewer-reset`, `viewer-clip`,
+`viewer-transform`, `viewer-handle`.
 Arrange: `reorder-scroll`, `lift-photo-00000`, `earlier`, `later`,
 `before-photo-00015` (when mounted, or manual page 2),
 `place`, `cancel`, `delete-photo-00000`. Read: `sheet-peek`, `sheet-read`,
@@ -124,9 +162,11 @@ Arrange: `reorder-scroll`, `lift-photo-00000`, `earlier`, `later`,
 Shared height hold adapters are integrated and validated separately from this
 app-only declaration. This app binds only the sheet header and synchronous snap
 action; it does not claim physical pointer delivery from the app tests alone.
-Continuous reorder and photo zoom still need shared host hooks. Their existing
-`galleryAction` model endpoints provide preview and token-checked commit/cancel;
-they must receive logical outcomes from the shared adapters.
+The photo binding has separate geometry/pair delivery in the shared host; app
+tests alone do not prove physical drag, pinch or shared-element transitions.
+Continuous reorder still needs shared host hooks. Its existing `galleryAction`
+endpoints provide preview and token-checked commit/cancel; they must receive
+logical outcomes from the shared adapters.
 
 1. Continuous begin/update/end/cancel delivery, with one current interaction token,
    cancellation on navigation/deletion, and no per-sample durable order commits.
@@ -177,6 +217,20 @@ maps deterministically onto this fixed pool. Assets are distinct; the larger
 record counts intentionally repeat them to bound the bundle.
 
 ## Validation status
+
+The photo app slice passes **41 scoped Rust tests** against the frozen common
+binding/parser overlay: 18 model/resource, seven photo, eight retained runtime
+and eight retained collection tests. Twelve tests are new, covering model
+token/refusal, exact metadata/PNG dimensions, real-Contract keyed lifetime,
+contained-pan math and pre-end paired-Engine targets. The old-app/new-common
+baseline produced 14 failures (including two updated existing tests) first.
+Strict data-crate all-target Clippy, scoped formatting/diff and source caps pass.
+Sources and raw logs are preserved in `target/photo-app-validation` in the
+private `exact2-gallery-photo-transform` validation tree.
+These tests synthesize typed geometry/release events; host incarnation checks,
+physical recognition, terminal velocity delivery and stale callback rejection
+before clock movement need their own adapter tests. No physical pinch,
+shared-element return, FPS or latency result is claimed by this app slice.
 
 The collection increment passes **24 scoped Rust tests**: twelve model/resource
 tests, six retained manual/focus regressions, and six new real-Contract collection
