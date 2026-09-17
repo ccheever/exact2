@@ -5,101 +5,10 @@ use exact_gpu::{fixture, wgpu, Gpu};
 use glam::camera::rh::{proj::directx, view};
 use glam::{Quat, Vec3};
 
-fn gpu() -> Option<Gpu> {
-    match fixture::device() {
-        Ok(gpu) => {
-            eprintln!("GPU: {:?}", gpu.adapter.get_info());
-            Some(gpu)
-        }
-        Err(reason) => {
-            eprintln!("SKIP exact-game-render GPU test: {reason}");
-            None
-        }
-    }
-}
-
-fn target(gpu: &Gpu, size: (u32, u32), format: wgpu::TextureFormat) -> wgpu::Texture {
-    gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("game test"),
-        size: wgpu::Extent3d {
-            width: size.0,
-            height: size.1,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    })
-}
-
-fn render(
-    gpu: &Gpu,
-    renderer: &mut Renderer,
-    target: &wgpu::Texture,
-    frame: &FrameInput<'_>,
-) -> fixture::Pixels {
-    let stats = renderer.draw(
-        &gpu.device,
-        &gpu.queue,
-        &target.create_view(&Default::default()),
-        target.format(),
-        (target.width(), target.height()),
-        frame,
-    );
-    assert!(stats.draws >= 1 && stats.triangles >= 1);
-    fixture::read(gpu, target).unwrap()
-}
-
-fn transform(position: Vec3, rotation: Quat, scale: Vec3) -> [f32; 10] {
-    [
-        position.x, position.y, position.z, rotation.x, rotation.y, rotation.z, rotation.w,
-        scale.x, scale.y, scale.z,
-    ]
-}
-
-fn material(color: [f32; 3], emissive: f32) -> [f32; 12] {
-    [
-        color[0], color[1], color[2], 1.0, 0.0, 0.65, emissive, emissive, emissive, 0.0, 0.0, 0.0,
-    ]
-}
-
-fn frame() -> FrameInput<'static> {
-    FrameInput {
-        view: view::look_at_mat4(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, Vec3::Y),
-        proj: directx::orthographic(-4.0, 4.0, -2.5, 2.5, 0.1, 100.0),
-        camera_position: Vec3::new(0.0, 0.0, 10.0),
-        alpha: 1.0,
-        sun: None,
-        points: &[],
-        environment: Environment {
-            sky: [0.0; 3],
-            ground: [0.0; 3],
-            ambient: 0.0,
-        },
-        exposure: 1.0,
-    }
-}
-
-fn tone(x: f32) -> u8 {
-    let x = (x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14)).clamp(0.0, 1.0);
-    let srgb = if x <= 0.0031308 {
-        12.92 * x
-    } else {
-        1.055 * x.powf(1.0 / 2.4) - 0.055
-    };
-    (srgb * 255.0).round() as u8
-}
-
-fn project(frame: &FrameInput<'_>, point: Vec3, pixels: &fixture::Pixels) -> (u32, u32) {
-    let clip = frame.proj * frame.view * point.extend(1.0);
-    (
-        ((clip.x / clip.w * 0.5 + 0.5) * pixels.width as f32) as u32,
-        ((0.5 - clip.y / clip.w * 0.5) * pixels.height as f32) as u32,
-    )
-}
+mod support;
+use support::*;
+mod effects;
+mod timing;
 
 #[test]
 fn lit_scene_and_output_transfer() {
@@ -125,6 +34,7 @@ fn lit_scene_and_output_transfer() {
             .all(|v| Vec3::from_array(v.position).distance(center) <= radius + 1e-6));
         batches.push(Batch {
             mesh,
+            casts_shadows: true,
             slots: slot as u32..slot as u32 + 1,
         });
     }
@@ -152,12 +62,16 @@ fn lit_scene_and_output_transfer() {
     frame.sun = Some(Sun {
         direction: Vec3::new(1.0, -2.0, -3.0),
         color: Vec3::ONE,
+        shadows: None,
         illuminance: 3.0,
     });
     frame.environment = Environment {
-        sky: [0.12, 0.18, 0.28],
+        zenith: [0.12, 0.18, 0.28],
         ground: [0.04, 0.025, 0.02],
         ambient: 0.35,
+        horizon: [0.12, 0.18, 0.28],
+        sun_disc: 0.0,
+        fog: None,
     };
     let texture = target(&gpu, (600, 400), format);
     let unlit_point = render(&gpu, &mut renderer, &texture, &frame);
@@ -171,7 +85,10 @@ fn lit_scene_and_output_transfer() {
     let pixels = render(&gpu, &mut renderer, &texture, &frame);
     pixels.save("lit-scene");
     let sky = pixels.at(5, 5);
-    for (actual, expected) in sky[..3].iter().zip(frame.environment.sky.map(tone)) {
+    for (actual, expected) in sky[..3]
+        .iter()
+        .zip(sky_color(&frame, 5, 5, 600, 400).map(tone))
+    {
         assert!(actual.abs_diff(expected) <= 2, "sky {sky:?}");
     }
     assert!(pixels.count(|p| p != sky) > 30_000);
@@ -200,10 +117,9 @@ fn lit_scene_and_output_transfer() {
         &target(&gpu, (32, 24), srgb_format),
         &frame,
     );
-    assert!(background
-        .at(5, 5)
+    assert!(background.at(5, 5)[..3]
         .iter()
-        .zip(sky)
+        .zip(sky_color(&frame, 5, 5, 32, 24).map(tone))
         .all(|(a, b)| a.abs_diff(b) <= 2));
 }
 
@@ -243,6 +159,7 @@ fn interpolation_teleport_untouched_and_growth() {
     renderer.set_batches(
         &[Batch {
             mesh: cube,
+            casts_shadows: true,
             slots: 1..2,
         }],
         &[7, 7],
@@ -335,10 +252,12 @@ fn interpolation_teleport_untouched_and_growth() {
         &[
             Batch {
                 mesh: cube,
+                casts_shadows: true,
                 slots: 0..1,
             },
             Batch {
                 mesh: sphere,
+                casts_shadows: true,
                 slots: 99..100,
             },
         ],
@@ -387,19 +306,24 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
     renderer.set_batches(
         &[Batch {
             mesh: source,
+            casts_shadows: true,
             slots: 0..1,
         }],
         &[0],
     );
     let mut frame = frame();
     frame.environment = Environment {
-        sky: [0.3, 0.4, 0.5],
+        zenith: [0.3, 0.4, 0.5],
         ground: [0.02; 3],
         ambient: 1.0,
+        horizon: [0.16, 0.21, 0.26],
+        sun_disc: 0.0,
+        fog: None,
     };
     frame.sun = Some(Sun {
         direction: Vec3::new(1.0, -1.0, -2.0),
         color: Vec3::ONE,
+        shadows: None,
         illuminance: 3.0,
     });
     let target = target(&gpu, (256, 160), format);
@@ -408,6 +332,7 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
     renderer.set_batches(
         &[Batch {
             mesh: reference,
+            casts_shadows: true,
             slots: 0..1,
         }],
         &[0],
@@ -422,97 +347,4 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
         .sum::<f64>()
         / actual.data.len() as f64;
     assert!(mean_error < 0.1, "normal matrix pixel error: {mean_error}");
-}
-
-#[test]
-#[ignore = "200k cubes, 600 frames; run in release on a GPU host"]
-fn timing_200k() {
-    let Some(gpu) = gpu() else {
-        return;
-    };
-    let format = wgpu::TextureFormat::Rgba8Unorm;
-    let mut renderer = Renderer::new(&gpu.device, &gpu.queue, format);
-    let (v, i) = shapes::cube();
-    let cube = renderer.add_mesh(&v, &i);
-    const N: usize = 200_000;
-    let mut transforms = Vec::with_capacity(N * 10);
-    let mut materials = Vec::with_capacity(N * 12);
-    for i in 0..N {
-        let p = Vec3::new(
-            (i % 59) as f32,
-            ((i / 59) % 59) as f32,
-            (i / (59 * 59)) as f32,
-        ) * 2.0
-            - Vec3::splat(58.0);
-        transforms.extend(transform(p, Quat::IDENTITY, Vec3::ONE));
-        materials.extend(material([0.35, 0.55, 0.8], 0.0));
-    }
-    renderer.write_transforms_both(0, &transforms);
-    renderer.write_materials(0, &materials);
-    renderer.set_batches(
-        &[Batch {
-            mesh: cube,
-            slots: 0..N as u32,
-        }],
-        &(0..N as u32).collect::<Vec<_>>(),
-    );
-    let target = target(&gpu, (1280, 720), format);
-    let view = target.create_view(&Default::default());
-    let mut frame = frame();
-    frame.camera_position = Vec3::new(115.0, 80.0, 160.0);
-    frame.view = view::look_at_mat4(frame.camera_position, Vec3::ZERO, Vec3::Y);
-    frame.proj = directx::perspective(60.0_f32.to_radians(), 1280.0 / 720.0, 0.1, 500.0);
-    frame.sun = Some(Sun {
-        direction: Vec3::new(-1.0, -2.0, -3.0),
-        color: Vec3::ONE,
-        illuminance: 3.0,
-    });
-    frame.environment = Environment {
-        sky: [0.12, 0.18, 0.28],
-        ground: [0.04; 3],
-        ambient: 0.5,
-    };
-    for _ in 0..10 {
-        renderer.draw(&gpu.device, &gpu.queue, &view, format, (1280, 720), &frame);
-        gpu.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-    }
-    let mut encode_us = 0.0;
-    let mut upload_ms = 0.0;
-    let mut total_ms = 0.0;
-    for index in 0..600 {
-        if index % 2 == 0 {
-            // Simulation work is deliberately outside the upload timer.
-            let rotation = Quat::from_rotation_y(index as f32 / 120.0);
-            for transform in transforms.chunks_exact_mut(10) {
-                transform[3..7].copy_from_slice(&rotation.to_array());
-            }
-        }
-        let start = std::time::Instant::now();
-        if index % 2 == 0 {
-            let upload = std::time::Instant::now();
-            renderer.begin_tick();
-            renderer.write_transforms(0, &transforms);
-            upload_ms += upload.elapsed().as_secs_f64() * 1000.0;
-        }
-        frame.alpha = if index % 2 == 0 { 0.0 } else { 0.5 };
-        let stats = renderer.draw(&gpu.device, &gpu.queue, &view, format, (1280, 720), &frame);
-        assert_eq!(
-            (stats.draws, stats.instances, stats.triangles),
-            (2, N as u64, N as u64 * 12 + 1)
-        );
-        encode_us += stats.encode_us;
-        // Bound outstanding work; wall time includes GPU completion, encode does not.
-        gpu.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-        total_ms += start.elapsed().as_secs_f64() * 1000.0;
-        if index % 100 == 99 {
-            eprintln!("timing: {} / 600 frames", index + 1);
-        }
-    }
-    eprintln!("200000 cubes, 1280x720, 4x MSAA, 600 frames: CPU encode {:.4} ms/frame; tick copy+upload {:.4} ms/tick; GPU-completed wall {:.4} ms/frame",
-        encode_us / 600_000.0, upload_ms / 300.0, total_ms / 600.0);
-    fixture::read(&gpu, &target).unwrap().save("timing-200k");
 }

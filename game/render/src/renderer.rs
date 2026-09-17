@@ -1,5 +1,11 @@
 use crate::buffers::{bytes, Buffer, Targets};
 use crate::pipeline::Pipelines;
+use crate::{
+    bloom::BloomTargets,
+    frame,
+    shadows::{Cascades, ShadowMaps},
+    timing,
+};
 use crate::{Batch, FrameInput, MeshId, Stats, Vertex};
 use exact_gpu::wgpu;
 use glam::Vec3;
@@ -31,17 +37,19 @@ pub struct Renderer {
     batches: Vec<Batch>,
     targets: Targets,
     counts: Stats,
+    shadows: Option<ShadowMaps>,
+    bloom: Option<BloomTargets>,
 }
 
 impl Renderer {
-    /// Compile both pipelines for this output format. `draw` must use the same
+    /// Compile all effect variants and pipelines for this output format. `draw` must use the same
     /// device, queue and format. RGBA/BGRA unorm and sRGB targets are supported.
     /// Starts small; all arenas grow on demand and never shrink.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let pipelines = Pipelines::new(device, format);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("game frame"),
-            size: 164 * 4,
+            size: (frame::FLOATS * 4) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -91,6 +99,8 @@ impl Renderer {
             meshes: Vec::new(),
             batches: Vec::new(),
             targets,
+            shadows: None,
+            bloom: None,
             counts: Stats {
                 draws: 1,
                 triangles: 1,
@@ -246,8 +256,8 @@ impl Renderer {
         (mesh.center, mesh.radius)
     }
 
-    /// Upload one frame uniform and submit the forward/MSAA and ACES tonemap passes.
-    /// Zero dimensions become one. Attachments only change on resize; this method
+    /// Upload fixed-size frame data and submit the enabled passes.
+    /// Zero dimensions become one. Attachments change on resize or effect toggles; this method
     /// allocates no CPU collections in steady state (wgpu manages its own encoding).
     /// Panics if `format` differs from the construction format.
     #[allow(clippy::too_many_arguments)]
@@ -268,12 +278,80 @@ impl Renderer {
         );
         let size = (size_px.0.max(1), size_px.1.max(1));
         if self.targets.size != size {
+            self.bloom = None;
             self.targets = Targets::new(device, size, &self.pipelines.tone_layout, &self.uniform);
         }
-        queue.write_buffer(&self.uniform, 0, bytes(&frame_uniform(frame)));
+        let cascades = frame
+            .sun
+            .and_then(|s| s.shadows)
+            .map(|s| Cascades::new(frame, s));
+        if let Some(c) = &cascades {
+            if self.shadows.as_ref().is_none_or(|s| s.count != c.count) {
+                self.shadows = Some(ShadowMaps::new(
+                    device,
+                    c.count,
+                    &self.pipelines.shadow_layout,
+                    &self.pipelines.camera_layout,
+                ));
+            }
+            self.shadows.as_ref().unwrap().write(queue, c);
+        } else {
+            self.shadows = None;
+        }
+        if frame.bloom.is_some() {
+            if self.bloom.is_none() {
+                self.bloom = Some(BloomTargets::new(
+                    device,
+                    size,
+                    &self.pipelines,
+                    &self.uniform,
+                    &self.targets.resolved,
+                ));
+            }
+        } else {
+            self.bloom = None;
+        }
+        queue.write_buffer(
+            &self.uniform,
+            0,
+            bytes(&frame::uniform(frame, cascades.as_ref())),
+        );
         let mut encoder = device.create_command_encoder(&Default::default());
+        let mut extra_draws = 0;
+        if let Some(shadows) = &self.shadows {
+            for i in 0..shadows.count as usize {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("game sun shadow"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &shadows.layers[i],
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: timing::writes(frame.timestamps, i as u32),
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(&self.pipelines.shadow);
+                pass.set_bind_group(0, &self.scene_binds[self.current], &[]);
+                pass.set_bind_group(1, &shadows.cameras[i], &[]);
+                pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
+                pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
+                for batch in &self.batches {
+                    if batch.slots.is_empty() || !batch.casts_shadows {
+                        continue;
+                    }
+                    let mesh = &self.meshes[batch.mesh.0];
+                    pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, batch.slots.clone());
+                    extra_draws += 1;
+                }
+            }
+        }
         {
-            let sky = frame.environment.sky;
+            let sky = frame.environment.horizon;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("game forward"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -298,11 +376,16 @@ impl Renderer {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: timing::writes(frame.timestamps, 3),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.pipelines.forward);
+            let variant = usize::from(self.shadows.is_some())
+                + 2 * usize::from(frame.environment.fog.is_some());
+            pass.set_pipeline(&self.pipelines.forward[variant]);
+            if let Some(shadows) = &self.shadows {
+                pass.set_bind_group(1, &shadows.sample, &[]);
+            }
             pass.set_bind_group(0, &self.scene_binds[self.current], &[]);
             pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
             pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
@@ -313,6 +396,14 @@ impl Renderer {
                 let mesh = &self.meshes[batch.mesh.0];
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, batch.slots.clone());
             }
+            if frame::has_sky(frame) {
+                pass.set_pipeline(&self.pipelines.sky);
+                pass.draw(0..3, 0..1);
+                extra_draws += 1;
+            }
+        }
+        if let Some(bloom) = &self.bloom {
+            extra_draws += bloom.encode(&mut encoder, &self.pipelines, frame.timestamps);
         }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -327,16 +418,20 @@ impl Renderer {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes: timing::writes(frame.timestamps, 15),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.pipelines.tone);
+            pass.set_pipeline(&self.pipelines.tone[usize::from(self.bloom.is_some())]);
+            if let Some(bloom) = &self.bloom {
+                pass.set_bind_group(1, &bloom.binds[0], &[]);
+            }
             pass.set_bind_group(0, &self.targets.tone_bind, &[]);
             pass.draw(0..3, 0..1);
         }
         queue.submit([encoder.finish()]);
         let mut stats = self.counts;
+        stats.draws += extra_draws;
         #[cfg(not(target_arch = "wasm32"))]
         {
             stats.encode_us = start.elapsed().as_secs_f64() * 1_000_000.0;
@@ -402,33 +497,4 @@ fn scene_binds(
             entries: &entries,
         })
     })
-}
-
-fn frame_uniform(frame: &FrameInput<'_>) -> [f32; 164] {
-    let mut data = [0.0; 164];
-    data[..16].copy_from_slice(&(frame.proj * frame.view).to_cols_array());
-    data[16..19].copy_from_slice(&frame.camera_position.to_array());
-    data[19] = frame.alpha.clamp(0.0, 1.0);
-    if let Some(sun) = frame.sun {
-        data[20..23].copy_from_slice(&sun.direction.to_array());
-        data[23] = sun.illuminance;
-        data[24..27].copy_from_slice(&sun.color.to_array());
-    }
-    data[27] = frame.points.len().min(16) as f32;
-    data[28..31].copy_from_slice(&frame.environment.sky);
-    data[31] = frame.environment.ambient;
-    data[32..35].copy_from_slice(&frame.environment.ground);
-    data[35] = frame.exposure;
-    for (point, out) in frame
-        .points
-        .iter()
-        .take(16)
-        .zip(data[36..].chunks_exact_mut(8))
-    {
-        out[..3].copy_from_slice(&point.position.to_array());
-        out[3] = point.range;
-        out[4..7].copy_from_slice(&point.color.to_array());
-        out[7] = point.intensity;
-    }
-    data
 }
