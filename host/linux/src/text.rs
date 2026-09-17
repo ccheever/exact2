@@ -14,7 +14,7 @@
 //! once per (glyph, color) into small premultiplied pixmaps.
 
 mod cache;
-pub use cache::{Residency, RetiringResidency};
+pub use cache::{HandoffResidency, Residency, RetiringResidency};
 
 use crate::image::Assets;
 use cosmic_text::{
@@ -604,6 +604,17 @@ impl TextEngine {
         self.paragraphs.residency()
     }
 
+    /// Bounded pending measurements, reported separately from overlapping frame
+    /// owners and the cold target. This is not a total resident-memory estimate.
+    pub fn handoff_residency(&self) -> HandoffResidency {
+        self.paragraphs.handoff_residency()
+    }
+
+    pub(crate) fn finish_text_frame(&mut self) {
+        self.paragraphs.finish_handoff();
+        self.trim_paragraphs();
+    }
+
     pub(crate) fn retiring_accepted<'a>(
         &self,
         accepted: impl Iterator<Item = &'a Rc<Paragraph>>,
@@ -619,6 +630,10 @@ impl TextEngine {
     /// Accepted frames pin snapshots; width lookup does not own their lifetime.
     pub fn paragraph(&mut self, spec: &Spec, width: Option<f32>) -> Rc<Paragraph> {
         let key = self.paragraphs.identity(spec);
+        self.paragraph_for(spec, width, key)
+    }
+
+    fn paragraph_for(&mut self, spec: &Spec, width: Option<f32>, key: (u64, u64)) -> Rc<Paragraph> {
         if let Some(p) = self.paragraphs.get(key, width.into()) {
             return p;
         }
@@ -778,6 +793,9 @@ impl TextEngine {
         if let Some(metrics) = self.paragraphs.intrinsic(key, minimum) {
             return metrics;
         }
+        // No intrinsic Buffer enters the handoff set. A miss trades this
+        // identity's pending definite result for scratch; accepted owners remain.
+        self.paragraphs.release_handoff(key.1);
         self.paragraphs.before_shape(key);
         let width = if minimum {
             if spec.overflow_wrap == exact_kernel::OverflowWrap::BreakWord {
@@ -804,7 +822,14 @@ impl TextEngine {
         let started = Instant::now();
         let before = self.shape_calls;
         let metrics = match width {
-            AxisOffer::Definite(w) => paragraph_metrics(&self.paragraph(spec, Some(w.max(0.0)))),
+            AxisOffer::Definite(w) => {
+                let width = Some(w.max(0.0));
+                let key = self.paragraphs.identity(spec);
+                self.paragraphs.prepare_handoff(key.1, width.into());
+                let p = self.paragraph_for(spec, width, key);
+                self.paragraphs.hold_measured(key.1, width.into(), &p);
+                paragraph_metrics(&p)
+            }
             AxisOffer::MaxContent => self.intrinsic(spec, false),
             AxisOffer::MinContent => self.intrinsic(spec, true),
         };

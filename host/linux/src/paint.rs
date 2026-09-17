@@ -284,11 +284,17 @@ impl Painter {
         if let Some((px, py)) = scene.pointer {
             self.backend.pointer(px, py);
         }
-        let pixmap = self.backend.finish()?;
+        let finished = self.backend.finish();
         // Publication is the ownership boundary. On Err the previous accepted
         // set remains intact; candidate leases simply unwind with `walk`.
-        self.accepted_text = walk.text;
-        self.text.borrow_mut().trim_paragraphs();
+        if finished.is_ok() {
+            self.accepted_text = walk.text;
+        } else {
+            drop(walk.text);
+        }
+        // Pending measurements end with every paint attempt, including failure.
+        self.text.borrow_mut().finish_text_frame();
+        let pixmap = finished?;
         Ok(Frame {
             pixmap,
             boxes: walk.boxes,

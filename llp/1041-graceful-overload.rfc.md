@@ -857,12 +857,32 @@ about 0.231 ms. Both 4 MiB traces abort inside cosmic shaping/layout with one
 accepted giant Buffer and one replacement being built. This identifies the
 failing stage and overlap, not the private allocation responsible for the limit.
 
-Newton owns a bounded measurement-to-paint handoff correction and Epicurus owns
-conservative CPU ink selection, starting 2026-09-17 in separate worktrees.
-Tests must retain successful-frame ownership and the complete source/layout,
-compare clipped pixels with the full painter, and account retained indexes.
-Neither change is implemented by recording this trace; shared shaping and
-asynchronous presentation remain separate unresolved work.
+**Measured handoff correction, Newton/Tuft, 2026-09-17:** at most 64 exact
+paragraph identities retain their latest definite-width result until the next
+paint attempt finishes. Unrelated control measurement and cold-cache trimming
+cannot evict that result. A replacement width retires the previous handoff
+before allocation; an intrinsic miss releases its identity's handoff before
+shaping scratch, while a scalar hit preserves it. Successful painting installs
+generational accepted-owner leases; failed painting preserves the previous
+accepted set. Both paths drain the transient handoffs. This is a count bound,
+not a byte/process ceiling or a promise to retain every exploratory width.
+Separate diagnostics report its cost without summing overlapping accepted and
+cache categories. Twenty-two residency tests and seven existing text tests pass,
+including the real Taffy giant-then-small-control regression and failure cleanup.
+
+A new actual-Linux instrumented 1 MiB pair uses the same frozen baseline,
+fonts and driver. Each arm offers width 633 once. The baseline builds twice
+(measurement then paint); the correction builds once and paint reuses that exact
+backing. Document hash and complete measured geometry match. The one-pair
+first-fresh request is 550.956→364.133 ms, and the queued input acknowledgement
+is 752.051→555.498 ms. This is nonquiet CPU/IPC evidence, not a repeated latency
+benchmark or physical presentation result. `target/linux-text-trace/handoff-20260917/`
+retains raw traces, source identities and binaries; the corrected executable
+SHA-256 is `f4bb846c9f4ba5d13915d1182d67c1cacde5a3201ba8f18221319ed33b6746b9`.
+Warm painting still visits 978,600 glyphs. Epicurus owns conservative CPU ink
+selection in a separate worktree, with exhaustive clipped-pixel comparisons and
+index accounting required before integration. The 4 MiB accepted-plus-working
+peak, shared shaping and asynchronous presentation remain unresolved.
 
 **Apple engine:** twenty-five actual engine methods pass 437 assertions in the
 optimized standalone harness, including complete Unicode ranges, independent

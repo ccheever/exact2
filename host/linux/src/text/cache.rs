@@ -1,11 +1,14 @@
-//! Width snapshots are weakly indexed; only cold entries are cache-owned.
+//! Width snapshots are weakly indexed; cold entries and bounded handoffs are owned.
 //! A painter pins each accepted generational node independently of text identity.
 //! A new width retires the previous unpinned widths of that exact identity before
-//! allocation. The latest result stays available for measurement-to-paint handoff.
+//! allocation. At most 64 identities keep their latest definite measurement until
+//! the next paint attempt ends. This transient category has a count cap, not a byte
+//! cap. Intrinsic misses retire their identity's handoff before allocating scratch;
+//! cached scalar hits do not. Other widths/offers are not promised retention.
 //! The cold target is enforced on maintenance, not on last-caller drop or hits:
-//! an oversized handoff can remain over target while idle. Externally pinned
-//! snapshots are additional live storage; neither their bytes nor paragraph size
-//! are bounded by this target. There is no global single-working-paragraph bound.
+//! an oversized raw lookup result can remain cold and over target while idle.
+//! Handoffs and externally pinned snapshots are additional live storage; neither
+//! their bytes nor paragraph size are bounded by the cold target.
 use super::{Paragraph, Run, Spec};
 use exact_kernel::TextMetrics;
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
@@ -15,6 +18,30 @@ use std::rc::{Rc, Weak};
 
 pub(super) const COLD_BYTES: usize = 64 * 1024 * 1024;
 pub(super) const COLD_IDENTITIES: usize = 256;
+pub(super) const HANDOFF_IDENTITIES: usize = 64;
+
+/// Transient measured storage awaiting a paint attempt. Unique backings are
+/// counted once here, but can also belong to accepted owners/residency: do not
+/// add these categories to claim a total. Keys/font scratch/allocator are excluded.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct HandoffResidency {
+    /// Distinct exact content/metric identities with pending measurements.
+    pub identities: usize,
+    /// Count limit, not a byte limit or a bound on all live paragraph owners.
+    pub identity_limit: usize,
+    /// Unique backing allocations in this transient set.
+    pub paragraphs: usize,
+    /// Exact accessible vector capacities of those unique backings.
+    pub owned_capacity_bytes: usize,
+    /// Private BufferLine text lengths, not their inaccessible capacities.
+    pub private_text_bytes_estimate: usize,
+    /// Accessible capacities plus private text-length estimates, excluding keys.
+    pub policy_bytes: usize,
+    /// Comparison only: the cold target does not limit live handoff storage.
+    pub cold_target_reference_bytes: usize,
+    /// Positive excess over that reference, not a violated handoff byte limit.
+    pub above_cold_target_bytes: usize,
+}
 
 /// Catalog-local paragraph storage. Vector/String capacities below are exact
 /// accessible storage, not allocator/RSS accounting. Cosmic private caches,
@@ -27,7 +54,8 @@ pub struct Residency {
     pub private_text_bytes_estimate: usize,
     /// Unique live Buffer snapshots, including cache and painter owners.
     pub paragraphs: usize,
-    /// Snapshots retained by a caller/accepted or building frame.
+    /// Snapshots retained by a caller, frame, or measured handoff. These overlap
+    /// HandoffResidency; they are not an accepted-frame-only count.
     pub pinned_paragraphs: usize,
     /// Snapshots owned only by the cache.
     pub cold_paragraphs: usize,
@@ -89,6 +117,12 @@ struct Identity {
     intrinsic: [Option<TextMetrics>; 2],
     used: u64,
 }
+
+struct Handoff {
+    identity: u64,
+    width: Width,
+    paragraph: Rc<Paragraph>,
+}
 impl Identity {
     fn pinned(&self) -> bool {
         self.widths.values().any(Snapshot::pinned)
@@ -110,6 +144,8 @@ pub(super) struct Cache {
     serial: u64,
     clock: u64,
     target: usize,
+    // Oldest measurement first; refreshed deterministically, never width history.
+    handoffs: Vec<Handoff>,
 }
 impl Default for Cache {
     fn default() -> Self {
@@ -118,10 +154,65 @@ impl Default for Cache {
             serial: 0,
             clock: 0,
             target: COLD_BYTES,
+            handoffs: Vec::new(),
         }
     }
 }
 impl Cache {
+    pub fn prepare_handoff(&mut self, identity: u64, width: Width) {
+        if let Some(index) = self.handoffs.iter().position(|h| h.identity == identity) {
+            if self.handoffs[index].width == width {
+                return;
+            }
+            self.handoffs.remove(index);
+        }
+        if self.handoffs.len() == HANDOFF_IDENTITIES {
+            self.handoffs.remove(0);
+        }
+    }
+
+    pub fn hold_measured(&mut self, identity: u64, width: Width, paragraph: &Rc<Paragraph>) {
+        self.release_handoff(identity);
+        if self.handoffs.len() == HANDOFF_IDENTITIES {
+            self.handoffs.remove(0);
+        }
+        self.handoffs.push(Handoff {
+            identity,
+            width,
+            paragraph: paragraph.clone(),
+        });
+    }
+
+    pub fn release_handoff(&mut self, identity: u64) {
+        if let Some(index) = self.handoffs.iter().position(|h| h.identity == identity) {
+            self.handoffs.remove(index);
+        }
+    }
+
+    pub fn finish_handoff(&mut self) {
+        self.handoffs.clear();
+    }
+
+    pub fn handoff_residency(&self) -> HandoffResidency {
+        let mut result = HandoffResidency {
+            identities: self.handoffs.len(),
+            identity_limit: HANDOFF_IDENTITIES,
+            cold_target_reference_bytes: self.target,
+            ..HandoffResidency::default()
+        };
+        let mut unique = HashSet::new();
+        for h in &self.handoffs {
+            if unique.insert(Rc::as_ptr(&h.paragraph)) {
+                result.paragraphs += 1;
+                result.owned_capacity_bytes += h.paragraph.resident_capacity_bytes;
+                result.private_text_bytes_estimate += h.paragraph.private_text_bytes_estimate;
+            }
+        }
+        result.policy_bytes = result.owned_capacity_bytes + result.private_text_bytes_estimate;
+        result.above_cold_target_bytes = result.policy_bytes.saturating_sub(self.target);
+        result
+    }
+
     pub fn identity(&mut self, spec: &Spec) -> (u64, u64) {
         let hash = fingerprint(spec);
         self.clock += 1;
@@ -255,9 +346,10 @@ impl Cache {
         }
         result
     }
-    /// Drop cold snapshots/metadata, preserving weak dedup for frame-owned ones.
+    /// Drop cold/transient ownership, preserving weak dedup for frame-owned ones.
     #[cfg(test)]
     pub fn clear(&mut self) {
+        self.handoffs.clear();
         for entry in self.identities.values_mut().flatten() {
             for snapshot in entry.widths.values_mut() {
                 snapshot.cold = None;
