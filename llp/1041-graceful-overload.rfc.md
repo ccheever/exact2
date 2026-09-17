@@ -1713,6 +1713,22 @@ baseline and CPU-pixel comparisons. Strict all-target Clippy and scoped formatti
 pass. The system-font fixture captures 811,618,692 bytes (about 774MiB): shared
 owned font content, not RSS, a peak bound or a claim that the new generation fits
 the previous 4MiB process cap. Ordinary TextEngine startup does not eagerly perform
-this capture. Actual-Linux transfer/controller acceptance remains separate.
+this capture. Native controller acceptance remains separate.
 Exact seven-file sources, behavioral failures, independent review and integration
 logs are retained in `target/text-transfer-validation/`.
+
+A frozen `6b03bf4` actual Ubuntu ARM64 run then passes 42 scoped tests: 17 transfer,
+four sharing, 14 CPU ink oracles and seven text integration tests. The existing
+GPU-device test is unselected; this is not GPU rendering or cross-platform font
+pixel equality. That VM's 39 faces use 13 captured font files totaling 107,296,644
+bytes (about 102MiB), separately from the Mac's catalog. All four test processes
+complete under the retained 2.5GiB address-space guard, but they are not a giant
+controller drive. One staging-permission failure before Cargo is preserved;
+source, dependency, symlink and font identities remain unchanged. Exact binaries,
+raw outputs and cleanup are in `target/linux-text-transfer-native-execution-v2/`.
+
+The transferred paragraph currently adopts an empty lazy ink cache. First UI
+paint can still scan the full glyph layout to build that index, in addition to
+normal visible-glyph raster work. Worker index preparation with exact scale and
+catalog identity is the next prerequisite; zero UI font reconstruction or shaping
+does not establish a warmed first paint or responsive native publication.
