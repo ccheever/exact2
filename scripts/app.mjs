@@ -261,6 +261,12 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   const compat = JSON.parse(readFileSync(resolve(rootOutput, 'compat.json'), 'utf8'));
   if (compat.target !== target || compat.inputs.platform !== platform || compat.inputs.app !== app.id) throw new Error('actual bake receipt names another target, platform or app');
   const bundleGraph = JSON.parse(readFileSync(resolve(rootOutput, 'artifacts.json'), 'utf8'));
+  // Recreate packaging outputs from Cargo's actual bake, even on a cache hit.
+  // A build script must never watch its own receipt: writing it dirties every next build.
+  const stem = `${platform}-${target}`;
+  for (const [file, suffix] of [['compat.json', '.json'], ['app.plan', '.plan'], ['artifacts.json', '.artifacts.json']]) {
+    writeFileSync(resolve(env.EXACT_BAKE_OUTPUT, stem + suffix), readFileSync(resolve(rootOutput, file)));
+  }
   const replaced = new Set(['app.plan','compat.json','artifacts.json'].map((n) => resolve(rootOutput,n)));
   const packages = [...graph.roles.keys()].map((id) => graph.packages.get(id));
   const locations = packages.map((p) => ({ path: dirname(p.manifest_path), name:`crate:${p.name}@${p.version}` })).sort((a,b) => b.path.length-a.path.length);
@@ -404,8 +410,10 @@ export function buildBake(app, platform, target, options = {}) {
       releases.push(claimBuildOutput(app, path));
     }
   for(const {pkg,unit} of selected) {
-    const dep=resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}-${pkg.name}.d`);
-    const args=['rustc','--locked','--offline','-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(pkg.id===graph.surface?.id?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json','--',`--emit=dep-info=${dep}`];
+    // Web root artifacts expose rustc's ordinary .d; preserve it so Cargo can cache the link.
+    // Native static archives still need the explicit unit path for their source receipt.
+    const dep=platform==='web'?null:resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}-${pkg.name}.d`);
+    const args=['rustc','--locked','--offline','-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(pkg.id===graph.surface?.id?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json',...(dep?['--',`--emit=dep-info=${dep}`]:[])];
     const result=buildCommand('cargo',args,app,env);if(result.stderr)process.stderr.write(result.stderr);
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name,dep});
     for(const message of output)if(message.reason==='compiler-message'&&message.message.rendered)process.stderr.write(message.message.rendered);

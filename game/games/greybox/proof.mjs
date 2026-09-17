@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'n
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
+import { spawnSync } from 'node:child_process';
 import { open, render } from '../../../scripts/agent.mjs';
 
 const app = fileURLToPath(new URL('.', import.meta.url));
@@ -11,7 +12,8 @@ const root = resolve(app, '../../..');
 process.env.EXACT_APP_DIR = app;
 const host = process.argv[2] ?? 'web';
 const scratch = resolve(process.env.EXACT_GREYBOX_PROOF ?? resolve(root, 'game/target/greybox-proof'));
-const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(root, 'host/web/dist'));
+const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(app, 'dist'));
+Object.assign(process.env, {EXACT_WEB_DIST:dist, EXACT_UPDATE_TRUST:'development', CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(root, 'game/target')});
 mkdirSync(scratch, { recursive: true });
 const started = performance.now(), failures = [], transcript = [], replies = [];
 const say = (line) => { transcript.push(line); console.log(line); };
@@ -39,6 +41,8 @@ async function op(label, invoke) {
 }
 try {
   if (host !== 'web') throw new Error('This S0 proof drives the web host; Apple input/world seams are a later slice.');
+  const build = spawnSync('bun', [resolve(root, 'host/web/build.mjs')], {cwd:root, env:process.env, stdio:'inherit'});
+  if (build.status !== 0) throw new Error('shared web build failed');
   session = await open({ host, app: 'greybox', size: [1280, 720], webDist: dist });
   const s = session;
   const title = await op('tree', () => s.tree());
@@ -93,7 +97,7 @@ try {
   const settled = await op('clock settle', () => s.clock('settle'));
   check(settled?.settled === true && settled?.world?.[0]?.quiescent === true, 'world settles after movement and beacon spring', settled);
   const hud = await op('tree', () => s.tree());
-  check(node(hud, 'hud-beacons')?.props?.text === 'Beacons 1 / 1', 'message → slot → resource → HUD text', node(hud, 'hud-beacons'));
+  check(node(hud, 'hud-beacons')?.props?.text === 'Beacons 1 / 1', 'typed surface record → HUD text', node(hud, 'hud-beacons'));
   await op('state', () => s.state());
   const logs = await op('logs', () => s.logs());
   check(logs?.world?.some(w => w.lines.some(line => line.includes('beacon-1 lit'))), 'world journal carries beacon-1 lit', logs?.world);

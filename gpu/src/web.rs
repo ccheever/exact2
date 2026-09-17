@@ -166,6 +166,11 @@ pub fn input(id: u32, event: &str) -> bool {
     with(|m| m.input_json(id, event)).unwrap_or(false)
 }
 
+/// Take the latest changed public record, if any.
+pub fn published(id: u32) -> Option<String> {
+    with(|m| m.take_published(id)).flatten()
+}
+
 /// Drain posted messages as a JSON array.
 pub fn messages(id: u32) -> String {
     json::strings(&with(|m| m.take_messages(id)).unwrap_or_default())
@@ -273,6 +278,12 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_input(id: u32, event_json: &str) -> bool {
             $crate::web::input(id, event_json)
+        }
+
+        /// Take the changed public record, if any.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_published(id: u32) -> Option<String> {
+            $crate::web::published(id)
         }
 
         /// Drain messages as a JSON array.

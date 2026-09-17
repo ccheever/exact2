@@ -13,6 +13,7 @@ mod delivery;
 mod kept;
 pub mod router;
 mod settlement;
+mod surface_record;
 mod viewport;
 pub use carry::Carried;
 pub use router::RouterChange;
@@ -270,6 +271,7 @@ pub struct Runner<D: DataSource> {
     delivery: crate::delivery::Delivery,
     // @ref LLP 1039 D2 — the layout size before settlement.
     viewport: crate::Viewport,
+    surface_records: std::collections::BTreeMap<String, String>,
     router: Option<router::RouterContext>,
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
@@ -448,6 +450,7 @@ impl<D: DataSource> Runner<D> {
                 resource.reader
                     || plan.str(resource.source) == crate::delivery::SOURCE
                     || plan.str(resource.source) == crate::viewport::SOURCE
+                    || plan.str(resource.source) == crate::surface_record::SOURCE
                     || (same_logic
                         && carried.is_some_and(|carried| {
                             let name = plan.str(resource.name);
@@ -483,6 +486,7 @@ impl<D: DataSource> Runner<D> {
             keeps_answers: false,
             delivery,
             viewport,
+            surface_records: Default::default(),
             router,
             poisoned: false,
             journal: std::collections::VecDeque::new(),
@@ -1278,6 +1282,12 @@ impl<D: DataSource> Runner<D> {
         if source == crate::viewport::SOURCE {
             return self
                 .viewport_answer(i)
+                .map(Answer::Now)
+                .map_err(|error| RunnerError::Data { resource, error });
+        }
+        if source == crate::surface_record::SOURCE {
+            return self
+                .surface_answer(i)
                 .map(Answer::Now)
                 .map_err(|error| RunnerError::Data { resource, error });
         }

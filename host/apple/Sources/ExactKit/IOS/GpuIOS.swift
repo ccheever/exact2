@@ -116,6 +116,7 @@ final class Canvases {
         if let e = entries.removeValue(forKey: view) {
             e.view.canvasInput = nil
             if e.id != 0 { module?.destroy(e.id) }
+            surfaceRecord(e.name, nil)
         }
     }
 
@@ -297,6 +298,7 @@ final class Canvases {
         if bytes.withUnsafeBufferPointer({ m.bind(e.id, $0.baseAddress, bytes.count) }) != 0 {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
         }
+        messages(e)
     }
 
     /// A nested canvas's picture for its ancestor's capture: the last

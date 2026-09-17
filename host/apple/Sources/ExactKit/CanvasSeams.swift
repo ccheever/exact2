@@ -23,7 +23,18 @@ extension Canvases {
         return true
     }
 
+    func surfaceRecord(_ name: String, _ json: String?) {
+        guard let s = session else { return }
+        s.apply(s.runtime.surfaceRecord(name, json))
+    }
+
     func messages(_ e: Entry) {
+        if live(e.view.id) === e, let m = module, let take = m.published {
+            let length = take(e.id)
+            if length != UInt32.max, let data = length == 0 ? Data() : m.output(length) {
+                surfaceRecord(e.name, String(decoding: data, as: UTF8.self))
+            }
+        }
         guard live(e.view.id) === e, let m = module, let take = m.messages,
               let data = m.output(take(e.id)) else { return }
         guard let texts = try? JSONSerialization.jsonObject(with: data) as? [String] else {

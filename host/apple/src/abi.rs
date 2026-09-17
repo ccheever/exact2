@@ -682,6 +682,19 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// A name alone clears a surface; name NUL JSON publishes it, even if empty.
+    pub fn surface_record(&mut self, len: usize) -> u32 {
+        let text = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        let (name, json) = text
+            .split_once('\0')
+            .map_or((text.as_ref(), None), |(name, json)| (name, Some(json)));
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("surface record: not booted"),
+            |host| host.surface_record(name, json),
+        );
+        self.emit(out)
+    }
+
     /// The viewport changed.
     pub fn resize(&mut self, width: f32, height: f32) -> u32 {
         let out = self
@@ -1124,6 +1137,12 @@ macro_rules! host {
         }
 
         /// The viewport changed; returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_surface_record(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.surface_record(len), |n| n)
+        }
+
+        /// The viewport changed; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_resize(rt: u32, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.resize(width, height), |n| n)

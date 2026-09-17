@@ -2,15 +2,17 @@
 // Command-line proof of the real canvas app, plus fresh-process Sim persistence.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { spawnSync } from 'node:child_process';
 import { open } from '../../../scripts/agent.mjs';
 const app = new URL('.', import.meta.url).pathname;
 const out = resolve(app, 'artifacts');
+const root = resolve(app, '../../..');
 mkdirSync(out, { recursive: true });
 mkdirSync(resolve(app, 'target/tmp'), { recursive: true });
 Object.assign(process.env, {
   EXACT_APP_DIR: app, EXACT_UPDATE_TRUST: 'development',
-  CARGO_TARGET_DIR: resolve(app, 'target'), TMPDIR: resolve(app, 'target/tmp'),
+  EXACT_WEB_DIST: resolve(app, 'dist'), CARGO_TARGET_DIR: resolve(app, 'target'), TMPDIR: resolve(app, 'target/tmp'),
 });
 const started = performance.now(), failures = [], transcript = [], replies = [];
 const say = line => { console.log(line); transcript.push(line); };
@@ -118,6 +120,10 @@ async function run(number) {
 }
 try {
   say(`START ${new Date().toISOString()}`);
+  const build = spawnSync('bun', [resolve(root, 'host/web/build.mjs')], {cwd:root, env:process.env, stdio:'inherit'});
+  if (build.status !== 0) throw new Error('shared web build failed');
+  const wasm = readFileSync(resolve(app, 'dist/app.wasm'));
+  say(`APP bytes ${JSON.stringify({raw:wasm.length,gzip:gzipSync(wasm,{level:9}).length})}`);
   const a = await run(1), b = await run(2);
   check(equal(a,b),'two fresh browser runs have identical full entity states, ticks and hashes');
   writeFileSync(resolve(out,'runs.json'),JSON.stringify({a,b},null,2)+'\n');
@@ -125,7 +131,7 @@ try {
   check(native.status===0,'native checkpoint executable builds',native.stderr);
   if (native.status===0) {
     for (const mode of ['original','restored']) {
-      const child = spawnSync(resolve(app,'target/debug/examples/checkpoint'),[mode,out],{encoding:'utf8',timeout:240000});
+      const child = spawnSync(resolve(app,'target/debug/examples/checkpoint'),[mode,out],{encoding:'utf8',timeout:60000});
       check(child.status===0,`${mode} save process exits`,child.stdout || child.stderr || child.error?.message);
     }
     check(readFileSync(resolve(out,'original.world')).equals(readFileSync(resolve(out,'restored.world'))),

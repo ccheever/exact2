@@ -10,9 +10,8 @@ build = "build.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-exact-logic = { path = "../../../../logic" }
+exact-runner = { path = "../../../../runner" }
 exact-web = { path = "../../../../host/web" }
-exact-js-web = { path = "../../../../js/web" }
 
 [build-dependencies]
-exact-js-bake = { path = "../../../../js/bake" }
+exact-game-app = { path = "../../../app" }

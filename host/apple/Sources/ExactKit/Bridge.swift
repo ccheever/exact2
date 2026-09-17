@@ -102,6 +102,10 @@ final class Runtime {
     func dblclick(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 11, 0, now)) }
     func submit(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 7, 0, now)) }
     func load(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 8, 0, now)) }
+    func surfaceRecord(_ name: String, _ json: String?) -> Batch {
+        let n = write(name + (json.map { "\0" + $0 } ?? ""))
+        return read(exact_surface_record(rt, n))
+    }
     func message(_ view: UInt32, _ value: String, now: Double) -> Batch {
         let n = write(value)
         return read(exact_dispatch(rt, view, 9, n, now))

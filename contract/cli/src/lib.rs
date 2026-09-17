@@ -491,6 +491,7 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
     }
     delivery_shape(&plan)?;
     viewport_shape(&plan)?;
+    surface_shape(&plan)?;
     let mut runner = Runner::boot(
         plan.clone(),
         data,
@@ -598,6 +599,34 @@ fn viewport_shape(plan: &Plan) -> Result<(), BakeError> {
                     ),
                 });
             }
+        }
+    }
+    Ok(())
+}
+
+/// Surface records are runner-owned and default before the module loads.
+fn surface_shape(plan: &Plan) -> Result<(), BakeError> {
+    use exact_runner::surface_record::{surface_name, SOURCE};
+    for row in plan
+        .resources
+        .iter()
+        .filter(|r| plan.str(r.source) == SOURCE)
+    {
+        let name = plan.str(row.name);
+        let fail = |message: String| BakeError::Lint {
+            id: "bake-surface-record",
+            message: format!("resource `{name}`: {message}"),
+        };
+        let surface = surface_name(plan, row).ok_or_else(|| {
+            fail(format!(
+                "{SOURCE} takes exactly one string-literal surface name"
+            ))
+        })?;
+        if plan.type_(row.ty).kind != exact_plan::TypeKind::Record {
+            return Err(fail(format!("{SOURCE} must be `as shape` a record")));
+        }
+        if !plan.surfaces.iter().any(|s| plan.str(s.name) == surface) {
+            return Err(fail(format!("surface `{surface}` is not used by a canvas")));
         }
     }
     Ok(())

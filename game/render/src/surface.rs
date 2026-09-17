@@ -235,6 +235,9 @@ impl<G: Game> Surface for WorldSurface<G> {
         };
         sim.input(e);
     }
+    fn published(&mut self) -> Option<String> {
+        self.sim.as_mut().and_then(Sim::take_published)
+    }
     fn messages(&mut self) -> Vec<String> {
         self.sim.as_mut().map_or_else(Vec::new, Sim::take_messages)
     }

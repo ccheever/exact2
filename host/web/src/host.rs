@@ -304,6 +304,22 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Layout viewport changes re-answer the app in the same returned batch.
+    /// A surface changed its current public record, or was disposed.
+    pub fn surface_record(&mut self, name: &str, json: Option<&str>) -> String {
+        let (receipts, error) = match self.runner.set_surface_record(name, json) {
+            Ok(Some(receipt)) => (
+                vec![Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => (vec![], None),
+            Err(error) => (vec![], Some(format!("surface {name}: {error:?}"))),
+        };
+        self.batch_for(&receipts, error.as_deref())
+    }
+
     /// @ref LLP 1039 D2
     pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> String {
         let a = self.runner.advance_timed(now_ms);

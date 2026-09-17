@@ -37,6 +37,7 @@ pub mod request;
 pub mod runner;
 pub mod stdlib;
 pub mod store;
+pub mod surface_record;
 pub mod viewport;
 pub mod vm;
 

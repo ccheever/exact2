@@ -2,7 +2,7 @@
 # from the root `members`, so exact2's five checks never compile it. It consumes
 # exact2 by path, as an app outside the repository does.
 [workspace]
-members = ["engine", "derive", "render", "physics", "audio"]
+members = ["engine", "derive", "render", "physics", "audio", "app"]
 resolver = "2"
 
 [workspace.package]
@@ -32,3 +32,6 @@ debug = true
 # in a dev build.
 [profile.dev.package."*"]
 opt-level = 3
+
+[patch.crates-io]
+taffy = { path = "../vendor/taffy" }

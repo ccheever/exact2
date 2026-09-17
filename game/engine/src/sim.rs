@@ -67,7 +67,6 @@ struct Saved {
     world_us: i64,
     journal: Vec<Event>,
     journal_next: u64,
-    messages_pending: bool,
     published: std::collections::BTreeMap<String, Value>,
 }
 /// The clock, bounded device queue, and a game's world, without a host or GPU.
@@ -99,6 +98,7 @@ impl<G: Game> Sim<G> {
         let mut world = World::new(G::HZ, 0);
         world.register_scene();
         G::setup(&mut world, &args)?;
+        world.published_pending.set(true);
         world.args = args;
         world.propagate();
         Ok(world)
@@ -432,13 +432,16 @@ impl<G: Game> Sim<G> {
     pub fn world_mut(&mut self) -> &mut World {
         &mut self.world
     }
-    /// Drain at most one complete publication record whenever any key changed.
+    /// Take the current public record once after a change, rebuild or load.
+    pub fn take_published(&mut self) -> Option<String> {
+        self.world
+            .published_pending
+            .replace(false)
+            .then(|| self.world.published_json(false))
+    }
+    /// Drain only explicit string events, in emission order.
     pub fn take_messages(&mut self) -> Vec<String> {
-        if self.world.messages_pending.replace(false) {
-            vec![self.world.published_json(false)]
-        } else {
-            vec![]
-        }
+        std::mem::take(&mut *self.world.messages.borrow_mut())
     }
     /// Paused worlds are settled; otherwise inspect springs and game-declared work.
     pub fn quiescent(&self) -> bool {
@@ -477,7 +480,6 @@ impl<G: Game> Sim<G> {
             published: self.world.publications(),
             journal: self.world.journal(),
             journal_next: self.world.journal_next(),
-            messages_pending: self.world.messages_pending.get(),
         };
         let mut bytes = b"EXSIM\0\x02".to_vec();
         bytes.extend(bin::to_vec(&saved));
@@ -522,7 +524,7 @@ impl<G: Game> Sim<G> {
         next.world.propagate();
         next.world.restore_journal(s.journal, s.journal_next);
         next.world.restore_publications(s.published);
-        next.world.messages_pending.set(s.messages_pending);
+        next.world.published_pending.set(true);
         next.input.restore_dynamic(s.input);
         next.queue = s.queue.into();
         for e in &mut next.queue {

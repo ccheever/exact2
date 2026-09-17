@@ -103,6 +103,11 @@ pub trait Surface {
     fn messages(&mut self) -> Vec<String> {
         Vec::new()
     }
+    /// The surface's public record — one JSON object — when it changed since last
+    /// asked. The host offers it to the app as `exactSurface("<name>")`.
+    fn published(&mut self) -> Option<String> {
+        None
+    }
     /// An agent request and reply as JSON objects; the host adds clock and size (S3).
     fn agent(&mut self, _request: &str) -> Option<String> {
         None
@@ -204,6 +209,7 @@ pub struct Gpu {
 struct Instance {
     surface: Box<dyn Surface>,
     messages: Vec<String>,
+    published: Option<String>,
     target: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     bound: bool,
@@ -212,6 +218,15 @@ struct Instance {
     children_generation: u32,
     /// Per-child textures (LLP 1014 D5), by index.
     each: Vec<Option<ChildTexture>>,
+}
+
+impl Instance {
+    fn drain(&mut self) {
+        self.messages.extend(self.surface.messages());
+        if let Some(record) = self.surface.published() {
+            self.published = Some(record);
+        }
+    }
 }
 
 /// One direct child's texture on the device (LLP 1014 D5).
@@ -351,6 +366,7 @@ impl Module {
             Instance {
                 surface: factory(),
                 messages: Vec::new(),
+                published: None,
                 target,
                 config,
                 bound: false,
@@ -381,7 +397,7 @@ impl Module {
             return self.fail::<()>("no such canvas").is_some();
         };
         inst.surface.input(event);
-        inst.messages.extend(inst.surface.messages());
+        inst.drain();
         if let Some(SurfaceError(e)) = inst.surface.take_error() {
             self.error = e;
             return false;
@@ -406,6 +422,11 @@ impl Module {
             .unwrap_or_default()
     }
 
+    /// Take the latest changed public record exactly once.
+    pub fn take_published(&mut self, id: u32) -> Option<String> {
+        self.instances.get_mut(&id).and_then(|i| i.published.take())
+    }
+
     /// Ask this canvas an agent question; an answer or posted message marks it dirty.
     pub fn agent(&mut self, id: u32, request: &str) -> Option<String> {
         let Some(inst) = self.instances.get_mut(&id) else {
@@ -415,6 +436,9 @@ impl Module {
         let messages = inst.surface.messages();
         inst.dirty |= reply.is_some() || !messages.is_empty();
         inst.messages.extend(messages);
+        if let Some(record) = inst.surface.published() {
+            inst.published = Some(record);
+        }
         if let Some(SurfaceError(e)) = inst.surface.take_error() {
             self.error = e;
             return None;
@@ -656,6 +680,7 @@ impl Module {
         };
         match inst.surface.bind_at(inputs, at_ms) {
             Ok(()) => {
+                inst.drain();
                 inst.bound = true;
                 inst.dirty = true;
                 true
@@ -714,7 +739,7 @@ impl Module {
         let wants = inst
             .surface
             .render(&frame, &gpu.device, &gpu.queue, &view, inst.config.format);
-        inst.messages.extend(inst.surface.messages());
+        inst.drain();
         if let Some(SurfaceError(e)) = inst.surface.take_error() {
             self.error = e;
             return None;
@@ -919,7 +944,7 @@ impl Module {
             ..*frame
         };
         let result = fixture::render(gpu, inst.surface.as_mut(), &frame);
-        inst.messages.extend(inst.surface.messages());
+        inst.drain();
         if let Some(SurfaceError(e)) = inst.surface.take_error() {
             self.error = e;
             return None;

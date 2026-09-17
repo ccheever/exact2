@@ -334,6 +334,19 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// A name alone clears a surface; name NUL JSON publishes it, even if empty.
+    pub fn surface_record(&mut self, len: usize) -> u32 {
+        let text = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        let (name, json) = text
+            .split_once('\0')
+            .map_or((text.as_ref(), None), |(name, json)| (name, Some(json)));
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("surface record: not booted"),
+            |host| host.surface_record(name, json),
+        );
+        self.emit(out)
+    }
+
     /// Re-answer viewport resources and return the resulting batch.
     /// @ref LLP 1039 D2 — buffers remain host-owned, with no unsafe code.
     pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> u32 {
@@ -514,6 +527,12 @@ macro_rules! host {
         }
 
         /// The layout viewport changed; returns the batch's length (LLP 1039).
+        #[no_mangle]
+        pub extern "C" fn exact_surface_record(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().surface_record(len as usize))
+        }
+
+        /// The viewport changed; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, now_ms))

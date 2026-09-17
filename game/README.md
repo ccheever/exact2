@@ -18,6 +18,7 @@ canvas children are the HUD, a placement is a sign in the world.
 | | |
 |---|---|
 | `engine/` | `exact-game` — the simulation: world, data, ticks, input, scene, the agent's reads. **No GPU, no host.** |
+| `app/` | `exact-game-app` — the shared Rust-only bake for game UIs without data sources. |
 | `derive/` | `exact-game-derive` — `#[derive(Data)]`, `#[derive(Component)]`. No `syn`. |
 | `render/` | `exact-game-render` — the wgpu renderer and `WorldSurface`, the `exact_gpu::Surface` a canvas binds. |
 | `physics/`, `audio/`, `bake/` | as they land |
@@ -77,6 +78,15 @@ bit. What that costs, and the only rules a game author must remember:
 4. State lives in components and resources, nowhere else.
 
 Pixels are held to a band; simulation state is held exactly.
+
+## Publications and events
+
+`World::publish("beacons", count)` updates the current public record. Contract reads
+it with `resource hud = exactSurface("world") as shape Hud`; absent fields default
+and extra keys are ignored. It needs no app data module. `Sim::take_published`
+drains changed state; a rebuilt or restored simulation publishes again.
+`World::emit("won")` separately queues a string for the canvas's `message=` handler.
+Undelivered events are saved in order. An empty queue adds no world save bytes.
 
 ## The agent's interface
 

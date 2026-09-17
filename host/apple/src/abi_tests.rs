@@ -495,3 +495,35 @@ fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
     );
     assert_eq!(bridge.host.as_ref().unwrap().runner().pending(), pending);
 }
+
+#[test]
+fn surface_record_abi_distinguishes_an_invalid_empty_record_from_disposal() {
+    let plan = contract::compile("shape Hud\n  beacons: number\ncomponent App\n  resource hud = exactSurface(\"world\") as shape Hud\n  view\n    text `${hud.beacons}`\n").unwrap();
+    let mut bridge = Bridge::new();
+    bridge.boot(
+        &plan.encode(),
+        StorageModule::default(),
+        Hooks::none(),
+        390.,
+        844.,
+    );
+    let n = bridge.input_write(b"world\0{\"beacons\":2}");
+    bridge.surface_record(n);
+    assert_eq!(
+        bridge.host.as_ref().unwrap().runner().resource("hud"),
+        Some(&Value::record(vec![Value::Number(2.)]))
+    );
+    let n = bridge.input_write(b"world\0");
+    let n = bridge.surface_record(n);
+    let error = String::from_utf8_lossy(bridge.output_bytes(n as usize));
+    assert!(
+        error.contains("hud") && error.contains("expected a value"),
+        "{error}"
+    );
+    let n = bridge.input_write(b"world");
+    bridge.surface_record(n);
+    assert_eq!(
+        bridge.host.as_ref().unwrap().runner().resource("hud"),
+        Some(&Value::record(vec![Value::Number(0.)]))
+    );
+}

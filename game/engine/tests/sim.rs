@@ -208,11 +208,11 @@ fn publication_drain_is_full_and_journal_is_an_indexed_ring() {
     let mut s = sim();
     s.world().publish("a", 2);
     s.world().publish("b", false);
-    assert_eq!(s.take_messages(), ["{\"a\":2,\"b\":false}"]);
+    assert_eq!(s.take_published().as_deref(), Some("{\"a\":2,\"b\":false}"));
     s.world().publish("a", 2);
-    assert!(s.take_messages().is_empty());
+    assert!(s.take_published().is_none());
     s.world().publish("b", true);
-    assert_eq!(s.take_messages(), ["{\"a\":2,\"b\":true}"]);
+    assert_eq!(s.take_published().as_deref(), Some("{\"a\":2,\"b\":true}"));
     for i in 0..5000 {
         s.world().log(format_args!("line {i}"));
     }
@@ -305,4 +305,39 @@ fn settle_host(s: &mut Sim<Counter>) {
         s.advance(reply.settleAt, Clock::Seekable);
     }
     panic!("world did not settle");
+}
+
+#[test]
+fn explicit_events_are_saved_in_order_and_publication_is_separate() {
+    let mut s = sim();
+    let empty_save = s.world().save();
+    let empty_hash = s.world().hash();
+    assert_eq!(s.take_published().as_deref(), Some("{}"));
+    s.world().publish("count", 4);
+    s.world().emit("first");
+    s.world().emit("second");
+    assert_ne!(s.world().hash(), empty_hash);
+    let saved = s.save();
+    let mut restored = sim();
+    restored.restore(&saved).unwrap();
+    assert_eq!(s.take_messages(), ["first", "second"]);
+    assert_eq!(restored.take_messages(), ["first", "second"]);
+    assert!(restored.take_messages().is_empty());
+    assert_eq!(
+        s.world().save(),
+        empty_save,
+        "empty event queue adds no save bytes"
+    );
+    assert_eq!(s.world().hash(), empty_hash);
+    assert_eq!(restored.take_published().as_deref(), Some("{\"count\":4}"));
+    assert_eq!(s.take_published(), Some("{\"count\":4}".into()));
+    let saved = s.save(); // publication was already delivered before this save
+    restored.restore(&saved).unwrap();
+    assert_eq!(restored.take_published().as_deref(), Some("{\"count\":4}"));
+    assert!(restored.take_published().is_none());
+    assert_eq!(
+        restored.save(),
+        saved,
+        "delivery cursor is not simulation state"
+    );
 }

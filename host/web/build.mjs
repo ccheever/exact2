@@ -35,7 +35,7 @@ const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-
 // dist, so a server sees the previous app or the next one, never a mixture;
 // replacing the directory also drops every stale optional/private artifact.
 // Stages live under ignored target/, so even a SIGKILL leaves no source dirt.
-const stages = resolve(root, 'target/web-dist-stages');
+const stages = resolve(app.target, 'web-dist-stages');
 mkdirSync(stages, { recursive: true });
 // A worktree may share target/ through a symlink. This directory is ours;
 // retain its physical name before the strict filesystem reader inventories it.

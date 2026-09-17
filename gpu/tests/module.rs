@@ -164,9 +164,10 @@ mod seams {
             exact_gpu::native::unload();
         }
     }
-    struct Probe(Vec<String>, Option<SurfaceError>);
+    struct Probe(Vec<String>, Option<SurfaceError>, Option<String>);
     impl Surface for Probe {
         fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
+            self.2 = Some("{\"phase\":\"bind\"}".into());
             Ok(())
         }
         fn bind_at(&mut self, inputs: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
@@ -183,10 +184,14 @@ mod seams {
             true
         }
         fn input(&mut self, event: &InputEvent) {
+            self.2 = Some("{\"phase\":\"input\"}".into());
             self.0.push(format!("{event:?}"));
             if matches!(event, InputEvent::Blur { at_ms: -13. }) {
                 self.1 = Some(SurfaceError("input capacity".into()));
             }
+        }
+        fn published(&mut self) -> Option<String> {
+            self.2.take()
         }
         fn messages(&mut self) -> Vec<String> {
             std::mem::take(&mut self.0)
@@ -198,6 +203,7 @@ mod seams {
             if request == "null" {
                 return None;
             }
+            self.2 = Some("{\"phase\":\"agent\"}".into());
             self.0.push("agent".into());
             (request != "{}").then(|| request.to_string())
         }
@@ -213,12 +219,13 @@ mod seams {
             if frame.now_ms == -13. {
                 self.1 = Some(SurfaceError("render capacity".into()));
             }
+            self.2 = Some("{\"phase\":\"render\"}".into());
             self.0.push("render".into());
             false
         }
     }
     static REGISTRY: Registry = Registry {
-        surfaces: &[("probe", 0, || Box::new(Probe(Vec::new(), None)))],
+        surfaces: &[("probe", 0, || Box::new(Probe(Vec::new(), None, None)))],
         shaders: &[],
     };
     exact_gpu::module!(REGISTRY);
@@ -253,6 +260,11 @@ mod seams {
         assert_eq!(exact_gpu::native::bind(id, "[]"), 0);
         assert_eq!(unsafe { gpu_bind_at(id, b"[]".as_ptr(), 2, 500.0) }, 0);
         BINDS.with(|b| assert_eq!(*b.borrow(), [None, Some(500.0)]));
+        assert_eq!(
+            exact_gpu::native::published(id).as_deref(),
+            Some(r#"{"phase":"bind"}"#)
+        );
+        assert_eq!(gpu_published(id), u32::MAX);
         gpu_seekable(true);
         let event = br#"{"t":"blur","at":12.5}"#;
         assert_eq!(unsafe { gpu_input(id, event.as_ptr(), event.len()) }, 0);
@@ -261,6 +273,8 @@ mod seams {
             r#"["Blur { at_ms: 12.5 }"]"#
         );
         assert_eq!(exact_gpu::native::messages(id), "[]");
+        assert!(exact_gpu::native::published(id).is_some());
+        assert_eq!(gpu_published(id), u32::MAX);
         let request = br#"{"op":"state","now":12.5}"#;
         let len = unsafe { gpu_agent(id, request.as_ptr(), request.len()) };
         assert_eq!(
@@ -268,6 +282,13 @@ mod seams {
             request
         );
         assert_eq!(exact_gpu::native::messages(id), r#"["agent"]"#);
+        let n = gpu_published(id);
+        assert_ne!(n, u32::MAX);
+        assert_eq!(
+            unsafe { std::slice::from_raw_parts(gpu_out_ptr(), n as usize) },
+            br#"{"phase":"agent"}"#
+        );
+        assert_eq!(gpu_published(id), u32::MAX);
         assert_eq!(unsafe { gpu_agent(id, b"{}".as_ptr(), 2) }, 0);
         assert_eq!(gpu_messages(id), 9);
         assert_eq!(gpu_messages(id), 2);
@@ -278,6 +299,8 @@ mod seams {
         );
         assert_eq!(exact_gpu::native::messages(id), r#"["render"]"#);
         assert_eq!(exact_gpu::native::messages(id), "[]");
+        assert!(exact_gpu::native::published(id).is_some());
+        assert_eq!(gpu_published(id), u32::MAX);
         FRAMES.with(|f| assert!(f.borrow().last().unwrap().seekable));
         gpu_seekable(false);
         let result = gpu_render(id, 4.0, 4.0, 1.0, 13.0);

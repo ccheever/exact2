@@ -1,22 +1,29 @@
 # Grey box
 
 An ordinary exact2 app: a Contract title screen, then one `world(seed, paused)`
-canvas with two HUD children. `app.ts` shape-checks the world's JSON message;
-`heardMessage → hud → text` is the whole return path. The GPU crate is one macro
-invocation, and the web and Apple adapters follow Weatherlight.
+canvas with two HUD children. `resource hud = exactSurface("world") as shape Hud`
+reads the world's current publication directly, with defaults before it loads.
+There is no TypeScript module or JS engine. The web and Apple adapters each use
+one `exact-game-app` bake call and one generated entry include.
 
-From the exact2 repository root:
+From the repository root:
 
 ```sh
-export EXACT_APP_DIR="$PWD/game/games/greybox"
-export EXACT_UPDATE_TRUST=development
-export CARGO_TARGET_DIR="$PWD/game/target"
-bun host/web/build.mjs greybox-web
 bun game/games/greybox/proof.mjs web
 ```
 
+The proof builds through the shared web script into this game's `dist/`, using
+`game/target/` unless `CARGO_TARGET_DIR` is set. `EXACT_WEB_DIST` overrides dist.
+For a standalone build:
+
+```sh
+EXACT_APP_DIR="$PWD/game/games/greybox" \
+EXACT_WEB_DIST="$PWD/game/games/greybox/dist" \
+CARGO_TARGET_DIR="$PWD/game/target" bun host/web/build.mjs
+```
+
 `EXACT_APP_DIR` must name this Cargo workspace, not `game/`. The ordinary build
-places the result in `host/web/dist/`; `EXACT_WEB_DIST` can isolate it. The proof
+places the result in `host/web/dist/` unless `EXACT_WEB_DIST` is set. The proof
 serves that build through the driver's own ephemeral server, uses one headless
 Chrome session at 1280×720, and closes both. It sets `EXACT_APP_DIR` itself.
 Artifacts default to `game/target/greybox-proof/`; `EXACT_GREYBOX_PROOF` overrides
@@ -59,10 +66,20 @@ That host fix replaces one line in `glue.js`, leaving it at 1,498 lines. Timing
 observations live in `gpu-glue.js`; the driver timestamps trusted clicks before a
 lazy module can exist. No new operation or renderer switch is needed.
 
-Authoring finding: this HUD takes a single shape, resource and message action,
-with the text and button directly inside the canvas. Absolute CSS positioning
-expresses the two corners without a layout workaround. The JSON boundary needs
-an explicit TypeScript check because the surface's messages are strings.
+The HUD now takes a shape and one runner-owned resource; native Contract text and
+buttons remain canvas children. Publications are state, while `World::emit` sends
+ordered string events to an optional `message=` handler. Empty event queues add no
+world save bytes and leave the existing world hash pins unchanged.
+
+Apple E1 validation: the ad-hoc signed macOS app builds through the shared script;
+it was not launched for this slice.
+
+The shared bake watches `app.contract`, `app.json` and existing asset directories,
+not the whole game. Introducing assets should also update the manifest or Contract
+reference. Web staging honors the app Cargo target; the shared filesystem helper
+still writes repository `target/exact-filesystem-tool/`.
+
+The measurements below are the earlier TypeScript baseline.
 
 Measured on this Mac in a fresh headless Chrome profile at 1280×720 (one run,
 with other builds active): title first-contentful-paint 396 ms from navigation;

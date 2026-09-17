@@ -124,8 +124,9 @@ pub struct World {
     resources: BTreeMap<&'static str, Box<dyn Erased>>,
     journal: RefCell<VecDeque<Event>>,
     journal_next: std::cell::Cell<u64>,
-    pub(crate) messages_pending: std::cell::Cell<bool>,
+    pub(crate) published_pending: std::cell::Cell<bool>,
     published: RefCell<BTreeMap<String, Value>>,
+    pub(crate) messages: RefCell<Vec<String>>,
     pub(crate) hierarchy: crate::scene::Hierarchy,
     pub(crate) fresh: Vec<Entity>,
     orphans: Vec<Entity>,
@@ -159,8 +160,9 @@ impl World {
             resources: BTreeMap::new(),
             journal: RefCell::new(VecDeque::new()),
             journal_next: std::cell::Cell::new(0),
-            messages_pending: std::cell::Cell::new(false),
+            published_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),
+            messages: RefCell::new(Vec::new()),
             hierarchy: crate::scene::Hierarchy::default(),
             fresh: vec![],
             orphans: vec![],
@@ -534,7 +536,11 @@ impl World {
         }
         self.log(format_args!("publish {key}: {value:?}"));
         p.insert(key.into(), value);
-        self.messages_pending.set(true);
+        self.published_pending.set(true);
+    }
+    /// Queue a string event for the canvas's `message=` handler, in order, once.
+    pub fn emit(&self, text: impl Into<String>) {
+        self.messages.borrow_mut().push(text.into());
     }
     /// Last value published under a key.
     pub fn published(&self, key: &str) -> Option<Value> {
@@ -573,6 +579,10 @@ impl World {
                 });
             }
             w.end_struct();
+        }
+        if !self.messages.borrow().is_empty() {
+            w.field("messages");
+            self.messages.borrow().write(w);
         }
         w.end_struct();
     }
@@ -661,6 +671,7 @@ impl World {
                     }
                 }
                 "rng" => self.rng().read(r)?,
+                "messages" => self.messages.borrow_mut().read(r)?,
                 "components" | "resources" => {
                     if seen & 1 == 0 {
                         return Err(DataError::new("entity table must precede storage"));

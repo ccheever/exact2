@@ -312,6 +312,11 @@ pub fn input(id: u32, event: &str) -> bool {
     with(|m| m.input_json(id, event)).unwrap_or(false)
 }
 
+/// Take the latest changed public record, if any.
+pub fn published(id: u32) -> Option<String> {
+    with(|m| m.take_published(id)).flatten()
+}
+
 /// Drain posted messages as a JSON array.
 pub fn messages(id: u32) -> String {
     json::strings(&with(|m| m.take_messages(id)).unwrap_or_default())
@@ -535,6 +540,15 @@ macro_rules! module {
             let Some(text) = (unsafe { $crate::native::bytes("gpu_input", text, len) }) else { return 1 };
             let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_input: the event is not UTF-8"); return 1 };
             u32::from(!$crate::native::input(id, text))
+        }
+
+        /// Changed public record in the output buffer; u32::MAX means unchanged.
+        #[no_mangle]
+        pub extern "C" fn gpu_published(id: u32) -> u32 {
+            match $crate::native::published(id) {
+                Some(text) => EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 }),
+                None => u32::MAX,
+            }
         }
 
         /// Drain messages into the shared output buffer; returns its byte length.

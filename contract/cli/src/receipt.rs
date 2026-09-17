@@ -96,10 +96,6 @@ pub(crate) fn emit(
         std::fs::create_dir_all(&destination)
             .map_err(|e| format!("{}: {e}", destination.display()))?;
         let stem = format!("{platform}-{target}");
-        println!(
-            "cargo:rerun-if-changed={}",
-            destination.join(format!("{stem}.json")).display()
-        );
         std::fs::write(destination.join(format!("{stem}.json")), compat.to_json())
             .map_err(|e| e.to_string())?;
         std::fs::write(destination.join(format!("{stem}.plan")), &plan_bytes)
@@ -120,7 +116,10 @@ fn asset_cards(app: &Path) -> Result<Vec<Value>, String> {
     let gate = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/filesystem.mjs");
     println!("cargo:rerun-if-changed={}", gate.display());
     for directory in ["assets", "deck", "gpu/shaders"] {
-        println!("cargo:rerun-if-changed={}", app.join(directory).display());
+        let path = app.join(directory);
+        if path.exists() {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
     }
     let code = r#"
         import {pathToFileURL} from 'node:url';

@@ -148,6 +148,8 @@ uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t le
 /* A horizontal drag offset in points; release returns to authored translate. */
 uint32_t exact_drag_x(ExactRuntime rt, uint32_t view, double delta, double velocity, uint32_t release, double now_ms);
 uint32_t exact_advance(ExactRuntime rt, double now_ms);   /* the runner's clock: timers */
+/* Input: name alone clears; name NUL JSON publishes a current record. */
+uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* The safe-area insets (points) under viewport-fit=cover — what

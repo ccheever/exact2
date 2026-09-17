@@ -114,7 +114,8 @@ fn greybox_surface_agent_pixels_and_beacon() {
         .bind(&[Value::Number(7.), Value::Bool(false)])
         .unwrap();
     assert!(surface.wants_input());
-    assert_eq!(surface.messages().len(), 1);
+    assert!(surface.published().unwrap().contains(r#""beacons":0"#));
+    assert!(surface.published().is_none());
     assert!(surface.messages().is_empty());
     let first = render(&gpu, &mut surface, 0., "world-greybox-0");
     let rect = bounds(&mut surface, "player");
@@ -147,7 +148,7 @@ fn greybox_surface_agent_pixels_and_beacon() {
     let state = surface.agent(r#"{"op":"state"}"#).unwrap();
     assert!(state.contains(r#""wallClock":true"#));
     assert!(state.contains(r#""frameMs":{"p50":0"#));
-    assert!(surface.messages().iter().any(|m| m.contains("1")));
+    assert!(surface.published().unwrap().contains(r#""beacons":1"#));
 }
 // Greybox follows the capsule exactly. Freeze ONLY its camera in this fixture so
 // screen-space movement proves the input → simulation → slot upload path.

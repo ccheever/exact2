@@ -48,7 +48,7 @@ fn forward_parity_and_seek_invariance() {
 #[test]
 fn beacon_messages_journal_and_settle() {
     let mut s = sim();
-    assert_eq!(s.take_messages(), ["{\"beacons\":0}"]);
+    assert_eq!(s.take_published().as_deref(), Some("{\"beacons\":0}"));
     key(&mut s, "KeyW", true, 0.0);
     s.advance(1500.0, Clock::Seekable);
     key(&mut s, "KeyW", false, 1500.0);
@@ -56,8 +56,8 @@ fn beacon_messages_journal_and_settle() {
     key(&mut s, "KeyE", false, 1500.0);
     s.advance(1517.0, Clock::Seekable);
     assert_eq!(s.world().published("beacons"), Some(Value::Number(1.0)));
-    assert_eq!(s.take_messages(), ["{\"beacons\":1}"]);
-    assert!(s.take_messages().is_empty());
+    assert_eq!(s.take_published().as_deref(), Some("{\"beacons\":1}"));
+    assert!(s.take_published().is_none());
     assert!(s
         .agent(r#"{"op":"logs","since":0}"#)
         .contains("tick=90 beacon-1 lit"));
@@ -95,7 +95,7 @@ fn save_mid_run_retains_clock_input_and_future_events() {
     restored.advance(2000.0 - 713.123, Clock::Seekable);
     assert_eq!(s.world().hash(), restored.world().hash());
     assert_eq!(position(&s), position(&restored));
-    assert_eq!(s.take_messages(), restored.take_messages());
+    assert_eq!(s.take_published(), restored.take_published());
     let hash = restored.world().hash();
     assert!(restored.restore(b"bad").is_err());
     assert_eq!(hash, restored.world().hash());

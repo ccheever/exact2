@@ -67,6 +67,8 @@ function ensure(entry) {
   // (`render` takes the agent's clock over that timestamp in agent mode.)
   entry.observer.observe(entry.el);
   if (!gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error());
+  messages(entry);
+  if (live(entry.view) !== entry) return;
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
   if (entry.wantsInput) listen(entry);
   schedule();
@@ -76,7 +78,12 @@ function live(view) {
   const entry = surfaces.get(view);
   return entry?.id && exact.views.get(view) === entry.host && entry.el.isConnected ? entry : null;
 }
+function surfaceRecord(name, json) {
+  exact.send(exact.wasm.exact_surface_record(exact.writeIn(json == null ? name : `${name}\0${json}`)));
+}
 function messages(entry) {
+  const record = gpu.gpu_published(entry.id);
+  if (record !== undefined && live(entry.view) === entry) surfaceRecord(entry.name, record);
   for (const text of JSON.parse(gpu.gpu_messages(entry.id))) {
     if (live(entry.view) !== entry) break;
     exact.message(entry.host, text);
@@ -225,7 +232,7 @@ exact.gpu = {
     if (entry && entry.name !== name) { this.destroy(view); entry = null; } // one id cannot retain another plan's surface
     if (!entry) { entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0 }; surfaces.set(view, entry); ensure(entry); return; }
     entry.values = values;
-    if (entry.id) { if (!gpu.gpu_bind_at(entry.id, JSON.stringify(values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error()); schedule(); }
+    if (entry.id) { if (!gpu.gpu_bind_at(entry.id, JSON.stringify(values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error()); messages(entry); schedule(); }
   },
   destroy(view) {
     const entry = surfaces.get(view);
@@ -235,6 +242,7 @@ exact.gpu = {
     // is the first thing to navigate away from a canvas and back).
     if (entry) { entry.observer?.disconnect(); entry.unlisten?.(); entry.id = 0; }
     surfaces.delete(view);
+    if (entry) surfaceRecord(entry.name, null);
   },
   /// A restart: every surface goes with its element.
   reset() { for (const view of [...surfaces.keys()]) this.destroy(view); },

@@ -1,0 +1,10 @@
+[package]
+name = "exact-game-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+contract = { path = "../../contract/cli" }
+exact-runner = { path = "../../runner" }
