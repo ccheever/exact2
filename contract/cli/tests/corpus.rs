@@ -656,17 +656,22 @@ fn canvas_messages_deliver_strings_and_other_tags_still_refuse_them() {
     assert!(r.handlers_of(id).contains(&EventKind::Message));
     r.dispatch(id, Event::Message("Palo Alto".into())).unwrap();
     assert_eq!(r.slot("label"), Some(&Value::str("Palo Alto")));
-    let src = "component App\n  state text = \"\"\n  action receive(value) writes text\n    text = value\n  view\n    column message=receive\n";
+    let src = "component App\n  state text = \"\"\n  action receive(value: string) writes text\n    text = value\n  view\n    column message=receive\n";
     let error = contract::compile(src).unwrap_err().to_string();
     assert!(
         error.contains("`message` belongs to `iframe` or `canvas`, not `column`"),
         "{error}"
     );
-    for attr in ["src=\"/x\"", "sandbox=\"allow-scripts\"", "load=receive"] {
-        let error =
-            contract::compile(&src.replace("column message=receive", &format!("canvas {attr}")))
-                .unwrap_err()
-                .to_string();
+    // `load` supplies no payload, so its refusal is reached through an action
+    // that takes none; the other two attributes name no action at all.
+    let loaded = "component App\n  state text = \"\"\n  action loaded writes text\n    text = \"loaded\"\n  view\n    canvas load=loaded\n";
+    for attr in ["src=\"/x\"", "sandbox=\"allow-scripts\"", "load=loaded"] {
+        let source = if attr.starts_with("load") {
+            loaded.to_string()
+        } else {
+            src.replace("column message=receive", &format!("canvas {attr}"))
+        };
+        let error = contract::compile(&source).unwrap_err().to_string();
         assert!(
             error.contains("belongs to `iframe`, not `canvas`"),
             "{error}"
