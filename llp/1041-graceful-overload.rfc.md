@@ -979,6 +979,50 @@ prove ordering while the shared-pool check retains actual completion. All three
 new scheduling regressions and the final parallel suite pass; the original
 9/12-counter failures remain preserved, rather than treated as passing retries.
 
+**Linux reserve-only diagnostic, Tuft, Leibniz and Zeno, 2026-09-17:** eight
+fresh-process cells compare the same instrumented `42267a3` host and font catalog,
+with only cosmic-text 0.19's UTF8-byte-count `ShapeSpan` reservation deleted in
+the treatment. Two repeats per arm and document size retain the 2.5-GiB
+address-space and 60-second process limits; the second repeat reverses arm order.
+Both binaries and all captured source/dependency hashes remain unchanged across
+the runs. This experiment changes no production dependency or host source.
+
+All four 1-MiB cells complete. Each has seven complete paragraph builds and
+matching source/glyph geometry; cold, wide and fresh viewport PNGs also match.
+All four 4-MiB cells still abort on the first 600-to-632-point width change.
+They first accept the full 4,194,149-byte paragraph in the unchanged two-block,
+4,194,181-byte document: 55,923 lines, complete final-cluster coverage, identical
+glyph digests and cold viewport PNGs. Subsequent width geometry/pixels are
+unavailable, not passing comparisons. The diagnostic's successful 1-MiB oracle
+result must not be read as eight completed workloads.
+
+In both repeats, peak tracked outer-span capacity falls from 117,432,000 to
+448 bytes at 1 MiB, and from 469,744,800 to 448 bytes at 4 MiB. Completed accessible
+paragraph-capacity checkpoints fall from 769,304,320 to 651,872,768 bytes and
+from 1,532,773,520 to 1,297,901,344 bytes respectively. These are vector-capacity
+subsets, not total allocation peaks or resident memory. The latter counter omits
+the building replacement, lazy ink growth and private text/font/scratch storage;
+shape subtotals overlap it. Cold 4-MiB process address-space peaks fall from
+about 1,914.5 to 1,689.5 MiB while RSS remains about 1,241 MiB, illustrating why
+unused reserved capacity cannot be labeled resident bytes saved.
+
+At failure, the old accepted paragraph remains pinned while a distinct
+replacement is building. Baseline aborts before its second shape completes;
+treatment completes that shape but aborts before host shaping/layout returns.
+Both reach the address-space cap. Treatment's higher abort-time RSS reflects
+farther progress, not equal completed work. Even without the oversized outer
+reservation, one completed 4-MiB shape owns 663,013,536 bytes of visible capacities
+and its width layout another 634,624,352 bytes. This supports testing immutable
+shaping shared between accepted and replacement widths; it does not prove that
+sharing will fit the workload or solve synchronous reflow.
+
+Raw cells, binaries, capacity/lifetime evidence and independent review are in
+`target/linux-shape-reserve-v2-execution/`; the treatment binary SHA-256 is
+`276c051747e0db021a3d7f288f088891cb6caa7cfd5c6a08b0b40422caff23c5`.
+All aborts and harness/build setup failures remain preserved. Sampled process
+memory can miss transients; synchronous traces and whole-source/glyph hashing
+also preclude uninstrumented latency or physical 120-Hz claims.
+
 **Apple engine:** twenty-five actual engine methods pass 437 assertions in the
 optimized standalone harness, including complete Unicode ranges, independent
 accepted widths, last-owner release, checkpoint/catalog isolation and exhaustive
