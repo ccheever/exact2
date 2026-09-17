@@ -99,6 +99,11 @@ final class Runtime {
         let n = write("\(left),\(top)")
         return read(exact_dispatch(rt, view, 13, n, now))
     }
+    /// Actual viewport/row observations using the runner's versioned LE wire.
+    func collectionFeedback(_ bytes: Data, now: Double) -> Batch {
+        let n = write(bytes)
+        return read(exact_collection_feedback(rt, n, now))
+    }
     func dblclick(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 11, 0, now)) }
     func submit(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 7, 0, now)) }
     func load(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 8, 0, now)) }

@@ -188,6 +188,32 @@ impl<D: DataSource> Host<D> {
         self.runner.kernel()
     }
 
+    /// Mounted collection metadata; no record keys or unmounted rows cross here.
+    pub fn collections(&self) -> Vec<exact_runner::CollectionSnapshot> {
+        self.runner.collections()
+    }
+
+    /// Commit one viewport/measurement update without re-answering resources.
+    /// `false` means stale or unchanged feedback, requiring no layout.
+    pub fn collection_feedback(
+        &mut self,
+        feedback: exact_runner::CollectionFeedback,
+    ) -> Result<bool, String> {
+        match self.runner.collection_feedback(feedback) {
+            Ok(Some(receipt)) => self
+                .commit(
+                    &[Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }],
+                    None,
+                )
+                .map_or(Ok(true), Err),
+            Ok(None) => Ok(false),
+            Err(error) => Err(format!("collection feedback: {error:?}")),
+        }
+    }
+
     /// The motion engine.
     pub fn engine(&self) -> &Engine {
         &self.engine

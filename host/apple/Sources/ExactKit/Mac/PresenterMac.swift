@@ -59,6 +59,7 @@ final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     let viewport = PageScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    lazy var collections = CollectionHost(self)
     lazy var selection = TextSelection(self)
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
@@ -130,6 +131,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        collections.reset()
         resetting = true
         defer { resetting = false }
         toolbar.reset()
@@ -255,12 +257,14 @@ final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
+        collections.beginBatch(batch)
         toolbar.prepare()
-        for node in views.values { node.captureScrollPosition() }
+        for node in views.values where !collections.owns(node.id) { node.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         let outermost = !applying
         applying = true
         defer {
+            collections.endBatch()
             if outermost {
                 applying = false
                 let geometry = pendingGeometry
@@ -357,7 +361,11 @@ final class Presenter {
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.captureIfNeeded()
-        for node in views.values { node.restoreScrollPosition(); node.applyPendingScroll() }
+        for node in views.values {
+            if !collections.owns(node.id) { node.restoreScrollPosition() }
+            if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
+            node.applyPendingScroll()
+        }
         segments.sync()
         menus.sync()
         positionContexts()

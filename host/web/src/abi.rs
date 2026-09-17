@@ -344,6 +344,21 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Apply the common LE collection feedback in the first `len` input bytes.
+    /// Unlike events this reports layout facts and never advances the clock.
+    pub fn collection_feedback(&mut self, len: usize) -> u32 {
+        let out = match (self.host.as_mut(), self.input.get(..len)) {
+            (Some(host), None) => crate::batch::Batch::new().finish(
+                host.runner().has_timers(),
+                host.runner().now_ms(),
+                Some("collection input length"),
+            ),
+            (Some(host), Some(bytes)) => host.collection_feedback(bytes),
+            (None, _) => crate::batch::Batch::new().finish(false, 0.0, Some("not booted")),
+        };
+        self.emit(out)
+    }
+
     /// Move the clock.
     pub fn advance(&mut self, now_ms: f64) -> u32 {
         let out = match self.host.as_mut() {
@@ -517,6 +532,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, now_ms))
+        }
+
+        /// Report actual collection geometry through the shared binary decoder.
+        #[no_mangle]
+        pub extern "C" fn exact_collection_feedback(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().collection_feedback(len as usize))
         }
 
         /// Move the clock; returns the batch's length.

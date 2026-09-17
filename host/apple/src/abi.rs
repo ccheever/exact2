@@ -745,6 +745,20 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// One common LE collection feedback packet in the input buffer. An invalid
+    /// length is rejected by decoding an empty packet, never a truncated prefix.
+    /// Feedback cannot issue requests, so even malformed/stale calls avoid the
+    /// executor dispatch path and merely publish their returned batch.
+    pub fn collection_feedback(&mut self, len: usize, now_ms: f64) -> u32 {
+        let bytes = self.input.get(..len).unwrap_or(&[]);
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |host| host.collection_feedback(bytes, now_ms));
+        self.output = out.into_bytes();
+        self.output.len() as u32
+    }
+
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) -> u32 {
         let out = self
@@ -1173,6 +1187,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.intrinsic(view, width, height), |n| n)
         }
 
+        /// Common LE collection feedback from the input buffer; returns batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_collection_feedback(rt: u32, len: usize, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.collection_feedback(len, now_ms), |n| n)
+        }
+
         /// A motion frame; returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_tick(rt: u32, now_ms: f64) -> u32 {
@@ -1202,3 +1222,7 @@ mod tests;
 #[cfg(test)]
 #[path = "executor_order_tests.rs"]
 mod executor_order_tests;
+
+#[cfg(test)]
+#[path = "collection_tests.rs"]
+mod collection_tests;

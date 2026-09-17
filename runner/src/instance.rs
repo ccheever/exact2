@@ -12,6 +12,8 @@
 //! away. There is no tree diff: a keyed row keeps its views across reorders
 //! because its key, not its position, is its identity.
 
+/// Variable-height viewport collections and their portable host feedback seam.
+pub mod collection;
 mod dependencies;
 
 use crate::bridge;
@@ -29,10 +31,21 @@ pub enum InstanceError {
     Trap(Trap),
     Bridge(bridge::BridgeError),
     UnknownNodeType(u8),
-    SubjectKind { region: RegionsId },
-    KeyKind { region: RegionsId },
-    DuplicateKey { region: RegionsId },
-    SlotType { slot: String },
+    SubjectKind {
+        region: RegionsId,
+    },
+    KeyKind {
+        region: RegionsId,
+    },
+    DuplicateKey {
+        region: RegionsId,
+    },
+    SlotType {
+        slot: String,
+    },
+    Collection(String),
+    /// Host geometry rejected before changing any collection or kernel state.
+    InvalidCollectionFeedback,
 }
 
 impl From<Trap> for InstanceError {
@@ -56,6 +69,7 @@ pub struct NodeInst {
     children: Vec<Child>,
     /// Last emitted child list.
     last_children: Vec<ViewId>,
+    collection: Option<Box<collection::Collection>>,
 }
 
 #[derive(Debug)]
@@ -287,10 +301,14 @@ impl NodeInst {
             last_surface: None,
             children: Vec::new(),
             last_children: Vec::new(),
+            collection: None,
         };
         inst.emit_bindings(u, frames)?;
-        inst.children = realize(u, Some(node), row.arm, frames)?;
-        inst.emit_children(u);
+        inst.collection = collection::Collection::create(u, node, view, frames)?;
+        if inst.collection.is_none() {
+            inst.children = realize(u, Some(node), row.arm, frames)?;
+            inst.emit_children(u);
+        }
         Ok(inst)
     }
 
@@ -362,8 +380,27 @@ impl NodeInst {
     fn update(&mut self, u: &mut Update<'_>, frames: &[Frame]) -> Result<(), InstanceError> {
         u.work.nodes_visited += 1;
         self.emit_bindings(u, frames)?;
-        update_all(u, &mut self.children, frames)?;
-        self.emit_children(u);
+        if let Some(collection) = &mut self.collection {
+            let follow = u
+                .env
+                .plan
+                .node(self.node)
+                .bindings
+                .iter()
+                .enumerate()
+                .find_map(|(i, b)| {
+                    let b = u.env.plan.binding(b);
+                    (b.kind == BindingKind::Prop
+                        && b.id == exact_kernel::PropId::ScrollFollowEnd as u16)
+                        .then_some(self.last[i] == Some(Value::Bool(true)))
+                })
+                .unwrap_or(false);
+            collection.follow_end(follow);
+            collection.update_data(u, frames)?;
+        } else {
+            update_all(u, &mut self.children, frames)?;
+            self.emit_children(u);
+        }
         Ok(())
     }
 
@@ -377,6 +414,11 @@ impl NodeInst {
     pub fn find(&self, view: ViewId, frames: &mut Vec<Frame>) -> Option<NodesId> {
         if self.view == view {
             return Some(self.node);
+        }
+        if let Some(collection) = &self.collection {
+            if let Some(found) = collection.find(view, frames) {
+                return Some(found);
+            }
         }
         for c in &self.children {
             match c {
@@ -706,6 +748,7 @@ fn key_text(v: &Value) -> Option<String> {
 /// The root of the instance tree: the plan's top-level sites.
 #[derive(Debug)]
 pub struct Tree {
+    has_collections: bool,
     children: Vec<Child>,
     last_roots: Vec<ViewId>,
     /// Work performed by the last instance update.
@@ -717,6 +760,16 @@ impl Tree {
     pub fn create(u: &mut Update<'_>) -> Result<Tree, InstanceError> {
         let children = realize(u, None, None, &[])?;
         let mut tree = Tree {
+            has_collections: u.env.plan.bindings.iter().any(|b| {
+                b.kind == BindingKind::Prop
+                    && b.id == exact_kernel::PropId::Virtualized as u16
+                    && u.env.plan.code(b.expr)
+                        != [
+                            exact_plan::Opcode::Bool as u8,
+                            0,
+                            exact_plan::Opcode::Return as u8,
+                        ]
+            }),
             children,
             last_roots: Vec::new(),
             last_work: u.work,
@@ -728,6 +781,9 @@ impl Tree {
     /// Re-evaluate everything.
     pub fn update(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
         update_all(u, &mut self.children, &[])?;
+        if self.has_collections && u.ops.iter().any(|op| matches!(op, Op::SetStyle { patch, .. } if patch.mask.intersects(exact_kernel::StyleMask::TEXT))) {
+            collection::invalidate_typography(&mut self.children, u, &[])?;
+        }
         self.emit_roots(u);
         // Views are never reused within a runner. Detach removed children in
         // the final child lists before destroying them, so a removed list does
@@ -756,6 +812,9 @@ impl Tree {
                             node.view,
                             handlers.iter().map(|h| plan.handler(h).event).collect(),
                         );
+                    }
+                    if let Some(collection) = &node.collection {
+                        collection.add_children(&mut stack);
                     }
                     stack.extend(node.children.iter());
                 }
@@ -823,6 +882,11 @@ impl NodeInst {
     fn site(&self, view: ViewId, path: &mut Vec<InstanceStep>) -> Option<NodesId> {
         if self.view == view {
             return Some(self.node);
+        }
+        if let Some(collection) = &self.collection {
+            if let Some(found) = collection.site(view, path) {
+                return Some(found);
+            }
         }
         for c in &self.children {
             let found = match c {

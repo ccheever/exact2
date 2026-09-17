@@ -134,11 +134,12 @@ extension NodeView {
         if !disabled, handlers.contains("change") { presenter?.change(id, textView.text ?? "") }
     }
     func textViewDidBeginEditing(_ textView: UITextView) {
+        presenter?.collections.pinsChanged()
         presenter?.editing = self
         if handlers.contains("focus") { presenter?.focus(id) }
         presenter?.reveal(self)
     }
-    func textViewDidEndEditing(_ textView: UITextView) {
+    func textViewDidEndEditing(_ textView: UITextView) { presenter?.collections.pinsChanged();
         if presenter?.editing === self { presenter?.editing = nil }
         if handlers.contains("blur") { presenter?.blur(id) }
     }

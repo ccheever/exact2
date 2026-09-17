@@ -79,6 +79,12 @@ pub fn tag(name: &str) -> Option<Tag> {
         "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" => {
             view(vec![], vec![(p("semanticTag"), leak(name))])
         }
+        "list" => Tag {
+            node_type: NodeType::List,
+            fixed_styles: vec![],
+            fixed_props: vec![],
+            positional: None,
+        },
         "scroll" => Tag {
             node_type: NodeType::ScrollView,
             fixed_styles: vec![],
@@ -193,6 +199,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // the canvas's surface (LLP 1009 D3)
         "surface" => AttrTarget::Surface,
         // props (HTML and ARIA attribute names; `testId` is Exact's)
+        "virtualized" => AttrTarget::Prop(p("virtualized")),
         "testId" => AttrTarget::Prop(p("testId")),
         "navigationKey" => AttrTarget::Prop(p("navigationKey")),
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),

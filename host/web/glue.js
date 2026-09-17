@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { navigation } from "./navigation.js";
+import { navigation, collectionController, scrollFollowers } from "./navigation.js";
 // Native independent HTTP carries a response ceiling; enforce it during browser reads too.
 async function boundedHttpBody(response, limit) {
   if (limit == null) return new Uint8Array(await response.arrayBuffer());
@@ -15,6 +15,13 @@ async function boundedHttpBody(response, limit) {
 }
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
+const collections = collectionController({ root, views, report(bytes) {
+  if (!wasm) return false;
+  const ptr = wasm.exact_in(bytes.length);
+  new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
+  const batch = JSON.parse(readOut(wasm.exact_collection_feedback(bytes.length)));
+  applyBatch(batch); return !batch.error;
+} });
 const retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const animations = new Map(); // "view/property" -> Animation (a spring in flight)
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
@@ -155,43 +162,7 @@ function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (
 // DOM scrollTop/scrollLeft writes apply after this batch's new children and styles exist.
 // An unchanged binding never overrides a user's scroll position.
 const pendingScrolls = new Map();
-// An explicit chat/log policy, not CSS overflow anchoring: keep the end
-// visible across resizing only while the reader is already there.
-const followedScrolls = new Map();
-function rememberScroll(s) {
-  s.top = s.el.scrollTop; s.height = s.el.scrollHeight; s.port = s.el.clientHeight;
-  s.end = s.top >= s.height - s.port - 1;
-}
-function settleFollow(s) {
-  if (!s.el.isConnected) return;
-  // A reader above the end uses the browser's CSS scroll anchoring. Writing
-  // the remembered numeric offset here would undo its adjustment when content
-  // above the visible message changes.
-  if (s.end) s.el.scrollTop = s.el.scrollHeight - s.el.clientHeight;
-  rememberScroll(s);
-  const children = [...s.el.children];
-  if (children.length !== s.children.length || children.some((el, i) => el !== s.children[i])) {
-    s.observer.disconnect(); s.observer.observe(s.el);
-    for (const child of children) s.observer.observe(child);
-    s.children = children;
-  }
-}
-function followScroll(el, enabled) {
-  const old = followedScrolls.get(el);
-  if (old || !enabled) {
-    if (old && !enabled) { old.observer.disconnect(); el.removeEventListener("scroll", old.scrolled); followedScrolls.delete(el); }
-    return;
-  }
-  const s = { el, top: 0, height: 0, port: 0, end: true, children: [] };
-  s.scrolled = () => {
-    // ResizeObserver settles a changed geometry before a queued scroll
-    // notification is allowed to change whether the reader follows the end.
-    if (el.scrollHeight === s.height && el.clientHeight === s.port) rememberScroll(s);
-  };
-  s.observer = new ResizeObserver(() => { settleFollow(s); positionContexts(); });
-  s.observer.observe(el); el.addEventListener("scroll", s.scrolled, { passive: true });
-  followedScrolls.set(el, s);
-}
+const { followedScrolls, followScroll, settleFollow, rememberScroll } = scrollFollowers(positionContexts);
 root.addEventListener("pointerdown", event => {
   const target = event.target;
   const editor = target.closest?.("input, textarea, select") || target.isContentEditable;
@@ -647,6 +618,7 @@ function apply(batch) {
   prepareContexts(batch);
   for (const s of followedScrolls.values()) s.scrolled();
   const focusCommands = [];
+  const collectionOp = batch.ops?.find(op => op.op === "collections");
   if (batch.error) console.error("exact:", batch.error);
   for (const op of batch.ops ?? []) {
     try {
@@ -821,7 +793,13 @@ function apply(batch) {
         else console.warn(`exact: unknown command ${op.name}`);
         break;
       }
-      case "destroy": { const el = views.get(op.id); if (el) { retiredViews.add(el); followScroll(el, false); messageFrames.delete(el); el.remove(); } views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
+      case "destroy": {
+        for (const property of ["translate", "scale", "rotate", "opacity"]) {
+          const key = op.id + "/" + property; animations.get(key)?.cancel(); animations.delete(key);
+        }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
+        views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
+      }
       case "roots": {
         const roots = [];
         for (const id of op.ids) {
@@ -849,6 +827,7 @@ function apply(batch) {
   }
   navigation.project(root, log);
   refreshSymbols();
+  for (const snapshot of collectionOp?.items ?? []) followScroll(views.get(snapshot.view), false);
   for (const s of followedScrolls.values()) settleFollow(s);
   for (const [el, offsets] of pendingScrolls) if (el.isConnected) {
     // Mirroring the current offset must not restart snapping or cancel a pan.
@@ -856,6 +835,7 @@ function apply(batch) {
     const s = followedScrolls.get(el); if (s) rememberScroll(s);
   }
   pendingScrolls.clear();
+  if (collectionOp) collections.commit(collectionOp.items);
   // Focusing can dispatch an action; every node/value in this batch must be
   // committed before its focus handler runs.
   for (const { args, selectText } of focusCommands) {
@@ -1370,6 +1350,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   globalThis.exact?.gpu?.reset();
   for (const el of followedScrolls.keys()) followScroll(el, false);
   pendingScrolls.clear();
+  collections.reset();
   views.clear();
   messageFrames.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}

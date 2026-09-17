@@ -83,6 +83,7 @@ pub struct Host<D: DataSource> {
     /// The plan-owned face catalog, queried separately from op batches.
     font_catalog: String,
     location: String,
+    collections: String,
 }
 
 impl<D: DataSource> Host<D> {
@@ -167,6 +168,7 @@ impl<D: DataSource> Host<D> {
             font_names,
             font_catalog,
             location: launch.into(),
+            collections: String::new(),
         };
         let mut batch = Batch::new();
         // Everything live is new to the page.
@@ -216,6 +218,8 @@ impl<D: DataSource> Host<D> {
             }
             batch.request(&r);
         }
+        host.collections = host.runner.collections_json();
+        batch.collections(&host.collections);
         let timers = host.runner.has_timers();
         let clock = host.runner.now_ms();
         Ok((host, batch.finish(timers, clock, None)))
@@ -331,6 +335,26 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&receipts, error.as_deref())
     }
 
+    /// Actual nested scrollport and mounted row geometry, in the shared LE wire
+    /// format. Geometry does not advance timers or settle data/resources.
+    pub fn collection_feedback(&mut self, bytes: &[u8]) -> String {
+        match self.runner.collection_feedback_bytes(bytes) {
+            Ok(Some(receipt)) => self.batch_for(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => Batch::new().finish(self.runner.has_timers(), self.runner.now_ms(), None),
+            Err(error) => Batch::new().finish(
+                self.runner.has_timers(),
+                self.runner.now_ms(),
+                Some(&format!("collection: {error:?}")),
+            ),
+        }
+    }
+
     /// Activate deferred logic after the page's first rendering opportunity.
     pub fn data_ready(&mut self) -> String {
         if let Err(error) = self.runner.data().activate() {
@@ -423,6 +447,11 @@ impl<D: DataSource> Host<D> {
                 r.request.continuation = self.runner.data().continuation_token(token);
             }
             batch.request(&r);
+        }
+        let collections = self.runner.collections_json();
+        if collections != self.collections {
+            self.collections = collections;
+            batch.collections(&self.collections);
         }
         let timers = self.runner.has_timers();
         batch.finish(timers, self.runner.now_ms(), error)

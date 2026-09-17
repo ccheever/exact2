@@ -636,7 +636,15 @@ fn lint<D: DataSource>(runner: &mut Runner<D>) -> Result<(), BakeError> {
             None => format!("`{}` #{}", node.node_type.name(), node.id),
         };
         match node.node_type {
-            NodeType::ScrollView => {
+            NodeType::ScrollView | NodeType::List => {
+                if node.node_type == NodeType::List
+                    && !node.props.iter().any(|(id, value)| {
+                        id == exact_kernel::PropId::Virtualized
+                            && matches!(value, PropValue::Bool(true))
+                    })
+                {
+                    continue;
+                }
                 let s = node.style;
                 if matches!(s.overflow_y, exact_kernel::Overflow::Hidden) {
                     continue;

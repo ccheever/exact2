@@ -49,6 +49,7 @@ final class ChainingScrollView: NSScrollView {
     /// tick.
     static let lineHeight: CGFloat = 40
     /// Which axes scroll (the node's effective `overflow_x`/`overflow_y`).
+    var collectionWillScroll: (() -> Void)?
     var scrollsX = true
     var scrollsY = true
     /// `overscroll-behavior` per axis: what happens to a gesture this view
@@ -153,10 +154,12 @@ final class ChainingScrollView: NSScrollView {
         case .drop:
             return
         case .appKit:
+            collectionWillScroll?()
             super.scrollWheel(with: event)
         case .chain:
             nextResponder?.scrollWheel(with: event)
         case .here:
+            collectionWillScroll?()
             // What this view can take of it, it takes itself — never through
             // AppKit, whose nested-scroll routing may move the enclosing view
             // or animate later, doubling a delta applied here.
@@ -261,12 +264,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func becomeFirstResponder() -> Bool {
         guard !disabled else { return false }
         let ok = super.becomeFirstResponder()
+        if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("focus") { presenter?.focus(id) }
         return ok
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
         if ok { presenter?.selection.clear() }
+        if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
@@ -385,12 +390,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return name == "Enter"
     }
     func controlTextDidBeginEditing(_ obj: Notification) {
+        presenter?.collections.pinsChanged()
         (field?.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
         (field?.currentEditor() as? NSTextView)?.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
         (field?.currentEditor() as? NSTextView)?.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
         if handlers.contains("focus") { presenter?.focus(id) }
     }
-    func controlTextDidEndEditing(_ obj: Notification) { if handlers.contains("blur") { presenter?.blur(id) } }
+    func controlTextDidEndEditing(_ obj: Notification) { presenter?.collections.pinsChanged(); if handlers.contains("blur") { presenter?.blur(id) } }
 
     /// Where an image source resolves, as a page resolves `src`: an `http(s)`
     /// URL as is; a relative path under the asset root (`EXACT_ASSETS`, else
@@ -654,7 +660,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         canvases?.scheduleCapture()
     }
 
-    @objc func clipScrolled() { repaintThrough(); presenter?.refreshVisibleText(); queueScrollEvent() }
+    @objc func clipScrolled() {
+        presenter?.collections.changed(id, user: true)
+        repaintThrough(); presenter?.refreshVisibleText(); queueScrollEvent()
+    }
     private var scrollEventQueued = false
     private var lastScrollEvent = CGPoint.zero
     private func queueScrollEvent() {
@@ -980,6 +989,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let ox = s["overflow_x"] as? String ?? "visible", oy = s["overflow_y"] as? String ?? "visible"
         if (ox == "scroll" || oy == "scroll") && scroll == nil {
             let sv = ChainingScrollView(frame: bounds)
+            sv.collectionWillScroll = { [weak self] in
+                guard let self else { return }; presenter?.collections.userIntent(id)
+            }
             sv.drawsBackground = false
             sv.scrollerStyle = .overlay
             sv.hasVerticalScroller = true
@@ -1056,6 +1068,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func layout() {
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layout()
+        presenter?.collections.changed(id)
         if field != nil { field?.frame = contentBox() }
         layoutTextArea()
         layoutSymbol()
@@ -1170,6 +1183,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // input; a click nothing consumes reaches the viewport, which does the
     // same (a click on the page's ground).
     override func mouseDown(with event: NSEvent) {
+        presenter?.collections.pointerDown(id, event: event)
         guard !disabled else { pressed = false; return }
         if isParagraph, !handlers.contains("press"), !hasPressableAncestor {
             window?.makeFirstResponder(self)
@@ -1199,6 +1213,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.contextmenu(id)
     }
     override func mouseUp(with event: NSEvent) {
+        presenter?.collections.releaseInteractionLater()
         if event.clickCount == 2 {
             var next: NSView? = self
             while let view = next {

@@ -64,6 +64,11 @@ impl Springs {
         &self.engine
     }
 
+    /// Number of property springs retained for the current mounted tree.
+    pub fn playing_count(&self) -> usize {
+        self.playing.len()
+    }
+
     /// Tell the engine about nodes that exist before any commit it saw —
     /// the tree at boot. Their values are taken as-is (there is no
     /// before-change style, so nothing transitions).
@@ -102,7 +107,16 @@ impl Springs {
         let seek = self.engine.advance(now);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         for receipt in receipts {
-            let applied = kernel.motion_sync(receipt).apply(&mut self.engine);
+            let sync = kernel.motion_sync(receipt);
+            // Engine::remove also erases dirty entries, so frame() will never
+            // mention these nodes again. Retire ownership directly, without
+            // scanning springs belonging to other mounted rows.
+            for node in &sync.removed {
+                for property in Property::ALL {
+                    self.playing.remove(&(*node, property));
+                }
+            }
+            let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
         }
         let mut out = Vec::new();

@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod collection;
 pub mod expr;
 mod fonts;
 mod routes;
@@ -537,6 +538,7 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 expanded.extend(attrs.iter().filter(|a| a.name != "class").cloned());
+                self.check_collection(tag, &expanded, children, *span)?;
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
                 let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));

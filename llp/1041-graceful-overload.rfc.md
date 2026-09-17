@@ -538,3 +538,36 @@ is excellent direct manipulation; neither a subjective superlative nor a headles
 timing can establish superiority to every framework or physical 120 Hz. macOS and
 actual Linux remain required, web is a measured target, and touch-only claims need
 touch-device evidence. These demonstrations are not yet implemented or verified.
+
+### 8.6 Shared viewport foundation and next motion slice
+
+The first shared collection is implemented in LLP 1010 §6.5–6.6. Messages and
+Markdown can supply their complete histories/documents while retaining only the
+viewport, overscan and two globally bounded pins. Eager/manual controls remain.
+Compiler/runtime shape checks, zero-height runs, typography invalidation,
+stale geometry, pin transfer and native rounding have explicit regressions.
+This does not bound O(N) input generation, changed-list key validation or giant
+indivisible text layout; image admission and unmounted selection remain open.
+
+Eighteen paired fresh-process M4 measurements cover 25/1,000/25,000 records and
+twenty complete traversals. At 25,000, synchronous input-path p50/p95 falls from
+29.1057/30.9080 ms eager to 0.2462/0.2543 ms virtualized; requested retained heap
+falls from 105.944 to 7.429 MiB. Live kernel and arena bounds match at 1,000 and
+25,000. LLP 1010 records exact identities, raw artifacts and accounting limits.
+These diagnostics contain no presenter and make no frame-rate claim. Separate
+web/AppKit/Ubuntu drives exercise the real collection adapters and rich text;
+their app READMEs distinguish endpoint, anchor and functional input checks from
+physical presentation.
+
+The next implementation slice is interruptible presentation ownership. Keep the
+latest authored target while a token holds a sampled presentation; commits may
+retarget without pulling the held object away. Release explicitly starts from
+that held value with displayed velocity and the current transition declaration.
+Tokens bind generation and interaction lifetime; stale callbacks neither move
+the clock nor resurrect a view. The engine remains idle when only holds exist.
+Web continues lowering springs to browser animations, sampling computed style
+at takeover and preserving held properties across commits. Native hosts retain
+the same begin value across gesture samples. Tuft owns integration, Zeno the
+engine, Newton kernel regressions, and the existing web/Apple/Linux owners their
+adapters, starting 2026-09-16. This is implementation in progress, not a claim
+that any of §8.5's continuous interactions is complete.

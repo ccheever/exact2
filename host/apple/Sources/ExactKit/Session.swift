@@ -392,6 +392,10 @@ public final class ExactSession {
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
     private func wire() {
+        presenter.collections.onFeedback = { [weak self] bytes in
+            guard let self, state != .destroyed else { return }
+            apply(runtime.collectionFeedback(bytes, now: now()))
+        }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
         presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, value, now: now())) }
         presenter.onIntrinsic = { [unowned self] id, size in apply(runtime.intrinsic(id, width: size?.width ?? 0, height: size?.height ?? 0)) }
@@ -568,6 +572,7 @@ public final class ExactSession {
             }
         }
         if outermost {
+            presenter.collections.flush()
             applying = false
             let queued = pendingCommands
             pendingCommands = []

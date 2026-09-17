@@ -42,7 +42,12 @@ The ordinary native wrapper is available with
    to `each`. Begin with 1,000. At large counts the main thread may stall;
    Pause cannot preempt a synchronous query or mounting already underway.
    Reload returns to the small default if the UI stops responding.
-5. Local echo puts the draft in the transcript and clears the composer. Only
+5. **Virtualized transcript** supplies the same full history to the shared
+   `list virtualized=true` path. The runner mounts nearby variable-height rows
+   and up to two focus/interaction pins. Scrolling covers the whole history;
+   the record data and compact key/height index still grow with history size.
+   Swipe a bubble right or use its Reply button; Cancel clears the reply target.
+6. Local echo puts the draft in the transcript and clears the composer. Only
    one local echo is retained; the next replaces it. Nothing is sent anywhere.
 
 Drafts are limited to 512 Unicode scalar values. Oversized edits are refused
@@ -54,8 +59,9 @@ keys stay stable across streaming revisions and history sizes.
 ## What the numbers mean
 
 - Logical history: requested synthetic cardinality, **not resident records** in
-  bounded mode. The page generator allocates only that page, not a hidden full list.
-- Materialized rows: exact `DataSource` list length, including the optional
+  manual-page mode. The page generator allocates only that page. Eager and
+  windowed modes both supply the complete selected history.
+- Supplied records: exact `DataSource` list length, including the optional
   local echo. This is not a measured DOM/native-view count.
 - Revision: the returned resource's applied revision, not an arrival rate.
   The nominal 4 ticks/s is requested cadence, not measured throughput.
@@ -65,8 +71,9 @@ keys stay stable across streaming revisions and history sizes.
   metadata, DOM cost, or decoded images. There are no image attachments.
 
 The source reconstructs its supplied list synchronously on each revision.
-Eager data and UI are O(N); this demo adds no framework scheduling, yielding,
-virtualization, cancellation or automatic overload mitigation. Typing alone
+Eager data and UI are O(N); windowing bounds UI lifetime, not record generation
+or key validation after a changed list. There is no worker placement or
+preemption of that synchronous work in this fixture. Typing alone
 only changes the draft and its live echo, not the history resource arguments.
 No FPS, frame deadline or physical presentation result is asserted by this UI.
 
@@ -96,6 +103,19 @@ Unicode local echoes. `data/tests/runtime.rs` compiles and bakes this actual
 Contract, boots the runner, dispatches controls, advances its deterministic
 clock, and checks draft/control behavior and malformed data-seam inputs.
 Virtual-clock assertions are correctness checks, not performance evidence.
+`data/tests/windowed.rs` also covers the actual 10,000-record Contract's
+bounded mounted rows, an active offscreen row retained until release, exact
+typing, reply identity and the preserved eager/manual controls.
+
+The final browser drive (`target/messages-windowed-web-final/`) passes five
+endpoint round trips from 10,000 supplied records, exact typing, a streaming
+step and actual browser pointer swipe commit/cancel. A single end jump reaches
+the last logical message. The first refinement mounts 34 rows; later top/end
+observations mount 7–8. These are functional checks, not twenty full traversals
+or frame timings. Gesture takeover and release-spring continuity still require
+dedicated motion work and validation. The separate paired runner diagnostic in
+[LLP 1010 §6.6](../../llp/1010-scrolling-v1.spec.md#66-paired-runner-evidence-2026-09-16)
+covers twenty complete traversals, retained state and CPU work through 25,000 rows.
 
 ## Native hosts
 
@@ -132,3 +152,29 @@ uses the Linux host's headless CPU raster path; it can also run on macOS for
 correctness, and the report records the actual OS. A Linux-host run on a Mac is
 not evidence from a Linux OS. A Linux VM run is labelled a VM by its operator;
 neither headless case measures a Linux desktop compositor or physical display.
+
+The windowed AppKit drive in `target/messages-stress-native/collections/` passes
+10,000 supplied records with at most twelve mounted message rows, twelve loaded
+typing samples, held-contact retention/release, Reply/Cancel and three actual
+window widths. One jump reaches the last row; appending follows the tail while
+an older reader keeps its key and offset. Final executable SHA-256:
+`427baeb90112edaf611067203b6dd7c02256f29dfeb0b72f707e360500ef3024`.
+AppKit currently lacks the swipe recognizer: held mouse contact and Reply buttons
+do not establish native swipe continuity. Twelve standalone Swift assertion
+bodies pass; full XCTest is unavailable with this machine's Command Line Tools.
+iOS adapter source has not been compiled against its SDK or driven on a device.
+
+Actual Ubuntu 24.04 ARM64 CPU-raster validation passes the windowed 10k drive:
+seven endpoints, three resizes, Unicode typing, a stream step, Reply/Cancel,
+local echo and teardown/remount. Every endpoint uses one wheel and two no-wheel
+observation requests, with 5–8 numbered rows (plus the echo when present) and
+97–127 kernel nodes. The headless carrier pumps on requests; no physical held
+pointer or autonomous compositor timing is inferred. Native pin regressions are
+separate, within 69 passing Linux tests and strict Clippy.
+
+Evidence: `/tmp/exact2-linux-endfollow-final-6840b5e9/`; final executable SHA-256
+`6810b9bda835ace10c5147622427cc5d19ffed5254aaff6159ba021d1cfe3547`.
+The source manifest and Noto CJK/emoji font identities are retained there.
+Earlier failed captures remain: an origin/range fix corrected real adapter
+errors, then a package-scoped runner rebuild removed a stale cached artifact
+without further source changes. Those failed binaries are not final acceptance.

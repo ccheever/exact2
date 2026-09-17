@@ -85,7 +85,7 @@ extension NodeView {
         textArea?.needsDisplay = true
         if !disabled, handlers.contains("change") { presenter?.change(id, textArea?.string ?? "") }
     }
-    func textDidBeginEditing(_ notification: Notification) { if handlers.contains("focus") { presenter?.focus(id) } }
-    func textDidEndEditing(_ notification: Notification) { if handlers.contains("blur") { presenter?.blur(id) } }
+    func textDidBeginEditing(_ notification: Notification) { presenter?.collections.pinsChanged(); if handlers.contains("focus") { presenter?.focus(id) } }
+    func textDidEndEditing(_ notification: Notification) { presenter?.collections.pinsChanged(); if handlers.contains("blur") { presenter?.blur(id) } }
 }
 #endif

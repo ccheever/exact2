@@ -56,6 +56,8 @@ pub struct Host<D: DataSource> {
     mirror: BTreeMap<ViewId, Mirror>,
     keys: BTreeMap<NodeKey, ViewId>,
     roots: Vec<ViewId>,
+    /// Last published common collection snapshot; refreshed only after layout.
+    collections_json: String,
     engine: Engine,
     viewport: (f32, f32),
     now_ms: f64,
@@ -210,6 +212,7 @@ impl<D: DataSource> Host<D> {
             mirror: BTreeMap::new(),
             keys: BTreeMap::new(),
             roots: Vec::new(),
+            collections_json: "[]".into(),
             engine: Engine::new(),
             viewport: (width, height),
             now_ms: 0.0,
@@ -459,6 +462,32 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.commit(&receipts, error)
+    }
+
+    /// Strict common LE viewport feedback, with no event/resource/timer dispatch.
+    /// Stale or malformed facts leave layout and the motion clock untouched.
+    /// Only a runner receipt enters the ordinary native view commit path.
+    pub fn collection_feedback(&mut self, bytes: &[u8], now_ms: f64) -> String {
+        if !(0.0..=exact_runner::MAX_CLOCK_MS).contains(&now_ms) {
+            return self.finish(
+                Batch::new(),
+                Some("invalid collection feedback time".into()),
+            );
+        }
+        match self.runner.collection_feedback_bytes(bytes) {
+            Ok(Some(receipt)) => {
+                self.now_ms = self.now_ms.max(now_ms);
+                self.commit(
+                    &[Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }],
+                    None,
+                )
+            }
+            Ok(None) => self.finish(Batch::new(), None),
+            Err(error) => self.finish(Batch::new(), Some(format!("{error:?}"))),
+        }
     }
 
     /// A presenter's line for the runner's journal (LLP 1012 §3): a refused
@@ -795,6 +824,13 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
+        // Layout/receipt work may change the live window. Motion-only ticks and
+        // stale feedback never traverse the tree to collect this metadata.
+        let collections = self.runner.collections_json();
+        if collections != self.collections_json {
+            batch.collections(&collections);
+            self.collections_json = collections;
+        }
         Ok(())
     }
 
@@ -985,6 +1021,11 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         };
         let _: PropId = id;
         out.insert(id.name().to_string(), text);
+    }
+    if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
+        // The runner preserves collection anchors and follows the end using
+        // sequence-checked corrections. Eager native autoscroll would compete.
+        out.remove(PropId::ScrollFollowEnd.name());
     }
     if node.node_type == NodeType::TextInput {
         out.remove("spellcheck");

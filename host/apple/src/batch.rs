@@ -91,6 +91,13 @@ impl Batch {
         self.ops.is_empty()
     }
 
+    /// Mounted collection metadata from the runner's common JSON array writer.
+    /// An empty array clears previously published collections on the presenter.
+    pub fn collections(&mut self, items: &str) {
+        self.ops
+            .push(format!("{{\"op\":\"collections\",\"items\":{items}}}"));
+    }
+
     /// `{"op":"create","id":…,"kind":…,"props":{…},"style":{…},"handlers":[…]}`;
     /// `style` is a JSON object (`style::style_json`).
     pub fn create(

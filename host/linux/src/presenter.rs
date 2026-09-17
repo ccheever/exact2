@@ -31,6 +31,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tiny_skia::Pixmap;
 
+mod collection;
+
+#[cfg(test)]
+#[path = "presenter/collection_tests.rs"]
+mod collection_tests;
+
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
     host: Host<D>,
@@ -67,6 +73,7 @@ pub struct Presenter<D: DataSource> {
     /// The executor for a request that leaves the process (LLP 1016 D2).
     executor: crate::executor::Executor,
     refusal_turn: bool,
+    collection: collection::State,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
     /// The commands the last commits' actions asked for, for the loop that
@@ -290,6 +297,7 @@ impl<D: DataSource> Presenter<D> {
             host,
             executor,
             refusal_turn: false,
+            collection: collection::State::default(),
             brush: Painter::new(text.clone(), scale, backend),
             text,
             viewport,
@@ -550,6 +558,7 @@ impl<D: DataSource> Presenter<D> {
         self.images = images;
         self.executor = crate::executor::Executor::start(&self.host.grants());
         self.scroll.clear();
+        self.collection = collection::State::default();
         self.page = (0.0, 0.0);
         self.focus = None;
         self.pointer = None;
@@ -662,6 +671,7 @@ impl<D: DataSource> Presenter<D> {
         self.brush.text = candidate_text;
         self.executor = crate::executor::Executor::start(&self.host.grants());
         self.scroll.clear();
+        self.collection = collection::State::default();
         self.page = (0.0, 0.0);
         self.images.reset();
         self.focus = None;
@@ -724,6 +734,7 @@ impl<D: DataSource> Presenter<D> {
             return error;
         }
         self.viewport = (width, height);
+        self.collection.advance_all();
         self.after_commit()
     }
 
@@ -731,6 +742,14 @@ impl<D: DataSource> Presenter<D> {
     /// offsets stay in range, focus stays on a live input, the picture is
     /// stale.
     fn after_commit(&mut self) -> Option<String> {
+        let error = self.sync_commit();
+        self.queue_collections();
+        let refined = self.refine_collections();
+        error.or(refined)
+    }
+
+    // Collection feedback calls this directly: never recurse through refinement.
+    fn sync_commit(&mut self) -> Option<String> {
         self.dirty = true;
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
@@ -796,6 +815,7 @@ impl<D: DataSource> Presenter<D> {
         if any {
             self.dirty = true;
             self.clamp_scroll();
+            self.queue_collections();
         }
         any
     }
@@ -815,6 +835,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn clamp_scroll(&mut self) {
+        let collection_limits = self.collection_scroll_limits();
         let kernel = self.host.kernel();
         let mut gone = Vec::new();
         for (id, off) in self.scroll.iter_mut() {
@@ -822,7 +843,13 @@ impl<D: DataSource> Presenter<D> {
                 Some(n) => {
                     let (cw, ch) = content_size(&n, kernel);
                     off.0 = off.0.clamp(0.0, (cw - n.frame.width).max(0.0));
-                    off.1 = off.1.clamp(0.0, (ch - n.frame.height).max(0.0));
+                    off.1 = off.1.clamp(
+                        0.0,
+                        collection_limits
+                            .get(id)
+                            .copied()
+                            .unwrap_or_else(|| (ch - n.frame.height).max(0.0)),
+                    );
                 }
                 None => gone.push(*id),
             }
@@ -838,6 +865,9 @@ impl<D: DataSource> Presenter<D> {
     /// Paint a frame: the pixels, with every box recorded for `layout` and
     /// hit-testing.
     pub fn frame(&mut self) -> Pixmap {
+        if let Some(error) = self.refine_collections() {
+            self.host.log(error);
+        }
         let roots = self.host.roots();
         let host = &self.host;
         let presented = |id: ViewId| host.presented(id);
@@ -878,7 +908,7 @@ impl<D: DataSource> Presenter<D> {
             }
         };
         self.boxes = boxes;
-        self.dirty = false;
+        self.dirty = self.collection.pending();
         pixmap
     }
 
@@ -1022,6 +1052,7 @@ impl<D: DataSource> Presenter<D> {
         if self.focus != focus {
             self.focus = focus;
             self.dirty = true;
+            self.queue_collections();
         }
         let target = self.handler_target(hit, EventKind::Press)?;
         if let Some(e) = self.host.dispatch_at(target, Event::Press, now_ms) {
@@ -1061,6 +1092,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         let mut at = self.hit(x, y);
+        let collection_limits = self.collection_scroll_limits();
         let kernel = self.host.kernel();
         while let Some(id) = at {
             let Some(node) = kernel.node(id) else { break };
@@ -1069,7 +1101,10 @@ impl<D: DataSource> Presenter<D> {
                 let (cw, ch) = content_size(&node, kernel);
                 let max = (
                     (cw - node.frame.width).max(0.0),
-                    (ch - node.frame.height).max(0.0),
+                    collection_limits
+                        .get(&id)
+                        .copied()
+                        .unwrap_or_else(|| (ch - node.frame.height).max(0.0)),
                 );
                 let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
                 let take_x = ox == Overflow::Scroll
@@ -1094,6 +1129,7 @@ impl<D: DataSource> Presenter<D> {
                     };
                     self.scroll.insert(id, (nx, ny));
                     self.dirty = true;
+                    self.collection_scrolled(id);
                     return;
                 }
             }
@@ -1224,6 +1260,7 @@ impl<D: DataSource> Presenter<D> {
     pub fn blur(&mut self) {
         if self.focus.take().is_some() {
             self.dirty = true;
+            self.queue_collections();
         }
     }
 
@@ -1255,7 +1292,7 @@ impl<D: DataSource> Presenter<D> {
             self.executor.notify();
         }
         if outcomes.is_empty() {
-            return None;
+            return self.refine_collections();
         }
         let e = self.host.fulfill_all(outcomes, now_ms);
         let after = self.after_commit();

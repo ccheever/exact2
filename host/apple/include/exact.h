@@ -145,6 +145,8 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * A change's text, key's name, or guest message is the payload in the input
  * buffer's first len bytes. */
 uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t len, double now_ms);
+/* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
+uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* A horizontal drag offset in points; release returns to authored translate. */
 uint32_t exact_drag_x(ExactRuntime rt, uint32_t view, double delta, double velocity, uint32_t release, double now_ms);
 uint32_t exact_advance(ExactRuntime rt, double now_ms);   /* the runner's clock: timers */

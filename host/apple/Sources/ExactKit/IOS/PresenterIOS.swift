@@ -14,6 +14,7 @@ final class Presenter {
     /// The viewport over it: the window's content, scrolling like a browser's.
     let viewport = ScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    lazy var collections = CollectionHost(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var swipeActions = SwipeActionsHost(self)
     lazy var menus = MenuHost(presenter: self)
@@ -227,6 +228,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        collections.reset()
         segments.reset()
         menus.reset()
         swipeActions.reset()
@@ -395,15 +397,17 @@ final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
+        collections.beginBatch(batch)
         swipeActions.prepare()
         prepareContexts(batch)
         modals.prepare(batch)
         navigation.prepare(batch)
-        for node in views.values { node.captureScrollPosition() }
+        for node in views.values where !collections.owns(node.id) { node.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         let outermost = !applying
         applying = true
         defer {
+            collections.endBatch()
             if outermost {
                 applying = false
                 let q = waiting
@@ -494,7 +498,9 @@ final class Presenter {
             // Its scroll writes must wait too, especially on newly added rows
             // whose extent is still zero. releaseBackground applies both.
             if !modals.defersGeometry(for: node) {
-                node.restoreScrollPosition(); node.applyPendingScroll()
+                if !collections.owns(node.id) { node.restoreScrollPosition() }
+                if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
+                node.applyPendingScroll()
             }
             if let material = node.materialView { node.sendSubviewToBack(material) }
         }

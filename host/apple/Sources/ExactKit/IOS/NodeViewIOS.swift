@@ -148,6 +148,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let offset = min(distance, 64) + max(0, distance - 64) * 0.2
         switch gesture.state {
         case .began, .changed:
+            if gesture.state == .began { presenter.collections.pointer(id) }
             let armed = distance >= 64
             if armed != swipeArmed { swipeFeedback.selectionChanged(); swipeArmed = armed }
             presenter.dragX(self, delta: Double(offset), velocity: 0, release: false)
@@ -155,6 +156,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let commit = gesture.state == .ended && distance >= 64
             swipeArmed = false
             presenter.dragX(self, delta: 0, velocity: Double(gesture.velocity(in: window).x), release: true, commit: commit)
+            presenter.collections.releaseInteractionLater()
         default: break
         }
     }
@@ -269,11 +271,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func becomeFirstResponder() -> Bool {
         guard !disabled, !inert else { return false }
         let ok = super.becomeFirstResponder()
+        if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("focus") { presenter?.focus(id) }
         return ok
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
+        if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
@@ -534,11 +538,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        presenter?.collections.userIntent(id)
         retainedScrollTop = nil
     }
 
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        presenter?.collections.changed(id, user: true)
         repaintThrough()
         // User scrolling is already a coherent position. Deliver before the
         // frame paints so authored scroll-linked geometry cannot lag a frame.
@@ -1047,6 +1053,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func layoutSubviews() {
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layoutSubviews()
+        presenter?.collections.changed(id)
         if field != nil { field?.frame = contentBox() }
         layoutTextArea()
         layoutSymbol()
@@ -1232,6 +1239,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if !disabled, handlers.contains("change") { presenter?.change(id, field?.text ?? "") }
     }
     func textFieldDidBeginEditing(_ textField: UITextField) {
+        presenter?.collections.pinsChanged()
         presenter?.editing = self
         // The keyboard is already up (another field had it): it will not
         // move, so this field is revealed here, as a browser scrolls a
@@ -1239,6 +1247,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let p = presenter, p.keyboardInset > 0 { if ExactEnv.agentFreezes { p.reveal(self) } else { UIView.animate(withDuration: 0.25) { p.reveal(self) } } }
         if handlers.contains("focus") { presenter?.focus(id) }
     }
-    func textFieldDidEndEditing(_ textField: UITextField) { if presenter?.editing === self { presenter?.editing = nil }; if handlers.contains("blur") { presenter?.blur(id) } }
+    func textFieldDidEndEditing(_ textField: UITextField) { presenter?.collections.pinsChanged(); if presenter?.editing === self { presenter?.editing = nil }; if handlers.contains("blur") { presenter?.blur(id) } }
 }
 #endif

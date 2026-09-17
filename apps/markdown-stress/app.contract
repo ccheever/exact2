@@ -63,13 +63,14 @@ component MarkdownStress
   state revision = 0
   state page = 0
   state eager = false
+  state windowed = false
   state wide = false
   state running = false
   state ticks = 0
   state draft = ""
   state draftTooLong = false
   resource theme = theme() as shape Theme
-  resource doc = document(profile, size, revision, page, eager) as shape Document
+  resource doc = document(profile, size, revision, page, eager or windowed) as shape Document
 
   action chooseProfile(value: string) writes profile, page, running, ticks
     profile = value
@@ -81,8 +82,14 @@ component MarkdownStress
     page = 0
     running = false
     ticks = 0
-  action toggleEager writes eager, page, running
+  action toggleEager writes eager, windowed, page, running
     eager = not eager
+    windowed = false
+    page = 0
+    running = false
+  action toggleWindowed writes windowed, eager, page, running
+    windowed = not windowed
+    eager = false
     page = 0
     running = false
   action nextPage writes page
@@ -113,12 +120,13 @@ component MarkdownStress
       draftTooLong = false
     else
       draftTooLong = true
-  action reset writes profile, size, revision, page, eager, wide, running, ticks, draft, draftTooLong
+  action reset writes profile, size, revision, page, eager, windowed, wide, running, ticks, draft, draftTooLong
     profile = "mixed"
     size = 16384
     revision = 0
     page = 0
     eager = false
+    windowed = false
     wide = false
     running = false
     ticks = 0
@@ -151,6 +159,8 @@ component MarkdownStress
             SizeButton(n=4194304, label="4 MiB", chosen=size, choose=chooseSize)
             button press=toggleEager testId="toggle-eager" padding=6 background-color=theme.control border-width=0 border-radius=6
               text (eager ? "Use manual page" : "Render ALL blocks") font-size=12 color=theme.ink
+            button press=toggleWindowed testId="toggle-windowed" padding=6 background-color=theme.control border-width=0 border-radius=6
+              text (windowed ? "Use manual page" : "Window full document") font-size=12 color=theme.ink
           row gap=6 align-items="center" flex-wrap="wrap"
             button press=chooseWidth(false) testId="width-narrow" padding=6 background-color=theme.control border-width=0 border-radius=6
               text "640 px column" font-size=12 color=theme.ink
@@ -164,10 +174,10 @@ component MarkdownStress
             else
               button press=start testId="start" padding=6 background-color=theme.control border-width=0 border-radius=6
                 text "20 reparses at 1 Hz" font-size=12 color=theme.ink
-          text `${doc.sourceBytes} source bytes · ${doc.totalBlocks} parsed blocks · ${doc.materialized} mounted · ${doc.tableRows} table rows · revision ${doc.revision}` testId="stats" font-size=12 color=theme.ink
+          text `${doc.sourceBytes} source bytes · ${doc.totalBlocks} parsed blocks · ${doc.materialized} supplied blocks · ${doc.tableRows} table rows · revision ${doc.revision}` testId="stats" font-size=12 color=theme.ink
           text `${doc.largestBlock} text bytes in largest block · ${wide ? "1200" : "640"} px column · ${running ? "reparsing" : "paused"}` testId="load-stats" font-size=12 color=theme.softInk
-          text (eager ? "EAGER: all blocks mounted. Large documents may stall input." : "MANUAL PAGE: 40 blocks; the entire document is still parsed. One giant block remains giant.") testId="mode" font-size=11 color=theme.warnInk
-        when not eager
+          text (windowed ? "WINDOWED: complete parsed document; only nearby blocks mounted. One giant block remains giant." : eager ? "EAGER: all blocks mounted. Large documents may stall input." : "MANUAL PAGE: 40 blocks; the entire document is still parsed. One giant block remains giant.") testId="mode" font-size=11 color=theme.warnInk
+        when not eager and not windowed
           row flex-shrink=0 padding=6 gap=8 flex-wrap="wrap" align-items="center" background-color=theme.chrome
             button press=previousPage testId="previous-page" padding=6 background-color=theme.control border-width=0
               text "Previous 40" font-size=12 color=theme.ink
@@ -176,11 +186,18 @@ component MarkdownStress
             button press=firstPage testId="first-page" padding=6 background-color=theme.control border-width=0
               text "First page" font-size=12 color=theme.ink
             text `${doc.first + 1}–${doc.end} of ${doc.totalBlocks}` testId="page-range" font-size=12 color=theme.softInk
-        scroll testId="document" flex=1 min-height=60 width="100%" overflow-x="hidden" overscroll-behavior="contain"
-          column width="100%" align-items="center" padding-top=16 padding-bottom=64
-            column width="100%" max-width=(wide ? 1200 : 640) padding-left=20 padding-right=20 box-sizing="border-box" gap=2 testId="reading-column"
-              each b in doc.blocks key=b.id
-                Blocks(block=b)
+        when windowed
+          list virtualized=true testId="document" flex=1 min-height=60 width="100%" box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain"
+            each b in doc.blocks key=b.id
+              column width="100%" align-items="center" padding-top=(b.id == "0" ? 16 : 0) padding-bottom=(b.id == `${doc.totalBlocks - 1}` ? 64 : 2)
+                column width="100%" max-width=(wide ? 1200 : 640) padding-left=20 padding-right=20 box-sizing="border-box" testId=`reading-column-${b.id}`
+                  Blocks(block=b)
+        else
+          scroll testId="document" flex=1 min-height=60 width="100%" overflow-x="hidden" overscroll-behavior="contain"
+            column width="100%" align-items="center" padding-top=16 padding-bottom=64
+              column width="100%" max-width=(wide ? 1200 : 640) padding-left=20 padding-right=20 box-sizing="border-box" gap=2 testId="reading-column"
+                each b in doc.blocks key=b.id
+                  Blocks(block=b)
         column flex-shrink=0 padding=10 gap=4 width="100%" box-sizing="border-box" background-color=theme.chrome
           input value=draft change=editDraft testId="stress-input" aria-label="Type while Markdown reflows" placeholder="Type while scrolling, reparsing or resizing…" width="100%" box-sizing="border-box" padding=8 border-width=1 border-color=theme.fieldEdge background-color=theme.field color=theme.ink font-size=14
           text draft testId="stress-echo" font-size=12 color=theme.ink

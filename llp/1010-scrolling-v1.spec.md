@@ -388,3 +388,141 @@ asynchronously. The work is complete only after Messages passes on web
 and physical iOS and the shared fixtures pass on macOS/Linux. A runner-only
 number, native cell recycling, or a smooth 25-record demo closes none of
 those later slices.
+
+### 6.5 Shared viewport collection implementation, 2026-09-16
+
+`list virtualized=true` opts into the shared runner collection. An ordinary
+`each` and `virtualized=false` retain eager behavior. The initial supported
+shape is a bounded vertical list with one direct keyed `each`, whose body
+has one normal-flow element root. Wrap multiple or conditional roots in a
+column. Absolute/overlapping rows and alternate container layouts are rejected.
+Vertical scroll-container padding is also rejected until the feedback protocol
+models content insets. Put top/end spacing inside measured first/last rows;
+horizontal padding is represented by the host's actual offered row width.
+The compiler keeps one row template; records and compact key/height metadata
+remain O(N). Only selected rows own instances, local slots and kernel views.
+
+Before host geometry arrives, at most sixteen rows mount with a provisional
+32-point estimate. Actual border-box wrapper heights replace estimates, with
+one viewport of overscan on each side. Offset-only feedback performs no key
+evaluation or data-source query. Changed membership/order validates all keys;
+this is still synchronous O(N) work. Row-local state dies on eviction; durable
+drafts and selection belong in parent/keyed data. Visited rows are not cached.
+
+Hosts report the actual nested scrollport, content-relative offset, offered
+row width and measured wrappers. Width/content changes issue fresh measurement
+epochs. Stale revisions, sequences and epochs cannot overwrite newer geometry.
+Anchor corrections are tied to the accepted scroll sequence, preserving a key
+and its offset or falling back to surviving neighbors. End-follow is explicit
+and only applies when the user was already at the end; native eager end-follow
+must not run independently on a virtualized list.
+
+`Runner::collections`, `collections_json`, `collection_feedback` and
+`collection_feedback_bytes` are the common host seam. Feedback is versioned
+little-endian data; snapshot JSON encodes all u64 generations/sequences as
+decimal strings, including values above JavaScript's exact integer range.
+Snapshots contain only mounted wrapper metadata, not record text or offscreen
+keys. Host adapters bound their feedback work per callback and coalesce pending
+work; that count bound is not a time bound or proof of an OS presentation yield.
+
+Messages stress has an opt-in full-history transcript beside its eager and
+manual controls. Markdown stress similarly windows complete parsed block lists
+with the existing rich-text renderer. Single giant paragraphs/code blocks are
+still indivisible. Raster admission, selection spanning unmounted blocks,
+physical iOS acceptance and presentation timing remain unfinished. The four
+continuous-interaction demonstrations in LLP 1041 §8.5 extend this foundation;
+the functional collection implementation alone does not satisfy their motion bar.
+
+Feedback is preflighted before any mutation, including aggregate extent overflow
+and foreign row pins. An accepted focus or interaction pin transfers that category
+globally; clearing a pin affects only the addressed collection. Earlier owners
+are re-realized and revision-bumped before the new owner. Stale feedback cannot
+steal or revoke another collection's pin. Virtualized descendants inside a virtual
+row template are rejected, including currently empty/inactive branches; an
+explicit eager descendant remains allowed. A sheet containing one collection
+does not introduce a nested virtual row and remains supported.
+
+Measured zero-height runs are skipped by the height tree rather than flattened
+from a potentially huge endpoint hull. Typography invalidation restores estimates,
+the reading anchor and actual emitted rows/spacers. Individually valid heights
+whose sum would overflow native geometry are rejected without poisoning the
+runner. End-follow allows only bounded f32 geometry rounding: tolerance is
+`clamp(max(extent, viewport) * f32::EPSILON, 1/1024, 0.5)` logical units.
+
+### 6.6 Paired runner evidence, 2026-09-16
+
+`bun scripts/metrics.mjs --list-memory --collections --repeats 3 --json`
+preserves the earlier eager diagnostic and adds paired fresh processes using one
+release executable. This run used Apple M4 (Mac16,10), 10 cores, 16 GiB, macOS
+26.2 / Darwin 25.2 arm64, Rust 1.97.0. It is not compared against the older M5
+baseline. All eighteen cells passed with source content unchanged before/after
+build and measurements; all 234 phase-boundary compiler observations were empty.
+
+Both modes supply distinct complete records and the same fixed 24px text rows,
+with one owned slot per row, in an actual 390×800 nested kernel scrollport.
+Twenty traversals cover top→bottom→top with viewport-sized steps. Actual wrapper
+measurements must converge to the complete N×24 extent. The 25-row case fits
+without scrolling. Each cell also exercises typing, row-body updates, replacement,
+reorder, leaving and destruction. Values below are medians across three processes;
+heap and RSS are sampled after twenty traversals.
+
+| Records / mode | Live rows | Requested heap MiB | Process RSS MiB | Input runner p50 / p95 ms | Body runner p50 / p95 ms |
+|---|---:|---:|---:|---:|---:|
+| 25 eager | 25 | 0.112 | 3.72 | 0.0306 / 0.0333 | 0.0326 / 0.0422 |
+| 25 virtualized | 25 | 0.180 | 4.08 | 0.0467 / 0.0622 | 0.0497 / 0.0539 |
+| 1,000 eager | 1,000 | 3.737 | 10.56 | 1.0962 / 1.1572 | 1.2122 / 1.2289 |
+| 1,000 virtualized | 67 | 1.416 | 7.06 | 0.1217 / 0.1322 | 0.1336 / 0.1433 |
+| 25,000 eager | 25,000 | 105.944 | 128.17 | 29.1057 / 30.9080 | 33.4697 / 33.9556 |
+| 25,000 virtualized | 67 | 7.429 | 18.17 | 0.2462 / 0.2543 | 0.2505 / 0.2614 |
+
+At both 1,000 and 25,000, the maximum sampled live kernel count is 207 and arena
+capacity 307; settled top has 67 rows / 138 nodes. At 25,000, scroll-feedback
+runner p50/p95 is 0.3121/0.3356 ms and layout 0.0368/0.0403 ms. Scroll and
+input/body updates evaluate zero keys or source queries. Replacing/reversing the
+data keys all N once. Cumulative requested-heap peaks through replacement/reorder
+are 217.593 MiB eager and 15.829 MiB virtualized. Leaving releases every row;
+source records and reusable kernel capacity remain until runner destruction.
+
+Timings include synchronous action/feedback settlement with diagnostic allocator
+accounting. They are elapsed CPU-path measurements, not OS CPU counters or input
+to display latency. Requested heap excludes allocator slack and internal realloc
+transients; RSS includes diagnostic buffers and is sampled, not continuous peak
+or Apple physical footprint. O(N) input and compact metadata remain. No host
+presenter, decoded images or first pixel participates, so this establishes no
+macOS/Linux/web/phone frame rate or raster budget.
+
+Raw samples, readable report and exact executable are preserved locally in
+`target/collection-metrics-postreview/`; the pre-review run remains separately in
+`target/collection-metrics/`. Source identity is `bf21e94` plus working edits,
+full source SHA-256 `a5daf03adc0797a8dd4afb10f63010ab73b1fe6a6b7a44d26a70cacc2a78c206`;
+binary `c14a55bf5407cde3aefb9f76affc085e9cf178744452195393d293677b48e2bb`;
+raw JSON `2e2fbc9ff23e1cbe2bfaf11410e7f0fe568e2d17047455a9bcdab1826f577e16`.
+
+Scoped runner/Contract/web/Apple/Linux/stress-data validation passed 427 tests
+(four ignored), strict Clippy, formatting, caps and boot. This includes 39 runner
+collection tests, 25k zero-height realization, cross-collection pin ownership,
+overflow nonmutation, typography anchors and host adapter regressions. A stale
+compiled Contract test artifact initially rejected the new list syntax; refreshing
+changed Rust source mtimes without changing bytes rebuilt it and the same suite
+passed. The cause of that cache mismatch remains unproven. Whole-workspace checks
+remain blocked by the unrelated missing lean Hermes producer; workspace formatting
+reports sibling Snapback differences, with no Exact2 formatting differences.
+
+Final Ubuntu adapter validation additionally passed all 69 Linux tests and strict
+Clippy. It caught two host geometry errors: subtracting a large f64 row top from
+an f32 frame invented padding and invalidated corrections; border-box scroll
+limits stopped short of the inner viewport's logical end. Linux now reads the
+authored origin and uses one virtual-list range for wheel, clamp and correction,
+preserving the eager fallback. A 25k fractional-height, bordered regression
+requires one wheel, stable sequence and eventual idle refinement.
+
+The final uninstrumented Ubuntu 10k Messages drive reaches every tested endpoint,
+including a local echo, with one wheel and two no-wheel observation requests.
+The 1 MiB Markdown smoke also passes. The headless carrier pumps during requests;
+this does not prove autonomous OS scheduling or presentation. A shared guest Cargo
+target had reused a stale runner with frozen-source mtimes: package-scoped clean
+forced its recompilation and resolved a later discrepancy without source changes.
+Failed and final binaries remain separate. Final source manifest:
+`6840b5e9c16c7ed8fd1530cfe67481c88e12bc0f5578d526dc4de6ba08912827`;
+evidence: `/tmp/exact2-linux-endfollow-final-6840b5e9/`. This adapter-only follow-up
+does not alter the measured runner or replace the paired diagnostic above.

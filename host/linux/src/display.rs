@@ -332,6 +332,12 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             events.extend(v.take_events());
         }
         for ev in events {
+            // Navigation/reload can retire or hide a held target between input
+            // events. Do not deliver its eventual release to a new view.
+            if down.is_some() && down != p.collection_interaction() {
+                down = None;
+                p.set_collection_interaction(None);
+            }
             match ev {
                 InputEvent::Motion(dx, dy) => {
                     pointer.0 = (pointer.0 + dx / config.scale).clamp(0.0, viewport.0 - 1.0);
@@ -347,18 +353,26 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                     }
                     p.set_pointer(Some(pointer));
                 }
-                InputEvent::Button(true) => down = p.hit(pointer.0, pointer.1),
+                InputEvent::Button(true) => {
+                    down = p.hit(pointer.0, pointer.1);
+                    p.set_collection_interaction(down);
+                }
                 InputEvent::Button(false) => {
                     let was = down.take();
                     let at = p.hit(pointer.0, pointer.1);
                     if was.is_some() && was == at {
                         p.press_at(pointer.0, pointer.1, wall());
                     }
+                    p.set_collection_interaction(None);
                 }
                 InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
                 InputEvent::Key(Key::Char(c)) => p.key(Some(c), false, wall()),
                 InputEvent::Key(Key::Backspace) => p.key(None, true, wall()),
-                InputEvent::Key(Key::Escape) => p.blur(),
+                InputEvent::Key(Key::Escape) => {
+                    down = None;
+                    p.set_collection_interaction(None);
+                    p.blur();
+                }
                 InputEvent::Key(Key::Enter) => p.key(Some('\n'), false, wall()),
             }
         }

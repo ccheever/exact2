@@ -85,6 +85,12 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// Full live collection metadata, serialized by the common runner seam.
+    pub(crate) fn collections(&mut self, snapshots: &str) {
+        self.ops
+            .push(format!("{{\"op\":\"collections\",\"items\":{snapshots}}}"));
+    }
+
     /// A terminal admission refusal, delivered after the enclosing DOM batch.
     pub(crate) fn refuse(&mut self, ticket: u64, message: &str) {
         let mut out = format!("{{\"op\":\"refuse\",\"ticket\":{ticket},\"message\":");

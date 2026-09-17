@@ -16,7 +16,7 @@ Choose a source budget of 16 KiB, 256 KiB, 1 MiB or 4 MiB, then:
 - **Many blocks:** thousands of individually keyed headings and short paragraphs.
 
 Generation is deterministic. Complete syntax is emitted up to the selected byte
-budget; the app reports actual source bytes, parsed blocks, mounted blocks, table
+budget; the app reports actual source bytes, parsed blocks, supplied blocks, table
 rows and the largest block's text bytes. These are not process-memory figures.
 The 4 MiB ceiling matches the existing reader's file admission limit.
 
@@ -24,6 +24,10 @@ The default is a **manual page of 40 blocks**. It still generates and parses the
 entire document and retains that parsed document; it is not virtualization.
 One 4 MiB paragraph remains one 4 MiB paragraph even in page mode. **Render ALL
 blocks** explicitly mounts the complete document and can stall the current UI.
+**Window full document** supplies the same complete parsed block list to the
+shared viewport collection. It mounts nearby blocks while keeping their real
+styled text and table cells. All parsed data remains resident; a giant paragraph
+or code block stays giant. The mode does not split, truncate or page its text.
 
 The 640/1200 px column controls reflow the same document without reparsing.
 Also drag the real window edge, scroll partway through the document and type in
@@ -34,8 +38,8 @@ revision reparses it. **Parse again** performs one full synchronous reparse;
 the timed control requests 20 reparses at 1 Hz, capped at revision 1,000 until
 Reset. Pause cannot interrupt a synchronous operation already in flight.
 
-This is a stress baseline, not a worker, cancellation, virtualization, scroll
-anchoring or 120 FPS implementation. In particular the production Markdown
+Manual and eager modes remain stress controls beside the windowed path. This
+fixture does not establish 120 FPS or move parsing to a worker. The production Markdown
 reader reads and parses native files on its continuation worker, whereas this
 cross-platform synthetic source currently parses synchronously. Do not present
 its parse latency as a regression in that reader's existing file-open worker.
@@ -74,6 +78,10 @@ bun apps/markdown-stress/smoke.mjs macos
 bun apps/markdown-stress/smoke.mjs linux
 # Explicit heavier run; per-command 30-second diagnostic timeout.
 bun apps/markdown-stress/smoke.mjs linux --profile blocks --bytes 1048576 --out /tmp/markdown-stress
+# Same complete parsed document with viewport-sized rich-text realization.
+bun apps/markdown-stress/smoke.mjs web --mode windowed --profile blocks --bytes 1048576
+bun apps/markdown-stress/smoke.mjs macos --mode windowed --profile blocks --bytes 1048576
+bun apps/markdown-stress/smoke.mjs linux --mode windowed --profile blocks --bytes 1048576
 
 # Input behind synchronous reparsing, and real native resize followed by input.
 bun apps/markdown-stress/native-sample.mjs macos --samples 12
@@ -115,9 +123,33 @@ no framework edit is required to run.
 The view components are copied from `apps/markdown/app.contract` because Contract
 does not currently import view components across app files. Parsing, block shapes,
 value conversion and theme tokens are shared; there is no second Markdown parser.
-Large variable-height block virtualization, giant text-block subdivision with
-selection continuity, native resize coalescing, stable scroll anchors and worker
-placement are framework follow-ups, to be measured separately from this fixture.
+The opt-in variable-height block window uses the shared runner collection and
+host measurement/anchor path. `data/tests/windowed.rs` exercises the actual
+1 MiB / 26,885-block document through scrolling, width changes, typing, reparse
+and reset, and checks that a 256 KiB paragraph remains complete. Scoped tests
+and Clippy pass. Physical presentation and selection across unmounted blocks remain
+unverified; giant text-block subdivision with selection continuity, native
+resize coalescing and worker placement remain follow-ups.
+
+Final windowed browser and AppKit drives pass the 1 MiB / 26,885-block case.
+The smoke requires the actual first/last logical block to intersect the nested
+scrollport before reflow, then preserves the reading key across column changes.
+Web mounts 20–21 blocks / 209–215 nodes; AppKit mounts 21 / 215–219. All five
+16 KiB browser profiles also pass, including unsplit paragraph/code blocks.
+These are endpoint jumps and functional layout checks, not full-document
+traversals or frame-rate measurements. Artifacts are at the repository root in
+`target/markdown-windowed-web-final/`, `target/markdown-windowed-web-profiles/`
+and `target/markdown-stress-native/windowed-blocks-1m/`. Top/end spacing lives
+inside measured first/last row wrappers so the shared logical extent includes it.
+
+The same final 1 MiB windowed smoke passes on actual Ubuntu 24.04 ARM64 in Lima,
+using CPU raster and the newly provisioned Noto CJK/emoji fonts: 21 mounted blocks
+and 215–219 nodes, with endpoint/reflow/input assertions. Evidence is in
+`/tmp/exact2-linux-endfollow-final-6840b5e9/artifacts/markdown-runner-reset/`;
+executable SHA-256 is
+`c0e9c6a142a0366cf6dd6d767f7e640d6fb15d9c96a51ed2bfb108b01cb9ffa5`.
+This is a functional headless Linux result, not a compositor measurement or a
+controlled timing comparison against the older DejaVu-only environment below.
 
 ## Initial parse evidence, 2026-09-16
 

@@ -8,6 +8,7 @@
 
 mod admission;
 mod carry;
+mod collection;
 mod source;
 pub use source::{DataError, DataSource};
 mod delivery;
