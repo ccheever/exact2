@@ -1,0 +1,19 @@
+[package]
+name = "beacons-gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-game-render = { path = "../../../render" }
+beacons-logic = { path = "../logic" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Match the repository's lockfile and wasm-bindgen CLI schema.
+wasm-bindgen = "=0.2.127"
+wasm-bindgen-futures = "=0.4.77"
+web-sys = { version = "=0.3.104", features = ["HtmlCanvasElement"] }
