@@ -1,0 +1,272 @@
+// LLP 1041 §8.5: shared visual/data foundation; continuous gestures pending.
+shape Theme
+  page: string
+  card: string
+  edge: string
+  ink: string
+  muted: string
+  wash: string
+  accent: string
+
+shape Photo
+  id: string
+  title: string
+  subtitle: string
+  asset: string
+  alt: string
+  tone: string
+  notes: string
+  rank: number
+
+shape GalleryState
+  mode: string
+  rows: list<Photo>
+  total: number
+  requested: number
+  page: number
+  pages: number
+  first: number
+  end: number
+  revision: number
+  selected: Photo
+  hasSelection: bool
+  viewerOpen: bool
+  viewerToken: number
+  hasPrevious: bool
+  hasNext: bool
+  reordering: bool
+  dragToken: number
+  liftedId: string
+  beforeId: string
+  previewLabel: string
+  sheet: string
+  sheetHeight: string
+  notice: string
+  returnKind: string
+  returnId: string
+  canInsert: bool
+  canPagePrevious: bool
+  canPageNext: bool
+
+component InteractionGallery
+  resource initial = gallery() as shape GalleryState
+  resource theme = theme() as shape Theme
+  mutation changed as shape GalleryState
+  derive gallery = match changed { case some(value) => value, case none => initial }
+  state draft = ""
+
+  action command(op: string, id: string, n: number) writes changed
+    send changed = galleryAction(op, id, n)
+    if op == "open"
+      focus("close-viewer")
+    if op == "close"
+      focus(`open-${gallery.selected.id}`)
+    if op == "mode"
+      focus(`mode-${id}`)
+    if op == "lift"
+      focus("place")
+    if op == "place" or op == "cancel"
+      focus(`lift-${gallery.selected.id}`)
+    if op == "delete"
+      focus(`mode-${gallery.mode}`)
+  action edit(value) writes draft
+    if length(value) <= 512
+      draft = value
+
+  view
+    provide theme = theme
+      main testId="interaction-gallery" display="flex" flex-direction="column" width="100%" height="100%" min-height=0 background-color=theme.page color=theme.ink
+        column flex-shrink=0 padding=20 gap=14 border-bottom-width=1 border-color=theme.edge
+          row gap=16 align-items="center" flex-wrap="wrap"
+            text "still." font-size=30 font-weight=700 letter-spacing=-1 color=theme.accent
+            text "A collection of imagined places" font-size=12 color=theme.muted flex=1 min-width=180
+            row gap=8 flex-shrink=0
+              ModeButton(name="photos", label="Photos", shortcut="Meta+1 Control+1", gallery=gallery, command=command)
+              ModeButton(name="reorder", label="Arrange", shortcut="Meta+2 Control+2", gallery=gallery, command=command)
+              ModeButton(name="sheet", label="Read", shortcut="Meta+3 Control+3", gallery=gallery, command=command)
+          row align-items="center" gap=8 flex-wrap="wrap"
+            text "COLLECTION" font-size=10 font-weight=700 letter-spacing=1 color=theme.muted
+            CountButton(count=100, label="100", gallery=gallery, command=command)
+            CountButton(count=1000, label="1,000", gallery=gallery, command=command)
+            CountButton(count=25000, label="25,000", gallery=gallery, command=command)
+            text `${gallery.total} studies · 6 local images` font-size=12 color=theme.muted flex=1 min-width=170
+            button press=command("insert", "", 0) disabled=(not gallery.canInsert) testId="insert" aria-label="Insert a new study at the beginning" padding=7 background-color=theme.card border-width=0 border-radius=6
+              text "+ Add study" font-size=12 color=theme.ink
+            button press=command("reset", "", 0) testId="reset" aria-label="Reset this collection and its edits" padding=7 background-color=theme.card border-width=0 border-radius=6
+              text "Reset" font-size=12 color=theme.muted
+        when gallery.mode == "photos"
+          when gallery.viewerOpen
+            Viewer(gallery=gallery, command=command)
+          else
+            scroll testId="photos-scroll" flex=1 min-height=0 overflow-x="hidden"
+              column padding=24 gap=20 width="100%" box-sizing="border-box"
+                column gap=6
+                  text "Places to pause." font-size=32 font-weight=600 color=theme.ink
+                  text "Six studies in light, texture and distance. Open a photograph to look a little closer." font-size=14 color=theme.muted
+                row flex-wrap="wrap" gap=18 align-items="flex-start"
+                  each photo in gallery.rows key=photo.id
+                    PhotoCard(photo=photo, returned=(gallery.returnId == photo.id), command=command)
+                when gallery.total == 0
+                  text "A clean slate. Add a study or reset your collection." font-size=18 color=theme.muted
+        when gallery.mode == "reorder"
+          column flex=1 min-height=0
+            column padding=20 gap=8 flex-shrink=0
+              text "Find a new rhythm." font-size=28 font-weight=600 color=theme.ink
+              text "Pick up a study, preview a position, then Place. Cancel keeps the original order." font-size=13 color=theme.muted
+              when gallery.reordering
+                row gap=8 flex-wrap="wrap" align-items="center" padding=10 background-color=theme.wash border-radius=8
+                  text gallery.previewLabel testId="move-preview" font-size=12 color=theme.accent flex=1
+                  ActionButton(id="earlier", label="Earlier", op="earlier", target="", n=gallery.dragToken, shortcut="Meta+, Control+,", command=command)
+                  ActionButton(id="later", label="Later", op="later", target="", n=gallery.dragToken, shortcut="Meta+. Control+.", command=command)
+                  ActionButton(id="place", label="Place", op="place", target="", n=gallery.dragToken, shortcut="Meta+p Control+p", command=command)
+                  ActionButton(id="cancel", label="Cancel", op="cancel", target="", n=gallery.dragToken, shortcut="Escape", command=command)
+            scroll testId="reorder-scroll" flex=1 min-height=0 overflow-x="hidden"
+              column padding=20 padding-top=0 gap=10
+                each photo in gallery.rows key=photo.id
+                  ArrangeCard(photo=photo, gallery=gallery, command=command)
+        when gallery.mode == "sheet"
+          column flex=1 min-height=0 position="relative" overflow="hidden" testId="sheet-stage"
+            when gallery.hasSelection
+              image gallery.selected.asset aria-label=gallery.selected.alt width="100%" height="100%" object-fit="cover"
+            when gallery.sheet != "full"
+              column position="absolute" top=16 left=20 right=20 max-width=340 padding=12 box-sizing="border-box" border-radius=10 background-color="#203b37" gap=5
+                text "A little closer." font-size=30 font-weight=600 color="#ffffff"
+                text "Choose a reading height; scroll the notes inside." font-size=13 color="#ffffff"
+            column position="absolute" bottom=0 left=0 right=0 height=gallery.sheetHeight background-color=theme.card border-top-left-radius=20 border-top-right-radius=20 padding=16 box-sizing="border-box" gap=12 testId="reading-sheet"
+              row flex-shrink=0 align-items="center" gap=8 flex-wrap="wrap"
+                text "Field notes" font-size=20 font-weight=600 color=theme.ink flex=1
+                SheetButton(name="peek", label="Peek", gallery=gallery, command=command)
+                SheetButton(name="read", label="Read", gallery=gallery, command=command)
+                SheetButton(name="full", label="Full", gallery=gallery, command=command)
+              scroll flex=1 min-height=0 testId="sheet-scroll" overscroll-behavior="contain" overflow-x="hidden"
+                column gap=12
+                  each photo in gallery.rows key=photo.id
+                    button press=command("select", photo.id, 0) testId=`note-${photo.id}` aria-label=`Read ${photo.title}, study ${photo.id}` display="flex" flex-direction="row" gap=14 padding=12 border-width=0 border-radius=10 background-color=(gallery.selected.id == photo.id ? theme.wash : theme.page) align-items="flex-start"
+                      image photo.asset aria-label=photo.alt width=72 height=88 object-fit="cover" border-radius=6 flex-shrink=0
+                      column flex=1 min-width=0 gap=5
+                        text photo.title font-size=17 font-weight=600 color=theme.ink
+                        text photo.subtitle font-size=11 color=theme.muted
+                        text photo.notes font-size=14 line-height=1.45 color=theme.ink
+        column flex-shrink=0 padding=12 gap=8 border-top-width=1 border-color=theme.edge background-color=theme.card
+          row gap=8 align-items="center" flex-wrap="wrap"
+            button press=command("previousPage", "", 0) testId="previous-page" disabled=(not gallery.canPagePrevious) aria-label="Previous page" padding=7 border-width=0 background-color=theme.page border-radius=6
+              text "Previous 12" font-size=12 color=theme.ink
+            text `${gallery.first}–${gallery.end} of ${gallery.total} · Page ${gallery.page + 1}/${gallery.pages}` testId="page-range" font-size=12 color=theme.muted
+            button press=command("nextPage", "", 0) testId="next-page" disabled=(not gallery.canPageNext) aria-label="Next page" padding=7 border-width=0 background-color=theme.page border-radius=6
+              text "Next 12" font-size=12 color=theme.ink
+            text "Browse your collection" font-size=11 color=theme.muted flex=1
+          text gallery.notice testId="status" font-size=11 color=theme.accent
+          input value=draft change=edit testId="gallery-input" aria-label="Write a note while browsing and resizing" placeholder="Write a note while browsing or resizing…" padding=8 border-width=1 border-style="solid" border-color=theme.edge border-radius=6 background-color=theme.page color=theme.ink font-size=13
+          text "Six imagined places · Generated photographic illustrations · Available offline" testId="readiness" font-size=10 color=theme.muted
+
+component ModeButton
+  inject
+    theme: Theme
+  props
+    name: string
+    label: string
+    shortcut: string
+    gallery: GalleryState
+    command: action
+  view
+    button press=command("mode", name, 0) id=`mode-${name}` testId=`mode-${name}` aria-keyshortcuts=shortcut aria-label=`${label}${gallery.mode == name ? ", selected" : ""}` padding=9 border-width=0 border-radius=8 background-color=(gallery.mode == name ? theme.wash : theme.page)
+      text label font-size=13 font-weight=600 color=(gallery.mode == name ? theme.accent : theme.muted)
+
+component CountButton
+  inject
+    theme: Theme
+  props
+    count: number
+    label: string
+    gallery: GalleryState
+    command: action
+  view
+    button press=command("load", "", count) testId=`count-${count}` aria-label=`Reset to ${count} studies` padding=7 border-width=0 border-radius=6 background-color=(gallery.requested == count ? theme.wash : theme.card)
+      text label font-size=12 color=theme.ink
+
+component PhotoCard
+  inject
+    theme: Theme
+  props
+    photo: Photo
+    returned: bool
+    command: action
+  view
+    button press=command("open", photo.id, 0) id=`open-${photo.id}` testId=`open-${photo.id}` aria-label=`Open ${photo.title}, study ${photo.id}` display="flex" flex-direction="column" flex=1 flex-basis="30%" min-width=220 padding=0 border-width=1 border-style="solid" border-color=(returned ? theme.accent : theme.edge) border-radius=12 overflow="hidden" background-color=theme.card
+      image photo.asset aria-label=photo.alt width="100%" height=190 object-fit="cover" background-color=photo.tone testId=`image-${photo.id}`
+      column padding=13 gap=5 width="100%" box-sizing="border-box"
+        text photo.title font-size=17 font-weight=600 color=theme.ink
+        text photo.subtitle font-size=11 color=theme.muted
+
+component Viewer
+  inject
+    theme: Theme
+  props
+    gallery: GalleryState
+    command: action
+  view
+    scroll flex=1 min-height=0 testId="viewer-scroll" overflow-x="hidden"
+      column padding=20 gap=14 align-items="center"
+        row width="100%" gap=8 align-items="center" flex-wrap="wrap"
+          ActionButton(id="close-viewer", label="Back to collection", op="close", target="", n=gallery.viewerToken, shortcut="Escape", command=command)
+          text `${gallery.selected.rank} / ${gallery.total}` font-size=12 color=theme.muted flex=1
+          button press=command("previous", "", gallery.viewerToken) testId="previous-photo" disabled=(not gallery.hasPrevious) aria-keyshortcuts="Meta+[ Control+[" padding=8 border-width=0 border-radius=6 background-color=theme.card
+            text "Previous" font-size=12 color=theme.ink
+          button press=command("next", "", gallery.viewerToken) testId="next-photo" disabled=(not gallery.hasNext) aria-keyshortcuts="Meta+] Control+]" padding=8 border-width=0 border-radius=6 background-color=theme.card
+            text "Next" font-size=12 color=theme.ink
+        image gallery.selected.asset aria-label=gallery.selected.alt width="100%" height=410 object-fit="contain" border-radius=12 background-color="#172521" testId="viewer-image"
+        column width="100%" max-width=740 gap=7
+          row gap=10 align-items="center"
+            text gallery.selected.title font-size=28 font-weight=600 color=theme.ink flex=1
+            ActionButton(id="delete-photo", label="Remove study", op="delete", target=gallery.selected.id, n=0, shortcut="", command=command)
+          text gallery.selected.subtitle font-size=12 color=theme.muted
+          text gallery.selected.notes font-size=15 line-height=1.5 color=theme.ink
+          text "Generated photographic illustration · bundled locally" font-size=10 color=theme.muted
+
+component ArrangeCard
+  inject
+    theme: Theme
+  props
+    photo: Photo
+    gallery: GalleryState
+    command: action
+  view
+    row testId=`card-${photo.id}` gap=14 padding=12 border-width=1 border-style="solid" border-color=(gallery.liftedId == photo.id ? theme.accent : theme.edge) border-radius=10 background-color=theme.card align-items="flex-start" flex-wrap="wrap"
+      image photo.asset aria-label=photo.alt width=104 height=104 object-fit="cover" border-radius=7 flex-shrink=0
+      column flex=1 min-width=180 gap=6
+        text `${photo.rank}. ${photo.title}` font-size=18 font-weight=600 color=theme.ink
+        text photo.notes font-size=13 line-height=1.4 color=theme.muted
+        text photo.subtitle font-size=10 color=theme.muted
+      column gap=6
+        when gallery.reordering and gallery.liftedId != photo.id
+          ActionButton(id=`before-${photo.id}`, label="Preview here", op="before", target=photo.id, n=gallery.dragToken, shortcut="", command=command)
+        else
+          ActionButton(id=`lift-${photo.id}`, label="Pick up", op="lift", target=photo.id, n=0, shortcut="", command=command)
+        ActionButton(id=`delete-${photo.id}`, label="Remove", op="delete", target=photo.id, n=0, shortcut="", command=command)
+
+component SheetButton
+  inject
+    theme: Theme
+  props
+    name: string
+    label: string
+    gallery: GalleryState
+    command: action
+  view
+    button press=command("sheet", name, 0) testId=`sheet-${name}` aria-label=`${label}${gallery.sheet == name ? ", selected" : ""}` padding=8 border-width=0 border-radius=6 background-color=(gallery.sheet == name ? theme.wash : theme.page)
+      text label font-size=12 color=theme.ink
+
+component ActionButton
+  inject
+    theme: Theme
+  props
+    id: string
+    label: string
+    op: string
+    target: string
+    n: number
+    shortcut: string
+    command: action
+  view
+    button press=command(op, target, n) id=id testId=id aria-keyshortcuts=shortcut padding=8 border-width=0 border-radius=6 background-color=theme.wash
+      text label font-size=12 color=theme.accent

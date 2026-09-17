@@ -1458,6 +1458,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "interaction-gallery-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-logic",
+ "interaction-gallery-data",
+]
+
+[[package]]
+name = "interaction-gallery-data"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "interaction-gallery-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-linux",
+ "exact-logic",
+ "interaction-gallery-data",
+]
+
+[[package]]
+name = "interaction-gallery-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-logic",
+ "exact-web",
+ "interaction-gallery-data",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
