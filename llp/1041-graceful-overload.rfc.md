@@ -1921,3 +1921,51 @@ bounds and physical 120Hz are not established by this increment.
 Sources, stock failures and scoped checks are in `target/font-admission-validation/`;
 integrated checks and the ordinary-entry before/after are in
 `target/font-admission-integration/`.
+
+### 8.21 Arrange collection and app foundation, 2026-09-17
+
+Leibniz implements the collection seam and Newton implements the gallery
+consumer; Zeno reviews both. The windowed Arrange List has an authored ID and
+`reorderdrop(item, before)` handler. A dedicated non-button grip uses
+`reorderFor`; manual Move disables it, and eager/manual controls remain available.
+The typed terminal event preserves string keys and an optional destination.
+Host physical delivery is a separate implementation, not implied by authoring
+or synthesized event tests.
+
+The Runner retains one preview descriptor and the existing source interaction
+pin, alongside at most the existing focus pin. It does not reorder the resource
+or export all keys during preview. Gap lookup and current-measurement proof are
+logarithmic; absolute Translate targets touch mounted wrappers. The additional
+minimum-epoch index occupies 512KiB for 25,000 entries. Source exclusion precedes
+right-biased zero-height boundary certification. An unproved latest sample keeps
+the displayed preview but clears permission to drop at the previous gap.
+
+Terminal admission consumes action eligibility before dispatch. A still-owned
+source pin survives the structural move and replacement of its grip; transferring
+the pin away prevents an old finish from clearing a successor. The host must
+capture presentation, apply the action and coherent layout, rebase wrapper
+coordinates, end motion and release the pin when safe. These common operations
+do not themselves implement that physical ordering or edge scrolling.
+
+The app calls synchronous `galleryReorder` with the latest structural revision.
+It checks stable source/destination identities and manual-move exclusion before
+mutation. Self, current-next and already-at-end moves are unchanged; a real move
+reserves the next revision before changing order. Refusals return a transient
+notice while preserving the model and cached rows. Other structural mutations
+also refuse exhaustion before consuming tokens or state. Terminal identity
+lookup and rebuilding changed rows remain O(N); preview does no per-pointer
+data query. The existing 26-field state and eight-field Photo wire are unchanged.
+
+The common freeze records 497 passing tests, including 25 new cases. Retained
+behavioral failures cover source-excluded zero gaps, stale final certification
+and premature source retirement after grip replacement. MAIN integration passes
+83 focused tests, strict all-target Clippy for all three hosts and Web wasm checks.
+The app passes 60 tests, including 19 new cases, both privately and on MAIN;
+model, data and old-app/new-common behavioral failures are retained. Scoped
+formatting, caps and strict app Clippy pass. Evidence is in
+`target/arrange-common-validation/` and `target/gallery-arrange-validation/`.
+
+Physical Web/Apple/Linux adapters, same-clip paint and hit elevation, actual
+nested-port edge scrolling and continuous-position terminal rebase remain work
+in progress. No physical drag, velocity-continuous neighbor rebase, latency or
+120Hz result follows from this foundation.
