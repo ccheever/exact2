@@ -11,6 +11,8 @@ license = "MIT"
 # in vendor/taffy/EXACT-PATCHES.md.
 [patch.crates-io]
 taffy = { path = "vendor/taffy" }
+# Pinned 0.19.0, zero-units font admission only; see vendor/cosmic-text/EXACT-PATCHES.md.
+cosmic-text = { path = "vendor/cosmic-text" }
 
 [profile.release]
 opt-level = 3

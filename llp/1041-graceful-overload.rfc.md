@@ -1855,8 +1855,8 @@ native/web controls retain synchronous `MarkdownStress`; this runtime uses
 typing and controls outside. A reproduced delayed default mixed launch returned
 `InvalidTextMetrics(298)` and permanently refused its registration. Bare,
 malformed and duplicate trial arguments now refuse before boot. The existing
-ordinary mixed/code nonfinite-width bug is preserved and assigned separately,
-not treated as solved by selecting the paragraph workload.
+ordinary mixed/code nonfinite-width failure was preserved separately; §8.20
+records its font-admission repair. Selecting the paragraph workload did not fix it.
 
 Two source-inclusive tests on macOS park the actual ordered continuation before
 generation and let font work finish first. They distinguish a ready loading
@@ -1885,3 +1885,39 @@ are retained in `target/content-region-controller-validation/`; integration
 checks are in `target/content-region-controller-integration/`. Actual Linux
 cold-to-correct publication, continuous input/resize, measured memory and Apple
 consumer integration remain in progress. No physical 120Hz claim is made.
+
+### 8.20 Refuse unusable font metrics before shaping, 2026-09-17
+
+Leibniz implements the admission repair; Tuft integrates and checks the ordinary
+Markdown consumer. The installed GB18030Bitmap face has `bhed` but no `head`.
+Pinned skrifa reports zero units per em; cosmic-text 0.19.0 previously admitted
+that face and divided glyph advances by zero before wrapping. The ordinary
+16KiB mixed Markdown entry also reproduced a paint-time `SubpixelBin` overflow.
+
+The existing Cargo patch mechanism selects the complete pinned cosmic-text
+0.19.0 archive with one three-line change: `Font::new` returns `None` for zero
+units per em. Existing failed-admission caching and fallback select another
+eligible face. There is no font-name blacklist, width clamp, dependency upgrade
+or per-shape catalog mutation. The archive identity, licenses and exact source
+delta are recorded in `vendor/cosmic-text/EXACT-PATCHES.md`.
+
+Portable missing/zero-head fixtures fail against stock admission and pass after
+the repair. Tests cover fallback, finite ordinary code at three widths,
+unclamped overwide words, and real worker transfer with matching geometry,
+glyphs and CPU pixels. The valid-font stock/treatment comparison is byte-identical
+for 12,677 bytes of glyph/geometry signatures and 1,280,000 bytes of RGBA.
+The private scope records 95 distinct passes. Integrated Linux-package tests
+record 279 passes and one existing GPU ignore; strict Clippy and the Markdown
+consumer build pass.
+
+The same ordinary 16KiB mixed entry, CPU painter and 1024×768 headless viewport
+changed from exit101 with the overflow to exit0 with 276 nodes and no boot error.
+Both runs execute the Linux crate on macOS with the installed font catalog.
+They establish a correctness repair, not an actual Linux display or latency
+comparison. The separate ac86627 Linux cold-publication capture retains its
+stock dependency identity. Mixed/code content-region support, giant-memory
+bounds and physical 120Hz are not established by this increment.
+
+Sources, stock failures and scoped checks are in `target/font-admission-validation/`;
+integrated checks and the ordinary-entry before/after are in
+`target/font-admission-integration/`.

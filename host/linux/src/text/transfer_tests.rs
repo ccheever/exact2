@@ -1065,3 +1065,5 @@ fn nonregular_replacement_refuses_without_waiting_for_a_pipe_writer() {
 }
 
 mod prepared_ink;
+
+mod font_admission;

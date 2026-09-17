@@ -82,9 +82,10 @@ content, and acceptance requires the complete requested paragraph.
 
 Width reflow retains the last successfully painted document. Later source
 reparses can display “Generating…” instead; keeping that document visible through
-source parsing remains unfinished. Mixed/code layout has a known nonfinite-width
-failure and is outside this paragraph trial. The ordinary synchronous control
-remains available. CPU painting and one fixed DPR are required; changing DPR or
+source parsing remains unfinished. Mixed/code remains outside this paragraph
+trial. The ordinary synchronous control remains available; a pinned font-admission
+repair now rejects zero-unit fonts that previously produced nonfinite widths and
+a paint-time overflow. CPU painting and one fixed DPR are required; changing DPR or
 unsupported transforms refuses the trial. Read-only source/link metadata is
 retained, but general selection and link activation are not implemented here.
 
