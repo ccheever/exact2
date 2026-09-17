@@ -1614,13 +1614,36 @@ tests retain exact CPU pixels and GPU font owners, then prove old owners release
 
 All 226 integrated Linux-package tests pass on macOS, with one existing native
 GPU test ignored; strict all-target Clippy, build, scoped formatting, caps and
-boot pass. Five new tests and their meaningful failure, exact ten-file sources,
+boot pass. Five new tests and the retained identified-width behavioral RED, exact ten-file sources,
 independent review and integration logs are in `target/immutable-shape-validation/`.
-This increment remains synchronous. Width layout is still O(glyphs/lines), and
-accepted plus working widths still require separate output arrays. It establishes
-neither actual-Linux speed/RSS improvement nor 4MiB completion under the existing
-address-space guard. Worker transfer and native asynchronous publication remain
-separate work.
+
+The subsequent actual Ubuntu ARM64 comparison runs four instrumented CPU/headless
+cells once: 1MiB before/after, then 4MiB after/before, under the unchanged 2.5GiB
+address-space guard. Both arms retain stock cosmic-text's reserve behavior. The
+1MiB pair completes with 13 exact source/glyph/geometry/pixel/identity checks;
+full shaping falls from seven builds to one across seven width layouts. The
+4MiB treatment also completes all seven layouts from one shape, while baseline
+aborts during its first 600-to-632px replacement. Initial 4MiB cold output matches;
+later paired oracles remain UNAVAILABLE because baseline never reaches them.
+
+Treatment 4MiB sampled RSS/HWM reaches 1,952,404KiB and VmPeak 2,588,816KiB, only
+31.859375MiB below the guard. The sampled peak is distinct from the final ACK's
+1,952,264KiB. This is an observed fit for one fixture/font set, not a robust memory
+ceiling. Completed capacity checkpoints deduplicate canonical keys, shared shape,
+each width and post-paint lazy ink; unfinished allocations, private scratch,
+fonts and allocator overhead remain separate. Comparing completed treatment RSS
+with an aborted baseline is not a like-for-like memory comparison.
+
+This increment remains synchronous. Width layout is O(glyphs/lines), and accepted
+plus working widths still require separate arrays. Instrumented 4MiB treatment
+cold ACK is 1710.383ms, first width change 1000.441ms, and subsequent resize ACKs
+766.723–796.302ms. These include IPC, paint and diagnostic hashing, not isolated
+layout or production latency. No physical presentation or 120Hz claim follows.
+Worker transfer and asynchronous publication remain separate work. Exact binaries,
+all four cells including the abort, available oracles and independently reviewed
+capacity reconstruction are in `target/linux-immutable-shape-native-v4-execution/`;
+source/harness revisions and their retained failures are in the sibling V1–V4
+captures. No native rerun or cap increase was used to obtain completion.
 
 ### 8.16 Apple resource clock during native tracking, 2026-09-17
 
