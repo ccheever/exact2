@@ -640,13 +640,24 @@ This uses the headless CPU presenter, separately from the VKMS gesture drive;
 the OS, fonts, painting and viewport differ from AppKit, so these are independent
 workload observations rather than a platform speed comparison.
 
+The native raster implementation and acceptance are recorded in LLP 1010 §6.3.
+Actual Ubuntu ARM64 now completes twenty full 25,000-row traversals with typing
+and resizing: 232,603 wheels, 3,634 exact Unicode input ACKs and 3,635 resize ACKs.
+All twenty coverage bitmaps contain every logical row. Observed rows/images stay
+at 6–12 and kernel/painted boxes at 121–200; managed raster peak is 6.01 MiB,
+maximum sampled RSS and kernel VmHWM are 104.12 MiB. The source and executable
+remain frozen through the run. Evidence and review limits are in
+`target/native-raster-20260917/linux-accept25k-20/`. This CPU Presenter sweep
+measures coverage and observed lifetime bounds, not frame cadence or a complete
+native/GPU allocation ledger. Six images are reused; unique-source churn remains
+a separate loader test. AppKit's full 25k sweep and Linux focus parity remain open.
+
 The remaining campaign includes sustained loaded/resize interaction measurements,
-the three gallery gestures, image admission and reduced-resolution decoding,
-and indivisible giant Markdown layout. The gallery's separate collection slice
+the three gallery gestures and indivisible giant Markdown layout. The gallery's separate collection slice
 supplies all 25,000 Arrange/Read records while preserving manual/eager controls;
 metadata-only actions reuse row values and do no record keying. Photos remains
 manually paged. Discrete buttons, static screenshots and bounded mounted rows
-do not establish the continuous interactions or decoded-image budget.
+do not establish the continuous interactions or physical presentation rate.
 
 ### 8.8 Giant Apple paragraph: measured warm-path changes, 2026-09-17
 

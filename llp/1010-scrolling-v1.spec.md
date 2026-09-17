@@ -497,10 +497,28 @@ replacement remains a separate loader test. The earlier attempt is retained:
 AppKit corrected a natural-language test token, so the harness now uses a nonce
 while preserving exact composed/decomposed Unicode assertions. Full evidence
 is `target/native-raster-20260917/macos-accept1k-20260917-015430/`.
-The actual Linux 100-row pilot also exposes every row, with 45 wheels and
-6–12 mounted rows, but its larger traversal sweep remains open. Targeted input
-works there while the existing focus command is unsupported; this is not a
-keyboard-navigation parity claim. Neither drive measures physical frame cadence.
+Actual Ubuntu ARM64 subsequently completes the same twenty-traversal acceptance
+at both 1,000 and 25,000 rows. The larger run issues 232,603 wheel commands,
+3,634 exact Unicode nonce input ACKs and 3,635 resize ACKs, including startup.
+Each traversal exposes all 25,000 logical rows; all twenty coverage bitmaps were
+independently reread and hash-checked. Mounted rows/images remain 6–12 and
+live kernel/painted boxes 121–200 across 232,623 geometry observations. These
+counts do not cover every native object or retained arena slot.
+
+The 25k run records a 6.01 MiB managed-raster lifetime peak and 104.12 MiB
+maximum sampled RSS, also reported as Linux VmHWM. Its 934 sparse raster
+probes do not exclude short jobs between samples. Six repeated source images
+do not test unique-image churn. Source capture
+`8d498d5546ce28a562dedfa46e83280a536a332d863bd76e6535bf469ae4f4d7`
+and executable
+`078fe5dd25f96ba6f67857e524c5dc1a6881604f4d9914c0a7b1a5588f651dbe`
+remain unchanged before/after; evidence is under
+`target/native-raster-20260917/linux-accept25k-20/`. Driver assertions check
+interaction replies during execution; the complete 25 GB raw transcript was
+not reparsed as an independent second validation. Targeted input works while
+the existing focus command is unsupported; keyboard-navigation parity remains
+open. This CPU Presenter drive proves geometric coverage and observed lifetime
+bounds, not physical frame cadence. AppKit's full 25k traversal sweep remains open.
 
 ### 6.4 Acceptance and landing
 
