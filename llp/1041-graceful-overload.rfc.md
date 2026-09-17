@@ -2476,3 +2476,56 @@ Equality still compares O(N) strings. The caller still evaluates keys, allocates
 key strings, checks uniqueness and validates fresh values; this is not constant
 time settlement. The source tests establish avoided reconstruction, with no
 host timing result or change to the pinned Linux Arrange replay.
+
+### 8.33 Ordinary-clock Web baselines and finite Storm interleaving, 2026-09-17
+
+Six fresh browser cells on captured 898dd74 run three repetitions per app, with
+fixed two-second idle, loaded and recovery windows. Messages supplies 10,000 rows
+in windowed mode with 32 changed rows observed after positive revision. Storm
+reconciles all 128 exact lane payloads. All 432 scheduled offers and 144 input/echo
+observations complete without skips, errors or trace overflow. This is the
+stateless Messages source before the later index fast path, not a measurement
+of §§8.30–8.32. The browser is headless Chrome 153 on macOS/Apple M4.
+
+Messages' fully scored loaded `exact_advance` calls have per-run medians
+32.9, 24.3 and 31.9 ms, maximum 36.3 ms. All 23 exceed 8.33 ms; a late eighth call in
+one repetition remains outside its fixed window. Idle medians are 0.1–0.6 ms.
+The export span includes synchronous Rust settlement, not subsequent JavaScript
+batch application or paint. It identifies work to reduce without attributing
+the whole cost to data generation, keys or layout individually.
+
+Storm's 128 fulfillments occupy 123.8–127.7 ms envelopes, with 109.8–113.8 ms inside
+the direct Wasm calls. A small per-call median of 0.8 ms does not make the aggregate
+free. Only six responses were held at release; later requests complete within
+the released wave. No captured input overlaps these original envelopes, so
+typing-under-completion-pressure remains NOT_ESTABLISHED for these three cells.
+Actual rAF callback execution occurs between completions in two runs; the whole
+wave cannot be described as one uninterrupted task. The HTTP glue has no explicit
+completion drain budget or deliberate task yield; browser scheduling supplies
+the observed opportunities to interleave work.
+
+Scored rAF gaps are coarse even while idle. They are not physical presentation
+intervals, and their cause is not isolated. Generic scrolling is observed, but
+simultaneous resize and anchoring prevent a wheel-causality claim. These small
+instrumented cohorts establish neither robust latency tails nor 120 Hz.
+All six processes terminate normally. Raw data and independent review cover 57
+artifacts/1,796,529 bytes under `target/web-normal-clock-cells/898dd74-v2/`,
+manifest `08128e4890c0819c6c1b259f9a2540f1297fb30b0e01501bb610cf2081754217`.
+
+A separate, predeclared three-cell Storm arm moves only external release from
+500 to 400 ms, retaining the scheduled 500 ms typed offer, binary, 128 lanes,
+two-second windows and input quotas. All three complete once. The entire input
+offer clock bracket and captured input now lie inside each fulfillment envelope:
+after 79/71/89 fulfillments and before the remaining 49/57/39. Offer-to-capture
+bounds are 1.335–1.433, 1.377–1.465 and 1.402–1.454 ms. Capture-to-echo is 0.8 ms;
+echo-to-following-rAF callback varies from 3.7 to 44.5 ms. These are three selected
+samples, not latency tails or physical presentation measurements.
+
+This closes the finite-burst input-overlap discriminator without changing
+production scheduling. It does not establish sustained pressure or a general
+fairness bound. All 384 exact wave fulfillments and 216 scheduled offers complete;
+only six transports are held at release. The original three Storm overlap
+results remain NOT_ESTABLISHED. Source/runtime identities and cleanup cover 32
+artifacts/1,231,542 bytes under
+`target/web-normal-clock-cells/898dd74-release400-v1/`, manifest
+`f6dc90eb720586c81899b436b11c8834e7e275f07e44964682c9d5ae61449c02`.
