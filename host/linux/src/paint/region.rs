@@ -7,6 +7,31 @@ use exact_kernel::{NodeKey, RegionPublication};
 use std::cell::RefCell;
 
 const COMMANDS: usize = exact_kernel::region::REGION_NODES * 12;
+/// Numeric interaction geometry owned by the same picture as the pixels.
+/// Collection limits include the logical end, even when its row is unmounted.
+#[derive(Clone, Copy)]
+pub(crate) struct ScrollBounds {
+    pub axes: (Overflow, Overflow),
+    pub max: (f32, f32),
+}
+impl ScrollBounds {
+    fn capture(node: &NodeRef<'_>, kernel: &Kernel, collection_max: Option<f32>) -> Self {
+        let (width, height) = content_size(node, kernel);
+        Self {
+            axes: effective_overflow(node),
+            max: (
+                (width - node.frame.width).max(0.),
+                collection_max.unwrap_or_else(|| (height - node.frame.height).max(0.)),
+            ),
+        }
+    }
+    pub(crate) fn clamp(self, offset: (f32, f32)) -> (f32, f32) {
+        (
+            offset.0.clamp(0., self.max.0),
+            offset.1.clamp(0., self.max.1),
+        )
+    }
+}
 enum Command {
     Fill(Shape, [u8; 4], Transform),
     Stroke(Shape, f32, [u8; 4], Transform),
@@ -103,6 +128,7 @@ pub(super) struct Picture {
     publication: Rc<RegionPublication>,
     commands: Vec<Command>,
     paragraphs: BTreeMap<NodeKey, Rc<Paragraph>>,
+    scroll: BTreeMap<NodeKey, ScrollBounds>,
     dark: bool,
     scale: u32,
     incarnation: Rc<()>,
@@ -123,6 +149,7 @@ impl Picture {
         scene: &Scene<'_>,
         region: &crate::content_region::ContentRegionState,
         publication: &Rc<RegionPublication>,
+        collection_limits: &BTreeMap<ViewId, f32>,
     ) -> Result<Rc<Self>, String> {
         if let Some(p) = &painter.region_picture {
             if p.matches(publication)
@@ -133,6 +160,7 @@ impl Picture {
             }
         }
         let mut owners = BTreeMap::new();
+        let mut scroll = BTreeMap::new();
         // This first consumer is static read-only Markdown. General transformed
         // children/inputs require their own coherent interaction snapshot.
         for f in publication.frames() {
@@ -146,6 +174,17 @@ impl Picture {
             if node.node_type == NodeType::TextInput {
                 return Err(
                     "content capture refuses input controls inside retained content".into(),
+                );
+            }
+            let axes = effective_overflow(&node);
+            if axes.0 == Overflow::Scroll || axes.1 == Overflow::Scroll {
+                scroll.insert(
+                    node.key,
+                    ScrollBounds::capture(
+                        &node,
+                        scene.kernel,
+                        collection_limits.get(&node.id).copied(),
+                    ),
                 );
             }
             if node.node_type != NodeType::Text || node.is_inline_run() {
@@ -211,6 +250,7 @@ impl Picture {
             publication: publication.clone(),
             commands: std::mem::take(&mut state.list),
             paragraphs: walk.text,
+            scroll,
             dark: painter.dark,
             scale: painter.scale.to_bits(),
             incarnation: region.incarnation().clone(),
@@ -227,6 +267,40 @@ pub(super) struct Published {
     pub selection: Option<(Rc<RegionPublication>, exact_kernel::Frame)>,
 }
 impl Painter {
+    pub(crate) fn region_scroll_bounds(
+        &self,
+        region: &crate::content_region::ContentRegionState,
+        key: NodeKey,
+    ) -> Option<ScrollBounds> {
+        self.region_picture
+            .as_ref()
+            .filter(|p| p.belongs_to(region))?
+            .scroll
+            .get(&key)
+            .copied()
+    }
+    pub(crate) fn scroll_bounds(
+        &self,
+        kernel: &Kernel,
+        region: Option<&crate::content_region::ContentRegionState>,
+        node: &NodeRef<'_>,
+        collection_max: Option<f32>,
+    ) -> ScrollBounds {
+        if let Some(region) = region {
+            if let Some(bounds) = self.region_scroll_bounds(region, node.key) {
+                return bounds;
+            }
+            if region.contains(kernel, node.id) {
+                // No exact painted key: do not borrow a ready candidate's
+                // geometry, including a recycled slot or a new scroll owner.
+                return ScrollBounds {
+                    axes: (Overflow::Hidden, Overflow::Hidden),
+                    max: (0., 0.),
+                };
+            }
+        }
+        ScrollBounds::capture(node, kernel, collection_max)
+    }
     pub(super) fn validate_region_presentation(
         &self,
         scene: &Scene<'_>,
@@ -278,6 +352,15 @@ pub(super) struct Replay<'a> {
     pub viewport: (f32, f32),
 }
 impl Replay<'_> {
+    fn scroll_offset(&self, walk: &Walk<'_, '_>, key: NodeKey, old: (f32, f32)) -> (f32, f32) {
+        let offset = walk
+            .scene
+            .kernel
+            .node_by_key(key)
+            .map(|n| walk.scene.scroll.get(&n.id).copied().unwrap_or_default())
+            .unwrap_or(old);
+        self.picture.scroll[&key].clamp(offset)
+    }
     fn queries_supported(&self, painter: &Painter, walk: &Walk<'_, '_>, origin: Transform) -> bool {
         // A full-device viewport conservatively contains every native clip.
         // This pass visits flat commands, never glyphs or source text, and runs
@@ -295,7 +378,7 @@ impl Replay<'_> {
             match command {
                 Command::Scroll(key, old) => {
                     stack.push(scroll);
-                    let off = scroll_offset(walk, *key, *old);
+                    let off = self.scroll_offset(walk, *key, *old);
                     scroll = (scroll.0 + off.0, scroll.1 + off.1);
                 }
                 Command::EndScroll => scroll = stack.pop().unwrap(),
@@ -360,7 +443,7 @@ impl Replay<'_> {
                 Command::PopOpacity => painter.backend.pop_opacity(),
                 Command::Scroll(key, old) => {
                     scroll_stack.push(scroll);
-                    let off = scroll_offset(walk, *key, *old);
+                    let off = self.scroll_offset(walk, *key, *old);
                     scroll = (scroll.0 + off.0, scroll.1 + off.1);
                 }
                 Command::EndScroll => {
@@ -381,6 +464,7 @@ impl Replay<'_> {
                         walk.boxes.push(PaintedBox {
                             rect: bbox(at, b.rect),
                             clip,
+                            scroll: b.scroll.map(|old| self.scroll_offset(walk, *key, old)),
                             ..*b
                         });
                     }
@@ -391,13 +475,4 @@ impl Replay<'_> {
             walk.text.insert(*key, p.clone());
         }
     }
-}
-
-fn scroll_offset(walk: &Walk<'_, '_>, key: NodeKey, old: (f32, f32)) -> (f32, f32) {
-    walk.scene
-        .kernel
-        .node_by_key(key)
-        .and_then(|n| walk.scene.scroll.get(&n.id))
-        .copied()
-        .unwrap_or(old)
 }

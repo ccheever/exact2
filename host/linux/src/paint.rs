@@ -294,6 +294,7 @@ impl Painter {
         scene: &Scene<'_>,
         viewport: (f32, f32),
         region: &crate::content_region::ContentRegionState,
+        collection_limits: &BTreeMap<ViewId, f32>,
     ) -> Result<Frame, String> {
         region.validate_scale(self.scale)?;
         self.validate_region_presentation(scene, region)?;
@@ -321,7 +322,7 @@ impl Painter {
                 let picture = if receipt.current {
                     // A flat native paint/hit snapshot, never an app/layout
                     // graph. No UTF-8 copy or cold text lookup is permitted.
-                    region::Picture::capture(self, scene, region, publication)?
+                    region::Picture::capture(self, scene, region, publication, collection_limits)?
                 } else {
                     self.region_picture
                         .as_ref()

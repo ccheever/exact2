@@ -1991,11 +1991,13 @@ records one giant shape and two completed layouts/index builds; this is not a
 one-index claim. Observed running and pending work each peak at one.
 
 The complete candidate cell nevertheless fails: RFB wheel input arrives, but
-the document offset remains zero until the unchanged deadline. Cleanup retires
-the owned process; no successful scrolled frame or normal shutdown is invented.
-Source inspection points to wheel/clamp code reading the shell's extents while
-painting uses the accepted region publication; a focused regression and repair
-remain work in progress. Sampled candidate VmPeak is 1,282,868KiB and VmHWM/RSS
+the reported document offset remains zero until the unchanged deadline. Cleanup
+retires the owned process; no successful scrolled frame or normal shutdown is
+invented. The later regression in §8.24 distinguishes stale replay metadata from
+actual scroll state: this trace alone does not prove the pixels stayed still.
+The initial shell-only extent diagnosis was incomplete because accepted region
+layout does reach the live kernel before native painting succeeds. Sampled
+candidate VmPeak is 1,282,868KiB and VmHWM/RSS
 589,724KiB for this one instrumented cell, not a general memory bound.
 
 The 4MiB candidate fails loopback-port preflight before native launch. It has no
@@ -2058,12 +2060,27 @@ doubles; they are not full-package XCTest or physical-input acceptance.
 
 Earlier optimized native binaries exercised full 1MiB/4MiB source identity,
 functional typing, resize and plain wheel. They predate the final hit delta and
-both publication repairs. No later full-host run is implied by the focused
-fixtures. External WindowServer capture was refused; cached bitmap equality
-does not replace that missing live-pixel comparison. Phased synthetic wheel and
-real trackpad behavior, autonomous full-host progress, continuous-resize latency,
-UIKit and physical 120Hz remain unproved. Viewport mismatch may hide the old
-image while preparing replacement pixels.
+both publication repairs. A fresh optimized full-host build at 6663356 then
+passes a bounded 1MiB smoke with executable SHA256
+`e785870236c16932d618501b4693967228f91e6b2e9982d2686cf6a491cdbad5`.
+It independently checks the complete 1,048,531-byte source and 1,048,499-byte
+unsplit paragraph against published source identities, typing during pending
+and accepted states, width changes, and plain-wheel movement whose raster offset
+matches the actual clip. All 71 recorded commands finish, the binary remains
+unchanged, and the owned driver/app exit. This is an actual AppKit functional
+smoke; state polling can pump the existing agent boundary. It does not repeat
+4MiB or the deterministic worker-barrier fixtures. A separate six-command default
+launch of the same binary also passes Unicode input/echo with region registration
+absent and the original mixed 16KiB baked document. It does not force fresh parsing.
+
+External WindowServer capture was refused; native view-cache screenshots do not
+replace that missing live-pixel comparison. Phased synthetic wheel and real
+trackpad behavior, autonomous full-host progress, continuous-resize latency,
+UIKit and physical 120Hz remain unproved. Viewport mismatch may hide the old image
+while preparing replacement pixels. Current build and smoke evidence lives under
+MAIN's `target/apple-content-region-integrated-6663356/` and the separate
+`target/apple-content-region-default-6663356/` appendix; copied artifact hashes
+match the immutable private captures.
 
 The immutable original and two revisions are under
 `target/apple-content-region-validation/darwin-{final,revision1,revision2}-20260917/`.
@@ -2072,3 +2089,36 @@ Revision2's complete 29-file patch is
 integration preserves MAIN's Arrange event mapping and removes one trailing blank
 line, plus the equivalent generated factory correction. Combined-tree validation is recorded separately in
 `target/apple-content-region-integration/`.
+
+### 8.24 Keep Linux scroll geometry with the painted publication, 2026-09-17
+
+Carson reproduces four failures with naturally overflowing text in the real CPU
+presenter. Wheel input changes state and pixels while replayed PaintedBox scroll
+metadata stays zero. Independently, a ready but unpainted shorter document clamps
+the still-visible taller document; the reverse permits scrolling against an
+unpainted taller document. A recreated key can also borrow replacement geometry
+before its pixels are published. The original native failed cell remains failed.
+
+Each retained picture now owns numeric scroll limits and overflow axes keyed by
+full NodeKey. Wheel and clamp use that picture's region incarnation; missing or
+recycled region keys cannot fall back to a live candidate. Replay uses one
+clamped offset for text queries, drawing and hit metadata. Successful painting
+adopts those offsets; failed painting retains the previous picture and limits.
+Existing collection logical-end limits are captured rather than replaced with
+mounted-row bounds. Ordinary opt-out behavior is unchanged.
+
+The four meaningful behavioral REDs become GREEN. The frozen package run records
+283 passing tests and one existing GPU ignore on macOS ARM64, with strict
+all-targets Clippy, formatting and caps passing. The same 283/1 package result,
+strict Clippy, scoped formatting, caps and boot checks pass on the integrated tree.
+These are CPU correctness tests,
+not a fixed actual-Linux display or latency result. A separate exploratory region
+collection end-follow fixture stopped after three attempts; its two authoring
+errors and missing-follow-end expectation are retained outside the patch, with
+no new end-follow claim or ignored test.
+
+The six exact source files, full patch, raw failures and validation are archived
+under `target/linux-region-scroll-validation/freeze-v1/`, source manifest
+`f6b1ee333ee162690a0b4ee3d9e7b289f29a95eefca1fde511d1df8fae20ede3`.
+Fresh Linux display evidence must retain its own source, reference and binary
+identities and the existing memory/time guards.

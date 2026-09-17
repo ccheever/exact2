@@ -94,8 +94,14 @@ retained, but general selection and link activation are not implemented here.
 Mac-hosted Rust tests exercise full 1MiB/4MiB cold publication with zero giant UI
 measurement calls. An actual Linux 1MiB run on the captured ac86627 sources
 published without another input, matched the independent reference pixels and
-accepted continued typing, but the complete cell failed because wheel input did
-not scroll. The 4MiB candidate refused port setup before launch. Full display
+accepted continued typing, but the complete cell failed because reported scroll
+stayed zero after wheel input. A later CPU regression proves replayed scroll
+metadata could stay stale even while state and pixels moved; that old trace alone
+does not establish immobile pixels. The repair also keeps interaction limits tied
+to the successfully painted document until replacement painting succeeds. Four
+behavioral regressions and all 283 Linux-package tests pass on macOS (one existing
+GPU ignore); the fixed native Linux replay remains separate. The earlier 4MiB
+candidate refused port setup before launch. Full display
 acceptance, 4MiB worker memory, continuous resize and latency remain unproved;
 LLP1041 §8.22 records the exact partial evidence and failures. The display loop
 watches completion readiness; the stdio agent only pumps on commands. Neither
@@ -123,10 +129,13 @@ memory or latency bound. Selection and copy are limited to the accepted paragrap
 
 Earlier 1MiB/4MiB AppKit binaries passed functional input, resize and plain-wheel
 checks. They predate the current publication, appearance and selection fixes;
-focused native fixtures cover those repairs. WindowServer capture was refused,
-and synthetic phased-wheel/real-trackpad behavior remains unresolved. There is
-no current full-host, autonomous-progress, physical-frame or 120Hz acceptance
-claim. Exact revision-qualified evidence is recorded in LLP1041 §8.23.
+focused native fixtures cover those repairs. A fresh optimized build at 6663356
+also passes a full-host 1MiB smoke: exact complete source, typing while pending
+and accepted, width changes, and plain-wheel offset matching the published raster.
+State polls can pump the agent boundary, and screenshots use the native view
+cache. WindowServer capture was refused; synthetic phased-wheel/real-trackpad,
+autonomous progress, continuous-resize latency and physical 120Hz remain unproved.
+Exact revision-qualified evidence is recorded in LLP1041 §8.23.
 
 ## Reproduce
 

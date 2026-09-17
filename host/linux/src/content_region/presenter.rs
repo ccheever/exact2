@@ -51,6 +51,11 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(error);
         }
         let roots = self.host.roots();
+        let collection_limits = if self.host.content_region().is_some() {
+            self.collection_scroll_limits()
+        } else {
+            BTreeMap::new()
+        };
         let host = &self.host;
         let presented = |id: ViewId| host.presented(id);
         let scene = Scene {
@@ -67,7 +72,7 @@ impl<D: DataSource> Presenter<D> {
         let region = host.content_region();
         let feedback_before = region.is_some_and(|r| r.publication_painted());
         let paint = |brush: &mut Painter| match region {
-            Some(region) => brush.paint_region(&scene, self.viewport, region),
+            Some(region) => brush.paint_region(&scene, self.viewport, region, &collection_limits),
             None => brush.paint(&scene, self.viewport),
         };
         let mut painted = paint(&mut self.brush);
@@ -117,6 +122,23 @@ impl<D: DataSource> Presenter<D> {
             }
         };
         self.boxes = boxes;
+        if self.last_frame_succeeded {
+            if let Some(region) = self.host.content_region() {
+                // Replay clamps against the selected picture BEFORE drawing.
+                // Publish precisely those offsets only after backend success;
+                // failed B must not shrink A's still-visible scroll state.
+                for b in &self.boxes {
+                    if let Some(offset) = b.scroll {
+                        if self.host.kernel().node(b.id).is_some_and(|n| {
+                            self.brush.region_scroll_bounds(region, n.key).is_some()
+                        }) && (offset != (0., 0.) || self.scroll.contains_key(&b.id))
+                        {
+                            self.scroll.insert(b.id, offset);
+                        }
+                    }
+                }
+            }
+        }
         if !feedback_before
             && self.last_frame_succeeded
             && self

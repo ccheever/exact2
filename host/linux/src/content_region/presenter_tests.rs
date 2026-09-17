@@ -533,3 +533,173 @@ fn uncertain_ink_coordinates_refuse_full_glyph_fallback_and_recover() {
     assert_eq!(p.frame().data(), first.data());
     assert!(p.last_frame_succeeded);
 }
+
+// Unlike APP's fixed 600px child, all overflow here comes from real text.
+fn natural_scroll_fixture(short: bool) -> Presenter<Empty> {
+    let tall = "Natural paragraph line with distinct words and wrap. ".repeat(80);
+    let app = format!(
+        r#"component App
+  state text = "{}"
+  state showing = true
+  action shorten writes text
+    text = "Short paragraph."
+  action lengthen writes text
+    text = "{tall}"
+  action toggle writes showing
+    showing = not showing
+  view
+    column width=400 height=500
+      button press=shorten testId="shorten" height=30
+        text "Shorten"
+      button press=lengthen testId="lengthen" height=30
+        text "Lengthen"
+      button press=toggle testId="toggle" height=30
+        text "Toggle"
+      view id="owner" width=400 height=200 overflow-x="hidden" overflow-y="hidden"
+        view id="content" width="100%" height="100%" display="flex" flex-direction="column"
+          when showing
+            scroll testId="natural-scroll" flex=1 min-height=0 width="100%" overflow-x="hidden"
+              column width="100%" padding=8 box-sizing="border-box"
+                text text testId="natural-text" font-size=20
+        text "Preparing" id="pending" position="absolute"
+"#,
+        if short { "Short paragraph." } else { &tall }
+    );
+    let (mut p, error) = Presenter::boot_with_content_region(
+        &contract::compile(&app).unwrap().encode(),
+        Empty,
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+        ContentRegionRegistration {
+            activate: None,
+            owner: "owner",
+            content: "content",
+            pending: "pending",
+        },
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.frame();
+    ready(&mut p);
+    p.frame();
+    assert!(p.last_frame_succeeded);
+    p
+}
+
+fn natural_point(p: &mut Presenter<Empty>, port: ViewId) -> (f32, f32) {
+    let b = p.box_of(port).unwrap();
+    (b.rect.0 + b.rect.2 / 2., b.rect.1 + b.rect.3 / 2.)
+}
+
+fn natural_replace(p: &mut Presenter<Empty>, action: &str) {
+    let target = id(p, action);
+    assert!(p.host.dispatch_at(target, Event::Press, 1.).is_none());
+    assert!(p.after_commit().is_none());
+    ready(p); // Layout ready is intentionally NOT a native paint publication.
+}
+
+#[test]
+fn natural_scroll_replay_reports_the_offset_used_for_pixels() {
+    let _service = crate::content_region::test_service();
+    let mut p = natural_scroll_fixture(false);
+    let port = id(&p, "natural-scroll");
+    let point = natural_point(&mut p, port);
+    let before = p.frame();
+    p.wheel_at(point.0, point.1, 0., 30.);
+    assert_eq!(p.scroll_of(port).1, 30., "real natural content must scroll");
+    let after = p.frame();
+    assert_ne!(before.data(), after.data(), "wheel must change real pixels");
+    assert_eq!(
+        p.box_of(port).unwrap().scroll,
+        Some((0., 30.)),
+        "replayed hit/agent metadata must describe this painted offset"
+    );
+}
+
+#[test]
+fn natural_scroll_clamp_keeps_painted_a_until_short_b_paints() {
+    let _service = crate::content_region::test_service();
+    let mut p = natural_scroll_fixture(false);
+    let port = id(&p, "natural-scroll");
+    let point = natural_point(&mut p, port);
+    p.wheel_at(point.0, point.1, 0., 60.);
+    let a = p.frame();
+    assert_eq!(p.scroll_of(port).1, 60.);
+    natural_replace(&mut p, "shorten");
+    p.clamp_scroll();
+    assert_eq!(
+        p.scroll_of(port).1,
+        60.,
+        "ready B must not shrink the still-painted A scroll extent"
+    );
+    p.brush.replace_backend(Box::new(fail_backend::Failure));
+    assert_eq!(p.frame().data(), a.data());
+    assert!(!p.last_frame_succeeded);
+    p.clamp_scroll();
+    assert_eq!(p.scroll_of(port).1, 60., "failed B must keep A geometry");
+    p.brush.replace_backend(Box::new(Raster::new()));
+    p.frame();
+    assert!(p.last_frame_succeeded);
+    assert_eq!(
+        p.scroll_of(port).1,
+        0.,
+        "successful short B clamps its offset"
+    );
+    assert_eq!(p.box_of(port).unwrap().scroll, Some((0., 0.)));
+}
+
+#[test]
+fn natural_scroll_wheel_cannot_use_unpainted_tall_b_extent() {
+    let _service = crate::content_region::test_service();
+    let mut p = natural_scroll_fixture(true);
+    let port = id(&p, "natural-scroll");
+    let point = natural_point(&mut p, port);
+    let a = p.frame();
+    natural_replace(&mut p, "lengthen");
+    p.brush.replace_backend(Box::new(fail_backend::Failure));
+    assert_eq!(p.frame().data(), a.data());
+    p.wheel_at(point.0, point.1, 0., 30.);
+    assert_eq!(p.scroll_of(port).1, 0., "painted A has no scroll overflow");
+    p.brush.replace_backend(Box::new(Raster::new()));
+    p.frame();
+    assert!(p.last_frame_succeeded);
+    p.wheel_at(point.0, point.1, 0., 30.);
+    assert_eq!(p.scroll_of(port).1, 30., "successful B owns its new extent");
+}
+
+#[test]
+fn natural_scroll_removed_and_recreated_keys_cannot_borrow_painted_a_geometry() {
+    let _service = crate::content_region::test_service();
+    let mut p = natural_scroll_fixture(false);
+    let old_port = id(&p, "natural-scroll");
+    let old_key = p.host.kernel().node(old_port).unwrap().key;
+    let point = natural_point(&mut p, old_port);
+    p.wheel_at(point.0, point.1, 0., 30.);
+    p.frame();
+    natural_replace(&mut p, "toggle");
+    assert!(p.host.kernel().node_by_key(old_key).is_none());
+    p.clamp_scroll();
+    assert!(!p.scroll.contains_key(&old_port));
+    natural_replace(&mut p, "toggle");
+    let new_port = id(&p, "natural-scroll");
+    let new_key = p.host.kernel().node(new_port).unwrap().key;
+    assert_ne!(new_key, old_key);
+    let recycled = p.host.kernel().arena().key(old_key.index);
+    assert_ne!(recycled, old_key);
+    assert!(
+        p.host.kernel().node_by_key(recycled).is_some(),
+        "old slot was actually reused"
+    );
+    // A ready replacement's own live geometry is not proof that these pixels
+    // have been shown. An offset for an unpainted key must not be retained.
+    p.scroll.insert(new_port, (0., 30.));
+    p.clamp_scroll();
+    assert_eq!(p.scroll_of(new_port).1, 0.);
+    p.frame();
+    assert!(p.last_frame_succeeded);
+    let point = natural_point(&mut p, new_port);
+    p.wheel_at(point.0, point.1, 0., 30.);
+    assert_eq!(p.scroll_of(new_port).1, 30.);
+}

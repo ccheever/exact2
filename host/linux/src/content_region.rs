@@ -266,7 +266,7 @@ impl ContentRegionState {
         }
         Ok(())
     }
-    fn contains(&self, kernel: &Kernel, view: ViewId) -> bool {
+    pub(crate) fn contains(&self, kernel: &Kernel, view: ViewId) -> bool {
         let mut at = kernel.node(view);
         while let Some(node) = at {
             if node.key == self.binding.content {

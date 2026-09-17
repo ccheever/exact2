@@ -16,9 +16,7 @@ use crate::gpu::Gpu;
 use crate::host::{Host, HostError};
 use crate::image::AssetResolver;
 use crate::image::{Assets, Images};
-use crate::paint::{
-    content_size, effective_overflow, Backend, Frame, PaintedBox, Painter, Rect4, Scene,
-};
+use crate::paint::{content_size, Backend, Frame, PaintedBox, Painter, Rect4, Scene};
 use crate::raster::Raster;
 use crate::text::{Measurer, Shared, TextEngine};
 use exact_kernel::{NodeType, Overflow, PropId, ViewId};
@@ -885,19 +883,15 @@ impl<D: DataSource> Presenter<D> {
     fn clamp_scroll(&mut self) {
         let collection_limits = self.collection_scroll_limits();
         let kernel = self.host.kernel();
+        let region = self.host.content_region();
         let mut gone = Vec::new();
         for (id, off) in self.scroll.iter_mut() {
             match kernel.node(*id) {
                 Some(n) => {
-                    let (cw, ch) = content_size(&n, kernel);
-                    off.0 = off.0.clamp(0.0, (cw - n.frame.width).max(0.0));
-                    off.1 = off.1.clamp(
-                        0.0,
-                        collection_limits
-                            .get(id)
-                            .copied()
-                            .unwrap_or_else(|| (ch - n.frame.height).max(0.0)),
-                    );
+                    *off = self
+                        .brush
+                        .scroll_bounds(kernel, region, &n, collection_limits.get(id).copied())
+                        .clamp(*off);
                 }
                 None => gone.push(*id),
             }
@@ -1103,16 +1097,15 @@ impl<D: DataSource> Presenter<D> {
         let kernel = self.host.kernel();
         while let Some(id) = at {
             let Some(node) = kernel.node(id) else { break };
-            let (ox, oy) = effective_overflow(&node);
+            let bounds = self.brush.scroll_bounds(
+                kernel,
+                self.host.content_region(),
+                &node,
+                collection_limits.get(&id).copied(),
+            );
+            let (ox, oy) = bounds.axes;
             if ox == Overflow::Scroll || oy == Overflow::Scroll {
-                let (cw, ch) = content_size(&node, kernel);
-                let max = (
-                    (cw - node.frame.width).max(0.0),
-                    collection_limits
-                        .get(&id)
-                        .copied()
-                        .unwrap_or_else(|| (ch - node.frame.height).max(0.0)),
-                );
+                let max = bounds.max;
                 let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
                 let take_x = ox == Overflow::Scroll
                     && dx != 0.0
