@@ -1249,7 +1249,7 @@ impl<'a> Lowerer<'a> {
                 // prop names the real action here: its arity is checked now,
                 // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
                 let params = self.root.actions[ai].params.len();
-                let payload = if event == "scroll" {
+                let payload = if matches!(event, "scroll" | "heightrelease") {
                     2
                 } else {
                     usize::from(matches!(
@@ -1274,9 +1274,21 @@ impl<'a> Lowerer<'a> {
                                 "change" => " plus the new value",
                                 "message" => " plus the guest's message",
                                 "scroll" => " plus scrollLeft and scrollTop",
+                                "heightrelease" => " plus height and velocity",
                                 _ => "",
                             }
                         ),
+                        a.span,
+                    );
+                }
+                if event == "heightrelease"
+                    && self.types.components[0].actions[ai][args.len()..]
+                        .iter()
+                        .any(|ty| *ty != Ty::Number)
+                {
+                    return err(
+                        "lower-handler-type",
+                        "`heightrelease` supplies two numbers: height and signed velocity",
                         a.span,
                     );
                 }
@@ -1299,6 +1311,7 @@ impl<'a> Lowerer<'a> {
                     "swiperight" => EventKind::Swiperight,
                     "scroll" => EventKind::Scroll,
                     "navigate" => EventKind::Navigate,
+                    "heightrelease" => EventKind::Heightrelease,
                     _ => unreachable!("tag table admitted an unknown handler"),
                 };
                 handlers.push((kind, self.actions[ai], codes));

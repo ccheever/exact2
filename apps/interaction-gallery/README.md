@@ -3,9 +3,10 @@
 The Photos, Arrange and Read consumers for [LLP 1041 §8.5](../../llp/1041-graceful-overload.rfc.md).
 One Contract shell, one logical data owner, six local photographic illustrations.
 Arrange and Read now use the shared viewport collection over complete records.
-Photos retains explicit manual pages. Continuous
-zoom/drag, animated reorder with edge scrolling, and sheet/inner-scroll transfer
-are **not connected**. The UI currently exposes the discrete actions described below.
+Photos retains explicit manual pages. Read authors a header-only numeric-height
+binding; gesture recognition and hold delivery belong to the shared host adapters.
+Continuous photo zoom/drag, animated reorder with edge scrolling, and
+sheet/inner-scroll ownership transfer are **not connected**.
 
 ## What works
 
@@ -17,9 +18,13 @@ are **not connected**. The UI currently exposes the discrete actions described b
   Cancel. Preview never changes order. Place consumes an interaction token once;
   stale callbacks are inert. Concurrent insertion preserves the destination ID;
   removing the dragged record or its destination cancels the pending move.
-- **Read:** three discrete reading heights and a real inner scrollport, using the
-  same selected image and records. Buttons select heights; they are keyboard
-  alternatives and layout fixtures, not simulated direct manipulation.
+- **Read:** 180 / 360 / 640px authored border-box heights and a real inner
+  scrollport, using the same selected image and records. A dedicated non-button
+  header handle targets the panel's authored `id="reading-sheet"` through
+  `heightDragFor`; only that handle has `touch-action: none`. Buttons remain
+  keyboard alternatives outside the handle, and the inner List keeps scrolling.
+  The panel has `min-height: 0` and `max-height: 100%`, so the available stage
+  constrains its displayed height, including padding.
 - **All modes:** 100 / 1,000 / 25,000 records,
   distinct bounded insertion, deletion, reset, stable IDs, a 512-character scratch
   input, and responsive wrapping. Count/reset intentionally discard fixture edits.
@@ -31,12 +36,29 @@ are **not connected**. The UI currently exposes the discrete actions described b
 
 Ordering holds at most 25,000 compact IDs. A separate `galleryRows(revision, page,
 full)` resource caches row values by structural revision and projection. Draft,
-selection, preview, sheet-height and other metadata changes neither regenerate
-those values nor key all records again. A mutation returns only small metadata
+selection, preview, local sheet-height and other metadata changes neither
+regenerate those values nor key all records again. A mutation returns only small metadata
 and the selected record. Insert/delete/reset/committed reorder invalidate the
 rows; generating and validating the changed full list still costs O(N). Ordinary
 identity searches and earlier/later model actions can also scan the ID order.
 There is no per-pointer-sample app action in this slice.
+
+One Contract-local `sheetPx`, initially 360, is the authoritative authored target
+for the panel and its selected button. `chooseSheet` synchronously selects one of
+180/360/640. `heightrelease(height, velocity)` calls `snapSheet`, which chooses the
+nearest stop to `height + velocity * 0.15`; the midpoint thresholds are 270 and
+500, with ties choosing the taller stop. Velocity is displayed height units per
+second, positive toward a taller sheet. Reset/count selection synchronously
+restores 360; mode changes, selection and later data answers do not overwrite it.
+The data model and metadata schema no longer contain `sheet` or `sheetHeight`,
+and `galleryAction("sheet", ...)` is removed.
+
+The host must apply the final pointer sample, dispatch this synchronous release
+action and apply its resulting target while the hold is active, then end that
+hold once with release velocity. Cancellation sends no snap action. The declared
+transition is `height spring(300, 30, 1)`; projection changes the actual nested
+List port on every presentation sample, without writing sampled height back into
+`sheetPx`. The header's binding uses an authored IDREF, never `testId` inference.
 
 Each windowed row owns its spacing; the shared list receives the actual nested
 scrollport and measured row heights. The sheet changes that port's height.
@@ -95,14 +117,16 @@ Viewer: `close-viewer`, `previous-photo`, `next-photo`, `delete-photo`.
 Arrange: `reorder-scroll`, `lift-photo-00000`, `earlier`, `later`,
 `before-photo-00015` (when mounted, or manual page 2),
 `place`, `cancel`, `delete-photo-00000`. Read: `sheet-peek`, `sheet-read`,
-`sheet-full`, `sheet-scroll`, `note-photo-00000`.
+`sheet-full`, `sheet-handle`, `sheet-scroll`, `note-photo-00000`.
 
 ## Shared hooks needed next
 
-Shared hold adapters are being implemented separately. This app integration
-does not bind continuous reorder, photo zoom or sheet gestures yet. The existing
-`galleryAction` model endpoints provide preview, token-checked commit/cancel and
-sheet selection; they must receive logical outcomes from the shared adapters.
+Shared height hold adapters are integrated and validated separately from this
+app-only declaration. This app binds only the sheet header and synchronous snap
+action; it does not claim physical pointer delivery from the app tests alone.
+Continuous reorder and photo zoom still need shared host hooks. Their existing
+`galleryAction` model endpoints provide preview and token-checked commit/cancel;
+they must receive logical outcomes from the shared adapters.
 
 1. Continuous begin/update/end/cancel delivery, with one current interaction token,
    cancellation on navigation/deletion, and no per-sample durable order commits.
@@ -116,6 +140,7 @@ sheet selection; they must receive logical outcomes from the shared adapters.
    The existing model already separates proposed placement from committed order.
 4. Sheet/inner-scroll ownership transfer at boundaries, retaining position and
    appropriate velocity through reversal and an interrupted settling spring.
+   The initial header-only binding deliberately leaves this transfer out.
    The changing scrollport must drive the shared collection's window.
 5. Presented-geometry hit testing, focus restoration, reduced-motion behavior,
    and keyboard parity on all hosts. Pointer cancellation and retained lifetimes

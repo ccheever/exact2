@@ -22,6 +22,8 @@ use exact_motion::{Change, Engine, HoldToken, Property};
 
 #[path = "height.rs"]
 mod height;
+#[path = "height_drag.rs"]
+mod height_drag;
 #[cfg(test)]
 #[path = "height_tests.rs"]
 mod height_tests;
@@ -30,6 +32,7 @@ mod holds;
 use exact_plan::{EventKind, Plan};
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
+use height_drag::{HeightDrag, HeightHandle};
 use ibex2::host::Secrets;
 use std::collections::BTreeMap;
 
@@ -69,6 +72,9 @@ pub struct Host<D: DataSource> {
     engine: Engine,
     holds: BTreeMap<u64, HoldToken>,
     height_owner: Option<NodeKey>,
+    height_handles: BTreeMap<NodeKey, HeightHandle>,
+    height_auto_owned: bool,
+    height_drag: Option<HeightDrag>,
     height_projection: Option<(NodeKey, f32)>,
     #[cfg(test)]
     layout_calls: usize,
@@ -229,6 +235,9 @@ impl<D: DataSource> Host<D> {
             engine: Engine::new(),
             holds: BTreeMap::new(),
             height_owner: None,
+            height_handles: BTreeMap::new(),
+            height_auto_owned: false,
+            height_drag: None,
             height_projection: None,
             #[cfg(test)]
             layout_calls: 0,
@@ -277,6 +286,7 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        host.reconcile_height_handles(&mut batch, true);
         host.layout(&mut batch).map_err(HostError::Layout)?;
         // A failed first layout is a refused boot, not a partially committed
         // host. In particular, no candidate secret writes escape before this
@@ -642,7 +652,15 @@ impl<D: DataSource> Host<D> {
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> String {
-        let mut batch = Batch::new();
+        self.commit_into(receipts, error, Batch::new())
+    }
+
+    fn commit_into(
+        &mut self,
+        receipts: &[Timed],
+        error: Option<String>,
+        mut batch: Batch,
+    ) -> String {
         for t in receipts {
             let r = &t.receipt;
             for key in &r.destroyed {
@@ -696,8 +714,12 @@ impl<D: DataSource> Host<D> {
                 .motion_sync(&t.receipt)
                 .apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            self.reconcile_height_handles(&mut batch, true);
             let synced = self.sync_height_owner();
             debug_assert!(synced.is_ok(), "validated height sync");
+            // Latest target/declaration must reach the held slot before an
+            // invalidated header cancels it (negative delays sample at once).
+            self.cancel_invalid_height_drag();
         }
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
@@ -856,8 +878,12 @@ impl<D: DataSource> Host<D> {
                 EventKind::Swiperight => "swiperight",
                 EventKind::Scroll => "scroll",
                 EventKind::Navigate => "navigate",
+                EventKind::Heightrelease => "heightrelease",
             })
             .collect();
+        if handlers.contains(&"heightrelease") {
+            self.track_height_handle(id);
+        }
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
         batch.create(id, kind, &pairs, &style, &handlers);

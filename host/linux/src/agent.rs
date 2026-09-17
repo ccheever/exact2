@@ -9,6 +9,8 @@
 //!
 //! @ref LLP 1015 §5; LLP 1012 §3–§4
 
+mod contact;
+
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
 use exact_runner::DataSource;
@@ -42,12 +44,13 @@ pub fn serve<D: DataSource + Default>(
             continue;
         }
         if field_str(&line, "op").as_deref() == Some("quit") {
-            return 0;
+            break;
         }
         let reply = handle(p, &line);
         let _ = writeln!(out, "{reply}");
         let _ = out.flush();
     }
+    let _ = p.pointer_cancel(p.host().now());
     0
 }
 
@@ -138,12 +141,8 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             if request.get("resize").is_some() {
                 return resize(p, &request);
             }
-            // A held contact (LLP 1035.003 D1) rides evdev when that carrier
-            // lands (LLP 1015's lane); until then it is unsupported, said so.
-            if field_str(line, "phase").is_some() {
-                return error(
-                    "unsupported: the Linux carrier cannot hold a contact yet (LLP 1035.003 D3)",
-                );
+            if request.get("phase").is_some() {
+                return contact::answer(p, &request);
             }
             let Some(id) = id() else {
                 return error("tap needs an id");

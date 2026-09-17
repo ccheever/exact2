@@ -7,6 +7,7 @@
 **Date:** 2026-08-28
 **Implementer:** Claude (Fable 5), landing 2026-08-28 (this document transcribes the landing)
 **Numeric-height trial implementer:** Tuft / Zeno (Astra), 2026-09-17; LLP 1041 §8.12.
+**Authored Height handle implementer:** Tuft / Zeno (common) and platform owners, 2026-09-17.
 **Related:** LLP 1002 (the decision), LLP 1001 (kernel v1), CSS Transitions Level 1, CSS Easing Functions Level 1/2
 
 ## Summary
@@ -132,6 +133,21 @@ added. The host retires the old property when registration changes and consumes
 retirement for its own projection/overlay/playback as well as the Engine.
 Ancestor-only hide/detach commits require reconciliation even when the owner
 does not appear in `receipt.touched`.
+
+The authored handle uses schema prop `heightDragFor: string` (75) and
+`Kernel::height_drag_target(handle: NodeKey) -> Option<NodeKey>`. Resolution is
+strict-ancestor `id`, unique on that path, numeric border-box, attached and free
+of `display:none`, `inert` and `disabled` from handle through root. It retains
+no registry or selector cache. Plan `heightrelease` is ordinal14
+(`EventKind::Heightrelease`); host event kind15 maps to
+`Event::HeightRelease { height: f64, velocity: f64 }`. Contract requires two
+trailing number parameters, including after child-action inlining. Runner's
+`height_release_payload` parses exactly a comma-separated finite pair, rejects
+height outside `[0, f32::MAX]`, and typed dispatch repeats validation before
+running the action. Hosts parse before changing their clock and separately
+validate both binding generations and a live Height token for physical delivery.
+LLP 1002 D7 specifies one-target/multiple-handle ownership and action-before-end
+ordering; this does not expand ordinary numeric target adoption.
 
 LLP 1002 D7 names the measured admission and adapter obligations: one native
 `PresentedHeight`, actual collection geometry, constrained-height takeover, and

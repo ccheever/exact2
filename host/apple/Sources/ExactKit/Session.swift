@@ -355,6 +355,7 @@ public final class ExactSession {
     var isApplyingPresentation: Bool { applying }
     // Weak live gesture ownership only; no historical tokens or row registry.
     private let inputHolds = NSHashTable<SwipeHold>.weakObjects()
+    weak var heightInputHold: HeightDragHold?
     func trackInputHold(_ hold: SwipeHold) { inputHolds.add(hold) }
     func retireInputHold(_ hold: SwipeHold) { inputHolds.remove(hold) }
 
@@ -582,6 +583,7 @@ public final class ExactSession {
             // Route projection and all structural/style changes are now final.
             // Ineligible recognizers may never receive another mouse/touch event.
             for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
+            heightInputHold?.cancelIfInputIneligible()
             applying = false
             let queued = pendingCommands
             pendingCommands = []

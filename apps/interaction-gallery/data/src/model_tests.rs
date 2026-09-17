@@ -135,7 +135,6 @@ fn reset_and_navigation_cancel_interactions_without_reusing_tokens() {
     let old = g.lift(Id(2)).unwrap();
     g.mode(Mode::Sheet);
     assert!(g.moving.is_none());
-    g.sheet(Sheet::Full);
     let order = g.ids().to_vec();
     g.page_to(3);
     assert_eq!(g.ids(), order);

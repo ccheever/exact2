@@ -65,6 +65,23 @@ fn string_list(items: &[&str], out: &mut String) {
 }
 
 impl Batch {
+    /// A resolved authored handle. Packed generational keys remain decimal
+    /// strings; JavaScript Numbers cannot preserve all NodeKey bits.
+    pub fn height_drag(
+        &mut self,
+        view: u32,
+        handle: exact_kernel::NodeKey,
+        target: Option<(exact_kernel::NodeKey, u32)>,
+    ) {
+        use exact_kernel::motion::motion_node;
+        self.ops.push(format!(
+            "{{\"op\":\"height-drag\",\"id\":{view},\"target\":{},\"handleKey\":\"{}\",\"targetKey\":{}}}",
+            target.map_or("null".into(), |(_, view)| view.to_string()),
+            motion_node(handle),
+            target.map_or("null".into(), |(key, _)| format!("\"{}\"", motion_node(key))),
+        ));
+    }
+
     /// Empty.
     pub fn new() -> Batch {
         Batch::default()

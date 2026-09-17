@@ -485,6 +485,8 @@ function attach(el, id, handlers) {
       on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop}`); send(wasm.exact_dispatch(id, 13, n, now())); });
     } else if (kind === "swiperight") {
       motion.attachSwipe(el, id, on);
+    } else if (kind === "heightrelease") {
+      motion.attachHeightDrag(el, id, on);
     } else if (kind === "contextmenu" || kind === "dblclick") {
       on(kind, (e) => {
         if (el.matches(":disabled") || inertAncestor(el)) return;
@@ -627,6 +629,7 @@ function apply(batch) {
       }
       case "animate": { motion.animate(op); break; }
       case "retire-motion": { motion.retire(op.id, op.property); break; }
+      case "height-drag": { motion.heightBinding(op); break; }
       case "surface": {
         // A canvas's inputs (LLP 1009 D2): to the GPU module when it is
         // loaded, queued until then. The module itself is fetched only

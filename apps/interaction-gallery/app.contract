@@ -1,4 +1,4 @@
-// LLP 1041 §8.5: shared viewport collections; continuous gestures pending.
+// LLP 1041 §8.5: shared viewport collections and an explicit header-height binding.
 shape Theme
   page: string
   card: string
@@ -38,8 +38,6 @@ shape GalleryState
   liftedId: string
   beforeId: string
   previewLabel: string
-  sheet: string
-  sheetHeight: string
   notice: string
   returnKind: string
   returnId: string
@@ -54,6 +52,7 @@ component InteractionGallery
   derive gallery = match changed { case some(value) => value, case none => initial }
   state draft = ""
   state rendering = "windowed"
+  state sheetPx = 360
   derive fullCollection = gallery.mode != "photos" and rendering != "manual"
   resource rows = galleryRows(gallery.revision, (fullCollection ? 0 : gallery.page), fullCollection) as shape list<Photo>
 
@@ -61,7 +60,16 @@ component InteractionGallery
     if value == "windowed" or value == "manual" or value == "eager"
       rendering = value
 
-  action command(op: string, id: string, n: number) writes changed
+  action chooseSheet(value: number) writes sheetPx
+    if value == 180 or value == 360 or value == 640
+      sheetPx = value
+
+  action snapSheet(height: number, velocity: number) writes sheetPx
+    sheetPx = (height + velocity * 0.15 < 270 ? 180 : (height + velocity * 0.15 < 500 ? 360 : 640))
+
+  action command(op: string, id: string, n: number) writes changed, sheetPx
+    if op == "reset" or op == "load"
+      sheetPx = 360
     send changed = galleryAction(op, id, n)
     if op == "open"
       focus("close-viewer")
@@ -149,16 +157,18 @@ component InteractionGallery
           column flex=1 min-height=0 position="relative" overflow="hidden" testId="sheet-stage"
             when gallery.hasSelection
               image gallery.selected.asset aria-label=gallery.selected.alt width="100%" height="100%" object-fit="cover"
-            when gallery.sheet != "full"
+            when sheetPx != 640
               column position="absolute" top=16 left=20 right=20 max-width=340 padding=12 box-sizing="border-box" border-radius=10 background-color="#203b37" gap=5
                 text "A little closer." font-size=30 font-weight=600 color="#ffffff"
-                text "Choose a reading height; scroll the notes inside." font-size=13 color="#ffffff"
-            column position="absolute" bottom=0 left=0 right=0 height=gallery.sheetHeight background-color=theme.card border-top-left-radius=20 border-top-right-radius=20 padding=16 box-sizing="border-box" gap=12 testId="reading-sheet"
+                text "Drag the header or choose a height; scroll the notes inside." font-size=13 color="#ffffff"
+            column id="reading-sheet" position="absolute" bottom=0 left=0 right=0 height=sheetPx min-height=0 max-height="100%" transition="height spring(300, 30, 1)" background-color=theme.card border-top-left-radius=20 border-top-right-radius=20 padding=16 box-sizing="border-box" gap=12 testId="reading-sheet"
               row flex-shrink=0 align-items="center" gap=8 flex-wrap="wrap"
-                text "Field notes" font-size=20 font-weight=600 color=theme.ink flex=1
-                SheetButton(name="peek", label="Peek", gallery=gallery, command=command)
-                SheetButton(name="read", label="Read", gallery=gallery, command=command)
-                SheetButton(name="full", label="Full", gallery=gallery, command=command)
+                column heightDragFor="reading-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize reading sheet" flex=1 min-width=120 gap=3 padding-top=2 padding-bottom=2
+                  text "Field notes" font-size=20 font-weight=600 color=theme.ink
+                  text "Drag to resize" font-size=10 color=theme.muted
+                SheetButton(name="peek", label="Peek", px=180, selected=sheetPx, choose=chooseSheet)
+                SheetButton(name="read", label="Read", px=360, selected=sheetPx, choose=chooseSheet)
+                SheetButton(name="full", label="Full", px=640, selected=sheetPx, choose=chooseSheet)
               when rendering == "windowed"
                 list virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="sheet-scroll" overscroll-behavior="contain" overflow-x="hidden"
                   each photo in rows key=photo.id
@@ -273,10 +283,11 @@ component SheetButton
   props
     name: string
     label: string
-    gallery: GalleryState
-    command: action
+    px: number
+    selected: number
+    choose: action
   view
-    button press=command("sheet", name, 0) testId=`sheet-${name}` aria-label=`${label}${gallery.sheet == name ? ", selected" : ""}` padding=8 border-width=0 border-radius=6 background-color=(gallery.sheet == name ? theme.wash : theme.page)
+    button press=choose(px) testId=`sheet-${name}` aria-label=`${label}${selected == px ? ", selected" : ""}` padding=8 border-width=0 border-radius=6 background-color=(selected == px ? theme.wash : theme.page)
       text label font-size=12 color=theme.ink
 
 component ActionButton

@@ -196,6 +196,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "swiperight" => AttrTarget::Handler("swiperight"),
         "scroll" => AttrTarget::Handler("scroll"),
         "navigate" => AttrTarget::Handler("navigate"),
+        "heightrelease" => AttrTarget::Handler("heightrelease"),
+        "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
         // the canvas's surface (LLP 1009 D3)
         "surface" => AttrTarget::Surface,
         // props (HTML and ARIA attribute names; `testId` is Exact's)

@@ -14,6 +14,7 @@ final class Presenter {
     /// The viewport over it: the window's content, scrolling like a browser's.
     let viewport = ScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    var heightBindings: [UInt32: HeightDragBinding] = [:]
     lazy var collections = CollectionHost(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var swipeActions = SwipeActionsHost(self)
@@ -240,6 +241,7 @@ final class Presenter {
         views.values.forEach { $0.forget() }
         root.subviews.forEach { $0.removeFromSuperview() }
         views.removeAll()
+        heightBindings.removeAll()
     }
 
     /// Size the document to its roots, never smaller than the viewport.
@@ -424,6 +426,15 @@ final class Presenter {
             let id = UInt32(op["id"] as? Int ?? 0)
             if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id, textChanged: kind == "props" || kind == "style" || kind == "destroy") }
             switch kind {
+            case "height-drag":
+                if let binding = HeightDragBinding(op) {
+                    if binding.target == nil {
+                        if heightBindings[binding.id]?.handleKey == binding.handleKey {
+                            heightBindings.removeValue(forKey: binding.id)
+                        }
+                    } else { heightBindings[binding.id] = binding }
+                    views[binding.id]?.updateHeightDragGesture()
+                }
             case "create":
                 let v = NodeView(id: id, kind: op["kind"] as? String ?? "view", presenter: self)
                 v.handlers = Set(op["handlers"] as? [String] ?? [])
@@ -457,6 +468,7 @@ final class Presenter {
                 views[id]?.forget()
                 // Out of the map before out of the window: the editing-ended
                 // notification removal fires finds no view to send for.
+                heightBindings.removeValue(forKey: id)
                 let gone = views.removeValue(forKey: id)
                 if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
             case "roots":

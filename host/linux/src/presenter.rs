@@ -32,7 +32,11 @@ use std::time::Duration;
 use tiny_skia::Pixmap;
 
 mod collection;
+mod contact;
 mod height;
+mod height_drag;
+#[cfg(test)]
+mod height_drag_tests;
 mod images;
 mod swipe;
 
@@ -81,7 +85,7 @@ pub struct Presenter<D: DataSource> {
     executor: crate::executor::Executor,
     refusal_turn: bool,
     collection: collection::State,
-    contact: Option<swipe::Contact>,
+    contact: Option<contact::Contact>,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
     /// The commands the last commits' actions asked for, for the loop that

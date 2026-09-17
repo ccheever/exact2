@@ -19,6 +19,10 @@ use exact_runner::{
     Carried, DataSource, Event, FailureKind, Outcome, Response, Runner, RunnerError, Timed,
 };
 
+#[path = "height_drag.rs"]
+mod height_drag;
+pub use height_drag::HeightDragBinding;
+
 /// A reply as the ABI carries it, as the runner's `Outcome`.
 pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Outcome {
     match kind {
@@ -76,6 +80,7 @@ pub struct Host<D: DataSource> {
     keys: BTreeMap<NodeKey, ViewId>,
     roots: Vec<ViewId>,
     springs: Springs,
+    height_drags: height_drag::HeightDrags,
     /// The page's clock at the last call, milliseconds from script start.
     now_ms: f64,
     /// Stack id → opaque CSS family name, scoped to this plan.
@@ -164,6 +169,7 @@ impl<D: DataSource> Host<D> {
             keys: BTreeMap::new(),
             roots: Vec::new(),
             springs: Springs::new(),
+            height_drags: height_drag::HeightDrags::default(),
             now_ms: 0.0,
             font_names,
             font_catalog,
@@ -192,6 +198,8 @@ impl<D: DataSource> Host<D> {
         host.springs.adopt(host.runner.kernel(), &order);
         host.roots = roots.clone();
         batch.roots(&roots);
+        host.reconcile_height_drags(&mut batch);
+        host.emit_height_drags(&mut batch);
         // Surfaces after roots: the canvas is in the page when its surface is made.
         for s in host.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
@@ -253,6 +261,18 @@ impl<D: DataSource> Host<D> {
     /// reported in the batch's `error`, and the page is untouched (as the
     /// kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
+        if let Event::HeightRelease { height, velocity } = &event {
+            if !height.is_finite()
+                || !(0.0..=f32::MAX as f64).contains(height)
+                || !velocity.is_finite()
+            {
+                return Batch::new().finish(
+                    self.runner.has_timers(),
+                    self.runner.now_ms(),
+                    Some("invalid height release"),
+                );
+            }
+        }
         self.now_ms = now_ms.max(self.now_ms);
         match self.runner.dispatch(view, event) {
             Ok(receipt) => {
@@ -283,14 +303,24 @@ impl<D: DataSource> Host<D> {
     /// zero height. Invalid replacement preserves the previous hold and clock.
     /// The returned batch retires old DOM ownership before lowering new work.
     pub fn set_height_owner(&mut self, view: Option<ViewId>) -> Result<String, &'static str> {
+        let previous = self.springs.height_owner();
         let retired = self.springs.set_height_owner(self.runner.kernel(), view)?;
+        if previous == self.springs.height_owner() {
+            // Same live registration preserves its provenance and pending work.
+            return Ok(Batch::new().finish(self.runner.has_timers(), self.runner.now_ms(), None));
+        }
+        self.height_drags.programmatic();
         let mut batch = Batch::new();
         for item in retired {
             if let Lowered::Retire { view, property } = item {
                 batch.retire_motion(view, property.name());
             }
         }
+        // Explicit clearing publishes unbound handles now. A later receipt may
+        // auto-admit authored handles again; this setter must not undo itself.
+        self.cancel_invalid_height_drag();
         self.emit_springs(&mut batch, &[], self.now_ms / 1000.0);
+        self.emit_height_drags(&mut batch);
         Ok(batch.finish(self.runner.has_timers(), self.runner.now_ms(), None))
     }
 
@@ -397,6 +427,7 @@ impl<D: DataSource> Host<D> {
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
                     self.mirror.remove(&id);
+                    self.height_drags.remove(id);
                     batch.destroy(id);
                 }
             }
@@ -421,7 +452,16 @@ impl<D: DataSource> Host<D> {
             }
             // This commit's springs, at its own time: the style (the target)
             // is in the page before the frames that approach it start playing.
-            self.emit_springs(&mut batch, std::slice::from_ref(r), t.at_ms / 1000.0);
+            // Adopt this receipt's time/targets/transitions while the hold is
+            // live, then cancel invalid bindings and lower dirty frames once.
+            let synced = self.springs.synchronize(
+                self.runner.kernel(),
+                std::slice::from_ref(r),
+                t.at_ms / 1000.0,
+            );
+            Self::emit_lowered(&mut batch, synced);
+            self.reconcile_height_drags(&mut batch);
+            self.emit_springs(&mut batch, &[], t.at_ms / 1000.0);
         }
         // Earlier receipts also read the final tree, whose children can be
         // created by a later receipt in this seek. Attach only after all creates.
@@ -436,6 +476,9 @@ impl<D: DataSource> Host<D> {
         if roots != self.roots {
             self.roots = roots.clone();
             batch.roots(&roots);
+        }
+        if !receipts.is_empty() {
+            self.emit_height_drags(&mut batch);
         }
         // A canvas's inputs (LLP 1009 D2): the runner's side-output, only
         // from commits that applied.
@@ -513,15 +556,16 @@ impl<D: DataSource> Host<D> {
 
     /// Check before any action, clock change, or presentation mutation.
     pub fn has_hold(&self, serial: u64) -> bool {
-        self.springs.token(serial).is_some_and(|token| {
-            self.runner
-                .kernel()
-                .node_by_key(NodeKey {
-                    index: token.node() as u32,
-                    generation: (token.node() >> 32) as u32,
-                })
-                .is_some()
-        })
+        self.height_hold_valid(serial)
+            && self.springs.token(serial).is_some_and(|token| {
+                self.runner
+                    .kernel()
+                    .node_by_key(NodeKey {
+                        index: token.node() as u32,
+                        generation: (token.node() >> 32) as u32,
+                    })
+                    .is_some()
+            })
     }
 
     /// Apply an input sample and drain common lowering once; no timer advance.
@@ -533,6 +577,7 @@ impl<D: DataSource> Host<D> {
         value: MotionValue,
         now_ms: f64,
     ) -> Result<Option<String>, EngineError> {
+        self.validate_height_delivery(serial);
         if !self.has_hold(serial) || !self.springs.update_hold(serial, value, now_ms / 1000.0)? {
             return Ok(None);
         }
@@ -546,6 +591,7 @@ impl<D: DataSource> Host<D> {
         end: HoldEnd,
         now_ms: f64,
     ) -> Result<Option<String>, EngineError> {
+        self.validate_height_delivery(serial);
         if !self.has_hold(serial) || !self.springs.end_hold(serial, end, now_ms / 1000.0)? {
             return Ok(None);
         }
@@ -610,7 +656,12 @@ impl<D: DataSource> Host<D> {
     }
 
     fn emit_springs(&mut self, batch: &mut Batch, receipts: &[CommitReceipt], now_s: f64) {
-        for lowered in self.springs.commit(self.runner.kernel(), receipts, now_s) {
+        let lowered = self.springs.commit(self.runner.kernel(), receipts, now_s);
+        Self::emit_lowered(batch, lowered);
+    }
+
+    fn emit_lowered(batch: &mut Batch, lowered: Vec<Lowered>) {
+        for lowered in lowered {
             match lowered {
                 Lowered::Start {
                     view,
@@ -642,6 +693,9 @@ impl<D: DataSource> Host<D> {
     fn create(&mut self, id: ViewId, batch: &mut Batch, kinds: &[EventKind]) {
         let node = self.runner.kernel().node(id).expect("live");
         let key = node.key;
+        if kinds.contains(&EventKind::Heightrelease) {
+            self.height_drags.insert(id, key);
+        }
         let tag = tag_for(&node);
         let props = props_for(&node);
         let (css, _skipped) = css::css_text(node.style, &self.font_names);
@@ -663,6 +717,7 @@ impl<D: DataSource> Host<D> {
                 EventKind::Swiperight => "swiperight",
                 EventKind::Scroll => "scroll",
                 EventKind::Navigate => "navigate",
+                EventKind::Heightrelease => "heightrelease",
             })
             .collect();
         let pairs: Vec<(&str, String)> =

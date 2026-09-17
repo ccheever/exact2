@@ -14,7 +14,7 @@
 //! generation-checked [`NodeKey`] packed into a `u64` ([`motion_node`]), so a
 //! reused slot never inherits its predecessor's motion.
 
-use crate::generated::{Display, StyleProps};
+use crate::generated::{BoxSizing, Display, PropId, StyleProps};
 use crate::id::NodeKey;
 use crate::kernel::Kernel;
 use crate::style::Dimension;
@@ -79,6 +79,52 @@ pub fn targets(style: &StyleProps) -> [(Property, Value); 4] {
 }
 
 impl Kernel {
+    /// Resolve an authored `heightDragFor` to its unique strict ancestor `id`.
+    /// The complete handle-to-root path must be attached, displayed, enabled
+    /// and non-inert. The target must be a numeric border-box height owner.
+    /// Duplicate matching ancestors refuse even if one is ineligible. IDs on
+    /// siblings, `testId`, and `nativeId` are deliberately not selectors here.
+    ///
+    /// This O(depth) read keeps no registry and adopts no motion property.
+    /// Hosts retain both generation-checked keys with their live Height token
+    /// and revalidate on each receipt/delivery before time or action dispatch.
+    pub fn height_drag_target(&self, handle: NodeKey) -> Option<NodeKey> {
+        let node = self.node_by_key(handle)?;
+        let name = node.props.str(PropId::HeightDragFor)?;
+        if name.is_empty() {
+            return None;
+        }
+        let arena = self.arena();
+        let mut slot = handle.index;
+        let mut target = None;
+        loop {
+            let props = arena.props(slot);
+            if arena.style(slot).display == Display::None
+                || props.bool(PropId::Inert) == Some(true)
+                || props.bool(PropId::Disabled) == Some(true)
+            {
+                return None;
+            }
+            if slot != handle.index && props.str(PropId::Id) == Some(name) {
+                if target.is_some() {
+                    return None;
+                }
+                target = Some(arena.key(slot));
+            }
+            if arena.is_root(slot) {
+                break;
+            }
+            slot = arena.parent(slot)?;
+        }
+        let target = target?;
+        let style = arena.style(target.index);
+        if style.box_sizing != BoxSizing::BorderBox {
+            return None;
+        }
+        self.height_target(target)?;
+        Some(target)
+    }
+
     /// The numeric CSS height of one explicitly registered host owner.
     /// Finite nonnegative pixel heights on independent, attached boxes qualify;
     /// auto, percentages, environment lengths, inline runs, detached nodes and

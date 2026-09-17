@@ -520,7 +520,7 @@ function followScroll(el, enabled) {
 // Presentation ownership is a host projection. The shared Engine owns hold
 // validity and authored targets; this controller owns actual browser sampling.
 export function motionBytes({op,view=0,property='translate',token=0,x=0,y=0,now=0}) {
-  const operations=['begin','move','release','cancel','live','action','height-owner','clear-height-owner'];
+  const operations=['begin','move','release','cancel','live','action','height-owner','clear-height-owner','height-begin','height-action'];
   const properties=['translate','scale','rotate','opacity','height'];
   const code=operations.indexOf(op), prop=properties.indexOf(property);
   if(code<0||prop<0) throw Error('invalid motion operation');
@@ -533,7 +533,7 @@ export function motionBytes({op,view=0,property='translate',token=0,x=0,y=0,now=
 export function motionController({views,now,generation,request,applyBatch,inert,releaseInteraction=()=>{}}) {
   const properties=['translate','scale','rotate','opacity','height'];
   const animations=new Map(), held=new Map(), authored=new Map(), drags=new Map();
-  const active=new Map(); let reconciling=false;
+  const active=new Map(), heightBindings=new Map(); let reconciling=false;
   const key=(id,property)=>`${id}/${property}`;
   // CSS height clamps negative interpolated lengths. Keep every spring sample
   // and its timing; only its displayed length changes, not the engine curve.
@@ -573,7 +573,29 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     if(property==='scale' && numbers.length>1 && Number(numbers[0])!==Number(numbers[1])) return null;
     return [text==='none'?(property==='scale'?1:0):parseFloat(text),0];
   }
+  function adopt(view,property,reply,adopted) {
+    const el=views.get(view);
+    if(!el||!reply.token) return null;
+    if(!authored.has(view)) authored.set(view,el.style.cssText);
+    const h={view,property,el,token:reply.token,generation:generation(),value:reply.value};
+    held.set(key(view,property),h);
+    cancelProperty(view,property,el); restore(view);
+    // A begin batch can retire its binding synchronously. The recognizer must
+    // already own this token when that cancellation is delivered.
+    adopted?.(h);
+    if(reply.batch) applyBatch(reply.batch);
+    return h;
+  }
+  const bindingLive=b=>b&&heightBindings.get(b.id)===b&&views.get(b.id)===b.el&&views.get(b.target)===b.targetEl&&eligible(b.el)&&eligible(b.targetEl);
   const api={
+    // The Kernel resolves authored IDREFs; DOM code only consumes these exact
+    // generational bindings, emitted after the tree's create/attach operations.
+    heightBinding(op) {
+      const old=heightBindings.get(op.id);
+      if(old&&old.target===op.target&&old.handleKey===op.handleKey&&old.targetKey===op.targetKey&&views.get(op.id)===old.el&&views.get(op.target)===old.targetEl) return;
+      drags.get(op.id)?.(); heightBindings.delete(op.id);
+      if(op.target!==null&&views.has(op.id)&&views.has(op.target)) heightBindings.set(op.id,{...op,el:views.get(op.id),targetEl:views.get(op.target)});
+    },
     setHeightOwner(view=null) {
       const reply=request({op:view===null?'clear-height-owner':'height-owner',view:view??0,property:'height',now:now()});
       if(reply.accepted!==true) return false;
@@ -583,13 +605,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     begin(view,property) {
       const el=views.get(view); if(!eligible(el)) return null;
       const value=sample(el,property); if(!value?.every(Number.isFinite)) return null;
-      const reply=call('begin',{view,property},value); if(!reply.token) return null;
-      if(!authored.has(view)) authored.set(view,el.style.cssText);
-      const h={view,property,el,token:reply.token,generation:generation(),value:reply.value};
-      held.set(key(view,property),h); // rebegin replaces, never retains history
-      cancelProperty(view,property,el); restore(view);
-      if(reply.batch) applyBatch(reply.batch);
-      return h;
+      return adopt(view,property,call('begin',{view,property},value));
     },
     move(h,value) {
       if(!local(h)) return false;
@@ -601,7 +617,14 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     end(h,velocity=[0,0],cancel=false) {
       if(!local(h)) return false;
       const reply=call(cancel?'cancel':'release',h,velocity);
-      if(reply.accepted!==true) return false;
+      if(!local(h)) return false;
+      if(reply.accepted!==true) {
+        // A receipt may have cancelled Rust's token before its binding removal
+        // reaches the DOM. An explicit stale reply retires this exact overlay;
+        // a validation error must leave a still-live hold intact.
+        if(reply.accepted===false) { held.delete(key(h.view,h.property)); restore(h.view); }
+        return false;
+      }
       // Flush held presentation before restoring the latest easing/target.
       // A spring batch below installs its first frame before this turn paints.
       h.el.getBoundingClientRect(); held.delete(key(h.view,h.property)); restore(h.view);
@@ -621,7 +644,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       if(reconciling) return;
       reconciling=true;
       try {
-        for(const [id,stop] of [...active]) if(!eligible(views.get(id))) stop();
+        for(const [id,stop] of [...active]) if(!eligible(views.get(id))||(stop.valid&&!stop.valid())) stop();
         for(const h of [...held.values()]) if(local(h)&&!eligible(h.el)) api.end(h,[0,0],true);
       } finally { reconciling=false; }
     },
@@ -649,13 +672,88 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     },
     destroy(id) {
       drags.get(id)?.(); drags.delete(id);
+      for(const [handle,b] of [...heightBindings]) if(handle===id||b.target===id) { drags.get(handle)?.(); heightBindings.delete(handle); }
       for(const property of properties) { cancelProperty(id,property); held.delete(key(id,property)); }
       authored.delete(id);
     },
     reset() {
       for(const stop of drags.values()) stop(); drags.clear();
+      heightBindings.clear();
       for(const animation of animations.values()) animation.cancel(); animations.clear();
       const ids=[...authored.keys()]; held.clear(); for(const id of ids) restore(id); authored.clear();
+    },
+    attachHeightDrag(el,id,on) {
+      let drag=null,suppressClick=false;
+      const velocity=d=>{
+        const last=d.samples.at(-1), first=d.samples[0], dt=last[0]-first[0];
+        return dt>0?(last[1]-first[1])*1000/dt:0;
+      };
+      const position=d=>sample(d.binding.targetEl,'height')?.[0];
+      function stop() {
+        const d=drag; drag=null; active.delete(id);
+        if(!d) return;
+        if(d.h) { suppressClick=true; api.end(d.h,[0,0],true); }
+        if(el.hasPointerCapture(d.pointer)) el.releasePointerCapture(d.pointer);
+        releaseInteraction(d.pointer);
+      }
+      stop.valid=()=>!drag||bindingLive(drag.binding)&&(!drag.h||local(drag.h));
+      drags.set(id,stop);
+      on('pointerdown',e=>{
+        const binding=heightBindings.get(id);
+        if(!e.isPrimary||e.button!==0||!bindingLive(binding)||e.target.closest('button,a,input,textarea,select,[contenteditable]')) return;
+        stop(); drag={pointer:e.pointerId,x:e.clientX,y:e.clientY,binding}; active.set(id,stop);
+        // A fast first move can already leave a narrow header. Retain delivery
+        // while intent is pending; motion takeover still waits for recognition.
+        el.setPointerCapture(e.pointerId); e.preventDefault();
+      });
+      const move=e=>{
+        if(!drag||drag.pointer!==e.pointerId) return false;
+        if(!stop.valid()) { stop(); return false; }
+        const current=drag;
+        const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+        if(!drag.h) {
+          if(Math.abs(dx)>8&&Math.abs(dx)>=Math.abs(dy)) { stop(); return false; }
+          if(Math.abs(dy)<8||Math.abs(dy)<=Math.abs(dx)) return false;
+          const value=position(drag);
+          if(!Number.isFinite(value)||value<0) { stop(); return false; }
+          const reply=request({op:'height-begin',view:id,property:'height',token:drag.binding.handleKey,x:value,y:0,now:now()});
+          if(!reply.token||reply.target!==drag.binding.target) { stop(); return false; }
+          adopt(reply.target,'height',reply,h=>{current.h=h;});
+          if(drag!==current) return false;
+          if(!drag.h) { stop(); return false; }
+          drag.origin=e.clientY; drag.base=drag.h.value[0]; drag.samples=[[now(),position(drag)]];
+          el.setPointerCapture(e.pointerId);
+        }
+        const value=Math.max(0,Math.min(3.4028234663852886e38,drag.base-(e.clientY-drag.origin)));
+        if(!api.move(drag.h,[value,0])) { stop(); return false; }
+        if(drag!==current) return false;
+        // CSS min/max may clamp a held sample. Release velocity follows actual
+        // displayed height, never the finger's speed beyond that constraint.
+        const shown=position(drag),t=now();
+        if(!Number.isFinite(shown)) { stop(); return false; }
+        drag.samples.push([t,shown]);
+        while(drag.samples.length>2&&(drag.samples.length>8||t-drag.samples[0][0]>80)) drag.samples.shift();
+        e.preventDefault(); if(e.type==='pointermove') e.stopPropagation(); return true;
+      };
+      on('pointermove',move);
+      const finish=e=>{
+        if(!drag||drag.pointer!==e.pointerId) return;
+        if(e.type!=='pointerup'||!drag.h) { stop(); return; }
+        if(!move(e)) return;
+        const d=drag; drag=null; active.delete(id); suppressClick=true;
+        const shown=position(d),v=velocity(d);
+        // Final constrained sample precedes the synchronous authored snap. The
+        // host checks this handle/target/token again before dispatching it.
+        if(bindingLive(d.binding)&&live(d.h)&&api.move(d.h,[shown,0])) {
+          const reply=request({op:'height-action',view:id,property:'height',token:d.h.token,x:shown,y:v,now:now()});
+          if(reply.batch) applyBatch(reply.batch);
+          api.end(d.h,[v,0],reply.accepted!==true);
+        } else api.end(d.h,[0,0],true);
+        if(el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+        releaseInteraction(e.pointerId);
+      };
+      on('pointerup',finish); on('pointercancel',finish); on('lostpointercapture',finish);
+      on('click',e=>{if(suppressClick){suppressClick=false;e.preventDefault();e.stopPropagation();}});
     },
     attachSwipe(el,id,on) {
       let drag=null,suppressClick=false;

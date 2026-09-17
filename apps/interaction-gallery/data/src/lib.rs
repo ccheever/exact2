@@ -5,7 +5,7 @@ pub mod model;
 
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource};
-use model::{Id, Mode, Photo, Return, Sheet};
+use model::{Id, Mode, Photo, Return};
 
 /// One logical owner. Hosts will own transient gesture geometry, not this order.
 #[derive(Default)]
@@ -88,8 +88,6 @@ impl Gallery {
                 ),
                 None => format!("{} → end of collection", model::photo(v.item, 0).title),
             })),
-            Value::str(m.sheet.name()),
-            Value::str(m.sheet.height()),
             Value::str(&m.notice),
             Value::str(return_kind),
             Value::str(&return_id),
@@ -182,7 +180,6 @@ impl Gallery {
             "insert" => {
                 m.insert_first()?;
             }
-            "sheet" => m.sheet(Sheet::parse(id)?),
             _ => return Err("unknown gallery action"),
         }
         if self.model.revision != before {
@@ -255,7 +252,6 @@ mod tests {
         for (op, id, n) in [
             ("mode", "sheet", 0),
             ("select", "photo-00002", 0),
-            ("sheet", "full", 0),
             ("page", "", 1),
         ] {
             source.action(op, id, n).unwrap();
@@ -300,6 +296,29 @@ mod tests {
             .rows(before.revision, model::MAX_ITEMS as u32 + 1, false)
             .is_err());
         assert_eq!(source.model, before);
+    }
+
+    #[test]
+    fn presentation_sheet_target_is_absent_from_data_schema_and_actions() {
+        let mut source = Gallery::default();
+        let before = source.snapshot();
+        let Value::Record(fields) = &before else {
+            panic!("gallery metadata")
+        };
+        assert_eq!(
+            fields.len(),
+            25,
+            "sheet/percentage height are Contract presentation state"
+        );
+        for stop in ["peek", "read", "full"] {
+            assert!(source
+                .query(
+                    "galleryAction",
+                    &[Value::str("sheet"), Value::str(stop), number(0)]
+                )
+                .is_err());
+            assert_eq!(source.snapshot(), before);
+        }
     }
 
     #[test]

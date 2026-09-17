@@ -681,6 +681,15 @@ impl<D: DataSource> Bridge<D> {
             }
             // @ref LLP 1038 D8 — the next ABI kind after scroll.
             14 => Event::Navigate(payload),
+            15 => {
+                let Some(event) = Event::height_release_payload(&payload) else {
+                    let out = self.host.as_ref().map_or_else(not_booted, |h| {
+                        h.hold_refusal("invalid height release coordinates")
+                    });
+                    return self.emit(out);
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
@@ -702,6 +711,39 @@ impl<D: DataSource> Bridge<D> {
                 .as_ref()
                 .map_or_else(not_booted, |h| h.hold_refusal("unknown motion property")),
         };
+        self.emit(out)
+    }
+
+    /// Begin an authored header's resolved generational binding.
+    pub fn height_drag_begin(&mut self, handle: u64, target: u64, now_ms: f64) -> u32 {
+        let key = |packed: u64| exact_kernel::NodeKey {
+            index: packed as u32,
+            generation: (packed >> 32) as u32,
+        };
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.height_drag_begin(key(handle), key(target), now_ms)
+        });
+        self.emit(out)
+    }
+    /// Move only a live header/target/token triple.
+    pub fn height_drag_update(&mut self, token: u64, height: f64, now_ms: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.height_drag_update(token, height, now_ms));
+        self.emit(out)
+    }
+    /// Apply the final sample and typed release action while held.
+    pub fn height_drag_release(
+        &mut self,
+        token: u64,
+        height: f64,
+        velocity: f64,
+        now_ms: f64,
+    ) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.dispatch_height_held(token, height, velocity, now_ms)
+        });
         self.emit(out)
     }
 
@@ -1191,6 +1233,21 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_hold_begin(rt: u32, view: u32, property: u32, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.hold_begin(view, property, now_ms), |n| n)
+        }
+        /// Begin a header binding using exact packed generational keys.
+        #[no_mangle]
+        pub extern "C" fn exact_height_drag_begin(rt: u32, handle: u64, target: u64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.height_drag_begin(handle, target, now_ms), |n| n)
+        }
+        /// Update an eligible header's live token.
+        #[no_mangle]
+        pub extern "C" fn exact_height_drag_update(rt: u32, token: u64, height: f64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.height_drag_update(token, height, now_ms), |n| n)
+        }
+        /// Final sample then typed action; the caller ends the token afterward.
+        #[no_mangle]
+        pub extern "C" fn exact_height_drag_release(rt: u32, token: u64, height: f64, velocity: f64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.height_drag_release(token, height, velocity, now_ms), |n| n)
         }
         /// Check before dispatching an authored completion.
         #[no_mangle]

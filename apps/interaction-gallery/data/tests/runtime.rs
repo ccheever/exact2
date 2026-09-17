@@ -1,7 +1,7 @@
 //! Real Contract buttons drive the same logical model across all three modes.
 use exact_kernel::{Kernel, NodeType, PropId};
 use exact_plan::Value;
-use exact_runner::{Event, Runner};
+use exact_runner::{DataError, DataSource, Event, Runner};
 use interaction_gallery_data::Gallery;
 
 fn boot() -> Runner<Gallery> {
@@ -21,7 +21,7 @@ fn boot() -> Runner<Gallery> {
     runner
 }
 
-fn press(r: &mut Runner<Gallery>, name: &str) {
+fn press<D: DataSource>(r: &mut Runner<D>, name: &str) {
     let ids = r.kernel().find_by_test_id(name);
     assert_eq!(ids.len(), 1, "missing or ambiguous {name}");
     let id = r.kernel().node_by_key(ids[0]).unwrap().id;
@@ -179,4 +179,159 @@ fn largest_fixture_still_projects_twelve_cards_and_reset_cancels_preview() {
     assert!(!present(&r, "move-preview"));
     press(&mut r, "mode-photos");
     assert!(present(&r, "open-photo-00000"));
+}
+
+#[derive(Default)]
+struct CountedGallery {
+    inner: Gallery,
+    calls: usize,
+}
+impl DataSource for CountedGallery {
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        self.calls += 1;
+        self.inner.query(source, args)
+    }
+}
+
+#[test]
+fn sheet_release_updates_the_latest_numeric_target_synchronously_while_held() {
+    let mut r = Runner::boot(
+        contract::compile(include_str!("../../app.contract")).unwrap(),
+        CountedGallery::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    press(&mut r, "mode-sheet");
+    let owner = r.kernel().find_by_test_id("reading-sheet")[0];
+    let handle = r.kernel().find_by_test_id("sheet-handle")[0];
+    let handle = r.kernel().node_by_key(handle).unwrap();
+    assert_eq!(
+        handle.props.str(PropId::HeightDragFor),
+        Some("reading-sheet")
+    );
+    assert_eq!(r.kernel().height_drag_target(handle.key), Some(owner));
+    let handle_id = handle.id;
+    assert_eq!(
+        r.kernel().node_by_key(owner).unwrap().props.str(PropId::Id),
+        Some("reading-sheet")
+    );
+    for control in ["sheet-peek", "sheet-read", "sheet-full", "sheet-scroll"] {
+        let key = r.kernel().find_by_test_id(control)[0];
+        assert_eq!(
+            r.kernel()
+                .node_by_key(key)
+                .unwrap()
+                .props
+                .str(PropId::HeightDragFor),
+            None
+        );
+    }
+    let sync = r.kernel().height_motion_sync(owner);
+    assert_eq!(sync.changes.len(), 1);
+    let change = sync.changes[0];
+    assert_eq!(change.value.x, 360.);
+    // Infer Engine through the existing kernel seam: no new app dependency.
+    let mut engine = Default::default();
+    sync.apply(&mut engine).unwrap();
+    let hold = engine
+        .begin_hold(change.node, change.property, 0., None)
+        .unwrap()
+        .unwrap();
+    let mut held = hold.value;
+    held.x = 410.;
+    assert!(engine.update_hold(hold.token, 0.01, held).unwrap());
+    let calls = r.data_ref().calls;
+    for (height, velocity, target) in [(410., 900., 640.), (410., -1200., 180.), (355., 0., 360.)] {
+        r.dispatch(handle_id, Event::HeightRelease { height, velocity })
+            .unwrap();
+        assert_eq!(r.slot("sheetPx"), Some(&Value::Number(target)));
+        assert_eq!(r.kernel().height_target(owner).unwrap().x, target);
+        r.kernel()
+            .height_motion_sync(owner)
+            .apply(&mut engine)
+            .unwrap();
+        assert!(
+            engine.has_hold(hold.token),
+            "the authored action must run before end_hold"
+        );
+        assert_eq!(engine.value(change.node, change.property), Some(held));
+        assert_eq!(
+            engine.target(change.node, change.property).unwrap().x,
+            target
+        );
+        assert!(engine.quiescent());
+        assert_eq!(
+            r.data_ref().calls,
+            calls,
+            "snap must not await galleryAction or refetch rows"
+        );
+    }
+    for (button, target) in [
+        ("sheet-peek", 180.),
+        ("sheet-full", 640.),
+        ("sheet-read", 360.),
+    ] {
+        press(&mut r, button);
+        assert_eq!(r.slot("sheetPx"), Some(&Value::Number(target)));
+        assert_eq!(r.kernel().height_target(owner).unwrap().x, target);
+        r.kernel()
+            .height_motion_sync(owner)
+            .apply(&mut engine)
+            .unwrap();
+        assert!(engine.has_hold(hold.token));
+        assert_eq!(
+            engine.target(change.node, change.property).unwrap().x,
+            target
+        );
+        assert_eq!(engine.value(change.node, change.property), Some(held));
+        assert_eq!(r.data_ref().calls, calls);
+    }
+}
+
+#[test]
+fn sheet_snap_boundaries_buttons_and_unrelated_data_share_one_local_target() {
+    let mut r = boot();
+    press(&mut r, "mode-sheet");
+    let handle = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("sheet-handle")[0])
+        .unwrap()
+        .id;
+    for (height, target) in [
+        (0., 180.),
+        (269.999, 180.),
+        (270., 360.),
+        (499.999, 360.),
+        (500., 640.),
+        (900., 640.),
+    ] {
+        r.dispatch(
+            handle,
+            Event::HeightRelease {
+                height,
+                velocity: 0.,
+            },
+        )
+        .unwrap();
+        assert_eq!(r.slot("sheetPx"), Some(&Value::Number(target)));
+    }
+    for bad in [0., 179., 361., 641.] {
+        r.act("chooseSheet", vec![Value::Number(bad)]).unwrap();
+        assert_eq!(r.slot("sheetPx"), Some(&Value::Number(640.)));
+    }
+    for control in ["note-photo-00000", "mode-photos", "next-page", "mode-sheet"] {
+        press(&mut r, control);
+        assert_eq!(
+            r.slot("sheetPx"),
+            Some(&Value::Number(640.)),
+            "{control} restored a stale model target"
+        );
+    }
+    press(&mut r, "reset");
+    assert_eq!(r.slot("sheetPx"), Some(&Value::Number(360.)));
+    press(&mut r, "sheet-peek");
+    press(&mut r, "count-1000");
+    assert_eq!(r.slot("sheetPx"), Some(&Value::Number(360.)));
 }

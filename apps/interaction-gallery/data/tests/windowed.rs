@@ -1,5 +1,5 @@
 //! Real gallery Contract, complete records and actual nested viewport geometry.
-use exact_kernel::{Kernel, Offer, PropId};
+use exact_kernel::{Kernel, Offer, PresentedHeight, PropId};
 use exact_plan::Value;
 use exact_runner::{CollectionFeedback, Event, RowMeasurement, Runner};
 use interaction_gallery_data::Gallery;
@@ -47,12 +47,26 @@ fn text(r: &Runner<Gallery>, name: &str) -> String {
 // The same geometry supplied by native/browser adapters: real nested port and
 // measured wrappers. A bounded loop accepts anchor corrections after reflow.
 fn settle(r: &mut Runner<Gallery>, requested: f64, width: f64) -> (f64, f64) {
+    settle_at(r, requested, width, 860., None)
+}
+fn settle_at(
+    r: &mut Runner<Gallery>,
+    requested: f64,
+    width: f64,
+    height: f32,
+    presented: Option<f32>,
+) -> (f64, f64) {
     let sequence = r.collections()[0].scroll_sequence + 1;
     let mut top = requested;
     for _ in 0..16 {
         let root = r.roots()[0];
+        let projection = presented.map(|px| PresentedHeight {
+            node: r.kernel().find_by_test_id("reading-sheet")[0],
+            epoch: r.kernel().epoch(),
+            px,
+        });
         r.kernel_mut()
-            .compute_layout(root, Offer::definite(width as f32, 860.0))
+            .compute_layout_presented(root, Offer::definite(width as f32, height), projection)
             .unwrap();
         let c = r.collections().remove(0);
         let port = r.kernel().node(c.view).unwrap().frame;
@@ -262,4 +276,94 @@ fn explicit_manual_and_eager_controls_survive_beside_windowing() {
     press(&mut r, "mode-photos");
     assert!(r.collections().is_empty());
     assert_eq!(rows(&r).len(), 12);
+}
+
+fn frame_height(r: &Runner<Gallery>, name: &str) -> f32 {
+    let key = r.kernel().find_by_test_id(name)[0];
+    r.kernel().node_by_key(key).unwrap().frame.height
+}
+
+#[test]
+fn intermediate_sheet_samples_and_resize_feed_actual_nested_list_geometry() {
+    let mut r = boot();
+    press(&mut r, "count-1000");
+    press(&mut r, "mode-sheet");
+    let owner = r.kernel().find_by_test_id("reading-sheet")[0];
+    let records = rows(&r);
+    let mut previous: Option<(f32, f64)> = None;
+    for px in [220., 280., 420., 560., 300.] {
+        let (_, port) = settle_at(&mut r, 0., 1180., 960., Some(px));
+        let panel = frame_height(&r, "reading-sheet");
+        assert!((panel - px).abs() < 0.1);
+        assert!(port > 0. && port < panel as f64);
+        assert!((port - frame_height(&r, "sheet-scroll") as f64).abs() < 0.1);
+        if let Some((old_px, old_port)) = previous {
+            assert!(((port - old_port) - (px - old_px) as f64).abs() < 0.5);
+        }
+        previous = Some((px, port));
+        assert_eq!(r.kernel().height_target(owner).unwrap().x, 360.);
+        assert_eq!(r.slot("sheetPx"), Some(&Value::Number(360.)));
+        assert!(Rc::ptr_eq(&records, &rows(&r)));
+    }
+    let wide_row = r.collections()[0].rows[0].height;
+    for (width, height) in [(420., 620.), (420., 860.), (1180., 960.)] {
+        let (_, port) = settle_at(&mut r, 0., width, height, Some(640.));
+        let stage = frame_height(&r, "sheet-stage");
+        let panel = frame_height(&r, "reading-sheet");
+        assert!(
+            (panel - stage.min(640.)).abs() < 0.1,
+            "max-height must include border-box padding"
+        );
+        assert!(port > 0. && port < panel as f64);
+        assert_eq!(r.collections()[0].count, 1000);
+        assert!(Rc::ptr_eq(&records, &rows(&r)));
+        if width == 420. {
+            assert!(r.collections()[0].rows[0].height > wide_row);
+        }
+    }
+    let handle = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("sheet-handle")[0])
+        .unwrap()
+        .id;
+    r.dispatch(
+        handle,
+        Event::HeightRelease {
+            height: 460.,
+            velocity: 600.,
+        },
+    )
+    .unwrap();
+    settle_at(&mut r, 0., 1180., 960., Some(460.));
+    assert_eq!(r.kernel().height_target(owner).unwrap().x, 640.);
+    assert!(
+        (frame_height(&r, "reading-sheet") - 460.).abs() < 0.1,
+        "commit must preserve active presentation projection"
+    );
+    settle_at(&mut r, 0., 1180., 960., None);
+    assert!((frame_height(&r, "reading-sheet") - 640.).abs() < 0.1);
+}
+
+#[test]
+fn local_sheet_stops_preserve_manual_and_eager_read_controls() {
+    let mut r = boot();
+    press(&mut r, "mode-sheet");
+    for (render, count) in [("render-manual", 12), ("render-eager", 100)] {
+        press(&mut r, render);
+        assert!(r.collections().is_empty());
+        assert_eq!(rows(&r).len(), count);
+        for (button, px) in [
+            ("sheet-peek", 180.),
+            ("sheet-full", 640.),
+            ("sheet-read", 360.),
+        ] {
+            press(&mut r, button);
+            assert_eq!(r.slot("sheetPx"), Some(&Value::Number(px)));
+            assert!(r.collections().is_empty());
+            assert_eq!(rows(&r).len(), count);
+        }
+    }
+    press(&mut r, "render-windowed");
+    assert_eq!(r.collections()[0].count, 100);
+    settle(&mut r, 0., 1180.);
 }

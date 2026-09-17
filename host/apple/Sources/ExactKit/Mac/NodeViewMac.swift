@@ -1140,6 +1140,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // same (a click on the page's ground).
     override func mouseDown(with event: NSEvent) {
         presenter?.collections.pointerDown(id, event: event)
+        presenter?.mouseHeightDrag.down(self, event: event)
         presenter?.mouseSwipe.down(self, event: event)
         guard !disabled else { pressed = false; return }
         if isParagraph, !handlers.contains("press"), !hasPressableAncestor {
@@ -1162,6 +1163,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return false
     }
     override func mouseDragged(with event: NSEvent) {
+        if presenter?.mouseHeightDrag.drag(event) == true { return }
         if presenter?.mouseSwipe.drag(event) == true { return }
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
@@ -1171,6 +1173,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.contextmenu(id)
     }
     override func mouseUp(with event: NSEvent) {
+        if presenter?.mouseHeightDrag.up(event) == true { return }
         if presenter?.mouseSwipe.up(event) == true { return }
         presenter?.collections.releaseInteractionLater()
         if event.clickCount == 2 {

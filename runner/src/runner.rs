@@ -7,6 +7,8 @@
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
 
 mod admission;
+mod event;
+pub use event::Event;
 mod carry;
 mod collection;
 mod source;
@@ -25,7 +27,6 @@ use crate::store::{Store, StoreWrite};
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
 use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
 use exact_plan::{ActionsId, Code, EventKind, MutationsId, NodesId, Plan, PlanError, Value};
-use std::fmt::Write as _;
 
 /// A host-facing effect an action asked for; executed after commit, in order.
 #[derive(Debug, Clone, PartialEq)]
@@ -59,51 +60,6 @@ pub struct Advanced {
     pub error: Option<RunnerError>,
 }
 
-/// A host event aimed at a view.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Event {
-    /// A press on the view.
-    Press,
-    /// A text input changed to `value`.
-    Change(String),
-    /// The pointer came over the view (`true`) or left it (`false`) —
-    /// `pointerenter`/`pointerleave`, not a bubbling `mouseover`.
-    Hover(bool),
-    /// The view took the focus.
-    Focus,
-    /// The view lost the focus.
-    Blur,
-    /// A key went down while the view had the focus: the key's name as the
-    /// web spells it (`"Enter"`, `"ArrowDown"`, `"a"`).
-    Key(String),
-    /// Enter in an input with a `submit` handler — the web's implicit
-    /// submission (HTML forms §4.10.21.2), without a form.
-    Submit,
-    /// An iframe finished loading (including an error document on the web).
-    Load,
-    /// An iframe guest posted a string to its parent (@ref LLP 1020 D2).
-    Message(String),
-    /// The platform requested a context menu (secondary click or long press).
-    Contextmenu,
-    /// A double click, or the platform’s double tap.
-    Dblclick,
-    /// A platform-recognized right swipe.
-    Swiperight,
-    /// A changed scroll position, in CSS pixels (left, top).
-    Scroll(f64, f64),
-    /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
-    Navigate(String),
-}
-
-impl Event {
-    /// Decode the scroll event's two finite CSS-pixel coordinates.
-    pub fn scroll_payload(payload: &str) -> Option<Self> {
-        let (left, top) = payload.split_once(',')?;
-        let (left, top) = (left.parse::<f64>().ok()?, top.parse::<f64>().ok()?);
-        (left.is_finite() && top.is_finite()).then_some(Self::Scroll(left, top))
-    }
-}
-
 /// Why the runner refused. The kernel is unchanged.
 #[allow(missing_docs)]
 #[derive(Debug)]
@@ -131,6 +87,10 @@ pub enum RunnerError {
         resource: String,
     },
     UnknownView(ViewId),
+    /// A typed host event carries invalid numeric values. No action ran.
+    InvalidEvent {
+        event: &'static str,
+    },
     NoHandler {
         view: ViewId,
         event: &'static str,
@@ -767,94 +727,6 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .position(|r| self.plan.str(r.name) == name)
             .is_some_and(|i| self.store_readers[i])
-    }
-
-    /// Deliver a host event to `view`: find its handler, evaluate the curried
-    /// arguments in the instance's scope now, run the action, update.
-    pub fn dispatch(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
-        let mut what = format!(
-            "{} view {view}",
-            match &event {
-                Event::Press => "press",
-                Event::Change(_) => "change",
-                Event::Hover(true) => "hover in",
-                Event::Hover(false) => "hover out",
-                Event::Focus => "focus",
-                Event::Blur => "blur",
-                Event::Key(_) => "key",
-                Event::Submit => "submit",
-                Event::Load => "load",
-                Event::Message(_) => "message",
-                Event::Contextmenu => "contextmenu",
-                Event::Dblclick => "dblclick",
-                Event::Swiperight => "swiperight",
-                Event::Scroll(_, _) => "scroll",
-                Event::Navigate(_) => "navigate",
-            }
-        );
-        let was_poisoned = self.poisoned;
-        let result = self.dispatch_inner(view, event, &mut what);
-        self.log_outcome(&what, &result, was_poisoned);
-        result
-    }
-
-    fn dispatch_inner(
-        &mut self,
-        view: ViewId,
-        event: Event,
-        what: &mut String,
-    ) -> Result<CommitReceipt, RunnerError> {
-        let (node, frames) = self
-            .tree
-            .as_ref()
-            .and_then(|t| t.find(view))
-            .ok_or(RunnerError::UnknownView(view))?;
-        let (kind, payload, name) = match &event {
-            Event::Press => (EventKind::Press, None, "press"),
-            Event::Change(text) => (EventKind::Change, Some(Value::str(text)), "change"),
-            Event::Hover(over) => (EventKind::Hover, Some(Value::Bool(*over)), "hover"),
-            Event::Focus => (EventKind::Focus, None, "focus"),
-            Event::Blur => (EventKind::Blur, None, "blur"),
-            Event::Key(key) => (EventKind::Key, Some(Value::str(key)), "key"),
-            Event::Submit => (EventKind::Submit, None, "submit"),
-            Event::Load => (EventKind::Load, None, "load"),
-            Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),
-            Event::Contextmenu => (EventKind::Contextmenu, None, "contextmenu"),
-            Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
-            Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
-            Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
-            Event::Navigate(location) => {
-                (EventKind::Navigate, Some(Value::str(location)), "navigate")
-            }
-        };
-        let row = self.plan.node(node);
-        let handler = row
-            .handlers
-            .iter()
-            .map(|h| self.plan.handler(h))
-            .find(|h| h.event == kind)
-            .cloned()
-            .ok_or(RunnerError::NoHandler { view, event: name })?;
-        let mut args = Vec::new();
-        for a in handler.args.iter() {
-            let code = self.plan.arg(a).expr;
-            args.push(self.eval(code, &[], &frames)?);
-        }
-        if let Some(p) = payload {
-            // A navigate action may deliberately ignore its location (D8).
-            if kind != EventKind::Navigate || !self.plan.action(handler.action).params.is_empty() {
-                args.push(p);
-            }
-        }
-        if let Event::Scroll(left, top) = event {
-            args.extend([Value::Number(left), Value::Number(top)]);
-        }
-        let _ = write!(
-            what,
-            " ({})",
-            self.plan.str(self.plan.action(handler.action).name)
-        );
-        self.run_action(handler.action, args, &frames)
     }
 
     /// Run an action by name with `args` — what a test or an agent does.

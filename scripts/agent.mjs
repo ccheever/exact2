@@ -742,13 +742,14 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
      * can hold a contact across requests, and how each form is delivered —
      * `platform` (a real input event through the platform's own path),
      * `recognized` (an already-recognized event injected), `activation` (a
-     * hit-test and a direct call), or `unsupported`. iOS activates and
+     * hit-test and a direct call), `presenter` (seekable native recognition
+     * without OS input injection), or `unsupported`. iOS activates and
      * injects; it synthesizes no touch (LLP 1008 §9).
      */
     input: host === 'ios' || host === 'host-ios'
       ? { contact: carrier.pointer === true, hold: carrier.pointer === true, delivery: (kind) => (['contextmenu', 'dblclick', 'hover'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? (carrier.pointer ? 'platform' : 'unsupported') : 'activation') }
       : host === 'linux'
-        ? { contact: false, hold: false, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : 'platform') }
+        ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'presenter' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },
     /** The contact this session holds, `{x, y}` in the viewport's space, or null. */
     contact: null,
@@ -769,13 +770,16 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       let at;
       if (kind === 'down' && opts.at) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = { x: b.x + opts.at[0], y: b.y + opts.at[1] }; }
       const r = await carrier.input(node.id, kind, { ...opts, ...at });
-      if (kind === 'down' && r.delivery !== 'unsupported') s.contact = { x: r.at[0], y: r.at[1] };
-      return s.tagged({ ...r, tapped: node.id, target, delivery: r.delivery ?? s.input.delivery(kind), carrier: host, mode: timing });
+      if (kind === 'down' && r.delivery !== 'unsupported') {
+        s.contact = r.contact === false ? null : { x: r.at[0], y: r.at[1] };
+        if (Number.isFinite(r.clock)) s.now = r.clock;
+      }
+      return s.tagged({ ...r, tapped: node.id, target, delivery: r.delivery ?? s.input.delivery(kind), carrier: host, mode: r.mode ?? timing });
     },
     /**
      * The held contact's next phase (LLP 1035.003 D1): `move` to `{x, y}` in
-     * the viewport or `by` `{dx, dy}`, over `ms` of real time (the platform
-     * recognizes velocity from the steps); `hold` for `ms`; `up`; `cancel`.
+     * the viewport or `by` `{dx, dy}`, over `ms` of real time on platform
+     * carriers or seekable time on Linux's presenter; `hold` for `ms`; `up`; `cancel`.
      * The platform owns hit-testing, recognition, scrolling and animation:
      * the app receives whatever it delivers, and a carrier that cannot hold
      * a contact answers `delivery: "unsupported"` rather than faking one.
@@ -785,10 +789,11 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       if (!s.contact) throw new Error('no contact is down (tap <target> down first)');
       const r = await carrier.input(null, phase, opts);
       if (r.delivery !== 'unsupported') {
-        if (phase === 'move') s.contact = { x: r.at[0], y: r.at[1] };
-        if (phase === 'up' || phase === 'cancel') s.contact = null;
+        if (Number.isFinite(r.clock)) s.now = r.clock;
+        if (r.contact === false || phase === 'up' || phase === 'cancel') s.contact = null;
+        else if (phase === 'move') s.contact = { x: r.at[0], y: r.at[1] };
       }
-      return s.tagged({ ...r, phase, delivery: r.delivery ?? s.input.delivery(phase), carrier: host, mode: timing });
+      return s.tagged({ ...r, phase, delivery: r.delivery ?? s.input.delivery(phase), carrier: host, mode: r.mode ?? timing });
     },
     /** Deliver a location to a navigation root (LLP 1038 D11), or set an input's text through the host's text input path; an iframe accepts `{text, selector}` or `{key, selector}` for its guest. */
     async type(target, text) {

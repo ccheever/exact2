@@ -84,6 +84,10 @@ impl Springs {
         self.playing.len()
     }
 
+    pub(crate) fn height_owner(&self) -> Option<(NodeKey, ViewId)> {
+        self.height_owner
+    }
+
     pub(crate) fn set_height_owner(
         &mut self,
         kernel: &Kernel,
@@ -234,10 +238,9 @@ impl Springs {
         let _ = self.engine.frame();
     }
 
-    /// Feed the receipts of one commit at `now` seconds and return what the
-    /// page must do: springs to start (or restart from their current value)
-    /// and springs that stopped being the truth for their property.
-    pub fn commit(
+    /// Synchronize an accepted receipt while existing holds still own presentation.
+    /// Retirement ops are returned, but dirty frames remain for one common lowering.
+    pub(crate) fn synchronize(
         &mut self,
         kernel: &Kernel,
         receipts: &[CommitReceipt],
@@ -264,6 +267,18 @@ impl Springs {
         // checks only its ancestor path, never all mounted numeric heights.
         self.reconcile_height(kernel, &mut out);
         self.holds.retain(|_, token| self.engine.has_hold(*token));
+        out
+    }
+
+    /// Synchronize and lower changed properties once at a commit/input boundary.
+    pub fn commit(
+        &mut self,
+        kernel: &Kernel,
+        receipts: &[CommitReceipt],
+        now: f64,
+    ) -> Vec<Lowered> {
+        let now = now.max(self.engine.now());
+        let mut out = self.synchronize(kernel, receipts, now);
         for p in self.engine.frame() {
             let key = (p.node, p.property);
             let Some(view) = self.view_of(kernel, p.node) else {

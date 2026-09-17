@@ -24,6 +24,8 @@ impl<D: DataSource> Host<D> {
                 .remove_property(motion_node(old), Property::Height);
         }
         self.height_owner = next;
+        self.height_bindings.automatic = false;
+        self.retire_height_binding();
         self.layout()?;
         self.present();
         Ok(())

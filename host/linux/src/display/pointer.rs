@@ -123,4 +123,81 @@ mod tests {
             assert_eq!(p.collection_interaction(), None);
         }
     }
+    #[test]
+    fn header_height_relative_absolute_release_cancel_and_escape() {
+        let plan = contract::compile(r#"component App
+  state target = 180
+  state count = 0
+  state seen = 0
+  action release(h: number, v: number) writes target, count, seen
+    count = count + 1
+    seen = h
+    target = 360
+  view
+    box width=400 height=500
+      column id="panel" testId="panel" position="absolute" bottom=0 width=400 height=target max-height="100%" box-sizing="border-box" transition="height spring(300,30,1)"
+        box heightDragFor="panel" heightrelease=release height=40
+          text "drag header"
+      text `${count}` testId="count"
+      text `${seen}` testId="seen"
+"#).unwrap();
+        for cancel in [
+            None,
+            Some(InputEvent::Cancel),
+            Some(InputEvent::Key(Key::Escape)),
+        ] {
+            let mut p = Presenter::boot_with(
+                &plan.encode(),
+                NoData,
+                (400., 500.),
+                1.,
+                PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+                PainterChoice::Cpu,
+            )
+            .unwrap()
+            .0;
+            let mut at = (200., 340.);
+            for (time, event) in [
+                (0., InputEvent::Button(true)),
+                (10., InputEvent::Motion(0., -20.)), // scale2 -> recognition y330
+                (30., InputEvent::Absolute(None, Some(0.42))), // y210 -> height300
+            ] {
+                dispatch(&mut p, &mut at, (400., 500.), 2., event, time).unwrap();
+            }
+            let k = p.host().kernel();
+            assert_eq!(
+                k.node_by_key(k.find_by_test_id("panel")[0])
+                    .unwrap()
+                    .frame
+                    .height,
+                300.
+            );
+            if let Some(event) = cancel {
+                dispatch(&mut p, &mut at, (400., 500.), 2., event, 40.).unwrap();
+            }
+            for time in [50., 60.] {
+                dispatch(
+                    &mut p,
+                    &mut at,
+                    (400., 500.),
+                    2.,
+                    InputEvent::Button(false),
+                    time,
+                )
+                .unwrap();
+            }
+            assert_eq!(count(&p), if cancel.is_some() { "0" } else { "1" });
+            assert!(p.collection_interaction().is_none());
+            if cancel.is_none() {
+                let k = p.host().kernel();
+                assert_eq!(
+                    k.node_by_key(k.find_by_test_id("seen")[0])
+                        .unwrap()
+                        .props
+                        .str(PropId::Text),
+                    Some("300")
+                );
+            }
+        }
+    }
 }

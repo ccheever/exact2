@@ -73,6 +73,15 @@ impl Batch {
         ));
     }
 
+    /// An authored header's resolved binding, with exact generational keys.
+    pub fn height_drag(&mut self, id: u32, handle_key: u64, target: Option<(u32, u64)>) {
+        let (target, target_key) = target.map_or_else(
+            || ("null".into(), "null".into()),
+            |(id, key)| (id.to_string(), format!("\"{key}\"")),
+        );
+        self.ops.push(format!("{{\"op\":\"height-drag\",\"id\":{id},\"target\":{target},\"handleKey\":\"{handle_key}\",\"targetKey\":{target_key}}}"));
+    }
+
     /// Empty.
     pub fn new() -> Batch {
         Batch::default()

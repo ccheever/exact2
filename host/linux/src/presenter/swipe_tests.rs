@@ -238,13 +238,13 @@ fn companion_holds_and_replaced_primary_are_bounded_and_do_not_release_successor
 }
 
 #[test]
-fn agent_contact_phases_still_refuse_instead_of_claiming_hardware_delivery() {
+fn agent_contact_down_without_target_refuses_without_contact() {
     let mut p = boot(&source());
     let reply = crate::agent::handle(
         &mut p,
         "{\"op\":\"tap\",\"phase\":\"down\",\"x\":20,\"y\":40}",
     );
-    assert!(reply.contains("unsupported"));
+    assert!(reply.contains("error"));
     assert!(p.contact.is_none());
 }
 

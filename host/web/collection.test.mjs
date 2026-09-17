@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { Cdp } from '../../scripts/agent.mjs';
 import { collectionBytes, motionBytes } from './navigation.js';
 
-let server, child, cdp, evaluate, dir;
+let server, child, cdp, evaluate, protocol, dir;
 beforeAll(async () => {
   const chrome = process.env.CHROME ?? (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/chromium');
   if (!existsSync(chrome)) throw Error('Set CHROME to a Chromium executable');
@@ -23,6 +23,7 @@ beforeAll(async () => {
   const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
   const call = (method, params) => cdp.send(method, params, sessionId);
+  protocol = call;
   evaluate = async expression => {
     const result = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     if (result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
@@ -170,18 +171,22 @@ function motionFixture() {
   const f=fixture(), node=f.views.get(2); f.motion?.reset();
   let serial=9007199254740993n, time=100, epoch=1;
   const held=new Map(), calls=[];
-  const apply=batch=>{ for(const op of batch?.ops??[]) if(op.op==='animate') motion.animate(op); };
+  const apply=batch=>{ for(const op of batch?.ops??[]) {
+    if(op.op==='animate') motion.animate(op);
+    if(op.op==='height-drag') motion.heightBinding(op);
+    if(op.op==='style') motion.style(op.id,op.value);
+  } };
   const request=r=>{
     calls.push(r);
-    if(r.op==='begin') { const token=String(serial++); held.set(token,r); return {token,value:[r.x,r.y],batch:{ops:[]}}; }
+    if(r.op==='begin'||r.op==='height-begin') { const token=String(serial++); held.set(token,r); return {token,target:f.heightTarget??r.view,value:[r.x,r.y],batch:{ops:f.beginOps??[]}}; }
     const old=held.get(r.token); if(!old) return {accepted:false};
     if(r.op==='live') return {accepted:true};
     if(r.op==='move') { old.x=r.x; old.y=r.y; return {accepted:true,batch:{ops:[]}}; }
-    if(r.op==='action') { f.onAction?.(); return {accepted:true}; }
+    if(r.op==='action'||r.op==='height-action') { f.onAction?.(r); return {accepted:true}; }
     held.delete(r.token);
     return {accepted:true,batch:{ops:f.releaseOps??[]}};
   };
-  const motion=createMotion({views:f.views,now:()=>time,generation:()=>epoch,request,applyBatch:apply,inert:el=>el.closest('[inert]'),releaseInteraction:pointer=>f.controller.releaseInteraction(pointer)});
+  const motion=createMotion({views:f.views,now:()=>time,generation:()=>epoch,request,applyBatch:apply,inert:el=>el.closest('[inert]'),releaseInteraction:pointer=>{f.released?.push(pointer);f.controller.releaseInteraction(pointer);}});
   Object.assign(f,{motion,node,held,calls,advance:ms=>time+=ms,reload:()=>{epoch++;motion.reset();}});
   return f;
 }
@@ -338,4 +343,96 @@ test('height presentation clamps the negative spring lobe and hold without chang
     const lobe=getComputedStyle(n).height;a.currentTime=400;
     return {held,raw,caught:caught.value[0],stale,lateCalls,frames,lobe,end:getComputedStyle(n).height,translate:getComputedStyle(n).translate};})()`);
   expect(result).toEqual({held:'0px',raw:-49.7162387436,caught:0,stale:false,lateCalls:0,frames:['20px','0px','0px','20px'],lobe:'0px',end:'20px',translate:'-40px'});
+});
+
+
+function heightFixture(make,native=false) {
+  const f=make(), m=f.motion, panel=f.node, header=document.createElement('div');
+  f.heightTarget=2; header.dataset.view='7'; header.textContent='Drag'; panel.append(header); f.views.set(7,header);
+  panel.style.cssText='box-sizing:border-box;width:200px;height:640px;min-height:0;max-height:400px;padding:0;border:0;transition:none';
+  const events={}, released=[];
+  if(!native) { header.setPointerCapture=()=>{}; header.hasPointerCapture=()=>false; }
+  m.heightBinding({id:7,target:2,handleKey:'9007199254741007',targetKey:'9007199254741002'});
+  m.attachHeightDrag(header,7,(name,fn)=>{events[name]=fn;if(native)header.addEventListener(name,fn);});
+  const event=(type,y,x=0,target=header)=>({type,isPrimary:true,button:0,pointerId:9,clientX:x,clientY:y,target,preventDefault(){},stopPropagation(){}});
+  Object.assign(f,{panel,header,events,event,released}); return f;
+}
+test('height header catches current constrained presentation and commits the final displayed sample while held',async()=>{
+  const result=await evaluate(`(() => {const f=(${heightFixture})((${motionFixture})),m=f.motion,n=f.panel,e=f.events;
+    m.animate({id:2,property:'height',values:[180,640],delay:0,duration:1000});const a=n.getAnimations().find(a=>a.effect.getKeyframes().some(k=>k.height));a.pause();a.currentTime=200;
+    e.pointerdown(f.event('pointerdown',100));a.currentTime=800;e.pointermove(f.event('pointermove',90));const caught=getComputedStyle(n).height;
+    f.advance(20);e.pointermove(f.event('pointermove',110));const moved=getComputedStyle(n).height;
+    m.style(2,'box-sizing:border-box;width:200px;height:180px;max-height:400px;transition:none');const held=getComputedStyle(n).height;
+    let during;f.onAction=r=>{during={height:r.x,velocity:r.y,held:f.held.has(r.token),lastMove:f.calls.findLast(c=>c.op==='move').x};m.style(2,'box-sizing:border-box;width:200px;height:360px;max-height:400px;transition:none');};
+    f.advance(20);e.pointerup(f.event('pointerup',120));const release=f.calls.findLast(c=>c.op==='release');
+    const calls=f.calls.length;e.pointerup(f.event('pointerup',130));
+    return {caught,moved,held,during,end:getComputedStyle(n).height,release:release.x,old:a.playState,lateCalls:f.calls.length-calls,order:f.calls.filter(c=>['height-action','release'].includes(c.op)).map(c=>c.op)};})()`);
+  expect(result.caught).toBe('400px');expect(result.moved).toBe('380px');expect(result.held).toBe('380px');
+  expect(result.during.height).toBe(370);expect(result.during.lastMove).toBe(370);expect(result.during.held).toBe(true);
+  expect(result.during.velocity).toBeLessThan(0);expect(result.release).toBe(result.during.velocity);
+  expect(result.end).toBe('360px');expect(result.old).toBe('idle');expect(result.lateCalls).toBe(0);expect(result.order).toEqual(['height-action','release']);
+});
+test('height header reports constrained velocity and keeps negative drag positions out of the host',async()=>{
+  const result=await evaluate(`(() => {const run=lower=>{const f=(${heightFixture})((${motionFixture})),m=f.motion,e=f.events;
+    m.style(2,lower?'box-sizing:border-box;height:200px;min-height:180px;transition:none':'box-sizing:border-box;height:640px;max-height:400px;transition:none');
+    e.pointerdown(f.event('pointerdown',100));e.pointermove(f.event('pointermove',90));f.advance(20);e.pointermove(f.event('pointermove',lower?1000:40));f.advance(20);e.pointerup(f.event('pointerup',lower?1200:0));
+    const action=f.calls.find(c=>c.op==='height-action');return {height:action.x,velocity:action.y,minInput:Math.min(...f.calls.filter(c=>c.op==='move').map(c=>c.x))};};return {upper:run(false),lower:run(true)};})()`);
+  expect(result.upper.height).toBe(400);expect(result.upper.velocity).toBe(0);
+  expect(result.lower.height).toBe(180);expect(result.lower.minInput).toBeGreaterThanOrEqual(0);
+});
+test('height binding invalidation cancels once and refuses stale release after restoration',async()=>{
+  const result=await evaluate(`(() => {return ['disabled','rebind','destroy','reset'].map(kind=>{const f=(${heightFixture})((${motionFixture})),m=f.motion,e=f.events;
+    e.pointerdown(f.event('pointerdown',100));e.pointermove(f.event('pointermove',90));f.advance(20);e.pointermove(f.event('pointermove',110));
+    if(kind==='disabled'){f.header.setAttribute('disabled','');m.commit();f.header.removeAttribute('disabled');}
+    if(kind==='rebind'){m.heightBinding({id:7,target:null,handleKey:'9007199254741007',targetKey:null});m.heightBinding({id:7,target:2,handleKey:'9007199254741007',targetKey:'9007199254741002'});}
+    if(kind==='destroy'){m.destroy(7);f.header.remove();f.views.delete(7);}
+    if(kind==='reset')f.reload();
+    const before=f.calls.length;e.pointerup(f.event('pointerup',130));return {kind,late:f.calls.length-before,actions:f.calls.filter(c=>c.op==='height-action').length,cancels:f.calls.filter(c=>c.op==='cancel').length};});})()`);
+  // A reset changes runtime incarnation first: never send cancellation to the
+  // replacement runtime using a token owned by the destroyed one.
+  expect(result).toEqual(['disabled','rebind','destroy','reset'].map(kind=>({kind,late:0,actions:0,cancels:kind==='reset'?0:1})));
+});
+test('height header leaves horizontal intent and interactive descendants alone',async()=>{
+  const result=await evaluate(`(() => {const f=(${heightFixture})((${motionFixture})),e=f.events;
+    e.pointerdown(f.event('pointerdown',100));e.pointermove(f.event('pointermove',102,40));e.pointerup(f.event('pointerup',150,50));
+    const button=document.createElement('button');f.header.append(button);e.pointerdown(f.event('pointerdown',100,0,button));e.pointermove(f.event('pointermove',80,0,button));e.pointerup(f.event('pointerup',60,0,button));
+    return f.calls.filter(c=>c.op==='height-begin'||c.op==='height-action').length;})()`);
+  expect(result).toBe(0);
+});
+
+test('browser mouse capture carries a header drag outside its bounds and releases once',async()=>{
+  const rect=await evaluate(`(() => {const f=(${heightFixture})((${motionFixture}),true);f.onAction=()=>f.motion.style(2,'box-sizing:border-box;height:360px;max-height:400px;transition:none');const r=f.header.getBoundingClientRect();return {x:r.x+20,y:r.y+r.height/2};})()`);
+  const mouse=(type,y,buttons)=>protocol('Input.dispatchMouseEvent',{type,x:rect.x,y,button:'left',buttons,clickCount:1});
+  await mouse('mousePressed',rect.y,1);
+  await mouse('mouseMoved',rect.y-10,1);
+  expect(await evaluate(`f.header.hasPointerCapture(f.calls.find(c=>c.op==='height-begin')?1:-1)`)).toBe(true);
+  await evaluate(`f.advance(20)`);await mouse('mouseMoved',rect.y+30,1);
+  await evaluate(`f.advance(20)`);await mouse('mouseReleased',rect.y+40,0);
+  const result=await evaluate(`({actions:f.calls.filter(c=>c.op==='height-action').length,releases:f.calls.filter(c=>c.op==='release').length,height:f.calls.find(c=>c.op==='height-action')?.x,end:getComputedStyle(f.panel).height,captured:f.header.hasPointerCapture(1)})`);
+  expect(result).toEqual({actions:1,releases:1,height:350,end:'360px',captured:false});
+});
+
+test('Rust-first handle cancellation clears only its local overlay while a second handle survives',async()=>{
+  const result=await evaluate(`(() => {const f=(${heightFixture})((${motionFixture})),m=f.motion,n=f.panel,e=f.events;
+    const second=document.createElement('div');second.textContent='second';n.append(second);f.views.set(8,second);m.heightBinding({id:8,target:2,handleKey:'9007199254741008',targetKey:'9007199254741002'});
+    e.pointerdown(f.event('pointerdown',100));e.pointermove(f.event('pointermove',90));f.advance(20);e.pointermove(f.event('pointermove',120));
+    m.style(2,'height:180px;max-height:400px;transition:none');const held=f.calls.find(c=>c.op==='move').token;
+    f.held.delete(held);m.heightBinding({id:7,target:null,handleKey:'9007199254741007',targetKey:null});
+    const cleared=getComputedStyle(n).height,before=f.calls.length;e.pointerup(f.event('pointerup',160));
+    m.animate({id:2,property:'height',values:[180,360],delay:0,duration:1000});
+    return {cleared,late:f.calls.length-before,actions:f.calls.filter(c=>c.op==='height-action').length,animations:n.getAnimations().length,second:second.isConnected};})()`);
+  expect(result).toEqual({cleared:'180px',late:0,actions:0,animations:1,second:true});
+});
+
+test('begin reply binding retirement owns the adopted hold before synchronous batch delivery',async()=>{
+  const result=await evaluate(`(() => {const f=(${heightFixture})((${motionFixture})),m=f.motion,n=f.panel,e=f.events;
+    f.beginOps=[{op:'style',id:2,value:'height:180px;max-height:400px;transition:none'},
+      {op:'height-drag',id:7,target:null,handleKey:'9007199254741007',targetKey:null}];
+    e.pointerdown(f.event('pointerdown',100));e.pointermove(f.event('pointermove',90));
+    const cleared=getComputedStyle(n).height,before=f.calls.length;e.pointerup(f.event('pointerup',160));
+    m.animate({id:2,property:'height',values:[180,360],delay:0,duration:1000});
+    return {cleared,held:f.held.size,cancels:f.calls.filter(c=>c.op==='cancel').length,
+      late:f.calls.length-before,actions:f.calls.filter(c=>c.op==='height-action').length,
+      animations:n.getAnimations().length,pins:f.released};})()`);
+  expect(result).toEqual({cleared:'180px',held:0,cancels:1,late:0,actions:0,animations:1,pins:[9]});
 });

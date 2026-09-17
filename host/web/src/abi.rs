@@ -302,6 +302,12 @@ impl<D: DataSource> Bridge<D> {
             }
             // @ref LLP 1038 D8 — the next ABI kind after scroll.
             14 => Event::Navigate(payload),
+            15 => {
+                let Some(event) = Event::height_release_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid height release"}"#.into());
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
@@ -386,6 +392,31 @@ impl<D: DataSource> Bridge<D> {
             let (op, view, property, serial, value, now) =
                 decoded.map_err(|_| "malformed motion input".to_string())?;
             let host = self.host.as_mut().ok_or("not booted")?;
+            if op == 8 || op == 9 {
+                if property != Property::Height as u32 {
+                    return Err("height drag requires the height property".into());
+                }
+                if op == 8 {
+                    let key = exact_kernel::NodeKey {
+                        index: serial as u32,
+                        generation: (serial >> 32) as u32,
+                    };
+                    let Some(binding) = host.height_drag_binding(view).filter(|b| b.handle == key) else {
+                        return Ok("{\"accepted\":false}".into());
+                    };
+                    let target = host.runner().kernel().node_by_key(binding.target).expect("resolved").id;
+                    return match host.begin_height_drag(key, value, now).map_err(|e| format!("{e:?}"))? {
+                        Some((start, batch)) => Ok(format!(
+                            "{{\"token\":\"{}\",\"target\":{target},\"value\":[{},{}],\"batch\":{batch}}}",
+                            start.token.serial(), start.value.x, start.value.y)),
+                        None => Ok("{\"accepted\":false}".into()),
+                    };
+                }
+                return Ok(match host.dispatch_height_held(serial, view, value.x, value.y, now).map_err(|e| format!("{e:?}"))? {
+                    Some(batch) => format!("{{\"accepted\":true,\"batch\":{batch}}}"),
+                    None => "{\"accepted\":false}".into(),
+                });
+            }
             if op == 6 || op == 7 {
                 if property != Property::Height as u32 {
                     return Err("height registration requires the height property".into());

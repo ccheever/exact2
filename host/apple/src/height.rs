@@ -107,8 +107,15 @@ impl<D: DataSource> Host<D> {
                     .remove_property(motion_node(old), Property::Height);
             }
             self.height_owner = next;
+            // A different accepted owner (or cleanup) is explicit intent. The
+            // same-live-owner fast path above deliberately preserves provenance.
+            self.height_auto_owned = false;
         }
         let mut batch = Batch::new();
+        // Publish retirement/rebinding now, without auto-selecting over explicit
+        // None. Ordinary future receipts may admit authored handles again.
+        self.reconcile_height_handles(&mut batch, false);
+        self.cancel_invalid_height_drag();
         let error = self.height_layout_if_needed(&mut batch).err();
         self.present(&mut batch, false);
         Ok(HeightOwnerChange {

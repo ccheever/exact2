@@ -59,9 +59,11 @@ final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     let viewport = PageScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    var heightBindings: [UInt32: HeightDragBinding] = [:]
     lazy var collections = CollectionHost(self)
     lazy var selection = TextSelection(self)
     lazy var mouseSwipe = MouseSwipe(self)
+    lazy var mouseHeightDrag = MouseHeightDrag(self)
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
     /// The native menu arm (LLP 1021 D3).
@@ -135,6 +137,7 @@ final class Presenter {
     func reset() {
         session?.rasters.reset()
         mouseSwipe.cancel()
+        mouseHeightDrag.cancel()
         collections.reset()
         resetting = true
         defer { resetting = false }
@@ -145,6 +148,7 @@ final class Presenter {
         views.values.forEach { $0.forget() }
         root.subviews.forEach { $0.removeFromSuperview() }
         views.removeAll()
+        heightBindings.removeAll()
         selection.structureChanged()
         visibleText.removeAll()
     }
@@ -285,6 +289,14 @@ final class Presenter {
             let id = UInt32(op["id"] as? Int ?? 0)
             if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id, textChanged: kind == "props" || kind == "style" || kind == "destroy") }
             switch kind {
+            case "height-drag":
+                if let binding = HeightDragBinding(op) {
+                    if binding.target == nil {
+                        if heightBindings[binding.id]?.handleKey == binding.handleKey {
+                            heightBindings.removeValue(forKey: binding.id)
+                        }
+                    } else { heightBindings[binding.id] = binding }
+                }
             case "create":
                 let v = NodeView(id: id, kind: op["kind"] as? String ?? "view", presenter: self)
                 v.handlers = Set(op["handlers"] as? [String] ?? [])
@@ -316,10 +328,12 @@ final class Presenter {
                 onCommand?(op["name"] as? String ?? "", op["args"] as? [Any] ?? [])
             case "destroy":
                 mouseSwipe.retire(id)
+                mouseHeightDrag.retire(id)
                 session?.canvases.destroy(view: id)
                 views[id]?.forget()
                 // Out of the map before out of the window: the editing-ended
                 // notification removal fires finds no view to send for.
+                heightBindings.removeValue(forKey: id)
                 let gone = views.removeValue(forKey: id)
                 gone?.removeFromSuperview()
             case "roots":

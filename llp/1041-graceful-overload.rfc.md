@@ -1083,3 +1083,104 @@ The next consumer slice is an explicit authored header handle referencing its
 panel ID, a typed height/velocity release event, and a synchronous snap action
 before the token ends. It will deliberately replace the gallery's percentage
 stops with numeric pixel stops; inner-list boundary arbitration remains separate.
+
+**Authored header increment, Tuft, Zeno, Newton, Darwin, Leibniz and Epicurus,
+2026-09-17:** `heightDragFor` resolves one strict ancestor's authored ID through
+the kernel. Physical admission also requires a `heightrelease` handler. One
+target supports multiple handles; a property-only node cannot take its place.
+Hosts retain live handler declarations across absent/set/clear IDREFs and check
+handle generation, resolved target and token before clock or action. Explicit
+replacement retains programmatic ownership; same-key registration remains a
+no-op. Cancellation or removal does not invoke the release action.
+
+The gallery replaces its percentage/data-module height with one Contract
+`sheetPx` value, initially 360, and local stops 180/360/640. Release projects the
+displayed height by 0.15 times signed velocity and synchronously chooses a stop
+while the token is held. The final pointer sample precedes that action, then
+release and collection-pin cleanup follow. Header recognition leaves buttons
+and inner-list scrolling independent. Native samples use constrained displayed
+height; the browser continues to execute CSS/WAAPI. The existing agent `tap`
+operation now carries Linux contact phases through the same Presenter methods,
+explicitly labeled synthesized/headless rather than physical input.
+
+Review regressions cover cancellation at an accepted receipt's current clock
+and newest target/transition, without draining unrelated pending motion. Browser
+cleanup handles Rust-first cancellation with a second surviving handle and
+synchronous binding retirement inside a begin reply. Native tests cover explicit
+owner replacement, handler admission and dormant IDREF reuse. A late Linux
+up/cancel after another input retires contact acknowledges `contact:false`
+without another action or clock step, allowing the next contact to start.
+
+The corrected real-Wasm Chromium gallery passes 48 trace assertions and 18 actual
+inner-List geometry samples at 1,000 logical rows, with at most 9 mounted rows.
+Recognition catches 517.078px rather than pointer-down 443.266px; reverse and
+typing preserve the held sample while the latest target remains 640. The final
+437.062px/-1250px/s action publishes 180 before the same token ends. Narrow-window
+constraints, live width changes, actual wheel coverage and removal/remount stale
+callbacks pass. Geometry checks wait for ResizeObserver delivery; they do not
+claim every intervening frame has no gap. A separate normal browser without the
+agent clock passes drag/reverse/typing/release and ordinary wall-clock WAAPI
+settling. Corrected Wasm SHA-256 is
+`993886301f5f74c04d194e5b2625491814a04cf1d5b4a3e5a65d18f372acd42c`;
+raw commands, observer records, screenshots and the distinctly labeled unfixed
+baseline remain in `target/gallery-height-browser/`.
+
+The final registration correction is rebuilt as V3, Wasm SHA-256
+`bbb9184c08c9ad1d81128285ec55c27b71c1108a4551fddbc17e42afa54da3c3`.
+Its setter is reachable through motion ABI operations 6/7, so the changed binary
+receives another ordinary-browser drive: all 10 checks pass, including actual
+header drag, typing while held, reversal and wall-clock release/settlement.
+The earlier 48-assertion trace belongs to V2 and was not repeated on V3. Both
+builds, exact source overlays and raw drives remain preserved separately.
+
+The AppKit gallery's real NSEvent drive passes catch/reverse/snap, typing and
+constrained-height checks, with actual sheet/inner-port dimensions following
+360/273→540/453→562.79/475.79. Eight separate AppKit lifetime cases cover
+disable/rebind/remove/hide/inert/detach/reset/destroy and late callbacks. Those
+drives use the retained baseline18 binary. The subsequent Rust-only ownership
+and handler-admission correction passes 108 Rust tests and an optimized AppKit
+rebuild; unchanged Swift and earlier drive evidence are identified separately,
+not presented as a rerun. Artifacts are in `target/height-drag-apple-validation/`
+and `target/height-drag-apple-revision19/`. UIKit paths remain uncompiled on this
+Command Line Tools machine; standalone Swift checks are not XCTest.
+
+The frozen Linux revision4 capture passes 198 tests with one existing GPU test
+ignored, strict all-target Clippy, and both display-input tests on Ubuntu ARM64.
+The shared agent's actual stdio drive proves contact phases, typing, constrained
+catch/reverse, cancellation and stale-terminal acknowledgement. At 25k records,
+the final logical rows cover the real 273px inner port before and after resize,
+with four to five mounted rows. A separate non-agent VNC input drive through the
+normal VKMS display loop shows constrained Full at 516px, held shrink to 366px,
+typing during the hold, Escape returning to Full without a release action,
+recatch/reverse and release to Read at 360px. Inner-list wheel scrolling leaves
+the header at Read. The unpaced attempts that did not establish completed
+actions remain labeled inconclusive; accepted framebuffer observations use
+paced input/capture. This software 60Hz display has no evdev hardware device.
+Evidence is `target/height-drag-linux-native/revision4/`, retained executable
+SHA-256 `e71067087af2f68b0620b7d1294a5bb5b4035563a3d777043372675f66c8fd9f`.
+None of these checks establishes physical 120Hz or inner-list-to-header gesture
+arbitration.
+
+A separate revision19 AppKit 25k-by-20 traversal attempt stops for runtime cost
+after 986 distinct rows of the first traversal: zero complete traversals, not an
+acceptance pass. The one-second main-thread profile repeatedly reaches
+cache-wide `TextResidency` pruning, cold-byte accounting and width retirement
+from collection layout. This supports a bookkeeping hotspot, not attribution
+of all elapsed time to one function. The partial scan retains 8–12 mounted rows,
+147–200 mapped nodes and six RSS samples of 178.72–229.78 MiB; these do not prove
+full-traversal bounds. Raw journals, partial coverage, exact source/binary
+identity and the stop report are under
+`target/native-raster-20260917/macos-accept25k-revision19-20260917-043443/`.
+Incremental cache maintenance is the next measured macOS performance task.
+
+Coherent main validation passes 891 tests across the compiler, plan, runner,
+motion, three hosts and gallery data. A final two-case web registration
+correction then passes all 92 web tests: same-owner registration preserves
+automatic lifetime, and explicit clearing does not re-adopt before returning.
+Four existing opt-in GPU/browser-carrier tests remain ignored. Strict scoped
+all-target Clippy, core/web Wasm checks, formatting, caps and boot pass; the
+real-DOM suite passes 33 tests/98 assertions and the agent protocol fixture
+passes three tests/13 assertions. These are scoped results, with the previously
+recorded workspace Hermes and sibling-format limitations unchanged. Exact
+sources, failed reproductions, commands and logs are retained under
+`target/height-binding-integration-validation/`.

@@ -175,6 +175,37 @@ removed input retires Height only; percentages, env and auto are never resolved
 into invented numeric targets. Replacing the registered owner retires its
 previous Height first. There is no automatic adoption of all numeric heights.
 
+**Authored handle increment (Tuft / Zeno and host owners, 2026-09-17).**
+`heightDragFor="reading-sheet"` names one strict ancestor's authored `id`.
+`Kernel::height_drag_target(handle: NodeKey)` resolves it in O(depth), requiring
+one matching ancestor, numeric border-box height, and an attached, displayed,
+enabled, non-inert path through the root. Duplicate matching ancestors refuse;
+`testId` and `nativeId` do not participate. Hosts track authored handles during
+existing tree updates and reconcile them after coherent receipts, not on every
+motion tick. One target may have several handles; a second target refuses
+without replacing the registered owner. Retire authored registration when its
+last valid handle disappears; unrelated programmatic registration stays intact.
+
+`heightrelease=snapSheet` supplies two trailing number arguments: displayed
+height in logical pixels and signed logical pixels/second. The app chooses its
+snap stop by synchronously writing its existing numeric state while Height is
+held, before the host calls `end_hold` once. Physical delivery retains the handle
+key, target key and live Height token; revalidate all three before clock, final
+sample or action and after every receipt, including handle/ancestor-only changes.
+Invalidation cancels without invoking the action. Generic synthesized release
+events validate the finite pair and height domain `[0, f32::MAX]`; they are not
+proof of a live pointer gesture. Native recognition and CSS/WAAPI remain the two
+existing executor paths. The common authoring seam is not physical-input or
+120 Hz evidence.
+
+Physical admission requires both the IDREF and a release handler. A property-only
+node cannot reserve the sole owner. Hosts retain known live handler declarations
+across absent/empty/set/clear IDREFs and revalidate resolution on receipts. An
+accepted different programmatic owner replaces automatic ownership; repeating
+the same live registration is a no-op, including its ownership provenance.
+Explicit clearing publishes unbound handles immediately; a later ordinary
+receipt can admit still-authored handles again.
+
 `remove_property(node, property)` removes its value, curve, dirty frame and
 hold without changing time, other properties or the node's declaration.
 `is_active` means held or running, including delay and a zero-distance spring
@@ -202,8 +233,8 @@ Unknown/unadopted/stale callbacks return before validation; malformed live
 positions refuse before clock or hold mutation. Signed release velocities and
 internal curve values remain unchanged. Only displayed Height clamps a negative
 sample to zero, retaining its timing and later rebound. These Rust host and DOM
-regressions do not establish physical vertical recognition or native frame
-performance; the authored handle and real-input slice remains next.
+regressions alone do not establish native frame performance. The authored handle
+and real-input results are recorded separately in LLP 1041 §8.12.
 
 ## 3. The frame
 

@@ -98,6 +98,16 @@ final class Runtime {
         let start = batch.ops.first { $0["op"] as? String == "hold" }.flatMap(NativeHold.init)
         return (start, batch)
     }
+    func heightDragBegin(_ handleKey: UInt64, targetKey: UInt64, now: Double) -> (NativeHold?, Batch) {
+        let batch = read(exact_height_drag_begin(rt, handleKey, targetKey, now))
+        return (batch.ops.first { $0["op"] as? String == "hold" }.flatMap(NativeHold.init), batch)
+    }
+    func heightDragUpdate(_ token: UInt64, height: Double, now: Double) -> Batch {
+        read(exact_height_drag_update(rt, token, height, now))
+    }
+    func heightDragRelease(_ token: UInt64, height: Double, velocity: Double, now: Double) -> Batch {
+        read(exact_height_drag_release(rt, token, height, velocity, now))
+    }
     func hasHold(_ token: UInt64) -> Bool { !destroyed && exact_has_hold(rt, token) != 0 }
     func holdUpdate(_ token: UInt64, x: Double, y: Double, now: Double) -> Batch {
         read(exact_hold_update(rt, token, x, y, now))

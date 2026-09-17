@@ -54,38 +54,6 @@ impl Mode {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Sheet {
-    Peek,
-    Read,
-    Full,
-}
-
-impl Sheet {
-    pub fn parse(text: &str) -> Result<Self, &'static str> {
-        match text {
-            "peek" => Ok(Self::Peek),
-            "read" => Ok(Self::Read),
-            "full" => Ok(Self::Full),
-            _ => Err("unknown sheet position"),
-        }
-    }
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Peek => "peek",
-            Self::Read => "read",
-            Self::Full => "full",
-        }
-    }
-    pub fn height(self) -> &'static str {
-        match self {
-            Self::Peek => "30%",
-            Self::Read => "65%",
-            Self::Full => "94%",
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Photo {
     pub id: String,
@@ -181,7 +149,6 @@ pub struct Gallery {
     pub viewer: bool,
     pub viewer_token: u32,
     pub moving: Option<Move>,
-    pub sheet: Sheet,
     pub returned: Return,
     pub revision: u32,
     pub notice: String,
@@ -200,7 +167,6 @@ impl Default for Gallery {
             viewer: false,
             viewer_token: 0,
             moving: None,
-            sheet: Sheet::Read,
             returned: Return::None,
             revision: 0,
             notice: "Six imagined places. A collection to make your own.".into(),
@@ -473,10 +439,6 @@ impl Gallery {
         self.changed();
         self.notice = format!("Inserted {}. Existing identities are unchanged.", id.key());
         Ok(())
-    }
-
-    pub fn sheet(&mut self, stop: Sheet) {
-        self.sheet = stop;
     }
 }
 

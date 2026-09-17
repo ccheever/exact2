@@ -113,6 +113,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var swipeRecognizer: UIPanGestureRecognizer?
     var swipeArmed = false
     var swipeHold: SwipeHold?
+    var heightRecognizer: UIPanGestureRecognizer?
+    var heightHold: HeightDragHold?
+    var heightOrigin = 0.0
     var swipeOrigin = 0.0
     lazy var swipeFeedback = UISelectionFeedbackGenerator()
     func allowsTouchPan(_ velocity: CGPoint) -> Bool {
@@ -139,6 +142,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+        if gesture === heightRecognizer, let pan = gesture as? UIPanGestureRecognizer {
+            let velocity = pan.velocity(in: window)
+            return SwipeInput.allows(self) && abs(velocity.y) > abs(velocity.x)
+                && presenter?.heightBindings[id]?.target != nil
+        }
         if gesture === swipeRecognizer, let pan = gesture as? UIPanGestureRecognizer {
             let velocity = pan.velocity(in: window)
             let start = pan.location(in: window).x - pan.translation(in: window).x
@@ -174,6 +182,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         var hit = touch.view
         while let current = hit, current !== self {
             if current is UITextView || current is UITextField { return false }
+            if gestureRecognizer === heightRecognizer, current is UIScrollView { return false }
             hit = current.superview
         }
         return true
@@ -423,6 +432,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        let previousHeight = heightHold; heightHold = nil
+        DispatchQueue.main.async { previousHeight?.cancel() }
         let prior = swipeHold; swipeHold = nil
         DispatchQueue.main.async { prior?.cancel() }
         textParent?.textChildren.removeAll { $0 === self }

@@ -587,3 +587,67 @@ fn invalid_hold_property_preserves_status_and_other_presentations() {
     let out = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
     assert!(out.contains("\"x\":91"), "{out}");
 }
+
+#[test]
+fn height_release_abi_separates_synthesis_from_generation_checked_pointer_completion() {
+    let bytes = contract::compile(
+        r#"component App
+  state height = 180
+  action release(value: number, velocity: number) writes height
+    height = value
+  view
+    box id="sheet" height=height box-sizing="border-box" transition="height 200ms linear"
+      box testId="header" heightDragFor="sheet" heightrelease=release
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 800.);
+    let host = bridge.host.as_ref().unwrap();
+    let kernel = host.runner().kernel();
+    let header = kernel.find_by_test_id("header")[0];
+    let target = kernel.height_drag_target(header).unwrap();
+    let view = kernel.node_by_key(header).unwrap().id;
+    let pack = exact_kernel::motion::motion_node;
+    let n = bridge.height_drag_begin(pack(header), pack(target), 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    let token: u64 = out
+        .split("\"token\":\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    bridge.height_drag_update(token, 300., 0.);
+    bridge.height_drag_release(token, 320., 200., 0.);
+    assert!(bridge.has_hold(token));
+    bridge.hold_end(token, false, 200., 0., 0.);
+    assert!(!bridge.has_hold(token));
+    let n = bridge.height_drag_release(token, f64::NAN, f64::NAN, f64::NAN);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("\"error\":null"), "{out}");
+    assert_eq!(bridge.host.as_ref().unwrap().engine().now(), 0.);
+    // Synthesis uses the ordinary typed parser, with no physical token authority.
+    let len = bridge.input_write(b"640,0");
+    bridge.dispatch(view, 15, len, 0.);
+    assert_eq!(
+        bridge
+            .host
+            .as_ref()
+            .unwrap()
+            .engine()
+            .target(pack(target), exact_motion::Property::Height),
+        Some(exact_motion::Value::scalar(640.))
+    );
+    for bad in ["-1,0", "200,NaN", "200,0,1", "NaN,0"] {
+        let len = bridge.input_write(bad.as_bytes());
+        let n = bridge.dispatch(view, 15, len, 100.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        assert!(out.contains("invalid height release coordinates"), "{out}");
+        assert!(out.contains("\"motion\":true"), "{out}");
+        assert_eq!(bridge.host.as_ref().unwrap().engine().now(), 0.);
+    }
+}
