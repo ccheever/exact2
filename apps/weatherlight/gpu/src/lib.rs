@@ -250,6 +250,7 @@ mod tests {
             scale: 1.0,
             now_ms: 1_789_000_000_000.0,
             children_generation: 0,
+            seekable: false,
             shader_generation: exact_gpu::shaders::shader_generation(),
         };
         sky.bind(&inputs(45.0, 0.0, 1.0, 14.0, true)).unwrap();

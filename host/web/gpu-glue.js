@@ -28,6 +28,7 @@ function render(entry, now) {
   const r = gpu.gpu_render(entry.id, w, h, s, clockFor(now));
   if (r === 2) console.error("exact gpu:", gpu.gpu_error());
   entry.wants = r === 1;
+  messages(entry);
 }
 
 function frame(now) {
@@ -56,10 +57,114 @@ function ensure(entry) {
   // (`render` takes the agent's clock over that timestamp in agent mode.)
   entry.observer.observe(entry.el);
   if (!gpu.gpu_bind(entry.id, JSON.stringify(entry.values))) console.error("exact gpu:", gpu.gpu_error());
+  if (gpu.gpu_wants_input(entry.id)) listen(entry);
   schedule();
 }
 
+function live(view) {
+  const entry = surfaces.get(view);
+  return entry?.id && exact.views.get(view) === entry.host && entry.el.isConnected ? entry : null;
+}
+function messages(entry) {
+  for (const text of JSON.parse(gpu.gpu_messages(entry.id))) {
+    if (live(entry.view) !== entry) break;
+    exact.message(entry.host, text);
+  }
+}
+function listen(entry) {
+  const el = entry.host, listeners = [];
+  const previous = { touchAction: el.style.touchAction, outline: el.style.outline, tabindex: el.getAttribute("tabindex") };
+  el.style.touchAction = "none";
+  el.style.outline = "none";
+  if (el.tabIndex < 0) el.tabIndex = 0;
+  const on = (name, fn, options) => { el.addEventListener(name, fn, options); listeners.push([name, fn, options]); };
+  const send = (event, value) => {
+    if (live(entry.view) !== entry) return;
+    if (!gpu.gpu_input(entry.id, JSON.stringify({ ...value, at: exact.now?.() ?? event.timeStamp }))) console.error("exact gpu:", gpu.gpu_error());
+    messages(entry);
+    schedule();
+  };
+  const fallsThrough = (event) => event.target === el || event.target === entry.el;
+  const point = (event) => { const r = el.getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; };
+  for (const phase of ["down", "move", "up", "cancel"]) on(`pointer${phase}`, (event) => {
+    if (!fallsThrough(event)) return;
+    if (phase === "down") { el.focus(); el.setPointerCapture(event.pointerId); }
+    send(event, { t: "pointer", phase, id: event.pointerId, ...point(event), kind: event.pointerType || "mouse", buttons: event.buttons });
+  });
+  on("wheel", (event) => {
+    if (!fallsThrough(event)) return;
+    event.preventDefault();
+    send(event, { t: "wheel", dx: event.deltaX, dy: event.deltaY, ...point(event) });
+  }, { passive: false });
+  for (const name of ["keydown", "keyup"]) on(name, (event) => {
+    if (event.target !== el) return;
+    if (!event.metaKey && !event.ctrlKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "PageUp", "PageDown", "Home", "End"].includes(event.code)) event.preventDefault();
+    send(event, { t: "key", code: event.code, key: event.key, down: name === "keydown", repeat: event.repeat });
+  });
+  on("blur", (event) => send(event, { t: "blur" }));
+  entry.unlisten = () => {
+    for (const [name, fn, options] of listeners) el.removeEventListener(name, fn, options);
+    el.style.touchAction = previous.touchAction; el.style.outline = previous.outline;
+    if (previous.tabindex === null) el.removeAttribute("tabindex"); else el.setAttribute("tabindex", previous.tabindex);
+  };
+}
+function agent(view, request) {
+  const entry = live(view);
+  if (!entry) return null;
+  const { w, h, s } = size(entry.host);
+  const reply = gpu.gpu_agent(entry.id, JSON.stringify({ ...request, now: clockFor(performance.now()), width: w, height: h, scale: s }));
+  messages(entry);
+  schedule();
+  if (!reply) return null;
+  const value = JSON.parse(reply);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`view ${view}: world reply must be an object`);
+  return value;
+}
+function worlds(request) {
+  const out = [];
+  for (const view of surfaces.keys()) {
+    const reply = agent(view, request);
+    const world = reply?.world ?? (request.op === "clock" ? reply : null);
+    if (world) out.push({ ...world, canvas: view });
+  }
+  return out;
+}
+
 exact.gpu = {
+  agent,
+  answers: (request) => request.entity !== undefined || request.world === true,
+  handle(request, ask, tagged) {
+    const entry = live(request.id);
+    if (!entry) return { error: `view ${request.id} has no world` };
+    if (request.op === "focus") { entry.host.focus(); return tagged({ ok: document.activeElement === entry.host }); }
+    if (!["layout", "state", "tree", "pick"].includes(request.op)) return { error: `world does not answer ${request.op}` };
+    if (request.op === "pick") {
+      const r = entry.host.getBoundingClientRect();
+      request = { ...request, x: request.x - r.left, y: request.y - r.top };
+    }
+    return tagged(agent(request.id, request) ?? { error: `view ${request.id} has no world` });
+  },
+  decorate(request, reply) {
+    if (reply?.then) return reply.then((r) => exact.gpu.decorate(request, r));
+    if (!reply || reply.error || exact.gpu.answers(request)) return reply;
+    if (request.op === "tree") for (const node of reply.nodes ?? []) {
+      const summary = agent(node.id, { op: "tree", summary: true });
+      if (summary?.world) node.world = summary.world;
+    }
+    if (request.op === "state") {
+      const world = worlds({ op: "state" });
+      if (world.length) reply.world = world;
+    }
+    return reply;
+  },
+  // The existing clock loop owns the 16-round bound; this is its next candidate.
+  clock(settle) {
+    const world = worlds({ op: "clock", settle });
+    const pending = settle && world.some((w) => w.quiescent === false);
+    const candidates = world.filter((w) => w.quiescent === false && Number.isFinite(w.settleAt)).map((w) => w.settleAt);
+    return { pending, settleAt: candidates.length ? Math.max(...candidates) : undefined,
+      reply: world.length ? { world: world.map(({ canvas, tick, hash, quiescent }) => ({ canvas, tick, hash, quiescent })) } : {} };
+  },
   surface(view, name, values) {
     // The node's element hosts its surface <canvas> (glue.js, LLP 1014 D2).
     const host = exact.views.get(view);
@@ -68,7 +173,7 @@ exact.gpu = {
     let entry = surfaces.get(view);
     if (entry && entry.el !== el) { this.destroy(view); entry = null; } // a reload reuses ids
     if (entry && entry.name !== name) { this.destroy(view); entry = null; } // one id cannot retain another plan's surface
-    if (!entry) { entry = { el, name, values, id: 0, wants: false }; surfaces.set(view, entry); ensure(entry); return; }
+    if (!entry) { entry = { view, host, el, name, values, id: 0, wants: false }; surfaces.set(view, entry); ensure(entry); return; }
     entry.values = values;
     if (entry.id) { if (!gpu.gpu_bind(entry.id, JSON.stringify(values))) console.error("exact gpu:", gpu.gpu_error()); schedule(); }
   },
@@ -78,7 +183,7 @@ exact.gpu = {
     // The observer would fire once more as the element leaves the page, for
     // a surface the module no longer has (found by the agent smoke, which
     // is the first thing to navigate away from a canvas and back).
-    if (entry) { entry.observer?.disconnect(); entry.id = 0; }
+    if (entry) { entry.observer?.disconnect(); entry.unlisten?.(); entry.id = 0; }
     surfaces.delete(view);
   },
   /// A restart: every surface goes with its element.
@@ -119,6 +224,7 @@ const t0 = performance.now();
 try {
   await init();
   await gpu.gpu_load();
+  if (exact.now) gpu.gpu_seekable(true);
   loaded = true;
   const rows = [];
   if (exact.devAssets === null) for (const name of JSON.parse(gpu.gpu_shader_names())) {

@@ -80,6 +80,7 @@ pub fn load(registry: &'static Registry) -> u32 {
 ///
 /// # Safety
 /// `layer` must be a live `CAMetalLayer` that outlives the canvas.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub unsafe fn create(name: &str, layer: *mut c_void, width: u32, height: u32) -> u32 {
     let created = with(|m| {
         let gpu = m.gpu()?;
@@ -98,6 +99,20 @@ pub unsafe fn create(name: &str, layer: *mut c_void, width: u32, height: u32) ->
     })
     .flatten();
     created.unwrap_or(0)
+}
+
+/// Off Apple there is no layer to present to yet (LLP 1015 §7): the module
+/// still loads, and a surface runs through [`crate::fixture`]; a canvas on a
+/// platform target is refused by name.
+///
+/// # Safety
+/// None: `layer` is never read.
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+pub unsafe fn create(name: &str, _layer: *mut c_void, _width: u32, _height: u32) -> u32 {
+    refuse(&format!(
+        "gpu_create `{name}`: this platform has no presentable target yet"
+    ));
+    0
 }
 
 /// Register the text of shader `name` (LLP 1030 D8): validated, its
@@ -156,6 +171,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         scale,
         now_ms,
         children_generation: 0,
+        seekable: false,
         shader_generation: 0,
     };
     match with(|m| m.render(id, &frame)).flatten() {
@@ -246,6 +262,7 @@ pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: 
         scale,
         now_ms,
         children_generation: 0,
+        seekable: false,
         shader_generation: 0,
     };
     match with(|m| m.readback(id, &frame)).flatten() {
@@ -269,6 +286,31 @@ pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: 
         }
         None => 1,
     }
+}
+
+/// Whether a canvas wants raw input.
+pub fn wants_input(id: u32) -> bool {
+    with(|m| m.wants_input(id)).unwrap_or(false)
+}
+
+/// Deliver a JSON device event. True on success.
+pub fn input(id: u32, event: &str) -> bool {
+    with(|m| m.input_json(id, event)).unwrap_or(false)
+}
+
+/// Drain posted messages as a JSON array.
+pub fn messages(id: u32) -> String {
+    json::strings(&with(|m| m.take_messages(id)).unwrap_or_default())
+}
+
+/// Ask the surface; an empty string means no answer.
+pub fn agent(id: u32, request: &str) -> String {
+    with(|m| m.agent(id, request)).flatten().unwrap_or_default()
+}
+
+/// Set the host's clock ownership.
+pub fn seekable(on: bool) {
+    with(|m| m.set_seekable(on));
 }
 
 /// Whether a canvas has inputs it has not rendered.
@@ -456,6 +498,47 @@ macro_rules! module {
             $crate::native::readback(id, width, height, scale, now_ms, out)
         }
 
+        /// Whether a canvas wants raw input.
+        #[no_mangle]
+        pub extern "C" fn gpu_wants_input(id: u32) -> bool { $crate::native::wants_input(id) }
+
+        /// Deliver one JSON event; true on success.
+        /// # Safety
+        /// `text` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_input(id: u32, text: *const u8, len: usize) -> bool {
+            let Some(text) = (unsafe { $crate::native::bytes("gpu_input", text, len) }) else { return false };
+            let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_input: the event is not UTF-8"); return false };
+            $crate::native::input(id, text)
+        }
+
+        /// Drain messages into the shared output buffer; returns its byte length.
+        #[no_mangle]
+        pub extern "C" fn gpu_messages(id: u32) -> u32 {
+            let text = $crate::native::messages(id);
+            EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 })
+        }
+
+        /// Ask the surface; returns the output byte length, zero for no answer.
+        /// # Safety
+        /// `text` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_agent(id: u32, text: *const u8, len: usize) -> u32 {
+            EXACT_GPU_OUT.with(|b| b.borrow_mut().clear());
+            let Some(text) = (unsafe { $crate::native::bytes("gpu_agent", text, len) }) else { return 0 };
+            let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_agent: the request is not UTF-8"); return 0 };
+            let text = $crate::native::agent(id, text);
+            EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 })
+        }
+
+        /// Set the host clock ownership.
+        #[no_mangle]
+        pub extern "C" fn gpu_seekable(on: bool) { $crate::native::seekable(on); }
+
+        /// Output address, valid until the next agent, messages or error call.
+        #[no_mangle]
+        pub extern "C" fn gpu_out_ptr() -> *const u8 { EXACT_GPU_OUT.with(|b| b.borrow().as_ptr()) }
+
         /// Whether a canvas has unrendered inputs.
         #[no_mangle]
         pub extern "C" fn gpu_dirty(id: u32) -> u32 {
@@ -476,7 +559,7 @@ macro_rules! module {
             EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 })
         }
 
-        /// The error buffer's address (valid until the next `gpu_error`).
+        /// The shared output address (valid until the next agent, messages or error call).
         #[no_mangle]
         pub extern "C" fn gpu_error_ptr() -> *const u8 {
             EXACT_GPU_OUT.with(|b| b.borrow().as_ptr())

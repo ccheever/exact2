@@ -77,6 +77,8 @@ impl Parser<'_> {
                                 b'"' => out.push('"'),
                                 b'\\' => out.push('\\'),
                                 b'/' => out.push('/'),
+                                b'b' => out.push('\u{8}'),
+                                b'f' => out.push('\u{c}'),
                                 b'n' => out.push('\n'),
                                 b'r' => out.push('\r'),
                                 b't' => out.push('\t'),
@@ -88,11 +90,35 @@ impl Parser<'_> {
                                         16,
                                     )
                                     .map_err(|_| "bad \\u")?;
-                                    out.push(char::from_u32(code).unwrap_or('\u{fffd}'));
+                                    let code = if (0xd800..=0xdbff).contains(&code) {
+                                        if self.s.get(self.i..self.i + 2) != Some(b"\\u") {
+                                            return Err("bad surrogate pair".into());
+                                        }
+                                        self.i += 2;
+                                        let hex = self
+                                            .s
+                                            .get(self.i..self.i + 4)
+                                            .ok_or("bad surrogate pair")?;
+                                        self.i += 4;
+                                        let low = u32::from_str_radix(
+                                            std::str::from_utf8(hex)
+                                                .map_err(|_| "bad surrogate pair")?,
+                                            16,
+                                        )
+                                        .map_err(|_| "bad surrogate pair")?;
+                                        if !(0xdc00..=0xdfff).contains(&low) {
+                                            return Err("bad surrogate pair".into());
+                                        }
+                                        0x10000 + ((code - 0xd800) << 10) + low - 0xdc00
+                                    } else {
+                                        code
+                                    };
+                                    out.push(char::from_u32(code).ok_or("bad Unicode scalar")?);
                                 }
                                 _ => return Err("bad escape".into()),
                             }
                         }
+                        0..=31 => return Err("unescaped control character".into()),
                         _ => {
                             // Copy one UTF-8 sequence.
                             let start = self.i - 1;
@@ -131,6 +157,16 @@ impl Parser<'_> {
                     self.i += 1;
                 }
                 let text = std::str::from_utf8(&self.s[start..self.i]).map_err(|_| "bad number")?;
+                let digits = text.strip_prefix('-').unwrap_or(text);
+                let mantissa = digits.split(['e', 'E']).next().unwrap_or("");
+                let integer = mantissa.split('.').next().unwrap_or("");
+                if integer.is_empty()
+                    || !integer.bytes().all(|b| b.is_ascii_digit())
+                    || (integer.len() > 1 && integer.starts_with('0'))
+                    || mantissa.ends_with('.')
+                {
+                    return Err(format!("bad number `{text}`"));
+                }
                 text.parse::<f64>()
                     .map(Value::Number)
                     .map_err(|_| format!("bad number `{text}`"))
@@ -170,4 +206,152 @@ pub fn text(v: &Value, what: &str) -> Result<String, crate::SurfaceError> {
         Value::Str(s) => Ok(s.to_string()),
         _ => Err(crate::SurfaceError(format!("{what}: expected a string"))),
     }
+}
+
+/// Parse a single device event; every refusal names the event or its field.
+pub fn parse_input(text: &str) -> Result<crate::InputEvent, String> {
+    use crate::{InputEvent, PointerKind, PointerPhase};
+    let parse = || -> Result<_, String> {
+        let mut p = Parser {
+            s: text.as_bytes(),
+            i: 0,
+        };
+        p.ws();
+        if p.s.get(p.i) != Some(&b'{') {
+            return Err("expected an object".into());
+        }
+        p.i += 1;
+        p.ws();
+        let mut fields = std::collections::HashMap::new();
+        if p.s.get(p.i) != Some(&b'}') {
+            loop {
+                if p.s.get(p.i) != Some(&b'"') {
+                    return Err("expected a field name".into());
+                }
+                let Value::Str(name) = p.value()? else {
+                    unreachable!()
+                };
+                p.ws();
+                if p.s.get(p.i) != Some(&b':') {
+                    return Err(format!("{name}: expected :"));
+                }
+                p.i += 1;
+                p.ws();
+                if matches!(p.s.get(p.i), Some(b'[' | b'{')) {
+                    return Err(format!("{name}: expected a scalar"));
+                }
+                let value = p.value().map_err(|e| format!("{name}: {e}"))?;
+                if fields.insert(name.to_string(), value).is_some() {
+                    return Err(format!("{name}: duplicate field"));
+                }
+                p.ws();
+                match p.s.get(p.i) {
+                    Some(b',') => {
+                        p.i += 1;
+                        p.ws();
+                    }
+                    Some(b'}') => break,
+                    _ => return Err("expected , or }".into()),
+                }
+            }
+        }
+        p.i += 1;
+        p.ws();
+        if p.i != p.s.len() {
+            return Err("trailing input".into());
+        }
+        let string = |name: &str| match fields.get(name) {
+            Some(Value::Str(s)) => Ok(s.to_string()),
+            _ => Err(format!("{name}: expected a string")),
+        };
+        let boolean = |name: &str| match fields.get(name) {
+            Some(Value::Bool(b)) => Ok(*b),
+            _ => Err(format!("{name}: expected a boolean")),
+        };
+        let number = |name: &str| match fields.get(name) {
+            Some(Value::Number(n)) if n.is_finite() => Ok(*n),
+            _ => Err(format!("{name}: expected a finite number")),
+        };
+        let point = |name: &str| {
+            let n = number(name)? as f32;
+            if n.is_finite() {
+                Ok(n)
+            } else {
+                Err(format!("{name}: outside point range"))
+            }
+        };
+        let unsigned = |name: &str| {
+            let n = number(name)?;
+            if (0.0..=u32::MAX as f64).contains(&n) && n.fract() == 0.0 {
+                Ok(n as u32)
+            } else {
+                Err(format!("{name}: expected a u32"))
+            }
+        };
+        let at_ms = number("at")?;
+        Ok(match string("t")?.as_str() {
+            "key" => InputEvent::Key {
+                code: string("code")?,
+                key: string("key")?,
+                down: boolean("down")?,
+                repeat: boolean("repeat")?,
+                at_ms,
+            },
+            "pointer" => InputEvent::Pointer {
+                id: unsigned("id")?,
+                phase: match string("phase")?.as_str() {
+                    "down" => PointerPhase::Down,
+                    "move" => PointerPhase::Move,
+                    "up" => PointerPhase::Up,
+                    "cancel" => PointerPhase::Cancel,
+                    other => return Err(format!("phase: unknown `{other}`")),
+                },
+                x: point("x")?,
+                y: point("y")?,
+                kind: match string("kind")?.as_str() {
+                    "mouse" => PointerKind::Mouse,
+                    "touch" => PointerKind::Touch,
+                    "pen" => PointerKind::Pen,
+                    other => return Err(format!("kind: unknown `{other}`")),
+                },
+                buttons: unsigned("buttons")?,
+                at_ms,
+            },
+            "wheel" => InputEvent::Wheel {
+                dx: point("dx")?,
+                dy: point("dy")?,
+                x: point("x")?,
+                y: point("y")?,
+                at_ms,
+            },
+            "blur" => InputEvent::Blur { at_ms },
+            other => return Err(format!("t: unknown `{other}`")),
+        })
+    };
+    parse().map_err(|e| format!("input: {e}"))
+}
+
+/// Encode posted strings as a JSON array, preserving every character.
+pub fn strings(values: &[String]) -> String {
+    let mut out = String::from("[");
+    for (i, value) in values.iter().enumerate() {
+        if i != 0 {
+            out.push(',');
+        }
+        out.push('"');
+        for c in value.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\0'..='\u{1f}' => {
+                    use std::fmt::Write;
+                    write!(out, "\\u{:04x}", c as u32).expect("string write");
+                }
+                _ => out.push(c),
+            }
+        }
+        out.push('"');
+    }
+    out.push(']');
+    out
 }

@@ -201,6 +201,23 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
           await frame();
           return reply;
         }
+        if (kind === 'key' && opts.phase != null) {
+          if (!['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
+          const f = await ask({ op: 'focus', id, world: true });
+          if (f.error || !f.ok) throw new Error(f.error ?? `view ${id} could not take focus`);
+          let code = opts.key, key, vk;
+          if (/^Key[A-Z]$/.test(code)) { key = code.slice(3).toLowerCase(); vk = code.charCodeAt(3); }
+          else if (/^Digit[0-9]$/.test(code)) { key = code.slice(5); vk = code.charCodeAt(5); }
+          else {
+            const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], Shift: ['Shift', 16], ShiftLeft: ['Shift', 16], ShiftRight: ['Shift', 16] }[code];
+            if (!special) throw new Error(`key: unsupported code ${code}`);
+            [key, vk] = special;
+            if (code === 'Shift') code = 'ShiftLeft';
+          }
+          await call('Input.dispatchKeyEvent', { type: opts.phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk });
+          await frame();
+          return { typed: id, key: opts.key, phase: opts.phase, delivery: 'platform' };
+        }
         const r = id == null ? null : (await ask({ op: 'layout' })).nodes.find((n) => n.id === id);
         if (id != null && (!r || (r.w === 0 && r.h === 0))) throw new Error(`view ${id} has no box on screen`);
         const x = r ? r.x + r.w / 2 : contact?.x, y = r ? r.y + r.h / 2 : contact?.y;
@@ -444,7 +461,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
       host, boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
       ask,
       async input(id, kind, opts) {
-        const guest = { selector: opts.selector, x: opts.x, y: opts.y };
+        const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         const phase = ['down', 'move', 'hold', 'up', 'cancel'].includes(kind);
         const r = phase ? await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms }) : kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
@@ -649,7 +666,7 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
       pointer: true,
       ask,
       async input(id, kind, opts) {
-        const guest = { selector: opts.selector, x: opts.x, y: opts.y };
+        const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) return phaseSim(kind, id, opts);
         const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
@@ -710,9 +727,9 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       return r;
     },
     /** Every live node in preorder; an iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */
-    tree: () => s.op({ op: 'tree' }),
+    tree: async (target, under) => target == null ? s.op({ op: 'tree' }) : s.op({ op: 'tree', ...await s.target(target), world: true, ...(under != null ? { under } : {}) }),
     /** Every slot, derive, and resource by name, as typed JSON. */
-    state: () => s.op({ op: 'state' }),
+    state: async (target) => s.op({ op: 'state', ...(target != null ? await s.target(target) : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs() {
       const r = await s.op({ op: 'logs', since: s.logCursor });
@@ -721,14 +738,20 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       return { lines: r.lines, host: carrier.hostLines.splice(0), from: r.from, next: r.next, dropped };
     },
     /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. With a target, `node` explains that one node (LLP 1035.002 D1): every row it sets or inherits with where the value came from, its box in each coordinate space the host has, the scroll and clip chains above it, whether it is hidden, inert, in the viewport or clipped away, and what the host mounted for it — observations of the runner's memory and the host's view tree, never a second model. */
-    async layout(target) {
-      const req = { op: 'layout' };
-      if (target != null) req.id = (await s.find(target)).id;
+    async layout(target, at) {
+      const req = { op: 'layout', ...(target != null ? await s.target(target) : {}) };
+      if (at) return s.op({ ...req, op: 'pick', world: true, x: at[0], y: at[1] });
+      if (req.entity !== undefined) return s.op(req);
       const [l, t] = await Promise.all([s.op(req), s.tree()]);
       const by = new Map(t.nodes.map((n) => [n.id, n]));
       for (const n of l.nodes) { const k = by.get(n.id); if (k) { n.type = k.type; if (k.props.testId) n.testId = k.props.testId; } }
       if (l.node) { const k = by.get(l.node.id); if (k?.props.testId) l.node.testId = k.props.testId; }
       return l;
+    },
+    async target(target) {
+      const text = String(target), colon = text.indexOf(':');
+      const node = await s.find(colon < 0 ? target : text.slice(0, colon));
+      return { id: node.id, ...(colon < 0 ? {} : { entity: text.slice(colon + 1) }) };
     },
     /** The node for a target: a testId (first in preorder) or a view id. */
     async find(target) {
@@ -852,15 +875,19 @@ export function render(op, r) {
   const q = JSON.stringify;
   switch (op) {
     case 'tree': {
+      const entities = Array.isArray(r.entities) ? r.entities : r.nodes?.some((n) => n.components) ? r.nodes : null;
+      if (entities) return [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · tick ${r.tick} · ${entities.length} entities`, ...entities.map((e) => `${'  '.repeat(e.depth ?? 0)}${e.name ?? ''}#${e.id} (${(e.components ?? []).join(', ')})${e.tags?.length ? ' ' + e.tags.join(' ') : ''}`), ...(r.truncated ? ['(truncated)'] : [])].join('\n');
       const lines = [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · ${r.nodes.length} nodes`];
       for (const n of r.nodes) {
         const p = n.props ?? {};
-        lines.push(`${'  '.repeat(n.depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
+        lines.push(`${'  '.repeat(n.depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ''}`);
         for (const g of n.guest ?? []) lines.push(`${'  '.repeat(n.depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
       }
       return lines.join('\n');
     }
     case 'layout': {
+      if (r.entity) { const e = r.entity, b = e.screen, p = e.world?.position; return `#${e.id ?? ''} ${e.name ?? ''}${p ? ` world ${Array.isArray(p) ? p.join(',') : [p.x, p.y, p.z].join(',')}` : ''}${b ? ` · screen ${b.x},${b.y} ${b.w}×${b.h}` : ''}${e.depth != null ? ` · depth ${e.depth}` : ''}${e.visible?.inFrustum ? ' · in frustum' : ''}`; }
+      if (!r.viewport) return q(r);
       const e = r.env;
       const env = e && Object.values(e).some((v) => v) ? ` · safe-area ${e['safe-area-inset-top']} ${e['safe-area-inset-right']} ${e['safe-area-inset-bottom']} ${e['safe-area-inset-left']} · keyboard ${e['keyboard-inset-height']}` : '';
       // `overscroll` is how far a scroller sits past its own ends — a
@@ -1020,8 +1047,10 @@ async function main(argv) {
       const [op, ...args] = line.trim().split(/\s+/);
       let r;
       switch (op) {
-        case 'tree': case 'state': case 'logs': r = await s[op](); break;
-        case 'layout': r = await s.layout(args[0]); break;
+        case 'tree': r = await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
+        case 'state': r = await s.state(args[0]); break;
+        case 'logs': r = await s.logs(); break;
+        case 'layout': r = await s.layout(args[0], args[1] === 'at' ? [Number(args[2]), Number(args[3])] : undefined); break;
         case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[1] === 'window'); break;
         case 'tap':
           // The contact's phases (LLP 1035.003 D1) read as `tap move …`,
@@ -1039,7 +1068,7 @@ async function main(argv) {
           else if (args[1]?.startsWith('{')) r = await s.tap(args[0], JSON.parse(args.slice(1).join(' ')));
           else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
           break;
-        case 'type': r = args[1] === 'key' && args[2] ? await s.type(args[0], { key: args[2] }) : await s.type(args[0], args.slice(1).join(' ')); break;
+        case 'type': r = args[1] === 'key' && args[2] ? await s.type(args[0], { key: args[2], ...(args[3] != null ? { phase: args[3] } : {}) }) : await s.type(args[0], args.slice(1).join(' ')); break;
         case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
         default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock)`);
       }

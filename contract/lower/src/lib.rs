@@ -1115,10 +1115,21 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         };
-        if tag != "iframe" && matches!(a.name.as_str(), "src" | "sandbox" | "load" | "message") {
+        if tag != "iframe"
+            && matches!(a.name.as_str(), "src" | "sandbox" | "load" | "message")
+            && !(tag == "canvas" && a.name == "message")
+        {
             return err(
                 "lower-attr-tag",
-                format!("`{}` belongs to `iframe`, not `{tag}`", a.name),
+                format!(
+                    "`{}` belongs to {}, not `{tag}`",
+                    a.name,
+                    if a.name == "message" {
+                        "`iframe` or `canvas`"
+                    } else {
+                        "`iframe`"
+                    }
+                ),
                 a.span,
             );
         }

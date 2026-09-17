@@ -1181,9 +1181,11 @@ async function waitForInflight(deadline) {
   }
   return true;
 }
-function agent(request) {
+function agent(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
+function agentReply(request) {
   try {
     if (!wasm) return { error: "not booted" };
+    if (globalThis.exact.gpu?.answers?.(request)) return globalThis.exact.gpu.handle(request, ask, tagged);
     switch (request.op) {
       case "state": {
         // The runner's state, then what the page observes (LLP 1035.002
@@ -1249,7 +1251,7 @@ function agent(request) {
         return frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false };
       }
       case "clock":
-        return tagged(clock(request));
+        return clock(request).then(tagged);
       case "tree":
         return tree();
       case "tags":
@@ -1283,18 +1285,20 @@ function tagged(reply) {
 async function clock(request) {
   const settle = !!request.settle;
   const deadline = settle ? performance.now() + SETTLE_DEADLINE_MS : 0;
+  let world = {};
   for (let rounds = 0; ; rounds++) {
-    if (settle && !(await waitForInflight(deadline))) return { clock: agentClock, settled: false };
-    const to = settle ? settleCandidate() : request.to;
+    if (settle && !(await waitForInflight(deadline))) return { clock: agentClock, settled: false, ...world.reply, ...(world.pending ? { reason: "world" } : {}) };
+    const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
     const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to))));
     globalThis.exact.gpu?.schedule?.();
     if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock };
-    if (!settle) return { clock: agentClock };
-    if (inflight.size) { if (rounds >= 15) return { clock: agentClock, settled: false }; continue; }
-    const next = settleCandidate();
-    if (next <= agentClock) return { clock: agentClock, settled: true };
-    if (rounds >= 15) return { clock: agentClock, settled: false };
+    world = globalThis.exact.gpu?.clock?.(settle) ?? {};
+    if (!settle) return { clock: agentClock, ...world.reply };
+    if (inflight.size) { if (rounds >= 15) return { clock: agentClock, settled: false, ...world.reply, ...(world.pending ? { reason: "world" } : {}) }; continue; }
+    const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
+    if (next <= agentClock && !world.pending) return { clock: agentClock, settled: true, ...world.reply };
+    if (rounds >= 15) return { clock: agentClock, settled: false, ...world.reply, ...(world.pending ? { reason: "world" } : {}) };
   }
 }
 
@@ -1419,6 +1423,7 @@ globalThis.exact = {
       if (candidate && activeModule !== candidate) candidate.realm?.dispose();
     }
   },
+  message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
   ...(agentMode ? { agent, now } : {}), views, root, generation: 0, pendingSurfaces: [],

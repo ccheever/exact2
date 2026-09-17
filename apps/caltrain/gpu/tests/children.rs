@@ -76,6 +76,7 @@ fn the_aurora_composes_its_children_over_the_sky() {
         scale: 1.0,
         now_ms: 1234.0,
         children_generation: 0,
+        seekable: false,
         shader_generation: exact_gpu::shaders::shader_generation(),
     };
     let mut sky = AuroraSurface::new();

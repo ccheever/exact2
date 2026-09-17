@@ -25,6 +25,8 @@ use std::collections::HashMap;
 pub use exact_plan::Value;
 pub use wgpu;
 
+mod input;
+pub use input::{InputEvent, PointerKind, PointerPhase};
 pub mod json;
 pub mod shaders;
 
@@ -39,6 +41,9 @@ pub struct Frame {
     pub scale: f32,
     /// The host's presentable clock, milliseconds.
     pub now_ms: f64,
+    /// The agent owns time: honour every millisecond, including time off screen.
+    /// Otherwise the display owns time and a surface may drop unseen time.
+    pub seekable: bool,
     /// How many times the canvas's children texture has been uploaded (LLP
     /// 1014): a surface that keeps the previous children crossfades when
     /// this changes. The module sets it; a host passes `0`.
@@ -80,6 +85,20 @@ pub trait Surface {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool;
+    /// Raw input inside this canvas (LLP 1041.002 S1); app gestures elsewhere are untouched.
+    fn wants_input(&self) -> bool {
+        false
+    }
+    /// One device event in canvas points, stamped with the host's clock.
+    fn input(&mut self, _event: &InputEvent) {}
+    /// Strings posted to the app, drained after render, input and agent calls (S2).
+    fn messages(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+    /// An agent request and reply as JSON objects; the host adds clock and size (S3).
+    fn agent(&mut self, _request: &str) -> Option<String> {
+        None
+    }
     /// Whether the surface samples the canvas's children (LLP 1014 D2). A
     /// host that can paint a subtree then hands it to [`Surface::children`]
     /// and stops compositing the children itself; a host that cannot, or a
@@ -159,6 +178,7 @@ pub struct Module {
     instances: HashMap<u32, Instance>,
     next: u32,
     error: String,
+    seekable: bool,
 }
 
 /// The wgpu device.
@@ -175,6 +195,7 @@ pub struct Gpu {
 
 struct Instance {
     surface: Box<dyn Surface>,
+    messages: Vec<String>,
     target: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     bound: bool,
@@ -215,6 +236,7 @@ impl Module {
             instances: HashMap::new(),
             next: 0,
             error: String::new(),
+            seekable: false,
         }
     }
 
@@ -320,6 +342,7 @@ impl Module {
             id,
             Instance {
                 surface: factory(),
+                messages: Vec::new(),
                 target,
                 config,
                 bound: false,
@@ -330,6 +353,56 @@ impl Module {
             },
         );
         Some(id)
+    }
+
+    /// Set once by an agent host: every frame honours the seekable clock.
+    pub fn set_seekable(&mut self, on: bool) {
+        self.seekable = on;
+    }
+
+    /// Whether this canvas asks for raw device input.
+    pub fn wants_input(&self, id: u32) -> bool {
+        self.instances
+            .get(&id)
+            .is_some_and(|i| i.surface.wants_input())
+    }
+
+    /// Deliver one device event and mark the canvas dirty.
+    pub fn input(&mut self, id: u32, event: &InputEvent) -> bool {
+        let Some(inst) = self.instances.get_mut(&id) else {
+            return self.fail::<()>("no such canvas").is_some();
+        };
+        inst.surface.input(event);
+        inst.messages.extend(inst.surface.messages());
+        inst.dirty = true;
+        true
+    }
+
+    /// Parse and deliver one ABI event; malformed input is refused by name.
+    pub fn input_json(&mut self, id: u32, text: &str) -> bool {
+        match json::parse_input(text) {
+            Ok(event) => self.input(id, &event),
+            Err(error) => self.fail::<()>(error).is_some(),
+        }
+    }
+
+    /// Drain the strings posted since the host last asked, exactly once.
+    pub fn take_messages(&mut self, id: u32) -> Vec<String> {
+        self.instances
+            .get_mut(&id)
+            .map(|i| std::mem::take(&mut i.messages))
+            .unwrap_or_default()
+    }
+
+    /// Ask this canvas an agent question and mark it dirty.
+    pub fn agent(&mut self, id: u32, request: &str) -> Option<String> {
+        let Some(inst) = self.instances.get_mut(&id) else {
+            return self.fail("no such canvas");
+        };
+        let reply = inst.surface.agent(request);
+        inst.messages.extend(inst.surface.messages());
+        inst.dirty = true;
+        reply
     }
 
     /// Whether a canvas's surface samples its children (LLP 1014 D2).
@@ -616,6 +689,7 @@ impl Module {
         };
         let view = texture.texture.create_view(&Default::default());
         let frame = Frame {
+            seekable: self.seekable,
             children_generation: inst.children_generation,
             shader_generation: shaders::shader_generation(),
             ..*frame
@@ -623,6 +697,7 @@ impl Module {
         let wants = inst
             .surface
             .render(&frame, &gpu.device, &gpu.queue, &view, inst.config.format);
+        inst.messages.extend(inst.surface.messages());
         gpu.queue.present(texture);
         inst.dirty = false;
         Some(wants)
@@ -817,11 +892,14 @@ impl Module {
             return None;
         }
         let frame = Frame {
+            seekable: self.seekable,
             children_generation: inst.children_generation,
             shader_generation: shaders::shader_generation(),
             ..*frame
         };
-        match fixture::render(gpu, inst.surface.as_mut(), &frame) {
+        let result = fixture::render(gpu, inst.surface.as_mut(), &frame);
+        inst.messages.extend(inst.surface.messages());
+        match result {
             Ok((pixels, wants)) => {
                 // The picture was taken: nothing is unshown any more.
                 inst.dirty = false;

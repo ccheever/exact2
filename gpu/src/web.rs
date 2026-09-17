@@ -141,6 +141,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         scale,
         now_ms,
         children_generation: 0,
+        seekable: false,
         shader_generation: 0,
     };
     match with(|m| m.render(id, &frame)).flatten() {
@@ -148,6 +149,31 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         Some(false) => 0,
         None => 2,
     }
+}
+
+/// Whether a canvas wants raw input.
+pub fn wants_input(id: u32) -> bool {
+    with(|m| m.wants_input(id)).unwrap_or(false)
+}
+
+/// Deliver a JSON device event. True on success.
+pub fn input(id: u32, event: &str) -> bool {
+    with(|m| m.input_json(id, event)).unwrap_or(false)
+}
+
+/// Drain posted messages as a JSON array.
+pub fn messages(id: u32) -> String {
+    json::strings(&with(|m| m.take_messages(id)).unwrap_or_default())
+}
+
+/// Ask the surface; an empty string means no answer.
+pub fn agent(id: u32, request: &str) -> String {
+    with(|m| m.agent(id, request)).flatten().unwrap_or_default()
+}
+
+/// Set the host's clock ownership.
+pub fn seekable(on: bool) {
+    with(|m| m.set_seekable(on));
 }
 
 /// Whether a canvas has unrendered inputs.
@@ -224,6 +250,36 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
             $crate::web::render(id, width, height, scale, now_ms)
+        }
+
+        /// Whether a canvas wants raw input.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_wants_input(id: u32) -> bool {
+            $crate::web::wants_input(id)
+        }
+
+        /// Deliver one JSON event; true on success.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_input(id: u32, event_json: &str) -> bool {
+            $crate::web::input(id, event_json)
+        }
+
+        /// Drain messages as a JSON array.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_messages(id: u32) -> String {
+            $crate::web::messages(id)
+        }
+
+        /// Ask the surface; empty when it has no answer.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_agent(id: u32, request_json: &str) -> String {
+            $crate::web::agent(id, request_json)
+        }
+
+        /// Set the host clock ownership.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_seekable(on: bool) {
+            $crate::web::seekable(on)
         }
 
         /// Whether a canvas has unrendered inputs.

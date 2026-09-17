@@ -37,6 +37,7 @@ fn frame(now_ms: f64) -> Frame {
         scale: 1.0,
         now_ms,
         children_generation: 1,
+        seekable: false,
         shader_generation: exact_gpu::shaders::shader_generation(),
     }
 }

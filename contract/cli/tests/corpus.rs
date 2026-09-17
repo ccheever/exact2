@@ -639,3 +639,37 @@ fn css_line_height_literals_and_dynamic_lengths_use_the_existing_value_grammar()
     )
     .unwrap();
 }
+
+#[test]
+fn canvas_messages_deliver_strings_and_other_tags_still_refuse_them() {
+    let plan = contract::compile(&corpus("canvas.contract")).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let key = r.kernel().find_by_test_id("map")[0];
+    let id = r.kernel().node_by_key(key).unwrap().id;
+    assert!(r.handlers_of(id).contains(&EventKind::Message));
+    r.dispatch(id, Event::Message("Palo Alto".into())).unwrap();
+    assert_eq!(r.slot("label"), Some(&Value::str("Palo Alto")));
+    let src = "component App\n  state text = \"\"\n  action receive(value) writes text\n    text = value\n  view\n    column message=receive\n";
+    let error = contract::compile(src).unwrap_err().to_string();
+    assert!(
+        error.contains("`message` belongs to `iframe` or `canvas`, not `column`"),
+        "{error}"
+    );
+    for attr in ["src=\"/x\"", "sandbox=\"allow-scripts\"", "load=receive"] {
+        let error =
+            contract::compile(&src.replace("column message=receive", &format!("canvas {attr}")))
+                .unwrap_err()
+                .to_string();
+        assert!(
+            error.contains("belongs to `iframe`, not `canvas`"),
+            "{error}"
+        );
+    }
+}
