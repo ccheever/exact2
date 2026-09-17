@@ -4,8 +4,8 @@
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
-// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
-//   tree | layout | state | logs | screenshot <png> [window]
+// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
+//   tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name>
 //   clock <ms|+ms|settle>
 // A target is a testId or a view id; each op is one argument (quote it).
@@ -116,9 +116,9 @@ export function assertWebDistApp(dist, app) {
   if (!builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; run bun host/web/build.mjs ${app.crate('web')}`);
 }
 
-async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) {
+async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist }) {
   const selected = resolveApp(app);
-  const dist = webDist ? resolve(webDist) : resolve(ROOT, 'host/web/dist');
+  const dist = resolve(webDist ?? process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
   if (!pageURL) assertWebDistApp(dist, selected);
   let gpuMs = null;
   const server = createServer((req, res) => {
@@ -143,7 +143,7 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
   const exited = new Promise((r) => child.on('exit', (code, signal) => { cdp.fail(`Chrome exited (${code ?? signal})`); r(); }));
   const close = async () => {
     try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-    await Promise.race([exited, sleep(2000)]);
+    await exited;
     server.close();
     rmSync(profile, { recursive: true, force: true });
   };
@@ -175,6 +175,10 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
       return r.result.value;
     };
+    if (world && !plan) {
+      const encoded = readFileSync(world).toString('base64');
+      await call('Page.addScriptToEvaluateOnNewDocument', { source: `globalThis.exactWorldCarry = Uint8Array.from(atob(${JSON.stringify(encoded)}), c => c.charCodeAt(0));` });
+    }
     // The page: this carrier's own server over dist/, or a URL the caller
     // named — the dev server, so a drive can watch an edit arrive.
     const page = pageURL ? new URL(pageURL) : new URL(`http://127.0.0.1:${port}/`);
@@ -190,13 +194,19 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
       boot = await evaluate("document.getElementById('exact-root')?.dataset.bootMs ?? null").catch(() => null);
     }
     await evaluate('exact.ready'); // First pixel precedes deferred module readiness.
-    if (plan) await evaluate("fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => exact.reload(new Uint8Array(b)))");
+    if (plan) {
+      const carry = world ? `exact.worldCarry = Uint8Array.from(atob(${JSON.stringify(readFileSync(world).toString('base64'))}), c => c.charCodeAt(0));` : '';
+      await evaluate(`fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => { ${carry} return exact.reload(new Uint8Array(b)); })`);
+    }
     const frame = () => Promise.race([evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), sleep(250)]);
     // The one contact this carrier may hold (LLP 1035.003 D1), and whether
     // Chrome's touch emulation is on — switched on by the first contact.
     let touch = false;
     let contact = null;
-    const ask = async (req) => JSON.parse(await evaluate(`Promise.resolve(exact.agent(${JSON.stringify(req)})).then((r) => JSON.stringify(r))`));
+    const ask = async (req) => {
+      const reply = JSON.parse(await evaluate(`Promise.resolve(exact.agent(${JSON.stringify(req)})).then((r) => { if (exact.worldRestoreError) throw new Error(exact.worldRestoreError); return JSON.stringify(r); })`));
+      return reply;
+    };
     return {
       host: 'web', boot: Number(boot), hostLines, gpuMs: () => gpuMs,
       ask,
@@ -208,9 +218,10 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
           await frame();
           return reply;
         }
-        if (kind === 'key' && (opts.phase != null || await evaluate(`exact.gpu?.wantsInput(${id}) ?? false`))) {
+        if (kind === 'key' && (opts.phase != null || await evaluate(`exact.gpu?.wantsInput(${id}) || exact.views.get(${id})?.matches('button, a[href], [role="button"], [role="link"]') || false`))) {
           if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
-          const f = await ask({ op: 'focus', id, world: true });
+          const isWorld = await evaluate(`exact.gpu?.wantsInput(${id}) ?? false`);
+          const f = isWorld ? await ask({ op: 'focus', id, world: true }) : await evaluate(`(() => { const el = exact.views.get(${id}); el?.focus(); return {ok:document.activeElement === el}; })()`);
           if (f.error || !f.ok) throw new Error(f.error ?? `view ${id} could not take focus`);
           let code = opts.key, key, vk;
           if (/^Key[A-Z]$/.test(code)) { key = code.slice(3).toLowerCase(); vk = code.charCodeAt(3); }
@@ -288,9 +299,9 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
         else if (kind === 'key') {
           const f = await ask({ op: 'focus', id, select: false });
           if (f.error) throw new Error(f.error);
-          const key = opts.key;
-          const code = { Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight' }[key] ?? (key.length === 1 ? `Key${key.toUpperCase()}` : key);
-          const vk = { Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39 }[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
+          const key = opts.key === 'Space' ? ' ' : opts.key;
+          const code = { ' ': 'Space', Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight' }[key] ?? (key.length === 1 ? `Key${key.toUpperCase()}` : key);
+          const vk = { ' ': 32, Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39 }[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
           await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, ...(key.length === 1 ? { text: key } : {}) });
           await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk });
         }
@@ -433,7 +444,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   const fail = (why) => { lines?.fail(why); bridge?.fail(new Error(why)); };
   child.on('error', (e) => fail(`launch failed: ${e.message}`));
   const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); fail(`the app exited (${code ?? signal}); ` + hostLines.join('\n')); }));
-  const close = async () => { bridge?.close(); try { child.stdin.end(); if (device) child.kill('SIGTERM'); } catch {} await Promise.race([exited, sleep(2000)]); try { process.kill(child.pid, 'SIGKILL'); } catch {} };
+  const close = async () => { bridge?.close(); try { child.stdin.end(); if (device) child.kill('SIGTERM'); } catch {} await Promise.race([exited, sleep(2000)]); if (child.exitCode === null && child.signalCode === null) { try { child.kill('SIGKILL'); } catch {} } await exited; };
   let readyTimeout;
   try {
     const readyLine = device ? bridge.ready.then(({ socket, announcement }) => {
@@ -708,7 +719,10 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({ host, plan, size, env, app, session, url, webDist, device = false, phone: pick, timing = 'agent' } = {}) {
+export async function open({ host = 'web', plan, world, size, env, app, session, url, webDist, device = false, phone: pick, timing = 'agent' } = {}) {
+  if (world && (device || !['web','mac','macos','ios'].includes(host))) throw new Error(`world restore unavailable on this host yet: ${host}`);
+  if (world) readFileSync(world);
+  if (world && host !== 'web') env = {...env, EXACT_WORLD:resolve(world)};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
   // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and
   // the driver still owns the runner's clock, but UIKit's own transitions,
@@ -726,7 +740,7 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
     } else env = { ...(env ?? {}), EXACT_LAUNCH_URL: url };
   }
-  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url, app, webDist });
+  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, world, size, url, app, webDist });
   const s = {
     host: carrier.host,
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
@@ -866,8 +880,21 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       s.now = r.clock;
       return r;
     },
-    /** The pixels, as a PNG at `path`. On macOS `window: true` asks the window server (Metal layers included). */
-    screenshot: async (path, window = false) => s.tagged(await carrier.screenshot(resolve(path), window)),
+    /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`. */
+    screenshot: async (path, target = false, form) => {
+      if (form === 'save') {
+        if (!['web','macos','ios'].includes(s.host) || device) throw new Error(`world save unavailable on this host yet: ${s.host}`);
+        const reply = await s.op({op:'screenshot', ...await s.target(target), world:true, form:'save'});
+        const {data, ...metadata} = reply;
+        if (typeof data !== 'string') throw new Error(`canvas ${target} returned no save bytes`);
+        const bytes = Buffer.from(data, 'base64');
+        if (bytes.length !== reply.bytes) throw new Error(`canvas ${target} returned a truncated save`);
+        writeFileSync(resolve(path), bytes);
+        return s.tagged({...metadata, screenshot:resolve(path)});
+      }
+      if (form !== undefined) throw new Error(`screenshot: unknown form ${form}`);
+      return s.tagged(await carrier.screenshot(resolve(path), target));
+    },
     /**
      * Every reply carries the runner's `epoch`, `incarnation` and `clock`
      * (LLP 1035.002 D3). A host that answered the operation itself stamps
@@ -1050,6 +1077,7 @@ async function main(argv) {
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') flags.json = true;
+    else if (argv[i] === '--world') flags.world = resolve(argv[++i]);
     else if (argv[i] === '--plan') flags.plan = resolve(argv[++i]);
     else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
@@ -1072,10 +1100,10 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });
+  const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });
   try {
     for (const line of ops) {
       const [op, ...args] = line.trim().split(/\s+/);
@@ -1085,7 +1113,7 @@ async function main(argv) {
         case 'state': r = await s.state(args[0]); break;
         case 'logs': r = await s.logs(); break;
         case 'layout': r = await s.layout(args[0], args[1] === 'at' ? [Number(args[2]), Number(args[3])] : undefined); break;
-        case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[1] === 'window'); break;
+        case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[2] === 'save' ? args[1] : args[1] === 'window', args[2]); break;
         case 'tap':
           // The contact's phases (LLP 1035.003 D1) read as `tap move …`,
           // `tap hold`, `tap up`, `tap cancel` only while a contact is down;

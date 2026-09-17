@@ -3,12 +3,13 @@
 // the app's GPU wasm (wgpu on the browser's WebGPU, wasm-bindgen glue) and
 // runs each canvas's surface: bind on new inputs, render while dirty or
 // wanted, resize from the element's box and devicePixelRatio.
-import init, * as gpu from "./gpu.js";
+let gpu;
 
 const exact = globalThis.exact;
 const publishers = new Map(); // name -> first live entry
 const pendingRecords = [];
 let drainingRecords = false;
+let planCarries = new Map();
 const surfaces = new Map(); // view id -> surface, input listeners and journal cursor
 const inputStyle = document.createElement("style");
 inputStyle.textContent = "[data-gpu-input]:focus{outline:none}";
@@ -70,6 +71,18 @@ function ensure(entry) {
   // (`render` takes the agent's clock over that timestamp in agent mode.)
   entry.observer.observe(entry.el);
   if (!gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error());
+  // A plan carry belongs to a unique surface name in the previous plan.
+  delete entry.restoreError;
+  let carry = entry.carry;
+  delete entry.carry;
+  if (exact.worldCarry !== undefined && gpu.gpu_carry(entry.id) !== undefined) {
+    carry = exact.worldCarry; delete exact.worldCarry; delete globalThis.exactWorldCarry;
+  }
+  if (carry !== undefined && !gpu.gpu_restore(entry.id, carry)) {
+    const error = `surface ${entry.name}: restore refused: ${gpu.gpu_error()}`;
+    entry.restoreError = error; exact.worldRestoreError = error;
+    exact.devError?.(error); console.error(error);
+  }
   messages(entry);
   if (live(entry.view) !== entry) return;
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
@@ -131,11 +144,13 @@ function listen(entry) {
     send(event, { t: "wheel", dx: event.deltaX, dy: event.deltaY, ...point(event) });
   }, { passive: false });
   for (const name of ["keydown", "keyup"]) on(name, (event) => {
-    if (event.target !== el) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (event.defaultPrevented || target?.closest('input, textarea, select, [contenteditable]')) return;
+    if (["Space", "Enter"].includes(event.code) && target?.closest('button, a[href], [role="button"], [role="link"]')) return;
     if (!event.metaKey && !event.ctrlKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "PageUp", "PageDown", "Home", "End"].includes(event.code)) event.preventDefault();
     send(event, { t: "key", code: event.code, key: event.key, down: name === "keydown", repeat: event.repeat });
   });
-  on("blur", (event) => send(event, { t: "blur" }));
+  on("focusout", (event) => { if (!el.contains(event.relatedTarget)) send(event, { t: "blur" }); });
   entry.unlisten = () => {
     for (const [name, fn, options] of listeners) el.removeEventListener(name, fn, options);
     entry.el.style.touchAction = previous.touchAction; delete el.dataset.gpuInput;
@@ -197,6 +212,14 @@ exact.gpu = {
       if (!entry.wantsInput) return { error: `view ${request.id}'s surface does not take input` };
       entry.host.focus({ preventScroll: true }); return tagged({ ok: document.activeElement === entry.host });
     }
+    if (request.op === "screenshot" && request.form === "save") {
+      const bytes = gpu.gpu_carry(entry.id);
+      if (bytes === undefined) return { error: `canvas ${entry.name} carries no state` };
+      const state = agent(request.id, { op: "state" });
+      let encoded = "";
+      for (let i = 0; i < bytes.length; i += 8192) encoded += String.fromCharCode(...bytes.subarray(i, i + 8192));
+      return tagged({ data: btoa(encoded), bytes: bytes.length, hash: state?.world?.hash, tick: state?.tick });
+    }
     if (!["layout", "state", "tree"].includes(request.op)) return { error: `world does not answer ${request.op}` };
     if (request.op === "layout" && request.entity === undefined) {
       const r = entry.host.getBoundingClientRect();
@@ -248,6 +271,9 @@ exact.gpu = {
     if (entry && entry.el !== el) { this.destroy(view); entry = null; } // a reload reuses ids
     if (entry && entry.name !== name) { this.destroy(view); entry = null; } // one id cannot retain another plan's surface
     if (!entry) { entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0 }; surfaces.set(view, entry);
+      const carried = planCarries.get(name);
+      if (carried?.name === name) entry.carry = carried.bytes;
+      planCarries.delete(name);
       if (!publishers.has(name)) publishers.set(name, entry);
       else console.error(`exact gpu: surface ${name}: duplicate live publisher ignored`);
       ensure(entry); return; }
@@ -264,8 +290,54 @@ exact.gpu = {
     surfaces.delete(view);
     if (entry && publishers.get(entry.name) === entry) { publishers.delete(entry.name); surfaceRecord(entry.name, null); }
   },
-  /// A restart: every surface goes with its element.
-  reset() { for (const view of [...surfaces.keys()]) this.destroy(view); },
+  // A plan restart reassigns view ids. Unique surface names can carry across it;
+  // duplicate instances are ambiguous and are deliberately left fresh.
+  reset(carry = false) {
+    planCarries = new Map();
+    if (carry) for (const entry of surfaces.values()) if (entry.id) {
+      if ([...surfaces.values()].filter(e => e.name === entry.name).length !== 1) continue;
+      const bytes = gpu.gpu_carry(entry.id);
+      if (bytes !== undefined) planCarries.set(entry.name, { name: entry.name, bytes });
+    }
+    for (const view of [...surfaces.keys()]) this.destroy(view);
+  },
+  finishRestart() { planCarries.clear(); },
+  // Dev only; callers serialize versions. Agent pages never receive automatic swaps.
+  async swap(version) {
+    if (!await ready || version === exact.gpu.version) return { ms: 0, errors: [] };
+    const start = performance.now();
+    const next = await import(`./gpu.js?g=${version}`);
+    try {
+      await next.default({ module_or_path: new URL(`./gpu_bg.wasm?g=${version}`, import.meta.url) });
+      await next.gpu_load();
+      if (exact.now) next.gpu_seekable(true);
+      const rows = await loadShaders(next);
+      for (const [name, text] of rows) if (!await next.gpu_shader_check(name, text)) throw new Error(next.gpu_error());
+      replaceShaders(rows, next);
+    } catch (error) { next.gpu_unload(); throw error; }
+    // No await after taking carries: listeners, ownership, publication and first
+    // render transfer in one turn. The old world keeps running while fetch compiles.
+    if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
+    const entries = [...surfaces.values()];
+    for (const entry of entries) {
+      if (entry.id) entry.carry = gpu.gpu_carry(entry.id);
+      entry.observer?.disconnect(); entry.unlisten?.();
+      if (entry.id) gpu.gpu_destroy(entry.id);
+      entry.id = 0;
+    }
+    gpu.gpu_unload(); gpu = next;
+    const errors = []; delete exact.worldRestoreError;
+    // Restored records wait until all surfaces exist, so one publication cannot
+    // make the runner observe another surface's fresh defaults in this batch.
+    const depth = exact.applyDepth ?? 0; exact.applyDepth = depth + 1;
+    try { for (const entry of entries) ensure(entry); }
+    finally { exact.applyDepth = depth; drainRecords(); }
+    for (const entry of entries) if (entry.restoreError) errors.push(entry.restoreError);
+    for (const entry of surfaces.values()) if (entry.id) render(entry, performance.now());
+    exact.gpu.version = version;
+    console.info('exact gpu: carried the live state; setup edits apply to a fresh world. Reload the page (or press f + Enter in the dev server) to start fresh.');
+    return { ms: performance.now() - start, errors };
+  },
   /// A shader's text (LLP 1030 D8) — the dev loop's edit, or the first
   /// registration: validated, its interface checked against the module's;
   /// every surface renders again through the new pipeline. False, with the
@@ -288,30 +360,34 @@ exact.gpu = {
   schedule() { for (const entry of surfaces.values()) if (entry.id && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },
 };
 
-function shaderRows(assets) {
-  const names = new Set(JSON.parse(gpu.gpu_shader_names())), decoder = new TextDecoder("utf-8", { fatal: true });
+function shaderRows(assets, module = gpu) {
+  const names = new Set(JSON.parse(module.gpu_shader_names())), decoder = new TextDecoder("utf-8", { fatal: true });
   return [...assets].filter(([path]) => path.startsWith("shaders/") && path.endsWith(".wgsl"))
     .map(([path, card]) => [path.slice(8, -5), decoder.decode(card.bytes)])
     .filter(([name]) => names.has(name));
 }
-function replaceShaders(rows) {
-  gpu.gpu_shaders_clear();
-  for (const [name, text] of rows) if (!gpu.gpu_shader(name, text)) throw new Error(gpu.gpu_error());
+function replaceShaders(rows, module = gpu) {
+  module.gpu_shaders_clear();
+  for (const [name, text] of rows) if (!module.gpu_shader(name, text)) throw new Error(module.gpu_error());
+}
+async function loadShaders(module) {
+  const rows = [];
+  if (exact.devAssets === null) for (const name of JSON.parse(module.gpu_shader_names())) {
+    const r = await fetch(new URL(`./shaders/${name}.wgsl`, import.meta.url));
+    if (!r.ok) throw new Error(`shaders/${name}.wgsl: HTTP ${r.status}`);
+    rows.push([name, await r.text()]);
+  }
+  return exact.devAssets === null ? rows : shaderRows(exact.devAssets, module);
 }
 const t0 = performance.now();
 try {
-  await init();
+  const version = exact.gpuVersion ?? 0, query = version ? `?g=${version}` : "";
+  gpu = await import(`./gpu.js${query}`);
+  await gpu.default({ module_or_path: new URL(`./gpu_bg.wasm${query}`, import.meta.url) });
   await gpu.gpu_load();
   if (exact.now) gpu.gpu_seekable(true);
-  const rows = [];
-  if (exact.devAssets === null) for (const name of JSON.parse(gpu.gpu_shader_names())) {
-    const r = await fetch(new URL(`./shaders/${name}.wgsl`, import.meta.url));
-    if (!r.ok) { console.error("exact gpu:", `shaders/${name}.wgsl: HTTP ${r.status}`); continue; }
-    rows.push([name, await r.text()]);
-  }
-  // A generation may have committed while the module or baked shaders
-  // downloaded. Its pinned complete namespace wins before any surface exists.
-  replaceShaders(exact.devAssets === null ? rows : shaderRows(exact.devAssets));
+  replaceShaders(await loadShaders(gpu));
+  exact.gpu.version = version;
   loaded = true;
 } catch (error) { console.error("exact gpu:", error); }
 if (loaded) exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);

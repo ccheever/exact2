@@ -312,6 +312,16 @@ pub fn input(id: u32, event: &str) -> bool {
     with(|m| m.input_json(id, event)).unwrap_or(false)
 }
 
+/// Capture state; None is distinct from a zero-byte carry.
+pub fn carry(id: u32) -> Option<Vec<u8>> {
+    with(|m| m.carry(id)).flatten()
+}
+
+/// Restore state. False leaves the surface unchanged; error explains why.
+pub fn restore(id: u32, bytes: &[u8]) -> bool {
+    with(|m| m.restore(id, bytes)).unwrap_or(false)
+}
+
 /// Take the latest changed public record, if any.
 pub fn published(id: u32) -> Option<String> {
     with(|m| m.take_published(id)).flatten()
@@ -543,6 +553,25 @@ macro_rules! module {
             u32::from(!$crate::native::input(id, text))
         }
 
+        /// Carry in the output buffer; u32::MAX means nothing, zero is an empty carry.
+        #[no_mangle]
+        pub extern "C" fn gpu_carry(id: u32) -> u32 {
+            EXACT_GPU_OUT.with(|b| b.borrow_mut().clear());
+            match $crate::native::carry(id) {
+                Some(bytes) => EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = bytes; b.borrow().len() as u32 }),
+                None => u32::MAX,
+            }
+        }
+
+        /// Restore state; true on success, false with gpu_error on refusal.
+        /// # Safety
+        /// `data` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_restore(id: u32, data: *const u8, len: usize) -> bool {
+            let Some(bytes) = (unsafe { $crate::native::bytes("gpu_restore", data, len) }) else { return false };
+            $crate::native::restore(id, bytes)
+        }
+
         /// Changed public record in the output buffer; u32::MAX means unchanged.
         #[no_mangle]
         pub extern "C" fn gpu_published(id: u32) -> u32 {
@@ -577,7 +606,7 @@ macro_rules! module {
         #[no_mangle]
         pub extern "C" fn gpu_seekable(on: bool) { $crate::native::seekable(on); }
 
-        /// Output address, valid until the next agent, messages or error call.
+        /// Output address, valid until the next carry, published, agent, messages or error call.
         #[no_mangle]
         pub extern "C" fn gpu_out_ptr() -> *const u8 { EXACT_GPU_OUT.with(|b| b.borrow().as_ptr()) }
 
@@ -601,7 +630,7 @@ macro_rules! module {
             EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 })
         }
 
-        /// The shared output address (valid until the next agent, messages or error call).
+        /// The shared output address (valid until the next carry, published, agent, messages or error call).
         #[no_mangle]
         pub extern "C" fn gpu_error_ptr() -> *const u8 {
             EXACT_GPU_OUT.with(|b| b.borrow().as_ptr())

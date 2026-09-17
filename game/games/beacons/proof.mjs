@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Command-line proof of the real canvas app, plus fresh-process Sim persistence.
+// Command-line proof of the real canvas app and saves resumed in a new browser.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -23,6 +23,9 @@ const check = (ok, label, value) => {
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const node = (t, id) => t.nodes.find(n => n.props?.testId === id);
 const names = ['ground', 'player', 'camera', 'sun', ...Array.from({length:6}, (_, i) => `crate-${i+1}`), 'beacon-1', 'beacon-2', 'beacon-3'];
+let session;
+const position = state => state?.entity?.components?.Transform?.position;
+async function op(label, fn) { const reply = await fn(); replies.push({operation:label,reply}); say(`${label}: ${JSON.stringify(reply)}`); return reply; }
 async function run(number) {
   let s;
   const trace = [];
@@ -127,19 +130,44 @@ try {
   const a = await run(1), b = await run(2);
   check(equal(a,b),'two fresh browser runs have identical full entity states, ticks and hashes');
   writeFileSync(resolve(out,'runs.json'),JSON.stringify({a,b},null,2)+'\n');
-  const native = spawnSync('cargo',['build','--offline','--manifest-path',resolve(app,'Cargo.toml'),'-p','beacons-logic','--example','checkpoint'], {encoding:'utf8',env:process.env});
-  check(native.status===0,'native checkpoint executable builds',native.stderr);
-  if (native.status===0) {
-    for (const mode of ['original','restored']) {
-      const child = spawnSync(resolve(app,'target/debug/examples/checkpoint'),[mode,out],{encoding:'utf8',timeout:60000});
-      check(child.status===0,`${mode} save process exits`,child.stdout || child.stderr || child.error?.message);
-    }
-    check(readFileSync(resolve(out,'original.world')).equals(readFileSync(resolve(out,'restored.world'))),
-      'fresh-process restore continues to byte-identical Sim save (world, held input, queued jump, clock, journal)');
-  }
-  say('LIMIT: browser save/restore transport is absent; step 5 uses actual Beacons Sim in two native processes.');
+
+  // D6: hold W, queue a jump without advancing a tick, then capture the whole sim.
+  if (session) await session.close(); session = null;
+  const worldFile = resolve(out, 'checkpoint.world');
+  const originalFile = resolve(out, 'original.world'), restoredFile = resolve(out, 'restored.world');
+  session = await open({host:'web', app:'beacons', size:[1280,720], webDist:resolve(app,'dist')});
+  await session.tap('play'); await session.clock(0);
+  await session.type('world', {key:'KeyW',phase:'down'}); await session.clock('+500');
+  await session.type('world', {key:'Space',phase:'down'});
+  const saved = await op('screenshot checkpoint.world world save', () => session.screenshot(worldFile, 'world', 'save'));
+  const continueWorld = async () => {
+    await session.clock('+500');
+    const jumped = await session.state('world:player');
+    check(position(jumped)?.[1] > 0.9, 'saved queued jump executes after capture', position(jumped));
+    await session.type('world', {key:'Space',phase:'up'});
+    await session.clock('+1000');
+    await session.type('world', {key:'KeyW',phase:'up'});
+    return {world:(await session.state()).world[0], player:await session.state('world:player')};
+  };
+  const uninterrupted = await continueWorld();
+  await session.screenshot(originalFile, 'world', 'save');
+  await session.close(); session = null; say('CLOSED original browser/process before restoring');
+  session = await open({host:'web', app:'beacons', world:worldFile, size:[1280,720], webDist:resolve(app,'dist')});
+  check(!node(await session.tree(), 'world'), 'save waits behind Play');
+  await session.tap('play');
+  const restored = (await session.state()).world[0];
+  check(restored.restored === true && restored.tick === saved?.tick && restored.hash === saved?.hash,
+    'new session restores before first render, with the same tick and hash', restored);
+  const continued = await continueWorld();
+  await session.screenshot(restoredFile, 'world', 'save');
+  check(continued.world.restored === false && continued.world.hash === uninterrupted.world.hash
+    && continued.world.tick === uninterrupted.world.tick && equal(position(continued.player), position(uninterrupted.player)),
+    'D6 two sessions continue to the same state, position, tick and hash', {expected:uninterrupted.world.hash, actual:continued.world.hash});
+  check(readFileSync(originalFile).equals(readFileSync(restoredFile)), 'D6 entire Sim save is byte-identical, including held input, queue, clock, journal and publications');
+
 } catch (e) { check(false,'proof interrupted',e.stack ?? String(e)); }
 finally {
+  if (session) await session.close();
   say(`PROOF ${failures.length ? 'FAIL' : 'PASS'} ${new Date().toISOString()} — ${failures.length} failures, ${((performance.now()-started)/1000).toFixed(3)} s`);
   writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');
   writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');

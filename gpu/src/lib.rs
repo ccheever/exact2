@@ -79,6 +79,15 @@ pub trait Surface {
     fn bind_at(&mut self, inputs: &[Value], _at_ms: Option<f64>) -> Result<(), SurfaceError> {
         self.bind(inputs)
     }
+    /// State as bytes this surface can later restore: a save or a dev reload's carry.
+    /// None means this surface has nothing worth carrying.
+    fn carry(&mut self) -> Option<Vec<u8>> {
+        None
+    }
+    /// Take back a carry, possibly from an older build. Err leaves state unchanged.
+    fn restore(&mut self, _bytes: &[u8]) -> Result<(), String> {
+        Err("this surface carries no state".into())
+    }
     /// One frame into `target` (of `format`). Returns whether another
     /// frame is wanted without new inputs.
     fn render(
@@ -688,6 +697,37 @@ impl Module {
             }
             Err(SurfaceError(e)) => {
                 self.error = e;
+                false
+            }
+        }
+    }
+
+    /// Capture state without advancing the surface or consuming its publications.
+    pub fn carry(&mut self, id: u32) -> Option<Vec<u8>> {
+        let Some(inst) = self.instances.get_mut(&id) else {
+            return self.fail("no such canvas");
+        };
+        inst.surface.carry()
+    }
+
+    /// Restore atomically; successful state is published before the next frame.
+    pub fn restore(&mut self, id: u32, bytes: &[u8]) -> bool {
+        let Some(inst) = self.instances.get_mut(&id) else {
+            self.error = "no such canvas".into();
+            return false;
+        };
+        match inst.surface.restore(bytes) {
+            Ok(()) => {
+                // Outputs from the replaced state (including fresh setup) must not
+                // be delivered alongside the restored state. Refusals keep them.
+                inst.messages.clear();
+                inst.published = None;
+                inst.drain();
+                inst.dirty = true;
+                true
+            }
+            Err(error) => {
+                self.error = error;
                 false
             }
         }

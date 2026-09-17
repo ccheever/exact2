@@ -38,3 +38,20 @@ opt-level = 1
 debug = false
 incremental = true
 panic = "abort"
+
+# Fast surface module rebuilds; dependencies stay optimized, the game links cheaply.
+[profile.gpu-dev]
+inherits = "dev"
+opt-level = 1
+debug = false
+strip = "debuginfo"
+panic = "abort"
+lto = false
+incremental = true
+
+[profile.gpu-dev.package."*"]
+opt-level = 3
+
+# The wildcard excludes workspace members; this runtime is one in the root.
+[profile.gpu-dev.package.exact-gpu]
+opt-level = 3

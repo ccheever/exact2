@@ -65,6 +65,8 @@ final class Canvases {
     var entries: [UInt32: Entry] = [:]
     var publishers: [String: Entry] = [:]
     var module: GpuModule?
+    var worldCarry: Data? = ExactEnv.agentMode ? ProcessInfo.processInfo.environment["EXACT_WORLD"].flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) } : nil
+    var worldRestoreError: String?
     var failed: String?
     var loadRequested = false
     var loadedMs: Double?
@@ -300,6 +302,7 @@ final class Canvases {
         if bytes.withUnsafeBufferPointer({ m.bind(e.id, $0.baseAddress, bytes.count) }) != 0 {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
         }
+        restoreWorld(m, e)
         messages(e)
     }
 

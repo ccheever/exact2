@@ -164,7 +164,7 @@ mod seams {
             exact_gpu::native::unload();
         }
     }
-    struct Probe(Vec<String>, Option<SurfaceError>, Option<String>);
+    struct Probe(Vec<String>, Option<SurfaceError>, Option<String>, Vec<u8>);
     impl Surface for Probe {
         fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
             self.2 = Some("{\"phase\":\"bind\"}".into());
@@ -176,6 +176,17 @@ mod seams {
                 self.1 = Some(SurfaceError("advance capacity".into()));
             }
             self.bind(inputs)
+        }
+        fn carry(&mut self) -> Option<Vec<u8>> {
+            Some(self.3.clone())
+        }
+        fn restore(&mut self, bytes: &[u8]) -> Result<(), String> {
+            if bytes.first() == Some(&255) {
+                return Err("probe byte refused".into());
+            }
+            self.3 = bytes.to_vec();
+            self.2 = Some("{\"phase\":\"restore\"}".into());
+            Ok(())
         }
         fn take_error(&mut self) -> Option<SurfaceError> {
             self.1.take()
@@ -225,7 +236,9 @@ mod seams {
         }
     }
     static REGISTRY: Registry = Registry {
-        surfaces: &[("probe", 0, || Box::new(Probe(Vec::new(), None, None)))],
+        surfaces: &[("probe", 0, || {
+            Box::new(Probe(Vec::new(), None, None, vec![1, 2]))
+        })],
         shaders: &[],
     };
     exact_gpu::module!(REGISTRY);
@@ -317,6 +330,34 @@ mod seams {
         );
         FRAMES.with(|f| assert!(!f.borrow().last().unwrap().seekable));
         assert_eq!(gpu_dirty(id), 0);
+        assert_eq!(gpu_carry(id), 2);
+        assert_eq!(
+            unsafe { std::slice::from_raw_parts(gpu_out_ptr(), 2) },
+            &[1, 2]
+        );
+        assert!(!unsafe { gpu_restore(id, [255].as_ptr(), 1) });
+        assert_eq!(exact_gpu::native::error(), "probe byte refused");
+        assert_eq!(gpu_dirty(id), 0, "failed restore leaves dirty unchanged");
+        assert_eq!(exact_gpu::native::carry(id), Some(vec![1, 2]));
+        assert!(unsafe { gpu_restore(id, [3, 4, 5].as_ptr(), 3) });
+        assert_eq!(gpu_dirty(id), 1);
+        assert_eq!(
+            exact_gpu::native::published(id).as_deref(),
+            Some(r#"{"phase":"restore"}"#)
+        );
+        assert_eq!(exact_gpu::native::carry(id), Some(vec![3, 4, 5]));
+        assert_eq!(
+            exact_gpu::native::messages(id),
+            None,
+            "old outputs are not restored messages"
+        );
+        assert!(unsafe { gpu_restore(id, [].as_ptr(), 0) });
+        assert_eq!(gpu_carry(id), 0, "empty carry is not nothing");
+        assert_eq!(gpu_carry(u32::MAX), u32::MAX);
+        assert_eq!(exact_gpu::native::error(), "no such canvas");
+        assert!(!unsafe { gpu_restore(id, std::ptr::null(), 1) });
+        assert!(exact_gpu::native::error().contains("gpu_restore"));
+        assert_eq!(gpu_render(id, 4., 4., 1., 13.), 0);
         assert_eq!(unsafe { gpu_agent(id, b"null".as_ptr(), 4) }, 0);
         assert_eq!(gpu_dirty(id), 0, "an unanswered read costs no frame");
         assert_eq!(unsafe { gpu_agent(id, b"{}".as_ptr(), 2) }, 0);

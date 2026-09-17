@@ -94,7 +94,15 @@ Undelivered events are saved in order. An empty queue adds no world save bytes.
 No ninth operation (LLP 1041.001). `tree`, `state`, `layout`, `logs` and `clock`
 reach the world through one export on the module; an entity is a target
 (`world:fox`); `clock` is the only thing that moves the world; the journal is how an
-agent hears. The inner loop needs no host at all:
+agent hears. Capture the complete simulation with `s.screenshot('run.world', 'world', 'save')`
+(CLI: `screenshot run.world world save`). `open({world: 'run.world'})` or
+`--world run.world` holds the bytes until Play creates the first carrying surface,
+then restores before its first render. Web, macOS and the iOS Simulator use the
+same forms. The capture replies with the byte count, world hash and tick; state
+reports `restored: true` until the next tick. Current app bindings win over saved
+arguments. The iOS path is implemented but has not been driven in this session.
+
+The inner loop needs no host at all:
 
 ```rust
 let mut sim = Sim::<Lanterns>::new(&args)?;
@@ -112,3 +120,19 @@ holds every file to 1,500 lines. A game is driven like any app, with
 
 Small is a feature. When something here feels clunky, slow or bloated, the move is
 to delete it and try again, not to configure it.
+
+## The world dev loop
+
+`EXACT_APP_DIR=game/games/greybox bun host/web/dev.mjs --loopback` uses the same
+core dev server as every app. Rust source edits exclusive to the GPU cdylib's
+Cargo dep-info rebuild only that module under `gpu-dev`, then swap it under the
+live canvas with its entire simulation carried. Shared/app inputs still rebuild
+the app. Failed builds leave the old module running; incompatible carries leave a
+fresh world and a dismissible error naming the refused field/type. Agent pages
+never auto-swap.
+
+A carry keeps the old setup's entities. New component fields default by name;
+changing `setup` does not respawn a carried world. Reload the page or press
+`f` then Enter in the dev server to start fresh. Contract edits carry uniquely
+named surfaces across the plan restart; duplicate surface instances restart fresh
+because their reassigned view ids cannot identify them honestly.

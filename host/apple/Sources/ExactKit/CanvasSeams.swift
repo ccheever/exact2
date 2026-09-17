@@ -9,6 +9,22 @@ extension Canvases {
         return e
     }
 
+    func restoreWorld(_ m: GpuModule, _ e: Entry) {
+        guard let bytes = worldCarry, let carry = m.carry, carry(e.id) != UInt32.max else { return }
+        worldCarry = nil
+        let ok = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count) ?? false }
+        if !ok { worldRestoreError = "surface \(e.name): restore refused: \(m.error())" }
+    }
+
+    func save(_ e: Entry) -> [String: Any] {
+        guard let m = module, let carry = m.carry else { return ["error": "world save unavailable on this host yet"] }
+        let length = carry(e.id)
+        guard length != UInt32.max else { return ["error": "canvas \(e.name) carries no state"] }
+        guard let bytes = length == 0 ? Data() : m.output(length) else { return ["error": "surface returned no save bytes"] }
+        let state = agent(e.view.id, ["op": "state"])?["world"] as? [String: Any] ?? [:]
+        return ["data": bytes.base64EncodedString(), "bytes": bytes.count, "hash": state["hash"] ?? NSNull(), "tick": state["tick"] ?? NSNull()]
+    }
+
     func wantsInput(_ id: UInt32) -> Bool { live(id)?.wantsInput == true }
 
     /// Creation waits for first pixel. An agent read must wait for that same work.
@@ -157,6 +173,7 @@ extension Agent {
         let missing: [String: Any] = ["error": "view \(request["id"] ?? "undefined") has no world"]
         guard let id, let e = session.canvases.live(id) else { return missing }
         let op = request["op"] as? String ?? ""
+        if op == "screenshot", request["form"] as? String == "save" { return session.canvases.save(e) }
         if op == "focus" {
             guard e.wantsInput else { return ["error": "view \(id)'s surface does not take input"] }
             return ["ok": e.view.focusCanvas()]

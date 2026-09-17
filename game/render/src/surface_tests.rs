@@ -204,3 +204,57 @@ fn teleported_parent_child_pixels_at_half_alpha_equal_only_the_new_pose() {
     assert_eq!(half, new, "no pixels at the old or interpolated location");
     half.save("world-teleported-parent-half");
 }
+
+#[test]
+fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
+    let mut original = surface();
+    original.sim.as_mut().unwrap().advance(0., Clock::Seekable);
+    original
+        .sim
+        .as_mut()
+        .unwrap()
+        .advance(100., Clock::Seekable);
+    original.sim.as_ref().unwrap().world().publish("score", 7);
+    let saved = original.carry().unwrap();
+    let mut restored = WorldSurface::<Move>::default();
+    restored
+        .bind(&[Value::Bool(false), Value::Number(9.)])
+        .unwrap();
+    let generation = restored.sim().unwrap().generation();
+    restored.restore(&saved).unwrap();
+    assert_eq!(restored.sim().unwrap().world().tick(), 6);
+    assert!(restored.sim().unwrap().generation() > generation);
+    assert!(!restored.sim().unwrap().world().args().flag("move").unwrap());
+    assert_eq!(
+        restored
+            .sim()
+            .unwrap()
+            .world()
+            .args()
+            .integer("run")
+            .unwrap(),
+        9
+    );
+    assert_eq!(restored.published().as_deref(), Some(r#"{"score":7}"#));
+    assert!(restored
+        .agent(r#"{"op":"state"}"#)
+        .unwrap()
+        .contains(r#""restored":true"#));
+    let before = restored.carry().unwrap();
+    assert!(restored.restore(b"invalid").unwrap_err().contains("save"));
+    assert_eq!(restored.carry().unwrap(), before);
+    restored
+        .sim
+        .as_mut()
+        .unwrap()
+        .advance(1000., Clock::Seekable);
+    restored
+        .sim
+        .as_mut()
+        .unwrap()
+        .advance(1017., Clock::Seekable);
+    assert!(restored
+        .agent(r#"{"op":"state"}"#)
+        .unwrap()
+        .contains(r#""restored":false"#));
+}

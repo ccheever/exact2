@@ -96,6 +96,7 @@ public final class Agent {
             Agent.reply(["error": "canvas creation is still in flight"])
             return
         }
+        if let error = session.canvases.worldRestoreError { Agent.reply(["error": error]); return }
         if Agent.worldRequest(req) { Agent.reply(tagged(world(req))); return }
         switch op {
         case "tree": Agent.reply(session.canvases.decorate(req, session.webviews.tree()))

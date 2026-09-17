@@ -227,7 +227,7 @@ function buildGraph(app, target, kind, env, gpu) {
   }
   return { metadata, packages, root, surface, roles };
 }
-function compilerPaths(text, workspace) {
+export function compilerPaths(text, workspace) {
   const first = text.replace(/\\\r?\n/g, '').split('\n')[0];
   const at = first.indexOf(': ');
   if (at < 0) throw new Error('rustc dep-info has no dependency rule');

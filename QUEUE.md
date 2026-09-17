@@ -503,3 +503,5 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Web smoke/agent exit (2026-09-14): successful Messages commands can leave Bun alive after their final success line. Inspect the resident filesystem reader's idle pipe references (`scripts/filesystem.mjs`, notably stdin). Evidence: `/tmp/lane-router/s2b/smoke-messages-web.log`, `messages-web-timer.log`; the smoke also runs to completion when the caller exits after the module's completed assertions.
 
 - Native bake root dep-info: replace the explicit `--emit=dep-info=<path>` with Cargo-owned dependency tracking while retaining the exact source receipt; the explicit path forces native root relinks. Web uses Cargo-owned dep-info after E1.
+
+- **World carries after E2** (2026-09-17): drive the shared save/restore path on an iOS Simulator (web and macOS proofs pass); physical-device saves are refused by the driver. Contract reload carries unique surface names; duplicate stateful surfaces need an honest identity before they can carry across reassigned view ids.

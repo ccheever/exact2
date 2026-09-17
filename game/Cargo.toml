@@ -35,3 +35,26 @@ opt-level = 3
 
 [patch.crates-io]
 taffy = { path = "../vendor/taffy" }
+
+# Fast surface module rebuilds; dependencies stay optimized, the game links cheaply.
+[profile.gpu-dev]
+inherits = "dev"
+opt-level = 1
+debug = false
+strip = "debuginfo"
+panic = "abort"
+lto = false
+incremental = true
+
+[profile.gpu-dev.package."*"]
+opt-level = 3
+
+# The engine crates are workspace members here, so the wildcard excludes them.
+[profile.gpu-dev.package.exact-game]
+opt-level = 3
+[profile.gpu-dev.package.exact-game-render]
+opt-level = 3
+[profile.gpu-dev.package.exact-game-physics]
+opt-level = 3
+[profile.gpu-dev.package.exact-game-audio]
+opt-level = 3

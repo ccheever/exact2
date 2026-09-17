@@ -97,6 +97,21 @@ impl<G: Game> Surface for WorldSurface<G> {
         self.dirty = true;
         Ok(())
     }
+    fn carry(&mut self) -> Option<Vec<u8>> {
+        self.sim.as_ref().map(Sim::save)
+    }
+    fn restore(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.sim
+            .as_mut()
+            .ok_or("world has not been bound")?
+            .restore_bound(bytes)
+            .map_err(|e| e.to_string())?;
+        self.dirty = true;
+        self.error = None;
+        self.reported = false;
+        self.perf = Perf::default();
+        Ok(())
+    }
     fn take_error(&mut self) -> Option<SurfaceError> {
         if self.reported {
             return None;

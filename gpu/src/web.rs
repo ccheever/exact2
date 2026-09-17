@@ -166,6 +166,16 @@ pub fn input(id: u32, event: &str) -> bool {
     with(|m| m.input_json(id, event)).unwrap_or(false)
 }
 
+/// Capture state; None is distinct from a zero-byte carry.
+pub fn carry(id: u32) -> Option<Vec<u8>> {
+    with(|m| m.carry(id)).flatten()
+}
+
+/// Restore state. False leaves the surface unchanged; error explains why.
+pub fn restore(id: u32, bytes: &[u8]) -> bool {
+    with(|m| m.restore(id, bytes)).unwrap_or(false)
+}
+
 /// Take the latest changed public record, if any.
 pub fn published(id: u32) -> Option<String> {
     with(|m| m.take_published(id)).flatten()
@@ -190,6 +200,19 @@ pub fn seekable(on: bool) {
 /// Whether a canvas has unrendered inputs.
 pub fn dirty(id: u32) -> bool {
     with(|m| m.dirty(id)).unwrap_or(false)
+}
+
+/// Drop all surfaces and release the module's device.
+pub fn unload() {
+    MODULE.with(|m| {
+        if let Some(mut module) = m.borrow_mut().take() {
+            module.instances.clear();
+            if let Some(gpu) = module.gpu.take() {
+                gpu.device.destroy();
+            }
+        }
+    });
+    crate::shaders::clear_shaders();
 }
 
 /// Drop a canvas's surface.
@@ -279,6 +302,24 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_input(id: u32, event_json: &str) -> bool {
             $crate::web::input(id, event_json)
+        }
+
+        /// Capture state, or undefined when this surface carries nothing.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_carry(id: u32) -> Option<Vec<u8>> {
+            $crate::web::carry(id)
+        }
+
+        /// Restore state, reporting a refusal through gpu_error.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_restore(id: u32, bytes: &[u8]) -> bool {
+            $crate::web::restore(id, bytes)
+        }
+
+        /// Release every surface and the device before replacing this module.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_unload() {
+            $crate::web::unload();
         }
 
         /// Take the changed public record, if any.

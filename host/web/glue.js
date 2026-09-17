@@ -1370,7 +1370,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   ticker = null;
   for (const a of animations.values()) a.cancel();
   animations.clear();
-  globalThis.exact?.gpu?.reset();
+  globalThis.exact?.gpu?.reset(Boolean(bytes));
   for (const el of followedScrolls.keys()) followScroll(el, false);
   pendingScrolls.clear();
   views.clear();
@@ -1382,7 +1382,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   inflight.clear();
   root.replaceChildren();
   commitFonts(preparedFonts);
-  const timers = applyBatch(batch).timers;
+  const timers = applyBatch(batch).timers; globalThis.exact?.gpu?.finishRestart();
   if (bytes && !module) activateData(); // This session has already painted once.
   if (oldAssets !== assets) releaseAssets(oldAssets);
   if (timers && !agentMode) ticker = setInterval(() => send(wasm.exact_advance(now())), 250);
@@ -1434,7 +1434,7 @@ globalThis.exact = {
   message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
-  ...(agentMode ? { agent, now } : {}), get wasm() { return wasm; }, writeIn, send, views, root, generation: 0, pendingSurfaces: [],
+  ...(agentMode ? { agent, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, writeIn, send, views, root, generation: 0, pendingSurfaces: [],
 };
 // The GPU module, on demand: a script element after a rendering opportunity
 // (two animation-frame callbacks), never an eager import, and only when a

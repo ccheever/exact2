@@ -76,6 +76,7 @@ pub struct Sim<G: Game> {
     queue: VecDeque<Queued>,
     overflow_logged: bool,
     rebase_queue: bool,
+    pub(crate) restored: bool,
     pub(crate) last_us: Option<i64>,
     world_us: i64,
     game: PhantomData<G>,
@@ -114,6 +115,7 @@ impl<G: Game> Sim<G> {
             queue: VecDeque::with_capacity(QUEUE_LIMIT),
             overflow_logged: false,
             rebase_queue: false,
+            restored: false,
             last_us: None,
             world_us: 0,
             game: PhantomData,
@@ -405,6 +407,7 @@ impl<G: Game> Sim<G> {
             }) {
                 self.input.apply(self.queue.pop_front().unwrap().event);
             }
+            self.restored = false;
             G::tick(&mut self.world, &self.input);
             self.world.reap_orphans();
             self.world.propagate();
@@ -487,6 +490,14 @@ impl<G: Game> Sim<G> {
     }
     /// Atomically restore dynamic state onto this binary's actions and a new epoch.
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
+        self.restore_into(bytes, None)
+    }
+    /// A surface retains the current app bindings, including setup arguments.
+    pub fn restore_bound(&mut self, bytes: &[u8]) -> Result<(), DataError> {
+        let values = self.world.args.values.clone();
+        self.restore_into(bytes, Some(&values))
+    }
+    fn restore_into(&mut self, bytes: &[u8], values: Option<&[Value]>) -> Result<(), DataError> {
         let payload = bytes
             .strip_prefix(b"EXSIM\0\x02")
             .ok_or_else(|| DataError::new("invalid simulation save magic or version"))?;
@@ -509,7 +520,7 @@ impl<G: Game> Sim<G> {
         if s.world_us < 0 || s.queue.len() > QUEUE_LIMIT {
             return Err(DataError::new("invalid saved clock or input queue"));
         }
-        let mut next = Self::new(&s.args).map_err(DataError::new)?;
+        let mut next = Self::new(values.unwrap_or(&s.args)).map_err(DataError::new)?;
         let args = next.world.args.clone();
         next.world.load(&s.world)?;
         next.world.args = args;
@@ -536,6 +547,7 @@ impl<G: Game> Sim<G> {
         }
         next.world_us = s.world_us;
         next.rebase_queue = true;
+        next.restored = true;
         next.world.presentation_generation = self
             .world
             .presentation_generation
