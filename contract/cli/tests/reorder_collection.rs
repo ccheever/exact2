@@ -737,3 +737,115 @@ fn transfer_away_then_back_to_same_grip_is_not_owned_by_old_terminal() {
     assert!(r.finish_reorder(old).unwrap().is_none());
     assert!(r.has_reorder(new));
 }
+
+fn beneath_empty_when_arms() -> String {
+    let source = SOURCE.replace(
+        "state disabled = false",
+        "state disabled = false\n  state shown = true\n  state windowed = true\n  action hide writes shown\n    shown = false",
+    );
+    let (head, list) = source.split_once("      list").unwrap();
+    let list = format!("      list{list}")
+        .lines()
+        .map(|line| format!("    {line}\n"))
+        .collect::<String>();
+    format!("{head}      when shown\n        when windowed\n{list}")
+}
+fn boot_source(source: &str) -> Runner<Rows> {
+    Runner::boot(
+        contract::compile(source).unwrap(),
+        Rows { n: 100, queries: 0 },
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+#[test]
+fn empty_when_frames_keep_preview_and_measured_rows_on_unrelated_typing() {
+    let mut r = boot_source(&beneath_empty_when_arms());
+    let h = ready(&mut r);
+    let b = r.reorder_binding(h).unwrap();
+    let g = r.reorder_geometry(b.list).unwrap();
+    let t = r.begin_reorder(b, g.clone()).unwrap().unwrap().token;
+    assert!(matches!(
+        r.preview_reorder(t, g, 65.).unwrap(),
+        ReorderProgress::Accepted { .. }
+    ));
+    let geometry = r.reorder_geometry(b.list).unwrap();
+    let rows = r.collections()[0]
+        .rows
+        .iter()
+        .map(|row| (row.view, row.epoch))
+        .collect::<Vec<_>>();
+    let queries = r.data_ref().queries;
+    r.act("edit", vec![Value::str("unrelated draft")]).unwrap();
+    assert!(
+        r.has_reorder(t),
+        "unchanged When frames must not end preview"
+    );
+    assert_eq!(r.reorder_binding(h), Some(b));
+    assert_eq!(r.reorder_geometry(b.list), Some(geometry.clone()));
+    assert_eq!(
+        r.collections()[0]
+            .rows
+            .iter()
+            .map(|row| (row.view, row.epoch))
+            .collect::<Vec<_>>(),
+        rows
+    );
+    assert_eq!(r.data_ref().queries, queries);
+    assert_eq!(r.last_instance_work().rows_keyed, 0);
+    assert!(!r.reorder_frame(t).unwrap().terminal);
+    assert!(r.drop_reorder(t, geometry.clone()).unwrap().is_some());
+    assert_eq!(r.slot("count"), Some(&Value::Number(1.)));
+    assert!(r.drop_reorder(t, geometry).unwrap().is_none());
+    r.finish_reorder(t).unwrap();
+}
+
+#[test]
+fn empty_when_frames_still_retire_for_changed_dependency_or_destroyed_arm() {
+    for action in ["block", "hide"] {
+        let mut r = boot_source(&beneath_empty_when_arms());
+        let h = ready(&mut r);
+        let b = r.reorder_binding(h).unwrap();
+        let g = r.reorder_geometry(b.list).unwrap();
+        let t = r.begin_reorder(b, g.clone()).unwrap().unwrap().token;
+        r.act(action, vec![]).unwrap();
+        assert!(!r.has_reorder(t));
+        assert!(r.drop_reorder(t, g).unwrap().is_none());
+        assert_eq!(r.slot("count"), Some(&Value::Number(0.)));
+        if action == "hide" {
+            assert!(r.kernel().node_by_key(b.wrapper).is_none());
+        } else {
+            assert!(r.reorder_frame(t).unwrap().terminal);
+        }
+        r.finish_reorder(t).unwrap();
+    }
+}
+
+#[test]
+fn contextful_match_binding_still_refreshes_collection_body() {
+    let source = SOURCE.replace("state draft = \"\"", "state draft = \"before\"");
+    let (head, list) = source.split_once("      list").unwrap();
+    let list = format!("      list{list}")
+        .replace("text x", "text label testId=`label-${x}`")
+        .lines()
+        .map(|line| format!("    {line}\n"))
+        .collect::<String>();
+    let mut r = boot_source(&format!(
+        "{head}      match some(draft)\n        case some(label)\n{list}        case none\n          text \"none\"\n"
+    ));
+    let h = ready(&mut r);
+    let b = r.reorder_binding(h).unwrap();
+    let g = r.reorder_geometry(b.list).unwrap();
+    let t = r.begin_reorder(b, g).unwrap().unwrap().token;
+    r.act("edit", vec![Value::str("after")]).unwrap();
+    assert!(
+        !r.has_reorder(t),
+        "changed bound context must not be memoized away"
+    );
+    let text = r.kernel().node_by_key(key(&r, "label-0")).unwrap();
+    assert_eq!(text.props.str(exact_kernel::PropId::Text), Some("after"));
+    r.finish_reorder(t).unwrap();
+}

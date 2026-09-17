@@ -149,8 +149,14 @@ impl Collection {
             spacers: Vec::new(),
             children: Vec::new(),
             key_memo: KeyMemo::new(plan, region),
+            // Unchanged `when` arms add empty frames, not contextual values.
+            // Keep the global dependency memo through those arms; an item,
+            // match binding or row-local state still needs normal evaluation.
             body_memo: frames
-                .is_empty()
+                .iter()
+                .all(|f| {
+                    f.item.is_none() && f.bound.is_none() && f.region.is_none() && f.row.is_none()
+                })
                 .then(|| dependencies::Memo::for_region(plan, region, true))
                 .flatten(),
             revision: 0,

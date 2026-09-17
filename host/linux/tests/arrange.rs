@@ -420,3 +420,55 @@ fn eager_and_disabled_grips_do_not_admit_physical_reorder() {
         assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
     }
 }
+
+#[test]
+fn typing_under_empty_when_arms_preserves_mapping_hold_and_exactly_one_drop() {
+    let source = APP.replace(
+        "state disabled = false",
+        "state disabled = false\n  state shown = true\n  state windowed = true",
+    );
+    let (head, rest) = source.split_once("        list id=\"items\"").unwrap();
+    let (list, tail) = rest
+        .split_once("      button position=\"absolute\"")
+        .unwrap();
+    let list = format!("        list id=\"items\"{list}")
+        .lines()
+        .map(|line| format!("    {line}\n"))
+        .collect::<String>();
+    let source = format!("{head}        when shown\n          when windowed\n{list}      button position=\"absolute\"{tail}");
+    let mut p = boot_source(&source);
+    let (wrapper, point) = recognize(&mut p);
+    p.pointer_move(point.0, point.1 + 60., 20.).unwrap();
+    let handle = key(&p, "grip-0");
+    let binding = p.host().runner().reorder_binding(handle).unwrap();
+    let list = id(&p, "list");
+    let port = p.rect_of(list).unwrap();
+    let scroll = p.scroll_of(list);
+    let geometry = p.host().runner().reorder_geometry(binding.list).unwrap();
+    let pin = p.collection_interaction();
+    let calls = p.host().runner().data_ref().calls;
+    p.type_text(id(&p, "draft"), "typing without changing the List")
+        .unwrap();
+    // A mapping assertion first distinguishes valid reflow cancellation from token loss.
+    assert_eq!(p.rect_of(list), Some(port));
+    assert_eq!(p.scroll_of(list), scroll);
+    assert!(
+        p.host()
+            .engine()
+            .is_held(motion_node(wrapper), Property::Translate),
+        "same port and scroll must retain the original hold"
+    );
+    assert_eq!(p.host().runner().reorder_binding(handle), Some(binding));
+    assert_eq!(
+        p.host().runner().reorder_geometry(binding.list),
+        Some(geometry)
+    );
+    assert_eq!(p.collection_interaction(), pin);
+    assert_eq!(p.host().runner().data_ref().calls, calls);
+    assert!(p.pointer_up(point.0, point.1 + 70., 30.).unwrap());
+    assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(1.)));
+    assert!(!p.pointer_up(point.0, point.1 + 70., 30.).unwrap());
+    p.tick(5000.);
+    p.frame();
+    assert!(p.collection_interaction().is_none());
+}

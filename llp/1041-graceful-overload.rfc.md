@@ -2227,10 +2227,30 @@ the gallery build, then fails the first100-row stdio cell: typing is acknowledge
 during an admitted drag, but the next hold reports no contact. No drop or C0
 assertion was reached, and no retry replaces the failure. The source trace finds
 that unchanged `when` frames prevent collection body memoization, ending the
-preview on unrelated draft writes. A focused repair and actual-app regression
-remain pending. Exact binaries, raw replies, images and terminal ownership are
+preview on unrelated draft writes. Exact binaries, raw replies, images and terminal ownership are
 retained under `target/arrange-linux-native-1f48f28/`; this is synthesized
 Presenter contact, not physical evdev delivery or a successful25k traversal.
+
+The focused repair permits the existing body dependency memo through enclosing
+frames only when every item, match binding, region and row-local state field is
+absent. Contextual frames still use normal evaluation; no Presenter retirement
+guard is bypassed. Common and native regressions first lose the preview/hold on
+unrelated typing. A separate harness using the exact gallery plan and real data
+source proves unchanged list-to-root geometry, scroll and presentation before
+that failure. After the repair it retains the same row epochs, rows allocation,
+hold and pin, then performs exactly one reorder and releases the pin on settlement.
+Changed dependencies, match bindings and destroyed arms still invalidate.
+
+Private validation records 74 passing tests: 20 common, 42 existing collection,
+11 native Arrange and one actual-gallery harness, plus strict scoped Clippy.
+Four tracked regressions and the separate gallery proof are new. Preserved
+fixture syntax and revision-field mistakes are identified separately from the
+behavioral REDs. The integrated tree repeats the 73 common/collection/native
+tests and passes strict all-targets Clippy for runner, Contract and Linux, plus
+scoped formatting, caps and boot. These tests ran on macOS with the Rust CPU Presenter, not in a
+new Linux VM cell. The original Linux failure remains; treatment Linux replay,
+complete25k traversal and physical timing are still pending. Frozen sources and
+raw results are under `target/arrange-empty-frames-validation/freeze-v1/`.
 
 ### 8.27 Actual Linux scroll repair and remaining 4MiB allocation failure, 2026-09-17
 
