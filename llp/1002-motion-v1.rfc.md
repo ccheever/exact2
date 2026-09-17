@@ -131,6 +131,21 @@ own clock or batch mutations; `is_held` informs lowering. Stale updates/ends are
 inert before time/value validation. Invalid live inputs leave ownership and time
 unchanged; values and velocities must be finite, with `y = 0` for scalar rows.
 
+**Photo takeover foundation (Tuft / Newton, 2026-09-17).**
+`begin_transform_hold(node, now_s, presented)` captures Translate and Scale at
+one time and returns an opaque `TransformHold` containing their ordinary
+`HoldStart`s. `update_transform_hold(hold, now_s, values)` updates both or
+neither. Arrays use Translate/Scale order. Begin preflights both adopted slots,
+samples and time, then reserves two serials together before mutation; either
+stale token rejects a paired update before validation or clock movement.
+Authored targets, existing scalar semantics and unrelated motion are unchanged.
+There is no pair registry or paired end operation. Hosts validate the entire
+terminal payload/time before an action or first end, act only while both old
+tokens are live, then end each surviving old token independently. A successor
+must never be cancelled by cleanup of the old pair. This provides atomic engine
+takeover for the photo consumer; it does not add physical pan/pinch recognition,
+photo bounds, shared-element return or another motion executor.
+
 D2 remains unchanged. Native hosts drain Engine presentation; browser hosts
 preserve a held-property overlay across style commits, cancel only its playback
 at takeover, and restore the latest authored declaration on release, including

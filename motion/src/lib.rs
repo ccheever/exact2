@@ -42,7 +42,7 @@ pub mod velocity;
 pub use easing::{Easing, EasingError, LinearStop, StepPosition};
 pub use engine::{
     Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, Presentation, SpringDescriptor,
-    SpringFrames,
+    SpringFrames, TransformHold,
 };
 pub use parse::ParseError;
 pub use property::{Property, Value};

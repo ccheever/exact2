@@ -20,7 +20,7 @@ use crate::transition::{Curve, Running, TransitionError, Transitions};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod hold;
-pub use hold::{HoldEnd, HoldStart, HoldToken};
+pub use hold::{HoldEnd, HoldStart, HoldToken, TransformHold};
 
 /// One animatable row's new target, as committed by the kernel.
 #[derive(Debug, Clone, Copy, PartialEq)]

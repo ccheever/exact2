@@ -108,6 +108,16 @@ its queued frame and token, while retaining the node's transition declaration.
 `is_active(node, property)` reports held or running (including delay); it cannot
 be replaced by comparing value with target or querying only spring descriptors.
 
+Translate/Scale takeover also has a fixed atomic pair (Tuft / Newton,
+2026-09-17): `begin_transform_hold` returns an opaque `TransformHold`, and
+`update_transform_hold` changes both presentations after complete preflight.
+Missing slots or stale pairs refuse before time/value mutation; begin reserves
+two checked serials together. Getters return the existing tokens/origins. Hosts
+validate a whole terminal payload/time before action or first single-property
+end, and clean up each surviving original token after the action. No paired
+terminal API, group registry or host recognizer is implied. Single-property
+follow/release semantics remain unchanged.
+
 ## 6. The seam (`kernel/src/motion.rs`)
 
 `Kernel::motion_sync(&receipt) -> MotionSync { removed, retired, transitions, changes }`
