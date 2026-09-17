@@ -38,3 +38,18 @@ GDScript each frame), `shader` (the rotation in the vertex shader; no CPU work).
 
 The bar these set: the idiomatic path here — one entity per cube — should hold 120 Hz
 past where both twins' *optimized* paths stop.
+
+## This engine, so far — the simulation alone (no renderer yet)
+
+`cargo run --release --example churn -p exact-game`, 2026-09-17:
+
+| | M5 Max (arm64 macOS) | EPYC 9454 (x86-64 Linux) |
+|---|---|---|
+| turn every cube, per entity per tick (500,000 entities) | 3.6 ns | 5.8 ns |
+| so one 60 Hz tick of 500,000 turning cubes | 1.8 ms | 2.9 ms |
+| despawn and respawn 1,000 of 100,000 | 0.49 ms | 0.30 ms |
+| a query over 12 entities in a world of 100,000 | 1.7 µs | 1.1 µs |
+| world hash after 200 ticks × 500,000 entities | `fbe3a8fa56f19d95` | `fbe3a8fa56f19d95` |
+
+The last row is the determinism contract's first evidence: two architectures, two
+operating systems, the same bits.
