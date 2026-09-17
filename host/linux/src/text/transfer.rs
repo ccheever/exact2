@@ -31,12 +31,34 @@ pub(super) mod work {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TransferError {
     InvalidOffer,
+    InvalidPaintContext,
+    InkIndexRefused,
     CatalogMismatch,
     SourceMismatch,
     StaleResult,
     FontCapture,
     UnrepresentableCatalog,
     CatalogExhausted,
+}
+/// The scale used by CPU glyph rasterization, exactly bound to each job.
+/// Origin/clip/transform are query inputs; palette/publication liveness remains
+/// controller-owned. No global paint epoch or historical context registry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PaintContext {
+    scale_bits: u32,
+}
+impl PaintContext {
+    pub fn new(scale: f32) -> Result<Self, TransferError> {
+        if !scale.is_finite() || scale <= 0. {
+            return Err(TransferError::InvalidPaintContext);
+        }
+        Ok(Self {
+            scale_bits: scale.to_bits(),
+        })
+    }
+    pub fn scale(self) -> f32 {
+        f32::from_bits(self.scale_bits)
+    }
 }
 #[derive(Clone)]
 pub(crate) struct FontRecipe(pub(super) Arc<Recipe>);
@@ -71,10 +93,14 @@ impl PreparedSource {
 #[derive(Clone)]
 pub(crate) struct PreparedText {
     job: Arc<()>,
+    paint: PaintContext,
     request: RegionTextRequest,
     source: PreparedSource,
 }
 impl PreparedText {
+    pub fn paint_context(&self) -> PaintContext {
+        self.paint
+    }
     pub fn request(&self) -> &RegionTextRequest {
         &self.request
     }
@@ -83,6 +109,7 @@ impl PreparedText {
     }
 }
 struct Layout {
+    index: ink::Index,
     lines: Vec<Vec<cosmic_text::LayoutLine>>,
     baselines: Vec<f32>,
     capacity: usize,
@@ -95,8 +122,16 @@ pub(crate) struct CompletedText {
     layout: Option<Layout>,
     #[cfg(test)]
     pub(super) probe: std::sync::Weak<()>,
+    #[cfg(test)]
+    pub(super) ink_probe: std::sync::Weak<()>,
 }
 impl CompletedText {
+    pub fn paint_context(&self) -> PaintContext {
+        self.input.paint
+    }
+    pub fn ink_capacity_bytes(&self) -> usize {
+        self.layout.as_ref().map_or(0, |l| l.index.bytes())
+    }
     pub fn request(&self) -> &RegionTextRequest {
         self.input.request()
     }
@@ -114,6 +149,7 @@ impl CompletedText {
     }
 }
 pub(crate) struct AdoptedText {
+    paint: PaintContext,
     request: RegionTextRequest,
     metrics: TextMetrics,
     // Intrinsic results retain source/shape, not temporary width layouts.
@@ -122,6 +158,9 @@ pub(crate) struct AdoptedText {
     paragraph: Option<Rc<Paragraph>>,
 }
 impl AdoptedText {
+    pub fn paint_context(&self) -> PaintContext {
+        self.paint
+    }
     pub fn request(&self) -> &RegionTextRequest {
         &self.request
     }
@@ -178,6 +217,7 @@ fn valid(offer: Offer) -> bool {
 pub(crate) fn prepare(
     recipe: &FontRecipe,
     request: RegionTextRequest,
+    paint: PaintContext,
     reuse: Option<&PreparedSource>,
 ) -> Result<PreparedText, TransferError> {
     if request.catalog() != recipe.catalog_label() {
@@ -208,19 +248,31 @@ pub(crate) fn prepare(
     };
     Ok(PreparedText {
         job: Arc::new(()),
+        paint,
         request,
         source,
     })
 }
 /// Created and used on the worker. Rc here is thread-local, never transported.
 pub(crate) struct FontWorker {
+    #[cfg(test)]
+    pub(super) index_limit: usize,
+    #[cfg(test)]
+    pub(super) last_layout: std::sync::Weak<()>,
     recipe: FontRecipe,
     catalog: catalog::Lease,
 }
 impl FontWorker {
     pub fn new(recipe: FontRecipe) -> Result<Self, TransferError> {
         let catalog = Rc::new(RefCell::new(recipe.0.catalog()));
-        Ok(Self { recipe, catalog })
+        Ok(Self {
+            recipe,
+            catalog,
+            #[cfg(test)]
+            index_limit: ink::MAX_BYTES,
+            #[cfg(test)]
+            last_layout: std::sync::Weak::new(),
+        })
     }
     pub fn execute(&mut self, input: PreparedText) -> Result<CompletedText, TransferError> {
         if !Arc::ptr_eq(&self.recipe.0, &input.source.0.recipe) {
@@ -260,20 +312,46 @@ impl FontWorker {
         };
         #[cfg(test)]
         let probe = Arc::downgrade(&p.layout_lifetime);
-        let layout =
-            matches!(input.request.offer().width, AxisOffer::Definite(_)).then(|| Layout {
+        #[cfg(test)]
+        {
+            self.last_layout = probe.clone();
+        }
+        // Intrinsic probes publish scalar metrics + shared shape, never width
+        // arrays or an index. Every successful definite result is paint-ready.
+        let layout = if matches!(input.request.offer().width, AxisOffer::Definite(_)) {
+            #[cfg(not(test))]
+            let index = ink::Index::build(&mut self.catalog.borrow_mut(), &p, input.paint.scale());
+            #[cfg(test)]
+            let index = ink::Index::with_limit(
+                &mut self.catalog.borrow_mut(),
+                &p,
+                input.paint.scale(),
+                self.index_limit,
+            );
+            let index = index.ok_or(TransferError::InkIndexRefused)?;
+            Some(Layout {
+                index,
                 lines: p.layouts,
                 baselines: p.baselines,
                 capacity: p.resident_capacity_bytes,
                 #[cfg(test)]
                 lifetime: p.layout_lifetime,
-            });
+            })
+        } else {
+            None
+        };
+        #[cfg(test)]
+        let ink_probe = layout
+            .as_ref()
+            .map_or_else(std::sync::Weak::new, |l| Arc::downgrade(&l.index.lifetime));
         Ok(CompletedText {
             input,
             metrics,
             layout,
             #[cfg(test)]
             probe,
+            #[cfg(test)]
+            ink_probe,
         })
     }
 }
@@ -283,7 +361,7 @@ pub(crate) fn adopt(
     raster: &RasterCatalog,
 ) -> Result<AdoptedText, TransferError> {
     // Private identity binds the exact immutable request including BOTH axes,
-    // full stamp/source, region ticket and recipe; no equivalence reconstruction.
+    // full stamp/source, region ticket, recipe and exact paint context; no equivalence reconstruction.
     if !Arc::ptr_eq(&result.input.job, &expected.job) {
         return Err(TransferError::StaleResult);
     }
@@ -317,12 +395,17 @@ pub(crate) fn adopt(
             width: metrics.width,
             height: metrics.height,
             first_baseline: metrics.first_baseline.unwrap_or(0.),
-            ink: RefCell::new(ink::Cache::default()),
+            ink: RefCell::new(ink::Cache::from_index(
+                &raster.catalog.borrow().ink_catalog,
+                input.paint.scale(),
+                l.index,
+            )),
             resident_capacity_bytes: l.capacity,
             private_text_bytes_estimate: 0,
         })
     });
     Ok(AdoptedText {
+        paint: input.paint,
         request: input.request,
         metrics,
         source: input.source,

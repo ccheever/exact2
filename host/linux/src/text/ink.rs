@@ -85,6 +85,15 @@ pub(super) struct Cache {
     pub index: Option<Index>,
 }
 impl Cache {
+    /// Attach numeric worker output to this UI catalog; no Weak crosses threads.
+    pub fn from_index(catalog: &Rc<()>, scale: f32, index: Index) -> Self {
+        Self {
+            catalog: Rc::downgrade(catalog),
+            scale: scale.to_bits(),
+            index: Some(index),
+        }
+    }
+
     pub fn matches(&self, catalog: &Rc<()>, scale: f32) -> bool {
         self.scale == scale.to_bits() && self.catalog.ptr_eq(&Rc::downgrade(catalog))
     }
@@ -105,6 +114,8 @@ struct Line {
 }
 
 pub(super) struct Index {
+    #[cfg(test)]
+    pub(super) lifetime: std::sync::Arc<()>,
     spans: Vec<Bounds>,
     lines: Vec<Line>,
     leaves: usize,
@@ -131,11 +142,15 @@ impl Index {
         scale: f32,
         limit: usize,
     ) -> Option<Self> {
+        #[cfg(test)]
+        count(|n| n.attempts += 1);
         if !scale.is_finite() || scale <= 0.0 {
             return None;
         }
         let (leaves, nodes) = storage(p.baselines.len(), limit)?;
         let mut result = Self {
+            #[cfg(test)]
+            lifetime: std::sync::Arc::new(()),
             spans: Vec::new(),
             lines: Vec::new(),
             leaves,
@@ -157,6 +172,8 @@ impl Index {
                 result.lines.push(Line { source, wrapped });
                 let mut span = Bounds::EMPTY;
                 for glyph in &layout.glyphs {
+                    #[cfg(test)]
+                    count(|n| n.glyphs += 1);
                     let x = glyph.x + glyph.x_offset * glyph.font_size;
                     let y = glyph.y - glyph.y_offset * glyph.font_size;
                     if !x.is_finite() || !y.is_finite() || !baseline.is_finite() {
@@ -202,7 +219,7 @@ impl Index {
         Some(result)
     }
 
-    fn bytes(&self) -> usize {
+    pub(super) fn bytes(&self) -> usize {
         self.spans.capacity() * size_of::<Bounds>() + self.lines.capacity() * size_of::<Line>()
     }
 
@@ -334,6 +351,8 @@ fn envelope(engine: &mut Catalog, mut key: CacheKey) -> Bounds {
         SubpixelBin::Three,
     ] {
         key.x_bin = bin;
+        #[cfg(test)]
+        count(|n| n.raster_phases += 1);
         // Uncached: extra phases must not become retained pixel backings.
         // A missing image is exactly the existing CPU renderer's no-ink case.
         if let Some(image) = engine.swash.get_image_uncached(&mut engine.fonts, key) {
@@ -352,6 +371,30 @@ fn envelope(engine: &mut Catalog, mut key: CacheKey) -> Bounds {
 }
 
 #[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct BuildWork {
+    pub attempts: usize,
+    pub glyphs: usize,
+    pub raster_phases: usize,
+}
+#[cfg(test)]
+thread_local! { static BUILD_WORK: std::cell::Cell<BuildWork> = const {
+    std::cell::Cell::new(BuildWork { attempts: 0, glyphs: 0, raster_phases: 0 })
+}; }
+#[cfg(test)]
+pub(super) fn build_work() -> BuildWork {
+    BUILD_WORK.with(std::cell::Cell::get)
+}
+#[cfg(test)]
+fn count(f: impl FnOnce(&mut BuildWork)) {
+    BUILD_WORK.with(|c| {
+        let mut value = c.get();
+        f(&mut value);
+        c.set(value);
+    });
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
@@ -364,6 +407,7 @@ mod tests {
     #[test]
     fn unknown_span_keeps_original_order_without_hiding_known_neighbors() {
         let index = Index {
+            lifetime: std::sync::Arc::new(()),
             spans: vec![Bounds::EMPTY, Bounds::ALL, Bounds::ALL, Bounds::ALL],
             lines: vec![
                 Line {

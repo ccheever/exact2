@@ -169,10 +169,16 @@ fn real_thread_constructs_fonts_and_returns_exact_baselines_glyphs_and_rgba() {
     let before = shaping::shape_line_calls();
     let freeze_work = work::read();
     assert_eq!(freeze_work.catalog_builds, 0);
-    let input = prepare(&recipe, q.clone(), None).unwrap();
+    let input = prepare(&recipe, q.clone(), PaintContext::new(1.).unwrap(), None).unwrap();
     let converted = work::read();
     assert!(converted.source_bytes > 0);
-    let again = prepare(&recipe, q, Some(input.source())).unwrap();
+    let again = prepare(
+        &recipe,
+        q,
+        PaintContext::new(1.).unwrap(),
+        Some(input.source()),
+    )
+    .unwrap();
     assert_eq!(work::read(), converted);
     assert!(Arc::ptr_eq(&input.source().0, &again.source().0));
     assert_eq!(before, shaping::shape_line_calls());
@@ -255,21 +261,30 @@ fn intrinsic_probe_arrays_die_and_final_paint_keeps_definite_layout() {
         let Some(q) = k.region_text_request().cloned() else {
             break;
         };
-        let input = prepare(&recipe, q, source.as_ref()).unwrap();
+        let input = prepare(&recipe, q, PaintContext::new(1.).unwrap(), source.as_ref()).unwrap();
         source = Some(input.source().clone());
         let r = recipe.clone();
         let job = input.clone();
-        let output = thread::spawn(move || FontWorker::new(r).unwrap().execute(job).unwrap())
-            .join()
-            .unwrap();
+        let (output, ink_work) = thread::spawn(move || {
+            let output = FontWorker::new(r).unwrap().execute(job).unwrap();
+            (output, ink::build_work())
+        })
+        .join()
+        .unwrap();
         let is_definite = matches!(output.request().offer().width, AxisOffer::Definite(_));
         if is_definite {
             definite += 1;
             assert!(output.layout_capacity_bytes() > 0);
+            assert!(output.ink_capacity_bytes() > 0);
+            assert_eq!(ink_work.attempts, 1);
+            assert!(output.ink_probe.upgrade().is_some());
             assert!(output.probe.upgrade().is_some());
         } else {
             intrinsic += 1;
             assert_eq!(output.layout_capacity_bytes(), 0);
+            assert_eq!(output.ink_capacity_bytes(), 0);
+            assert_eq!(ink_work, ink::BuildWork::default());
+            assert!(output.ink_probe.upgrade().is_none());
             assert!(output.probe.upgrade().is_none());
         }
         let adopted = Rc::new(adopt(output, &input, &raster).unwrap());
@@ -306,8 +321,14 @@ fn stale_completion_or_foreign_raster_cannot_adopt() {
     let engine = TextEngine::with_catalog(fixture_catalog());
     let (recipe, raster) = freeze_catalog(&engine).unwrap();
     let (_k, q) = request(recipe.catalog_label(), 200.);
-    let first = prepare(&recipe, q.clone(), None).unwrap();
-    let second = prepare(&recipe, q, Some(first.source())).unwrap();
+    let first = prepare(&recipe, q.clone(), PaintContext::new(1.).unwrap(), None).unwrap();
+    let second = prepare(
+        &recipe,
+        q,
+        PaintContext::new(1.).unwrap(),
+        Some(first.source()),
+    )
+    .unwrap();
     let mut worker = FontWorker::new(recipe).unwrap();
     let output = worker.execute(first).unwrap();
     assert!(matches!(
@@ -475,7 +496,7 @@ fn two_widths_share_shape_and_release_source_after_last_owner() {
     let engine = TextEngine::with_catalog(fixture_catalog());
     let (recipe, raster) = freeze_catalog(&engine).unwrap();
     let (mut k, q) = request(recipe.catalog_label(), 120.);
-    let a_input = prepare(&recipe, q, None).unwrap();
+    let a_input = prepare(&recipe, q, PaintContext::new(1.).unwrap(), None).unwrap();
     let source_weak = Arc::downgrade(&a_input.source().0);
     let r = recipe.clone();
     let job = a_input.clone();
@@ -493,7 +514,13 @@ fn two_widths_share_shape_and_release_source_after_last_owner() {
     let shape_weak = Arc::downgrade(&a.paragraph().unwrap().source.data);
     let q = next_request(&mut k, recipe.catalog_label(), 600.);
     let before = work::read();
-    let b_input = prepare(&recipe, q, Some(a_input.source())).unwrap();
+    let b_input = prepare(
+        &recipe,
+        q,
+        PaintContext::new(1.).unwrap(),
+        Some(a_input.source()),
+    )
+    .unwrap();
     assert_eq!(
         work::read(),
         before,
@@ -556,13 +583,19 @@ fn rejected_result_releases_its_layout_without_changing_accepted_owner() {
     let engine = TextEngine::with_catalog(fixture_catalog());
     let (recipe, raster) = freeze_catalog(&engine).unwrap();
     let (_k, q) = request(recipe.catalog_label(), 200.);
-    let input = prepare(&recipe, q.clone(), None).unwrap();
+    let input = prepare(&recipe, q.clone(), PaintContext::new(1.).unwrap(), None).unwrap();
     let mut worker = FontWorker::new(recipe.clone()).unwrap();
     let accepted = adopt(worker.execute(input.clone()).unwrap(), &input, &raster).unwrap();
     let signature = glyphs(accepted.paragraph().unwrap());
     let stale = worker.execute(input.clone()).unwrap();
     let stale_layout = stale.probe.clone();
-    let new_expected = prepare(&recipe, q, Some(input.source())).unwrap();
+    let new_expected = prepare(
+        &recipe,
+        q,
+        PaintContext::new(1.).unwrap(),
+        Some(input.source()),
+    )
+    .unwrap();
     let before = work::read();
     assert!(matches!(
         adopt(stale, &new_expected, &raster),
@@ -578,7 +611,7 @@ fn old_raster_catalog_remains_correct_after_same_numeric_face_id_replacement() {
     let mut engine = TextEngine::with_catalog(fixture_catalog());
     let (recipe, raster) = freeze_catalog(&engine).unwrap();
     let (_k, q) = request(recipe.catalog_label(), 200.);
-    let input = prepare(&recipe, q, None).unwrap();
+    let input = prepare(&recipe, q, PaintContext::new(1.).unwrap(), None).unwrap();
     let r = recipe.clone();
     let job = input.clone();
     let output = thread::spawn(move || FontWorker::new(r).unwrap().execute(job).unwrap())
@@ -653,7 +686,7 @@ fn height_only_offer_change_rejects_old_completion_before_adoption() {
     .unwrap();
     let first = next_request(&mut k, recipe.catalog_label(), 200.);
     assert_eq!(first.offer().height, AxisOffer::Definite(55.));
-    let input = prepare(&recipe, first.clone(), None).unwrap();
+    let input = prepare(&recipe, first.clone(), PaintContext::new(1.).unwrap(), None).unwrap();
     let r = recipe.clone();
     let job = input.clone();
     let output = thread::spawn(move || FontWorker::new(r).unwrap().execute(job).unwrap())
@@ -675,7 +708,13 @@ fn height_only_offer_change_rejects_old_completion_before_adoption() {
     assert_eq!(next.offer().width, first.offer().width);
     assert_eq!(next.offer().height, AxisOffer::Definite(77.));
     assert!(next.stamp().same_metrics(first.stamp()));
-    let expected = prepare(&recipe, next, Some(input.source())).unwrap();
+    let expected = prepare(
+        &recipe,
+        next,
+        PaintContext::new(1.).unwrap(),
+        Some(input.source()),
+    )
+    .unwrap();
     let before = work::read();
     assert!(matches!(
         adopt(output, &expected, &raster),
@@ -773,7 +812,7 @@ fn fresh_id_mapping_preserves_stable_geometry_all_glyphs_and_pixels() {
     let spec = q.with_request(Spec::from_request);
     let old = engine.paragraph(&spec, Some(200.));
     let old_pixels = pixels(&mut engine, &old);
-    let input = prepare(&recipe, q, None).unwrap();
+    let input = prepare(&recipe, q, PaintContext::new(1.).unwrap(), None).unwrap();
     let r = recipe.clone();
     let job = input.clone();
     let result = thread::spawn(move || FontWorker::new(r).unwrap().execute(job).unwrap())
@@ -906,7 +945,7 @@ fn one_worker_constructs_both_font_owners_and_moves_raster_without_ui_rebuild() 
     let (_k, q) = request(recipe.catalog_label(), 180.);
     let spec = q.with_request(Spec::from_request);
     let expected = engine.paragraph(&spec, Some(180.));
-    let input = prepare(&recipe, q, None).unwrap();
+    let input = prepare(&recipe, q, PaintContext::new(1.).unwrap(), None).unwrap();
     let pre_adopt = work::read();
     input_tx.send(input.clone()).unwrap();
     let (output, finished) = worker.join().unwrap();
@@ -935,7 +974,7 @@ fn current_system_catalog_generation_preserves_all_glyphs_and_rgba() {
     let (_k, q) = request(recipe.catalog_label(), 250.);
     let spec = q.with_request(Spec::from_request);
     let expected = engine.paragraph(&spec, Some(250.));
-    let input = prepare(&recipe, q, None).unwrap();
+    let input = prepare(&recipe, q, PaintContext::new(1.).unwrap(), None).unwrap();
     let job = input.clone();
     let worker_recipe = recipe.clone();
     let output = thread::spawn(move || {
@@ -1024,3 +1063,5 @@ fn nonregular_replacement_refuses_without_waiting_for_a_pipe_writer() {
     worker.join().unwrap();
     assert_eq!(answer.unwrap(), Some(TransferError::FontCapture));
 }
+
+mod prepared_ink;

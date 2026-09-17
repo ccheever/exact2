@@ -1727,8 +1727,34 @@ controller drive. One staging-permission failure before Cargo is preserved;
 source, dependency, symlink and font identities remain unchanged. Exact binaries,
 raw outputs and cleanup are in `target/linux-text-transfer-native-execution-v2/`.
 
-The transferred paragraph currently adopts an empty lazy ink cache. First UI
-paint can still scan the full glyph layout to build that index, in addition to
-normal visible-glyph raster work. Worker index preparation with exact scale and
-catalog identity is the next prerequisite; zero UI font reconstruction or shaping
-does not establish a warmed first paint or responsive native publication.
+That initial transfer adopted an empty lazy ink cache: first UI paint still
+scanned the full glyph layout to build its index. A subsequent four-file change
+by Leibniz prepares the existing CPU ink index on the worker. Each private job
+binds exact scale bits alongside source, both offers and catalog identity.
+Definite results own the numeric index arrays or explicitly refuse; intrinsic
+results retain neither an index nor width arrays. UI adoption moves the arrays
+and attaches the matching raster catalog token without a scan. The existing
+8MiB index-array limit excludes font caches, shape/layout storage and scratch.
+
+The first-paint regression fails on the original empty-cache transfer and passes
+with preparation. A 77,824-byte, 53,248-glyph paragraph builds its index on a real
+worker thread; first, middle and end CPU paints match the full-glyph pixel oracle
+with zero UI index builds. Visible glyph-cache calls are 156/156/110, not cache
+misses or latency measurements. Scale changes, stale and foreign-catalog results,
+intrinsic probes and refusal lifetimes are covered. The private Darwin run passes
+248 Linux-package tests with one existing GPU ignore. Integration passes 247 but
+hits an image-worker progress timeout in the parallel library suite; that test
+passes alone, with both logs retained. All text tests and strict all-target Clippy
+pass; this is not an all-package integration pass.
+Sources, failures and integration evidence are in `target/text-transfer-ink-validation/`.
+The preceding actual-Linux 42-test capture does not include this follow-up.
+
+Controller admission must still reject mismatched paint context. Ordinary
+painting at another scale can rebuild the cache, conservative queries can fall
+back to all glyphs, and GPU painting still constructs full position vectors.
+Visible glyph raster work also remains on the UI. These helpers therefore do not
+prove a complete responsive publication path or physical 120Hz. Separately,
+Markdown Stress still generates and parses uncached documents synchronously;
+the private pre-parsed native fixture excludes that cost. The actual Markdown
+reader already reads and parses files in its native continuation, but constructs
+Runner Values and enumerates sibling files when settling on the UI owner.
