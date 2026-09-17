@@ -1,4 +1,4 @@
-use exact_game::{Component, Data, Entity, Resource, Transform, Vec2, Vec3};
+use exact_game::{Component, Data, Entity, Resource, Transform, Vec3};
 
 /// How a collider participates in simulation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
@@ -12,7 +12,7 @@ pub enum BodyKind {
     Dynamic,
 }
 
-/// A rigid body's complete persistent state. Bodies must be hierarchy roots.
+/// A rigid body's controls and observed motion. Bodies must be hierarchy roots.
 #[derive(Clone, Debug, PartialEq, Component)]
 pub struct Body {
     /// Static, game-controlled, or simulated (the default).
@@ -31,10 +31,6 @@ pub struct Body {
     pub spin_damping: f32,
     /// Whether the whole touching island has gone to sleep.
     pub asleep: bool,
-    /// Consecutive ticks below both sleep speed thresholds.
-    pub calm: u32,
-    /// Last post-step state, saved to detect game edits and infer kinematic motion.
-    pub previous: Option<BodyState>,
 }
 impl Default for Body {
     fn default() -> Self {
@@ -47,24 +43,11 @@ impl Default for Body {
             damping: 0.0,
             spin_damping: 0.0,
             asleep: false,
-            calm: 0,
-            previous: None,
         }
     }
 }
 
-/// Post-step values used for change detection; these are simulation state.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Data)]
-pub struct BodyState {
-    /// Previous post-step root pose.
-    pub pose: Transform,
-    /// Previous post-step linear velocity.
-    pub velocity: Vec3,
-    /// Previous post-step angular velocity.
-    pub spin: Vec3,
-}
-
-/// Convex geometry in local metres. Curved shapes require uniform positive scale.
+/// Geometry in local metres. Curved shapes require uniform positive scale.
 #[derive(Clone, Debug, PartialEq, Data)]
 pub enum Shape {
     /// A sphere centered on the entity.
@@ -83,6 +66,31 @@ pub enum Shape {
     Box {
         /// Positive half-extents along local X, Y, Z.
         half: Vec3,
+    },
+    /// A Y-axis cylinder; curved geometry requires uniform positive scale.
+    Cylinder {
+        /// Positive radius.
+        radius: f32,
+        /// Positive total height.
+        height: f32,
+    },
+    /// Static terrain centered in X/Z; row-major samples (rows along Z, columns X).
+    Heightfield {
+        /// Number of sample rows, at least two.
+        rows: u32,
+        /// Number of sample columns, at least two.
+        cols: u32,
+        /// Finite height samples, rows × cols entries.
+        heights: Vec<f32>,
+        /// Full X/Z extent and Y height multiplier, positive.
+        scale: Vec3,
+    },
+    /// Static triangle surface, with internal-edge correction.
+    Mesh {
+        /// Local vertices.
+        vertices: Vec<Vec3>,
+        /// Triangle vertex indices, counterclockwise from the front.
+        indices: Vec<[u32; 3]>,
     },
 }
 impl Default for Shape {
@@ -126,40 +134,6 @@ impl Default for Collider {
 #[derive(Clone, Copy, Debug, Default, Component)]
 pub struct Announce;
 
-/// One world-owned, warm-started contact point.
-#[derive(Clone, Debug, Default, Data)]
-pub struct Contact {
-    /// Stable geometric feature identifier within the ordered pair.
-    pub feature: u32,
-    /// Anchor relative to A's position in A's rotation frame (scale baked in).
-    pub local_a: Vec3,
-    /// Anchor relative to B's position in B's rotation frame (scale baked in).
-    pub local_b: Vec3,
-    /// Signed surface separation in metres; negative means penetration.
-    pub separation: f32,
-    /// Accumulated nonnegative normal impulse, in newton seconds.
-    pub normal_impulse: f32,
-    /// Accumulated impulses along the manifold's deterministic tangent basis.
-    pub tangent_impulse: Vec2,
-}
-
-/// Persistent contact manifold; Physics stores these in ordered entity-pair order.
-#[derive(Clone, Debug, Default, Data)]
-pub struct Manifold {
-    /// Lower-index entity (including its generation).
-    pub a: Entity,
-    /// Higher-index entity (including its generation).
-    pub b: Entity,
-    /// Unit normal from A toward B.
-    pub normal: Vec3,
-    /// At most four points, sorted by feature id.
-    pub points: Vec<Contact>,
-    /// Whether either collider is a sensor.
-    pub sensor: bool,
-    /// Whether the surfaces are touching, rather than merely speculative.
-    pub touching: bool,
-}
-
 /// One begin/end transition, ordered by (a.index, b.index).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
 pub struct Touch {
@@ -171,43 +145,29 @@ pub struct Touch {
     pub began: bool,
 }
 
-/// Collider state used to wake sleepers when a supporter changes or disappears.
-#[derive(Clone, Debug, Default, PartialEq, Data)]
-pub struct ColliderState {
-    /// Generational entity identity.
-    pub entity: Entity,
-    /// Previous world pose.
-    pub pose: Transform,
-    /// Previous geometry and material/filter values.
-    pub collider: Collider,
-}
-
-/// All cross-tick physics state; no opaque solver exists beside the world.
+/// World-owned Rapier state, lazily serialized by the engine's Data writer.
 #[derive(Clone, Debug, Resource)]
 pub struct Physics {
-    #[data(skip)]
-    pub(crate) scratch: crate::scratch::Scratch,
     /// World-space acceleration; defaults to (0, -9.81, 0) m/s².
     pub gravity: Vec3,
-    /// Soft steps per world tick, at least one; defaults to eight.
-    pub substeps: u32,
-    /// Persistent, sorted contact manifolds including their warm-start impulses.
-    pub manifolds: Vec<Manifold>,
     /// This tick's sorted begin/end transitions, including sensors.
     pub events: Vec<Touch>,
-    /// Last collider poses and geometry, sorted by entity, for supporter invalidation.
-    pub previous: Vec<ColliderState>,
+    pub(crate) executor: crate::state::Executor,
 }
 impl Default for Physics {
     fn default() -> Self {
         Self {
-            scratch: Default::default(),
             gravity: Vec3::new(0.0, -9.81, 0.0),
-            substeps: 8,
-            manifolds: Vec::new(),
             events: Vec::new(),
-            previous: Vec::new(),
+            executor: Default::default(),
         }
+    }
+}
+impl Physics {
+    /// Refresh the saved Rapier bytes if dirty; return their length.
+    /// Save/hash/JSON invoke this automatically through Data, never each tick.
+    pub fn refresh_snapshot(&self) -> usize {
+        self.executor.refresh()
     }
 }
 

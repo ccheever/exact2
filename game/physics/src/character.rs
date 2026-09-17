@@ -1,103 +1,15 @@
-use crate::{
-    geometry::{world_pose, Geometry},
-    queries::{raycast, sweep_filtered},
-    Body, BodyKind, Character, Collider, Hit, Shape,
-};
+use crate::{math, queries::Scene, Body, BodyKind, Character, Collider, Shape};
 use exact_game::{Entity, Transform, Vec3, World};
-const SKIN: f32 = 0.01;
-fn cast(world: &World, e: Entity, shape: &Shape, pose: Transform, motion: Vec3) -> Option<Hit> {
-    let mask = world.get::<Collider>(e).map_or(u32::MAX, |c| c.mask);
-    sweep_filtered(world, shape, pose, motion, mask, Some(e), true)
-}
-fn push(world: &World, hit: Hit, velocity: Vec3, budget: f32) {
-    let Some(mut body) = world.get_mut::<Body>(hit.entity) else {
-        return;
-    };
-    if body.kind != BodyKind::Dynamic {
-        return;
-    }
-    let mass = if body.mass > 0.0 {
-        body.mass
-    } else {
-        let Some(c) = world.get::<Collider>(hit.entity) else {
-            return;
-        };
-        1.0 / Geometry::new(&c.shape, world_pose(world, hit.entity))
-            .mass(0.0)
-            .0
-    };
-    if mass > budget {
-        return;
-    }
-    let approach = -(velocity - body.velocity).dot(hit.normal);
-    if approach > 0.0 {
-        body.velocity -= hit.normal * approach;
-        body.asleep = false;
-        body.calm = 0;
-    }
-}
-fn step_up(
-    world: &World,
-    e: Entity,
-    shape: &Shape,
-    pose: Transform,
-    motion: Vec3,
-    height: f32,
-    slope: f32,
-) -> Option<Transform> {
-    if height <= 0.0 || motion.length_squared() < 1e-12 {
-        return None;
-    }
-    let up = Vec3::Y * (height + SKIN);
-    if cast(world, e, shape, pose, up).is_some() {
-        return None;
-    }
-    let mut raised = pose;
-    raised.position += up;
-    if cast(world, e, shape, raised, motion).is_some() {
-        return None;
-    }
-    raised.position += motion;
-    let down = -Vec3::Y * (height + 2.0 * SKIN);
-    let hit = cast(world, e, shape, raised, down)?;
-    if hit.normal.y < slope {
-        // At a stair lip the rounded foot first hits the corner. Probe the tread
-        // just beyond that lip; a steep ramp has no walkable tread and is refused.
-        let Shape::Capsule {
-            radius,
-            height: total,
-        } = *shape
-        else {
-            unreachable!()
-        };
-        let probe = raised.position + motion.normalize() * (radius + SKIN);
-        let mask = world.get::<Collider>(e).map_or(u32::MAX, |c| c.mask);
-        let tread = raycast(
-            world,
-            probe,
-            -Vec3::Y,
-            total * 0.5 + height + 2.0 * SKIN,
-            mask,
-        )?;
-        if tread.entity != hit.entity || tread.normal.y < slope {
-            return None;
-        }
-        raised.position.y = tread.point.y + total * 0.5 + SKIN;
-    } else {
-        raised.position.y -= (hit.distance - SKIN).max(0.0);
-    }
-    if raised.position.y - pose.position.y > height + SKIN {
-        return None;
-    }
-    Some(raised)
-}
-/// Move an upright kinematic capsule with four collide-and-slide iterations.
-/// `desired_velocity.x/z` control horizontal motion; Character.velocity.y belongs
-/// to the game (gravity/jump). Ground contact clears downward vertical velocity.
-/// A missing Body/Collider is installed. The character's collider is a sensor:
-/// collision response and its finite push budget are owned by this controller,
-/// preventing the rigid solver from treating the character as infinite push mass.
-/// Call before [`crate::step`]; dimensions are metres and speeds are m/s.
+use rapier3d::parry::query::ShapeCastOptions;
+use rapier3d::{
+    control::{CharacterAutostep, CharacterLength, KinematicCharacterController},
+    prelude::*,
+};
+
+/// Move an upright capsule through Rapier's character controller, then apply its
+/// documented collision impulses to bodies within Character.mass's push budget.
+/// Horizontal input is m/s; the game owns Character.velocity.y (gravity/jumps).
+/// Installs a kinematic sensor Body/Collider. Call before physics::step.
 pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
     let mut c = world
         .get::<Character>(e)
@@ -113,15 +25,13 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
     assert!(
         desired_velocity.is_finite()
             && c.velocity.is_finite()
+            && c.mass.is_finite()
             && c.mass > 0.0
+            && c.step.is_finite()
             && c.step >= 0.0
             && (0.0..90.0).contains(&c.slope_degrees),
         "physics: invalid Character"
     );
-    let shape = Shape::Capsule {
-        radius: c.radius,
-        height: c.height,
-    };
     if !world.has::<Body>(e) {
         world.insert(
             e,
@@ -139,86 +49,130 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
         .get::<Collider>(e)
         .map(|c| c.clone())
         .unwrap_or_default();
-    collider.shape = shape.clone();
+    collider.shape = Shape::Capsule {
+        radius: c.radius,
+        height: c.height,
+    };
     collider.sensor = true;
+    let shape = math::shape(&collider.shape, Vec3::ONE);
+    let mask = collider.mask;
     world.insert(e, collider);
-    let slope = exact_game::math::cos(c.slope_degrees * (std::f32::consts::PI / 180.0));
+    let mut scene = Scene::new(world);
+    let own = scene
+        .entities
+        .iter()
+        .find_map(|(h, v)| (*v == e).then_some(ColliderHandle::from_raw_parts(h[0], h[1])))
+        .unwrap();
+    let predicate = |_: ColliderHandle, co: &rapier3d::prelude::Collider| {
+        co.collision_groups().memberships.bits() & mask != 0
+    };
+    let filter = QueryFilter::default()
+        .exclude_sensors()
+        .exclude_collider(own)
+        .predicate(&predicate);
+    let angle = c.slope_degrees * (std::f32::consts::PI / 180.0);
+    let controller = KinematicCharacterController {
+        offset: CharacterLength::Absolute(0.01),
+        autostep: (c.step > 0.0).then_some(CharacterAutostep {
+            max_height: CharacterLength::Absolute(c.step),
+            min_width: CharacterLength::Absolute(c.radius + 0.01),
+            include_dynamic_bodies: false,
+        }),
+        max_slope_climb_angle: angle,
+        min_slope_slide_angle: angle,
+        snap_to_ground: Some(CharacterLength::Absolute(c.step + 0.02)),
+        ..KinematicCharacterController::default()
+    };
+    let q = scene.queries(filter);
     if c.grounded {
         if let Some(support) = c.support.filter(|s| world.contains(*s)) {
-            let current = world_pose(world, support);
+            let current = math::world_pose(world, support);
             let local =
                 c.support_pose.rotation.conjugate() * (pose.position - c.support_pose.position);
             let delta = current.position + current.rotation * local - pose.position;
-            if let Some(hit) = cast(world, e, &shape, pose, delta) {
-                pose.position += delta.normalize_or_zero() * (hit.distance - SKIN).max(0.0);
-            } else {
-                pose.position += delta;
-            }
+            let carry = controller.move_shape(
+                world.dt(),
+                &q,
+                &*shape,
+                &math::pose(pose),
+                math::vector(delta),
+                |_| {},
+            );
+            pose.position += math::vec3(carry.translation);
         }
     }
-    let start = pose.position;
+    if c.grounded && c.velocity.y < 0.0 {
+        c.velocity.y = 0.0;
+    }
     let velocity = Vec3::new(desired_velocity.x, c.velocity.y, desired_velocity.z);
-    let mut motion = velocity * world.dt();
-    let was_grounded = c.grounded;
-    c.grounded = false;
-    c.support = None;
-    for _ in 0..4 {
-        let length = motion.length();
-        if length < 1e-7 {
-            break;
-        }
-        let Some(hit) = cast(world, e, &shape, pose, motion) else {
-            pose.position += motion;
-            break;
-        };
-        let advance = (hit.distance - SKIN).max(0.0).min(length);
-        pose.position += motion * (advance / length);
-        motion *= 1.0 - advance / length;
-        push(world, hit, velocity, c.mass);
-        if hit.normal.y >= slope {
-            c.grounded = true;
-            c.support = Some(hit.entity);
-            if c.velocity.y < 0.0 {
-                c.velocity.y = 0.0;
-            }
-        } else if was_grounded && velocity.y <= 0.0 {
-            let horizontal = Vec3::new(motion.x, 0.0, motion.z);
-            if let Some(up) = step_up(world, e, &shape, pose, horizontal, c.step, slope) {
-                pose = up;
-                motion = Vec3::ZERO;
-                continue;
-            }
-        }
-        let mut normal = hit.normal;
-        // Steep ramps act as walls for horizontal motion, rather than providing lift.
-        if normal.y > 0.0 && normal.y < slope {
-            normal.y = 0.0;
-            normal = normal.normalize_or_zero();
-        }
-        let inward = motion.dot(normal);
-        if inward < 0.0 {
-            motion -= normal * inward;
-        }
+    let mut collisions = Vec::new();
+    let movement = controller.move_shape(
+        world.dt(),
+        &q,
+        &*shape,
+        &math::pose(pose),
+        math::vector(velocity * world.dt()),
+        |hit| collisions.push(hit),
+    );
+    pose.position += math::vec3(movement.translation);
+    c.grounded = movement.grounded;
+    c.velocity.x = movement.translation.x / world.dt();
+    c.velocity.z = movement.translation.z / world.dt();
+    if c.grounded && c.velocity.y < 0.0 {
+        c.velocity.y = 0.0;
     }
-    if velocity.y <= 0.0 {
-        let snap = if was_grounded {
-            c.step + 2.0 * SKIN
-        } else {
-            2.0 * SKIN
-        };
-        if let Some(hit) = cast(world, e, &shape, pose, -Vec3::Y * snap) {
-            if hit.normal.y >= slope {
-                pose.position.y -= (hit.distance - SKIN).max(0.0);
-                c.grounded = true;
-                c.support = Some(hit.entity);
-                c.velocity.y = 0.0;
-            }
-        }
-    }
-    c.velocity.x = (pose.position.x - start.x) / world.dt();
-    c.velocity.z = (pose.position.z - start.z) / world.dt();
+    c.support = q
+        .cast_shape(
+            &math::pose(pose),
+            -Vector::Y,
+            &*shape,
+            ShapeCastOptions {
+                max_time_of_impact: 0.03,
+                ..ShapeCastOptions::default()
+            },
+        )
+        .filter(|(_, h)| h.normal1.y >= exact_game::math::cos(angle))
+        .map(|(h, _)| scene.entity(h));
     if let Some(s) = c.support {
-        c.support_pose = world_pose(world, s);
+        c.support_pose = math::world_pose(world, s);
+    }
+    let allowed: std::collections::BTreeSet<_> = scene
+        .rapier
+        .colliders
+        .iter()
+        .filter(|(_, co)| {
+            co.parent()
+                .is_some_and(|h| scene.rapier.bodies[h].mass() <= c.mass)
+        })
+        .map(|(h, _)| crate::state::raw(h))
+        .collect();
+    let push_filter = |h: ColliderHandle, _: &rapier3d::prelude::Collider| {
+        allowed.contains(&crate::state::raw(h))
+    };
+    let r = &mut scene.rapier;
+    let mut q = QueryPipelineMut {
+        dispatcher: r.narrow_phase.query_dispatcher(),
+        bvh: &scene.bvh,
+        bodies: &mut r.bodies,
+        colliders: &mut r.colliders,
+        filter: QueryFilter::default()
+            .exclude_sensors()
+            .exclude_collider(own)
+            .predicate(&push_filter),
+    };
+    controller.solve_character_collision_impulses(world.dt(), &mut q, &*shape, c.mass, &collisions);
+    for (h, co) in r.colliders.iter() {
+        if let Some(rb) = co.parent().map(|h| &r.bodies[h]).filter(|b| b.is_dynamic()) {
+            let entity = scene.entities[&crate::state::raw(h)];
+            let mut b = world.get_mut::<Body>(entity).unwrap();
+            let v = math::vec3(rb.linvel());
+            let spin = math::vec3(rb.angvel());
+            if b.velocity != v || b.spin != spin {
+                b.velocity = v;
+                b.spin = spin;
+                b.asleep = false;
+            }
+        }
     }
     world.insert(e, pose);
     world.insert(e, c);

@@ -1,0 +1,3 @@
+   Compiling exact-game v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/engine)
+   Compiling exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics)
+    Finished `release` profile [optimized] target(s) in 23.14s

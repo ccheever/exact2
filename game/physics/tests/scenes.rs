@@ -70,12 +70,8 @@ fn resume_and_replay_every_tick() {
     tick(&mut restored, 90);
     assert_eq!(a.world().hash(), restored.world().hash());
     assert!(
-        a.world()
-            .resource::<Physics>()
-            .manifolds
-            .iter()
-            .any(|m| m.points.iter().any(|p| p.normal_impulse > 0.0)),
-        "resume fixture must save active contacts"
+        a.world().resource::<Physics>().refresh_snapshot() > 0,
+        "resume fixture must save Rapier state"
     );
     for t in 91..=600 {
         tick(&mut a, t);

@@ -1,0 +1,12 @@
+boxes=1000 tick=0 poured=0
+boxes=1000 tick=300 poured=1000
+boxes=1000 active_ms=3.725/5.020 asleep_ms=0.017/0.022 sleep_tick=243 sleep_after_last_pour_s=2.250
+boxes=2000 tick=0 poured=0
+boxes=2000 tick=300 poured=2000
+boxes=2000 active_ms=9.374/15.805 asleep_ms=0.032/0.075 sleep_tick=406 sleep_after_last_pour_s=2.967
+snapshot_active_ms=6.191/7.441 first_ms=7.441 rapier_bytes=10030616
+boxes=5000 tick=0 poured=0
+boxes=5000 tick=300 poured=2500
+boxes=5000 tick=600 poured=5000
+boxes=5000 tick=900 poured=5000
+boxes=5000 active_ms=22.353/25.798 asleep_ms=0.081/0.088 sleep_tick=905 sleep_after_last_pour_s=5.283

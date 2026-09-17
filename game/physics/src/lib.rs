@@ -6,20 +6,17 @@
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
-mod boxes;
 mod character;
-mod geometry;
+mod math;
 mod queries;
-mod round;
-mod scratch;
-mod solver;
+mod state;
 mod step;
 mod types;
 
 pub use character::move_character;
 use exact_game::{Ref, World};
 pub use queries::{overlap, raycast, sweep};
-pub use step::{step, step_observed};
+pub use step::step;
 pub use types::*;
 
 /// Register all physics data before setup or loading a save, and install defaults.
@@ -57,4 +54,4 @@ pub fn quiescent(world: &World) -> bool {
 }
 
 #[cfg(test)]
-mod geometry_tests;
+mod properties;

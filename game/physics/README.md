@@ -1,236 +1,129 @@
 # exact-game-physics
 
-Call `register(world)` in setup, `move_character` after character input, and
-`step(world)` once per fixed tick. Physics reads `world.dt()` and keeps settle busy
-until all dynamic bodies sleep. No solver survives outside the world's Data.
+Rapier 0.35.3 behind Exact's components. Call `register` in setup,
+`move_character` after controls, and `step` once per fixed tick. The previous
+solver, narrowphase, query algorithms and character solver are deleted.
 
-`Body.previous` records the last post-step pose and velocities. `Physics` holds
-ordered manifolds, local anchors, feature IDs, normal/tangent impulses, touching
-state, this tick's events, and previous collider poses/materials. Register before
-loading a world. A saved contact cache is required for exact continuation.
+**P2 is not acceptance-complete.** After three correction rounds, both hosts pass
+17 of 23 physics tests and all 101 engine tests/doctests (including greybox).
+Six retained physics properties fail; they remain enabled. No commit.
 
-The primitive shapes are spheres, total-height Y capsules and oriented boxes.
-Shapes have positive dimensions; spheres/capsules require uniform positive scale.
-Bodies are roots. Collider-only children use their current composed world pose;
-sheared geometry is refused. An explicit mass is kilograms; zero uses density
-1000 kg/m³. Contacts use geometric-mean friction and maximum restitution.
+## Mapping and saved state
 
-`events(world)` returns a read guard dereferencing to `[Touch]`, matching the
-engine's runtime borrow model. Keep it only as long as needed; holding the guard
-while calling `step` is a borrow conflict. `Announce` opts a collider into journal
-begin/end lines. Other events remain readable in the Physics resource.
+- One `PhysicsPipeline::step` per tick, at `world.dt()`. Entity-ordered insertion;
+  ordered maps in both directions. Component comparisons against the last
+  writeback detect teleports, velocity edits, geometry/material changes and removal.
+- Dynamic poses/velocities/sleep return to components. Kinematics use Rapier's next
+  pose. A Rapier collision-only pass after kinematic movement preserves same-tick
+  sensor events. Events are sorted; `Announce` journals transitions.
+- Density defaults to 1000 kg/m³; explicit mass is kilograms. Friction combines
+  geometrically, restitution by maximum. Linear contact slop is 0.1 mm instead of
+  Rapier's 5 mm default. Other integration settings are Rapier defaults.
+- `quiescent` means all dynamic bodies sleep; active physics calls `world.busy`.
+  Sleeping ticks still step Rapier, with an ordered comparison instead of copying
+  unchanged components. Support removal/material edits conservatively wake all.
+- `Physics` owns an `Executor` Data adapter. Its saved record contains compact
+  bincode/serde bytes for Rapier's bodies, colliders, islands, broad/narrow phase,
+  joints and integration parameters, plus entity/handle mappings and last writes.
+  `#[data(skip)]` live state is deserialized lazily. Rapier's pipeline and CCD
+  workspace are scratch by its own serialization contract; no CCD history is lost.
+- `Data::write(&self)` refreshes dirty bytes before save, hash **and JSON**. No
+  engine pre-save hook is needed. `Physics::refresh_snapshot()` measures that same
+  operation. No serialization runs in `step`. The byte representation is opaque
+  and makes agent JSON large; a loaded malformed Rapier blob is rejected by a panic
+  on first use, not by `World::load`.
+- Queries rebuild a Rapier query view from current components, so same-tick edits
+  are visible and reads cannot change simulation hashes. This is O(n) per call.
+  The character uses Rapier's autostep, slope limits, ground snap and documented
+  collision-impulse routine, with explicit saved-pose platform transport and an
+  80 kg default maximum pushable-body mass. Its rigid collider stays a sensor.
 
-The character owns its capsule response and finite push budget. Its kinematic
-collider is a sensor to the rigid solver, preventing an infinite-mass solver push
-from overriding the 80 kg default budget. `desired_velocity.x/z` control movement;
-the game writes `Character.velocity.y` for gravity and jumps. Grounding clears a
-downward velocity. Platforms carry the character using saved relative poses.
+## API differences
 
-Coulomb friction alone cannot hold a free sphere stationary on a slope. The
-sphere fixture checks no-slip rolling at 20° and 40°; the box fixture checks rest
-at 20° and sliding at 40°. Rolling resistance would be an additional material
-property, not a change to Coulomb friction.
+The named components/functions remain. `Shape` adds `Cylinder { radius, height }`,
+`Heightfield { rows, cols, heights, scale }` (row-major, rows Z/columns X), and
+static `Mesh { vertices, indices }`. Heightfields are also static. Curved shapes
+require uniform positive scale; cylinders/capsules use total height. Translational
+sweeps now accept any convex shape, including boxes and cylinders.
 
-Run from `game/` with `EXACT_UPDATE_TRUST=development`:
+Deleted solver-specific fields/types: `Body.calm/previous`, `BodyState`,
+`Physics.substeps/manifolds/previous`, `Contact`, `Manifold`, `ColliderState`, and
+`step_observed`. Last-write detection moved into the resource. Added
+`Physics::refresh_snapshot`. There is no compatibility decoder for old saves.
 
-```
-cargo test -p exact-game-physics --no-fail-fast -- --nocapture
-cargo clippy -p exact-game-physics --all-targets -- -D warnings
-cargo run -p exact-game-physics --release --example pile
-```
+## Measurements — 2026-09-17
 
-Rapier is a dev dependency only. The oracle fixture explicitly selects per-point
-Coulomb friction, matching contact softness, and disables contact recycling; its
-PGS iterations are increased for a more converged reference. Curved GJK queries
-are approximate, so strict geometric tolerances use independent dense sampling
-(in f64 in tests only) and analytic/bisected reference distances.
+Release, no overlapping compilation from this task. Same 100-box/12-tick pour and
+finite 24 m bin as P1b; active samples start after the last pour, and 180 asleep
+samples end each run. Times are ms, **p50 / p95**. Sleep is seconds after the last
+pour. These are shared machines. The 5,000-box fixture pours above the bin walls.
 
-P2: heightfields and meshes need stable triangle/edge identities and seam welding;
-internal edges must not create ghost normals or duplicate friction. Any BVH that
-changes contact order must sort its output. Joints add saved impulses and island
-edges, including wake-on-removal. Rotating/box sweeps need a documented time of
-impact policy; this crate only sweeps translating spheres/capsules. Speculative
-rigid contacts do not provide full rotational CCD.
-
-## Measured status — P1b, 2026-09-17
-
-**Not acceptance-complete. Stopped after three optimization rounds.** The retained
-version passes the correctness checks, but misses 8 ms p95 at 2,000 boxes and the
-large-pile sleep requirement. No commit. Changes are confined to this directory.
-Final staging was blocked by the sandbox's read-only shared Git index; earlier
-source versions are staged, while final documentation and assertion edits remain
-in the working tree.
-
-The retained changes use one held query to gather bodies; move the Physics resource
-instead of cloning every manifold; reuse derived node, constraint, axis-list and
-pair buffers under `#[data(skip)]`; separate static broadphase bounds; use coherent
-insertion sorting with an O(n log n) fallback; reject box pairs by bounding sphere
-and SAT distance before clipping; keep clipping polygons and prepared rows inline;
-and construct each separated box's vertices once instead of inside every edge pair.
-The solver precomputes angular impulse responses and tangent inverses per substep.
-It uses **eight substeps, one biased solve and one relax pass each**, with clamped
-accumulated impulses, 30 Hz capped at one quarter of the substep rate, damping ratio
-10 and a 3 m/s push-out cap. Contact and pair order remain fixed.
-
-The capsule ray was correct. At (-3, .63, .13), the cap-center offset is (.03, .13),
-so `(t-3)^2 + .03^2 + .13^2 = .4^2` gives `t = 2.622905847 m`.
-Rapier/Parry returns 2.6247108 m. The test now uses the closed form for capsule rays,
-while retaining the strict 0.1 mm tolerance and independent normal checks.
-
-Sphere contact anchors must stay at ±normal × radius; rotating a material point
-on the sphere was creating a false separation and permitting slip. The repaired
-fixture asserts full contact-point velocity below 0.02 m/s and acceleration within
-0.05 m/s² of `(5/7) g sin(theta)`. Measured tangential slip at 20°/40° is
-0 / 0.000000183 m/s, acceleration 2.3965855 / 4.504100 m/s² (expected 2.3965843 /
-4.504105). Rolling resistance was not added.
-
-### Validation
-
-All 20 original tests pass; a new mid-bounce resume test makes **21 debug tests**
-on Linux. Mac release passes 20 tests (the debug-only parented-body panic test is
-excluded there); the 20 original debug tests also passed on Mac in round 2. The
-final local debug invocation waited on another Cargo build's lock, so it was
-interrupted and verification used release locally and debug on the builder.
-The tightened scene assertions pass on both machines. Clippy with
-`--all-targets -- -D warnings` passes on Mac release and Linux debug; formatting
-and the repository caps check pass.
-
-| Preserved property | Result |
-|---|---|
-| Single-box rest height | 0.499635 m, **0.365 mm** error; assertion tightened to 0.4 mm |
-| Ten-box stack | Stands; 2.074 mm horizontal drift; sleeps at tick 40 |
-| 125-box dropped block | Sleeps at tick 91; 17.719 mm maximum oracle position difference |
-| Restitution 0.5 sphere | 0.488607 m rebound from a 2 m drop |
-| Pile save/resume | Tick-90 save; exact continuation through tick 600 |
-| Mid-bounce save/resume | Tick-45 save while rising; every tick through 240 matches |
-| Mac arm64 tick-600 hash | `0x07d77113bfe4413b` |
-| Linux x86-64 tick-600 hash | `0x07d77113bfe4413b` |
-
-### Throughput and reference
-
-Milliseconds per active tick, p50 / p95. Same unit boxes, density, friction, bin and
-100-box pour every 12 ticks for both engines. Rapier 0.35.3 uses its unmodified
-single-threaded defaults. All throughput runs allow 2,400 ticks and measure the
-active window after the last pour; naturally sleeping runs finish after 180 asleep
-samples. Thus Rapier's active window is shorter. These are shared machines, not
-isolated CPU measurements. The final Mac run excludes overlap with this task's
-compilation; an earlier contaminated run is not used below.
-
-| Machine | Boxes | Before p50 / p95 | After p50 / p95 | Rapier p50 / p95 | Rapier sleep tick |
-|---|---:|---:|---:|---:|---:|
-| mac | 1,000 | 46.425 / 76.470 | 25.114 / 32.386 | 2.671 / 3.301 | 243 |
-| mac | 2,000 | 68.344 / 83.503 | 35.309 / 57.776 | 7.670 / 9.153 | 406 |
-| mac | 5,000 | 94.691 / 138.248 | 46.523 / 73.961 | 18.822 / 22.152 | 905 |
-| linux | 1,000 | 53.497 / 54.268 | 29.820 / 30.315 | 3.010 / 3.559 | 243 |
-| linux | 2,000 | 77.090 / 79.978 | 41.260 / 42.958 | 7.044 / 7.319 | 406 |
-| linux | 5,000 | 101.604 / 147.677 | 56.815 / 89.755 | 26.993 / 29.085 | 905 |
-
-**None of the Exact poured piles sleeps before the 2,400-tick limit**, before or
-after. Time-to-sleep is unavailable, and **≤0.2 ms asleep at 2,000 is unverified**;
-no bodies were forced asleep to manufacture a measurement. Raw `sleep_tick=0`
-and zero asleep percentiles mean no samples, not zero-cost sleep. Rapier's reported
-asleep calls round to 0.000 ms. Its whole-pile sleep times after the last pour are
-2.25 / 2.97 / 5.28 s for 1,000 / 2,000 / 5,000 boxes.
-
-The original bin is only 24 m tall. The unchanged 5,000-box fixture pours above
-that height; unstable boxes can spill over its finite ground and fall indefinitely.
-It is a throughput stress case, not proof of a contained settled 5,000-box pile.
-
-### Where the tick goes
-
-Mean milliseconds on sampled active ticks at **2,000 boxes**. All clocks and the
-counting allocator live in the example. `step_observed` emits phase boundaries but
-owns no clock, profile resource or saved measurements. Every 30th active tick is
-profiled; these ticks are excluded from throughput percentiles. Phase means include
-observer overhead and scheduling, so they are not a decomposition of the p50.
-Warm includes force integration, inertia/effective-mass preparation and warm start;
-islands includes wake propagation, island construction and constraint preparation;
-sleep includes final separation/touching refresh. Write-back includes touch events.
-
-| Phase | Mac before | Mac after | Linux before | Linux after |
+| Host | Boxes | Active ms | Sleep s | Asleep ms |
 |---|---:|---:|---:|---:|
-| gather | 0.5218 | 0.1852 | 0.4961 | 0.2175 |
-| broadphase | 1.2291 | 1.0709 | 2.0163 | 1.9654 |
-| narrowphase | 29.1817 | 7.6566 | 38.4630 | 10.3005 |
-| matching | 2.1346 | 1.8364 | 1.7616 | 1.3917 |
-| islands | 1.6631 | 1.7351 | 1.5489 | 1.3823 |
-| warm | 4.1577 | 10.0457 | 5.6029 | 12.9638 |
-| solve | 23.0661 | 6.7369 | 20.5278 | 5.7704 |
-| integrate | 0.1459 | 0.2081 | 0.0713 | 0.1399 |
-| relax | 5.6681 | 6.8082 | 5.2303 | 5.8452 |
-| restitution | 0.0459 | 0.0591 | 0.0191 | 0.0180 |
-| sleep | 1.3883 | 1.2102 | 0.9994 | 0.8692 |
-| writeback | 1.1097 | 1.2988 | 0.9636 | 0.7100 |
-| other | 0.0095 | 0.2150 | 0.0072 | 0.0064 |
+| Mac arm64 | 1,000 | 3.725 / 5.020 | 2.250 | 0.017 / 0.022 |
+| Mac arm64 | 2,000 | 9.374 / 15.805 | 2.967 | 0.032 / 0.075 |
+| Mac arm64 | 5,000 | 22.353 / 25.798 | 5.283 | 0.081 / 0.088 |
+| Linux x86-64 | 1,000 | 3.330 / 3.932 | 2.250 | 0.019 / 0.020 |
+| Linux x86-64 | 2,000 | 7.981 / 8.241 | 2.967 | 0.042 / 0.047 |
+| Linux x86-64 | 5,000 | 30.801 / 31.951 | 5.283 | 0.109 / 0.114 |
 
-Per substep, each cell is **warm / solve / integrate / relax**, milliseconds.
+At 2,000 boxes, ten dirty refreshes immediately after the last pour:
+Mac **6.191 / 7.441 ms**, Linux **5.316 / 12.000 ms** (first calls 7.441 / 12.000 ms).
+The last refresh produces **10,030,616 Rapier bytes**, excluding the separately
+saved mapping records and outer World encoding. These figures include refreshing
+those mapping records. The 5 ms refresh target and Mac 10 ms active p95 target fail;
+2,000-box sleep time and asleep cost pass. The 5,000-box sleep exceeds 4 seconds.
 
-| Substep | Mac before | Mac after | Linux before | Linux after |
-|---:|---|---|---|---|
-| 0 | 1.0093 / 5.6838 / 0.0342 / 1.3962 | 1.3020 / 0.7608 / 0.0248 / 0.7998 | 1.4087 / 5.1811 / 0.0179 / 1.3072 | 1.6229 / 0.7330 / 0.0176 / 0.7348 |
-| 1 | 1.0289 / 5.7553 / 0.0417 / 1.4424 | 1.2019 / 0.9421 / 0.0298 / 0.8351 | 1.3984 / 5.1274 / 0.0179 / 1.3071 | 1.6222 / 0.7267 / 0.0178 / 0.7344 |
-| 2 | 1.0924 / 5.7076 / 0.0346 / 1.3999 | 1.1687 / 0.7890 / 0.0245 / 0.7545 | 1.3978 / 5.1111 / 0.0177 / 1.3074 | 1.6204 / 0.7215 / 0.0173 / 0.7315 |
-| 3 | 1.0271 / 5.9193 / 0.0354 / 1.4295 | 1.2020 / 0.8277 / 0.0268 / 0.9622 | 1.3980 / 5.1081 / 0.0178 / 1.3085 | 1.6208 / 0.7194 / 0.0174 / 0.7302 |
-| 4 | — | 1.4648 / 0.8989 / 0.0251 / 0.9264 | — | 1.6197 / 0.7182 / 0.0175 / 0.7289 |
-| 5 | — | 1.2564 / 0.8104 / 0.0239 / 0.8692 | — | 1.6194 / 0.7176 / 0.0175 / 0.7286 |
-| 6 | — | 1.2030 / 0.8680 / 0.0271 / 0.8514 | — | 1.6195 / 0.7173 / 0.0175 / 0.7295 |
-| 7 | — | 1.2469 / 0.8401 / 0.0262 / 0.8096 | — | 1.6189 / 0.7167 / 0.0175 / 0.7272 |
+Minimal cdylib, wasm32-unknown-unknown, `opt-level="z"`, fat LTO:
+**1,231,611 bytes raw / 438,271 bytes gzip -9**. It retains registration, rigid
+stepping and hashing; unused character/query entry points are excluded by LTO.
+The normal/build graph adds **43 dependency crates** over the former production
+physics→engine/glam graph (Rapier was already present as a dev dependency).
 
-Mean **candidates / narrowphase tests / touching pairs / contact points**, sampled
-before solving. Contact points include speculative contacts. Counts and allocation
-averages match between architectures; the solver change alters the later trajectories.
+Tick-600 5×5×5 scene: **Mac `0x10adc45f96879746`; Linux `0x10adc45f96879746`**,
+in debug tests and the release probe. Mid-bounce tick-45 saves continue exactly
+through tick 240; pile tick-90 saves resume through 600. Greybox remains
+`0x70c17d4a69834418` with physics in the same build graph. Clippy `-D warnings` and
+fmt pass on both hosts. Repository caps passes for tracked files; each new source
+is separately under 1,500 lines. Production source is about 1,330 lines.
 
-| Boxes | Before counts | After counts | Allocations/tick before → after |
-|---:|---|---|---:|
-| 1,000 | 9576 / 9576 / 1820 / 12992 | 8896 / 8896 / 2116 / 11902 | 55,775 → 5,013 |
-| 2,000 | 15136 / 15136 / 3234 / 18250 | 14328 / 14328 / 3217 / 16573 | 85,022 → 6,802 |
-| 5,000 | 19928 / 19928 / 4981 / 27090 | 17711 / 17711 / 4533 / 23537 | 116,327 → 9,751 |
+[Mac measurements](measurements/p2-mac-pile.txt), [Linux measurements](measurements/p2-linux-pile.txt),
+[Mac tests](measurements/p2-mac-tests.txt), [Linux tests](measurements/p2-linux-tests.txt).
+P1b's before numbers remain in [Mac](measurements/p1b-after-mac.txt) and
+[Linux](measurements/p1b-after-linux.txt): Mac 2,000-box p95 was 57.776 ms and never slept.
 
-The remaining costs are repeated effective-mass/tensor/anchor preparation across
-eight substeps, sequential normal and friction rows in both solve passes, and
-exact closest-point searches over 144 edge pairs for nearby separated boxes.
-Manifold point Vecs, result Vecs and island arrays still allocate. Cached separating
-axes/persistent clipping and complete manifold-buffer reuse were not implemented.
-The broadphase is not the largest remaining cost. No engine API change is required:
-held queries already provide bulk reads; writes currently insert each component once.
+## Owed / conflicts with the contract
 
-Sleep is still a solver-quality failure as well as a threshold issue. Static ground
-does not join dynamic islands, and unchanged poses do not repeatedly wake them.
-An island requires every body's linear and angular speed to remain below 0.05 for
-30 consecutive ticks. At the end of the 2,000-box run, median linear speed is
-0.10883 m/s, maximum 2.70933 m/s and maximum angular speed 2.86256 rad/s. Thus the
-calm minimum repeatedly returns to zero; simply forcing sleep would hide motion.
+The six failing tests retain their original tolerances, not Rapier-oracle comparisons:
+curved-pair normals against dense sampling; coincident-capsule penetration
+(-0.5961096 m vs -0.6 m); four stable clipped-face features (Rapier supplies eight
+points); capsule-ray normals; capsule sweeps (0.224 mm error vs the 0.1 mm bar);
+and rolling contact speed (0.07498 m/s at 20° vs <0.02). Rest height, stack sleep,
+bounce, all character fixtures, rigid CCD and terrain/mesh/cylinder checks pass.
+Disabling contact recycling did not fix rolling; that change was removed. A raw
+Rapier probe increasing iterations also failed the rolling threshold. Further
+geometry/controller/solver changes stopped at the three-round limit. The character
+impulse routine's proximity filter also needs the collision layer mask reapplied.
 
-### Three rounds, then stop
+Rapier uses glam **0.33.7** through glamx **0.3.0**. Unified `scalar-math` and `libm`
+remain enabled; neither `parallel`, `simd8`, nor `fast-math` is enabled. However,
+Parry 0.30.2 always uses four-lane `wide` types, falling back to scalar where needed.
+No purely scalar Rapier executor is selectable through these features. Both tested
+architectures agree; wasm execution determinism was not measured.
 
-| Round | 2,000-box Mac p50 / p95 | Correctness/result |
-|---|---:|---|
-| 1: geometry/scratch, one solve at 4 substeps | 36.196 / 58.108 | 125-box pile drift 51 mm; never sleeps; rejected solver setting |
-| 2: cached impulse responses, one solve at 8 substeps | 34.336 / 45.908 | All original 20 tests pass; retained |
-| 3: prepare masses once/tick, paired normal blocks, narrower speculative margin, pose-drift sleep | 19.701 / 26.720 | Oracle position difference 60.331 mm; sleep tick 368 vs 97; all round-3 production changes reverted |
+Reproduce from `game/`, with `EXACT_UPDATE_TRUST=development`:
 
-Rounds 1/2 used 900-tick diagnostic windows; round 3 used 2,400 ticks. The full
-retained-version measurements are the throughput table above. Neither the 8 ms
-p95 budget, 2× Rapier bar nor large-pile sleep acceptance was reached. Optimization
-stopped at the specified limit rather than retaining the faster regression.
-
-### Reproduce and inspect
-
-From `game/`, with `EXACT_UPDATE_TRUST=development`:
-
-```sh
-cargo run -p exact-game-physics --release --example pile -- 1000 2000 5000
-cargo run -p exact-game-physics --release --example pile -- --rapier 1000 2000 5000
-cargo run -p exact-game-physics --release --example pile -- --verify
-cargo test -p exact-game-physics --no-fail-fast -- --nocapture
+```
+cargo test -p exact-game -p exact-game-physics --no-fail-fast -- --nocapture
 cargo clippy -p exact-game-physics --all-targets -- -D warnings
 cargo fmt -p exact-game-physics -- --check
+cargo run -p exact-game-physics --release --example pile -- 1000 2000 5000
+cargo run -p exact-game-physics --release --example pile -- --verify
+cargo build -p exact-game-physics --profile web --target wasm32-unknown-unknown --example minimal
 ```
 
-`PILE_TICKS` overrides the tick limit for shorter diagnostics. `--verify` prints the
-125-box tick-600 hash and asserts exact mid-bounce continuation. Raw phase tables
-for all three counts, including every substep, are retained here:
-
-- [Mac before](measurements/p1b-before-mac.txt), [Mac after](measurements/p1b-after-mac.txt), [Mac Rapier](measurements/p1b-rapier-mac.txt).
-- [Linux before](measurements/p1b-before-linux.txt), [Linux after](measurements/p1b-after-linux.txt), [Linux Rapier](measurements/p1b-rapier-linux.txt).
-- [Round diagnostics and rejected regression](measurements/p1b-rounds.txt), [test and Clippy output](measurements/p1b-validation.txt).
+Validation used `CARGO_RESOLVER_LOCKFILE_PATH` with a temporary lockfile inside
+this directory, leaving the shared `game/Cargo.lock` to its owning lane. Integration
+must refresh that lockfile for bincode/serde-serialize. No engine files were edited.
+Staging was attempted only for `game/physics/`; the sandbox refused the shared
+Git index lock. Changes remain unstaged.

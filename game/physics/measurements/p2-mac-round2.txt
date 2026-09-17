@@ -1,0 +1,114 @@
+    Updating crates.io index
+     Locking 1 package to latest compatible version
+      Adding xxhash-rust v0.8.18
+   Compiling exact-game v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/engine)
+   Compiling exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics)
+    Finished `test` profile [optimized + debuginfo] target(s) in 11.63s
+     Running unittests src/lib.rs (game/target/debug/deps/exact_game_physics-a8890932b80c5633)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/character.rs (game/target/debug/deps/character-72722bac8068d8a5)
+
+running 4 tests
+ramp 30: Vec3(1.6397212, 1.9047114, -0.000103710976)
+push 10kg: crate x=2.4417443
+test wall_slide_and_thin_wall_at_twenty_metres_per_second ... ok
+step 0.25: Vec3(0.6900527, 0.92408675, -0.00014470148)
+
+thread 'steps_below_and_above_limit' (301969470) panicked at physics/tests/character.rs:42:13:
+assertion failed: p.x > 1.5 && p.y > 1.1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test steps_below_and_above_limit ... FAILED
+ramp 60: Vec3(-0.17909475, 0.90999883, -0.00026059366)
+test slopes_walkable_and_steep ... ok
+push 1000kg: crate x=1.0000011
+test platform_transport_and_finite_push_budget ... ok
+
+failures:
+
+failures:
+    steps_below_and_above_limit
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p exact-game-physics --test character`
+     Running tests/mapping.rs (game/target/debug/deps/mapping-5f4e86b04bbc17ff)
+
+running 2 tests
+test fast_rigid_body_does_not_tunnel_and_queries_are_read_only ... ok
+test heightfield_mesh_and_cylinder_use_world_entities ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/queries.rs (game/target/debug/deps/queries-09f9ecd000fd89b2)
+
+running 3 tests
+test hierarchy_and_sorted_ties_are_live_reads ... ok
+
+thread 'translational_sweeps_match_independent_distance_bisection' (301970006) panicked at physics/tests/queries.rs:149:21:
+sweep Sphere { radius: 0.5 } moving=Capsule { radius: 0.2, height: 0.8 } origin=Vec3(-3.0, -0.84000003, 0.13): 2.7477841 != sampled 2.748008
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test translational_sweeps_match_independent_distance_bisection ... FAILED
+
+thread 'rays_have_closed_form_distances_and_normals' (301970005) panicked at physics/tests/queries.rs:61:17:
+ray normal Capsule { radius: 0.4, height: 2.0 } origin=Vec3(-3.0, -0.91, 0.13): got=Vec3(-0.54132384, -0.7757906, 0.3242185) analytic=Vec3(-0.5419877, -0.77499956, 0.3249998)
+test rays_have_closed_form_distances_and_normals ... FAILED
+
+failures:
+
+failures:
+    rays_have_closed_form_distances_and_normals
+    translational_sweeps_match_independent_distance_bisection
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p exact-game-physics --test queries`
+     Running tests/scenes.rs (game/target/debug/deps/scenes-63bf8933a6c0fbc1)
+
+running 10 tests
+
+thread 'refuses_parented_body_by_name' (301970153) panicked at physics/src/step.rs:63:13:
+Body `child` must be a root
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+box slope 20: displacement=0.00015485336
+bounce apex=0.485377, expected 0.5
+scene drop: sleep=73 drift=0.011257 bottom=0.499931
+
+thread 'free_spheres_roll_without_slipping_on_both_slopes' (301970152) panicked at physics/tests/scenes.rs:281:9:
+rolling slip at 20: Vec3(0.008442402, -0.074407995, 1.3612279e-8)
+test bounce_height ... ok
+test wake_supporter_edits_and_despawn ... ok
+test free_spheres_roll_without_slipping_on_both_slopes ... FAILED
+test refuses_parented_body_by_name - should panic ... ok
+test sensors_filter_events_and_journal ... ok
+box slope 40: displacement=184.99243
+test busy_participates_in_settle ... ok
+test slopes_box_static_and_sliding ... ok
+scene stack: sleep=47 drift=0.005310 bottom=0.499311
+test resume_mid_bounce_every_tick ... ok
+scene pile: sleep=181 drift=0.534418 bottom=0.499416
+test drop_stack_and_block_sleep ... ok
+PILE_HASH_600=0x60b07226d288456a
+test resume_and_replay_every_tick ... ok
+
+failures:
+
+failures:
+    free_spheres_roll_without_slipping_on_both_slopes
+
+test result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.44s
+
+error: test failed, to rerun pass `-p exact-game-physics --test scenes`
+   Doc-tests exact_game_physics
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 3 targets failed:
+    `-p exact-game-physics --test character`
+    `-p exact-game-physics --test queries`
+    `-p exact-game-physics --test scenes`

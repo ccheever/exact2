@@ -1,0 +1,2 @@
+    Checking exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 1.05s

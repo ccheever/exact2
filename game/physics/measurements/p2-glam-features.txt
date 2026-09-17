@@ -1,0 +1,116 @@
+glam v0.33.7
+└── glamx v0.3.0
+    └── rapier3d v0.35.3
+        ├── rapier3d feature "alloc"
+        │   └── rapier3d feature "std"
+        │       └── exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics)
+        │           └── exact-game-physics feature "default" (command-line)
+        │       └── rapier3d feature "serde-serialize"
+        │           └── exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics) (*)
+        ├── rapier3d feature "dim3"
+        │   └── exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics) (*)
+        ├── rapier3d feature "enhanced-determinism"
+        │   └── exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics) (*)
+        ├── rapier3d feature "f32"
+        │   └── exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics) (*)
+        ├── rapier3d feature "serde-serialize" (*)
+        └── rapier3d feature "std" (*)
+    ├── glamx feature "approx"
+    │   └── parry3d feature "alloc"
+    │       └── rapier3d feature "alloc" (*)
+    ├── glamx feature "glamx-serde"
+    │   └── glamx feature "serde"
+    │       └── parry3d feature "serde-serialize"
+    │           └── rapier3d feature "serde-serialize" (*)
+    ├── glamx feature "i32"
+    │   └── parry3d v0.30.2
+    │       ├── parry3d feature "alloc" (*)
+    │       ├── parry3d feature "dim3"
+    │       │   └── parry3d feature "required-features"
+    │       │       └── rapier3d v0.35.3 (*)
+    │       ├── parry3d feature "downcast-rs"
+    │       │   └── parry3d feature "alloc" (*)
+    │       ├── parry3d feature "ena"
+    │       │   └── parry3d feature "std"
+    │       │       └── rapier3d feature "std" (*)
+    │       ├── parry3d feature "enhanced-determinism"
+    │       │   └── rapier3d feature "enhanced-determinism" (*)
+    │       ├── parry3d feature "f32"
+    │       │   └── parry3d feature "required-features" (*)
+    │       ├── parry3d feature "hashbrown"
+    │       │   └── parry3d feature "alloc" (*)
+    │       ├── parry3d feature "indexmap"
+    │       │   └── parry3d feature "enhanced-determinism" (*)
+    │       ├── parry3d feature "required-features" (*)
+    │       ├── parry3d feature "rstar"
+    │       │   └── parry3d feature "alloc" (*)
+    │       ├── parry3d feature "serde"
+    │       │   └── parry3d feature "serde-serialize" (*)
+    │       ├── parry3d feature "serde-serialize" (*)
+    │       ├── parry3d feature "serde_arrays"
+    │       │   └── parry3d feature "serde-serialize" (*)
+    │       ├── parry3d feature "slab"
+    │       │   └── parry3d feature "std" (*)
+    │       ├── parry3d feature "smallvec"
+    │       │   └── parry3d feature "alloc" (*)
+    │       └── parry3d feature "std" (*)
+    ├── glamx feature "libm"
+    │   └── parry3d feature "enhanced-determinism" (*)
+    ├── glamx feature "nalgebra"
+    │   └── rapier3d v0.35.3 (*)
+    ├── glamx feature "nostd-libm"
+    │   └── parry3d v0.30.2 (*)
+    ├── glamx feature "scalar-math"
+    │   └── parry3d feature "enhanced-determinism" (*)
+    ├── glamx feature "serde" (*)
+    └── glamx feature "std"
+        └── parry3d feature "std" (*)
+├── glam feature "approx"
+│   └── glamx feature "approx" (*)
+├── glam feature "f64"
+│   └── nalgebra v0.35.0
+│       ├── nalgebra feature "alloc"
+│       │   └── rapier3d feature "alloc" (*)
+│       ├── nalgebra feature "convert-glam033"
+│       │   └── glamx v0.3.0 (*)
+│       ├── nalgebra feature "glam033"
+│       │   └── nalgebra feature "convert-glam033" (*)
+│       ├── nalgebra feature "macros"
+│       │   └── rapier3d v0.35.3 (*)
+│       ├── nalgebra feature "matrixmultiply"
+│       │   └── nalgebra feature "std"
+│       │       └── rapier3d feature "std" (*)
+│       ├── nalgebra feature "nalgebra-macros"
+│       │   └── nalgebra feature "macros" (*)
+│       ├── nalgebra feature "serde"
+│       │   ├── nalgebra feature "serde-serialize"
+│       │   │   └── rapier3d feature "serde-serialize" (*)
+│       │   └── nalgebra feature "serde-serialize-no-std"
+│       │       └── nalgebra feature "serde-serialize" (*)
+│       ├── nalgebra feature "serde-serialize" (*)
+│       ├── nalgebra feature "serde-serialize-no-std" (*)
+│       └── nalgebra feature "std" (*)
+├── glam feature "i32"
+│   └── nalgebra v0.35.0 (*)
+│   └── glamx feature "i32" (*)
+├── glam feature "libm"
+│   ├── exact-game v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/engine)
+│   │   └── exact-game feature "default"
+│   │       └── exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics) (*)
+│   └── exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics) (*)
+│   └── glamx feature "libm" (*)
+├── glam feature "nostd-libm"
+│   └── glamx feature "nostd-libm" (*)
+├── glam feature "scalar-math"
+│   ├── exact-game v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/engine) (*)
+│   └── exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics) (*)
+│   └── glamx feature "scalar-math" (*)
+├── glam feature "serde"
+│   └── glamx feature "serde" (*)
+├── glam feature "std"
+│   ├── exact-game v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/engine) (*)
+│   └── exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics) (*)
+│   ├── glamx feature "std" (*)
+│   └── nalgebra feature "std" (*)
+└── glam feature "u32"
+    └── nalgebra v0.35.0 (*)
