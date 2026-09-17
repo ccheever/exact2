@@ -308,6 +308,17 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
+            16 | 17 => {
+                let event = if kind == 16 {
+                    Event::transform_geometry_payload(&payload)
+                } else {
+                    Event::transform_release_payload(&payload)
+                };
+                let Some(event) = event else {
+                    return self.emit(r#"{"ops":[],"error":"invalid transform event"}"#.into());
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
@@ -368,6 +379,14 @@ impl<D: DataSource> Bridge<D> {
     /// Fixed 48-byte LE motion request: version/op/view/property u32,
     /// opaque serial u64, then x/y/clock-ms f64. Serials never cross as f64.
     pub fn motion(&mut self, len: usize) -> u32 {
+        if len == 120 {
+            let out = match (self.host.as_mut(), self.input.get(..len)) {
+                (Some(host), Some(bytes)) => host.transform_motion(bytes),
+                (None, _) => exact_runner::agent::error("not booted"),
+                _ => exact_runner::agent::error("malformed transform input"),
+            };
+            return self.emit(out);
+        }
         use exact_motion::{HoldEnd, Property, Value};
         let decoded = (|| -> Result<_, exact_plan::PlanError> {
             let mut r = exact_plan::bytes::Reader::new(

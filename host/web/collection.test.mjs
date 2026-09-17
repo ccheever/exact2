@@ -436,3 +436,154 @@ test('begin reply binding retirement owns the adopted hold before synchronous ba
       animations:n.getAnimations().length,pins:f.released};})()`);
   expect(result).toEqual({cleared:'180px',held:0,cancels:1,late:0,actions:0,animations:1,pins:[9]});
 });
+
+test('photo pair packet preserves all seven u64 stamps and the complete terminal payload',()=>{
+  const fields={op:'transform-action',runtime:'9007199254741001',handleKey:'9007199254741003',targetKey:'9007199254741005',clipKey:'9007199254741007',geometrySequence:'9007199254741009',translateToken:'9007199254741011',scaleToken:'9007199254741013',values:[13.25,-7.5,1.375,30,-10,0],now:110};
+  const bytes=motionBytes(fields),d=new DataView(bytes.buffer);
+  expect(bytes.length).toBe(120);expect(d.getUint32(0,true)).toBe(2);expect(d.getUint32(4,true)).toBe(13);
+  for(const [i,name] of ['runtime','handleKey','targetKey','clipKey','geometrySequence','translateToken','scaleToken'].entries()) expect(String(d.getBigUint64(8+i*8,true))).toBe(fields[name]);
+  expect(Array.from({length:6},(_,i)=>d.getFloat64(64+i*8,true))).toEqual(fields.values);
+  expect(d.getFloat64(112,true)).toBe(110);
+  expect(()=>motionBytes({...fields,geometrySequence:Number.MAX_SAFE_INTEGER+1})).toThrow();
+});
+
+function photoFixture(native=false) {
+  globalThis.f?.motion?.reset();globalThis.f?.controller?.dispose();
+  const root=document.getElementById('root');
+  root.innerHTML='<div data-view="8" style="width:400px;height:300px;overflow:auto"><div data-view="1" style="width:320.25px;height:200.5px;box-sizing:border-box;overflow:hidden;padding:0;border:0"><div data-view="2" style="width:100%;height:100%;box-sizing:border-box;padding:0;border:0;translate:0px 0px;scale:1;transition:none"><div data-view="3" style="width:100%;height:100%">Photo</div></div></div><div style="height:800px"></div></div>';
+  const views=new Map([...root.querySelectorAll('[data-view]')].map(el=>[+el.dataset.view,el]));
+  const target=views.get(2),clip=views.get(1),handle=views.get(3),outer=views.get(8),events={},calls=[],held=new Map();
+  let serial=9007199254741100n,time=100,generation=1,lastDimensions=null;
+  const binding={op:'transform-drag',id:3,runtime:'9007199254741099',handleKey:'9007199254741003',target:2,targetKey:'9007199254741002',clip:1,clipKey:'9007199254741001'};
+  const f={views,target,clip,handle,outer,events,calls,held,binding,geometryActions:0,actions:0,released:[]};
+  const apply=batch=>{
+    for(const op of batch?.ops??[]) {
+      if(op.op==='transform-drag') motion.transformBinding(op);
+      if(op.op==='retire-motion') motion.retire(op.id,op.property,op.token,op.runtime);
+      if(op.op==='animate') motion.animate(op);
+      if(op.op==='style') motion.style(op.id,op.css);
+    }
+    motion.commit();
+  };
+  const start=(property,value)=>{
+    for(const [token,h] of held) if(h.property===property) held.delete(token);
+    const token=String(serial++);held.set(token,{property,value});return token;
+  };
+  const request=r=>{
+    calls.push({...r,values:r.values&&[...r.values]});
+    if(r.op==='transform-geometry') {
+      const dimensions=JSON.stringify(r.values.slice(0,4));
+      if(dimensions!==lastDimensions) {lastDimensions=dimensions;f.geometryActions++;}
+      return {accepted:true,batch:{ops:[]}};
+    }
+    if(r.op==='transform-invalidate') {return {accepted:true,batch:{ops:[]}};}
+    if(r.op==='transform-begin') {
+      const [x,y,s]=r.values;
+      const translateToken=start('translate',[x,y]),scaleToken=start('scale',[s,0]);
+      return {accepted:true,runtime:r.runtime,geometrySequence:r.geometrySequence,translateToken,scaleToken,value:[x,y,s],batch:{ops:f.beginOps??[]}};
+    }
+    if(r.op==='transform-move'||r.op==='transform-action') {
+      if(!held.has(r.translateToken)||!held.has(r.scaleToken))return {accepted:false};
+      const [x,y,s]=r.values;held.get(r.translateToken).value=[x,y];held.get(r.scaleToken).value=[s,0];
+      if(r.op==='transform-action') {f.actions++;f.onAction?.(r);}
+      return {accepted:true,dispatched:r.op==='transform-action',committed:true,batch:{ops:[]}};
+    }
+    if(r.op==='begin') {const token=start(r.property,[r.x,r.y]);return {token,value:[r.x,r.y],batch:{ops:[]}};}
+    if(!held.has(r.token))return {accepted:false};
+    if(r.op==='live')return {accepted:true};
+    if(r.op==='move'){held.get(r.token).value=[r.x,r.y];return {accepted:true,batch:{ops:[]}};}
+    held.delete(r.token);return {accepted:true,batch:{ops:[]}};
+  };
+  const motion=createMotion({views,now:()=>time,generation:()=>generation,request,applyBatch:apply,inert:el=>el.closest('[inert]'),releaseInteraction:id=>f.released.push(id)});
+  if(!native){handle.setPointerCapture=()=>{};handle.hasPointerCapture=()=>false;}
+  motion.transformBinding(binding);
+  motion.attachTransformDrag(handle,3,(name,fn)=>{events[name]=fn;if(native)handle.addEventListener(name,fn);});
+  const event=(type,x,y=100,target=handle)=>({type,isPrimary:true,button:0,pointerId:1,clientX:x,clientY:y,target,preventDefault(){},stopPropagation(){}});
+  Object.assign(f,{motion,event,advance:dt=>time+=dt,reload:()=>{generation++;motion.reset();},settle:()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))});
+  globalThis.f=f;motion.commit();return f;
+}
+
+test('photo geometry reports fractional untransformed dimensions and ignores own motion',async()=>{
+  const result=await evaluate(`(async()=>{const f=(${photoFixture})();await f.settle();const first=f.calls.find(c=>c.op==='transform-geometry');const n=f.geometryActions;
+    f.motion.style(2,'width:100%;height:100%;box-sizing:border-box;padding:0;border:0;translate:21px -13px;scale:1.75;transition:none');f.motion.commit();await f.settle();
+    return {dimensions:first.values.slice(0,4),integerWidth:f.target.offsetWidth,after:f.geometryActions,before:n};})()`);
+  expect(result.dimensions).toEqual([320.25,200.5,320.25,200.5]);expect(result.integerWidth).toBe(320);expect(result.after).toBe(result.before);
+});
+
+test('photo catch adopts current Translate and Scale at zero displacement and preserves latest controls',async()=>{
+  const result=await evaluate(`(async()=>{const f=(${photoFixture})();await f.settle();const m=f.motion,e=f.events;
+    const t=f.target.animate([{translate:'0px 0px'},{translate:'80px 0px'}],{duration:1000,fill:'both'}),s=f.target.animate([{scale:1},{scale:2}],{duration:1000,fill:'both'});
+    t.pause();s.pause();t.currentTime=250;s.currentTime=250;e.pointerdown(f.event('pointerdown',100));t.currentTime=500;s.currentTime=500;e.pointermove(f.event('pointermove',110));
+    const began=f.calls.find(c=>c.op==='transform-begin'),caught={t:getComputedStyle(f.target).translate,s:getComputedStyle(f.target).scale};
+    f.advance(20);e.pointermove(f.event('pointermove',130,112));const moved={t:getComputedStyle(f.target).translate,s:getComputedStyle(f.target).scale};
+    m.style(2,'width:100%;height:100%;box-sizing:border-box;padding:0;border:0;translate:100px 20px;scale:2;opacity:.7;transition:none');
+    const held={t:getComputedStyle(f.target).translate,s:getComputedStyle(f.target).scale};f.advance(20);e.pointerup(f.event('pointerup',130,112));
+    const action=f.calls.find(c=>c.op==='transform-action');return {began:began.values.slice(0,3),caught,moved,held,action:action.values.slice(0,3),end:{t:getComputedStyle(f.target).translate,s:getComputedStyle(f.target).scale,opacity:getComputedStyle(f.target).opacity},tokens:f.held.size,actions:f.actions};})()`);
+  expect(result.began).toEqual([40,0,1.5]);expect(result.caught).toEqual({t:'40px',s:'1.5'});
+  expect(result.moved).toEqual({t:'60px 12px',s:'1.5'});expect(result.held).toEqual(result.moved);
+  expect(result.action).toEqual([60,12,1.5]);expect(result.end).toEqual({t:'100px 20px',s:'2',opacity:'0.7'});expect(result.tokens).toBe(0);expect(result.actions).toBe(1);
+});
+
+test('photo eligibility refuses 3D, nonuniform, offcenter, perspective and pending ancestor curves',async()=>{
+  const result=await evaluate(`(async()=>{const results=[];for(const kind of ['3d','nonuniform','origin','perspective','matrix','ancestor-curve','mixed-target-curve']){
+    const f=(${photoFixture})();await f.settle();
+    if(kind==='3d')f.target.style.scale='2 2 3';if(kind==='nonuniform')f.target.style.scale='2 3';if(kind==='origin')f.target.style.transformOrigin='0px 0px';
+    if(kind==='perspective')f.outer.style.perspective='500px';if(kind==='matrix')f.target.style.transform='translateX(10px)';
+    if(kind==='ancestor-curve')f.outer.animate([{translate:'0px 0px'},{translate:'20px 0px'}],{duration:1000,delay:10000});
+    if(kind==='mixed-target-curve')f.target.animate([{translate:'0px 0px',opacity:1},{translate:'20px 0px',opacity:.5}],{duration:1000,delay:10000});
+    f.motion.commit();f.events.pointerdown(f.event('pointerdown',100));f.events.pointermove(f.event('pointermove',120));f.events.pointerup(f.event('pointerup',130));
+    results.push({kind,begins:f.calls.filter(c=>c.op==='transform-begin').length,holds:f.held.size,actions:f.actions});f.motion.reset();}return results;})()`);
+  expect(result).toEqual(['3d','nonuniform','origin','perspective','matrix','ancestor-curve','mixed-target-curve'].map(kind=>({kind,begins:0,holds:0,actions:0})));
+});
+
+test('photo begin batch retirement sees both adopted holds before reentry and releases capture once',async()=>{
+  const result=await evaluate(`(async()=>{const f=(${photoFixture})();await f.settle();f.beginOps=[{...f.binding,target:null,targetKey:null,clip:null,clipKey:null}];
+    f.events.pointerdown(f.event('pointerdown',100));f.events.pointermove(f.event('pointermove',110));const before=f.calls.length;f.events.pointerup(f.event('pointerup',130));
+    return {tokens:f.held.size,cancels:f.calls.filter(c=>c.op==='cancel').length,late:f.calls.length-before,actions:f.actions,released:f.released};})()`);
+  expect(result).toEqual({tokens:0,cancels:2,late:0,actions:0,released:[1]});
+});
+
+test('ancestor scroll changes mapping without fake dimensions and cancels the old photo gesture',async()=>{
+  const result=await evaluate(`(async()=>{const f=(${photoFixture})();await f.settle();f.events.pointerdown(f.event('pointerdown',100));f.events.pointermove(f.event('pointermove',110));
+    const before=f.geometryActions;f.outer.scrollTop=40;f.outer.dispatchEvent(new Event('scroll'));await f.settle();const count=f.calls.length;f.events.pointerup(f.event('pointerup',130));
+    return {before,after:f.geometryActions,actions:f.actions,holds:f.held.size,late:f.calls.length-count};})()`);
+  expect(result.after).toBe(result.before);expect(result.actions).toBe(0);expect(result.holds).toBe(0);expect(result.late).toBe(0);
+});
+
+test('transient mapping change still releases the pair when coalesced geometry returns to its original facts',async()=>{
+  const result=await evaluate(`(async()=>{const f=(${photoFixture})();await f.settle();f.events.pointerdown(f.event('pointerdown',100));f.events.pointermove(f.event('pointermove',110));
+    const before=f.geometryActions;f.outer.scrollTop=40;f.outer.dispatchEvent(new Event('scroll'));f.outer.scrollTop=0;f.outer.dispatchEvent(new Event('scroll'));
+    await f.settle();const count=f.calls.length;f.events.pointerup(f.event('pointerup',130));return {before,after:f.geometryActions,actions:f.actions,holds:f.held.size,cancels:f.calls.filter(c=>c.op==='cancel').length,late:f.calls.length-count};})()`);
+  expect(result.after).toBe(result.before);expect(result.actions).toBe(0);expect(result.holds).toBe(0);expect(result.cancels).toBe(2);expect(result.late).toBe(0);
+});
+
+test('photo resize publishes latest fractional dimensions once and becomes idle after cancellation',async()=>{
+  const result=await evaluate(`(async()=>{const f=(${photoFixture})();await f.settle();f.events.pointerdown(f.event('pointerdown',100));f.events.pointermove(f.event('pointermove',110));
+    for(let i=0;i<40;i++)f.clip.style.width=(330+i/4)+'px';await f.settle();const last=f.calls.findLast(c=>c.op==='transform-geometry'),n=f.calls.length;await f.settle();
+    return {dims:last.values.slice(0,4),actions:f.actions,holds:f.held.size,geometryActions:f.geometryActions,idle:f.calls.length===n};})()`);
+  expect(result.dims).toEqual([339.75,200.5,339.75,200.5]);expect(result.geometryActions).toBe(2);expect(result.holds).toBe(0);expect(result.actions).toBe(0);expect(result.idle).toBe(true);
+});
+
+test('photo token-qualified retirement cannot erase a replacement or unrelated animation',async()=>{
+  const result=await evaluate(`(async()=>{const f=(${photoFixture})();await f.settle();f.events.pointerdown(f.event('pointerdown',100));f.events.pointermove(f.event('pointermove',110));
+    const began=f.calls.find(c=>c.op==='transform-begin');const old=[...f.held.keys()];const replacement=f.motion.begin(2,'scale');f.motion.move(replacement,[1.8,0]);
+    const opacity=f.target.animate([{opacity:1},{opacity:.5}],{duration:10000});f.motion.retire(2,'scale',old[1],began.runtime);f.motion.commit();
+    return {scale:getComputedStyle(f.target).scale,newHeld:f.held.has(replacement.token),oldHeld:f.held.has(old[0]),opacity:opacity.playState,actions:f.actions};})()`);
+  expect(result.scale).toBe('1.8');expect(result.newHeld).toBe(true);expect(result.oldHeld).toBe(false);expect(result.opacity).not.toBe('idle');expect(result.actions).toBe(0);
+});
+
+test('photo runtime reset drops queued geometry and late pointer callbacks without cancelling new runtime',async()=>{
+  const result=await evaluate(`(async()=>{const f=(${photoFixture})();await f.settle();f.events.pointerdown(f.event('pointerdown',100));f.events.pointermove(f.event('pointermove',110));
+    f.clip.style.width='351.75px';f.reload();const n=f.calls.length;f.events.pointerup(f.event('pointerup',130));await f.settle();return {late:f.calls.length-n,actions:f.actions,cancels:f.calls.filter(c=>c.op==='cancel').length};})()`);
+  expect(result).toEqual({late:0,actions:0,cancels:0});
+});
+
+test('physical primary mouse pan captures outside the photo and commits once',async()=>{
+  const rect=await evaluate(`(async()=>{const f=(${photoFixture})(true);await f.settle();const r=f.handle.getBoundingClientRect();return {x:r.x+40,y:r.y+40,right:r.right};})()`);
+  const mouse=(type,x,y,buttons)=>protocol('Input.dispatchMouseEvent',{type,x,y,button:'left',buttons,clickCount:1});
+  await mouse('mousePressed',rect.x,rect.y,1);await mouse('mouseMoved',rect.x+10,rect.y,1);
+  await evaluate('f.advance(20)');await mouse('mouseMoved',rect.right+30,rect.y+20,1);
+  await evaluate('f.advance(20)');await mouse('mouseReleased',rect.right+30,rect.y+20,0);
+  const result=await evaluate(`({actions:f.actions,held:f.held.size,captured:f.handle.hasPointerCapture(1),final:f.calls.find(c=>c.op==='transform-action')?.values})`);
+  expect(result.actions).toBe(1);expect(result.held).toBe(0);expect(result.captured).toBe(false);expect(result.final[0]).toBeGreaterThan(250);expect(result.final[2]).toBe(1);
+});

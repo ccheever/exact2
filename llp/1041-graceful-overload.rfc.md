@@ -1314,3 +1314,52 @@ passes three tests/13 assertions. These are scoped results, with the previously
 recorded workspace Hermes and sibling-format limitations unchanged. Exact
 sources, failed reproductions, commands and logs are retained under
 `target/height-binding-integration-validation/`.
+
+### 8.13 Paired photo dragging on the web, 2026-09-17
+
+Tuft, Carson, Newton and Zeno implement and validate the first photo drag
+consumer. A keyed viewer owns local pan/zoom state; accepted source replacement
+creates new target/handle keys, even for equally sized images. The handle's
+authored `transformDragFor` resolves one coherent handle/target/clip binding.
+The wrapper fills its direct zero-inset clip and contains the image. Fit/2× and
+reset remain synchronous Contract actions; release clamps pan against natural
+image dimensions and the newest authored zoom, without a data request.
+
+The Web adapter catches Translate and Scale together through the existing
+atomic motion pair. Both tokens, all three generational keys, runtime and
+geometry identity must remain live before movement or release changes time.
+Geometry includes coordinate mapping, independently of dimension-event equality:
+ancestor scrolling can cancel a pair without reporting changed dimensions.
+Accepted receipts synchronize current targets/declarations while held before
+cancellation. Release applies its final sample, dispatches the authored action
+while both holds are live, then independently ends surviving original tokens.
+The browser continues to execute springs; no Rust frame loop is introduced.
+
+The integrated Web crate passes 110 tests, with three existing browser-carrier
+tests ignored, plus strict all-target Clippy, native build and Wasm check.
+Eighteen new Rust cases cover admission, lifetime and bounded current-pair
+metadata. The 44-test Chromium DOM suite passes 149 assertions using mocked
+Rust replies; it is separate from the actual-consumer drive below. Frozen
+source, meaningful failures and independent review are in
+`target/photo-web-validation/`.
+
+The real baked gallery then passes 22 correctness checks and 91 replay commands
+in ordinary-clock Chromium, without `exact.agent` or `exact.now`. CDP mouse
+events exercise zero-displacement catch, parent-space pan, regrab and release.
+Space activates Fit while both properties remain held; focus is placed with
+DOM `focus()`, not keyboard traversal. Typing preserves presentation, and the
+release action commits the latest Fit target before both original token ends.
+The observed journal interval contains no resource queries. Contain bounds,
+actual viewport resize, ancestor wheel scrolling and same-sized keyed source
+replacement pass. A separately labeled real-ABI property takeover preserves its
+successor and cleans the old pair; it is not a physical input case.
+
+All 17 observed tokens are dead at completion, with no browser errors or trace
+overflow. The running-pair catch is near the spring tails and exactly matches
+the sampled CSS presentation; it does not prove every curve point. Exploratory
+driver-oracle failures are preserved, with no product edits or rebuilt binary
+between runs. Exact 24-file source identity, raw replays, screenshots and the
+runnable bundle are in `target/photo-gallery-browser/`. Its Wasm SHA-256 is
+`b7d9ea51b1621deb756d02b829539c29b1157001dfb18bfa0622a0e3d248eefd`.
+This is instrumented correctness evidence, not latency, native photo parity,
+physical pinch, shared-element return or physical 120-Hz presentation.

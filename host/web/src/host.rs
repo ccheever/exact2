@@ -22,6 +22,8 @@ use exact_runner::{
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
+#[path = "transform_drag.rs"]
+mod transform_drag;
 
 /// A reply as the ABI carries it, as the runner's `Outcome`.
 pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Outcome {
@@ -58,6 +60,7 @@ use std::fmt::Write as _;
 pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
+    RuntimeIdExhausted,
 }
 
 impl std::fmt::Display for HostError {
@@ -81,6 +84,7 @@ pub struct Host<D: DataSource> {
     roots: Vec<ViewId>,
     springs: Springs,
     height_drags: height_drag::HeightDrags,
+    transform_drags: transform_drag::TransformDrags,
     /// The page's clock at the last call, milliseconds from script start.
     now_ms: f64,
     /// Stack id → opaque CSS family name, scoped to this plan.
@@ -170,6 +174,7 @@ impl<D: DataSource> Host<D> {
             roots: Vec::new(),
             springs: Springs::new(),
             height_drags: height_drag::HeightDrags::default(),
+            transform_drags: transform_drag::TransformDrags::new()?,
             now_ms: 0.0,
             font_names,
             font_catalog,
@@ -200,6 +205,7 @@ impl<D: DataSource> Host<D> {
         batch.roots(&roots);
         host.reconcile_height_drags(&mut batch);
         host.emit_height_drags(&mut batch);
+        host.emit_transform_drags(&mut batch);
         // Surfaces after roots: the canvas is in the page when its surface is made.
         for s in host.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
@@ -261,6 +267,13 @@ impl<D: DataSource> Host<D> {
     /// reported in the batch's `error`, and the page is untouched (as the
     /// kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
+        if !transform_drag::valid_event(&event) {
+            return Batch::new().finish(
+                self.runner.has_timers(),
+                self.runner.now_ms(),
+                Some("invalid transform event"),
+            );
+        }
         if let Event::HeightRelease { height, velocity } = &event {
             if !height.is_finite()
                 || !(0.0..=f32::MAX as f64).contains(height)
@@ -420,7 +433,12 @@ impl<D: DataSource> Host<D> {
     }
 
     fn batch_for(&mut self, receipts: &[Timed], error: Option<&str>) -> String {
-        let mut batch = Batch::new();
+        self.batch_from(Batch::new(), receipts, error)
+    }
+
+    // Geometry retirement precedes feedback; carry its token-qualified ops into
+    // the feedback receipt without consuming dirty animation frames in between.
+    fn batch_from(&mut self, mut batch: Batch, receipts: &[Timed], error: Option<&str>) -> String {
         for t in receipts {
             let r = &t.receipt;
             batch.at(t.at_ms);
@@ -428,6 +446,7 @@ impl<D: DataSource> Host<D> {
                 if let Some(id) = self.keys.remove(key) {
                     self.mirror.remove(&id);
                     self.height_drags.remove(id);
+                    self.transform_drags.remove(id);
                     batch.destroy(id);
                 }
             }
@@ -461,6 +480,7 @@ impl<D: DataSource> Host<D> {
             );
             Self::emit_lowered(&mut batch, synced);
             self.reconcile_height_drags(&mut batch);
+            self.reconcile_transform_drags(&mut batch);
             self.emit_springs(&mut batch, &[], t.at_ms / 1000.0);
         }
         // Earlier receipts also read the final tree, whose children can be
@@ -479,6 +499,7 @@ impl<D: DataSource> Host<D> {
         }
         if !receipts.is_empty() {
             self.emit_height_drags(&mut batch);
+            self.emit_transform_drags(&mut batch);
         }
         // A canvas's inputs (LLP 1009 D2): the runner's side-output, only
         // from commits that applied.
@@ -539,6 +560,7 @@ impl<D: DataSource> Host<D> {
         };
         self.now_ms = now_ms;
         let mut batch = Batch::new();
+        self.reconcile_transform_drags(&mut batch);
         self.emit_springs(&mut batch, &[], now_ms / 1000.0);
         batch.animate(
             view,
@@ -595,12 +617,20 @@ impl<D: DataSource> Host<D> {
         if !self.has_hold(serial) || !self.springs.end_hold(serial, end, now_ms / 1000.0)? {
             return Ok(None);
         }
+        self.transform_member_ended(serial);
         Ok(Some(self.hold_batch(now_ms)))
     }
 
     fn hold_batch(&mut self, now_ms: f64) -> String {
         self.now_ms = now_ms;
         let mut batch = Batch::new();
+        // Geometry-only invalidation has no authored receipt. Seek while held
+        // before cancellation, just as batch_for does for accepted receipts.
+        let synced = self
+            .springs
+            .synchronize(self.runner.kernel(), &[], now_ms / 1000.0);
+        Self::emit_lowered(&mut batch, synced);
+        self.reconcile_transform_drags(&mut batch);
         self.emit_springs(&mut batch, &[], now_ms / 1000.0);
         batch.finish(self.runner.has_timers(), self.runner.now_ms(), None)
     }
@@ -695,6 +725,16 @@ impl<D: DataSource> Host<D> {
         let key = node.key;
         if kinds.contains(&EventKind::Heightrelease) {
             self.height_drags.insert(id, key);
+        }
+        if kinds.contains(&EventKind::Transformgeometry)
+            || kinds.contains(&EventKind::Transformrelease)
+        {
+            self.transform_drags.insert(
+                id,
+                key,
+                kinds.contains(&EventKind::Transformgeometry),
+                kinds.contains(&EventKind::Transformrelease),
+            );
         }
         let tag = tag_for(&node);
         let props = props_for(&node);

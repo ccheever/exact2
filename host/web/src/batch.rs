@@ -65,6 +65,29 @@ fn string_list(items: &[&str], out: &mut String) {
 }
 
 impl Batch {
+    pub(crate) fn transform_drag(
+        &mut self,
+        view: u32,
+        runtime: u64,
+        handle: exact_kernel::NodeKey,
+        binding: Option<[(exact_kernel::NodeKey, u32); 2]>,
+    ) {
+        use exact_kernel::motion::motion_node;
+        let id = |i: usize| binding.map_or("null".into(), |b| b[i].1.to_string());
+        let key =
+            |i: usize| binding.map_or("null".into(), |b| format!("\"{}\"", motion_node(b[i].0)));
+        self.ops.push(format!("{{\"op\":\"transform-drag\",\"id\":{view},\"runtime\":\"{runtime}\",\"handleKey\":\"{}\",\"target\":{},\"targetKey\":{},\"clip\":{},\"clipKey\":{}}}",motion_node(handle),id(0),key(0),id(1),key(1)));
+    }
+
+    pub(crate) fn retire_transform_token(
+        &mut self,
+        view: u32,
+        runtime: u64,
+        token: exact_motion::HoldToken,
+    ) {
+        self.ops.push(format!("{{\"op\":\"retire-motion\",\"id\":{view},\"property\":\"{}\",\"runtime\":\"{runtime}\",\"token\":\"{}\"}}",token.property().name(),token.serial()));
+    }
+
     /// A resolved authored handle. Packed generational keys remain decimal
     /// strings; JavaScript Numbers cannot preserve all NodeKey bits.
     pub fn height_drag(

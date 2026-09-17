@@ -24,6 +24,7 @@ const collections = collectionController({ root, views, report(bytes) {
 } });
 const retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const motion = motionController({views, now:()=>now(), generation:()=>incarnation, inert:inertAncestor, applyBatch,
+  ready:()=>inputReady,
   releaseInteraction:pointer=>collections.releaseInteraction(pointer),
   request(facts) {
     if (!wasm) return {accepted:false};
@@ -72,6 +73,7 @@ function setInputReady(ready) {
       authoredDisabled.delete(el);
     }
   }
+  if(ready)motion.commit();
 }
 for (const kind of ["click", "beforeinput", "submit"]) {
   root.addEventListener(kind, event => {
@@ -487,6 +489,8 @@ function attach(el, id, handlers) {
       motion.attachSwipe(el, id, on);
     } else if (kind === "heightrelease") {
       motion.attachHeightDrag(el, id, on);
+    } else if (kind === "transformrelease") {
+      motion.attachTransformDrag(el,id,on);
     } else if (kind === "contextmenu" || kind === "dblclick") {
       on(kind, (e) => {
         if (el.matches(":disabled") || inertAncestor(el)) return;
@@ -628,8 +632,9 @@ function apply(batch) {
         break;
       }
       case "animate": { motion.animate(op); break; }
-      case "retire-motion": { motion.retire(op.id, op.property); break; }
+      case "retire-motion": { motion.retire(op.id, op.property, op.token, op.runtime); break; }
       case "height-drag": { motion.heightBinding(op); break; }
+      case "transform-drag": { motion.transformBinding(op); break; }
       case "surface": {
         // A canvas's inputs (LLP 1009 D2): to the GPU module when it is
         // loaded, queued until then. The module itself is fetched only

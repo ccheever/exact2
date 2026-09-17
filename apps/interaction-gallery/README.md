@@ -5,9 +5,9 @@ One Contract shell, one logical data owner, six local photographic illustrations
 Arrange and Read now use the shared viewport collection over complete records.
 Photos retains explicit manual pages. Read authors a header-only numeric-height
 binding; gesture recognition and hold delivery belong to the shared host adapters.
-Photos authors fit/2× controls and a paired transform binding. Physical photo
-drag delivery, animated reorder with edge scrolling, and sheet/inner-scroll
-ownership transfer require their separate host integrations and evidence.
+Photos authors fit/2× controls and a paired transform binding. The Web adapter
+supports primary-pointer dragging; native photo delivery, animated reorder with
+edge scrolling, and sheet/inner-scroll ownership transfer remain separate work.
 
 ## What works
 
@@ -16,6 +16,8 @@ ownership transfer require their separate host integrations and evidence.
   off-page source is located in the current order; a deleted source closes the
   viewer without resurrecting it. Fit/2× and reset are synchronous local actions;
   an authored drag surface targets the contained image's transform wrapper.
+  On the web, drag that surface to pan, including while its spring is running.
+  Changing Fit/2× during a drag updates the destination used on release.
 - **Arrange:** pick up, preview earlier/later or before another card, Place, and
   Cancel. Preview never changes order. Place consumes an interaction token once;
   stale callbacks are inert. Concurrent insertion preserves the destination ID;
@@ -164,6 +166,14 @@ app-only declaration. This app binds only the sheet header and synchronous snap
 action; it does not claim physical pointer delivery from the app tests alone.
 The photo binding has separate geometry/pair delivery in the shared host; app
 tests alone do not prove physical drag, pinch or shared-element transitions.
+The Web delivery now passes 22 checks against the real gallery Wasm in an
+ordinary-clock browser: actual CDP mouse input, Fit activated with Space while
+held, typing, contain bounds, resize/ancestor-scroll cancellation and keyed
+source replacement. Focus for Space was placed with DOM `focus()`; a separate
+single-property takeover case uses the real ABI directly. These are correctness
+checks, not a latency, native parity or physical display result. Frozen sources,
+raw exploratory failures and the final replay are in
+`target/photo-gallery-browser/`; LLP 1041 §8.13 records the scope.
 Continuous reorder still needs shared host hooks. Its existing `galleryAction`
 endpoints provide preview and token-checked commit/cancel; they must receive
 logical outcomes from the shared adapters.

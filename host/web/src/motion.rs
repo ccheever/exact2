@@ -15,7 +15,8 @@
 use exact_kernel::motion::{motion_node, targets, MotionSync};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, ViewId};
 use exact_motion::{
-    Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, Property, SpringDescriptor, Value,
+    Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, Property, SpringDescriptor,
+    TransformHold, Value,
 };
 use std::collections::BTreeMap;
 
@@ -197,6 +198,63 @@ impl Springs {
         self.engine.update_hold(token, now, value)
     }
 
+    pub(crate) fn begin_transform_hold(
+        &mut self,
+        node: u64,
+        values: [Value; 2],
+        now: f64,
+    ) -> Result<Option<TransformHold>, EngineError> {
+        let Some(pair) = self.engine.begin_transform_hold(node, now, Some(values))? else {
+            return Ok(None);
+        };
+        self.holds.retain(|_, token| self.engine.has_hold(*token));
+        for start in [pair.translate(), pair.scale()] {
+            self.holds.insert(start.token.serial(), start.token);
+            self.playing.remove(&(node, start.token.property()));
+        }
+        Ok(Some(pair))
+    }
+
+    pub(crate) fn update_transform_hold(
+        &mut self,
+        pair: TransformHold,
+        values: [Value; 2],
+        now: f64,
+    ) -> Result<bool, EngineError> {
+        self.engine.update_transform_hold(pair, now, values)
+    }
+
+    pub(crate) fn synchronize_transform(
+        &mut self,
+        kernel: &Kernel,
+        target: NodeKey,
+        now: f64,
+    ) -> Vec<Lowered> {
+        let out = self.synchronize(kernel, &[], now);
+        if let Some(node) = kernel.node_by_key(target) {
+            let key = motion_node(target);
+            let sync = MotionSync {
+                transitions: vec![(key, node.style.transition.clone())],
+                changes: targets(node.style)
+                    .into_iter()
+                    .filter(|(property, _)| {
+                        matches!(property, Property::Translate | Property::Scale)
+                    })
+                    .map(|(property, value)| Change {
+                        node: key,
+                        property,
+                        value,
+                        velocity: None,
+                    })
+                    .collect(),
+                ..Default::default()
+            };
+            let applied = sync.apply(&mut self.engine);
+            debug_assert!(applied.is_ok(), "validated transform authoring");
+        }
+        out
+    }
+
     pub(crate) fn end_hold(
         &mut self,
         serial: u64,
@@ -279,6 +337,15 @@ impl Springs {
     ) -> Vec<Lowered> {
         let now = now.max(self.engine.now());
         let mut out = self.synchronize(kernel, receipts, now);
+        out.extend(self.lower_current(kernel));
+        out
+    }
+
+    // Stale photo cleanup may lower surviving old tokens at the existing clock,
+    // but must neither seek time nor import unrelated targets/owner changes.
+    pub(crate) fn lower_current(&mut self, kernel: &Kernel) -> Vec<Lowered> {
+        let now = self.engine.now();
+        let mut out = Vec::new();
         for p in self.engine.frame() {
             let key = (p.node, p.property);
             let Some(view) = self.view_of(kernel, p.node) else {
