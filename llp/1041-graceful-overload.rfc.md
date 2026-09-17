@@ -843,6 +843,27 @@ The eighteen raw runs and report are in `target/linux-text-residency-20260917/`.
 The 36 guest boundary observations contain no competing compiler/gallery/
 Markdown process. Host background processes are recorded separately.
 
+A later diagnostic clone isolates two costs without replacing those paired
+results. In the first fresh 1 MiB resize, both arms receive one giant paragraph
+measurement offer at width 633. The baseline builds it once and paint reuses it;
+the residency arm destroys the measured snapshot while still in layout, then
+builds the identical paragraph/width again during paint. This cell demonstrates
+measurement-to-paint eviction, not repeated giant width probes. The instrumented
+extra build costs about 169 ms, versus 0.367 ms for both capacity walks and
+19.335 ms for two field destructions. Inclusive trace stages overlap and are not
+summed as independent wall time. In a settled warm repaint the updated arm
+builds no paragraph but visits 978,600 glyphs in about 194 ms; Spec/key work is
+about 0.231 ms. Both 4 MiB traces abort inside cosmic shaping/layout with one
+accepted giant Buffer and one replacement being built. This identifies the
+failing stage and overlap, not the private allocation responsible for the limit.
+
+Newton owns a bounded measurement-to-paint handoff correction and Epicurus owns
+conservative CPU ink selection, starting 2026-09-17 in separate worktrees.
+Tests must retain successful-frame ownership and the complete source/layout,
+compare clipped pixels with the full painter, and account retained indexes.
+Neither change is implemented by recording this trace; shared shaping and
+asynchronous presentation remain separate unresolved work.
+
 **Apple engine:** twenty-five actual engine methods pass 437 assertions in the
 optimized standalone harness, including complete Unicode ranges, independent
 accepted widths, last-owner release, checkpoint/catalog isolation and exhaustive
