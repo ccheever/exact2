@@ -67,3 +67,204 @@ past where both twins' *optimized* paths stop: past 225,000 in a browser.
 
 The last row is the determinism contract's first evidence: two architectures, two
 operating systems, the same bits.
+
+## Feel — Beacons, live clock
+
+```sh
+bun game/bench/feel.mjs three
+bun game/bench/feel.mjs godot --seconds 12
+```
+
+Each command takes **three sequential runs per variant**. Godot alternates shipped /
+interpolation-on, three times each. An invalid focus/latency attempt is retained and
+retaken, up to three attempts per slot; high load alone never causes a retry.
+JSON lines go to stdout and are also appended to
+`results/feel-YYYY-MM-DD.jsonl` (UTC date); progress and a Markdown table go to stderr.
+Each row links a gzipped JSON trace containing **every frame and delivered event**.
+There is no browser package or new dependency: Bun serves the existing local three.js,
+plain `fetch` and `WebSocket` speak CDP, and a fresh **headed** Chrome gets a unique
+`game/bench/.feel-*/exact2-feel-chrome` profile. Every launched PID is printed; cleanup
+kills only that recorded child if needed, awaits exit, checks `ps`, and removes the
+temporary profile. Godot exits after writing its one result file. SIGINT/SIGTERM,
+startup failures, CDP errors and timeouts also pass through cleanup.
+
+`--seconds` is the **minimum main-script window**, not a shortened play script or a
+trial count. Default 12 seconds plus latency trials takes about **81 seconds per
+run**, excluding startup: about 4½ minutes for three.js and 8½ for both Godot rows.
+The minimum accepted value is 7.02; a 10.02-second floor before trials lets movement
+stop. Larger values add idle time before the same 20 trials. `CHROME` and `GODOT` can
+override executable paths. The default Godot is the cached 4.7.2 app. Foreground and
+display-mode confirmation currently use macOS AppKit/CoreGraphics through JXA.
+Keep the display awake and let the measured window retain focus during the command.
+
+### Method and boundaries
+
+The runner presses the focused **Play** button with Enter, waits 0.5 seconds, holds
+W 2.5 seconds, D 1.5 seconds, taps Space for 20 ms, holds S 1.5 seconds, then idles
+at least 1 second. Releases precede the next press. All scheduling uses the live
+monotonic clock: no `?proof`, `--fixed-fps`, manual advance, virtual time, or disabled
+vsync. Startup and shader warmup occur before the measured Play event. Delivered
+event times, actual W duration and each event's deviation from the target schedule
+are retained, so shared-machine scheduling delays are visible.
+
+The game source is unchanged. The HTML conditionally loads the adjacent `feel.js`
+before `game.js` only for `?feel=1`. The Godot scene has an adjacent `Feel` observer
+which disables processing unless `-- --feel` is present; the runner supplies its
+schedule via `--feel-config`. Probes preallocate Float64Array / PackedFloat64Array
+buffers (capacity 1,000 frames/second plus headroom) and write numeric slots. They
+do not clone state, allocate buffers/objects, log, perform file I/O, or serialize on
+the measured per-frame path. InputEventKey objects are also prepared before the
+Godot run. Results are read once after sampling ends. Instrumentation has a small,
+unsubtracted observer cost; the games' own allocation and UI work remain included.
+
+- **Frame pacing:** consecutive rAF timestamps in three.js; consecutive
+  `Time.get_ticks_usec()` samples in Godot `_process` after physics, with vsync on.
+  The entire script, including the idle gaps between latency trials, is included.
+  `refresh_interval_ms` is their median and `observed_refresh_hz` its reciprocal.
+  p50/p95/p99 use linear interpolation between sorted values; max is the largest
+  interval. A hitch is strictly greater than 1.5× that run's median. Hitch percentage
+  divides by the number of recorded frames (the first has no preceding interval).
+  A steady half-rate renderer can have zero hitches: compare observed cadence with
+  the separately recorded **display mode's refresh rate**. These callbacks observe
+  frames offered to the renderer, **not a hardware presentation fence or a guarantee
+  that the compositor displayed every submission**.
+- **Judder:** only frames from W key delivery + 1.0 seconds up to its release;
+  both endpoints of a displacement must be in that window. Δ is the Euclidean
+  world-space distance between consecutive **drawn** positions, not velocity divided
+  by elapsed time. `judder = population_stddev(Δ) / mean(Δ)`; `repeated_fraction`
+  counts exact Δ = 0. Player and camera translation are reported independently.
+  three.js observes the capsule's mesh position and render camera in its actual
+  `onBeforeRender`; Godot reads `global_position` in `_process`, or
+  `get_global_transform_interpolated().origin` when interpolation is enabled. Camera
+  rotation, screen-space projection and perceptual judder are not measured. A hitch
+  legitimately increases this displacement metric even with interpolation; the
+  camera's remaining follow-easing transient also contributes to its metric.
+- **Input latency:** 20 alternating W/S presses, each held 100 ms and separated by
+  3.5 seconds after release. No teleport, save restore, velocity reset or paused
+  simulation is used. Before each event the last 100 ms must contain at least three
+  frames with exactly unchanged player position; otherwise the trial is invalid,
+  not a misleading zero-latency success. The first subsequent frame with any changed
+  player coordinate ends the trial. Start is `performance.now()` inside a capturing
+  `keydown` listener or `Time.get_ticks_usec()` inside the probe's `_input`.
+  End is `performance.now()` at the mesh draw callback or the Godot `_process` sample.
+  We retain rAF's timestamp separately because it can precede an event delivered
+  during that frame; subtracting it could yield negative latency. Reported median
+  and p95 are milliseconds and multiples of the run's median refresh interval.
+  Failed/moving-baseline trials are explicit; fewer than 20 valid trials makes the
+  row invalid. The command exits nonzero if bounded retakes cannot fill three valid
+  slots per variant.
+
+**This measures the engine's pipeline from event delivery to presented state, not
+the OS/USB path, GPU completion, compositor queue or scanout.** Chrome events use
+CDP `Input.dispatchKeyEvent`; Godot uses `Input.parse_input_event` plus the proof's
+`Input.flush_buffered_events`. Godot injects due events after the probe's frame sample,
+so its deliveries are quantized to frames; CDP delivery can occur between callbacks.
+This phase difference limits cross-engine interpretation of sub-frame latency. The
+raw delivered timestamps and first changed frames make that limitation inspectable.
+No claim of equal physical input-to-photon latency follows from these numbers.
+
+Godot shipped uses its 60 Hz physics and Compatibility renderer. Its additional row
+sets `SceneTree.physics_interpolation = true` before the game's nodes are built —
+the runtime equivalent of the sole project switch
+`physics/common/physics_interpolation=true`. The transform history is warmed before
+measurement. See Godot's [setting documentation](https://docs.godotengine.org/en/stable/classes/class_scenetree.html#class-scenetree-property-physics-interpolation)
+and [displayed-transform accessor](https://docs.godotengine.org/en/stable/classes/class_node3d.html#class-node3d-method-get-global-transform-interpolated).
+three.js ships a 120 Hz fixed-step accumulator without interpolation; it has **no
+one-line interpolation switch**. Implementing interpolation would change the game,
+so only its shipped row is included.
+
+Every row records engine/browser version, display refresh and resolution, window
+content pixels, observed cadence, focus/visibility, and load. These macOS runs use
+**2200×1520 physical content pixels**: 1100×760 CSS pixels at DPR 2 in Chrome and
+`--resolution 2200x1520` in Godot (whose authored 1100×760 UI stretches normally).
+Rendering options and simulation rates otherwise stay as shipped. `load1` is the **maximum
+one-minute load average sampled once per second** through that run; start/end values
+are also saved. Any sample above 8 marks the row **provisional**. AppKit confirms the
+recorded PID is frontmost before measurement; the probe checks focus/visibility
+every sampled frame, and Chrome gets an additional end confirmation. Loss of either
+makes the row invalid, even if metrics are still printable. Invalid attempts remain
+in the JSONL and raw traces but are excluded from best/median summaries. This is focus/visibility
+confirmation, not a pixel occlusion analysis. “Best” selects the actual run with the
+lowest hitch percentage, then p99 interval. “Median metrics” takes each column's
+median across three runs; it is not a synthetic fourth trace or a pooled latency
+distribution. Neither summary removes the provisional flags.
+
+`bun test game/bench/feel.test.mjs` checks known smooth and alternating-frame motion,
+known latency with distinct frame/sample clocks, residual-motion rejection, schedule
+durations, quantiles and corrupt buffers. The integration verification is the live
+three-run commands above; it does not build the home engine or the core/host crates.
+
+### Measurements — 2026-09-17, provisional
+
+Apple M5 Max, macOS 26.6.2, 120 Hz display mode (3456×2234), **2200×1520 content
+pixels in every run**. three.js r186 / Chrome 153.0.8010.52; Godot
+4.7.2.stable.official.ed1daf0bf, Compatibility renderer. All rows below represent
+valid foreground/visible captures with 20/20 latency trials. **Every attempt is
+provisional**: valid-run peak load1 ranged from 22.0 to 40.9.
+
+[The JSONL](results/feel-2026-09-17.jsonl) contains 14 complete attempts and links
+their raw traces: nine valid runs and five rejected focus-loss attempts (two of
+those also lacked sufficient stationary baseline samples for one latency trial).
+No failed attempt is silently discarded. Accepted slots are three.js #1/#2/#3,
+Godot shipped #1.3/#2.3/#3, and Godot interpolation #1.2/#2/#3; a suffix denotes
+the retake attempt. Each best row is selected by pacing, so it need not have the
+lowest judder or latency. Median rows take the median of each metric across the
+three accepted runs. The median interval column is also frame p50.
+
+| engine / summary | load1 | median interval ms (Hz seen) | p95 ms | p99 ms | max ms | hitches / % |
+|---|---:|---:|---:|---:|---:|---:|
+| three.js shipped — best #3 | 31.9 | 8.30 (120.5) | 9.98 | 10.30 | 11.90 | 0 / 0.00% |
+| three.js shipped — median | 24.0 | 8.30 (120.5) | 9.98 | 10.30 | 13.00 | 1 / 0.01% |
+| Godot shipped — best #2.3 | 22.6 | 8.28 (120.8) | 11.45 | 12.48 | 38.49 | 98 / 1.02% |
+| Godot shipped — median | 26.0 | 8.28 (120.8) | 11.07 | 12.83 | 49.90 | 108 / 1.13% |
+| Godot interpolation — best #2 | 35.8 | 8.20 (122.0) | 11.53 | 11.99 | 32.04 | 41 / 0.42% |
+| Godot interpolation — median | 35.8 | 8.25 (121.2) | 11.14 | 11.99 | 33.85 | 51 / 0.53% |
+
+| engine / summary | player judder | player Δ=0 | camera judder | camera Δ=0 | input median / p95 ms | input median / p95 intervals |
+|---|---:|---:|---:|---:|---:|---:|
+| three.js shipped — best #3 | 0.432 | 9.5% | 0.431 | 9.5% | 6.85 / 15.95 | 0.83 / 1.92 |
+| three.js shipped — median | 0.432 | 9.5% | 0.431 | 9.5% | 5.75 / 13.86 | 0.69 / 1.67 |
+| Godot shipped — best #2.3 | 1.000 | 49.4% | 0.999 | 49.4% | 8.14 / 17.73 | 0.98 / 2.14 |
+| Godot shipped — median | 1.000 | 49.4% | 0.999 | 49.4% | 10.40 / 17.36 | 1.26 / 2.10 |
+| Godot interpolation — best #2 | 6.85e-6 | 0.0% | 0.004 | 0.0% | 10.87 / 16.82 | 1.33 / 2.05 |
+| Godot interpolation — median | 6.85e-6 | 0.0% | 0.004 | 0.0% | 10.87 / 17.22 | 1.33 / 2.09 |
+
+**What a player would notice:** on this 120 Hz display, shipped Godot draws roughly
+half its motion frames at an unchanged player and camera position: the resulting
+60 Hz stepping should be visible while walking or panning. Its one interpolation
+switch removes those repeated motion frames and makes the follow camera much
+smoother. three.js moves more often, but its unsmoothed 120 Hz accumulator still
+repeats frames when tick and render phases differ: player judder ranged 0.129–0.660
+across the three runs, despite steady frame cadence. Interpolated Godot's player
+judder ranged 0.0000067–0.062; interpolation cannot eliminate a loaded machine's
+hitches. The event-to-drawn-state medians here are about 6 ms for three.js and
+10–11 ms for Godot, but the injection-phase difference and missing compositor/scanout
+time prevent a physical responsiveness ranking. Re-take on a quiet machine before
+attributing the pacing differences or rare stalls to the engines.
+
+The awkward parts were observing the drawn transform without changing either game,
+using Enter's CDP text payload to activate the real Play button, distinguishing rAF
+frame time from event time, matching Retina framebuffer sizes, and refusing brief
+focus losses as valid measurements. Bun also retained driver handles after Chrome
+cleanup; the CLI now exits explicitly only after child exit and process audit.
+All 14 traces were re-analyzed successfully, all nine accepted traces include the
+W/D/jump/S path, and the numerical tests and repository caps check pass.
+
+### Adding the home engine
+
+Use the same trace protocol, without changing scheduling or metric logic. Register
+a web adapter in `feel.mjs` with a local `root`/`page` or an already-served `url`, plus
+an optional readiness expression. The page starts with Play focused and exposes
+`window.feel.begin(durationMs)`, `arm(trialId)` (labels the next captured key event),
+and `end()` (stops capture and returns one plain record). The probe needs the **drawn
+player and camera xyz each frame, a frame timestamp, a same-clock draw/sample time,
+and key-delivery time**. Do not expose only the last physics tick's positions.
+
+Schema 1 uses `stride: 8` and flat `frames` rows of
+`[frame_ms, sample_ms, player_x, player_y, player_z, camera_x, camera_y, camera_z]`.
+Flat `events` rows are `[delivered_ms, VK_code, down_0_or_1, trial_id_or_minus_1]`;
+all times share one monotonic origin. Include `engine_version`, `interpolation`,
+`timestamp_source`, `window_pixels`, `overflow`, `hidden_frames` and
+`unfocused_frames` (and `viewport_css` or `viewport_pixels`). Preallocate before
+capture. The same `script()` and `analyze()` functions then apply without an
+engine-specific threshold, smoothing filter, clock adjustment, or metric branch.

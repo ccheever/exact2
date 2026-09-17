@@ -18,3 +18,6 @@ apps/messages/.snapback/
 game/twins/godot/**/.godot/
 *.gd.uid
 *.tscn.uid
+
+# Raw per-frame traces from the feel probe: kept locally, summarized in feel-*.jsonl
+game/bench/results/*.json.gz

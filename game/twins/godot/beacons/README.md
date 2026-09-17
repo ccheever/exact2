@@ -49,3 +49,15 @@ The diary is [001-beacons-godot.md](001-beacons-godot.md). It remains here becau
 instruction to write only inside this project conflicts with the requested diary
 path outside it, and no exception was received. No repository files outside this
 project were edited. No commits, clones, remote commands or subagents were used.
+
+## Live feel probe
+
+The verification notes above describe the original game proof. From the repo root,
+`bun game/bench/feel.mjs godot` now runs a separate visible, vsynced, live-clock
+diagnostic three times as shipped and three times with physics interpolation on.
+The adjacent `feel.gd` node is inactive unless `-- --feel` is supplied; the runner
+also supplies `--feel-config=<schedule.json>`. `--feel-interpolation` enables the
+runtime equivalent of `physics/common/physics_interpolation=true`. `main.gd` is
+unchanged. See [the benchmark's Feel section](../../../bench/README.md#feel--beacons-live-clock)
+for the method, raw traces and numbers. This is engine event-delivery-to-drawn-state
+latency, not OS/USB input or scanout, and it does not replace the functional proof.

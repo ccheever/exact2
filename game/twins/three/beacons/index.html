@@ -17,5 +17,8 @@
   <div id="paused" hidden>Paused</div>
   <footer id="help" hidden><span>WASD / ARROWS &nbsp; Move &nbsp;·&nbsp; SPACE &nbsp; Jump</span><strong id="prompt">Find the three beacons</strong><span>E &nbsp; Light beacon</span></footer>
 </main>
-<script type="module" src="game.js"></script>
+<script type="module">
+if (new URLSearchParams(location.search).get('feel') === '1') await import('./feel.js');
+await import('./game.js');
+</script>
 </body></html>

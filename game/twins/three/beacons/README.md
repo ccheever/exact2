@@ -39,3 +39,14 @@ No frame pacing, cross-host determinism, or pixel identity was measured.
 
 198 physical lines of game source (155 JavaScript + 43 HTML/CSS); 237 lines of
 proof/serving code, reported separately. Diary: `game/diaries/001-beacons-three.md`.
+
+## Live feel probe
+
+The verification notes above describe the original game proof. A separate headed,
+live-clock diagnostic is now available from the repo root:
+`bun game/bench/feel.mjs three`. `?feel=1` loads the adjacent `feel.js` observer;
+the runner arms its buffers, drives real CDP input, and reads them once at the end.
+It samples the drawn capsule and camera without editing `game.js` or `simulation.js`.
+There is no built-in interpolation switch for this game's fixed-step accumulator.
+See [the benchmark's Feel section](../../../bench/README.md#feel--beacons-live-clock)
+for all runs, raw traces, limitations, and the event-delivery-to-drawn-state definition.
