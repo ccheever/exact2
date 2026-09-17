@@ -32,12 +32,16 @@ extension NodeView {
     var paragraphOwner: NodeView { textParent?.paragraphOwner ?? self }
 
     func paragraphLayout() -> Paragraph? {
+        #if os(macOS)
+        if presenter?.session?.regions.owns(self) == true { return nil }
+        #endif
         // The kernel measures the CSS content box; borders and padding must
         // not become extra wrapping room when that paragraph is painted.
         let width = contentBox().width
         if let cached = cachedTextLayout, cached.width == width { return cached.paragraph }
         guard let paragraph = text?.paragraph(paragraphSpec(), width: width) else { return nil }
         cachedTextLayout = (width, paragraph)
+        text?.accepted(paragraph)
         return paragraph
     }
 

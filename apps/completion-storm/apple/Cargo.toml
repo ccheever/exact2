@@ -1,0 +1,18 @@
+[package]
+name = "completion-storm-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+completion-storm-data = { path = "../data" }
+exact-apple = { path = "../../../host/apple" }
+
+[build-dependencies]
+completion-storm-data = { path = "../data" }
+contract = { path = "../../../contract/cli" }

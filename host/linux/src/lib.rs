@@ -39,6 +39,7 @@
 
 pub mod agent;
 pub mod app;
+pub mod content_region;
 pub mod delivery;
 #[cfg(target_os = "linux")]
 pub mod display;

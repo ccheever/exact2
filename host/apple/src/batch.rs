@@ -66,6 +66,48 @@ fn id_list(ids: &[u32], out: &mut String) {
 }
 
 impl Batch {
+    pub(crate) fn region(&mut self, json: &str) {
+        self.ops.push(json.into());
+    }
+    pub(crate) fn transform_drag(
+        &mut self,
+        view: u32,
+        runtime: u64,
+        handle: exact_kernel::NodeKey,
+        binding: Option<[(exact_kernel::NodeKey, u32); 2]>,
+    ) {
+        use exact_kernel::motion::motion_node;
+        let id = |i: usize| binding.map_or("null".into(), |b| b[i].1.to_string());
+        let key =
+            |i: usize| binding.map_or("null".into(), |b| format!("\"{}\"", motion_node(b[i].0)));
+        self.ops.push(format!("{{\"op\":\"transform-drag\",\"id\":{view},\"runtime\":\"{runtime}\",\"handleKey\":\"{}\",\"target\":{},\"targetKey\":{},\"clip\":{},\"clipKey\":{}}}",motion_node(handle),id(0),key(0),id(1),key(1)));
+    }
+
+    pub(crate) fn retire_transform_token(
+        &mut self,
+        view: u32,
+        runtime: u64,
+        token: exact_motion::HoldToken,
+    ) {
+        self.ops.push(format!("{{\"op\":\"retire-motion\",\"id\":{view},\"property\":\"{}\",\"runtime\":\"{runtime}\",\"token\":\"{}\"}}",token.property().name(),token.serial()));
+    }
+
+    /// A new native presentation hold. Its serial is a decimal string, never a JSON float.
+    pub fn hold(&mut self, token: u64, x: f64, y: f64) {
+        self.ops.push(format!(
+            "{{\"op\":\"hold\",\"token\":\"{token}\",\"x\":{x},\"y\":{y}}}"
+        ));
+    }
+
+    /// An authored header's resolved binding, with exact generational keys.
+    pub fn height_drag(&mut self, id: u32, handle_key: u64, target: Option<(u32, u64)>) {
+        let (target, target_key) = target.map_or_else(
+            || ("null".into(), "null".into()),
+            |(id, key)| (id.to_string(), format!("\"{key}\"")),
+        );
+        self.ops.push(format!("{{\"op\":\"height-drag\",\"id\":{id},\"target\":{target},\"handleKey\":\"{handle_key}\",\"targetKey\":{target_key}}}"));
+    }
+
     /// Empty.
     pub fn new() -> Batch {
         Batch::default()
@@ -89,6 +131,13 @@ impl Batch {
     /// Whether nothing was recorded.
     pub fn is_empty(&self) -> bool {
         self.ops.is_empty()
+    }
+
+    /// Mounted collection metadata from the runner's common JSON array writer.
+    /// An empty array clears previously published collections on the presenter.
+    pub fn collections(&mut self, items: &str) {
+        self.ops
+            .push(format!("{{\"op\":\"collections\",\"items\":{items}}}"));
     }
 
     /// `{"op":"create","id":…,"kind":…,"props":{…},"style":{…},"handlers":[…]}`;

@@ -39,6 +39,41 @@ extern "C" {
 /* A runtime handle (LLP 1031 D2). 0 is never a runtime. */
 typedef uint32_t ExactRuntime;
 
+/* Raster accounts outlive replaceable runtimes. Handles are process-unique;
+ * charge/lease release is worker-safe and never requires a live Runtime. */
+typedef struct ExactRasterDemand {
+    uint64_t view, view_generation, source, generation;
+    uint32_t width, height, natural_width, natural_height;
+    uint32_t priority; /* 0 visible, 1 overscan */
+    uint64_t encoded_bytes, header_bytes, stride, scratch_bytes;
+} ExactRasterDemand;
+typedef struct ExactRasterWork {
+    uint64_t permit, session, source, generation, charge;
+    uint32_t width, height;
+} ExactRasterWork;
+typedef struct ExactRasterReady { uint64_t lease, payload; } ExactRasterReady;
+typedef struct ExactRasterStats {
+    uint64_t resident_bytes, reserved_bytes, pinned_bytes, cold_bytes, retiring_bytes, peak_bytes;
+    uint64_t queued, running, ready, delivery_cells, pending_jobs, subscribers, cold_entries;
+    uint64_t dedup_hits, cancelled, evicted, process_running, last_refusal, waiting_budget;
+} ExactRasterStats;
+uint64_t exact_raster_session_create(void);
+/* 0 reset, 1 pause, 2 resume, 3 shutdown, 4 trim. */
+void exact_raster_session_control(uint64_t session, uint32_t op);
+uint64_t exact_raster_request(uint64_t session, ExactRasterDemand demand);
+void exact_raster_cancel(uint64_t session, uint64_t request);
+uint32_t exact_raster_status(uint64_t session, uint64_t request);
+ExactRasterWork exact_raster_next_decode(uint32_t timeout_ms);
+uint32_t exact_raster_is_cancelled(uint64_t permit);
+/* Transfers one retained immutable native payload, even on stale completion.
+ * Scratch must already be gone. release(payload) may run on any thread. */
+uint32_t exact_raster_complete(uint64_t permit, uint64_t payload, void (*release)(uint64_t), uint64_t bytes);
+void exact_raster_fail(uint64_t permit);
+void exact_raster_charge_release(uint64_t charge);
+ExactRasterReady exact_raster_take_ready(uint64_t session, uint64_t request);
+void exact_raster_lease_release(uint64_t lease);
+ExactRasterStats exact_raster_stats(uint64_t session);
+
 /* Width/height offers below zero mean "as the content wants". */
 #define EXACT_MAX_CONTENT (-1.0f)
 #define EXACT_MIN_CONTENT (-2.0f)
@@ -71,6 +106,11 @@ typedef struct ExactMetrics {
     float height;
     float baseline;        /* top to first alphabetic baseline; < 0 = unknown */
 } ExactMetrics;
+
+/* Region completion takes one retained native artifact on every return path. */
+typedef void (*ExactRegionReleaseFn)(void *owner);
+uint32_t exact_region_request(ExactRuntime rt, uint64_t request, uint64_t known_source);
+uint32_t exact_region_complete(ExactRuntime rt, uint64_t request, ExactMetrics metrics, void *owner, ExactRegionReleaseFn release);
 
 typedef ExactMetrics (*ExactMeasureFn)(void *ctx, const ExactMeasureRequest *request);
 
@@ -145,8 +185,20 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * A change's text, key's name, or guest message is the payload in the input
  * buffer's first len bytes. */
 uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t len, double now_ms);
-/* A horizontal drag offset in points; release returns to authored translate. */
-uint32_t exact_drag_x(ExactRuntime rt, uint32_t view, double delta, double velocity, uint32_t release, double now_ms);
+/* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
+uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
+/* Property: 0 translate, 1 scale, 2 rotate, 3 opacity. Begin replies with a
+ * hold op {token:decimal-string,x,y}. Tokens belong to this runtime incarnation.
+ * Check liveness before an authored action; final update, action, then end. */
+/* Authored header binding, generational keys and live Height token. */
+uint32_t exact_height_drag_begin(ExactRuntime rt, uint64_t handle_key, uint64_t target_key, double now_ms);
+uint32_t exact_height_drag_update(ExactRuntime rt, uint64_t token, double height, double now_ms);
+uint32_t exact_height_drag_release(ExactRuntime rt, uint64_t token, double height, double velocity, double now_ms);
+uint32_t exact_transform_motion(uint32_t rt, uint32_t len);
+uint32_t exact_hold_begin(ExactRuntime rt, uint32_t view, uint32_t property, double now_ms);
+uint32_t exact_has_hold(ExactRuntime rt, uint64_t token);
+uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, double now_ms);
+uint32_t exact_hold_end(ExactRuntime rt, uint64_t token, uint32_t cancel, double vx, double vy, double now_ms);
 uint32_t exact_advance(ExactRuntime rt, double now_ms);   /* the runner's clock: timers */
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
 uint32_t exact_resize(ExactRuntime rt, float width, float height);

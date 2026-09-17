@@ -279,8 +279,8 @@ fn serve(mut stream: TcpStream, shared: Arc<Shared>) -> io::Result<()> {
     };
 
     // The reader: the client's messages.
+    let mut buttons = 0u8;
     let result = (|| -> io::Result<()> {
-        let mut buttons = 0u8;
         loop {
             let kind = read_exact::<1>(&mut stream)?[0];
             match kind {
@@ -365,6 +365,9 @@ fn serve(mut stream: TcpStream, shared: Arc<Shared>) -> io::Result<()> {
             }
         }
     })();
+    if buttons & 1 != 0 {
+        push(&shared, InputEvent::Cancel);
+    }
     // Tell the writer, wherever it waits, and wait for it: no thread and no
     // socket outlive the client.
     {
@@ -433,5 +436,64 @@ fn keysym(key: u32) -> Option<Key> {
         0xff0d | 0xff8d => Some(Key::Enter),
         0xff1b => Some(Key::Escape),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod contact_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn disconnect_while_down_queues_cancel_and_never_a_successful_release() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (wake, _read) = UnixStream::pair().unwrap();
+        let shared = Arc::new(Shared {
+            frame: Mutex::new((None, 0)),
+            changed: Condvar::new(),
+            events: Mutex::new(Vec::new()),
+            wake: Mutex::new(wake),
+            width: 400,
+            height: 500,
+        });
+        let server = shared.clone();
+        let (finished, receive) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let result = serve(stream, server);
+            finished.send(result.map_err(|e| e.kind())).unwrap();
+        });
+        let mut client = TcpStream::connect(address).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        assert_eq!(&read_exact::<12>(&mut client).unwrap(), b"RFB 003.008\n");
+        client.write_all(b"RFB 003.008\n").unwrap();
+        assert_eq!(read_exact::<2>(&mut client).unwrap(), [1, 1]);
+        client.write_all(&[1]).unwrap();
+        read_exact::<4>(&mut client).unwrap();
+        client.write_all(&[1]).unwrap();
+        let init = read_exact::<24>(&mut client).unwrap();
+        drain(
+            &mut client,
+            u32::from_be_bytes(init[20..24].try_into().unwrap()) as u64,
+        )
+        .unwrap();
+        client.write_all(&[5, 1, 0, 20, 0, 40]).unwrap();
+        client.shutdown(std::net::Shutdown::Both).unwrap();
+        drop(client);
+        assert_eq!(
+            receive.recv_timeout(Duration::from_secs(3)).unwrap(),
+            Err(io::ErrorKind::UnexpectedEof)
+        );
+        worker.join().unwrap();
+        let events = shared.events.lock().unwrap();
+        assert!(events.contains(&InputEvent::Button(true)));
+        assert_eq!(events.last(), Some(&InputEvent::Cancel));
+        assert!(!events.contains(&InputEvent::Button(false)));
     }
 }

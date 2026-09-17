@@ -50,6 +50,28 @@ pools and load balancing stay out; the mixed-resource first-frame bake is
 built with it rather than queued. The measurement bar in LLP 1027.002 §2 says
 when a worker is claimed to help.
 
+**Expanded (Charlie, 2026-09-16):** graceful-overload design and two bounded,
+synthetic stress consumers (LLP 1041): Messages interaction under load and
+async completion storms. Unblocks measuring queue pressure, UI settlement
+bursts, and large-history costs on existing hosts. Take: broad new benchmark
+apps and a generic job scheduler stay behind these two; no sixth blocking
+check, additional worker pool, or parallel layout is admitted by these examples.
+
+**Expanded (Charlie, 2026-09-16, Astra xhigh campaign):** add gigantic Markdown
+and continuous native resize to LLP 1041's stress consumers; evolve bounded
+native scheduling and viewport collections against these workloads. Take: more
+showcase apps and speculative general job pools wait behind measured improvements
+to these three. Existing ordered-effect and capability boundaries still apply.
+
+**Expanded (Charlie, 2026-09-16: "Work through all four"):** continuously
+interactive Messages, photo zoom, virtualized reorder and a draggable sheet with
+a nested collection (LLP 1041 §8.5). Unblocks proving gesture takeover, collection
+lifetime and background scheduling together on the existing hosts. Take: other
+showcase apps and decorative effects wait behind these four and the original
+three workloads. Shared-element presentation and the bounded geometry/motion
+work those consumers need are admitted; a generic gesture arena, second
+application-state graph and speculative parallel layout remain out.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with
@@ -153,8 +175,11 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   permanent bug annuity LLP 0559 F1 describes. Scroll always wins.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
-- **Layout transitions.** Gated on a demonstrated incremental-relayout number.
-  There isn't one.
+- **General layout transitions.** LLP 1041 §8.12's measured projection admits
+  one explicitly registered numeric-height sheet (Charlie’s four-interaction
+  campaign, 2026-09-17). Take: other animated layout properties and decorative
+  effects wait behind that sheet and its nested collection. This is not a
+  general layout-animation system or evidence of physical 120 Hz.
 - **Decay, sequence, and repeat drivers; `@keyframes`.** A spring carries release
   velocity; nothing else needs a driver.
 - **Reduced-motion policy in the engine.** The producer emits `transition: none`

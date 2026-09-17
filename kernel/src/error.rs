@@ -9,7 +9,7 @@
 use std::fmt;
 
 use crate::generated::{NodeType, OpCode, PropId, PropKind, StyleId};
-use crate::id::ViewId;
+use crate::id::{NodeKey, ViewId};
 
 /// A masked style contains a value outside the schema's declared domain.
 ///
@@ -235,6 +235,8 @@ pub enum ApplyError {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LayoutError {
+    /// Explicit region registration/publication refused; no fake ready metrics.
+    ContentRegion(&'static str),
     /// A definite available-space offer is infinite or NaN.
     InvalidOffer,
     /// The id is not live.
@@ -249,6 +251,17 @@ pub enum LayoutError {
     InvalidEnv,
     /// A host text callback returned a non-finite or negative metric.
     InvalidTextMetrics(ViewId),
+    /// A sampled CSS height is non-finite or negative.
+    InvalidPresentedHeight,
+    /// The sample was stamped before/after the current authored epoch.
+    StalePresentedHeight { expected: u64, actual: u64 },
+    /// The sampled allocation has been removed or its slot reused.
+    UnknownPresentedNode(NodeKey),
+    /// The sampled node is detached or belongs to a different root.
+    PresentedHeightOutsideRoot(NodeKey),
+    /// Height is not authored as nonnegative pixels, or the node has no visible
+    /// independent box (inline text or display:none on its ancestor path).
+    UnsupportedPresentedHeight(NodeKey),
     /// The layout engine reported an error (a kernel bug, never a producer error).
     Engine(String),
 }

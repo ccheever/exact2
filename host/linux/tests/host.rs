@@ -399,7 +399,7 @@ fn an_image_lays_out_from_its_decoded_size() {
 }
 
 #[test]
-fn an_embedded_image_is_not_opened_on_the_boot_thread() {
+fn a_nonregular_image_is_refused_off_the_boot_thread_without_blocking_a_worker() {
     let dir = std::env::temp_dir().join(format!("exact-linux-image-worker-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -429,16 +429,6 @@ fn an_embedded_image_is_not_opened_on_the_boot_thread() {
         )
         .unwrap();
     let mut images = Images::new(dir.clone());
-    let writer_path = fifo.clone();
-    let writer = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(250));
-        use std::io::Write as _;
-        let mut writer = std::fs::OpenOptions::new()
-            .write(true)
-            .open(writer_path)
-            .unwrap();
-        writer.write_all(b"not a png").unwrap();
-    });
     let started = Instant::now();
     let reports = images.sync(&kernel, &kernel.roots());
     let elapsed = started.elapsed();
@@ -447,8 +437,10 @@ fn an_embedded_image_is_not_opened_on_the_boot_thread() {
         elapsed < Duration::from_millis(100),
         "image scheduling waited {elapsed:?} for the FIFO reader"
     );
-    writer.join().unwrap();
     images.wait(Duration::from_secs(2));
+    assert!(!images.pending());
+    assert!(images.bitmaps.is_empty());
+    assert_eq!(images.diagnostics()["refused"], 1);
     let _ = std::fs::remove_dir_all(fifo.parent().unwrap());
 }
 

@@ -7,7 +7,9 @@
 
 #![allow(unsafe_code)]
 
-use evdev::{AbsoluteAxisCode, Device, EventSummary, EventType, RelativeAxisCode};
+use evdev::{
+    AbsoluteAxisCode, Device, EventSummary, EventType, RelativeAxisCode, SynchronizationCode,
+};
 use std::os::fd::AsRawFd;
 
 /// One thing the user did.
@@ -20,6 +22,8 @@ pub enum InputEvent {
     Absolute(Option<f32>, Option<f32>),
     /// The primary button went down (`true`) or up.
     Button(bool),
+    /// Carrier/device loss cancels without manufacturing a successful release.
+    Cancel,
     /// A wheel: (dx, dy) in points, the web's sign (a positive `dy` scrolls
     /// down).
     Wheel(f32, f32),
@@ -117,33 +121,66 @@ impl Input {
     /// Everything that arrived since the last read.
     pub fn read(&mut self) -> Vec<InputEvent> {
         let mut out = Vec::new();
-        for (d, absolute) in &mut self.devices {
-            let Ok(events) = d.fetch_events() else {
-                continue;
+        let mut gone = Vec::new();
+        for (index, (d, absolute)) in self.devices.iter_mut().enumerate() {
+            let events = match d.fetch_events() {
+                Ok(events) => events,
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                    ) =>
+                {
+                    continue
+                }
+                Err(_) => {
+                    gone.push(index);
+                    out.push(InputEvent::Cancel);
+                    continue;
+                }
             };
+            let mut pointer = PointerReport::default();
             let fraction = |range: (i32, i32), v: i32| {
                 let span = (range.1 - range.0).max(1) as f32;
                 ((v - range.0) as f32 / span).clamp(0.0, 1.0)
             };
             for e in events {
-                match e.destructure() {
+                let summary = e.destructure();
+                if !matches!(
+                    summary,
+                    EventSummary::RelativeAxis(
+                        _,
+                        RelativeAxisCode::REL_X | RelativeAxisCode::REL_Y,
+                        _
+                    ) | EventSummary::AbsoluteAxis(
+                        _,
+                        AbsoluteAxisCode::ABS_X
+                            | AbsoluteAxisCode::ABS_Y
+                            | AbsoluteAxisCode::ABS_MT_POSITION_X
+                            | AbsoluteAxisCode::ABS_MT_POSITION_Y,
+                        _
+                    )
+                ) {
+                    pointer.flush(&mut out);
+                }
+                match summary {
                     EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_X, v)
                     | EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_MT_POSITION_X, v) => {
                         if let Some(r) = absolute {
-                            out.push(InputEvent::Absolute(Some(fraction(r[0], v)), None));
+                            pointer.absolute.0 = Some(fraction(r[0], v));
                         }
                     }
                     EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_Y, v)
                     | EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_MT_POSITION_Y, v) => {
                         if let Some(r) = absolute {
-                            out.push(InputEvent::Absolute(None, Some(fraction(r[1], v))));
+                            pointer.absolute.1 = Some(fraction(r[1], v));
                         }
                     }
                     EventSummary::RelativeAxis(_, RelativeAxisCode::REL_X, v) => {
-                        out.push(InputEvent::Motion(v as f32, 0.0))
+                        pointer.relative.0 += v as f32;
                     }
                     EventSummary::RelativeAxis(_, RelativeAxisCode::REL_Y, v) => {
-                        out.push(InputEvent::Motion(0.0, v as f32))
+                        pointer.relative.1 += v as f32;
                     }
                     EventSummary::RelativeAxis(_, RelativeAxisCode::REL_WHEEL_HI_RES, v) => {
                         out.push(InputEvent::Wheel(0.0, -(v as f32) / 120.0 * LINE))
@@ -175,11 +212,38 @@ impl Input {
                             _ => {}
                         }
                     }
+                    EventSummary::Synchronization(_, SynchronizationCode::SYN_DROPPED, _) => {
+                        out.push(InputEvent::Cancel)
+                    }
                     _ => {}
                 }
             }
+            pointer.flush(&mut out);
+        }
+        for index in gone.into_iter().rev() {
+            self.devices.remove(index);
         }
         coalesce(out)
+    }
+}
+
+// Both axes of one evdev report reach recognition together. Separate X then Y
+// callbacks could claim a horizontal swipe before the dominant vertical axis.
+#[derive(Default)]
+struct PointerReport {
+    relative: (f32, f32),
+    absolute: (Option<f32>, Option<f32>),
+}
+impl PointerReport {
+    fn flush(&mut self, out: &mut Vec<InputEvent>) {
+        let (dx, dy) = std::mem::take(&mut self.relative);
+        if dx != 0. || dy != 0. {
+            out.push(InputEvent::Motion(dx, dy));
+        }
+        let (x, y) = std::mem::take(&mut self.absolute);
+        if x.is_some() || y.is_some() {
+            out.push(InputEvent::Absolute(x, y));
+        }
     }
 }
 
@@ -255,5 +319,32 @@ pub fn key(code: u16, shift: bool) -> Option<Key> {
         53 => pair('/', '?'),
         57 => Some(Key::Char(' ')),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod pointer_tests {
+    use super::*;
+    #[test]
+    fn a_report_keeps_diagonal_intent_atomic_and_boundaries_separate() {
+        let mut report = PointerReport::default();
+        let mut out = vec![InputEvent::Button(true)];
+        report.relative.0 += 10.;
+        report.relative.1 += 30.;
+        report.flush(&mut out);
+        report.absolute.0 = Some(0.2);
+        report.absolute.1 = Some(0.3);
+        report.flush(&mut out);
+        out.push(InputEvent::Button(false));
+        report.flush(&mut out);
+        assert_eq!(
+            out,
+            vec![
+                InputEvent::Button(true),
+                InputEvent::Motion(10., 30.),
+                InputEvent::Absolute(Some(0.2), Some(0.3)),
+                InputEvent::Button(false)
+            ]
+        );
     }
 }

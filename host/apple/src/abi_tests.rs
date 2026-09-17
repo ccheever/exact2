@@ -495,3 +495,281 @@ fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
     );
     assert_eq!(bridge.host.as_ref().unwrap().runner().pending(), pending);
 }
+
+#[test]
+fn holds_do_not_cross_bridge_incarnations_or_runtime_boundaries() {
+    fn boot() -> Bridge<StorageModule> {
+        let mut bridge = Bridge::new();
+        let n = bridge.boot(
+            &plan(None),
+            StorageModule::default(),
+            Hooks::none(),
+            400.,
+            600.,
+        );
+        assert!(std::str::from_utf8(bridge.output_bytes(n as usize))
+            .unwrap()
+            .contains("\"error\":null"));
+        bridge
+    }
+    let mut bridge = boot();
+    let view = bridge.host.as_ref().unwrap().runner().roots()[0];
+    let len = bridge.hold_begin(view, 0, 0.);
+    let json = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+    let token: u64 = json
+        .split("\"token\":\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(bridge.has_hold(token));
+    assert!(!boot().has_hold(token));
+    bridge.input_write(&plan(None));
+    bridge.prepare_plan(
+        plan(None).len(),
+        StorageModule::default(),
+        Hooks::none(),
+        400.,
+        600.,
+    );
+    bridge.commit_plan();
+    assert!(!bridge.has_hold(token));
+    let n = bridge.hold_update(token, f64::NAN, f64::NAN, f64::NAN);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("\"error\":null"), "{out}");
+}
+
+#[test]
+fn invalid_hold_property_preserves_status_and_other_presentations() {
+    let bytes = contract::compile(
+        r#"component App
+  state count = 0
+  action tick writes count
+    count = count + 1
+  task clock mount
+    every(100, tick)
+  view
+    box transition="opacity 180ms linear"
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 600.);
+    let host = bridge.host.as_mut().unwrap();
+    let row = host.runner().roots()[0];
+    let serial = |s: String| -> u64 {
+        s.split("\"token\":\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let held = serial(host.hold_begin(row, exact_motion::Property::Translate, 0.));
+    host.hold_update(held, exact_motion::Value::new(91., 0.), 0.);
+    let other = serial(host.hold_begin(row, exact_motion::Property::Opacity, 0.));
+    host.hold_update(other, exact_motion::Value::scalar(0.2), 0.);
+    host.hold_end(other, exact_motion::HoldEnd::Cancel, 0.);
+    let len = bridge.hold_begin(row, 99, f64::NAN);
+    let out = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+    assert!(out.contains("unknown motion property"), "{out}");
+    assert!(out.contains("\"motion\":true"), "{out}");
+    assert!(out.contains("\"timers\":true"), "{out}");
+    assert!(out.contains("\"ops\":[]"), "{out}");
+    assert!(bridge.has_hold(held));
+    let len = bridge.hold_begin(row, 0, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+    assert!(out.contains("\"x\":91"), "{out}");
+}
+
+#[test]
+fn height_release_abi_separates_synthesis_from_generation_checked_pointer_completion() {
+    let bytes = contract::compile(
+        r#"component App
+  state height = 180
+  action release(value: number, velocity: number) writes height
+    height = value
+  view
+    box id="sheet" height=height box-sizing="border-box" transition="height 200ms linear"
+      box testId="header" heightDragFor="sheet" heightrelease=release
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 800.);
+    let host = bridge.host.as_ref().unwrap();
+    let kernel = host.runner().kernel();
+    let header = kernel.find_by_test_id("header")[0];
+    let target = kernel.height_drag_target(header).unwrap();
+    let view = kernel.node_by_key(header).unwrap().id;
+    let pack = exact_kernel::motion::motion_node;
+    let n = bridge.height_drag_begin(pack(header), pack(target), 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    let token: u64 = out
+        .split("\"token\":\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    bridge.height_drag_update(token, 300., 0.);
+    bridge.height_drag_release(token, 320., 200., 0.);
+    assert!(bridge.has_hold(token));
+    bridge.hold_end(token, false, 200., 0., 0.);
+    assert!(!bridge.has_hold(token));
+    let n = bridge.height_drag_release(token, f64::NAN, f64::NAN, f64::NAN);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("\"error\":null"), "{out}");
+    assert_eq!(bridge.host.as_ref().unwrap().engine().now(), 0.);
+    // Synthesis uses the ordinary typed parser, with no physical token authority.
+    let len = bridge.input_write(b"640,0");
+    bridge.dispatch(view, 15, len, 0.);
+    assert_eq!(
+        bridge
+            .host
+            .as_ref()
+            .unwrap()
+            .engine()
+            .target(pack(target), exact_motion::Property::Height),
+        Some(exact_motion::Value::scalar(640.))
+    );
+    for bad in ["-1,0", "200,NaN", "200,0,1", "NaN,0"] {
+        let len = bridge.input_write(bad.as_bytes());
+        let n = bridge.dispatch(view, 15, len, 100.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        assert!(out.contains("invalid height release coordinates"), "{out}");
+        assert!(out.contains("\"motion\":true"), "{out}");
+        assert_eq!(bridge.host.as_ref().unwrap().engine().now(), 0.);
+    }
+}
+
+// The catalog callback is synchronous and precedes every candidate's first
+// measure. The Swift owner restores its checkpoint after a failed fresh boot.
+#[derive(Default)]
+struct MetricCatalogProbe {
+    catalog: std::cell::Cell<u32>,
+    calls: std::cell::RefCell<Vec<u32>>,
+}
+#[allow(unsafe_code)] // Borrow the test-owned callback context synchronously.
+extern "C" fn identified_install(ctx: *mut c_void, _: *const crate::measure::CFontCatalog) {
+    let p = unsafe { &*ctx.cast::<MetricCatalogProbe>() };
+    p.catalog.set(p.catalog.get() + 1);
+}
+#[allow(unsafe_code)] // Borrow the test-owned callback context synchronously.
+extern "C" fn identified_catalog_measure(
+    ctx: *mut c_void,
+    _: *const crate::measure::CRequest,
+) -> crate::measure::CMetrics {
+    let p = unsafe { &*ctx.cast::<MetricCatalogProbe>() };
+    let catalog = p.catalog.get();
+    p.calls.borrow_mut().push(catalog);
+    crate::measure::CMetrics {
+        width: 80.0,
+        height: 10.0 * catalog as f32,
+        baseline: 5.0,
+    }
+}
+fn catalog_hooks(p: &MetricCatalogProbe) -> Hooks {
+    Hooks {
+        measure: Some(identified_catalog_measure),
+        ctx: std::ptr::from_ref(p).cast_mut().cast(),
+        ..Hooks::none()
+    }
+}
+fn identified_plan() -> Vec<u8> {
+    contract::compile("component App\n  view\n    column\n      text \"catalog text\"\n")
+        .unwrap()
+        .encode()
+}
+
+#[test]
+fn identified_candidate_catalog_commit_and_discard_keep_separate_measurers() {
+    let bytes = identified_plan();
+    let live = MetricCatalogProbe::default();
+    let candidate = MetricCatalogProbe::default();
+    let mut bridge = Bridge::new();
+    bridge.set_fonts(Some(identified_install), catalog_hooks(&live).ctx);
+    bridge.boot(
+        &bytes,
+        StorageModule::default(),
+        catalog_hooks(&live),
+        390.0,
+        844.0,
+    );
+    assert!(!live.calls.borrow().is_empty());
+    assert!(live.calls.borrow().iter().all(|c| *c == 1));
+    let calls = live.calls.borrow().len();
+    bridge.set_fonts(Some(identified_install), catalog_hooks(&candidate).ctx);
+    bridge.input_write(&bytes);
+    bridge.prepare_plan(
+        bytes.len(),
+        StorageModule::default(),
+        catalog_hooks(&candidate),
+        390.0,
+        844.0,
+    );
+    assert!(bridge.prepared.is_some());
+    assert!(!candidate.calls.borrow().is_empty());
+    assert_eq!(live.calls.borrow().len(), calls);
+    bridge.discard_plan();
+    assert!(bridge.host.is_some());
+    bridge.resize(390.0, 845.0);
+    bridge.resize(390.0, 844.0);
+    let candidate_calls = candidate.calls.borrow().len();
+    bridge.input_write(&bytes);
+    bridge.prepare_plan(
+        bytes.len(),
+        StorageModule::default(),
+        catalog_hooks(&candidate),
+        390.0,
+        844.0,
+    );
+    assert!(bridge.prepared.is_some());
+    assert!(candidate.calls.borrow().len() > candidate_calls);
+    assert_eq!(candidate.catalog.get(), 2);
+    assert_eq!(*candidate.calls.borrow().last().unwrap(), 2);
+    bridge.commit_plan();
+    let previous_live_calls = live.calls.borrow().len();
+    bridge.resize(400.0, 844.0);
+    assert_eq!(live.calls.borrow().len(), previous_live_calls);
+    assert_eq!(*candidate.calls.borrow().last().unwrap(), 2);
+}
+
+#[test]
+fn identified_failed_fresh_boot_preserves_catalog_and_live_measurer() {
+    let bytes = identified_plan();
+    let context = MetricCatalogProbe::default();
+    let hooks = catalog_hooks(&context);
+    let mut bridge = Bridge::new();
+    bridge.set_fonts(Some(identified_install), hooks.ctx);
+    bridge.boot(&bytes, StorageModule::default(), hooks, 390.0, 844.0);
+    let old_keys = bridge.host.as_ref().unwrap().runner().roots();
+    let checkpoint = context.catalog.get();
+    let len = bridge.boot(&bytes, StorageModule::default(), hooks, f32::NAN, 844.0);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("error"));
+    assert_eq!(
+        context.catalog.get(),
+        checkpoint,
+        "invalid viewport refuses before font installation"
+    );
+    // ExactSession.boot's error branch does text.restore(cp); real Swift
+    // catalog/paragraph restoration remains covered by TextGeometryTests.
+    context.catalog.set(checkpoint);
+    assert_eq!(bridge.host.as_ref().unwrap().runner().roots(), old_keys);
+    context.calls.borrow_mut().clear();
+    bridge.resize(391.0, 844.0);
+    assert!(context
+        .calls
+        .borrow()
+        .iter()
+        .all(|catalog| *catalog == checkpoint));
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Messages Stress",
+  "short_name": "Messages Stress",
+  "id": "com.exact.messages-stress",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#2668d8",
+  "background_color": "#f1f5fa",
+  "app": { "id": "com.exact.messages-stress", "name": "Messages Stress" },
+  "rust": { "mode": "off" },
+  "host": {
+    "web": {},
+    "linux": {},
+    "macos": { "minimumOS": "14.0", "window": { "width": 980, "height": 820, "minWidth": 390, "minHeight": 640 } },
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] }
+  },
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" } }
+}

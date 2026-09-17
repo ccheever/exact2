@@ -1,0 +1,21 @@
+[package]
+name = "interaction-gallery-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Interaction gallery example on the web: one wasm with the runner, the kernel, its data source and baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "interaction_gallery_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+interaction-gallery-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+interaction-gallery-data = { path = "../data" }

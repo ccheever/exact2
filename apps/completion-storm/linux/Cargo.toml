@@ -1,0 +1,19 @@
+[package]
+name = "completion-storm-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "completion-storm-linux"
+path = "src/main.rs"
+
+[dependencies]
+completion-storm-data = { path = "../data" }
+exact-linux = { path = "../../../host/linux" }
+
+[build-dependencies]
+completion-storm-data = { path = "../data" }
+contract = { path = "../../../contract/cli" }

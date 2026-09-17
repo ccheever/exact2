@@ -62,9 +62,11 @@ impl Hooks {
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
+    region: Option<crate::content_region::ContentRegionRegistration>,
     prepared: Option<PreparedHost<D>>,
     painted: bool,
     executor: Option<crate::executor::Executor>,
+    refusal_turn: bool,
     fonts: Option<FontsFn>,
     fonts_ctx: *mut c_void,
     /// The archive's `compat.json` (LLP 1030 D3a), from the `host!`
@@ -94,9 +96,11 @@ impl<D: DataSource> Bridge<D> {
     pub const fn new() -> Bridge<D> {
         Bridge {
             host: None,
+            region: None,
             prepared: None,
             painted: false,
             executor: None,
+            refusal_turn: false,
             fonts: None,
             fonts_ctx: std::ptr::null_mut(),
             compat: None,
@@ -122,6 +126,14 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// Explicit authored region, used by every subsequent fresh/candidate boot.
+    pub fn set_content_region(
+        &mut self,
+        region: Option<crate::content_region::ContentRegionRegistration>,
+    ) {
+        self.region = region;
+    }
+
     /// Resize the input buffer and return its address.
     pub fn input(&mut self, len: usize) -> *mut u8 {
         self.input.clear();
@@ -135,6 +147,43 @@ impl<D: DataSource> Bridge<D> {
         self.input.clear();
         self.input.extend_from_slice(bytes);
         self.input.len()
+    }
+
+    /// Copy one current immutable region request; stale IDs return an error object.
+    pub fn region_request(&mut self, id: u64, known_source: u64) -> u32 {
+        let answer = self
+            .host
+            .as_ref()
+            .ok_or_else(|| "not booted".into())
+            .and_then(|h| h.region_request_json_known(id, known_source));
+        let text = answer.unwrap_or_else(|why| format!("{{\"error\":\"{}\"}}", escape(&why)));
+        self.output = text.into_bytes();
+        self.output.len() as u32
+    }
+    /// Deliver one native retained artifact; even stale/not-booted takes ownership.
+    pub fn region_complete(
+        &mut self,
+        id: u64,
+        metrics: crate::measure::CMetrics,
+        owner: Rc<dyn std::any::Any>,
+    ) -> u32 {
+        let text = self
+            .host
+            .as_mut()
+            .map(|h| {
+                h.complete_region_text(
+                    id,
+                    exact_kernel::TextMetrics {
+                        width: metrics.width,
+                        height: metrics.height,
+                        first_baseline: (metrics.baseline >= 0. || !metrics.baseline.is_finite())
+                            .then_some(metrics.baseline),
+                    },
+                    owner,
+                )
+            })
+            .unwrap_or_else(not_booted);
+        self.emit(text)
     }
 
     /// The output buffer's address.
@@ -186,12 +235,20 @@ impl<D: DataSource> Bridge<D> {
         // Whatever the last call asked the host to run goes to the executor
         // with the batch (LLP 1016 D2); the presenter never sees a request.
         if let (Some(h), Some(x)) = (self.host.as_mut(), self.executor.as_ref()) {
+            if !h.has_ordered_request_refusals() {
+                x.resume_ordered();
+            }
             for r in h.take_requests() {
+                let ordered = r.request.is_ordered();
                 let work = r
                     .request
                     .continuation
                     .and_then(|token| h.continuation(token));
-                x.run(r, work);
+                let ticket = r.ticket;
+                if let Err(reason) = x.run(r, work) {
+                    h.refuse_request(ticket, reason, ordered);
+                    x.notify();
+                }
             }
         }
         self.output = s.into_bytes();
@@ -202,11 +259,33 @@ impl<D: DataSource> Bridge<D> {
     /// presenter calls this on its thread after the wake; the output is the
     /// batch of every reply's commit.
     pub fn pump(&mut self, now_ms: f64) -> u32 {
-        let outcomes = self
-            .executor
-            .as_ref()
-            .map(|x| x.drain())
-            .unwrap_or_default();
+        self.refusal_turn = !self.refusal_turn;
+        let outcomes = match (self.host.as_mut(), self.executor.as_ref()) {
+            (Some(host), Some(executor)) => {
+                executor.begin_pump();
+                let mut outcomes = if self.refusal_turn {
+                    host.take_request_refusal(executor.ordered_idle())
+                        .into_iter()
+                        .collect()
+                } else {
+                    executor.drain()
+                };
+                if outcomes.is_empty() {
+                    outcomes = if self.refusal_turn {
+                        executor.drain()
+                    } else {
+                        host.take_request_refusal(executor.ordered_idle())
+                            .into_iter()
+                            .collect()
+                    };
+                }
+                if host.has_request_refusals(executor.ordered_idle()) {
+                    executor.notify();
+                }
+                outcomes
+            }
+            _ => vec![],
+        };
         let out = match self.host.as_mut() {
             Some(h) => h.fulfill_all(outcomes, now_ms),
             None => not_booted(),
@@ -309,6 +388,7 @@ impl<D: DataSource> Bridge<D> {
             self.delivery,
             None,
             self.launch.as_deref().unwrap_or("/"),
+            self.region,
             move |decoded| {
                 if let Some(callback) = fonts {
                     install_fonts(decoded, callback, fonts_ctx);
@@ -539,6 +619,7 @@ impl<D: DataSource> Bridge<D> {
             self.delivery,
             delivery,
             self.launch.as_deref().unwrap_or("/"),
+            self.region,
             move |decoded| {
                 if let Some(callback) = fonts {
                     install_fonts(decoded, callback, fonts_ctx);
@@ -649,6 +730,30 @@ impl<D: DataSource> Bridge<D> {
             }
             // @ref LLP 1038 D8 — the next ABI kind after scroll.
             14 => Event::Navigate(payload),
+            15 => {
+                let Some(event) = Event::height_release_payload(&payload) else {
+                    let out = self.host.as_ref().map_or_else(not_booted, |h| {
+                        h.hold_refusal("invalid height release coordinates")
+                    });
+                    return self.emit(out);
+                };
+                event
+            }
+            16 | 17 => {
+                let event = if kind == 16 {
+                    Event::transform_geometry_payload(&payload)
+                } else {
+                    Event::transform_release_payload(&payload)
+                };
+                let Some(event) = event else {
+                    let out = self
+                        .host
+                        .as_ref()
+                        .map_or_else(not_booted, |h| h.hold_refusal("invalid transform event"));
+                    return self.emit(out);
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
@@ -658,18 +763,95 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Feed a recognized horizontal drag to the motion engine.
-    pub fn drag_x(
+    /// Consume the exact120-byte paired transform packet from the owned input buffer.
+    pub fn transform_motion(&mut self, len: usize) -> u32 {
+        let out = match self.host.as_mut() {
+            Some(host) if len == 120 && self.input.len() >= len => {
+                host.transform_motion(&self.input[..len])
+            }
+            Some(host) => format!(
+                "{{\"accepted\":false,\"batch\":{}}}",
+                host.hold_refusal("malformed transform length")
+            ),
+            None => format!("{{\"accepted\":false,\"batch\":{}}}", not_booted()),
+        };
+        self.emit(out)
+    }
+
+    /// Start a generic property hold (0 translate, 1 scale, 2 rotate, 3 opacity).
+    pub fn hold_begin(&mut self, view: u32, property: u32, now_ms: f64) -> u32 {
+        let out = match exact_motion::Property::ALL.get(property as usize) {
+            Some(property) => self
+                .host
+                .as_mut()
+                .map_or_else(not_booted, |h| h.hold_begin(view, *property, now_ms)),
+            None => self
+                .host
+                .as_ref()
+                .map_or_else(not_booted, |h| h.hold_refusal("unknown motion property")),
+        };
+        self.emit(out)
+    }
+
+    /// Begin an authored header's resolved generational binding.
+    pub fn height_drag_begin(&mut self, handle: u64, target: u64, now_ms: f64) -> u32 {
+        let key = |packed: u64| exact_kernel::NodeKey {
+            index: packed as u32,
+            generation: (packed >> 32) as u32,
+        };
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.height_drag_begin(key(handle), key(target), now_ms)
+        });
+        self.emit(out)
+    }
+    /// Move only a live header/target/token triple.
+    pub fn height_drag_update(&mut self, token: u64, height: f64, now_ms: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.height_drag_update(token, height, now_ms));
+        self.emit(out)
+    }
+    /// Apply the final sample and typed release action while held.
+    pub fn height_drag_release(
         &mut self,
-        view: u32,
-        delta: f64,
+        token: u64,
+        height: f64,
         velocity: f64,
-        release: bool,
         now_ms: f64,
     ) -> u32 {
         let out = self.host.as_mut().map_or_else(not_booted, |h| {
-            h.drag_x(view, delta, velocity, release, now_ms)
+            h.dispatch_height_held(token, height, velocity, now_ms)
         });
+        self.emit(out)
+    }
+
+    /// Liveness before an authored completion; never advances a clock.
+    pub fn has_hold(&self, token: u64) -> bool {
+        self.host.as_ref().is_some_and(|h| h.has_hold(token))
+    }
+
+    /// Update presentation using a runtime-owned opaque handle.
+    pub fn hold_update(&mut self, token: u64, x: f64, y: f64, now_ms: f64) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.hold_update(token, exact_motion::Value::new(x, y), now_ms)
+        });
+        self.emit(out)
+    }
+
+    /// Release (or cancel) a live hold after its authored action.
+    pub fn hold_end(&mut self, token: u64, cancel: bool, vx: f64, vy: f64, now_ms: f64) -> u32 {
+        let end = if cancel {
+            exact_motion::HoldEnd::Cancel
+        } else {
+            exact_motion::HoldEnd::Release {
+                velocity: exact_motion::Value::new(vx, vy),
+            }
+        };
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.hold_end(token, end, now_ms));
         self.emit(out)
     }
 
@@ -711,6 +893,20 @@ impl<D: DataSource> Bridge<D> {
             .as_mut()
             .map_or_else(not_booted, |h| h.set_intrinsic(view, size));
         self.emit(out)
+    }
+
+    /// One common LE collection feedback packet in the input buffer. An invalid
+    /// length is rejected by decoding an empty packet, never a truncated prefix.
+    /// Feedback cannot issue requests, so even malformed/stale calls avoid the
+    /// executor dispatch path and merely publish their returned batch.
+    pub fn collection_feedback(&mut self, len: usize, now_ms: f64) -> u32 {
+        let bytes = self.input.get(..len).unwrap_or(&[]);
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |host| host.collection_feedback(bytes, now_ms));
+        self.output = out.into_bytes();
+        self.output.len() as u32
     }
 
     /// A motion frame.
@@ -928,6 +1124,10 @@ macro_rules! host {
         $crate::host!($data, $plan, $compat, $delivery, $api, || <$data as ::std::default::Default>::default());
     };
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr) => {
+        $crate::host!($data, $plan, $compat, $delivery, $api, $new, None);
+    };
+    ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr) => {
+        $crate::raster_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
@@ -937,7 +1137,9 @@ macro_rules! host {
         /// `exact_set_fonts` before its first boot.
         #[no_mangle]
         pub extern "C" fn exact_create() -> u32 {
-            EXACT_RUNTIMES.with(|r| r.borrow_mut().create())
+            let id = EXACT_RUNTIMES.with(|r| r.borrow_mut().create());
+            $crate::abi::with_entry(&EXACT_RUNTIMES, id, |e| e.bridge.set_content_region($region));
+            id
         }
 
         /// The text measurer for a runtime (LLP 1008 §3); `None` is the
@@ -1111,10 +1313,59 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.dispatch(view, kind, len, now_ms), |n| n)
         }
 
-        /// A platform drag: hold or release the authored translate target.
+        /// Copy current region source/paint metadata. No returned bytes outlive exact_out.
         #[no_mangle]
-        pub extern "C" fn exact_drag_x(rt: u32, view: u32, delta: f64, velocity: f64, release: u32, now_ms: f64) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.drag_x(view, delta, velocity, release != 0, now_ms), |n| n)
+        pub extern "C" fn exact_region_request(rt: u32, id: u64, known_source: u64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.region_request(id, known_source), |n| n)
+        }
+        /// Takes one native retain on every path, including destroyed/busy runtimes.
+        #[no_mangle]
+        pub extern "C" fn exact_region_complete(rt: u32, id: u64, metrics: $crate::measure::CMetrics,
+            owner: *mut ::std::ffi::c_void, release: $crate::content_region::RegionRelease) -> u32 {
+            let retained = ::std::rc::Rc::new($crate::content_region::NativeRegionOwner::new(owner, release));
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.region_complete(id, metrics, retained), |n| n)
+        }
+
+        /// Process one frozen paired transform packet from exact_in.
+        #[no_mangle]
+        pub extern "C" fn exact_transform_motion(rt: u32, len: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.transform_motion(len as usize), |n| n)
+        }
+
+        /// Capture one property's native presentation.
+        #[no_mangle]
+        pub extern "C" fn exact_hold_begin(rt: u32, view: u32, property: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.hold_begin(view, property, now_ms), |n| n)
+        }
+        /// Begin a header binding using exact packed generational keys.
+        #[no_mangle]
+        pub extern "C" fn exact_height_drag_begin(rt: u32, handle: u64, target: u64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.height_drag_begin(handle, target, now_ms), |n| n)
+        }
+        /// Update an eligible header's live token.
+        #[no_mangle]
+        pub extern "C" fn exact_height_drag_update(rt: u32, token: u64, height: f64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.height_drag_update(token, height, now_ms), |n| n)
+        }
+        /// Final sample then typed action; the caller ends the token afterward.
+        #[no_mangle]
+        pub extern "C" fn exact_height_drag_release(rt: u32, token: u64, height: f64, velocity: f64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.height_drag_release(token, height, velocity, now_ms), |n| n)
+        }
+        /// Check before dispatching an authored completion.
+        #[no_mangle]
+        pub extern "C" fn exact_has_hold(rt: u32, token: u64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| u32::from(b.has_hold(token)), |_| 0)
+        }
+        /// Change a held property's presentation.
+        #[no_mangle]
+        pub extern "C" fn exact_hold_update(rt: u32, token: u64, x: f64, y: f64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.hold_update(token, x, y, now_ms), |n| n)
+        }
+        /// End ownership once, with velocity in displayed units/second.
+        #[no_mangle]
+        pub extern "C" fn exact_hold_end(rt: u32, token: u64, cancel: u32, vx: f64, vy: f64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.hold_end(token, cancel != 0, vx, vy, now_ms), |n| n)
         }
 
         /// Move the clock; returns the batch's length.
@@ -1139,6 +1390,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_intrinsic(rt: u32, view: u32, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.intrinsic(view, width, height), |n| n)
+        }
+
+        /// Common LE collection feedback from the input buffer; returns batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_collection_feedback(rt: u32, len: usize, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.collection_feedback(len, now_ms), |n| n)
         }
 
         /// A motion frame; returns the batch's length.
@@ -1166,3 +1423,11 @@ macro_rules! host {
 #[cfg(test)]
 #[path = "abi_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "executor_order_tests.rs"]
+mod executor_order_tests;
+
+#[cfg(test)]
+#[path = "collection_tests.rs"]
+mod collection_tests;

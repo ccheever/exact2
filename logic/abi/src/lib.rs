@@ -5,7 +5,9 @@ use exact_plan::{
     bytes::{Reader, Writer},
     Plan, Value,
 };
-use exact_runner::{Answer, DataError, DataSource, FailureKind, Outcome, Request, Response, Store};
+use exact_runner::{
+    Answer, DataError, DataSource, FailureKind, HttpScheduling, Outcome, Request, Response, Store,
+};
 
 /// Seam version, independent of the plan format version.
 pub const ABI: u32 = 2;
@@ -152,6 +154,17 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<Outcome, String> {
 }
 fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
     match result {
+        Ok(Answer::Later(r))
+            if (r.storage.is_some() || r.continuation.is_some())
+                && r.http != HttpScheduling::Ordered =>
+        {
+            encode_result(
+                w,
+                Err(DataError::Unavailable(
+                    "independent scheduling is HTTP-only".into(),
+                )),
+            );
+        }
         Ok(Answer::Now(v)) => {
             w.u8(0);
             v.encode(w);
@@ -163,7 +176,15 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             w.string(r.grants.as_deref().unwrap_or(""));
         }
         Ok(Answer::Later(r)) if r.continuation.is_none() => {
-            w.u8(1);
+            // Additive HTTP result kind. Older hosts reject tag 6 before
+            // executing effects; it must never silently decode as ordered.
+            match r.http {
+                HttpScheduling::Ordered => w.u8(1),
+                HttpScheduling::Independent { max_response_bytes } => {
+                    w.u8(6);
+                    w.u32(max_response_bytes);
+                }
+            }
             w.u8(u8::from(r.grants.is_some()));
             w.string(r.grants.as_deref().unwrap_or(""));
             w.string(&r.method);
@@ -189,9 +210,21 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
     }
 }
 fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> {
-    Ok(match r.u8().map_err(error)? {
+    let tag = r.u8().map_err(error)?;
+    Ok(match tag {
         0 => Ok(Answer::Now(Value::decode(r).map_err(error)?)),
-        1 => Ok(Answer::Later(Request {
+        1 | 6 => Ok(Answer::Later(Request {
+            http: if tag == 6 {
+                let limit = r.u32().map_err(error)?;
+                if limit == 0 || limit > 64 << 20 {
+                    return Err("invalid independent HTTP response limit".into());
+                }
+                HttpScheduling::Independent {
+                    max_response_bytes: limit,
+                }
+            } else {
+                HttpScheduling::Ordered
+            },
             continuation: None,
             storage: None,
             grants: {

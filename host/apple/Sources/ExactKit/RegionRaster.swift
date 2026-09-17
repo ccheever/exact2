@@ -1,0 +1,217 @@
+// Stationary opaque viewport pixels. Fractional content/scroll phase stays inside
+// worker drawing; output edges and the final copy are integral device pixels.
+import Foundation
+import CoreGraphics
+import CoreText
+
+struct RegionPaintRow: Sendable, Equatable {
+    let artifact: UInt64
+    let box: CGRect
+    var selection = NSRange(location: 0, length: 0)
+}
+struct RegionRasterRequest: Sendable {
+    let serial: UInt64
+    let publication: UInt64
+    let generation: Int
+    let rows: [RegionPaintRow]
+    let scroll: CGPoint
+    let size: CGSize
+    let scale: Int
+    let profile: NativeProfile
+    let format: UInt32
+    let background: [CGFloat]
+    let selectionColor: [CGFloat]
+    // A continuing selection gesture may outlive replacement highlight pixels,
+    // but never a source/geometry/palette change. New hits still require all pixels.
+    func sameInkAndGeometry(as other: RegionRasterRequest) -> Bool {
+        publication == other.publication && generation == other.generation &&
+        rows.count == other.rows.count && zip(rows, other.rows).allSatisfy({
+            $0.artifact == $1.artifact && $0.box == $1.box
+        }) && scroll == other.scroll && size == other.size && scale == other.scale && profile == other.profile &&
+        format == other.format && background == other.background && selectionColor == other.selectionColor
+    }
+    // Serial is delivery identity; the remaining fields describe exact pixels.
+    func samePixels(as other: RegionRasterRequest) -> Bool {
+        sameInkAndGeometry(as: other) && rows == other.rows
+    }
+    var width: Int { Int(size.width * CGFloat(scale)) }
+    var height: Int { Int(size.height * CGFloat(scale)) }
+    var bytes: Int? {
+        let w = size.width * CGFloat(scale), h = size.height * CGFloat(scale)
+        guard (scale == 1 || scale == 2), w.isFinite, h.isFinite,
+              w > 0, h > 0, w <= 16384, h <= 16384,
+              w.rounded() == w, h.rounded() == h,
+              background.count == 4, background[3] == 1,
+              background.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
+              selectionColor.count == 4,
+              selectionColor.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
+              scroll.x.isFinite, scroll.y.isFinite, rows.count <= 64,
+              format == CGImageAlphaInfo.premultipliedLast.rawValue else { return nil }
+        let (stride, a) = Int(w).multipliedReportingOverflow(by: 4)
+        let (bytes, b) = stride.multipliedReportingOverflow(by: Int(h))
+        return a || b || bytes > 8 * 1024 * 1024 ? nil : bytes
+    }
+}
+enum RegionRasterRefusal: Error { case capacity, invalid, missingArtifact, profile, context }
+struct RegionPixelStats { var bytes = 0; var owners = 0; var peak = 0; var drops = 0 }
+final class RegionPixelAccount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = RegionPixelStats()
+    var stats: RegionPixelStats { lock.lock(); defer { lock.unlock() }; return value }
+    func reserve(_ bytes: Int) -> RegionPixelCharge? {
+        lock.lock(); defer { lock.unlock() }
+        guard bytes > 0, bytes <= 8 * 1024 * 1024, value.owners < 2,
+              bytes <= 16 * 1024 * 1024 - value.bytes else { return nil }
+        value.bytes += bytes; value.owners += 1; value.peak = max(value.peak, value.bytes)
+        return RegionPixelCharge(self, bytes)
+    }
+    fileprivate func release(_ bytes: Int) {
+        lock.lock(); value.bytes -= bytes; value.owners -= 1; value.drops += 1; lock.unlock()
+    }
+}
+final class RegionPixelCharge: Sendable {
+    private let account: RegionPixelAccount
+    let bytes: Int
+    init(_ account: RegionPixelAccount, _ bytes: Int) { self.account = account; self.bytes = bytes }
+    deinit { account.release(bytes) }
+}
+/// Mutation is confined to construction on worker. The CGContext is destroyed
+/// before publication. Provider aliases retain both pixel and profile charges.
+final class RegionPixels: @unchecked Sendable {
+    private let storage: UnsafeMutableRawPointer
+    let count: Int
+    private let charge: RegionPixelCharge
+    private let profile: NativeProfile
+    init(count: Int, charge: RegionPixelCharge, profile: NativeProfile,
+         fill: (UnsafeMutableRawPointer) -> Bool) throws {
+        precondition(!Thread.isMainThread)
+        let memory = UnsafeMutableRawPointer.allocate(byteCount: count, alignment: 64)
+        memory.initializeMemory(as: UInt8.self, repeating: 0, count: count)
+        guard fill(memory) else { memory.deallocate(); throw RegionRasterRefusal.context }
+        storage = memory; self.count = count; self.charge = charge; self.profile = profile
+    }
+    deinit { storage.deallocate() }
+    @MainActor func provider() -> CGDataProvider? {
+        let retained = Unmanaged.passRetained(self)
+        guard let p = CGDataProvider(dataInfo: retained.toOpaque(), data: storage, size: count,
+            releaseData: { info, _, _ in if let info { Unmanaged<RegionPixels>.fromOpaque(info).release() } }) else {
+            retained.release(); return nil
+        }
+        return p
+    }
+}
+final class RegionRaster: Sendable {
+    let request: RegionRasterRequest
+    let pixels: RegionPixels
+    init(_ request: RegionRasterRequest, _ pixels: RegionPixels) { self.request = request; self.pixels = pixels }
+    /// Certifies the supplied payload, never an unknown destination CGContext.
+    @MainActor func accepts(_ image: CGImage, size: CGSize, scale: Int, profile: NativeProfile) -> Bool {
+        guard request.size == size, request.scale == scale, request.profile == profile,
+              image.width == request.width, image.height == request.height,
+              image.bitsPerComponent == 8, image.bitsPerPixel == 32,
+              image.bytesPerRow == request.width * 4, image.bitmapInfo.rawValue == request.format,
+              let space = image.colorSpace, let expected = profile.makeSpace() else { return false }
+        return CFEqual(space, expected)
+    }
+    @MainActor func image() -> CGImage? {
+        guard let space = request.profile.makeSpace(), let provider = pixels.provider() else { return nil }
+        return CGImage(width: request.width, height: request.height, bitsPerComponent: 8, bitsPerPixel: 32,
+            bytesPerRow: request.width * 4, space: space, bitmapInfo: CGBitmapInfo(rawValue: request.format),
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }
+}
+/// One aggregate index per accepted publication, including all paragraph ink.
+/// At most 64 paragraph boundaries, no second per-line mapping allocation.
+final class RegionPaintIndex {
+    let publication: UInt64
+    private let rows: [RegionPaintRow]
+    private let layouts: [RegionWorkerLayout]
+    private let starts: [Int]
+    private let index: WorkerInkIndex
+    init(request: RegionRasterRequest, layouts available: [UInt64: RegionWorkerLayout], account: InkAccount) throws {
+        precondition(!Thread.isMainThread)
+        publication = request.publication
+        let rows = request.rows; self.rows = rows
+        var layouts: [RegionWorkerLayout] = [], starts: [Int] = [], count = 0
+        for row in rows {
+            guard let layout = available[row.artifact], row.box.width == layout.metadata.offeredWidth else {
+                throw RegionRasterRefusal.missingArtifact
+            }
+            layouts.append(layout); starts.append(count); count += layout.lines.count
+        }
+        self.layouts = layouts; self.starts = starts
+        index = try WorkerInkIndex(count: count, account: account) { slot in
+            let p = Self.paragraph(slot, starts: starts), i = slot - starts[p]
+            let line = layouts[p].lines[i]
+            let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+            var a: CGFloat = 0, d: CGFloat = 0, l: CGFloat = 0
+            _ = CTLineGetTypographicBounds(line, &a, &d, &l)
+            let above = max(a + max(l, 0), ink.isNull ? 0 : ink.maxY)
+            let below = max(d + max(l, 0), ink.isNull ? 0 : -ink.minY)
+            let y = rows[p].box.minY + layouts[p].baselines[i].rounded()
+            return InkSpan(top: Double(y - above - 2), bottom: Double(y + below + 2))
+        }
+    }
+    private static func paragraph(_ slot: Int, starts: [Int]) -> Int {
+        var lo = 0, hi = starts.count
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2
+            if starts[mid] <= slot { lo = mid + 1 } else { hi = mid }
+        }
+        return max(0, lo - 1)
+    }
+    func render(_ request: RegionRasterRequest, account: RegionPixelAccount) throws -> RegionRaster {
+        precondition(!Thread.isMainThread)
+        guard request.publication == publication, request.rows.count == rows.count,
+              let count = request.bytes else { throw RegionRasterRefusal.invalid }
+        guard let charge = account.reserve(count) else { throw RegionRasterRefusal.capacity }
+        guard let space = request.profile.makeSpace() else { throw RegionRasterRefusal.profile }
+        let pixels = try RegionPixels(count: count, charge: charge, profile: request.profile) { pointer in
+            guard let ctx = CGContext(data: pointer, width: request.width, height: request.height,
+                    bitsPerComponent: 8, bytesPerRow: request.width * 4, space: space,
+                    bitmapInfo: request.format) else { return false }
+            ctx.setFillColor(CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(), components: request.background)!)
+            ctx.fill(CGRect(x: 0, y: 0, width: request.width, height: request.height))
+            ctx.translateBy(x: 0, y: CGFloat(request.height))
+            ctx.scaleBy(x: CGFloat(request.scale), y: -CGFloat(request.scale))
+            ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
+            index.query(top: Double(request.scroll.y), bottom: Double(request.scroll.y + request.size.height)) { ids, _ in
+                // Ordinary renderer paints all selection before all ink.
+                for selected in [true, false] {
+                    if selected { ctx.setFillColor(CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(), components: request.selectionColor)!) }
+                    for ordinal in ids {
+                        let p = Self.paragraph(Int(ordinal), starts: starts), i = Int(ordinal) - starts[p]
+                        let layout = layouts[p], row = request.rows[p], line = layout.lines[i]
+                        let flush: CGFloat = layout.source.align == 1 ? 0.5 : layout.source.align == 2 ? 1 : 0
+                        let x = row.box.minX - request.scroll.x + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(row.box.width)))
+                        let y = row.box.minY - request.scroll.y + layout.baselines[i].rounded()
+                        if selected {
+                            let range = CTLineGetStringRange(line)
+                            let lo = max(row.selection.location, range.location)
+                            let hi = min(NSMaxRange(row.selection), range.location + range.length)
+                            if hi > lo {
+                                var a: CGFloat = 0, d: CGFloat = 0
+                                _ = CTLineGetTypographicBounds(line, &a, &d, nil)
+                                let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
+                                ctx.fill(CGRect(x: x + min(x0, x1), y: y - a, width: max(1, abs(x1 - x0)), height: a + d))
+                            }
+                        } else { ctx.textPosition = CGPoint(x: x, y: y); CTLineDraw(line, ctx) }
+                    }
+                }
+            }
+            ctx.flush(); return true
+        }
+        return RegionRaster(request, pixels)
+    }
+}
+
+struct RegionVisibleWitness {
+    let publication: UInt64
+    let size: CGSize
+    let scroll: CGPoint
+    let profile: Data
+    let scale: Int
+    func matches(publication: UInt64, size: CGSize, scroll: CGPoint, profile: Data, scale: Int) -> Bool {
+        self.publication == publication && self.size == size && self.scroll == scroll && self.profile == profile && self.scale == scale
+    }
+}

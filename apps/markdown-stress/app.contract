@@ -1,0 +1,351 @@
+// LLP 1041: real Markdown parser, blocks and styled runs from LLP 1033.
+// Blocks/Runs below match apps/markdown/app.contract; no private renderer.
+shape Theme
+  page: string
+  chrome: string
+  edge: string
+  ink: string
+  strongInk: string
+  softInk: string
+  faintInk: string
+  accent: string
+  code: string
+  codeBg: string
+  field: string
+  fieldEdge: string
+  pill: string
+  pillInk: string
+  control: string
+  quoteEdge: string
+  quoteInk: string
+  warnBg: string
+  warnEdge: string
+  warnInk: string
+
+shape Run
+  id: string
+  text: string
+  weight: number
+  slant: string
+  mono: bool
+  href: string
+
+shape Cell
+  id: string
+  runs: list<Run>
+
+shape Block
+  id: string
+  kind: string
+  depth: number
+  marker: string
+  text: string
+  href: string
+  header: bool
+  runs: list<Run>
+  cells: list<Cell>
+
+shape Document
+  title: string
+  sourceBytes: number
+  totalBlocks: number
+  materialized: number
+  first: number
+  end: number
+  revision: number
+  largestBlock: number
+  tableRows: number
+  blocks: list<Block>
+
+component MarkdownStress
+  state contentRegion = false
+  state profile = "mixed"
+  state size = 16384
+  state revision = 0
+  state page = 0
+  state eager = false
+  state windowed = false
+  state wide = false
+  state running = false
+  state ticks = 0
+  state draft = ""
+  state draftTooLong = false
+  resource theme = theme() as shape Theme
+  resource doc = document(profile, size, revision, page, eager or windowed) as shape Document
+
+  action enableContentRegion writes contentRegion
+    contentRegion = true
+
+  // Explicit native trial launch: cold generation starts before first layout.
+  action launchParagraph1MiB writes contentRegion, profile, size
+    contentRegion = true
+    profile = "paragraph"
+    size = 1048576
+  action launchParagraph4MiB writes contentRegion, profile, size
+    contentRegion = true
+    profile = "paragraph"
+    size = 4194304
+
+  action chooseProfile(value: string) writes profile, page, running, ticks
+    profile = value
+    page = 0
+    running = false
+    ticks = 0
+  action chooseSize(value: number) writes size, page, running, ticks
+    size = value
+    page = 0
+    running = false
+    ticks = 0
+  action toggleEager writes eager, windowed, page, running
+    eager = not eager
+    windowed = false
+    page = 0
+    running = false
+  action toggleWindowed writes windowed, eager, page, running
+    windowed = not windowed
+    eager = false
+    page = 0
+    running = false
+  action nextPage writes page
+    if doc.end < doc.totalBlocks
+      page = page + 1
+  action previousPage writes page
+    page = max(0, page - 1)
+  action firstPage writes page
+    page = 0
+  action chooseWidth(value: bool) writes wide
+    wide = value
+  action reparse writes revision, running
+    revision = min(1000, revision + 1)
+    running = false
+  action start writes ticks, running
+    ticks = 0
+    running = revision < 1000
+  action pause writes running
+    running = false
+  action tick writes revision, ticks, running
+    if running
+      revision = min(1000, revision + 1)
+      ticks = min(20, ticks + 1)
+      running = ticks < 19 and revision < 999
+  action editDraft(value) writes draft, draftTooLong
+    if length(value) <= 512
+      draft = value
+      draftTooLong = false
+    else
+      draftTooLong = true
+  action reset writes profile, size, revision, page, eager, windowed, wide, running, ticks, draft, draftTooLong
+    profile = "mixed"
+    size = 16384
+    revision = 0
+    page = 0
+    eager = false
+    windowed = false
+    wide = false
+    running = false
+    ticks = 0
+    draft = ""
+    draftTooLong = false
+
+  task producer mount
+    every(1000, tick)
+
+  view
+    provide theme = theme
+      main testId="markdown-stress" display="flex" flex-direction="column" width="100%" height="100%" min-height=0 background-color=theme.page color=theme.ink
+        column flex-shrink=0 padding=12 gap=6 width="100%" box-sizing="border-box" background-color=theme.chrome
+          row gap=10 align-items="center" flex-wrap="wrap"
+            text "Markdown stress" font-size=22 font-weight=700 color=theme.strongInk
+            text "LLP 1041 · synthetic documents" font-size=12 color=theme.softInk
+            button press=reset testId="reset" padding=6 background-color=theme.control border-width=0 border-radius=6
+              text "Reset" font-size=12 color=theme.ink
+          row gap=6 align-items="center" flex-wrap="wrap"
+            ProfileButton(name="mixed", label="Mixed", chosen=profile, choose=chooseProfile)
+            ProfileButton(name="paragraph", label="One long paragraph", chosen=profile, choose=chooseProfile)
+            ProfileButton(name="code", label="One code block", chosen=profile, choose=chooseProfile)
+            ProfileButton(name="table", label="Giant table", chosen=profile, choose=chooseProfile)
+            ProfileButton(name="blocks", label="Many blocks", chosen=profile, choose=chooseProfile)
+          row gap=6 align-items="center" flex-wrap="wrap"
+            text "Source budget" font-size=12 color=theme.ink
+            SizeButton(n=16384, label="16 KiB", chosen=size, choose=chooseSize)
+            SizeButton(n=262144, label="256 KiB", chosen=size, choose=chooseSize)
+            SizeButton(n=1048576, label="1 MiB", chosen=size, choose=chooseSize)
+            SizeButton(n=4194304, label="4 MiB", chosen=size, choose=chooseSize)
+            button press=toggleEager testId="toggle-eager" padding=6 background-color=theme.control border-width=0 border-radius=6
+              text (eager ? "Use manual page" : "Render ALL blocks") font-size=12 color=theme.ink
+            button press=toggleWindowed testId="toggle-windowed" padding=6 background-color=theme.control border-width=0 border-radius=6
+              text (windowed ? "Use manual page" : "Window full document") font-size=12 color=theme.ink
+          row gap=6 align-items="center" flex-wrap="wrap"
+            button press=chooseWidth(false) testId="width-narrow" padding=6 background-color=theme.control border-width=0 border-radius=6
+              text "640 px column" font-size=12 color=theme.ink
+            button press=chooseWidth(true) testId="width-wide" padding=6 background-color=theme.control border-width=0 border-radius=6
+              text "1200 px column" font-size=12 color=theme.ink
+            button press=reparse testId="reparse" padding=6 background-color=theme.control border-width=0 border-radius=6
+              text "Parse again" font-size=12 color=theme.ink
+            when running
+              button press=pause testId="pause" padding=6 background-color=theme.control border-width=0 border-radius=6
+                text "Pause" font-size=12 color=theme.ink
+            else
+              button press=start testId="start" padding=6 background-color=theme.control border-width=0 border-radius=6
+                text "20 reparses at 1 Hz" font-size=12 color=theme.ink
+          text `${doc.sourceBytes} source bytes · ${doc.totalBlocks} parsed blocks · ${doc.materialized} supplied blocks · ${doc.tableRows} table rows · revision ${doc.revision}` testId="stats" font-size=12 color=theme.ink
+          text `${doc.largestBlock} text bytes in largest block · ${wide ? "1200" : "640"} px column · ${running ? "reparsing" : "paused"}` testId="load-stats" font-size=12 color=theme.softInk
+          text (windowed ? "WINDOWED: complete parsed document; only nearby blocks mounted. One giant block remains giant." : eager ? "EAGER: all blocks mounted. Large documents may stall input." : "MANUAL PAGE: 40 blocks; the entire document is still parsed. One giant block remains giant.") testId="mode" font-size=11 color=theme.warnInk
+        when not eager and not windowed
+          row flex-shrink=0 padding=6 gap=8 flex-wrap="wrap" align-items="center" background-color=theme.chrome
+            button press=previousPage testId="previous-page" padding=6 background-color=theme.control border-width=0
+              text "Previous 40" font-size=12 color=theme.ink
+            button press=nextPage testId="next-page" padding=6 background-color=theme.control border-width=0
+              text "Next 40" font-size=12 color=theme.ink
+            button press=firstPage testId="first-page" padding=6 background-color=theme.control border-width=0
+              text "First page" font-size=12 color=theme.ink
+            text `${doc.first + 1}–${doc.end} of ${doc.totalBlocks}` testId="page-range" font-size=12 color=theme.softInk
+        when contentRegion
+          view id="markdown-region-owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
+            view id="markdown-region-content" width="100%" height="100%" display="flex" flex-direction="column"
+              when pending(doc)
+                text `Generating ${profile} · ${size} byte budget…` testId="region-source-pending" font-size=14 color=theme.ink
+              else
+                DocumentBody(doc=doc, windowed=windowed, wide=wide)
+            text "Preparing exact content…" id="markdown-region-pending" position="absolute" font-size=14 color=theme.ink
+        else
+          DocumentBody(doc=doc, windowed=windowed, wide=wide)
+        column flex-shrink=0 padding=10 gap=4 width="100%" box-sizing="border-box" background-color=theme.chrome
+          input value=draft change=editDraft testId="stress-input" aria-label="Type while Markdown reflows" placeholder="Type while scrolling, reparsing or resizing…" width="100%" box-sizing="border-box" padding=8 border-width=1 border-color=theme.fieldEdge background-color=theme.field color=theme.ink font-size=14
+          text draft testId="stress-echo" font-size=12 color=theme.ink
+          when draftTooLong
+            text "Input limited to 512 Unicode characters; previous text retained." font-size=11 color=theme.warnInk
+
+component ProfileButton
+  inject
+    theme: Theme
+  props
+    name: string
+    label: string
+    chosen: string
+    choose: action
+  view
+    button press=choose(name) testId=`profile-${name}` padding=6 border-width=0 border-radius=6 background-color=(name == chosen ? theme.pill : theme.control)
+      text label font-size=12 color=theme.ink
+
+component SizeButton
+  inject
+    theme: Theme
+  props
+    n: number
+    label: string
+    chosen: number
+    choose: action
+  view
+    button press=choose(n) testId=`size-${n}` padding=6 border-width=0 border-radius=6 background-color=(n == chosen ? theme.pill : theme.control)
+      text label font-size=12 color=theme.ink
+
+// One block. A document is a flat list of these — Contract inlines
+// components syntactically and cannot recurse, and a flat list is also what
+// a long document needs to stay measurable one row at a time.
+component Blocks
+  inject
+    theme: Theme
+  props
+    block: Block
+  view
+    when block.kind == "heading"
+      column width="100%" padding-top=22 padding-bottom=4 testId=`block-${block.id}`
+        text aria-level=block.depth color=theme.strongInk line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
+          Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
+    else
+      when block.kind == "paragraph"
+        view width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
+          text color=theme.ink line-height=1.625
+            Runs(runs=block.runs, size=16, weight=400)
+      else
+        when block.kind == "item"
+          row width="100%" box-sizing="border-box" padding-top=2 padding-bottom=2 padding-left=(4 + block.depth * 22) testId=`block-${block.id}`
+            text block.marker font-size=16 line-height=1.625 color=theme.softInk width=26
+            text flex=1 color=theme.ink line-height=1.625
+              Runs(runs=block.runs, size=16, weight=400)
+        else
+          when block.kind == "code"
+            // `pre-wrap` and not a horizontal scroll: a code block inside a
+            // reading column that scrolls sideways is a code block nobody
+            // reads the end of.
+            view width="100%" padding-top=8 padding-bottom=8 testId=`block-${block.id}`
+              view background-color=theme.codeBg border-radius=10 padding=14 width="100%" box-sizing="border-box"
+                text block.text font-family="ui-monospace" font-size=13 line-height="20px" color=theme.ink white-space="pre-wrap"
+          else
+            when block.kind == "quote"
+              row width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
+                view width=3 background-color=theme.quoteEdge border-radius=2
+                view flex=1 padding-left=16
+                  text color=theme.quoteInk line-height=1.625
+                    Runs(runs=block.runs, size=16, weight=400)
+            else
+              when block.kind == "rule"
+                view width="100%" height=1 background-color=theme.edge margin-top=22 margin-bottom=22 testId=`block-${block.id}`
+              else
+                when block.kind == "table-row"
+                  row width="100%" border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge testId=`block-${block.id}`
+                    each c in block.cells key=c.id
+                      view flex=1 padding=8
+                        when block.header
+                          text color=theme.strongInk line-height="20px"
+                            Runs(runs=c.runs, size=13, weight=700)
+                        else
+                          text color=theme.ink line-height="20px"
+                            Runs(runs=c.runs, size=13, weight=400)
+                else
+                  when block.kind == "image"
+                    column width="100%" padding-top=10 padding-bottom=10 gap=6 testId=`block-${block.id}`
+                      image block.href width="100%" object-fit="contain" aria-label=block.text
+                      when block.text != ""
+                        text block.text font-size=12 color=theme.faintInk
+                  else
+                    // Raw HTML: shown, never interpreted.
+                    view width="100%" padding-top=4 padding-bottom=4 testId=`block-${block.id}`
+                      text block.text font-family="ui-monospace" font-size=12 color=theme.faintInk
+
+// The styled spans of one paragraph, as the inline `text` children the
+// kernel measures as one paragraph and CoreText paints as one typeset run.
+//
+// Every run carries its own size, weight, height and colour: a style row
+// belongs to the node it is on and does not cascade into the inline nodes
+// below it, so a heading whose runs said nothing would draw at 16 px. The
+// paragraph's type comes in as props and each run departs from it — bolder
+// where the source said `**`, monospaced and warm where it said a backtick.
+// `font-family` is literal-only in Contract v1, so that is the one branch.
+component Runs
+  inject
+    theme: Theme
+  props
+    runs: list<Run>
+    size: number
+    weight: number
+  view
+    each r in runs key=r.id
+      when r.mono
+        text r.text font-family="ui-monospace" font-size=(size * 0.92) font-weight=(r.weight > weight ? r.weight : weight) font-style=r.slant color=theme.code href=r.href
+      else
+        text r.text font-size=size font-weight=(r.weight > weight ? r.weight : weight) font-style=r.slant href=r.href
+
+// Same parsed blocks and renderer in both modes. Only the explicit native
+// launch action selects the independently sized content/placeholder wrapper.
+component DocumentBody
+  inject
+    theme: Theme
+  props
+    doc: Document
+    windowed: bool
+    wide: bool
+  view
+    when windowed
+      list virtualized=true testId="document" flex=1 min-height=60 width="100%" box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain"
+        each b in doc.blocks key=b.id
+          column width="100%" align-items="center" padding-top=(b.id == "0" ? 16 : 0) padding-bottom=(b.id == `${doc.totalBlocks - 1}` ? 64 : 2)
+            column width="100%" max-width=(wide ? 1200 : 640) padding-left=20 padding-right=20 box-sizing="border-box" testId=`reading-column-${b.id}`
+              Blocks(block=b)
+    else
+      scroll testId="document" flex=1 min-height=60 width="100%" overflow-x="hidden" overscroll-behavior="contain"
+        column width="100%" align-items="center" padding-top=16 padding-bottom=64
+          column width="100%" max-width=(wide ? 1200 : 640) padding-left=20 padding-right=20 box-sizing="border-box" gap=2 testId="reading-column"
+            each b in doc.blocks key=b.id
+              Blocks(block=b)

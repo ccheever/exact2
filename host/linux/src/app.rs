@@ -54,6 +54,9 @@ fn has_explicit_locator(plan: Option<&str>, dev_plan: Option<&str>) -> bool {
 
 /// What the environment asked for.
 pub struct Config {
+    /// Explicit consumer registration before the first layout; ordinary default
+    /// is None. This trial never guesses bindings from test IDs.
+    pub content_region: Option<crate::content_region::ContentRegionRegistration>,
     /// The first location-bearing argument, canonicalized by exact-route.
     pub launch: String,
     /// The plan to boot.
@@ -172,6 +175,7 @@ impl Config {
             })
             .unwrap_or((420.0, 860.0));
         Config {
+            content_region: None,
             launch: launch_location(std::env::args().skip(1)),
             plan,
             fallback_plan,
@@ -297,6 +301,7 @@ pub fn boot_presenter<D: DataSource + Default>(
                 config.selected_assets.clone(),
                 (&compat, facts(&updates)),
                 &config.launch,
+                config.content_region,
             )
         });
     match booted {
@@ -332,6 +337,7 @@ pub fn boot_presenter<D: DataSource + Default>(
                 None,
                 (&compat, facts(&updates)),
                 &config.launch,
+                config.content_region,
             )
             .map(|v| delivered(v, updates))
             .map_err(|baked_error| {
@@ -344,6 +350,24 @@ pub fn boot_presenter<D: DataSource + Default>(
 /// Run the app: the process's exit code. `compat` is the binary's
 /// `compat.json` (LLP 1030 D3a), which the `delivery` resource answers from.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
+    run_registered::<D>(baked, compat, None)
+}
+
+/// Launch an explicitly registered consumer using the ordinary environment,
+/// receipt and store preflight. No generic worker or authoring schema is added.
+pub fn run_with_content_region<D: DataSource + Default>(
+    baked: &[u8],
+    compat: &str,
+    region: crate::content_region::ContentRegionRegistration,
+) -> i32 {
+    run_registered::<D>(baked, compat, Some(region))
+}
+
+fn run_registered<D: DataSource + Default>(
+    baked: &[u8],
+    compat: &str,
+    region: Option<crate::content_region::ContentRegionRegistration>,
+) -> i32 {
     if print_baked_receipt(compat) {
         return 0;
     }
@@ -359,6 +383,7 @@ pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
     }
     let started = Instant::now();
     let mut config = Config::from_env(baked, compat);
+    config.content_region = region;
     run_config::<D>(&mut config, started)
 }
 

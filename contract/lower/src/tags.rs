@@ -79,6 +79,12 @@ pub fn tag(name: &str) -> Option<Tag> {
         "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" => {
             view(vec![], vec![(p("semanticTag"), leak(name))])
         }
+        "list" => Tag {
+            node_type: NodeType::List,
+            fixed_styles: vec![],
+            fixed_props: vec![],
+            positional: None,
+        },
         "scroll" => Tag {
             node_type: NodeType::ScrollView,
             fixed_styles: vec![],
@@ -190,9 +196,17 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "swiperight" => AttrTarget::Handler("swiperight"),
         "scroll" => AttrTarget::Handler("scroll"),
         "navigate" => AttrTarget::Handler("navigate"),
+        "heightrelease" => AttrTarget::Handler("heightrelease"),
+        "transformgeometry" => AttrTarget::Handler("transformgeometry"),
+        "transformrelease" => AttrTarget::Handler("transformrelease"),
+        "reorderdrop" => AttrTarget::Handler("reorderdrop"),
+        "reorderFor" => AttrTarget::Prop(p("reorderFor")),
+        "transformDragFor" => AttrTarget::Prop(p("transformDragFor")),
+        "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
         // the canvas's surface (LLP 1009 D3)
         "surface" => AttrTarget::Surface,
         // props (HTML and ARIA attribute names; `testId` is Exact's)
+        "virtualized" => AttrTarget::Prop(p("virtualized")),
         "testId" => AttrTarget::Prop(p("testId")),
         "navigationKey" => AttrTarget::Prop(p("navigationKey")),
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
@@ -369,6 +383,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "overscroll-behavior-y" => styles(&["overscroll_behavior_y"]),
         "z-index" => styles(&["z_index"]),
         "transition" => styles(&["transition"]),
+        "translate" => styles(&["translate"]),
         "scale" => styles(&["scale"]),
         "rotate" => styles(&["rotate"]),
         _ => return None,

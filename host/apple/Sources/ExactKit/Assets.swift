@@ -10,7 +10,10 @@ public final class AssetResolver {
     private var cache: [String: Data] = [:]
     private var files: [String: URL] = [:]
     private var directory: URL?
-    private(set) var refusal: String?
+    private let lock = NSRecursiveLock()
+    private var lastRefusal: String?
+    var refusal: String? { lock.lock(); defer { lock.unlock() }; return lastRefusal }
+    var encodedCacheBytes: Int { lock.lock(); defer { lock.unlock() }; return cache.values.reduce(0) { $0 + $1.count } }
 
     /// A complete provider never falls through to the embedded directory.
     public init(root: URL, names: [String], read: @escaping (String) throws -> Data?) {
@@ -24,20 +27,23 @@ public final class AssetResolver {
     deinit { if let directory { try? FileManager.default.removeItem(at: directory) } }
 
     func bytes(_ name: String) -> Data? {
+        lock.lock(); defer { lock.unlock() }
         if let bytes = cache[name] { return bytes }
         if let read {
             guard names?.contains(name) == true else { return nil }
             do { let bytes = try read(name); if let bytes { cache[name] = bytes }; return bytes }
-            catch { refusal = refusal ?? error.localizedDescription; return nil }
+            catch { lastRefusal = lastRefusal ?? error.localizedDescription; return nil }
         }
         guard let url = embeddedURL(name) else { return nil }
         return try? Data(contentsOf: url)
     }
 
-    func url(_ name: String) -> URL? {
+    func url(_ name: String, maximumBytes: Int? = nil) -> URL? {
+        lock.lock(); defer { lock.unlock() }
         guard isComplete else { return embeddedURL(name) }
         if let url = files[name] { return url }
         guard let bytes = bytes(name) else { return nil }
+        if let maximumBytes, bytes.count > maximumBytes { return nil }
         do {
             if directory == nil {
                 let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appendingPathComponent("exact-generation-\(UUID().uuidString)", isDirectory: true)
@@ -50,7 +56,7 @@ public final class AssetResolver {
             try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
             files[name] = url
             return url
-        } catch { refusal = refusal ?? "verified asset materialization failed: \(error)"; return nil }
+        } catch { lastRefusal = lastRefusal ?? "verified asset materialization failed: \(error)"; return nil }
     }
 
     /// The complete shader names, without loading the optional GPU module.

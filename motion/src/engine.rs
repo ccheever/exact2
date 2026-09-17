@@ -16,8 +16,11 @@
 //! host's output is compared against.
 
 use crate::property::{Property, Value};
-use crate::transition::{Running, TransitionError, Transitions};
+use crate::transition::{Curve, Running, TransitionError, Transitions};
 use std::collections::{BTreeMap, BTreeSet};
+
+mod hold;
+pub use hold::{HoldEnd, HoldStart, HoldToken, TransformHold};
 
 /// One animatable row's new target, as committed by the kernel.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -51,6 +54,10 @@ pub enum EngineError {
     ClockWentBackwards,
     /// A time or value was infinite or NaN.
     NonFinite,
+    /// A scalar property carried a nonzero second component.
+    InvalidValueShape,
+    /// All process-local hold serials have been used; none may be reused.
+    HoldSerialExhausted,
     /// A `transition` row was invalid.
     Transition(TransitionError),
 }
@@ -60,6 +67,24 @@ struct Slot {
     target: Value,
     presented: Value,
     running: Option<Running>,
+    hold: Option<u64>,
+}
+
+/// Fixed-size identity of a running spring's complete curve. Web hosts compare
+/// this before lowering frames, so a seek or unrelated input does not regenerate
+/// an unchanged curve. Contains no sampled frames or derived settle duration.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpringDescriptor {
+    /// Clock time the spring starts moving, including its declared delay.
+    pub start: f64,
+    /// Presentation at release.
+    pub from: Value,
+    /// Authored target for this curve.
+    pub target: Value,
+    /// Release velocity in property units per second.
+    pub velocity: Value,
+    /// Parameters captured when this curve began.
+    pub config: crate::spring::SpringConfig,
 }
 
 /// A spring in flight, restated for a host that lowers it instead of
@@ -121,9 +146,26 @@ impl Engine {
         self.transitions.remove(&node);
         // Removing a list must not scan every other node once per row.
         for property in Property::ALL {
-            self.slots.remove(&(node, property));
-            self.dirty.remove(&(node, property));
+            self.remove_property(node, property);
         }
+    }
+
+    /// Forget only this property's target, curve, hold and pending frame.
+    /// Returns whether it existed. Other properties and the node's transition
+    /// declaration survive; readoption takes a new value without transitioning.
+    /// No clock change occurs, and old hold tokens immediately become stale.
+    pub fn remove_property(&mut self, node: u64, property: Property) -> bool {
+        self.dirty.remove(&(node, property));
+        self.slots.remove(&(node, property)).is_some()
+    }
+
+    /// Whether this property is held or has a running curve, including delay.
+    /// Equality with its target does not imply rest: a spring may carry velocity
+    /// at zero displacement. Holds are active here but remain clock-quiescent.
+    pub fn is_active(&self, node: u64, property: Property) -> bool {
+        self.slots
+            .get(&(node, property))
+            .is_some_and(|slot| slot.hold.is_some() || slot.running.is_some())
     }
 
     /// A committed change to one animatable row. This is CSS Transitions §3:
@@ -132,8 +174,9 @@ impl Engine {
     /// `transition` declaration starts one from the current value, or
     /// interrupts and possibly reverses the one running.
     pub fn observe(&mut self, change: Change) -> Result<(), EngineError> {
-        if !change.value.is_finite() || change.velocity.is_some_and(|v| !v.is_finite()) {
-            return Err(EngineError::NonFinite);
+        validate_value(change.property, change.value)?;
+        if let Some(velocity) = change.velocity {
+            validate_value(change.property, velocity)?;
         }
         let key = (change.node, change.property);
         let now = self.now;
@@ -151,6 +194,7 @@ impl Engine {
                     target: change.value,
                     presented: change.value,
                     running: None,
+                    hold: None,
                 },
             );
             self.dirty.insert(key);
@@ -158,6 +202,10 @@ impl Engine {
         };
 
         let after = change.value;
+        if slot.hold.is_some() {
+            slot.target = after;
+            return Ok(());
+        }
         match slot.running.take() {
             None => {
                 if after == slot.target {
@@ -237,37 +285,11 @@ impl Engine {
         Ok(())
     }
 
-    /// Write a value straight to the target and presentation, cancelling any
-    /// transition — what a pointer-driven write does on the web with
-    /// `transition: none` in effect. A gesture holds a value this way and
-    /// releases it with [`Engine::observe`] carrying its velocity.
-    pub fn hold(&mut self, node: u64, property: Property, value: Value) -> Result<(), EngineError> {
-        if !value.is_finite() {
-            return Err(EngineError::NonFinite);
-        }
-        let key = (node, property);
-        self.slots.insert(
-            key,
-            Slot {
-                target: value,
-                presented: value,
-                running: None,
-            },
-        );
-        self.dirty.insert(key);
-        Ok(())
-    }
-
     /// Move the clock to `now` and sample every running transition there.
     /// Seeking is the only operation: the result depends on `now`, never on
     /// how many calls it took to get there.
     pub fn advance(&mut self, now: f64) -> Result<(), EngineError> {
-        if !now.is_finite() {
-            return Err(EngineError::NonFinite);
-        }
-        if now < self.now {
-            return Err(EngineError::ClockWentBackwards);
-        }
+        self.validate_time(now)?;
         self.now = now;
         for (key, slot) in self.slots.iter_mut() {
             let Some(running) = &slot.running else {
@@ -279,6 +301,16 @@ impl Engine {
                 slot.running = None;
             }
             self.dirty.insert(*key);
+        }
+        Ok(())
+    }
+
+    fn validate_time(&self, now: f64) -> Result<(), EngineError> {
+        if !now.is_finite() {
+            return Err(EngineError::NonFinite);
+        }
+        if now < self.now {
+            return Err(EngineError::ClockWentBackwards);
         }
         Ok(())
     }
@@ -297,6 +329,24 @@ impl Engine {
                 })
             })
             .collect()
+    }
+
+    /// The running spring's identity, without allocating, sampling, or computing
+    /// its settle time. After one slot lookup this only copies fixed-size fields.
+    /// `None` for held, settled, unknown properties and easings. A host may lower
+    /// frames only when this descriptor differs from its last playback.
+    pub fn spring_descriptor(&self, node: u64, property: Property) -> Option<SpringDescriptor> {
+        let running = self.slots.get(&(node, property))?.running.as_ref()?;
+        let Curve::Spring { config, velocity } = &running.curve else {
+            return None;
+        };
+        Some(SpringDescriptor {
+            start: running.start,
+            from: running.from,
+            target: running.to,
+            velocity: *velocity,
+            config: *config,
+        })
     }
 
     /// The spring running on one property, lowered to frames; `None` when
@@ -336,4 +386,14 @@ impl Engine {
             .filter_map(|s| s.running.as_ref().map(Running::end_time))
             .fold(None, |acc, t| Some(acc.map_or(t, |a: f64| a.max(t))))
     }
+}
+
+fn validate_value(property: Property, value: Value) -> Result<(), EngineError> {
+    if !value.is_finite() {
+        return Err(EngineError::NonFinite);
+    }
+    if property.components() == 1 && value.y != 0.0 {
+        return Err(EngineError::InvalidValueShape);
+    }
+    Ok(())
 }

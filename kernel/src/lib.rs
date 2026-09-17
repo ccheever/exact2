@@ -38,9 +38,11 @@ pub mod layout;
 pub mod motion;
 pub mod node;
 pub mod props;
+pub mod region;
 pub mod selector;
 pub mod style;
 pub mod text;
+pub mod transform;
 pub mod txn;
 pub mod wire;
 
@@ -49,7 +51,7 @@ pub use error::{
 };
 pub use generated::*;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
-pub use kernel::{Kernel, NodeRef};
+pub use kernel::{Kernel, NodeRef, PresentedHeight};
 pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use props::{PropList, PropValue};
@@ -58,7 +60,14 @@ pub use style::{
     GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
 };
 pub use text::{
-    MonospaceMeasurer, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle,
+    MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun,
+    TextStyle,
 };
+pub use transform::TransformDragBinding;
 pub use txn::CommitReceipt;
 pub use wire::{FrameBuilder, Op};
+
+pub use region::{
+    ContentRegion, RegionArtifact, RegionFrame, RegionInputs, RegionLayoutReceipt,
+    RegionPublication, RegionSelection, RegionTextRequest, RegionTextSource, RegionTicket,
+};

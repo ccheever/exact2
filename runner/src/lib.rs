@@ -42,8 +42,13 @@ pub mod vm;
 
 pub use delivery::Delivery;
 pub use exact_plan::Value;
+pub use instance::collection::{
+    AnchorCorrection, CollectionFeedback, CollectionRow, CollectionSnapshot, FeedbackError,
+    ReorderBinding, ReorderFrame, ReorderGeometry, ReorderProgress, ReorderStart, ReorderToken,
+    ReorderWrapper, RowMeasurement,
+};
 pub use instance::SurfaceUpdate;
-pub use request::{Answer, FailureKind, Outcome, Request, RequestOut, Response};
+pub use request::{Answer, FailureKind, HttpScheduling, Outcome, Request, RequestOut, Response};
 pub use runner::{
     Advanced, Carried, Command, DataError, DataSource, Event, RouterChange, Runner, RunnerError,
     Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,

@@ -1,0 +1,21 @@
+[package]
+name = "messages-stress-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Messages stress example on the web: one wasm with the runner, the kernel, its data source and baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "messages_stress_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+messages-stress-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+messages-stress-data = { path = "../data" }

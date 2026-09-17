@@ -36,6 +36,35 @@ struct Run: Hashable {
     var color: [Double]? = nil
     var decoration: String = ""
     var href: String = ""
+
+    static func == (lhs: Run, rhs: Run) -> Bool {
+        guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
+              lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
+              lhs.letterSpacing == rhs.letterSpacing, lhs.color == rhs.color,
+              lhs.decoration == rhs.decoration, lhs.href == rhs.href else { return false }
+        // CoreText's ranges address the original UTF16 source. Swift String's
+        // canonical equality would alias NFC/NFD paragraphs with different
+        // source lengths, so both equality and hashing use the exact UTF8.
+        var a = lhs.text, b = rhs.text
+        return a.withUTF8 { left in b.withUTF8 { right in left.elementsEqual(right) } }
+    }
+
+    func hash(into hasher: inout Hasher) {
+        // Native Strings expose their existing storage; no byte-array key or
+        // full-text copy is created for each lookup. Foreign Strings may need
+        // UTF8 materialization, but use the identical byte/hash contract.
+        var value = text
+        value.withUTF8 { hasher.combine(bytes: UnsafeRawBufferPointer($0)) }
+        hasher.combine(size)
+        hasher.combine(weight)
+        hasher.combine(family)
+        hasher.combine(italic)
+        hasher.combine(lineHeight)
+        hasher.combine(letterSpacing)
+        hasher.combine(color)
+        hasher.combine(decoration)
+        hasher.combine(href)
+    }
 }
 
 /// A paragraph's specification: runs plus paragraph style.
@@ -56,42 +85,109 @@ final class Paragraph {
     let width: CGFloat
     let height: CGFloat
     let lineBottoms: [CGFloat]
+    let shape: TextShape?
+    let residencyKey: TextParagraphKey?
+    let coreTextEstimateBytes: Int
+    var ownedPayloadBytes: Int {
+        lines.count * MemoryLayout<CTLine>.stride
+            + (baselines.count + lineBottoms.count) * MemoryLayout<CGFloat>.stride
+            + (cachedInk?.storageBytes ?? 0)
+    }
+    /// Admission reserves the known lazy array shape, without constructing ink.
+    /// Diagnostics still report only the payload actually allocated above.
+    var admissionPayloadBytes: Int {
+        ownedPayloadBytes - (cachedInk?.storageBytes ?? 0)
+            + ParagraphInkIndex.storageBytes(lineCount: lines.count)
+    }
+    private(set) var cachedInk: ParagraphInkIndex?
     var firstBaseline: CGFloat { baselines.first ?? 0 }
-    init(lines: [CTLine], baselines: [CGFloat], width: CGFloat, height: CGFloat, lineBottoms: [CGFloat] = []) {
+    init(lines: [CTLine], baselines: [CGFloat], width: CGFloat, height: CGFloat, lineBottoms: [CGFloat] = [],
+         shape: TextShape? = nil, offeredWidth: CGFloat? = nil, glyphCount: Int = 0) {
+        self.shape = shape
+        residencyKey = shape.flatMap { shape in offeredWidth.map { TextParagraphKey(shape: shape.key, width: $0) } }
+        coreTextEstimateBytes = glyphCount * 64 + lines.count * 256
         self.lineBottoms = lineBottoms
         self.lines = lines
         self.baselines = baselines
         self.width = width
         self.height = height
     }
+
+    /// Built only when a dirty viewport is first painted, then shared by every
+    /// subsequent clip of this immutable paragraph. Measurement stays ink-free.
+    func inkBounds() -> ParagraphInkIndex {
+        if let cachedInk { return cachedInk }
+        let index = ParagraphInkIndex(lines: lines, baselines: baselines)
+        cachedInk = index
+        return index
+    }
 }
 
-/// A bounded cache that evicts the coldest eighth, never all live paragraphs.
-/// Value semantics also preserve candidate-boot checkpoints.
-struct TextCache<Key: Hashable, Value> {
-    private var entries: [Key: (value: Value, used: UInt64)] = [:]
-    private var clock: UInt64 = 0
-    var count: Int { entries.count }
-    mutating func get(_ key: Key) -> Value? {
-        guard let entry = entries[key] else { return nil }
-        clock &+= 1
-        entries[key] = (entry.value, clock)
-        return entry.value
+/// A segment tree in logical paint order. Each node encloses the ink of its
+/// descendant lines; pruning is safe even when baselines go backwards or many
+/// zero-height lines overlap. Horizontal culling would also need alignment and
+/// overhang, so this index deliberately considers only the dirty vertical band.
+final class ParagraphInkIndex {
+    private struct Span {
+        var top: CGFloat = .infinity
+        var bottom: CGFloat = -.infinity
     }
-    mutating func put(_ key: Key, _ value: Value) {
-        if entries.count >= 4096, entries[key] == nil {
-            let cold = entries.sorted { $0.value.used < $1.value.used }.prefix(512).map(\.key)
-            for key in cold { entries.removeValue(forKey: key) }
+    private let spans: [Span]
+    private let leaves: Int
+    private let count: Int
+    /// Array payload only: excludes the object/array headers and allocator slack.
+    var storageBytes: Int { spans.count * MemoryLayout<Span>.stride }
+
+    private static func leafCount(_ count: Int) -> Int {
+        var size = 1
+        while size < count { size *= 2 }
+        return size
+    }
+    static func storageBytes(lineCount: Int) -> Int {
+        leafCount(lineCount) * 2 * MemoryLayout<Span>.stride
+    }
+    init(lines: [CTLine], baselines: [CGFloat]) {
+        count = lines.count
+        let size = Self.leafCount(count)
+        leaves = size
+        var spans = [Span](repeating: Span(), count: size * 2)
+        for (i, line) in lines.enumerated() {
+            let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+            var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
+            _ = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
+            // Glyph paths include overhang; typographic extents also include
+            // whitespace and decoration space. Retain the existing 2pt raster
+            // allowance and use the same rounded baseline as CTLineDraw.
+            let above = max(ascent + max(leading, 0), ink.isNull ? 0 : ink.maxY)
+            let below = max(descent + max(leading, 0), ink.isNull ? 0 : -ink.minY)
+            let top = baselines[i].rounded() - above - 2
+            let bottom = baselines[i].rounded() + below + 2
+            spans[size + i] = top.isFinite && bottom.isFinite
+                ? Span(top: top, bottom: bottom) : Span(top: -.infinity, bottom: .infinity)
         }
-        clock &+= 1
-        entries[key] = (value, clock)
+        if size > 1 {
+            for i in stride(from: size - 1, through: 1, by: -1) {
+                spans[i] = Span(top: min(spans[i * 2].top, spans[i * 2 + 1].top),
+                                bottom: max(spans[i * 2].bottom, spans[i * 2 + 1].bottom))
+            }
+        }
+        self.spans = spans
     }
-    mutating func removeAll(keepingCapacity: Bool) { entries.removeAll(keepingCapacity: keepingCapacity) }
-}
 
-struct ParagraphKey: Hashable {
-    let spec: Spec
-    let width: CGFloat
+    func forEachLine(from top: CGFloat, through bottom: CGFloat, _ body: (Int) -> Void) {
+        func visit(_ node: Int) {
+            let span = spans[node]
+            guard span.top <= bottom && span.bottom >= top else { return }
+            if node >= leaves {
+                let line = node - leaves
+                if line < count { body(line) }
+            } else {
+                visit(node * 2)
+                visit(node * 2 + 1)
+            }
+        }
+        visit(1)
+    }
 }
 
 extension Spec {
@@ -103,6 +199,10 @@ extension Spec {
             value.runs[i].color = nil
             value.runs[i].decoration = ""
             value.runs[i].href = ""
+        }
+        if var strut = value.strut {
+            strut.text = ""; strut.color = nil; strut.decoration = ""; strut.href = ""
+            value.strut = strut
         }
         return value
     }
@@ -142,22 +242,27 @@ enum FontRegistry {
 
 final class TextEngine {
     var fonts: [String: PlatformFont] = [:]
-    var paragraphs = TextCache<ParagraphKey, Paragraph>()
-    private var minimums = TextCache<Spec, CGFloat>()
-    private var typesetters = TextCache<Spec, CTTypesetter>()
+    private var residency: TextResidency
+    var residencyStats: TextResidencyStats { residency.stats }
+    /// The NodeView's existing cachedTextLayout is the accepted lease. The
+    /// cache keeps only a weak lookup once that view owns the paragraph.
+    func accepted(_ paragraph: Paragraph) { residency.accepted(paragraph) }
     private var catalog: [Int: [RegisteredFace]] = [:]
     /// Where a declared face's relative source resolves: the app's resolver
     /// (LLP 1031 D1 — the committed complete generation, else the root).
     let resolve: (String) -> URL?
     let read: (String) -> Data?
     private var pendingFonts: [URL] = []
-    /// How many times the kernel asked, how many were answered from cache, and
-    /// total measurement time, since this session started.
+    /// Native callback entries, native cache hits, and native cache/layout time
+    /// since session start. Rust identified-metric hits bypass this callback;
+    /// the timer below excludes C-run decoding and Swift String construction.
     var measureCount = 0
     var measureHits = 0
     var measureSeconds = 0.0
 
-    init(resolve: @escaping (String) -> URL?, read: ((String) -> Data?)? = nil) {
+    init(resolve: @escaping (String) -> URL?, read: ((String) -> Data?)? = nil,
+         coldTextTargetBytes: Int = TextResidency.defaultSoftTargetBytes) {
+        residency = TextResidency(softTargetBytes: coldTextTargetBytes)
         self.resolve = resolve
         self.read = read ?? { name in resolve(name).flatMap { try? Data(contentsOf: $0) } }
     }
@@ -176,26 +281,20 @@ final class TextEngine {
     final class Checkpoint {
         private let pendingFonts: [URL]
         private let fonts: [String: PlatformFont]
-        private let paragraphs: TextCache<ParagraphKey, Paragraph>
-        private let minimums: TextCache<Spec, CGFloat>
-        private let typesetters: TextCache<Spec, CTTypesetter>
+        private let residency: TextResidency
         private let catalog: [Int: [RegisteredFace]]
 
         fileprivate init(_ engine: TextEngine) {
             pendingFonts = engine.pendingFonts
             fonts = engine.fonts
-            paragraphs = engine.paragraphs
-            minimums = engine.minimums
-            typesetters = engine.typesetters
+            residency = engine.residency
             catalog = engine.catalog
         }
 
         fileprivate func restore(into engine: TextEngine) {
             engine.pendingFonts = pendingFonts
             engine.fonts = fonts
-            engine.paragraphs = paragraphs
-            engine.minimums = minimums
-            engine.typesetters = typesetters
+            engine.residency = residency
             engine.catalog = catalog
         }
     }
@@ -203,13 +302,12 @@ final class TextEngine {
     func checkpoint() -> Checkpoint { Checkpoint(self) }
     func restore(_ checkpoint: Checkpoint) { checkpoint.restore(into: self) }
 
-    /// Replace this session's plan-scoped catalog before layout. Clearing
-    /// both caches is the plan identity in their keys (LLP 1019 D4).
+    /// Replace this session's plan-scoped catalog before layout. A fresh
+    /// residency namespace prevents old accepted font identities from aliasing
+    /// the candidate; checkpoints retain and restore their original namespace.
     func install(_ pointer: UnsafePointer<ExactFontCatalog>?) {
         fonts.removeAll(keepingCapacity: true)
-        paragraphs.removeAll(keepingCapacity: true)
-        minimums.removeAll(keepingCapacity: true)
-        typesetters.removeAll(keepingCapacity: true)
+        residency = TextResidency(softTargetBytes: residency.softTargetBytes)
         catalog.removeAll(keepingCapacity: true)
         guard let value = pointer?.pointee else { return }
         let rows = UnsafeBufferPointer(start: value.faces, count: value.count)
@@ -332,28 +430,33 @@ final class TextEngine {
         return s
     }
 
-    /// Wrap `spec` at `width` (infinite = max-content). Cached.
+    /// Wrap the complete source synchronously. Views/checkpoints keep accepted
+    /// widths alive; a new width retires obsolete cache ownership before work.
     func paragraph(_ spec: Spec, width: CGFloat) -> Paragraph {
-        let key = ParagraphKey(spec: spec, width: width)
-        if let p = paragraphs.get(key) { return p }
-        let geometry = spec.geometry
-        // The measurement's line breaks are also the painted paragraph's breaks.
-        // CoreText still creates colored lines, but never wraps them a second time.
-        let breaks = geometry == spec || spec.lineClamp > 0 ? nil : paragraph(geometry, width: width)
-        let p = layout(spec, width: width, breaks: breaks)
-        paragraphs.put(key, p)
+        let identity = residency.identity(spec)
+        let key = TextParagraphKey(shape: TextShapeKey(identity: identity, paint: TextPaint(spec)), width: width)
+        if let p = residency.paragraph(key) { return p }
+        // Preserve matching measured line breaks while replacing their black
+        // CTLines with the real paint attributes. No colored/black width history.
+        let breaks = spec.lineClamp > 0 ? nil : residency.geometry(identity, width: width)
+        residency.retireWidths(key)
+        let shape = shape(key.shape, identity: identity)
+        residency.prepare(estimatedBytes: identity.utf16Count * 64)
+        let p = layout(shape, width: width, breaks: breaks)
+        if width.isFinite { residency.put(p) }
         return p
     }
 
-    private func layout(_ spec: Spec, width: CGFloat, breaks: Paragraph? = nil) -> Paragraph {
-        // The shaped text is independent of width. Keep it while resizing;
-        // only line breaking and line placement depend on the offered width.
-        let typesetter: CTTypesetter
-        if let cached = typesetters.get(spec) { typesetter = cached }
-        else {
-            typesetter = CTTypesetterCreateWithAttributedString(attributed(spec))
-            typesetters.put(spec, typesetter)
-        }
+    private func shape(_ key: TextShapeKey, identity: TextIdentity) -> TextShape {
+        if let cached = residency.shape(key) { return cached }
+        residency.prepare(estimatedBytes: identity.ownedBytes + identity.utf16Count * 32)
+        let shape = TextShape(key: key, identity: identity, attributed: attributed(key.paint.applying(to: identity)))
+        residency.put(shape)
+        return shape
+    }
+
+    private func layout(_ shape: TextShape, width: CGFloat, breaks: Paragraph? = nil) -> Paragraph {
+        let spec = shape.spec, typesetter = shape.typesetter
         let length = spec.runs.reduce(0) { $0 + ($1.text as NSString).length }
         let strut = spec.strut ?? spec.runs.first
         func extents(_ run: Run) -> (CGFloat, CGFloat) {
@@ -366,6 +469,7 @@ final class TextEngine {
         var explicit = false
         var lineBottoms: [CGFloat] = []
         var lines: [CTLine] = []
+        var glyphCount = 0
         var baselines: [CGFloat] = []
         var maxWidth: CGFloat = 0
         var y: CGFloat = 0
@@ -454,6 +558,7 @@ final class TextEngine {
             y += above + below
             lineBottoms.append(y)
             maxWidth = max(maxWidth, w)
+            glyphCount += CTLineGetGlyphCount(line)
             lines.append(line)
             start += count
         }
@@ -467,7 +572,8 @@ final class TextEngine {
         // Keep intrinsic width and `normal` height measurement separate: changing
         // their rounding also changes wrapping and the established host parity.
         return Paragraph(lines: lines, baselines: baselines, width: ceil(maxWidth),
-                         height: explicit ? y : ceil(y), lineBottoms: lineBottoms)
+                         height: explicit ? y : ceil(y), lineBottoms: lineBottoms,
+                         shape: shape, offeredWidth: width, glyphCount: glyphCount)
     }
 
     private func ellipsizedLine(_ spec: Spec, range: NSRange, width: Double) -> CTLine? {
@@ -490,7 +596,10 @@ final class TextEngine {
 
     /// As narrow as the content can be: the longest unbreakable piece.
     func minContentWidth(_ spec: Spec) -> CGFloat {
-        if let width = minimums.get(spec) { return width }
+        let identity = residency.identity(spec)
+        if let width = residency.minimum(identity) { return width }
+        residency.retireWidths(TextParagraphKey(shape: TextShapeKey(identity: identity, paint: TextPaint(spec)), width: .infinity))
+        residency.prepare(estimatedBytes: identity.utf16Count * 32)
         var widest: CGFloat = 0
         if spec.overflowWrap == 2 {
             let source = attributed(spec), value = source.string as NSString
@@ -501,17 +610,32 @@ final class TextEngine {
                 widest = max(widest, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
                 start = NSMaxRange(range)
             }
-            minimums.put(spec, ceil(widest))
+            residency.putMinimum(identity, width: ceil(widest))
             return ceil(widest)
         }
+        // Repeated words previously reused entire cached Paragraphs. Keep that
+        // benefit with probe-local scalars, bounded by the same logical-payload
+        // target; unique words beyond it are measured normally, never omitted.
+        var words: [Run: CGFloat] = [:]
+        var wordBytes = 0
         for r in spec.runs {
             for word in r.text.split(whereSeparator: { $0.isWhitespace }) {
                 var one = spec
                 one.runs = [Run(text: String(word), size: r.size, weight: r.weight, family: r.family, italic: r.italic, lineHeight: r.lineHeight, letterSpacing: r.letterSpacing)]
-                widest = max(widest, paragraph(one, width: .infinity).width)
+                let key = one.runs[0]
+                if let width = words[key] { widest = max(widest, width); continue }
+                // This probe needs one scalar, never a cached width-specific
+                // Paragraph or a historical per-word CTTypesetter.
+                let line = CTLineCreateWithAttributedString(attributed(one))
+                let width = ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+                widest = max(widest, width)
+                let bytes = key.text.utf8.count + MemoryLayout<Run>.stride + MemoryLayout<CGFloat>.stride
+                if bytes <= residency.softTargetBytes - wordBytes {
+                    words[key] = width; wordBytes += bytes
+                }
             }
         }
-        minimums.put(spec, widest)
+        residency.putMinimum(identity, width: widest)
         return widest
     }
 
@@ -522,16 +646,17 @@ final class TextEngine {
         ctx.saveGState()
         ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
         let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
-        for (line, baseline) in zip(p.lines, p.baselines) {
-            if let dirty {
-                let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
-                let rect = CGRect(x: bounds.minX + ink.minX, y: bounds.minY + baseline - ink.maxY,
-                                  width: max(bounds.width, ink.width), height: ink.height).insetBy(dx: -2, dy: -2)
-                if !rect.intersects(dirty) { continue }
-            }
+        func paint(_ index: Int) {
+            let line = p.lines[index], baseline = p.baselines[index]
             let x = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width)))
             ctx.textPosition = CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
             CTLineDraw(line, ctx)
+        }
+        if let dirty {
+            p.inkBounds().forEachLine(from: dirty.minY - bounds.minY,
+                                     through: dirty.maxY - bounds.minY, paint)
+        } else {
+            for index in p.lines.indices { paint(index) }
         }
         ctx.restoreGState()
     }
@@ -548,13 +673,30 @@ final class TextEngine {
         // Metric-only keys match the geometry used by the colored presenter.
         let spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), strut: run(request.strut))
         let started = CACurrentMediaTime()
-        let width: CGFloat = request.width == EXACT_MIN_CONTENT ? minContentWidth(spec) : request.width < 0 ? .infinity : CGFloat(request.width)
-        let key = ParagraphKey(spec: spec, width: width)
+        let identity = residency.identity(spec)
+        let intrinsic = request.width < 0
+        let kind: TextScalarKind = request.width == EXACT_MIN_CONTENT ? .minContent : .maxContent
+        if intrinsic, let metrics = residency.scalar(identity, kind: kind) {
+            measureHits += 1
+            measureSeconds += CACurrentMediaTime() - started
+            return metrics
+        }
+        let width: CGFloat = request.width == EXACT_MIN_CONTENT ? minContentWidth(spec) : intrinsic ? .infinity : CGFloat(request.width)
         let p: Paragraph
-        if let cached = paragraphs.get(key) { measureHits += 1; p = cached }
-        else { p = paragraph(spec, width: width) }
+        if let cached = residency.geometry(identity, width: width) { measureHits += 1; p = cached }
+        else if intrinsic {
+            // Intrinsic probes publish only scalar metrics. Their full CTLines
+            // leave this scope; shaped source remains subject to the same budget.
+            let key = TextParagraphKey(shape: TextShapeKey(identity: identity, paint: TextPaint(spec)), width: width)
+            residency.retireWidths(key)
+            let shape = shape(key.shape, identity: identity)
+            residency.prepare(estimatedBytes: identity.utf16Count * 64)
+            p = layout(shape, width: width)
+        } else { p = paragraph(spec, width: width) }
+        let metrics = ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
+        if intrinsic { residency.put(identity, kind: kind, metrics: metrics) }
         measureSeconds += CACurrentMediaTime() - started
-        return ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
+        return metrics
     }
 
     /// The C ABI's synchronous font seam, invoked before the kernel asks its

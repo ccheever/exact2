@@ -326,6 +326,10 @@ public final class ExactSession {
     private var updateToken: UInt64 = 0
 
     let runtime: Runtime
+    let rasters = RasterLoader()
+    #if os(macOS)
+    lazy var regions = RegionController(self)
+    #endif
     var text: TextEngine
     let presenter: Presenter
     let canvases: Canvases
@@ -351,6 +355,13 @@ public final class ExactSession {
     /// Commands from the batch being applied, delivered after it (D2).
     private var pendingCommands: [(String, [Any])] = []
     private var applying = false
+    var isApplyingPresentation: Bool { applying }
+    // Weak live gesture ownership only; no historical tokens or row registry.
+    private let inputHolds = NSHashTable<SwipeHold>.weakObjects()
+    weak var heightInputHold: HeightDragHold?
+    weak var transformInputHold: TransformDragHold?
+    func trackInputHold(_ hold: SwipeHold) { inputHolds.add(hold) }
+    func retireInputHold(_ hold: SwipeHold) { inputHolds.remove(hold) }
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
@@ -392,6 +403,10 @@ public final class ExactSession {
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
     private func wire() {
+        presenter.collections.onFeedback = { [weak self] bytes in
+            guard let self, state != .destroyed else { return }
+            apply(runtime.collectionFeedback(bytes, now: now()))
+        }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
         presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, value, now: now())) }
         presenter.onIntrinsic = { [unowned self] id, size in apply(runtime.intrinsic(id, width: size?.width ?? 0, height: size?.height ?? 0)) }
@@ -456,9 +471,9 @@ public final class ExactSession {
             // the baked plan) starts the views over; the library already
             // replaced its host.
             routerOp = nil
+            generation += 1
             if booted { presenter.reset() }
             booted = true
-            generation += 1
             text.commitFonts()
         }
         apply(batch)
@@ -556,19 +571,32 @@ public final class ExactSession {
         let outermost = !applying
         applying = true
         for op in batch.ops where op["op"] as? String == "router" { routerOp = op }
+        #if os(macOS)
+        regions.prepare(batch)
+        #endif
         presenter.apply(batch)
         frames.motion = batch.motion
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) } }
         frames.run(batch.motion || canvases.wantsFrames)
         if batch.timers, clockTimer == nil, !ExactEnv.agentMode {
-            clockTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            clockTimer = SessionClockTimer.schedule { [weak self] _ in
                 guard let self else { return }
                 apply(runtime.advance(now: now()))
             }
         }
         if outermost {
+            presenter.collections.flush()
+            // Route projection and all structural/style changes are now final.
+            // Ineligible recognizers may never receive another mouse/touch event.
+            for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
+            heightInputHold?.cancelIfInputIneligible()
+            transformInputHold?.cancelIfInputIneligible()
+            presenter.transformGeometry.changed()
             applying = false
+            #if os(macOS)
+            regions.flush()
+            #endif
             let queued = pendingCommands
             pendingCommands = []
             for (name, args) in queued {
@@ -708,8 +736,19 @@ public final class ExactSession {
         frames.run(false)
         presenter.reset()
         ExactSession.live.removeValue(forKey: runtime.rt)
+        rasters.shutdown()
         runtime.destroy()
         app.forget(self)
+    }
+}
+
+/// The coarse resource clock keeps advancing during native event tracking.
+enum SessionClockTimer {
+    static func schedule(_ fire: @escaping @Sendable (Timer) -> Void) -> Timer {
+        precondition(Thread.isMainThread)
+        let timer = Timer(timeInterval: 0.25, repeats: true, block: fire)
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
     }
 }
 

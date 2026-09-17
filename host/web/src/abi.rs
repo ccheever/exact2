@@ -302,6 +302,23 @@ impl<D: DataSource> Bridge<D> {
             }
             // @ref LLP 1038 D8 — the next ABI kind after scroll.
             14 => Event::Navigate(payload),
+            15 => {
+                let Some(event) = Event::height_release_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid height release"}"#.into());
+                };
+                event
+            }
+            16 | 17 => {
+                let event = if kind == 16 {
+                    Event::transform_geometry_payload(&payload)
+                } else {
+                    Event::transform_release_payload(&payload)
+                };
+                let Some(event) = event else {
+                    return self.emit(r#"{"ops":[],"error":"invalid transform event"}"#.into());
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
@@ -341,6 +358,123 @@ impl<D: DataSource> Bridge<D> {
             || exact_runner::agent::error("not booted"),
             |h| h.resize(width, height, now_ms),
         );
+        self.emit(out)
+    }
+
+    /// Apply the common LE collection feedback in the first `len` input bytes.
+    /// Unlike events this reports layout facts and never advances the clock.
+    pub fn collection_feedback(&mut self, len: usize) -> u32 {
+        let out = match (self.host.as_mut(), self.input.get(..len)) {
+            (Some(host), None) => crate::batch::Batch::new().finish(
+                host.runner().has_timers(),
+                host.runner().now_ms(),
+                Some("collection input length"),
+            ),
+            (Some(host), Some(bytes)) => host.collection_feedback(bytes),
+            (None, _) => crate::batch::Batch::new().finish(false, 0.0, Some("not booted")),
+        };
+        self.emit(out)
+    }
+
+    /// Fixed 48-byte LE motion request: version/op/view/property u32,
+    /// opaque serial u64, then x/y/clock-ms f64. Serials never cross as f64.
+    pub fn motion(&mut self, len: usize) -> u32 {
+        if len == 120 {
+            let out = match (self.host.as_mut(), self.input.get(..len)) {
+                (Some(host), Some(bytes)) => host.transform_motion(bytes),
+                (None, _) => exact_runner::agent::error("not booted"),
+                _ => exact_runner::agent::error("malformed transform input"),
+            };
+            return self.emit(out);
+        }
+        use exact_motion::{HoldEnd, Property, Value};
+        let decoded = (|| -> Result<_, exact_plan::PlanError> {
+            let mut r = exact_plan::bytes::Reader::new(
+                self.input
+                    .get(..len)
+                    .filter(|_| len == 48)
+                    .ok_or(exact_plan::PlanError::BadCount(len as u32))?,
+            );
+            if r.u32()? != 1 {
+                return Err(exact_plan::PlanError::BadCount(0));
+            }
+            Ok((
+                r.u32()?,
+                r.u32()?,
+                r.u32()?,
+                r.u64()?,
+                Value::new(r.f64()?, r.f64()?),
+                r.f64()?,
+            ))
+        })();
+        let out = (|| -> Result<String, String> {
+            let (op, view, property, serial, value, now) =
+                decoded.map_err(|_| "malformed motion input".to_string())?;
+            let host = self.host.as_mut().ok_or("not booted")?;
+            if op == 8 || op == 9 {
+                if property != Property::Height as u32 {
+                    return Err("height drag requires the height property".into());
+                }
+                if op == 8 {
+                    let key = exact_kernel::NodeKey {
+                        index: serial as u32,
+                        generation: (serial >> 32) as u32,
+                    };
+                    let Some(binding) = host.height_drag_binding(view).filter(|b| b.handle == key) else {
+                        return Ok("{\"accepted\":false}".into());
+                    };
+                    let target = host.runner().kernel().node_by_key(binding.target).expect("resolved").id;
+                    return match host.begin_height_drag(key, value, now).map_err(|e| format!("{e:?}"))? {
+                        Some((start, batch)) => Ok(format!(
+                            "{{\"token\":\"{}\",\"target\":{target},\"value\":[{},{}],\"batch\":{batch}}}",
+                            start.token.serial(), start.value.x, start.value.y)),
+                        None => Ok("{\"accepted\":false}".into()),
+                    };
+                }
+                return Ok(match host.dispatch_height_held(serial, view, value.x, value.y, now).map_err(|e| format!("{e:?}"))? {
+                    Some(batch) => format!("{{\"accepted\":true,\"batch\":{batch}}}"),
+                    None => "{\"accepted\":false}".into(),
+                });
+            }
+            if op == 6 || op == 7 {
+                if property != Property::Height as u32 {
+                    return Err("height registration requires the height property".into());
+                }
+                let batch = host.set_height_owner((op == 6).then_some(view))?;
+                return Ok(format!("{{\"accepted\":true,\"batch\":{batch}}}"));
+            }
+            if op == 0 {
+                let property = *Property::ALL
+                    .get(property as usize)
+                    .ok_or("invalid motion property")?;
+                return match host
+                    .begin_hold(view, property, value, now)
+                    .map_err(|e| format!("{e:?}"))?
+                {
+                    Some((start, batch)) => Ok(format!(
+                        "{{\"token\":\"{}\",\"value\":[{},{}],\"batch\":{batch}}}",
+                        start.token.serial(),
+                        start.value.x,
+                        start.value.y
+                    )),
+                    None => Ok("{\"accepted\":false}".into()),
+                };
+            }
+            let batch = match op {
+                1 => host.update_hold(serial, value, now),
+                2 => host.end_hold(serial, HoldEnd::Release { velocity: value }, now),
+                3 => host.end_hold(serial, HoldEnd::Cancel, now),
+                4 => return Ok(format!("{{\"accepted\":{}}}", host.has_hold(serial))),
+                5 => Ok(host.dispatch_held(serial, now)),
+                _ => return Err("invalid motion operation".into()),
+            }
+            .map_err(|e| format!("{e:?}"))?;
+            Ok(match batch {
+                Some(batch) => format!("{{\"accepted\":true,\"batch\":{batch}}}"),
+                None => "{\"accepted\":false}".into(),
+            })
+        })()
+        .unwrap_or_else(|error| exact_runner::agent::error(&error));
         self.emit(out)
     }
 
@@ -517,6 +651,18 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, now_ms))
+        }
+
+        /// Report actual collection geometry through the shared binary decoder.
+        #[no_mangle]
+        pub extern "C" fn exact_collection_feedback(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().collection_feedback(len as usize))
+        }
+
+        /// Input-driven presentation ownership, with exact u64 token bytes.
+        #[no_mangle]
+        pub extern "C" fn exact_motion(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().motion(len as usize))
         }
 
         /// Move the clock; returns the batch's length.

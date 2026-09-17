@@ -98,7 +98,23 @@ public final class Agent {
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
         // after a frame, so the frame is rendered here, not left to the
         // display link to get to between two calls).
-        case "tap": let r = tap(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
+        case "tap":
+            let r: [String: Any]
+            if req["resize"] != nil {
+                // LLP 1041 §8's opt-in diagnostic is an input variant, not a
+                // ninth operation. Reject ambiguous input before touching UI.
+                guard req.keys.allSatisfy({ ["op", "session", "resize"].contains($0) }),
+                      let size = Agent.resizeSize(req["resize"]!) else {
+                    Agent.reply(["error": Agent.resizeError]); return
+                }
+                #if os(macOS)
+                r = resizeWindow(size)
+                #else
+                r = ["error": "unsupported: resize input requires a macOS window or Linux presenter"]
+                #endif
+            } else { r = tap(req) }
+            session.canvases.settle(now: session.now())
+            Agent.reply(tagged(r))
         case "type": let r = type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
         case "clock": let r = clock(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
@@ -111,8 +127,15 @@ public final class Agent {
             forward.removeValue(forKey: "session")
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
             var reply = session.agent(json)
+            var nativeSections = stateSections()
+            var raster = session.rasters.diagnostics
+            raster["encodedResolverBytes"] = session.app.resolver.encodedCacheBytes
+            nativeSections["raster"] = raster
+            #if os(macOS)
+            nativeSections["contentRegion"] = session.regions.diagnostics
+            #endif
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
-               let sections = try? JSONSerialization.data(withJSONObject: stateSections()) {
+               let sections = try? JSONSerialization.data(withJSONObject: nativeSections) {
                 reply.removeLast()
                 let tail = String(decoding: sections, as: UTF8.self)
                 reply += "," + tail.dropFirst()
@@ -152,6 +175,18 @@ public final class Agent {
     }
 
     static func r2(_ x: CGFloat) -> Double { (Double(x) * 100).rounded() / 100 }
+
+    // Whole logical points, with an area ceiling to keep this diagnostic
+    // from asking the software painter for arbitrarily large allocations.
+    static let resizeError = "tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields"
+    static func resizeSize(_ value: Any) -> CGSize? {
+        guard let pair = value as? [NSNumber], pair.count == 2 else { return nil }
+        let values = pair.map { $0.doubleValue }
+        guard pair.allSatisfy({ CFGetTypeID($0) != CFBooleanGetTypeID() }),
+              values.allSatisfy({ $0.isFinite && $0.rounded() == $0 && $0 >= 64 && $0 <= 4096 }),
+              values[0] * values[1] <= 8_388_608 else { return nil }
+        return CGSize(width: values[0], height: values[1])
+    }
 
     func settle() -> Double? {
         guard let d = session.agent("{\"op\":\"settle\"}").data(using: .utf8),

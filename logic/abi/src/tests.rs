@@ -295,3 +295,17 @@ fn exported_buffers_belong_to_module_and_sessions_are_distinct() {
     }
     assert_eq!(exports::exact_logic_alloc((MAX_MESSAGE + 1) as u32), 0);
 }
+
+#[test]
+fn explicit_independent_http_survives_the_module_codec() {
+    let request = Request::get("https://example.test/").independent_http(4096);
+    let mut encoded = Writer::default();
+    encode_result(&mut encoded, Ok(Answer::Later(request.clone())));
+    let bytes = encoded.into_vec();
+    let mut reader = Reader::new(&bytes);
+    assert_eq!(
+        read_result(&mut reader).unwrap(),
+        Ok(Answer::Later(request))
+    );
+    end(&reader).unwrap();
+}

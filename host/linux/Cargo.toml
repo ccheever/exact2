@@ -24,6 +24,7 @@ exact-data = { path = "../../data" }
 exact-kernel = { path = "../../kernel" }
 exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }
+exact-raster = { path = "../raster" }
 exact-route = { path = "../../route" }
 exact-runner = { path = "../../runner" }
 # The executor for a request that leaves the process (LLP 1016 D2): ibex2's
@@ -35,7 +36,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tiny-skia = "0.12"
 cosmic-text = { version = "0.19", features = ["peniko"] }
-png = "0.18"
+# Scratch reservation is audited against this decoder's row-buffer growth.
+png = "=0.18.1"
+libc = "0.2"
 # The GPU painter: vello over wgpu, rendering the same display list into a
 # texture the host reads back. vello 0.10 pins wgpu 29; the on-demand GPU
 # module (`gpu/`) is on 30 — two builds of wgpu until vello moves, never one
@@ -46,7 +49,6 @@ wgpu = { version = "29", default-features = false, features = ["wgsl", "metal", 
 [target.'cfg(target_os = "linux")'.dependencies]
 drm = "0.15"
 evdev = "0.13"
-libc = "0.2"
 
 [dev-dependencies]
 caltrain = { path = "../../apps/caltrain" }

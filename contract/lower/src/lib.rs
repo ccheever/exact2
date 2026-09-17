@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod collection;
 pub mod expr;
 mod fonts;
 mod routes;
@@ -537,6 +538,7 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 expanded.extend(attrs.iter().filter(|a| a.name != "class").cloned());
+                self.check_collection(tag, &expanded, children, *span)?;
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
                 let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));
@@ -1247,7 +1249,11 @@ impl<'a> Lowerer<'a> {
                 // prop names the real action here: its arity is checked now,
                 // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
                 let params = self.root.actions[ai].params.len();
-                let payload = if event == "scroll" {
+                let payload = if event == "transformgeometry" {
+                    4
+                } else if event == "transformrelease" {
+                    6
+                } else if matches!(event, "scroll" | "heightrelease" | "reorderdrop") {
                     2
                 } else {
                     usize::from(matches!(
@@ -1272,9 +1278,35 @@ impl<'a> Lowerer<'a> {
                                 "change" => " plus the new value",
                                 "message" => " plus the guest's message",
                                 "scroll" => " plus scrollLeft and scrollTop",
+                                "heightrelease" => " plus height and velocity",
+                                "transformgeometry" => " plus four geometry numbers",
+                                "transformrelease" => " plus six transform release numbers",
                                 _ => "",
                             }
                         ),
+                        a.span,
+                    );
+                }
+                if event == "reorderdrop"
+                    && self.types.components[0].actions[ai][args.len()..]
+                        != [Ty::String, Ty::Option(Box::new(Ty::String))]
+                {
+                    return err(
+                        "lower-handler-type",
+                        "`reorderdrop` supplies string and option<string>",
+                        a.span,
+                    );
+                }
+                if matches!(
+                    event,
+                    "heightrelease" | "transformgeometry" | "transformrelease"
+                ) && self.types.components[0].actions[ai][args.len()..]
+                    .iter()
+                    .any(|ty| *ty != Ty::Number)
+                {
+                    return err(
+                        "lower-handler-type",
+                        format!("`{event}` supplies only numeric payload parameters"),
                         a.span,
                     );
                 }
@@ -1297,6 +1329,10 @@ impl<'a> Lowerer<'a> {
                     "swiperight" => EventKind::Swiperight,
                     "scroll" => EventKind::Scroll,
                     "navigate" => EventKind::Navigate,
+                    "heightrelease" => EventKind::Heightrelease,
+                    "transformgeometry" => EventKind::Transformgeometry,
+                    "transformrelease" => EventKind::Transformrelease,
+                    "reorderdrop" => EventKind::Reorderdrop,
                     _ => unreachable!("tag table admitted an unknown handler"),
                 };
                 handlers.push((kind, self.actions[ai], codes));
