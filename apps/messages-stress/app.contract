@@ -1,0 +1,169 @@
+// LLP 1041 consumer baseline. Root-owned resources/tasks; no windowing shim.
+shape Message
+  id: string
+  sender: string
+  body: string
+  outgoing: bool
+  meta: string
+shape History
+  rows: list<Message>
+  materialized: number
+  revision: number
+  changed: number
+  bodyBytes: number
+
+component MessagesStress
+  state count = 100
+  state revision = 0
+  state batch = 8
+  state running = false
+  state eager = false
+  state page = 0
+  state draft = ""
+  state echo = ""
+  state draftTooLong = false
+  derive offset = max(0, count - 100 - page * 100)
+  resource history = history(count, revision, batch, echo, offset, eager) as shape History
+
+  action chooseCount(value: number) writes count, revision, running, page
+    count = value
+    revision = 0
+    running = false
+    page = 0
+  action chooseBatch(value: number) writes batch, revision, running
+    batch = value
+    revision = 0
+    running = false
+  action toggleEager writes eager, running, revision, page
+    eager = not eager
+    running = false
+    revision = 0
+    page = 0
+  action earlier writes page
+    page = min(count / 100 - 1, page + 1)
+  action later writes page
+    page = max(0, page - 1)
+  action latest writes page
+    page = 0
+  action start writes running, revision
+    revision = 0
+    running = true
+  action pause writes running
+    running = false
+  action tick writes revision, running
+    if running
+      // Action reads use the pre-commit snapshot. Revision 119 schedules the last tick.
+      running = revision < 119
+      revision = min(120, revision + 1)
+  action step writes revision, running
+    running = false
+    revision = min(120, revision + 1)
+  action editDraft(value) writes draft, draftTooLong
+    if length(value) <= 512
+      draft = value
+      draftTooLong = false
+    else
+      draftTooLong = true
+  action sendDraft writes echo, draft, draftTooLong
+    if not isEmpty(draft)
+      echo = draft
+      draft = ""
+      draftTooLong = false
+  action reset writes count, revision, batch, running, eager, page, draft, echo, draftTooLong
+    count = 100
+    revision = 0
+    batch = 8
+    running = false
+    eager = false
+    page = 0
+    draft = ""
+    echo = ""
+    draftTooLong = false
+
+  task producer mount
+    every(250, tick)
+
+  view
+    main testId="messages-stress" display="flex" flex-direction="column" width="100%" height="100%" min-height=0 background-color="#f1f5fa" color="#17283f"
+      column flex-shrink=0 padding=12 gap=6 box-sizing="border-box" width="100%" background-color="#ffffff"
+        row gap=12 align-items="center" flex-wrap="wrap"
+          text "Messages stress" font-size=22 font-weight=700
+          text "LLP 1041 · synthetic, local only" font-size=12 color="#53637b"
+          button press=reset testId="reset" padding=6 border-radius=6 background-color="#e8edf5"
+            text "Reset to 100" font-size=12
+        row gap=6 align-items="center" flex-wrap="wrap"
+          text "Logical history" font-size=12
+          CountButton(n=100, chosen=count, choose=chooseCount)
+          CountButton(n=1000, chosen=count, choose=chooseCount)
+          CountButton(n=10000, chosen=count, choose=chooseCount)
+          CountButton(n=100000, chosen=count, choose=chooseCount)
+        row gap=6 align-items="center" flex-wrap="wrap"
+          button press=toggleEager testId="toggle-eager" padding=7 border-radius=6 background-color="#e2eaff"
+            text (eager ? "Use bounded page" : "Construct ALL rows (eager)") font-size=12 font-weight=600
+          text (eager ? "EAGER: full selected history; may block input." : "BOUNDED: manual 100-row page, not virtualization.") testId="mode" font-size=12 color="#80521c"
+        row gap=6 align-items="center" flex-wrap="wrap"
+          text "Tail rows revised / tick" font-size=12
+          BatchButton(n=1, chosen=batch, choose=chooseBatch)
+          BatchButton(n=8, chosen=batch, choose=chooseBatch)
+          BatchButton(n=32, chosen=batch, choose=chooseBatch)
+          when running
+            button press=pause testId="pause" padding=7 background-color="#fce3da" border-radius=6
+              text "Pause" font-size=12
+          else
+            button press=start testId="start" padding=7 background-color="#d9eee1" border-radius=6
+              text "Start 120 ticks" font-size=12
+          button press=step testId="step" padding=7 background-color="#e8edf5" border-radius=6
+            text "Step" font-size=12
+        text `${count} logical · ${history.materialized} materialized rows · revision ${history.revision}/120 · ${history.changed} revised rows in this slice` testId="stats" font-size=12
+        text `${history.bodyBytes} UTF-8 body bytes (not memory) · requested 4 ticks/s · ${running ? "running" : "paused"}` testId="load-stats" font-size=12 color="#53637b"
+        text "No FPS / latency measured here. Synchronous generation and eager mounting can block. Pause cannot interrupt in-flight work." font-size=11 color="#80521c"
+      when not eager
+        row flex-shrink=0 padding=8 gap=8 align-items="center" flex-wrap="wrap" background-color="#e8edf5"
+          button press=earlier testId="earlier" padding=6
+            text "Earlier 100" font-size=12
+          button press=later testId="later" padding=6
+            text "Later 100" font-size=12
+          button press=latest testId="latest" padding=6
+            text "Latest page" font-size=12
+          text `${offset + 1}–${offset + 100} of ${count}` testId="page-range" font-size=12
+      scroll testId="transcript" flex=1 min-height=80 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color="#f1f5fa"
+        column padding=12 gap=10 width="100%" box-sizing="border-box"
+          each m in history.rows key=m.id
+            MessageBubble(message=m)
+      column flex-shrink=0 padding=12 gap=6 width="100%" box-sizing="border-box" background-color="#ffffff"
+        text "Composer · 512 Unicode characters max · one local echo retained" font-size=11 color="#53637b"
+        row gap=8 width="100%" align-items="center"
+          input value=draft change=editDraft testId="stress-input" aria-label="Type while messages update" placeholder="Type while messages update…" flex=1 min-width=0 padding=10 border-radius=10 border-width=1 border-color="#b7c5da" background-color="#f8faff" color="#17283f" font-size=14
+          button press=sendDraft testId="send" padding=10 border-radius=8 background-color="#2668d8"
+            text "Local echo" color="#ffffff" font-size=12
+        text draft testId="stress-echo" font-size=12 color="#53637b"
+        when draftTooLong
+          text "Input over 512 characters refused; the previous draft is retained." testId="draft-error" color="#9c3d24" font-size=12
+
+component CountButton
+  props
+    n: number
+    chosen: number
+    choose: action
+  view
+    button press=choose(n) testId=`history-${n}` padding=7 border-radius=6 background-color=(chosen == n ? "#2668d8" : "#e8edf5")
+      text `${n}` font-size=12 color=(chosen == n ? "#ffffff" : "#17283f")
+
+component BatchButton
+  props
+    n: number
+    chosen: number
+    choose: action
+  view
+    button press=choose(n) testId=`batch-${n}` padding=7 border-radius=6 background-color=(chosen == n ? "#2668d8" : "#e8edf5")
+      text `${n}` font-size=12 color=(chosen == n ? "#ffffff" : "#17283f")
+
+component MessageBubble
+  props
+    message: Message
+  view
+    column testId=`message-${message.id}` width="100%" align-items=(message.outgoing ? "flex-end" : "flex-start") gap=3
+      text message.sender font-size=11 color="#53637b"
+      column max-width="88%" box-sizing="border-box" padding=10 gap=5 border-radius=12 background-color=(message.outgoing ? "#2668d8" : "#ffffff")
+        text message.body font-size=14 line-height=1.45 white-space="pre-wrap" color=(message.outgoing ? "#ffffff" : "#17283f")
+        text message.meta font-size=10 color=(message.outgoing ? "#dce8ff" : "#53637b")

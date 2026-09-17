@@ -501,3 +501,11 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Messages macOS agent menus (2026-09-14, LLP 1038 slice 2b): `MenuHost.sync` leaves all popover subtrees painted under `EXACT_AGENT=1`; a conversation tap hits the topmost confirmation's Cancel text and dispatches no press. Reproduced with both the original and routes-based Messages Contract; the generic smoke is green. Make the existing agent menu projection driveable before claiming the full Messages interaction matrix on macOS. Evidence: `/tmp/lane-router/s2b/messages-macos-baseline.json`, `messages-macos-fixed2.json`, `messages-macos-hit.json`.
 - Web smoke/agent exit (2026-09-14): successful Messages commands can leave Bun alive after their final success line. Inspect the resident filesystem reader's idle pipe references (`scripts/filesystem.mjs`, notably stdin). Evidence: `/tmp/lane-router/s2b/smoke-messages-web.log`, `messages-web-timer.log`; the smoke also runs to completion when the caller exits after the module's completed assertions.
+# Graceful-overload consumers (2026-09-16)
+
+LLP 1041 starts `messages-stress` and `completion-storm` as opt-in synthetic
+workloads. Next: compare idle/loaded interaction samples on a real 120 Hz device,
+then implement bounded completion pumping and admission/fairness where measured.
+Keep module placement under LLP 1027.002; automatic windowing/image pressure and
+physical-display native sweeps remain follow-ups; the first slice drives AppKit
+and the Linux headless CPU renderer without claiming display frame timing.

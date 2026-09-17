@@ -1,0 +1,25 @@
+# The Messages stress app on Linux: one executable with the runner, the kernel, the
+# data crate, the baked plan (written by build.rs, never committed), and the
+# host's painter.
+[package]
+name = "messages-stress-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Messages stress on the Linux host: the app's executable"
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "messages-stress-linux"
+path = "src/main.rs"
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+messages-stress-data = { path = "../data" }
+exact-linux = { path = "../../../host/linux" }
+
+
+[build-dependencies]
+messages-stress-data = { path = "../data" }
+contract = { path = "../../../contract/cli" }

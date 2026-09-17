@@ -405,3 +405,18 @@ Use the production opt-out where the app's distribution requires it. Native
 macOS libraries also need platform-appropriate code signing: the production
 producer requires `EXACT_RUST_SIGN_IDENTITY` for the host's signing team, or
 select `wasm` for macOS production.
+
+## Interactive stress examples
+
+[Messages stress](apps/messages-stress/README.md) compares a bounded synthetic
+history page with deliberately eager construction while typing and streaming
+updates. [Completion Storm](apps/completion-storm/README.md) holds and releases
+real local HTTP requests, including failures and replies to a departed screen.
+Both are opt-in developer workloads; neither claims automatic virtualization or
+120 Hz performance. [LLP 1041](llp/1041-graceful-overload.rfc.md) specifies the
+graceful-overload direction and records what the first examples actually prove.
+
+With a fixture running, `bun scripts/metrics.mjs --stress-url
+http://127.0.0.1:4318 --seconds 10 --target-hz 120` samples typing-to-echo and
+frame-callback gaps (`CHROME` selects the browser). Repeat `--tap <testId>` for
+workload controls. This is a headless diagnostic, not a physical-display FPS test.

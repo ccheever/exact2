@@ -1,0 +1,572 @@
+// Root-owned independent requests: child effects are deliberately not required.
+shape Settings
+  count: number
+  errors: number
+
+shape Wave
+  id: number
+  count: number
+  message: string
+
+shape Reply
+  wave: number
+  lane: number
+  ok: bool
+  message: string
+
+shape Counters
+  emitted: number
+  accepted: number
+
+shape Control
+  message: string
+  received: number
+  issued: number
+  held: number
+
+component CompletionStorm
+  state requested = "32"
+  state errors = "0"
+  state mounted = true
+  state note = ""
+  state clicks = 0
+  mutation wave as shape Wave
+  mutation fixture as shape Control
+  resource settings = settings(requested, errors) as shape Settings
+  resource counters = counters() as shape Counters
+  derive waveId = match wave { case some(w) => w.id, case none => 0 }
+  derive waveCount = match wave { case some(w) => w.count, case none => 0 }
+  derive active = mounted and waveId > 0 and not pending(wave)
+  resource r0 = completion(waveId, 0, waveCount, active) as shape Reply
+  resource r1 = completion(waveId, 1, waveCount, active) as shape Reply
+  resource r2 = completion(waveId, 2, waveCount, active) as shape Reply
+  resource r3 = completion(waveId, 3, waveCount, active) as shape Reply
+  resource r4 = completion(waveId, 4, waveCount, active) as shape Reply
+  resource r5 = completion(waveId, 5, waveCount, active) as shape Reply
+  resource r6 = completion(waveId, 6, waveCount, active) as shape Reply
+  resource r7 = completion(waveId, 7, waveCount, active) as shape Reply
+  resource r8 = completion(waveId, 8, waveCount, active) as shape Reply
+  resource r9 = completion(waveId, 9, waveCount, active) as shape Reply
+  resource r10 = completion(waveId, 10, waveCount, active) as shape Reply
+  resource r11 = completion(waveId, 11, waveCount, active) as shape Reply
+  resource r12 = completion(waveId, 12, waveCount, active) as shape Reply
+  resource r13 = completion(waveId, 13, waveCount, active) as shape Reply
+  resource r14 = completion(waveId, 14, waveCount, active) as shape Reply
+  resource r15 = completion(waveId, 15, waveCount, active) as shape Reply
+  resource r16 = completion(waveId, 16, waveCount, active) as shape Reply
+  resource r17 = completion(waveId, 17, waveCount, active) as shape Reply
+  resource r18 = completion(waveId, 18, waveCount, active) as shape Reply
+  resource r19 = completion(waveId, 19, waveCount, active) as shape Reply
+  resource r20 = completion(waveId, 20, waveCount, active) as shape Reply
+  resource r21 = completion(waveId, 21, waveCount, active) as shape Reply
+  resource r22 = completion(waveId, 22, waveCount, active) as shape Reply
+  resource r23 = completion(waveId, 23, waveCount, active) as shape Reply
+  resource r24 = completion(waveId, 24, waveCount, active) as shape Reply
+  resource r25 = completion(waveId, 25, waveCount, active) as shape Reply
+  resource r26 = completion(waveId, 26, waveCount, active) as shape Reply
+  resource r27 = completion(waveId, 27, waveCount, active) as shape Reply
+  resource r28 = completion(waveId, 28, waveCount, active) as shape Reply
+  resource r29 = completion(waveId, 29, waveCount, active) as shape Reply
+  resource r30 = completion(waveId, 30, waveCount, active) as shape Reply
+  resource r31 = completion(waveId, 31, waveCount, active) as shape Reply
+  resource r32 = completion(waveId, 32, waveCount, active) as shape Reply
+  resource r33 = completion(waveId, 33, waveCount, active) as shape Reply
+  resource r34 = completion(waveId, 34, waveCount, active) as shape Reply
+  resource r35 = completion(waveId, 35, waveCount, active) as shape Reply
+  resource r36 = completion(waveId, 36, waveCount, active) as shape Reply
+  resource r37 = completion(waveId, 37, waveCount, active) as shape Reply
+  resource r38 = completion(waveId, 38, waveCount, active) as shape Reply
+  resource r39 = completion(waveId, 39, waveCount, active) as shape Reply
+  resource r40 = completion(waveId, 40, waveCount, active) as shape Reply
+  resource r41 = completion(waveId, 41, waveCount, active) as shape Reply
+  resource r42 = completion(waveId, 42, waveCount, active) as shape Reply
+  resource r43 = completion(waveId, 43, waveCount, active) as shape Reply
+  resource r44 = completion(waveId, 44, waveCount, active) as shape Reply
+  resource r45 = completion(waveId, 45, waveCount, active) as shape Reply
+  resource r46 = completion(waveId, 46, waveCount, active) as shape Reply
+  resource r47 = completion(waveId, 47, waveCount, active) as shape Reply
+  resource r48 = completion(waveId, 48, waveCount, active) as shape Reply
+  resource r49 = completion(waveId, 49, waveCount, active) as shape Reply
+  resource r50 = completion(waveId, 50, waveCount, active) as shape Reply
+  resource r51 = completion(waveId, 51, waveCount, active) as shape Reply
+  resource r52 = completion(waveId, 52, waveCount, active) as shape Reply
+  resource r53 = completion(waveId, 53, waveCount, active) as shape Reply
+  resource r54 = completion(waveId, 54, waveCount, active) as shape Reply
+  resource r55 = completion(waveId, 55, waveCount, active) as shape Reply
+  resource r56 = completion(waveId, 56, waveCount, active) as shape Reply
+  resource r57 = completion(waveId, 57, waveCount, active) as shape Reply
+  resource r58 = completion(waveId, 58, waveCount, active) as shape Reply
+  resource r59 = completion(waveId, 59, waveCount, active) as shape Reply
+  resource r60 = completion(waveId, 60, waveCount, active) as shape Reply
+  resource r61 = completion(waveId, 61, waveCount, active) as shape Reply
+  resource r62 = completion(waveId, 62, waveCount, active) as shape Reply
+  resource r63 = completion(waveId, 63, waveCount, active) as shape Reply
+  resource r64 = completion(waveId, 64, waveCount, active) as shape Reply
+  resource r65 = completion(waveId, 65, waveCount, active) as shape Reply
+  resource r66 = completion(waveId, 66, waveCount, active) as shape Reply
+  resource r67 = completion(waveId, 67, waveCount, active) as shape Reply
+  resource r68 = completion(waveId, 68, waveCount, active) as shape Reply
+  resource r69 = completion(waveId, 69, waveCount, active) as shape Reply
+  resource r70 = completion(waveId, 70, waveCount, active) as shape Reply
+  resource r71 = completion(waveId, 71, waveCount, active) as shape Reply
+  resource r72 = completion(waveId, 72, waveCount, active) as shape Reply
+  resource r73 = completion(waveId, 73, waveCount, active) as shape Reply
+  resource r74 = completion(waveId, 74, waveCount, active) as shape Reply
+  resource r75 = completion(waveId, 75, waveCount, active) as shape Reply
+  resource r76 = completion(waveId, 76, waveCount, active) as shape Reply
+  resource r77 = completion(waveId, 77, waveCount, active) as shape Reply
+  resource r78 = completion(waveId, 78, waveCount, active) as shape Reply
+  resource r79 = completion(waveId, 79, waveCount, active) as shape Reply
+  resource r80 = completion(waveId, 80, waveCount, active) as shape Reply
+  resource r81 = completion(waveId, 81, waveCount, active) as shape Reply
+  resource r82 = completion(waveId, 82, waveCount, active) as shape Reply
+  resource r83 = completion(waveId, 83, waveCount, active) as shape Reply
+  resource r84 = completion(waveId, 84, waveCount, active) as shape Reply
+  resource r85 = completion(waveId, 85, waveCount, active) as shape Reply
+  resource r86 = completion(waveId, 86, waveCount, active) as shape Reply
+  resource r87 = completion(waveId, 87, waveCount, active) as shape Reply
+  resource r88 = completion(waveId, 88, waveCount, active) as shape Reply
+  resource r89 = completion(waveId, 89, waveCount, active) as shape Reply
+  resource r90 = completion(waveId, 90, waveCount, active) as shape Reply
+  resource r91 = completion(waveId, 91, waveCount, active) as shape Reply
+  resource r92 = completion(waveId, 92, waveCount, active) as shape Reply
+  resource r93 = completion(waveId, 93, waveCount, active) as shape Reply
+  resource r94 = completion(waveId, 94, waveCount, active) as shape Reply
+  resource r95 = completion(waveId, 95, waveCount, active) as shape Reply
+  resource r96 = completion(waveId, 96, waveCount, active) as shape Reply
+  resource r97 = completion(waveId, 97, waveCount, active) as shape Reply
+  resource r98 = completion(waveId, 98, waveCount, active) as shape Reply
+  resource r99 = completion(waveId, 99, waveCount, active) as shape Reply
+  resource r100 = completion(waveId, 100, waveCount, active) as shape Reply
+  resource r101 = completion(waveId, 101, waveCount, active) as shape Reply
+  resource r102 = completion(waveId, 102, waveCount, active) as shape Reply
+  resource r103 = completion(waveId, 103, waveCount, active) as shape Reply
+  resource r104 = completion(waveId, 104, waveCount, active) as shape Reply
+  resource r105 = completion(waveId, 105, waveCount, active) as shape Reply
+  resource r106 = completion(waveId, 106, waveCount, active) as shape Reply
+  resource r107 = completion(waveId, 107, waveCount, active) as shape Reply
+  resource r108 = completion(waveId, 108, waveCount, active) as shape Reply
+  resource r109 = completion(waveId, 109, waveCount, active) as shape Reply
+  resource r110 = completion(waveId, 110, waveCount, active) as shape Reply
+  resource r111 = completion(waveId, 111, waveCount, active) as shape Reply
+  resource r112 = completion(waveId, 112, waveCount, active) as shape Reply
+  resource r113 = completion(waveId, 113, waveCount, active) as shape Reply
+  resource r114 = completion(waveId, 114, waveCount, active) as shape Reply
+  resource r115 = completion(waveId, 115, waveCount, active) as shape Reply
+  resource r116 = completion(waveId, 116, waveCount, active) as shape Reply
+  resource r117 = completion(waveId, 117, waveCount, active) as shape Reply
+  resource r118 = completion(waveId, 118, waveCount, active) as shape Reply
+  resource r119 = completion(waveId, 119, waveCount, active) as shape Reply
+  resource r120 = completion(waveId, 120, waveCount, active) as shape Reply
+  resource r121 = completion(waveId, 121, waveCount, active) as shape Reply
+  resource r122 = completion(waveId, 122, waveCount, active) as shape Reply
+  resource r123 = completion(waveId, 123, waveCount, active) as shape Reply
+  resource r124 = completion(waveId, 124, waveCount, active) as shape Reply
+  resource r125 = completion(waveId, 125, waveCount, active) as shape Reply
+  resource r126 = completion(waveId, 126, waveCount, active) as shape Reply
+  resource r127 = completion(waveId, 127, waveCount, active) as shape Reply
+  derive pending0 = (pending(r0) ? 1 : 0) + (pending(r1) ? 1 : 0) + (pending(r2) ? 1 : 0) + (pending(r3) ? 1 : 0) + (pending(r4) ? 1 : 0) + (pending(r5) ? 1 : 0) + (pending(r6) ? 1 : 0) + (pending(r7) ? 1 : 0) + (pending(r8) ? 1 : 0) + (pending(r9) ? 1 : 0) + (pending(r10) ? 1 : 0) + (pending(r11) ? 1 : 0) + (pending(r12) ? 1 : 0) + (pending(r13) ? 1 : 0) + (pending(r14) ? 1 : 0) + (pending(r15) ? 1 : 0)
+  derive pending1 = (pending(r16) ? 1 : 0) + (pending(r17) ? 1 : 0) + (pending(r18) ? 1 : 0) + (pending(r19) ? 1 : 0) + (pending(r20) ? 1 : 0) + (pending(r21) ? 1 : 0) + (pending(r22) ? 1 : 0) + (pending(r23) ? 1 : 0) + (pending(r24) ? 1 : 0) + (pending(r25) ? 1 : 0) + (pending(r26) ? 1 : 0) + (pending(r27) ? 1 : 0) + (pending(r28) ? 1 : 0) + (pending(r29) ? 1 : 0) + (pending(r30) ? 1 : 0) + (pending(r31) ? 1 : 0)
+  derive pending2 = (pending(r32) ? 1 : 0) + (pending(r33) ? 1 : 0) + (pending(r34) ? 1 : 0) + (pending(r35) ? 1 : 0) + (pending(r36) ? 1 : 0) + (pending(r37) ? 1 : 0) + (pending(r38) ? 1 : 0) + (pending(r39) ? 1 : 0) + (pending(r40) ? 1 : 0) + (pending(r41) ? 1 : 0) + (pending(r42) ? 1 : 0) + (pending(r43) ? 1 : 0) + (pending(r44) ? 1 : 0) + (pending(r45) ? 1 : 0) + (pending(r46) ? 1 : 0) + (pending(r47) ? 1 : 0)
+  derive pending3 = (pending(r48) ? 1 : 0) + (pending(r49) ? 1 : 0) + (pending(r50) ? 1 : 0) + (pending(r51) ? 1 : 0) + (pending(r52) ? 1 : 0) + (pending(r53) ? 1 : 0) + (pending(r54) ? 1 : 0) + (pending(r55) ? 1 : 0) + (pending(r56) ? 1 : 0) + (pending(r57) ? 1 : 0) + (pending(r58) ? 1 : 0) + (pending(r59) ? 1 : 0) + (pending(r60) ? 1 : 0) + (pending(r61) ? 1 : 0) + (pending(r62) ? 1 : 0) + (pending(r63) ? 1 : 0)
+  derive pending4 = (pending(r64) ? 1 : 0) + (pending(r65) ? 1 : 0) + (pending(r66) ? 1 : 0) + (pending(r67) ? 1 : 0) + (pending(r68) ? 1 : 0) + (pending(r69) ? 1 : 0) + (pending(r70) ? 1 : 0) + (pending(r71) ? 1 : 0) + (pending(r72) ? 1 : 0) + (pending(r73) ? 1 : 0) + (pending(r74) ? 1 : 0) + (pending(r75) ? 1 : 0) + (pending(r76) ? 1 : 0) + (pending(r77) ? 1 : 0) + (pending(r78) ? 1 : 0) + (pending(r79) ? 1 : 0)
+  derive pending5 = (pending(r80) ? 1 : 0) + (pending(r81) ? 1 : 0) + (pending(r82) ? 1 : 0) + (pending(r83) ? 1 : 0) + (pending(r84) ? 1 : 0) + (pending(r85) ? 1 : 0) + (pending(r86) ? 1 : 0) + (pending(r87) ? 1 : 0) + (pending(r88) ? 1 : 0) + (pending(r89) ? 1 : 0) + (pending(r90) ? 1 : 0) + (pending(r91) ? 1 : 0) + (pending(r92) ? 1 : 0) + (pending(r93) ? 1 : 0) + (pending(r94) ? 1 : 0) + (pending(r95) ? 1 : 0)
+  derive pending6 = (pending(r96) ? 1 : 0) + (pending(r97) ? 1 : 0) + (pending(r98) ? 1 : 0) + (pending(r99) ? 1 : 0) + (pending(r100) ? 1 : 0) + (pending(r101) ? 1 : 0) + (pending(r102) ? 1 : 0) + (pending(r103) ? 1 : 0) + (pending(r104) ? 1 : 0) + (pending(r105) ? 1 : 0) + (pending(r106) ? 1 : 0) + (pending(r107) ? 1 : 0) + (pending(r108) ? 1 : 0) + (pending(r109) ? 1 : 0) + (pending(r110) ? 1 : 0) + (pending(r111) ? 1 : 0)
+  derive pending7 = (pending(r112) ? 1 : 0) + (pending(r113) ? 1 : 0) + (pending(r114) ? 1 : 0) + (pending(r115) ? 1 : 0) + (pending(r116) ? 1 : 0) + (pending(r117) ? 1 : 0) + (pending(r118) ? 1 : 0) + (pending(r119) ? 1 : 0) + (pending(r120) ? 1 : 0) + (pending(r121) ? 1 : 0) + (pending(r122) ? 1 : 0) + (pending(r123) ? 1 : 0) + (pending(r124) ? 1 : 0) + (pending(r125) ? 1 : 0) + (pending(r126) ? 1 : 0) + (pending(r127) ? 1 : 0)
+  derive pendingCount = pending0 + pending1 + pending2 + pending3 + pending4 + pending5 + pending6 + pending7
+  derive valid0 = (active and 0 < waveCount and r0.wave == waveId and r0.ok ? 1 : 0) + (active and 1 < waveCount and r1.wave == waveId and r1.ok ? 1 : 0) + (active and 2 < waveCount and r2.wave == waveId and r2.ok ? 1 : 0) + (active and 3 < waveCount and r3.wave == waveId and r3.ok ? 1 : 0) + (active and 4 < waveCount and r4.wave == waveId and r4.ok ? 1 : 0) + (active and 5 < waveCount and r5.wave == waveId and r5.ok ? 1 : 0) + (active and 6 < waveCount and r6.wave == waveId and r6.ok ? 1 : 0) + (active and 7 < waveCount and r7.wave == waveId and r7.ok ? 1 : 0) + (active and 8 < waveCount and r8.wave == waveId and r8.ok ? 1 : 0) + (active and 9 < waveCount and r9.wave == waveId and r9.ok ? 1 : 0) + (active and 10 < waveCount and r10.wave == waveId and r10.ok ? 1 : 0) + (active and 11 < waveCount and r11.wave == waveId and r11.ok ? 1 : 0) + (active and 12 < waveCount and r12.wave == waveId and r12.ok ? 1 : 0) + (active and 13 < waveCount and r13.wave == waveId and r13.ok ? 1 : 0) + (active and 14 < waveCount and r14.wave == waveId and r14.ok ? 1 : 0) + (active and 15 < waveCount and r15.wave == waveId and r15.ok ? 1 : 0)
+  derive valid1 = (active and 16 < waveCount and r16.wave == waveId and r16.ok ? 1 : 0) + (active and 17 < waveCount and r17.wave == waveId and r17.ok ? 1 : 0) + (active and 18 < waveCount and r18.wave == waveId and r18.ok ? 1 : 0) + (active and 19 < waveCount and r19.wave == waveId and r19.ok ? 1 : 0) + (active and 20 < waveCount and r20.wave == waveId and r20.ok ? 1 : 0) + (active and 21 < waveCount and r21.wave == waveId and r21.ok ? 1 : 0) + (active and 22 < waveCount and r22.wave == waveId and r22.ok ? 1 : 0) + (active and 23 < waveCount and r23.wave == waveId and r23.ok ? 1 : 0) + (active and 24 < waveCount and r24.wave == waveId and r24.ok ? 1 : 0) + (active and 25 < waveCount and r25.wave == waveId and r25.ok ? 1 : 0) + (active and 26 < waveCount and r26.wave == waveId and r26.ok ? 1 : 0) + (active and 27 < waveCount and r27.wave == waveId and r27.ok ? 1 : 0) + (active and 28 < waveCount and r28.wave == waveId and r28.ok ? 1 : 0) + (active and 29 < waveCount and r29.wave == waveId and r29.ok ? 1 : 0) + (active and 30 < waveCount and r30.wave == waveId and r30.ok ? 1 : 0) + (active and 31 < waveCount and r31.wave == waveId and r31.ok ? 1 : 0)
+  derive valid2 = (active and 32 < waveCount and r32.wave == waveId and r32.ok ? 1 : 0) + (active and 33 < waveCount and r33.wave == waveId and r33.ok ? 1 : 0) + (active and 34 < waveCount and r34.wave == waveId and r34.ok ? 1 : 0) + (active and 35 < waveCount and r35.wave == waveId and r35.ok ? 1 : 0) + (active and 36 < waveCount and r36.wave == waveId and r36.ok ? 1 : 0) + (active and 37 < waveCount and r37.wave == waveId and r37.ok ? 1 : 0) + (active and 38 < waveCount and r38.wave == waveId and r38.ok ? 1 : 0) + (active and 39 < waveCount and r39.wave == waveId and r39.ok ? 1 : 0) + (active and 40 < waveCount and r40.wave == waveId and r40.ok ? 1 : 0) + (active and 41 < waveCount and r41.wave == waveId and r41.ok ? 1 : 0) + (active and 42 < waveCount and r42.wave == waveId and r42.ok ? 1 : 0) + (active and 43 < waveCount and r43.wave == waveId and r43.ok ? 1 : 0) + (active and 44 < waveCount and r44.wave == waveId and r44.ok ? 1 : 0) + (active and 45 < waveCount and r45.wave == waveId and r45.ok ? 1 : 0) + (active and 46 < waveCount and r46.wave == waveId and r46.ok ? 1 : 0) + (active and 47 < waveCount and r47.wave == waveId and r47.ok ? 1 : 0)
+  derive valid3 = (active and 48 < waveCount and r48.wave == waveId and r48.ok ? 1 : 0) + (active and 49 < waveCount and r49.wave == waveId and r49.ok ? 1 : 0) + (active and 50 < waveCount and r50.wave == waveId and r50.ok ? 1 : 0) + (active and 51 < waveCount and r51.wave == waveId and r51.ok ? 1 : 0) + (active and 52 < waveCount and r52.wave == waveId and r52.ok ? 1 : 0) + (active and 53 < waveCount and r53.wave == waveId and r53.ok ? 1 : 0) + (active and 54 < waveCount and r54.wave == waveId and r54.ok ? 1 : 0) + (active and 55 < waveCount and r55.wave == waveId and r55.ok ? 1 : 0) + (active and 56 < waveCount and r56.wave == waveId and r56.ok ? 1 : 0) + (active and 57 < waveCount and r57.wave == waveId and r57.ok ? 1 : 0) + (active and 58 < waveCount and r58.wave == waveId and r58.ok ? 1 : 0) + (active and 59 < waveCount and r59.wave == waveId and r59.ok ? 1 : 0) + (active and 60 < waveCount and r60.wave == waveId and r60.ok ? 1 : 0) + (active and 61 < waveCount and r61.wave == waveId and r61.ok ? 1 : 0) + (active and 62 < waveCount and r62.wave == waveId and r62.ok ? 1 : 0) + (active and 63 < waveCount and r63.wave == waveId and r63.ok ? 1 : 0)
+  derive valid4 = (active and 64 < waveCount and r64.wave == waveId and r64.ok ? 1 : 0) + (active and 65 < waveCount and r65.wave == waveId and r65.ok ? 1 : 0) + (active and 66 < waveCount and r66.wave == waveId and r66.ok ? 1 : 0) + (active and 67 < waveCount and r67.wave == waveId and r67.ok ? 1 : 0) + (active and 68 < waveCount and r68.wave == waveId and r68.ok ? 1 : 0) + (active and 69 < waveCount and r69.wave == waveId and r69.ok ? 1 : 0) + (active and 70 < waveCount and r70.wave == waveId and r70.ok ? 1 : 0) + (active and 71 < waveCount and r71.wave == waveId and r71.ok ? 1 : 0) + (active and 72 < waveCount and r72.wave == waveId and r72.ok ? 1 : 0) + (active and 73 < waveCount and r73.wave == waveId and r73.ok ? 1 : 0) + (active and 74 < waveCount and r74.wave == waveId and r74.ok ? 1 : 0) + (active and 75 < waveCount and r75.wave == waveId and r75.ok ? 1 : 0) + (active and 76 < waveCount and r76.wave == waveId and r76.ok ? 1 : 0) + (active and 77 < waveCount and r77.wave == waveId and r77.ok ? 1 : 0) + (active and 78 < waveCount and r78.wave == waveId and r78.ok ? 1 : 0) + (active and 79 < waveCount and r79.wave == waveId and r79.ok ? 1 : 0)
+  derive valid5 = (active and 80 < waveCount and r80.wave == waveId and r80.ok ? 1 : 0) + (active and 81 < waveCount and r81.wave == waveId and r81.ok ? 1 : 0) + (active and 82 < waveCount and r82.wave == waveId and r82.ok ? 1 : 0) + (active and 83 < waveCount and r83.wave == waveId and r83.ok ? 1 : 0) + (active and 84 < waveCount and r84.wave == waveId and r84.ok ? 1 : 0) + (active and 85 < waveCount and r85.wave == waveId and r85.ok ? 1 : 0) + (active and 86 < waveCount and r86.wave == waveId and r86.ok ? 1 : 0) + (active and 87 < waveCount and r87.wave == waveId and r87.ok ? 1 : 0) + (active and 88 < waveCount and r88.wave == waveId and r88.ok ? 1 : 0) + (active and 89 < waveCount and r89.wave == waveId and r89.ok ? 1 : 0) + (active and 90 < waveCount and r90.wave == waveId and r90.ok ? 1 : 0) + (active and 91 < waveCount and r91.wave == waveId and r91.ok ? 1 : 0) + (active and 92 < waveCount and r92.wave == waveId and r92.ok ? 1 : 0) + (active and 93 < waveCount and r93.wave == waveId and r93.ok ? 1 : 0) + (active and 94 < waveCount and r94.wave == waveId and r94.ok ? 1 : 0) + (active and 95 < waveCount and r95.wave == waveId and r95.ok ? 1 : 0)
+  derive valid6 = (active and 96 < waveCount and r96.wave == waveId and r96.ok ? 1 : 0) + (active and 97 < waveCount and r97.wave == waveId and r97.ok ? 1 : 0) + (active and 98 < waveCount and r98.wave == waveId and r98.ok ? 1 : 0) + (active and 99 < waveCount and r99.wave == waveId and r99.ok ? 1 : 0) + (active and 100 < waveCount and r100.wave == waveId and r100.ok ? 1 : 0) + (active and 101 < waveCount and r101.wave == waveId and r101.ok ? 1 : 0) + (active and 102 < waveCount and r102.wave == waveId and r102.ok ? 1 : 0) + (active and 103 < waveCount and r103.wave == waveId and r103.ok ? 1 : 0) + (active and 104 < waveCount and r104.wave == waveId and r104.ok ? 1 : 0) + (active and 105 < waveCount and r105.wave == waveId and r105.ok ? 1 : 0) + (active and 106 < waveCount and r106.wave == waveId and r106.ok ? 1 : 0) + (active and 107 < waveCount and r107.wave == waveId and r107.ok ? 1 : 0) + (active and 108 < waveCount and r108.wave == waveId and r108.ok ? 1 : 0) + (active and 109 < waveCount and r109.wave == waveId and r109.ok ? 1 : 0) + (active and 110 < waveCount and r110.wave == waveId and r110.ok ? 1 : 0) + (active and 111 < waveCount and r111.wave == waveId and r111.ok ? 1 : 0)
+  derive valid7 = (active and 112 < waveCount and r112.wave == waveId and r112.ok ? 1 : 0) + (active and 113 < waveCount and r113.wave == waveId and r113.ok ? 1 : 0) + (active and 114 < waveCount and r114.wave == waveId and r114.ok ? 1 : 0) + (active and 115 < waveCount and r115.wave == waveId and r115.ok ? 1 : 0) + (active and 116 < waveCount and r116.wave == waveId and r116.ok ? 1 : 0) + (active and 117 < waveCount and r117.wave == waveId and r117.ok ? 1 : 0) + (active and 118 < waveCount and r118.wave == waveId and r118.ok ? 1 : 0) + (active and 119 < waveCount and r119.wave == waveId and r119.ok ? 1 : 0) + (active and 120 < waveCount and r120.wave == waveId and r120.ok ? 1 : 0) + (active and 121 < waveCount and r121.wave == waveId and r121.ok ? 1 : 0) + (active and 122 < waveCount and r122.wave == waveId and r122.ok ? 1 : 0) + (active and 123 < waveCount and r123.wave == waveId and r123.ok ? 1 : 0) + (active and 124 < waveCount and r124.wave == waveId and r124.ok ? 1 : 0) + (active and 125 < waveCount and r125.wave == waveId and r125.ok ? 1 : 0) + (active and 126 < waveCount and r126.wave == waveId and r126.ok ? 1 : 0) + (active and 127 < waveCount and r127.wave == waveId and r127.ok ? 1 : 0)
+  derive validCount = valid0 + valid1 + valid2 + valid3 + valid4 + valid5 + valid6 + valid7
+  derive failed0 = (active and 0 < waveCount and r0.wave == waveId and not r0.ok ? 1 : 0) + (active and 1 < waveCount and r1.wave == waveId and not r1.ok ? 1 : 0) + (active and 2 < waveCount and r2.wave == waveId and not r2.ok ? 1 : 0) + (active and 3 < waveCount and r3.wave == waveId and not r3.ok ? 1 : 0) + (active and 4 < waveCount and r4.wave == waveId and not r4.ok ? 1 : 0) + (active and 5 < waveCount and r5.wave == waveId and not r5.ok ? 1 : 0) + (active and 6 < waveCount and r6.wave == waveId and not r6.ok ? 1 : 0) + (active and 7 < waveCount and r7.wave == waveId and not r7.ok ? 1 : 0) + (active and 8 < waveCount and r8.wave == waveId and not r8.ok ? 1 : 0) + (active and 9 < waveCount and r9.wave == waveId and not r9.ok ? 1 : 0) + (active and 10 < waveCount and r10.wave == waveId and not r10.ok ? 1 : 0) + (active and 11 < waveCount and r11.wave == waveId and not r11.ok ? 1 : 0) + (active and 12 < waveCount and r12.wave == waveId and not r12.ok ? 1 : 0) + (active and 13 < waveCount and r13.wave == waveId and not r13.ok ? 1 : 0) + (active and 14 < waveCount and r14.wave == waveId and not r14.ok ? 1 : 0) + (active and 15 < waveCount and r15.wave == waveId and not r15.ok ? 1 : 0)
+  derive failed1 = (active and 16 < waveCount and r16.wave == waveId and not r16.ok ? 1 : 0) + (active and 17 < waveCount and r17.wave == waveId and not r17.ok ? 1 : 0) + (active and 18 < waveCount and r18.wave == waveId and not r18.ok ? 1 : 0) + (active and 19 < waveCount and r19.wave == waveId and not r19.ok ? 1 : 0) + (active and 20 < waveCount and r20.wave == waveId and not r20.ok ? 1 : 0) + (active and 21 < waveCount and r21.wave == waveId and not r21.ok ? 1 : 0) + (active and 22 < waveCount and r22.wave == waveId and not r22.ok ? 1 : 0) + (active and 23 < waveCount and r23.wave == waveId and not r23.ok ? 1 : 0) + (active and 24 < waveCount and r24.wave == waveId and not r24.ok ? 1 : 0) + (active and 25 < waveCount and r25.wave == waveId and not r25.ok ? 1 : 0) + (active and 26 < waveCount and r26.wave == waveId and not r26.ok ? 1 : 0) + (active and 27 < waveCount and r27.wave == waveId and not r27.ok ? 1 : 0) + (active and 28 < waveCount and r28.wave == waveId and not r28.ok ? 1 : 0) + (active and 29 < waveCount and r29.wave == waveId and not r29.ok ? 1 : 0) + (active and 30 < waveCount and r30.wave == waveId and not r30.ok ? 1 : 0) + (active and 31 < waveCount and r31.wave == waveId and not r31.ok ? 1 : 0)
+  derive failed2 = (active and 32 < waveCount and r32.wave == waveId and not r32.ok ? 1 : 0) + (active and 33 < waveCount and r33.wave == waveId and not r33.ok ? 1 : 0) + (active and 34 < waveCount and r34.wave == waveId and not r34.ok ? 1 : 0) + (active and 35 < waveCount and r35.wave == waveId and not r35.ok ? 1 : 0) + (active and 36 < waveCount and r36.wave == waveId and not r36.ok ? 1 : 0) + (active and 37 < waveCount and r37.wave == waveId and not r37.ok ? 1 : 0) + (active and 38 < waveCount and r38.wave == waveId and not r38.ok ? 1 : 0) + (active and 39 < waveCount and r39.wave == waveId and not r39.ok ? 1 : 0) + (active and 40 < waveCount and r40.wave == waveId and not r40.ok ? 1 : 0) + (active and 41 < waveCount and r41.wave == waveId and not r41.ok ? 1 : 0) + (active and 42 < waveCount and r42.wave == waveId and not r42.ok ? 1 : 0) + (active and 43 < waveCount and r43.wave == waveId and not r43.ok ? 1 : 0) + (active and 44 < waveCount and r44.wave == waveId and not r44.ok ? 1 : 0) + (active and 45 < waveCount and r45.wave == waveId and not r45.ok ? 1 : 0) + (active and 46 < waveCount and r46.wave == waveId and not r46.ok ? 1 : 0) + (active and 47 < waveCount and r47.wave == waveId and not r47.ok ? 1 : 0)
+  derive failed3 = (active and 48 < waveCount and r48.wave == waveId and not r48.ok ? 1 : 0) + (active and 49 < waveCount and r49.wave == waveId and not r49.ok ? 1 : 0) + (active and 50 < waveCount and r50.wave == waveId and not r50.ok ? 1 : 0) + (active and 51 < waveCount and r51.wave == waveId and not r51.ok ? 1 : 0) + (active and 52 < waveCount and r52.wave == waveId and not r52.ok ? 1 : 0) + (active and 53 < waveCount and r53.wave == waveId and not r53.ok ? 1 : 0) + (active and 54 < waveCount and r54.wave == waveId and not r54.ok ? 1 : 0) + (active and 55 < waveCount and r55.wave == waveId and not r55.ok ? 1 : 0) + (active and 56 < waveCount and r56.wave == waveId and not r56.ok ? 1 : 0) + (active and 57 < waveCount and r57.wave == waveId and not r57.ok ? 1 : 0) + (active and 58 < waveCount and r58.wave == waveId and not r58.ok ? 1 : 0) + (active and 59 < waveCount and r59.wave == waveId and not r59.ok ? 1 : 0) + (active and 60 < waveCount and r60.wave == waveId and not r60.ok ? 1 : 0) + (active and 61 < waveCount and r61.wave == waveId and not r61.ok ? 1 : 0) + (active and 62 < waveCount and r62.wave == waveId and not r62.ok ? 1 : 0) + (active and 63 < waveCount and r63.wave == waveId and not r63.ok ? 1 : 0)
+  derive failed4 = (active and 64 < waveCount and r64.wave == waveId and not r64.ok ? 1 : 0) + (active and 65 < waveCount and r65.wave == waveId and not r65.ok ? 1 : 0) + (active and 66 < waveCount and r66.wave == waveId and not r66.ok ? 1 : 0) + (active and 67 < waveCount and r67.wave == waveId and not r67.ok ? 1 : 0) + (active and 68 < waveCount and r68.wave == waveId and not r68.ok ? 1 : 0) + (active and 69 < waveCount and r69.wave == waveId and not r69.ok ? 1 : 0) + (active and 70 < waveCount and r70.wave == waveId and not r70.ok ? 1 : 0) + (active and 71 < waveCount and r71.wave == waveId and not r71.ok ? 1 : 0) + (active and 72 < waveCount and r72.wave == waveId and not r72.ok ? 1 : 0) + (active and 73 < waveCount and r73.wave == waveId and not r73.ok ? 1 : 0) + (active and 74 < waveCount and r74.wave == waveId and not r74.ok ? 1 : 0) + (active and 75 < waveCount and r75.wave == waveId and not r75.ok ? 1 : 0) + (active and 76 < waveCount and r76.wave == waveId and not r76.ok ? 1 : 0) + (active and 77 < waveCount and r77.wave == waveId and not r77.ok ? 1 : 0) + (active and 78 < waveCount and r78.wave == waveId and not r78.ok ? 1 : 0) + (active and 79 < waveCount and r79.wave == waveId and not r79.ok ? 1 : 0)
+  derive failed5 = (active and 80 < waveCount and r80.wave == waveId and not r80.ok ? 1 : 0) + (active and 81 < waveCount and r81.wave == waveId and not r81.ok ? 1 : 0) + (active and 82 < waveCount and r82.wave == waveId and not r82.ok ? 1 : 0) + (active and 83 < waveCount and r83.wave == waveId and not r83.ok ? 1 : 0) + (active and 84 < waveCount and r84.wave == waveId and not r84.ok ? 1 : 0) + (active and 85 < waveCount and r85.wave == waveId and not r85.ok ? 1 : 0) + (active and 86 < waveCount and r86.wave == waveId and not r86.ok ? 1 : 0) + (active and 87 < waveCount and r87.wave == waveId and not r87.ok ? 1 : 0) + (active and 88 < waveCount and r88.wave == waveId and not r88.ok ? 1 : 0) + (active and 89 < waveCount and r89.wave == waveId and not r89.ok ? 1 : 0) + (active and 90 < waveCount and r90.wave == waveId and not r90.ok ? 1 : 0) + (active and 91 < waveCount and r91.wave == waveId and not r91.ok ? 1 : 0) + (active and 92 < waveCount and r92.wave == waveId and not r92.ok ? 1 : 0) + (active and 93 < waveCount and r93.wave == waveId and not r93.ok ? 1 : 0) + (active and 94 < waveCount and r94.wave == waveId and not r94.ok ? 1 : 0) + (active and 95 < waveCount and r95.wave == waveId and not r95.ok ? 1 : 0)
+  derive failed6 = (active and 96 < waveCount and r96.wave == waveId and not r96.ok ? 1 : 0) + (active and 97 < waveCount and r97.wave == waveId and not r97.ok ? 1 : 0) + (active and 98 < waveCount and r98.wave == waveId and not r98.ok ? 1 : 0) + (active and 99 < waveCount and r99.wave == waveId and not r99.ok ? 1 : 0) + (active and 100 < waveCount and r100.wave == waveId and not r100.ok ? 1 : 0) + (active and 101 < waveCount and r101.wave == waveId and not r101.ok ? 1 : 0) + (active and 102 < waveCount and r102.wave == waveId and not r102.ok ? 1 : 0) + (active and 103 < waveCount and r103.wave == waveId and not r103.ok ? 1 : 0) + (active and 104 < waveCount and r104.wave == waveId and not r104.ok ? 1 : 0) + (active and 105 < waveCount and r105.wave == waveId and not r105.ok ? 1 : 0) + (active and 106 < waveCount and r106.wave == waveId and not r106.ok ? 1 : 0) + (active and 107 < waveCount and r107.wave == waveId and not r107.ok ? 1 : 0) + (active and 108 < waveCount and r108.wave == waveId and not r108.ok ? 1 : 0) + (active and 109 < waveCount and r109.wave == waveId and not r109.ok ? 1 : 0) + (active and 110 < waveCount and r110.wave == waveId and not r110.ok ? 1 : 0) + (active and 111 < waveCount and r111.wave == waveId and not r111.ok ? 1 : 0)
+  derive failed7 = (active and 112 < waveCount and r112.wave == waveId and not r112.ok ? 1 : 0) + (active and 113 < waveCount and r113.wave == waveId and not r113.ok ? 1 : 0) + (active and 114 < waveCount and r114.wave == waveId and not r114.ok ? 1 : 0) + (active and 115 < waveCount and r115.wave == waveId and not r115.ok ? 1 : 0) + (active and 116 < waveCount and r116.wave == waveId and not r116.ok ? 1 : 0) + (active and 117 < waveCount and r117.wave == waveId and not r117.ok ? 1 : 0) + (active and 118 < waveCount and r118.wave == waveId and not r118.ok ? 1 : 0) + (active and 119 < waveCount and r119.wave == waveId and not r119.ok ? 1 : 0) + (active and 120 < waveCount and r120.wave == waveId and not r120.ok ? 1 : 0) + (active and 121 < waveCount and r121.wave == waveId and not r121.ok ? 1 : 0) + (active and 122 < waveCount and r122.wave == waveId and not r122.ok ? 1 : 0) + (active and 123 < waveCount and r123.wave == waveId and not r123.ok ? 1 : 0) + (active and 124 < waveCount and r124.wave == waveId and not r124.ok ? 1 : 0) + (active and 125 < waveCount and r125.wave == waveId and not r125.ok ? 1 : 0) + (active and 126 < waveCount and r126.wave == waveId and not r126.ok ? 1 : 0) + (active and 127 < waveCount and r127.wave == waveId and not r127.ok ? 1 : 0)
+  derive failedCount = failed0 + failed1 + failed2 + failed3 + failed4 + failed5 + failed6 + failed7
+
+  action setCount(value) writes requested
+    requested = value
+  action setErrors(value) writes errors
+    errors = value
+  action editNote(value) writes note
+    note = value
+  action interact writes clicks
+    clicks = clicks + 1
+  action startWave writes wave, mounted
+    mounted = true
+    send wave = openWave(settings.count, settings.errors)
+  action navigateAway writes mounted, wave
+    mounted = false
+    wave = none
+  action releaseCurrent writes fixture
+    send fixture = releaseWave(waveId)
+  action releaseAll writes fixture
+    send fixture = releaseWave(0)
+  action inspectFixture writes fixture
+    send fixture = fixtureStats()
+  action sample writes clicks
+    refresh counters
+
+  task counters mount
+    every(500, sample)
+
+  view
+    main testId="completion-storm" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" overflow-y="scroll" padding=20 gap=14 background-color="#edf2f7" color="#14263d"
+      column gap=5 flex-shrink=0
+        text "COMPLETION STORM" font-size=12 font-weight=700 letter-spacing=2 color="#426d95"
+        text "Many requests. One responsive screen?" font-size=26 font-weight=700
+        text "Real local HTTP → Rust parse → runner fulfill → Contract results." font-size=13 color="#52667c"
+      column padding=16 gap=10 background-color="#ffffff" border-radius=12 flex-shrink=0
+        text "1. Choose the next wave" font-size=18 font-weight=600
+        row gap=8 align-items="center"
+          text "Concurrent lanes (1–128)" font-size=13
+          input value=requested change=setCount testId="concurrency" width=80 padding=8 background-color="#edf2f7" aria-label="Concurrent requests"
+        row gap=8
+          button press=setCount("6") testId="count-6" padding=9 background-color="#dfebf7" border-radius=6
+            text "6"
+          button press=setCount("32") testId="count-32" padding=9 background-color="#dfebf7" border-radius=6
+            text "32"
+          button press=setCount("128") testId="count-128" padding=9 background-color="#dfebf7" border-radius=6
+            text "128"
+        row gap=8 align-items="center"
+          text "Injected errors (0–100%)" font-size=13
+          input value=errors change=setErrors testId="error-percent" width=80 padding=8 background-color="#edf2f7" aria-label="Error percentage"
+        row gap=8
+          button press=setErrors("0") testId="errors-0" padding=9 background-color="#dfebf7" border-radius=6
+            text "All succeed"
+          button press=setErrors("50") testId="errors-50" padding=9 background-color="#dfebf7" border-radius=6
+            text "50% mixed errors"
+        text `Next: ${settings.count} independent lanes, ${settings.errors}% error threshold (deterministic mix).` font-size=12 color="#52667c"
+        button press=startWave testId="start-wave" padding=12 background-color="#244f79" border-radius=8
+          text "Start / replace / remount wave" color="#ffffff" font-weight=600
+        when pending(wave)
+          text "Asking local fixture to admit a wave…" font-size=13
+        match wave
+          case some(w)
+            text `Wave ${w.id}: ${w.message}` font-size=13 testId="wave-status"
+          case none
+            text "No active wave." font-size=13 testId="wave-status"
+      column padding=16 gap=10 background-color="#ffffff" border-radius=12 flex-shrink=0
+        text "2. Release held replies together" font-size=18 font-weight=600
+        row gap=8 flex-wrap="wrap"
+          button press=releaseCurrent testId="release-wave" padding=10 background-color="#cceee1" border-radius=6
+            text "Release current"
+          button press=releaseAll testId="release-all" padding=10 background-color="#cceee1" border-radius=6
+            text "Release all old + current"
+          button press=inspectFixture testId="inspect-fixture" padding=10 background-color="#dfebf7" border-radius=6
+            text "Inspect fixture"
+        text "Native: release with curl from another process; the serial request worker cannot execute an in-app release behind held data." font-size=12 color="#8c641e" testId="native-release-hint"
+        text "Release opens the gate for queued arrivals too. The browser limits open HTTP/1 sockets; issued lanes are not simultaneous sockets." font-size=12 color="#52667c"
+        match fixture
+          case some(f)
+            text f.message font-size=13 testId="fixture-message"
+            text `Fixture snapshot: ${f.received} received · ${f.issued} responses issued · ${f.held} held` font-size=12 testId="fixture-counts"
+          case none
+            text "Inspect for a server-side snapshot; counters are separate from accepted results." font-size=12
+      column padding=16 gap=10 background-color="#ffffff" border-radius=12 flex-shrink=0
+        text "3. Keep interacting during settlement" font-size=18 font-weight=600
+        input value=note change=editNote testId="stress-input" aria-label="Type during completions" placeholder="Type here while replies land" padding=10 background-color="#edf2f7" width="100%" box-sizing="border-box"
+        text note testId="stress-echo" font-size=16
+        button press=interact testId="interact" padding=10 background-color="#dfebf7" border-radius=6
+          text `Still interactive: ${clicks} clicks` testId="interaction-count"
+        button press=navigateAway testId="navigate-away" padding=10 background-color="#f7e0cf" border-radius=6
+          text "Navigate away / unmount result views"
+        text "Start a held wave → navigate away → start again → release all. Old replies must not populate the remounted results." font-size=12 color="#52667c"
+      column padding=16 gap=7 background-color="#14263d" color="#ffffff" border-radius=12 flex-shrink=0
+        text `${pendingCount} pending lanes` testId="pending-count" font-size=21 font-weight=600
+        text `${validCount} valid successes in this wave` testId="valid-count" font-size=15
+        text `${failedCount} failed or invalid replies in this wave` testId="failed-count" font-size=15
+        text `Lifetime: ${counters.emitted} requests emitted · ${counters.accepted} current-ticket replies parsed` testId="lifetime-counts" font-size=12
+        text "Pending uses runner flags. Valid success checks wave + lane + exact payload. Parsed includes failures, excludes dropped stale tickets; lifetime counts refresh every 500ms." font-size=12 color="#c4d5e4"
+      when mounted
+        column testId="results" gap=5 flex-shrink=0
+          when 0 < waveCount
+            Lane(result=r0, busy=pending(r0), expected=waveId, lane=0)
+          when 1 < waveCount
+            Lane(result=r1, busy=pending(r1), expected=waveId, lane=1)
+          when 2 < waveCount
+            Lane(result=r2, busy=pending(r2), expected=waveId, lane=2)
+          when 3 < waveCount
+            Lane(result=r3, busy=pending(r3), expected=waveId, lane=3)
+          when 4 < waveCount
+            Lane(result=r4, busy=pending(r4), expected=waveId, lane=4)
+          when 5 < waveCount
+            Lane(result=r5, busy=pending(r5), expected=waveId, lane=5)
+          when 6 < waveCount
+            Lane(result=r6, busy=pending(r6), expected=waveId, lane=6)
+          when 7 < waveCount
+            Lane(result=r7, busy=pending(r7), expected=waveId, lane=7)
+          when 8 < waveCount
+            Lane(result=r8, busy=pending(r8), expected=waveId, lane=8)
+          when 9 < waveCount
+            Lane(result=r9, busy=pending(r9), expected=waveId, lane=9)
+          when 10 < waveCount
+            Lane(result=r10, busy=pending(r10), expected=waveId, lane=10)
+          when 11 < waveCount
+            Lane(result=r11, busy=pending(r11), expected=waveId, lane=11)
+          when 12 < waveCount
+            Lane(result=r12, busy=pending(r12), expected=waveId, lane=12)
+          when 13 < waveCount
+            Lane(result=r13, busy=pending(r13), expected=waveId, lane=13)
+          when 14 < waveCount
+            Lane(result=r14, busy=pending(r14), expected=waveId, lane=14)
+          when 15 < waveCount
+            Lane(result=r15, busy=pending(r15), expected=waveId, lane=15)
+          when 16 < waveCount
+            Lane(result=r16, busy=pending(r16), expected=waveId, lane=16)
+          when 17 < waveCount
+            Lane(result=r17, busy=pending(r17), expected=waveId, lane=17)
+          when 18 < waveCount
+            Lane(result=r18, busy=pending(r18), expected=waveId, lane=18)
+          when 19 < waveCount
+            Lane(result=r19, busy=pending(r19), expected=waveId, lane=19)
+          when 20 < waveCount
+            Lane(result=r20, busy=pending(r20), expected=waveId, lane=20)
+          when 21 < waveCount
+            Lane(result=r21, busy=pending(r21), expected=waveId, lane=21)
+          when 22 < waveCount
+            Lane(result=r22, busy=pending(r22), expected=waveId, lane=22)
+          when 23 < waveCount
+            Lane(result=r23, busy=pending(r23), expected=waveId, lane=23)
+          when 24 < waveCount
+            Lane(result=r24, busy=pending(r24), expected=waveId, lane=24)
+          when 25 < waveCount
+            Lane(result=r25, busy=pending(r25), expected=waveId, lane=25)
+          when 26 < waveCount
+            Lane(result=r26, busy=pending(r26), expected=waveId, lane=26)
+          when 27 < waveCount
+            Lane(result=r27, busy=pending(r27), expected=waveId, lane=27)
+          when 28 < waveCount
+            Lane(result=r28, busy=pending(r28), expected=waveId, lane=28)
+          when 29 < waveCount
+            Lane(result=r29, busy=pending(r29), expected=waveId, lane=29)
+          when 30 < waveCount
+            Lane(result=r30, busy=pending(r30), expected=waveId, lane=30)
+          when 31 < waveCount
+            Lane(result=r31, busy=pending(r31), expected=waveId, lane=31)
+          when 32 < waveCount
+            Lane(result=r32, busy=pending(r32), expected=waveId, lane=32)
+          when 33 < waveCount
+            Lane(result=r33, busy=pending(r33), expected=waveId, lane=33)
+          when 34 < waveCount
+            Lane(result=r34, busy=pending(r34), expected=waveId, lane=34)
+          when 35 < waveCount
+            Lane(result=r35, busy=pending(r35), expected=waveId, lane=35)
+          when 36 < waveCount
+            Lane(result=r36, busy=pending(r36), expected=waveId, lane=36)
+          when 37 < waveCount
+            Lane(result=r37, busy=pending(r37), expected=waveId, lane=37)
+          when 38 < waveCount
+            Lane(result=r38, busy=pending(r38), expected=waveId, lane=38)
+          when 39 < waveCount
+            Lane(result=r39, busy=pending(r39), expected=waveId, lane=39)
+          when 40 < waveCount
+            Lane(result=r40, busy=pending(r40), expected=waveId, lane=40)
+          when 41 < waveCount
+            Lane(result=r41, busy=pending(r41), expected=waveId, lane=41)
+          when 42 < waveCount
+            Lane(result=r42, busy=pending(r42), expected=waveId, lane=42)
+          when 43 < waveCount
+            Lane(result=r43, busy=pending(r43), expected=waveId, lane=43)
+          when 44 < waveCount
+            Lane(result=r44, busy=pending(r44), expected=waveId, lane=44)
+          when 45 < waveCount
+            Lane(result=r45, busy=pending(r45), expected=waveId, lane=45)
+          when 46 < waveCount
+            Lane(result=r46, busy=pending(r46), expected=waveId, lane=46)
+          when 47 < waveCount
+            Lane(result=r47, busy=pending(r47), expected=waveId, lane=47)
+          when 48 < waveCount
+            Lane(result=r48, busy=pending(r48), expected=waveId, lane=48)
+          when 49 < waveCount
+            Lane(result=r49, busy=pending(r49), expected=waveId, lane=49)
+          when 50 < waveCount
+            Lane(result=r50, busy=pending(r50), expected=waveId, lane=50)
+          when 51 < waveCount
+            Lane(result=r51, busy=pending(r51), expected=waveId, lane=51)
+          when 52 < waveCount
+            Lane(result=r52, busy=pending(r52), expected=waveId, lane=52)
+          when 53 < waveCount
+            Lane(result=r53, busy=pending(r53), expected=waveId, lane=53)
+          when 54 < waveCount
+            Lane(result=r54, busy=pending(r54), expected=waveId, lane=54)
+          when 55 < waveCount
+            Lane(result=r55, busy=pending(r55), expected=waveId, lane=55)
+          when 56 < waveCount
+            Lane(result=r56, busy=pending(r56), expected=waveId, lane=56)
+          when 57 < waveCount
+            Lane(result=r57, busy=pending(r57), expected=waveId, lane=57)
+          when 58 < waveCount
+            Lane(result=r58, busy=pending(r58), expected=waveId, lane=58)
+          when 59 < waveCount
+            Lane(result=r59, busy=pending(r59), expected=waveId, lane=59)
+          when 60 < waveCount
+            Lane(result=r60, busy=pending(r60), expected=waveId, lane=60)
+          when 61 < waveCount
+            Lane(result=r61, busy=pending(r61), expected=waveId, lane=61)
+          when 62 < waveCount
+            Lane(result=r62, busy=pending(r62), expected=waveId, lane=62)
+          when 63 < waveCount
+            Lane(result=r63, busy=pending(r63), expected=waveId, lane=63)
+          when 64 < waveCount
+            Lane(result=r64, busy=pending(r64), expected=waveId, lane=64)
+          when 65 < waveCount
+            Lane(result=r65, busy=pending(r65), expected=waveId, lane=65)
+          when 66 < waveCount
+            Lane(result=r66, busy=pending(r66), expected=waveId, lane=66)
+          when 67 < waveCount
+            Lane(result=r67, busy=pending(r67), expected=waveId, lane=67)
+          when 68 < waveCount
+            Lane(result=r68, busy=pending(r68), expected=waveId, lane=68)
+          when 69 < waveCount
+            Lane(result=r69, busy=pending(r69), expected=waveId, lane=69)
+          when 70 < waveCount
+            Lane(result=r70, busy=pending(r70), expected=waveId, lane=70)
+          when 71 < waveCount
+            Lane(result=r71, busy=pending(r71), expected=waveId, lane=71)
+          when 72 < waveCount
+            Lane(result=r72, busy=pending(r72), expected=waveId, lane=72)
+          when 73 < waveCount
+            Lane(result=r73, busy=pending(r73), expected=waveId, lane=73)
+          when 74 < waveCount
+            Lane(result=r74, busy=pending(r74), expected=waveId, lane=74)
+          when 75 < waveCount
+            Lane(result=r75, busy=pending(r75), expected=waveId, lane=75)
+          when 76 < waveCount
+            Lane(result=r76, busy=pending(r76), expected=waveId, lane=76)
+          when 77 < waveCount
+            Lane(result=r77, busy=pending(r77), expected=waveId, lane=77)
+          when 78 < waveCount
+            Lane(result=r78, busy=pending(r78), expected=waveId, lane=78)
+          when 79 < waveCount
+            Lane(result=r79, busy=pending(r79), expected=waveId, lane=79)
+          when 80 < waveCount
+            Lane(result=r80, busy=pending(r80), expected=waveId, lane=80)
+          when 81 < waveCount
+            Lane(result=r81, busy=pending(r81), expected=waveId, lane=81)
+          when 82 < waveCount
+            Lane(result=r82, busy=pending(r82), expected=waveId, lane=82)
+          when 83 < waveCount
+            Lane(result=r83, busy=pending(r83), expected=waveId, lane=83)
+          when 84 < waveCount
+            Lane(result=r84, busy=pending(r84), expected=waveId, lane=84)
+          when 85 < waveCount
+            Lane(result=r85, busy=pending(r85), expected=waveId, lane=85)
+          when 86 < waveCount
+            Lane(result=r86, busy=pending(r86), expected=waveId, lane=86)
+          when 87 < waveCount
+            Lane(result=r87, busy=pending(r87), expected=waveId, lane=87)
+          when 88 < waveCount
+            Lane(result=r88, busy=pending(r88), expected=waveId, lane=88)
+          when 89 < waveCount
+            Lane(result=r89, busy=pending(r89), expected=waveId, lane=89)
+          when 90 < waveCount
+            Lane(result=r90, busy=pending(r90), expected=waveId, lane=90)
+          when 91 < waveCount
+            Lane(result=r91, busy=pending(r91), expected=waveId, lane=91)
+          when 92 < waveCount
+            Lane(result=r92, busy=pending(r92), expected=waveId, lane=92)
+          when 93 < waveCount
+            Lane(result=r93, busy=pending(r93), expected=waveId, lane=93)
+          when 94 < waveCount
+            Lane(result=r94, busy=pending(r94), expected=waveId, lane=94)
+          when 95 < waveCount
+            Lane(result=r95, busy=pending(r95), expected=waveId, lane=95)
+          when 96 < waveCount
+            Lane(result=r96, busy=pending(r96), expected=waveId, lane=96)
+          when 97 < waveCount
+            Lane(result=r97, busy=pending(r97), expected=waveId, lane=97)
+          when 98 < waveCount
+            Lane(result=r98, busy=pending(r98), expected=waveId, lane=98)
+          when 99 < waveCount
+            Lane(result=r99, busy=pending(r99), expected=waveId, lane=99)
+          when 100 < waveCount
+            Lane(result=r100, busy=pending(r100), expected=waveId, lane=100)
+          when 101 < waveCount
+            Lane(result=r101, busy=pending(r101), expected=waveId, lane=101)
+          when 102 < waveCount
+            Lane(result=r102, busy=pending(r102), expected=waveId, lane=102)
+          when 103 < waveCount
+            Lane(result=r103, busy=pending(r103), expected=waveId, lane=103)
+          when 104 < waveCount
+            Lane(result=r104, busy=pending(r104), expected=waveId, lane=104)
+          when 105 < waveCount
+            Lane(result=r105, busy=pending(r105), expected=waveId, lane=105)
+          when 106 < waveCount
+            Lane(result=r106, busy=pending(r106), expected=waveId, lane=106)
+          when 107 < waveCount
+            Lane(result=r107, busy=pending(r107), expected=waveId, lane=107)
+          when 108 < waveCount
+            Lane(result=r108, busy=pending(r108), expected=waveId, lane=108)
+          when 109 < waveCount
+            Lane(result=r109, busy=pending(r109), expected=waveId, lane=109)
+          when 110 < waveCount
+            Lane(result=r110, busy=pending(r110), expected=waveId, lane=110)
+          when 111 < waveCount
+            Lane(result=r111, busy=pending(r111), expected=waveId, lane=111)
+          when 112 < waveCount
+            Lane(result=r112, busy=pending(r112), expected=waveId, lane=112)
+          when 113 < waveCount
+            Lane(result=r113, busy=pending(r113), expected=waveId, lane=113)
+          when 114 < waveCount
+            Lane(result=r114, busy=pending(r114), expected=waveId, lane=114)
+          when 115 < waveCount
+            Lane(result=r115, busy=pending(r115), expected=waveId, lane=115)
+          when 116 < waveCount
+            Lane(result=r116, busy=pending(r116), expected=waveId, lane=116)
+          when 117 < waveCount
+            Lane(result=r117, busy=pending(r117), expected=waveId, lane=117)
+          when 118 < waveCount
+            Lane(result=r118, busy=pending(r118), expected=waveId, lane=118)
+          when 119 < waveCount
+            Lane(result=r119, busy=pending(r119), expected=waveId, lane=119)
+          when 120 < waveCount
+            Lane(result=r120, busy=pending(r120), expected=waveId, lane=120)
+          when 121 < waveCount
+            Lane(result=r121, busy=pending(r121), expected=waveId, lane=121)
+          when 122 < waveCount
+            Lane(result=r122, busy=pending(r122), expected=waveId, lane=122)
+          when 123 < waveCount
+            Lane(result=r123, busy=pending(r123), expected=waveId, lane=123)
+          when 124 < waveCount
+            Lane(result=r124, busy=pending(r124), expected=waveId, lane=124)
+          when 125 < waveCount
+            Lane(result=r125, busy=pending(r125), expected=waveId, lane=125)
+          when 126 < waveCount
+            Lane(result=r126, busy=pending(r126), expected=waveId, lane=126)
+          when 127 < waveCount
+            Lane(result=r127, busy=pending(r127), expected=waveId, lane=127)
+
+      else
+        column testId="away-screen" padding=20 gap=8 background-color="#ffffff" border-radius=12 flex-shrink=0
+          text "Result views unmounted" font-size=20
+          text "Root request arguments are explicitly disabled. Late replies are forgotten, not cancelled on the wire. Start to remount with a fresh wave." font-size=13
+
+component Lane
+  props
+    result: Reply
+    busy: bool
+    expected: number
+    lane: number
+  view
+    row testId=`lane-${lane}` gap=10 padding=9 background-color="#ffffff" border-radius=5
+      text `#${lane}` width=45 font-size=12 color="#52667c"
+      when busy
+        text "Pending — no current result yet" testId=`result-${lane}` font-size=12 color="#8c641e"
+      else
+        when result.wave != expected
+          text "No result for this wave" testId=`result-${lane}` font-size=12 color="#52667c"
+        else
+          when result.ok
+            text `VALID · ${result.message}` testId=`result-${lane}` font-size=12 color="#187155"
+          else
+            text `FAILED · ${result.message}` testId=`result-${lane}` font-size=12 color="#a83f36"

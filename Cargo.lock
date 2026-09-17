@@ -294,6 +294,44 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ec7c5eb7a16992b1904d76c517d170ab353b0e0b3d5a0c81a8a0cd1037893cf"
 
 [[package]]
+name = "completion-storm-apple"
+version = "0.1.0"
+dependencies = [
+ "completion-storm-data",
+ "contract",
+ "exact-apple",
+]
+
+[[package]]
+name = "completion-storm-data"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+ "serde_json",
+]
+
+[[package]]
+name = "completion-storm-linux"
+version = "0.1.0"
+dependencies = [
+ "completion-storm-data",
+ "contract",
+ "exact-linux",
+]
+
+[[package]]
+name = "completion-storm-web"
+version = "0.1.0"
+dependencies = [
+ "completion-storm-data",
+ "contract",
+ "exact-web",
+]
+
+[[package]]
 name = "contract"
 version = "0.1.0"
 dependencies = [
@@ -1687,6 +1725,46 @@ dependencies = [
  "exact-snapback4",
  "serde_json",
  "snapback4-lang",
+]
+
+[[package]]
+name = "messages-stress-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-logic",
+ "messages-stress-data",
+]
+
+[[package]]
+name = "messages-stress-data"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "messages-stress-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-linux",
+ "exact-logic",
+ "messages-stress-data",
+]
+
+[[package]]
+name = "messages-stress-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-logic",
+ "exact-web",
+ "messages-stress-data",
 ]
 
 [[package]]

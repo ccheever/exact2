@@ -9,6 +9,8 @@
  *   bun scripts/metrics.mjs --app <name> measure that resolved app
  *   bun scripts/metrics.mjs --scaling  runner workloads (300/3000/10000 rows), no browser
  *   bun scripts/metrics.mjs --list-memory  fresh-process eager-list heap/RSS baseline (25/1000/25000)
+ *   bun scripts/metrics.mjs --stress-url http://127.0.0.1:PORT --seconds 10 --target-hz 120
+ *       sample a local fixture; repeat --tap <testId> to start workload controls
  *   bun scripts/metrics.mjs --interaction <testId> first browser action to measure
  *   bun scripts/metrics.mjs --rebuild  also time an app edit → wasm rebuild (the cold path)
  *   bun scripts/metrics.mjs --long     also the macOS host: an initial build, a touch-one-line
@@ -30,6 +32,13 @@ import { Cdp } from './agent.mjs';
 
 const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+// Explicitly sample an already-running local stress fixture. This mode records
+// its live source state and does not claim the private-capture build guarantee.
+if (process.argv.includes('--stress-url')) {
+  const { runStressMetrics } = await import('./stress-metrics.mjs');
+  await runStressMetrics(process.argv.slice(2));
+  process.exit(process.exitCode ?? 0);
+}
 const appName = process.argv.includes('--app') ? process.argv[process.argv.indexOf('--app') + 1] : undefined;
 const app = resolveApp(appName);
 // The child uses the captured scripts and inputs; only this invocation's

@@ -50,6 +50,13 @@ pools and load balancing stay out; the mixed-resource first-frame bake is
 built with it rather than queued. The measurement bar in LLP 1027.002 §2 says
 when a worker is claimed to help.
 
+**Expanded (Charlie, 2026-09-16):** graceful-overload design and two bounded,
+synthetic stress consumers (LLP 1041): Messages interaction under load and
+async completion storms. Unblocks measuring queue pressure, UI settlement
+bursts, and large-history costs on existing hosts. Take: broad new benchmark
+apps and a generic job scheduler stay behind these two; no sixth blocking
+check, additional worker pool, or parallel layout is admitted by these examples.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with
