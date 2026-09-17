@@ -246,10 +246,10 @@ export function collectionBytes(facts) {
   return bytes;
 }
 
-export function collectionController({ root, views, report,
+export function collectionController({ root, views, report, settled=()=>{},
   requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id) }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
-  let frame = null, delivering = false, interaction = null, reportsLeft = 4;
+  let frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false;
   const number = text => Number.parseFloat(text) || 0;
   const size = el => { const r = el.getBoundingClientRect(); return `${r.width},${r.height}`; };
   const portOf = el => {
@@ -297,7 +297,9 @@ export function collectionController({ root, views, report,
     return true;
   }
   function desired(s) {
-    return [liveView(s, doc.activeElement), liveView(s, interaction?.element)];
+    const pinned = interaction?.lease;
+    const held = pinned?.state === s && s.rows.some(r => r.el === pinned.wrapper && r.el.isConnected);
+    return [liveView(s, doc.activeElement), held ? pinned.view : liveView(s, interaction?.element)];
   }
   function retiring(s) {
     const next = desired(s), old = s.lastFacts;
@@ -343,7 +345,7 @@ export function collectionController({ root, views, report,
         focus_view: pins[0], interaction_view: pins[1], measurements };
       // Revision alone is not a stimulus: stale feedback and repeated snapshots
       // cannot cause a loop. Changed wrapper epochs, pins or geometry can.
-      const signature = [facts.scroll_top, dimensions, ...pins,
+      const signature = [facts.scroll_top, facts.scroll_sequence, dimensions, ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.height])].join('|');
       if (s.signature === signature) continue;
       let bytes;
@@ -357,6 +359,7 @@ export function collectionController({ root, views, report,
       // error must retain the old reservation, blocking replacement pins.
       if (accepted) {
         s.signature = signature; s.lastFacts = facts;
+        if(!notification){notification=true;queueMicrotask(()=>{notification=false;settled();});}
         if (releases.includes(s)) for (const held of waiting) enqueue(held);
       }
     }
@@ -382,11 +385,12 @@ export function collectionController({ root, views, report,
   }
   function focusChanged() { for (const s of states.values()) enqueue(s, true); }
   function pointerDown(event) {
+    if (interaction?.lease) return; // Terminal source still owns the single slot.
     interaction = { element: event.target, pointer: event.pointerId };
     focusChanged();
   }
   function pointerUp(event) {
-    if (event.pointerId !== interaction?.pointer) return;
+    if (event.pointerId !== interaction?.pointer || interaction?.lease) return;
     interaction = null; focusChanged();
   }
   root.addEventListener('focusin', focusChanged, true);
@@ -395,6 +399,50 @@ export function collectionController({ root, views, report,
   for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) doc.addEventListener(name, pointerUp);
   return {
     releaseInteraction(pointer) { pointerUp({pointerId:pointer}); },
+    reporting() { return delivering; },
+    reorderContact(element,pointer) { pointerDown({target:element,pointerId:pointer}); },
+    reorderMapping(view,y) {
+      const s=states.get(view); if(!s?.valid||portOf(s.el)!==s.port)return null;
+      if(scrollChanged(s))enqueue(s,true);
+      enqueue(s);if(!delivering)flush(true);
+      const g=geometry(s),f=s.lastFacts,p=viewport(s.port);
+      if(!g||!f||f.scroll_top!==Math.max(0,g.raw)||f.port_width!==g.width||f.port_height!==g.height
+        ||f.row_width!==g.rowWidth||BigInt(f.scroll_sequence)!==s.sequence)return undefined;
+      return {revision:s.snapshot.revision,scrollSequence:String(s.sequence),scrollTop:f.scroll_top,
+        portWidth:g.width,portHeight:g.height,rowWidth:g.rowWidth,totalExtent:s.snapshot.totalExtent,
+        contentY:y-p.top+g.raw,raw:g.raw,port:s.port,portTop:p.top};
+    },
+    retainInteraction(element, pointer) {
+      if (interaction?.lease || interaction?.pointer !== pointer) return null;
+      for (const state of states.values()) {
+        const view = liveView(state, element), wrapper = state.rows.find(r => r.el.contains(element))?.el;
+        if (view == null || !wrapper || state.lastFacts?.interaction_view !== view) continue;
+        const lease = Object.freeze({ state, wrapper, view });
+        interaction = { element, pointer, lease }; return lease;
+      }
+      return null;
+    },
+    releaseRetainedInteraction(lease) {
+      if (!lease || interaction?.lease !== lease) return false;
+      interaction = null; focusChanged(); return true;
+    },
+    transferRetainedInteraction(lease, element, pointer) {
+      // A descendant -> wrapper -> descendant handoff keeps the SAME row in
+      // the existing slot. A null-pin report between these would unmount it.
+      if (!lease || interaction?.lease !== lease || delivering || reportsLeft <= 0) return null;
+      const s=lease.state,view=liveView(s,element),g=geometry(s),old=s.lastFacts;
+      if (!states.has(s.snapshot.view)||!lease.wrapper.isConnected||!lease.wrapper.contains(element)||view==null
+        ||!g||old?.interaction_view!==lease.view||old.scroll_top!==Math.max(0,g.raw)
+        ||old.port_width!==g.width||old.port_height!==g.height||old.row_width!==g.rowWidth
+        ||s.port.scrollTop!==s.scrollTop) return null;
+      const facts={...old,revision:s.snapshot.revision,interaction_view:view,measurements:[]};
+      const bytes=collectionBytes(facts);reportsLeft--;delivering=true;let accepted;
+      try { accepted=report(bytes)!==false; } finally { delivering=false; }
+      if(!accepted)return null;
+      const next=Object.freeze({state:s,wrapper:lease.wrapper,view});
+      interaction={element,pointer,lease:next};s.lastFacts=facts;s.signature=null;enqueue(s,true);
+      return next;
+    },
     // A full O(W) snapshot list, after all ordinary extent/children ops. No DOM
     // mutation is deferred with feedback; corrections happen before this paint.
     commit(snapshots) {
@@ -521,6 +569,19 @@ function followScroll(el, enabled) {
 // validity and authored targets; this controller owns actual browser sampling.
 export function motionBytes(facts) {
   const {op,view=0,property='translate',token=0,x=0,y=0,now=0}=facts;
+  const reorder=['reorder-begin','reorder-preview','reorder-terminal','reorder-cancel','reorder-rebase','reorder-finish'].indexOf(op);
+  if(reorder>=0) {
+    const rows=facts.rows??[];if(rows.length>4096)throw Error('too many reorder samples');
+    const bytes=new Uint8Array(176+32*rows.length),d=new DataView(bytes.buffer);
+    const u64=(at,value=0)=>{if(typeof value==='number'&&!Number.isSafeInteger(value))throw Error('unsafe reorder identity');
+      const n=BigInt(value);if(n<0n||n>0xffffffffffffffffn)throw Error('invalid reorder identity');d.setBigUint64(at,n,true);};
+    d.setUint32(0,3,true);d.setUint32(4,15+reorder,true);
+    ['runtime','handleKey','listKey','wrapperKey','rootKey','rowEpoch','token','revision','scrollSequence'].forEach((k,i)=>u64(8+i*8,facts[k]));
+    d.setUint32(80,rows.length,true);
+    ['scrollTop','portWidth','portHeight','rowWidth','totalExtent','contentY','x','y','vx','vy','now'].forEach((k,i)=>d.setFloat64(88+i*8,facts[k]??0,true));
+    rows.forEach((r,i)=>{u64(176+i*32,r.key);u64(184+i*32,r.hold);d.setFloat64(192+i*32,r.value[0],true);d.setFloat64(200+i*32,r.value[1],true);});
+    return bytes;
+  }
   const transform=['transform-geometry','transform-begin','transform-move','transform-action','transform-invalidate'].indexOf(op);
   if(transform>=0) {
     // Frozen Rust counterpart: v2, 120 LE bytes; serials never pass through Number.
@@ -549,6 +610,7 @@ export function motionBytes(facts) {
 export function motionController({views,now,generation,request,applyBatch,inert,releaseInteraction=()=>{},ready=()=>true}) {
   const properties=['translate','scale','rotate','opacity','height'];
   const animations=new Map(), held=new Map(), authored=new Map(), drags=new Map();
+  const raised=new Set();
   const active=new Map(), heightBindings=new Map(); let reconciling=false;
   const transformBindings=new Map(), geometryDirty=new Set();
   let geometryFrame=null, geometryDelivering=false, geometrySerial=0n;
@@ -570,6 +632,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   function overlay(id) {
     const el=views.get(id); if(!el) return;
     const active=properties.map(p=>held.get(key(id,p))).filter(local);
+    if(raised.has(id)){el.style.zIndex='2147483647';if(getComputedStyle(el).position==='static')el.style.position='relative';}
     if(!active.length) return;
     const transition=el.style.transition;
     el.style.transition=[...(transition && transition!=='none'?[transition]:[]), ...active.map(h=>`${h.property} 0s linear 0s`)].join(',');
@@ -579,7 +642,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     const el=views.get(id); if(!el) return;
     if(authored.has(id)) el.style.cssText=authored.get(id);
     overlay(id);
-    if(!properties.some(p=>held.has(key(id,p)))) authored.delete(id);
+    if(!raised.has(id)&&!properties.some(p=>held.has(key(id,p)))) authored.delete(id);
   }
   function sample(el,property) {
     const text=getComputedStyle(el).getPropertyValue(property), numbers=text.trim().split(/\s+/);
@@ -744,6 +807,47 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     for(const h of ends??[])api.end(h,[0,0],true);
   }
   const api={
+    presentReorder(view,token,value) {
+      const h=held.get(key(view,'translate'));if(!local(h)||h.token!==token)return false;
+      h.value=value;h.el.style.translate=css('translate',value);return true;
+    },
+    raiseReorder(id,enabled) {
+      const el=views.get(id);if(!el)return;
+      if(enabled){if(!authored.has(id))authored.set(id,el.style.cssText);raised.add(id);}else raised.delete(id);
+      restore(id);
+    },
+    captureReorder(frame) {
+      return frame.map(row=>{const el=views.get(row.view),v=el&&sample(el,'translate'),r=el?.getBoundingClientRect();
+        return v?.every(Number.isFinite)&&r?{...row,el,value:v,visual:[r.x,r.y]}:null;}).filter(Boolean);
+    },
+    adoptReorder(frame,samples,runtime) {
+      const captured=new Map(samples.map(s=>[s.key,s]));
+      for(const row of frame){const s=captured.get(row.key);if(!s||!row.hold||row.hold==='0'||views.get(row.view)!==s.el)continue;
+        const old=held.get(key(row.view,'translate'));if(old?.token===row.hold)continue;
+        const h=adopt(row.view,'translate',{token:row.hold,value:s.value});if(h)h.runtime=runtime;}
+    },
+    rebaseReorder(samples) {
+      const rows=[];
+      for(const s of samples){const h=held.get(key(s.view,'translate'));if(!local(h)||h.token!==(s.hold??s.token))continue;
+        const r=h.el.getBoundingClientRect();h.value=[h.value[0]+s.visual[0]-r.x,h.value[1]+s.visual[1]-r.y];
+        h.el.style.translate=css('translate',h.value);rows.push({...s,value:h.value});}
+      return rows;
+    },
+    releaseReorder(samples) {
+      for(const s of samples){const h=held.get(key(s.view,'translate'));if(!local(h)||h.token!==s.hold)continue;
+        h.el.getBoundingClientRect();held.delete(key(s.view,'translate'));restore(s.view);}
+    },
+    reorderSettled(view) {
+      return !(views.get(view)?.getAnimations()??[]).some(a=>a.effect?.target===views.get(view)
+        &&(a===animations.get(key(view,'translate'))||a.transitionProperty==='translate')
+        &&!['idle','finished'].includes(a.playState)&&Number(a.currentTime)<a.effect.getComputedTiming().endTime);
+    },
+    settleReorder(view,finish,valid=()=>true) {
+      const check=()=>{if(!valid())return;if(api.reorderSettled(view)){finish();return;}
+        const el=views.get(view),pending=el.getAnimations().filter(a=>a.effect?.target===el
+          &&(a===animations.get(key(view,'translate'))||a.transitionProperty==='translate')&&!['idle','finished'].includes(a.playState));
+        Promise.allSettled(pending.map(a=>a.finished)).then(check);};check();
+    },
     // The Kernel resolves authored IDREFs; DOM code only consumes these exact
     // generational bindings, emitted after the tree's create/attach operations.
     heightBinding(op) {
@@ -846,7 +950,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       for(const [handle,b] of [...heightBindings]) if(handle===id||b.target===id) { drags.get(handle)?.(); heightBindings.delete(handle); }
       for(const b of [...transformBindings.values()])if(b.id===id||b.target===id||b.clip===id)detachTransform(b);
       for(const property of properties) { cancelProperty(id,property); held.delete(key(id,property)); }
-      authored.delete(id);
+      raised.delete(id);authored.delete(id);
     },
     reset() {
       for(const stop of drags.values()) stop(); drags.clear();
@@ -854,7 +958,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       for(const b of [...transformBindings.values()])detachTransform(b);
       geometryDirty.clear();if(geometryFrame!==null)cancelAnimationFrame(geometryFrame);geometryFrame=null;
       for(const animation of animations.values()) animation.cancel(); animations.clear();
-      const ids=[...authored.keys()]; held.clear(); for(const id of ids) restore(id); authored.clear();
+      const ids=[...authored.keys()]; held.clear();raised.clear(); for(const id of ids) restore(id); authored.clear();
     },
     attachTransformDrag(el,id,on) {
       let drag=null,suppressClick=false;
@@ -1097,4 +1201,193 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     },
   };
   return api;
+}
+
+// One physical Arrange contact and its settling source; Common owns logical keys.
+export function arrangeController({views,collections,motion,request,applyBatch,now,generation,inert,ready=()=>true}) {
+  const bindings=new Map();let current=null,edge=null,edgeTime=null,busy=false,pending=null;
+  const live=b=>b&&b.generation===generation()&&views.get(b.id)===b.el&&views.get(b.wrapper)===b.row&&b.el.isConnected;
+  function mapping(b,y) {
+    if(!live(b)||b.el.closest('[disabled]')||inert(b.el)||!b.el.getClientRects().length)return null;
+    for(let el=b.el;el;el=el.parentElement) {
+      const cs=getComputedStyle(el),translate=cs.translate==='none'?[0,0]:cs.translate.split(/\s+/).map(parseFloat);
+      if(cs.visibility!=='visible'||cs.transform!=='none'||cs.perspective!=='none'||!['none','0deg'].includes(cs.rotate)
+        ||!['none','1'].includes(cs.scale)||!['1','normal',''].includes(cs.zoom)||el!==b.row&&translate.some(v=>v!==0))return null;
+      for(const a of el.getAnimations())if(a.effect?.target===el&&!['idle','finished'].includes(a.playState)) {
+        const forbidden=['scale','rotate','transform','perspective','zoom',...(el===b.row?[]:['translate'])];
+        if(forbidden.includes(a.transitionProperty)||a.effect.getKeyframes().some(f=>forbidden.some(p=>p in f)))return null;
+      }
+    }
+    return collections.reorderMapping(b.list,y);
+  }
+  const facts=(d,op,extra={})=>({...d.binding,...d.map,op,token:d.token??0,x:d.value?.[0]??0,y:d.value?.[1]??0,now:now(),...extra});
+  const call=(d,op,extra)=>request(facts(d,op,extra));
+  function adoptReply(d,r,captured=[]) {
+    if(r.accepted!==true)return false;
+    d.token=r.token??d.token;d.frame=r.frame??d.frame;d.terminal=r.terminal??d.terminal;
+    motion.adoptReorder(d.frame??[],captured,d.binding.runtime);
+    if(r.batch)applyBatch(r.batch);return current===d;
+  }
+  function stopEdge(){if(edge!==null)cancelAnimationFrame(edge);edge=null;edgeTime=null;}
+  function clearContact(d) {
+    stopEdge();if(d.binding.el.hasPointerCapture(d.pointer))d.binding.el.releasePointerCapture(d.pointer);
+    for(const [el,name,fn] of d.listeners??[])el.removeEventListener(name,fn);
+    d.listeners=[];
+  }
+  function finish(d) {
+    if(current!==d)return;
+    const r=call(d,'reorder-finish');if(r.accepted!==true)return;
+    // Remove identity before applying a receipt or promise can reenter.
+    current=null;clearContact(d);motion.raiseReorder(d.binding.wrapper,false);
+    collections.releaseRetainedInteraction(d.lease);if(r.batch)applyBatch(r.batch);
+  }
+  function terminal(d,cancel=false) {
+    if(current!==d||d.phase!=='active')return;
+    d.phase='terminalizing';clearContact(d);busy=true;
+    try {
+      const captured=motion.captureReorder(d.frame??[]);
+      const last=d.samples.at(-1),first=d.samples[Math.max(0,d.samples.length-2)],dt=last[0]-first[0];
+      const velocity=cancel||dt<=0?[0,0]:[(last[1]-first[1])*1000/dt,(last[2]-first[2])*1000/dt];
+      let r=call(d,cancel?'reorder-cancel':'reorder-terminal',{rows:captured,vx:velocity[0],vy:velocity[1]});
+      if(r.accepted!==true&&!cancel)r=call(d,'reorder-cancel',{rows:captured});
+      if(!adoptReply(d,r,captured)){d.phase='active';return;}
+      const old=new Map(captured.map(s=>[s.key,s]));
+      const survivors=(d.frame??[]).filter(row=>row.hold!=='0'&&old.has(row.key)).map(row=>({...old.get(row.key),...row}));
+      const rebased=motion.rebaseReorder(survivors);
+      r=call(d,'reorder-rebase',{rows:rebased});
+      if(r.accepted!==true){d.phase='terminalizing';return;}
+      motion.releaseReorder(rebased);d.phase='settling';
+      if(r.batch)applyBatch(r.batch);
+      motion.settleReorder(d.binding.wrapper,()=>finish(d),()=>current===d&&d.phase==='settling');
+    } finally {busy=false;}
+  }
+  function sampleMove(d,x,y) {
+    if(current!==d||d.phase!=='active')return false;
+    d.x=x;d.y=y;const m=mapping(d.binding,y);if(current!==d||d.phase!=='active'||m===undefined)return false;if(!m){terminal(d,true);return false;}
+    d.map=m;d.x=x;d.y=y;d.value=[d.base[0],d.base[1]+y-d.originY+m.raw-d.originRaw];
+    const t=now();d.samples.push([t,...d.value]);while(d.samples.length>2&&(d.samples.length>8||t-d.samples[0][0]>80))d.samples.shift();
+    const source=d.frame?.find(r=>r.key===d.binding.wrapperKey);
+    const captured=source?[{...source,value:d.value,el:d.binding.row}]:[];
+    // The existing hold is already adopted: use the fixed packet to update Rust,
+    // then update the same DOM overlay without an extra clock/lowering call.
+    const r=call(d,'reorder-preview');if(!adoptReply(d,r,captured)){terminal(d,true);return false;}
+    motion.presentReorder(d.binding.wrapper,source?.hold,d.value);return true;
+  }
+  function edgeRange(d) {
+    const m=d.map,offset=d.y-m.portTop,direction=offset<32?-1:offset>m.portHeight-32?1:0;
+    // Translate contributes to browser scroll overflow. Never chase the held
+    // source beyond the collection's certified untransformed content extent.
+    return {m,direction,available:Math.max(0,direction<0?m.raw:m.totalExtent-m.portHeight-m.raw)};
+  }
+  function edges(d) {
+    if(current!==d||d.phase!=='active')return;
+    const range=edgeRange(d);if(!range.direction||!range.available){stopEdge();return;}
+    if(edge!==null)return;
+    edge=requestAnimationFrame(at=>{edge=null;
+      if(current!==d||d.phase!=='active'||!ready()||!Number.isFinite(at)){stopEdge();return;}
+      // 720 CSS px/s, with at most 32ms of catch-up after a delayed frame.
+      // The first frame after idle establishes a fresh rAF clock origin.
+      const dt=edgeTime===null?0:Math.min(32,Math.max(0,at-edgeTime));edgeTime=at;
+      const {m,direction,available}=edgeRange(d);
+      if(!direction||!available){stopEdge();return;}
+      if(!dt){edges(d);return;}
+      const before=m.port.scrollTop;m.port.scrollTop+=direction*Math.min(available,720*dt/1000);
+      if(m.port.scrollTop!==before&&sampleMove(d,d.x,d.y))edges(d);else stopEdge();
+    });
+  }
+  function down(b,e) {
+    if(!ready()||!e.isPrimary||e.button!==0||e.target.closest('input,textarea,select,[contenteditable]'))return;
+    let reservation=null,returning=current?.phase==='settling'&&current.binding.wrapper===b.wrapper?current:null;
+    // A tap or horizontal refusal is not a takeover. Keep the old Terminal
+    // and its return/pin owner until replacement recognition actually succeeds.
+    if(current&&!returning){
+      if(current.phase==='active')terminal(current,true);
+      if(current?.phase==='settling'){
+        if(current.binding.wrapper===b.wrapper){
+          reservation=collections.transferRetainedInteraction(current.lease,b.row,e.pointerId);
+          if(!reservation)return; // Keep the still-visible old source on refusal.
+        }
+        finish(current);
+      }
+      if(current)return;
+    }
+    pending?.();b=bindings.get(b.id);if(!b){collections.releaseRetainedInteraction(reservation);return;}
+    if(!reservation&&!returning)collections.reorderContact(b.el,e.pointerId);
+    let contact={x:e.clientX,y:e.clientY},drag=null;
+    const events=[],on=(el,name,fn)=>{el.addEventListener(name,fn);events.push([el,name,fn]);};
+    const cleanup=()=>{for(const [el,name,fn]of events)el.removeEventListener(name,fn);if(pending===cleanup)pending=null;if(!drag){if(reservation)collections.releaseRetainedInteraction(reservation);else collections.releaseInteraction(e.pointerId);}};
+    cleanup.handle=b.id;
+    pending=cleanup;
+    on(b.el.ownerDocument,'pointermove',v=>{
+      if(v.pointerId!==e.pointerId)return;
+      if(!drag){
+        const dx=v.clientX-contact.x,dy=v.clientY-contact.y;
+        if(Math.abs(dx)>8&&Math.abs(dx)>Math.abs(dy)){cleanup();return;}
+        if(Math.abs(dy)<8)return;
+        if(returning){
+          if(current!==returning||!mapping(b,v.clientY)){cleanup();return;}
+          reservation=collections.transferRetainedInteraction(returning.lease,b.row,e.pointerId);
+          if(!reservation)return;
+          finish(returning);returning=null;
+          if(current){cleanup();return;}
+          b=bindings.get(b.id);if(!b){cleanup();return;}
+        }
+        const m=mapping(b,v.clientY);
+        const lease=m&&(reservation?collections.transferRetainedInteraction(reservation,b.el,e.pointerId):collections.retainInteraction(b.el,e.pointerId));
+        if(reservation&&m!==null&&!lease)return; // Await another sample/feedback; pointerup releases this one reservation.
+        if(!m||!lease){cleanup();return;}
+        if(reservation)reservation=lease;
+        const captured=motion.captureReorder([{view:b.wrapper,key:b.wrapperKey,hold:'0'}]);
+        if(captured.length!==1){collections.releaseRetainedInteraction(lease);cleanup();return;}
+        const d={binding:b,map:m,lease,pointer:e.pointerId,phase:'active',value:captured[0].value,base:captured[0].value,
+          originY:v.clientY,originRaw:m.raw,x:v.clientX,y:v.clientY,samples:[[now(),...captured[0].value]],listeners:events};
+        current=d;busy=true;let ok;
+        try{ok=adoptReply(d,call(d,'reorder-begin'),captured);}finally{busy=false;}
+        if(!ok){current=null;collections.releaseRetainedInteraction(lease);cleanup();return;}
+        drag=d;pending=null;motion.raiseReorder(b.wrapper,true);b.el.setPointerCapture(v.pointerId);
+        on(m.port,'scroll',()=>{if(!busy&&sampleMove(d,d.x,d.y))edges(d);});
+      }
+      if(sampleMove(drag,v.clientX,v.clientY)){v.preventDefault();v.stopPropagation();edges(drag);}
+    });
+    const up=v=>{if(v.pointerId!==e.pointerId)return;cleanup();if(!drag)return;
+      const cancel=v.type!=='pointerup';if(!cancel&&!sampleMove(drag,v.clientX,v.clientY)){terminal(drag,true);return;}
+      terminal(drag,cancel);};
+    for(const name of ['pointerup','pointercancel','lostpointercapture'])on(b.el.ownerDocument,name,up);
+  }
+  function destroy(id) {
+    const b=bindings.get(id);if(!b)return;
+    b.el.removeEventListener('pointerdown',b.down);b.el.style.touchAction=b.touch;bindings.delete(id);
+    if(pending?.handle===id)pending();
+    // The completed batch supplies the terminal frame and surviving source
+    // wrapper. Preserve that hold/pin until commit can capture and rebase it.
+  }
+  return {
+    binding(op) {
+      const old=bindings.get(op.id);
+      if(old&&['runtime','handleKey','listKey','wrapperKey','rootKey','rowEpoch'].every(k=>old[k]===op[k])&&live(old))return;
+      destroy(op.id);
+      if(op.list===null||!views.has(op.id)||!views.has(op.wrapper))return;
+      const b={...op,el:views.get(op.id),row:views.get(op.wrapper),generation:generation()};
+      b.touch=b.el.style.touchAction;b.el.style.touchAction='none';b.down=e=>down(b,e);
+      bindings.set(op.id,b);b.el.addEventListener('pointerdown',b.down);
+    },
+    destroy,
+    state(op) {if(current&&op.runtime===current.binding.runtime&&op.token===current.token){current.frame=op.frame;current.terminal=op.terminal;}},
+    commit() {
+      if(busy||collections.reporting()||!current)return;const d=current;busy=true;let invalid=false;
+      try{if(d.phase==='active'){
+        const m=d.terminal?null:mapping(d.binding,d.y);invalid=m===null;
+        if(m&&['raw','portWidth','portHeight','rowWidth','scrollSequence'].some(k=>m[k]!==d.map[k]))sampleMove(d,d.x,d.y);
+      }}finally{busy=false;}
+      if(invalid)terminal(d,true);if(current!==d)return;
+      if(d.phase==='active'){motion.raiseReorder(d.binding.wrapper,true);edges(d);}
+      if(d.phase==='settling'&&motion.reorderSettled(d.binding.wrapper))finish(d);
+    },
+    reset() {
+      if(current){if(current.phase==='active')terminal(current,true);if(current?.phase==='settling')finish(current);}
+      if(current){clearContact(current);collections.releaseRetainedInteraction(current.lease);motion.raiseReorder(current.binding.wrapper,false);current=null;}
+      for(const b of bindings.values()){b.el.removeEventListener('pointerdown',b.down);b.el.style.touchAction=b.touch;}
+      pending?.();pending=null;bindings.clear();stopEdge();
+    },
+  };
 }

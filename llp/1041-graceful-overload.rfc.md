@@ -2122,3 +2122,54 @@ under `target/linux-region-scroll-validation/freeze-v1/`, source manifest
 `f6b1ee333ee162690a0b4ee3d9e7b289f29a95eefca1fde511d1df8fae20ede3`.
 Fresh Linux display evidence must retain its own source, reference and binary
 identities and the existing memory/time guards.
+
+### 8.25 Web Arrange contact, rebase and return ownership, 2026-09-17
+
+Epicurus implements the browser adapter over the existing collection preview
+and atomic gallery drop. Recognition catches the current wrapper Translate,
+uses actual nested-port geometry and retains the authored grip rather than its
+label child. Runtime, generational keys, preview token and geometry are checked
+before motion time or terminal action. An unproved final sample cancels rather
+than dispatching an earlier gap. Only the final typed List event reaches app data.
+
+Mounted wrappers are sampled before the synchronous action, held through layout
+and rebased from old to new displayed origins. Source velocity is preserved;
+neighbours restart at zero velocity, so this is positional continuity, not a
+continuous-velocity claim. The source stays inside the existing List clip and
+uses its existing interaction pin through return settlement. Edge scrolling
+uses 720 CSS pixels/second with at most 32ms elapsed-time catch-up, consumes
+actual clamped scroll movement, and stops scheduling at the end or cancellation.
+The logical extent excludes overflow caused solely by the preview transform.
+
+Independent review found that finishing a returning pinned-only source before
+replacement admission could unmount it. A same-row grip → wrapper → grip transfer
+now preserves the pin without a null interval. A further prethreshold probe found
+that tap or horizontal refusal still finished the original return too early.
+The final repair leaves that terminal owner intact until vertical recognition;
+pointerup, pointercancel or horizontal refusal only retire provisional listeners.
+Natural settlement remains authoritative, and a stale returning descriptor cannot
+reacquire a successor. No extra pin, timer, animation loop or owner registry is added.
+
+The broader v4 real-Wasm headless CDP drive passes 17 checks on 25,000 logical rows
+with at most nine mounted. Its 28 common-wrapper position comparisons have maximum
+dy 0.0000152588 CSS pixels; this is sampled geometry, not an all-frame proof.
+It covers edge clamp/idle, held-source deletion and final pin cleanup. Final v5
+actual-Wasm replays pass recognized regrab 8/8, prethreshold tap 9/9 and horizontal
+abort 9/9. Their meaningful earlier failures remain recorded. The same Wasm and
+plan are used; final JavaScript carries the ownership repair. The broader v4 drive
+was not repeated after that narrow delta.
+
+On the integrated tree, all 119 Web Rust tests pass with three existing opt-in
+ignores; all 61 DOM tests pass with 206 assertions. DOM fixtures use mock Rust
+replies and remain separate from the actual-Wasm drives. Strict all-targets Clippy,
+Wasm check, scoped formatting, caps and boot pass. An initial unscoped Bun filter
+selected archived test copies and failed during Chrome setup; the failure is
+preserved and the explicit single-file run passes. No production change was made
+for that setup correction.
+
+Frozen v4/v5 sources, dependencies, raw evidence and independent reviews are under
+`target/arrange-web-validation/`. Final source manifest is
+`09760f3f996767b04646efa0d8ce53d07ae7338e3b6de5749e817e8c376b7535`.
+This is bounded browser functional evidence, not native Arrange parity, complete
+25k traversals, quiet latency or physical 120Hz presentation. Public preview
+serving remains unchanged.
