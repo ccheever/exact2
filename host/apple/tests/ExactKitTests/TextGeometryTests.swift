@@ -670,3 +670,146 @@ extension TextGeometryTests {
         XCTAssertEqual(engine.residencyStats.scalarEntries, 3)
     }
 }
+
+
+extension TextGeometryTests {
+    func testShortRowMaintenanceDoesNotWalkUnrelatedColdHistory() {
+        var visits: [UInt64] = []
+        for history in [10, 100, 1000] {
+            let engine = TextEngine(resolve: { _ in nil })
+            var visible: [Paragraph] = []
+            for row in 0..<history {
+                autoreleasepool {
+                    let input = spec("ROW\(row) café e\u{301} 🦀")
+                    _ = engine.minContentWidth(input)
+                    let p = engine.paragraph(input, width: 180)
+                    engine.accepted(p)
+                    visible.append(p)
+                    if visible.count > 8 { visible.removeFirst() }
+                }
+            }
+            let before = engine.residencyStats.maintenanceVisits
+            XCTAssertTrue(engine.paragraph(spec("ROW\(history - 1) café e\u{301} 🦀"), width: 180) === visible.last)
+            let fresh = engine.paragraph(spec("NEW unrelated café"), width: 180)
+            engine.accepted(fresh)
+            let work = engine.residencyStats.maintenanceVisits - before
+            visits.append(work)
+            print("cache-maintenance history=\(history) visits=\(work)")
+            XCTAssertLessThanOrEqual(work, 256, "An unrelated hit/miss/accept cannot scan all historical rows")
+            XCTAssertEqual(visible.count, 8)
+        }
+        XCTAssertLessThanOrEqual(visits.last!, visits.first! + 128)
+    }
+
+    func testResidencyReportsSharedPayloadAndLazyInkExactlyAcrossCheckpoint() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let p = engine.paragraph(spec("FIRST\nSECOND café e\u{301} 🦀"), width: 180)
+        let shape = p.shape!, source = shape.identity
+        let before = engine.residencyStats
+        XCTAssertEqual(before.coldEntries, 2)
+        XCTAssertEqual(before.coldOwnedPayloadBytes, source.ownedBytes + shape.ownedBytes + p.ownedPayloadBytes)
+        XCTAssertEqual(before.coldCoreTextEstimateBytes, shape.opaqueEstimate + p.coreTextEstimateBytes)
+        let checkpoint = engine.checkpoint()
+        let ink = p.inkBounds()
+        XCTAssertEqual(engine.residencyStats.coldOwnedPayloadBytes, before.coldOwnedPayloadBytes + ink.storageBytes)
+        engine.accepted(p)
+        XCTAssertEqual(engine.residencyStats.coldEntries, 0)
+        _ = engine.paragraph(spec("unrelated replacement"), width: 240)
+        engine.restore(checkpoint)
+        XCTAssertTrue(engine.paragraph(spec("FIRST\nSECOND café e\u{301} 🦀"), width: 180) === p)
+        XCTAssertEqual(engine.residencyStats.coldOwnedPayloadBytes, before.coldOwnedPayloadBytes + ink.storageBytes)
+    }
+
+    func testDeadWeakMetadataAndTinyColdEntriesHaveExplicitBounds() {
+        let engine = TextEngine(resolve: { _ in nil })
+        var visible: [Paragraph] = []
+        for row in 0..<(TextResidency.maxLookupEntries + 64) {
+            autoreleasepool {
+                let p = engine.paragraph(spec("accepted \(row)"), width: 180)
+                engine.accepted(p)
+                visible.append(p)
+                if visible.count > 8 { visible.removeFirst() }
+            }
+        }
+        var stats = engine.residencyStats
+        XCTAssertLessThanOrEqual(stats.metadataEntries, TextResidency.maxLookupEntries)
+        XCTAssertLessThanOrEqual(stats.identityEntries, TextResidency.maxIdentities)
+        XCTAssertLessThanOrEqual(stats.geometryEntries, TextResidency.maxLookupEntries)
+        XCTAssertEqual(stats.coldEntries, 0)
+        for row in 0..<(TextResidency.maxColdEntries + 64) {
+            _ = engine.minContentWidth(spec("cold \(row)"))
+        }
+        stats = engine.residencyStats
+        XCTAssertLessThanOrEqual(stats.coldEntries, TextResidency.maxColdEntries)
+        XCTAssertLessThanOrEqual(stats.metadataEntries, TextResidency.maxLookupEntries)
+        XCTAssertLessThanOrEqual(stats.identityEntries, TextResidency.maxIdentities)
+        XCTAssertEqual(stats.softTargetBytes, 64 * 1024 * 1024)
+        XCTAssertLessThanOrEqual(stats.coldEstimatedBytes, stats.softTargetBytes)
+        XCTAssertEqual(visible.count, 8)
+    }
+}
+
+extension TextGeometryTests {
+    func testScalarAndParagraphChargesShareSourceAndReleaseIndependently() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let input = spec("shared scalar paragraph café e\u{301} 🦀")
+        _ = engine.minContentWidth(input)
+        let paragraph = engine.paragraph(input, width: 180)
+        let shape = paragraph.shape!, source = shape.identity
+        let scalarBytes = MemoryLayout<ExactMetrics>.stride + MemoryLayout<CGFloat?>.stride
+        let stats = engine.residencyStats
+        XCTAssertEqual(stats.coldEntries, 3)
+        XCTAssertEqual(stats.coldOwnedPayloadBytes,
+                       source.ownedBytes + shape.ownedBytes + paragraph.ownedPayloadBytes + scalarBytes)
+        XCTAssertEqual(stats.coldCoreTextEstimateBytes, shape.opaqueEstimate + paragraph.coreTextEstimateBytes)
+        XCTAssertGreaterThanOrEqual(stats.coldAdmissionBytes, stats.coldEstimatedBytes)
+        engine.accepted(paragraph)
+        XCTAssertEqual(engine.residencyStats.coldEntries, 1)
+        XCTAssertEqual(engine.residencyStats.coldOwnedPayloadBytes, source.ownedBytes + scalarBytes)
+        XCTAssertEqual(engine.residencyStats.coldCoreTextEstimateBytes, 0)
+        XCTAssertTrue(engine.paragraph(input, width: 180) === paragraph)
+        XCTAssertEqual(engine.residencyStats.coldEntries, 1, "Weak accepted hit cannot repin its paragraph/shape")
+    }
+
+    func testDefault64MiBSoftTargetEvictsColdWorkWithoutTruncation() {
+        let engine = TextEngine(resolve: { _ in nil })
+        var old: [WeakParagraphForResidency] = []
+        for i in 0..<6 {
+            autoreleasepool {
+                let input = spec(String(repeating: "FULL SOURCE \(i) café\n", count: 12000))
+                let p = engine.paragraph(input, width: 180)
+                old.append(WeakParagraphForResidency(p))
+                let last = CTLineGetStringRange(p.lines.last!)
+                XCTAssertEqual(last.location + last.length, input.runs[0].text.utf16.count)
+                XCTAssertLessThanOrEqual(engine.residencyStats.coldAdmissionBytes, 64 * 1024 * 1024)
+                _ = p.inkBounds()
+                XCTAssertLessThanOrEqual(engine.residencyStats.coldEstimatedBytes,
+                                         engine.residencyStats.coldAdmissionBytes)
+            }
+        }
+        XCTAssertTrue(old.first!.value == nil, "Cold history must release under the actual default64MiB target")
+        XCTAssertTrue(old.last!.value != nil)
+    }
+
+    func testLookupCapDoesNotDestroyExternallyAcceptedParagraphs() {
+        let engine = TextEngine(resolve: { _ in nil })
+        var leases: [Paragraph] = []
+        for i in 0..<(TextResidency.maxLookupEntries / 2 + 32) {
+            let p = engine.paragraph(spec("live owner \(i)"), width: 180)
+            engine.accepted(p)
+            leases.append(p)
+        }
+        let stats = engine.residencyStats
+        XCTAssertLessThanOrEqual(stats.metadataEntries, TextResidency.maxLookupEntries)
+        XCTAssertLessThanOrEqual(stats.identityEntries, TextResidency.maxIdentities)
+        XCTAssertLessThanOrEqual(stats.geometryEntries, TextResidency.maxLookupEntries)
+        XCTAssertEqual(stats.coldEntries, 0)
+        XCTAssertEqual(leases.first!.shape!.identity.geometry.runs[0].text, "live owner 0")
+        XCTAssertGreaterThan(leases.first!.inkBounds().storageBytes, 0)
+        let last = leases.last!
+        XCTAssertTrue(engine.paragraph(spec("live owner \(leases.count - 1)"), width: 180) === last)
+        let weakFirst = WeakParagraphForResidency(leases.first!)
+        leases.removeFirst()
+        XCTAssertTrue(weakFirst.value == nil, "Evicted lookup metadata cannot own a former view's paragraph")
+    }
+}

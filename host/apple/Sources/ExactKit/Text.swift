@@ -93,6 +93,12 @@ final class Paragraph {
             + (baselines.count + lineBottoms.count) * MemoryLayout<CGFloat>.stride
             + (cachedInk?.storageBytes ?? 0)
     }
+    /// Admission reserves the known lazy array shape, without constructing ink.
+    /// Diagnostics still report only the payload actually allocated above.
+    var admissionPayloadBytes: Int {
+        ownedPayloadBytes - (cachedInk?.storageBytes ?? 0)
+            + ParagraphInkIndex.storageBytes(lineCount: lines.count)
+    }
     private(set) var cachedInk: ParagraphInkIndex?
     var firstBaseline: CGFloat { baselines.first ?? 0 }
     init(lines: [CTLine], baselines: [CGFloat], width: CGFloat, height: CGFloat, lineBottoms: [CGFloat] = [],
@@ -132,10 +138,17 @@ final class ParagraphInkIndex {
     /// Array payload only: excludes the object/array headers and allocator slack.
     var storageBytes: Int { spans.count * MemoryLayout<Span>.stride }
 
-    init(lines: [CTLine], baselines: [CGFloat]) {
-        count = lines.count
+    private static func leafCount(_ count: Int) -> Int {
         var size = 1
         while size < count { size *= 2 }
+        return size
+    }
+    static func storageBytes(lineCount: Int) -> Int {
+        leafCount(lineCount) * 2 * MemoryLayout<Span>.stride
+    }
+    init(lines: [CTLine], baselines: [CGFloat]) {
+        count = lines.count
+        let size = Self.leafCount(count)
         leaves = size
         var spans = [Span](repeating: Span(), count: size * 2)
         for (i, line) in lines.enumerated() {

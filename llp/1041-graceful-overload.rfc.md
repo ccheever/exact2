@@ -1171,7 +1171,43 @@ of all elapsed time to one function. The partial scan retains 8–12 mounted row
 full-traversal bounds. Raw journals, partial coverage, exact source/binary
 identity and the stop report are under
 `target/native-raster-20260917/macos-accept25k-revision19-20260917-043443/`.
-Incremental cache maintenance is the next measured macOS performance task.
+**Cache maintenance increment, Tuft, Darwin and Epicurus, 2026-09-17:**
+width retirement now uses per-identity indexes, while value-semantic LRU links
+and incremental source/shaper charges replace cache-wide pruning, sorting and
+byte recounts. Each operation sweeps at most four lookup and four identity
+records. Cold entries, weak lookups and identity metadata have explicit caps;
+forgetting a lookup may require later remeasurement but cannot invalidate a
+view's accepted paragraph. Checkpoints retain their independent COW state.
+The 64 MiB cold target remains soft, with conservative lazy-ink admission and
+observable overage; external accepted owners and opaque CoreText memory are
+not a total-residency ceiling.
+
+With eight accepted paragraphs and 10/100/1000 prior short identities, a warm
+hit, unrelated miss and acceptance previously visited 257/1247/11147 metadata
+entries; the new path visits 99/97/97. This discriminator excludes the old
+extra byte-accounting scans, statistics enumeration and COW costs. All 31
+standalone engine methods/501 assertions pass, including existing Unicode and
+bitmap oracles; the optimized full AppKit build also passes. This machine's
+standalone test extraction is not XCTest.
+
+Three fresh native processes per arm then complete the same 100-wheel prefix
+on 25k logical records. All six cells expose 217 contiguous records and match
+normalized geometry at every observation, with five exact Unicode inputs and
+five queued resizes each. Prefix wall time falls from 45.44–46.27 s to
+4.34–4.79 s. Ordinary wheel ACK p50 falls from 146.98–152.77 ms to
+12.21–13.17 ms; p95 falls from 452.03–462.66 ms to 31.81–34.41 ms.
+Each cell has only five queued typing samples: their medians fall from
+277.28–289.89 ms to 25.59–26.16 ms, not a robust typing-tail estimate.
+ACK includes host settlement and IPC; prefix wall includes diagnostic reads.
+Runs were nonquiet. Both arms retain 8–12 mounted rows and 147–200 mapped
+nodes; sampled RSS does not show a memory reduction. These short prefixes
+complete no whole-document traversal and do not replace the earlier incomplete
+25k-by-20 attempt or establish physical frame rate.
+
+Exact source/build identities, six raw journals and separated query/ACK timings
+are in `target/apple-text-maintenance-validation/`, with native evidence under
+`native-comparison-20260917-051731/`. The preserved after executable SHA-256 is
+`8048a7e115363edf8cf0f943b0fd1c1286ecfe996ae80dcea840703117242c0d`.
 
 Coherent main validation passes 891 tests across the compiler, plan, runner,
 motion, three hosts and gallery data. A final two-case web registration
