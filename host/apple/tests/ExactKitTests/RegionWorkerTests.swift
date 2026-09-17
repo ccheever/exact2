@@ -65,7 +65,7 @@ import CoreText
                 DispatchQueue(label: "region-pixel-test").async {
                     do {
                         let layout = RegionWorkerLayout.shape(source, width: 320)
-                        let index = try RegionPaintIndex(request: request, layouts: [7: layout], account: InkAccount())
+                        let index = try RegionPaintIndex(request: request, lookup: { $0 == 7 ? layout : nil }, account: InkAccount())
                         box.raster = try index.render(request, account: RegionPixelAccount())
                     } catch { box.error = String(describing: error) }
                     done.signal()

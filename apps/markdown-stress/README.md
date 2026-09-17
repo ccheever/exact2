@@ -149,6 +149,14 @@ cache. WindowServer capture was refused; synthetic phased-wheel/real-trackpad,
 autonomous progress, continuous-resize latency and physical 120Hz remain unproved.
 Exact revision-qualified evidence is recorded in LLP1041 §8.23.
 
+The worker now reuses a live CoreText layout when another request has the same
+captured source object, source ID, generation and definite width. Each answer
+still has a fresh request identity. Lookup uses the existing 64-entry live table;
+retired widths are not kept as a history. Scoped production-worker tests reduce
+three constructions to one and retain pixel, hit, selection and retirement
+checks: 16 methods/20,885 assertions pass under strict Swift 6. This repair has
+not yet been measured in the full-host giant-paragraph workload; see §8.31.
+
 ## Reproduce
 
 ```sh

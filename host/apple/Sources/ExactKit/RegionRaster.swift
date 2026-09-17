@@ -128,13 +128,13 @@ final class RegionPaintIndex {
     private let layouts: [RegionWorkerLayout]
     private let starts: [Int]
     private let index: WorkerInkIndex
-    init(request: RegionRasterRequest, layouts available: [UInt64: RegionWorkerLayout], account: InkAccount) throws {
+    init(request: RegionRasterRequest, lookup: (UInt64) -> RegionWorkerLayout?, account: InkAccount) throws {
         precondition(!Thread.isMainThread)
         publication = request.publication
         let rows = request.rows; self.rows = rows
         var layouts: [RegionWorkerLayout] = [], starts: [Int] = [], count = 0
         for row in rows {
-            guard let layout = available[row.artifact], row.box.width == layout.metadata.offeredWidth else {
+            guard let layout = lookup(row.artifact), row.box.width == layout.metadata.offeredWidth else {
                 throw RegionRasterRefusal.missingArtifact
             }
             layouts.append(layout); starts.append(count); count += layout.lines.count

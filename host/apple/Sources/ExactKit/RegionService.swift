@@ -22,6 +22,13 @@ enum RegionAnswer: Sendable {
     case raster(RegionRaster)
     case refused(RegionJob, String)
 }
+// One binding per live request ID, not a retained width history. Multiple
+// current requests may own the same immutable, queue-confined layout backing.
+private struct RegionLayoutBinding {
+    let sourceID: UInt64
+    let generation: Int
+    let layout: RegionWorkerLayout
+}
 /// Sendable admission endpoint, NOT a Sendable CoreText cache. Only queue bodies
 /// access layouts/paint. close() retains self until those owners die on queue;
 /// every controller calls it on reset/destroy, including undelivered completion.
@@ -37,14 +44,21 @@ final class RegionService: @unchecked Sendable {
     private var resetStorage = false
     private var retired = Set<UInt64>()
     private let beforeShape: @Sendable () -> Void
+    private let beforeLayoutConstruction: @Sendable () -> Void
     private let deliver: @MainActor @Sendable (RegionAnswer) -> Void
     // Queue-confined fields, never read even for UI diagnostics.
-    private var layouts: [UInt64: RegionWorkerLayout] = [:]
+    private var layouts: [UInt64: RegionLayoutBinding] = [:]
     private var paint: RegionPaintIndex?
     let pixels = RegionPixelAccount()
     let ink = InkAccount()
 
-    init(beforeShape: @escaping @Sendable () -> Void = {}, deliver: @escaping @MainActor @Sendable (RegionAnswer) -> Void) { self.beforeShape = beforeShape; self.deliver = deliver }
+    init(beforeShape: @escaping @Sendable () -> Void = {},
+         beforeLayoutConstruction: @escaping @Sendable () -> Void = {},
+         deliver: @escaping @MainActor @Sendable (RegionAnswer) -> Void) {
+        self.beforeShape = beforeShape
+        self.beforeLayoutConstruction = beforeLayoutConstruction
+        self.deliver = deliver
+    }
     func submit(_ job: RegionJob) {
         lock.lock()
         guard !closed else { lock.unlock(); return }
@@ -107,19 +121,35 @@ final class RegionService: @unchecked Sendable {
                 case .shape(let request):
                     beforeShape()
                     guard layouts.count < 64 else { return .refused(job, "region live artifact cap") }
-                    let width = request.width == -2 ? RegionWorkerLayout.minimumWidth(request.source)
-                        : request.width < 0 ? CGFloat.infinity : request.width
-                    let layout = RegionWorkerLayout.shape(request.source, width: width, retainHits: request.width >= 0)
+                    let layout: RegionWorkerLayout
+                    if request.width.isFinite, request.width >= 0,
+                       let existing = layouts.values.first(where: {
+                           $0.generation == request.generation && $0.sourceID == request.sourceID &&
+                           $0.layout.source === request.source && $0.layout.metadata.offeredWidth == request.width
+                       }) {
+                        // Shape depends on captured source and width, not the
+                        // height offer. The fresh artifact still answers only
+                        // this exact request ID/full kernel offer.
+                        layout = existing.layout
+                    } else {
+                        let width = request.width == -2 ? RegionWorkerLayout.minimumWidth(request.source)
+                            : request.width < 0 ? CGFloat.infinity : request.width
+                        beforeLayoutConstruction()
+                        layout = RegionWorkerLayout.shape(request.source, width: width, retainHits: request.width >= 0)
+                    }
                     guard layout.metadata.width.isFinite, layout.metadata.height.isFinite,
                           layout.metadata.width >= 0, layout.metadata.height >= 0,
                           layout.metadata.width <= CGFloat(Float.greatestFiniteMagnitude),
                           layout.metadata.height <= CGFloat(Float.greatestFiniteMagnitude) else { return .refused(job, "invalid worker metrics") }
-                    if request.width >= 0 { layouts[request.id] = layout }
+                    if request.width >= 0 {
+                        layouts[request.id] = RegionLayoutBinding(sourceID: request.sourceID,
+                            generation: request.generation, layout: layout)
+                    }
                     return .shape(RegionArtifact(id: request.id, sourceID: request.sourceID, metadata: layout.metadata,
                                                  generation: request.generation, service: self))
                 case .raster(let request):
                     if paint?.publication != request.publication {
-                        paint = try RegionPaintIndex(request: request, layouts: layouts, account: ink)
+                        paint = try RegionPaintIndex(request: request, lookup: { self.layouts[$0]?.layout }, account: ink)
                     }
                     guard let paint else { return .refused(job, "missing accepted worker paint") }
                     return .raster(try paint.render(request, account: pixels))

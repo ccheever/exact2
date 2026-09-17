@@ -2419,3 +2419,36 @@ with raw RED/GREEN evidence under `target/messages-row-reuse-validation/`.
 All bake, Web and native entry selections remain the stateless control.
 No host activation, measured speedup, worker placement or 120 Hz result follows
 from these allocation and correctness tests.
+
+### 8.31 Share live Apple worker layouts across height offers, 2026-09-17
+
+Three requests with the same captured source and definite width, but different
+height offers, now share one immutable CoreText layout. The existing shaper
+depends on width, not height. Each result still carries a fresh artifact and
+request ID; the kernel's full-offer and publication checks remain unchanged.
+Lookup requires identical source object, source ID, generation and offered
+width, and searches only the existing live request table. All aliases count
+against its 64-entry cap. Intrinsic offers do not seed reuse, and retired or
+paint-only owners are not a searchable history.
+
+The serial queue, latest-request mailbox, reset/close behavior and original
+admission barrier are unchanged. A separate construction hook distinguishes
+actual shaping from reuse. Retiring one artifact preserves its surviving alias;
+retiring the last table binding prevents later lookup even if an older paint
+owner legitimately remains alive. CoreText objects stay confined to the worker.
+
+The preserved baseline executes nine methods/64 assertions with 12 behavioral
+failures, including three constructions where one is expected. The candidate
+passes 16 methods/20,885 assertions under strict optimized Swift 6. Nine new
+methods cover identity misses, admission, reset, last-owner release and alias
+painting; seven existing methods retain ordinary TextEngine geometry, exact
+fractional-viewport pixels and Unicode hit oracles. These are actual production
+worker sources with an assertion shim, not full-package XCTest or a GUI drive.
+An earlier test-only compile failure is retained separately.
+
+The four-file patch is
+`36f5a79c035a56e3b032fc8783d2add4624cdc697f5f837f4c71ec6560de7519`;
+84 copied evidence files are under `target/apple-region-width-reuse-validation/`.
+The earlier carrier did not record enough source identity to attribute its
+suspected duplicate spans. This source repair therefore carries no measured
+giant-paragraph speedup, memory bound or physical 120 Hz claim.
