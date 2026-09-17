@@ -99,7 +99,8 @@ fn viewport_and_delivery_readers_choose_subsets_without_source_unification() {
     ] {
         let text = format!("shape A\n  {}\nshape B\n  {}\ncomponent App\n  resource a = {source}() as shape A\n  resource b = {source}() as shape B\n  view\n    text \"facts\"\n", fields[0], fields[1]);
         let p = contract::compile(&text).unwrap();
-        assert!(p.sources.is_empty());
+        // Named once in the plan's source table (LLP 1030 D7), never unified.
+        assert_eq!(p.sources.len(), 1);
         contract::bake(p, NoData).unwrap();
     }
 }
