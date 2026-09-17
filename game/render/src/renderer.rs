@@ -113,7 +113,8 @@ impl Renderer {
 
     /// Advance history. `Some` copies the written high-water range before later
     /// writes, preserving untouched slots. `All` only swaps roles: the caller must
-    /// rewrite every live slot before drawing (including sparse holes it lists).
+    /// make every live slot current before drawing (including sparse holes it lists).
+    /// Feed retains page hashes and reuses target pages whose bytes already match.
     pub fn begin_tick(&mut self, rewrite: Rewrite) {
         let previous = self.current;
         self.current = 1 - self.current;
@@ -145,6 +146,26 @@ impl Renderer {
         self.check_capacity("transforms", end)?;
         self.ensure_slots(end);
         self.transforms[self.current].write(&self.queue, u64::from(first_slot) * 40, bytes(values));
+        Ok(())
+    }
+
+    // Feed has already patched current via its coalesced run. Snap only history.
+    pub(crate) fn write_previous_transforms(
+        &mut self,
+        first_slot: u32,
+        values: &[f32],
+    ) -> Result<(), RenderError> {
+        let end = record_end(first_slot, values.len(), 10);
+        if values.is_empty() {
+            return Ok(());
+        }
+        self.check_capacity("transforms", end)?;
+        self.ensure_slots(end);
+        self.transforms[1 - self.current].write(
+            &self.queue,
+            u64::from(first_slot) * 40,
+            bytes(values),
+        );
         Ok(())
     }
 

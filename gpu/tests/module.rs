@@ -158,25 +158,43 @@ mod seams {
     use std::cell::RefCell;
     thread_local! { static FRAMES: RefCell<Vec<Frame>> = const { RefCell::new(Vec::new()) }; }
     thread_local! { static BINDS: RefCell<Vec<Option<f64>>> = const { RefCell::new(Vec::new()) }; }
-    struct Probe(Vec<String>);
+    struct Unload;
+    impl Drop for Unload {
+        fn drop(&mut self) {
+            exact_gpu::native::unload();
+        }
+    }
+    struct Probe(Vec<String>, Option<SurfaceError>);
     impl Surface for Probe {
         fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
             Ok(())
         }
         fn bind_at(&mut self, inputs: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
             BINDS.with(|b| b.borrow_mut().push(at_ms));
+            if at_ms == Some(999.) {
+                self.1 = Some(SurfaceError("advance capacity".into()));
+            }
             self.bind(inputs)
+        }
+        fn take_error(&mut self) -> Option<SurfaceError> {
+            self.1.take()
         }
         fn wants_input(&self) -> bool {
             true
         }
         fn input(&mut self, event: &InputEvent) {
             self.0.push(format!("{event:?}"));
+            if matches!(event, InputEvent::Blur { at_ms: -13. }) {
+                self.1 = Some(SurfaceError("input capacity".into()));
+            }
         }
         fn messages(&mut self) -> Vec<String> {
             std::mem::take(&mut self.0)
         }
         fn agent(&mut self, request: &str) -> Option<String> {
+            if request == "fail" {
+                self.1 = Some(SurfaceError("agent capacity".into()));
+            }
             if request == "null" {
                 return None;
             }
@@ -192,12 +210,15 @@ mod seams {
             _: wgpu::TextureFormat,
         ) -> bool {
             FRAMES.with(|f| f.borrow_mut().push(*frame));
+            if frame.now_ms == -13. {
+                self.1 = Some(SurfaceError("render capacity".into()));
+            }
             self.0.push("render".into());
             false
         }
     }
     static REGISTRY: Registry = Registry {
-        surfaces: &[("probe", 0, || Box::new(Probe(Vec::new())))],
+        surfaces: &[("probe", 0, || Box::new(Probe(Vec::new(), None)))],
         shaders: &[],
     };
     exact_gpu::module!(REGISTRY);
@@ -215,6 +236,7 @@ mod seams {
             objc2::msg_send![objc2::runtime::AnyClass::get(c"CAMetalLayer").unwrap(), new]
         };
         let name = b"probe";
+        let _cleanup = Unload;
         let id = unsafe {
             gpu_create(
                 name.as_ptr(),
@@ -274,6 +296,50 @@ mod seams {
         assert!(exact_gpu::native::error().contains("gpu_input"));
         assert_eq!(unsafe { gpu_input(id, [255].as_ptr(), 1) }, 1);
         assert!(exact_gpu::native::error().contains("UTF-8"));
+        gpu_destroy(id);
+        exact_gpu::native::unload();
+    }
+    #[test]
+    fn surface_failures_reach_the_real_abi_and_committed_binds_stay_accepted() {
+        if gpu_load() != 0 {
+            eprintln!("SKIP error ABI fixture: {}", exact_gpu::native::error());
+            return;
+        }
+        // SAFETY: retained layer outlives the canvas.
+        let layer: objc2::rc::Retained<objc2::runtime::AnyObject> = unsafe {
+            objc2::msg_send![objc2::runtime::AnyClass::get(c"CAMetalLayer").unwrap(), new]
+        };
+        let _cleanup = Unload;
+        let id = unsafe {
+            gpu_create(
+                b"probe".as_ptr(),
+                5,
+                (&*layer as *const objc2::runtime::AnyObject)
+                    .cast_mut()
+                    .cast(),
+                4,
+                4,
+            )
+        };
+        assert_ne!(id, 0);
+        assert_eq!(unsafe { gpu_bind_at(id, b"[]".as_ptr(), 2, 999.) }, 0);
+        assert_eq!(gpu_render(id, 4., 4., 1., 0.), 2);
+        assert_eq!(exact_gpu::native::error(), "advance capacity");
+        assert_eq!(exact_gpu::native::error(), "");
+        assert_eq!(gpu_dirty(id), 1);
+        assert_eq!(gpu_render(id, 4., 4., 1., -13.), 2);
+        assert_eq!(exact_gpu::native::error(), "render capacity");
+        let mut pixels = [0; 64];
+        assert_eq!(
+            exact_gpu::native::readback(id, 4., 4., 1., -13., &mut pixels),
+            1
+        );
+        assert_eq!(exact_gpu::native::error(), "render capacity");
+        assert!(!exact_gpu::native::input(id, r#"{"t":"blur","at":-13}"#));
+        assert_eq!(exact_gpu::native::error(), "input capacity");
+        assert_eq!(exact_gpu::native::agent(id, "fail"), "");
+        assert_eq!(exact_gpu::native::error(), "agent capacity");
+        assert_eq!(gpu_render(id, 4., 4., 1., 0.), 0);
         gpu_destroy(id);
         exact_gpu::native::unload();
     }

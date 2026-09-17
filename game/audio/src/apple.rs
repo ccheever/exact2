@@ -1,6 +1,7 @@
 //! The crate's only unsafe boundary: SPSC ownership, sample reads, AudioToolbox ABI.
 use std::{
     cell::{Cell, UnsafeCell},
+    collections::{BTreeMap, VecDeque},
     marker::PhantomData,
     mem::MaybeUninit,
     sync::{
@@ -73,8 +74,8 @@ struct Samples {
     ptr: *const f32,
     len: usize,
 }
-// SAFETY: Samples only points to immutable Arc PCM retained by AppleOutput until
-// the AudioUnit is stopped and disposed; neither callback nor commands frees it.
+// SAFETY: Samples points to immutable PCM retained until a callback stop
+// acknowledgement (or device disposal). Neither callback nor commands frees it.
 unsafe impl Send for Samples {}
 #[derive(Clone, Copy)]
 enum Command {
@@ -84,6 +85,7 @@ enum Command {
         rate: u32,
         looping: bool,
         offset: usize,
+        pitch: f32,
     },
     Set {
         id: u64,
@@ -91,6 +93,120 @@ enum Command {
         right: f32,
     },
     Stop(u64),
+}
+#[derive(Clone, Copy)]
+struct Packet {
+    sequence: u64,
+    command: Command,
+}
+/// Main-thread ownership and retry queue. The realtime side only returns a
+/// processed sequence watermark; it never touches an Arc or allocates.
+struct Pending {
+    commands: Producer<Packet>,
+    acknowledgements: Consumer<u64>,
+    controls: VecDeque<Packet>,
+    sets: BTreeMap<u64, (f32, f32)>,
+    retained: BTreeMap<usize, (Arc<[f32]>, u64)>,
+    live: BTreeMap<u64, usize>,
+    sequence: u64,
+    acknowledged: u64,
+}
+impl Pending {
+    fn new() -> (Self, Mixer) {
+        let (commands, consumer) = channel();
+        let (acknowledgements, returns) = channel();
+        (
+            Self {
+                commands,
+                acknowledgements: returns,
+                controls: VecDeque::new(),
+                sets: BTreeMap::new(),
+                retained: BTreeMap::new(),
+                live: BTreeMap::new(),
+                sequence: 0,
+                acknowledged: 0,
+            },
+            Mixer {
+                commands: consumer,
+                acknowledgements,
+                pending_ack: None,
+                voices: [None; 32],
+                rate: 48000.0,
+            },
+        )
+    }
+    fn control(&mut self, command: Command) -> u64 {
+        self.sequence += 1;
+        self.controls.push_back(Packet {
+            sequence: self.sequence,
+            command,
+        });
+        self.sequence
+    }
+    fn start(
+        &mut self,
+        id: u64,
+        pcm: &Arc<[f32]>,
+        rate: u32,
+        looping: bool,
+        offset: usize,
+        pitch: f32,
+    ) {
+        if self.live.contains_key(&id) {
+            self.stop(id);
+        }
+        let sequence = self.control(Command::Start {
+            id,
+            pcm: Samples {
+                ptr: pcm.as_ptr(),
+                len: pcm.len(),
+            },
+            rate,
+            looping,
+            offset,
+            pitch,
+        });
+        self.retained
+            .insert(pcm.as_ptr() as usize, (pcm.clone(), sequence));
+        self.live.insert(id, pcm.as_ptr() as usize);
+    }
+    fn stop(&mut self, id: u64) {
+        self.sets.remove(&id);
+        let sequence = self.control(Command::Stop(id));
+        if let Some(ptr) = self.live.remove(&id) {
+            self.retained.get_mut(&ptr).unwrap().1 = sequence;
+        }
+    }
+    fn set(&mut self, id: u64, left: f32, right: f32) {
+        if self.live.contains_key(&id) {
+            self.sets.insert(id, (left, right));
+        }
+    }
+    fn flush(&mut self) {
+        while let Some(ack) = self.acknowledgements.pop() {
+            self.acknowledged = ack;
+        }
+        self.retained.retain(|ptr, (_, last)| {
+            *last > self.acknowledged || self.live.values().any(|p| p == ptr)
+        });
+        while let Some(packet) = self.controls.front() {
+            if self.commands.push(*packet).is_err() {
+                return;
+            }
+            self.controls.pop_front();
+        }
+        while let Some((&id, &(left, right))) = self.sets.first_key_value() {
+            let packet = Packet {
+                sequence: self.sequence + 1,
+                command: Command::Set { id, left, right },
+            };
+            if self.commands.push(packet).is_err() {
+                return;
+            }
+            self.sequence += 1;
+            self.sets.remove(&id);
+        }
+    }
 }
 #[derive(Clone, Copy)]
 struct Voice {
@@ -101,9 +217,14 @@ struct Voice {
     looping: bool,
     left: f32,
     right: f32,
+    target_left: f32,
+    target_right: f32,
+    ramp: u32,
 }
 struct Mixer {
-    commands: Consumer<Command>,
+    commands: Consumer<Packet>,
+    acknowledgements: Producer<u64>,
+    pending_ack: Option<u64>,
     voices: [Option<Voice>; 32],
     rate: f64,
 }
@@ -114,41 +235,38 @@ impl Mixer {
             let Some(cmd) = self.commands.pop() else {
                 break;
             };
-            match cmd {
+            self.pending_ack = Some(cmd.sequence);
+            match cmd.command {
                 Command::Start {
                     id,
                     pcm,
                     rate,
                     looping,
                     offset,
+                    pitch,
                 } => {
-                    let slot = self
-                        .voices
-                        .iter()
-                        .position(|v| v.is_some_and(|v| v.id == id))
-                        .or_else(|| self.voices.iter().position(Option::is_none))
-                        .unwrap_or_else(|| {
-                            self.voices
-                                .iter()
-                                .enumerate()
-                                .min_by_key(|(_, v)| v.unwrap().id)
-                                .unwrap()
-                                .0
-                        });
+                    // Player stops losers before starting winners. There is no stealing.
+                    let Some(slot) = self.voices.iter().position(Option::is_none) else {
+                        continue;
+                    };
                     self.voices[slot] = Some(Voice {
                         id,
                         pcm,
                         position: offset as f64,
-                        step: rate as f64 / self.rate,
+                        step: rate as f64 * pitch as f64 / self.rate,
                         looping,
                         left: 0.0,
                         right: 0.0,
+                        target_left: 0.0,
+                        target_right: 0.0,
+                        ramp: 0,
                     });
                 }
                 Command::Set { id, left, right } => {
                     for v in self.voices.iter_mut().flatten().filter(|v| v.id == id) {
-                        v.left = left;
-                        v.right = right;
+                        v.target_left = crate::audio::gain(left);
+                        v.target_right = crate::audio::gain(right);
+                        v.ramp = (self.rate * 0.01).max(1.0) as u32;
                     }
                 }
                 Command::Stop(id) => {
@@ -158,6 +276,11 @@ impl Mixer {
                         }
                     }
                 }
+            }
+        }
+        if let Some(ack) = self.pending_ack {
+            if self.acknowledgements.push(ack).is_ok() {
+                self.pending_ack = None;
             }
         }
     }
@@ -186,15 +309,30 @@ impl Mixer {
                 i
             };
             // SAFETY: both indices are below len, and AppleOutput retains the
-            // immutable allocation until this callback has been stopped/disposed.
+            // immutable allocation until its stop command has been acknowledged.
             let (a, b) = unsafe { (*v.pcm.ptr.add(i), *v.pcm.ptr.add(j)) };
+            let a = if a.is_finite() { a } else { 0.0 };
+            let b = if b.is_finite() { b } else { 0.0 };
             let sample = a + (b - a) * (v.position - i as f64) as f32;
+            let sample = if sample.is_finite() { sample } else { 0.0 };
+            if v.ramp > 0 {
+                v.left += (v.target_left - v.left) / v.ramp as f32;
+                v.right += (v.target_right - v.right) / v.ramp as f32;
+                v.ramp -= 1;
+            }
             left += sample * v.left;
             right += sample * v.right;
             v.position += v.step;
         }
-        // Bounded, odd soft clip; finite inputs cannot overload the device.
-        (left / (1.0 + left.abs()), right / (1.0 + right.abs()))
+        // Linear below full scale, with a final non-finite firewall.
+        let limit = |x: f32| {
+            if x.is_finite() {
+                x.clamp(-1.0, 1.0)
+            } else {
+                0.0
+            }
+        };
+        (limit(left), limit(right))
     }
 }
 
@@ -202,7 +340,7 @@ impl Mixer {
 mod device {
     use super::*;
     use crate::Output;
-    use std::{collections::BTreeMap, ffi::c_void, ptr};
+    use std::{ffi::c_void, ptr};
     type Unit = *mut c_void;
     #[repr(C)]
     struct Description {
@@ -313,21 +451,17 @@ mod device {
     pub struct AppleOutput {
         unit: Unit,
         mixer: Box<Mixer>,
-        commands: Producer<Command>,
-        retained: BTreeMap<usize, Arc<[f32]>>,
+        pending: Pending,
+        suspended: bool,
     }
     impl AppleOutput {
         pub fn new() -> Result<Self, String> {
-            let (commands, consumer) = channel();
+            let (pending, mixer) = Pending::new();
             let mut output = Self {
                 unit: ptr::null_mut(),
-                mixer: Box::new(Mixer {
-                    commands: consumer,
-                    voices: [None; 32],
-                    rate: 48000.0,
-                }),
-                commands,
-                retained: BTreeMap::new(),
+                mixer: Box::new(mixer),
+                pending,
+                suspended: false,
             };
             #[cfg(target_os = "macos")]
             let subtype = u32::from_be_bytes(*b"def ");
@@ -398,38 +532,57 @@ mod device {
             }
             Ok(output)
         }
-        fn send(&mut self, command: Command) {
-            // Never block the main thread or the realtime callback. Explicit bound.
-            assert!(
-                self.commands.push(command).is_ok(),
-                "AudioUnit command ring full (1024 commands between callbacks)"
-            );
+        /// Host interruption hook. The frame owner also marks transport paused.
+        pub fn suspend(&mut self) -> Result<(), String> {
+            // SAFETY: this is the owned initialized AudioUnit.
+            unsafe {
+                check(AudioOutputUnitStop(self.unit))?;
+            }
+            self.suspended = true;
+            let ids: Vec<_> = self.pending.live.keys().copied().collect();
+            for id in ids {
+                self.pending.stop(id);
+            }
+            self.pending.flush();
+            Ok(())
+        }
+        /// Host interruption-ended hook. Increment transport generation before sync.
+        pub fn resume(&mut self) -> Result<(), String> {
+            self.pending.flush();
+            // SAFETY: this is the owned initialized AudioUnit.
+            unsafe {
+                check(AudioOutputUnitStart(self.unit))?;
+            }
+            self.suspended = false;
+            Ok(())
         }
     }
     impl Output for AppleOutput {
-        fn start(&mut self, id: u64, pcm: &Arc<[f32]>, rate: u32, looping: bool) {
-            self.start_at(id, pcm, rate, looping, 0);
+        fn capacity(&self) -> usize {
+            32
         }
-        fn start_at(&mut self, id: u64, pcm: &Arc<[f32]>, rate: u32, looping: bool, offset: usize) {
-            self.retained
-                .entry(pcm.as_ptr() as usize)
-                .or_insert_with(|| pcm.clone());
-            self.send(Command::Start {
-                id,
-                pcm: Samples {
-                    ptr: pcm.as_ptr(),
-                    len: pcm.len(),
-                },
-                rate,
-                looping,
-                offset,
-            });
+        fn ready(&self) -> bool {
+            !self.suspended
+        }
+        fn flush(&mut self) {
+            self.pending.flush();
+        }
+        fn start_at(
+            &mut self,
+            id: u64,
+            pcm: &Arc<[f32]>,
+            rate: u32,
+            looping: bool,
+            offset: usize,
+            pitch: f32,
+        ) {
+            self.pending.start(id, pcm, rate, looping, offset, pitch);
         }
         fn set(&mut self, id: u64, left: f32, right: f32) {
-            self.send(Command::Set { id, left, right });
+            self.pending.set(id, left, right);
         }
         fn stop(&mut self, id: u64) {
-            self.send(Command::Stop(id));
+            self.pending.stop(id);
         }
     }
     impl Drop for AppleOutput {
@@ -474,53 +627,8 @@ mod tests {
         producer.join().unwrap();
         assert!(rx.pop().is_none());
     }
-    #[test]
-    fn mixer_resamples_loops_clips_and_stops_without_device() {
-        let (mut tx, rx) = channel();
-        let pcm = [0.0, 1.0, 0.0, -1.0];
-        let samples = Samples {
-            ptr: pcm.as_ptr(),
-            len: pcm.len(),
-        };
-        assert!(tx
-            .push(Command::Start {
-                id: 7,
-                pcm: samples,
-                rate: 2,
-                looping: true,
-                offset: 1
-            })
-            .is_ok());
-        assert!(tx
-            .push(Command::Set {
-                id: 7,
-                left: 1.0,
-                right: 0.0
-            })
-            .is_ok());
-        let mut mixer = Mixer {
-            commands: rx,
-            voices: [None; 32],
-            rate: 4.0,
-        };
-        mixer.commands();
-        for expected in [
-            0.5,
-            1.0 / 3.0,
-            0.0,
-            -1.0 / 3.0,
-            -0.5,
-            -1.0 / 3.0,
-            0.0,
-            1.0 / 3.0,
-            0.5,
-        ] {
-            let (l, r) = mixer.frame();
-            assert!((l - expected).abs() < 1e-6);
-            assert_eq!(r, 0.0);
-        }
-        assert!(tx.push(Command::Stop(7)).is_ok());
-        mixer.commands();
-        assert_eq!(mixer.frame(), (0.0, 0.0));
-    }
 }
+
+#[cfg(test)]
+#[path = "apple_tests.rs"]
+mod regression_tests;

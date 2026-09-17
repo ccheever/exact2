@@ -1,4 +1,4 @@
-use crate::Output;
+use crate::{Output, Transport};
 use std::{collections::BTreeMap, sync::Arc};
 use wasm_bindgen::JsValue;
 use web_sys::{AudioBuffer, AudioBufferSourceNode, AudioContext, GainNode, StereoPannerNode};
@@ -8,10 +8,12 @@ struct Voice {
     source: AudioBufferSourceNode,
     gain: GainNode,
     pan: StereoPannerNode,
+    buffer: (usize, u32),
 }
 /// One suspended context. Construct only for a human-owned surface, never an agent.
 pub struct WebOutput {
     context: AudioContext,
+    unlocked: bool,
     // Retain PCM ownership: allocator address reuse cannot alias a cached buffer.
     buffers: BTreeMap<(usize, u32), CachedBuffer>,
     voices: BTreeMap<u64, Voice>,
@@ -22,13 +24,16 @@ impl WebOutput {
         let _ = context.suspend()?;
         Ok(Self {
             context,
+            unlocked: false,
             buffers: BTreeMap::new(),
             voices: BTreeMap::new(),
         })
     }
     /// Invoke directly from the first trusted input event.
-    pub fn unlock(&self) -> Result<(), JsValue> {
-        let _ = self.context.resume()?;
+    pub async fn unlock(&mut self, transport: &mut Transport) -> Result<(), JsValue> {
+        wasm_bindgen_futures::JsFuture::from(self.context.resume()?).await?;
+        self.unlocked = true;
+        transport.generation = transport.generation.wrapping_add(1);
         Ok(())
     }
     fn begin(
@@ -38,7 +43,11 @@ impl WebOutput {
         rate: u32,
         looping: bool,
         offset: usize,
+        pitch: f32,
     ) -> Result<(), JsValue> {
+        if !self.ready() {
+            return Ok(());
+        }
         self.stop(id);
         let key = (pcm.as_ptr() as usize, rate);
         if !self.buffers.contains_key(&key) {
@@ -51,6 +60,7 @@ impl WebOutput {
         let source = self.context.create_buffer_source()?;
         source.set_buffer(Some(&self.buffers[&key].1));
         source.set_loop(looping);
+        source.playback_rate().set_value(pitch);
         let gain = self.context.create_gain()?;
         gain.gain().set_value(0.0);
         let pan = self.context.create_stereo_panner()?;
@@ -58,16 +68,38 @@ impl WebOutput {
         gain.connect_with_audio_node(&pan)?;
         pan.connect_with_audio_node(&self.context.destination())?;
         source.start_with_when_and_grain_offset(0.0, offset as f64 / rate as f64)?;
-        self.voices.insert(id, Voice { source, gain, pan });
+        self.voices.insert(
+            id,
+            Voice {
+                source,
+                gain,
+                pan,
+                buffer: key,
+            },
+        );
         Ok(())
     }
 }
 impl Output for WebOutput {
-    fn start(&mut self, id: u64, pcm: &Arc<[f32]>, rate: u32, looping: bool) {
-        self.start_at(id, pcm, rate, looping, 0);
+    fn ready(&self) -> bool {
+        self.unlocked && self.context.state() == web_sys::AudioContextState::Running
     }
-    fn start_at(&mut self, id: u64, pcm: &Arc<[f32]>, rate: u32, looping: bool, offset: usize) {
-        self.begin(id, pcm, rate, looping, offset)
+    fn retain_pcm(&mut self, pcm: &[Arc<[f32]>]) {
+        self.buffers.retain(|key, _| {
+            pcm.iter().any(|p| p.as_ptr() as usize == key.0)
+                || self.voices.values().any(|v| v.buffer == *key)
+        });
+    }
+    fn start_at(
+        &mut self,
+        id: u64,
+        pcm: &Arc<[f32]>,
+        rate: u32,
+        looping: bool,
+        offset: usize,
+        pitch: f32,
+    ) {
+        self.begin(id, pcm, rate, looping, offset, pitch)
             .expect("WebAudio start failed");
     }
     fn set(&mut self, id: u64, left: f32, right: f32) {
@@ -78,8 +110,12 @@ impl Output for WebOutput {
             } else {
                 0.0
             };
-            v.gain.gain().set_value(amplitude);
-            v.pan.pan().set_value(pan.clamp(-1.0, 1.0));
+            let now = self.context.current_time();
+            let _ = v.gain.gain().set_target_at_time(amplitude, now, 0.01);
+            let _ = v
+                .pan
+                .pan()
+                .set_target_at_time(pan.clamp(-1.0, 1.0), now, 0.01);
         }
     }
     fn stop(&mut self, id: u64) {

@@ -18,26 +18,45 @@ mod web;
 #[cfg(target_arch = "wasm32")]
 pub use web::WebOutput;
 
-/// One device or a call recorder. PCM is mono; set applies stereo gains.
+/// Playback state supplied by the frame owner. Increment generation on seek,
+/// restore, rebuild, and successful output unlock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Transport {
+    pub generation: u64,
+    pub playing: bool,
+}
+impl Default for Transport {
+    fn default() -> Self {
+        Self {
+            generation: 0,
+            playing: true,
+        }
+    }
+}
+/// One device or a test recorder. PCM is mono; set applies stereo gains.
 pub trait Output {
-    fn start(&mut self, id: u64, pcm: &Arc<[f32]>, rate: u32, looping: bool);
+    fn capacity(&self) -> usize {
+        usize::MAX
+    }
+    fn ready(&self) -> bool {
+        true
+    }
+    fn flush(&mut self) {}
+    fn retain_pcm(&mut self, _pcm: &[Arc<[f32]>]) {}
+    fn start(&mut self, id: u64, pcm: &Arc<[f32]>, rate: u32, looping: bool) {
+        self.start_at(id, pcm, rate, looping, 0, 1.0);
+    }
+    fn start_at(
+        &mut self,
+        id: u64,
+        pcm: &Arc<[f32]>,
+        rate: u32,
+        looping: bool,
+        offset: usize,
+        pitch: f32,
+    );
     fn set(&mut self, id: u64, gain_l: f32, gain_r: f32);
     fn stop(&mut self, id: u64);
-    /// Sample-accurate restore. Devices override this to retain their PCM cache.
-    fn start_at(&mut self, id: u64, pcm: &Arc<[f32]>, rate: u32, looping: bool, offset: usize) {
-        let samples: Arc<[f32]> = if looping && !pcm.is_empty() {
-            let offset = offset % pcm.len();
-            pcm[offset..]
-                .iter()
-                .chain(&pcm[..offset])
-                .copied()
-                .collect::<Vec<_>>()
-                .into()
-        } else {
-            pcm[offset.min(pcm.len())..].into()
-        };
-        self.start(id, &samples, rate, looping);
-    }
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Call {
@@ -47,6 +66,7 @@ pub enum Call {
         rate: u32,
         looping: bool,
         offset: usize,
+        pitch: f32,
     },
     Set {
         id: u64,
@@ -57,22 +77,52 @@ pub enum Call {
         id: u64,
     },
 }
-/// The only output used by agent sessions and by default on Linux.
+/// Discarding output for agent sessions and headless Linux. No call history.
 #[derive(Default)]
-pub struct NullOutput {
-    pub calls: Vec<Call>,
-}
+pub struct NullOutput;
 impl Output for NullOutput {
-    fn start(&mut self, id: u64, pcm: &Arc<[f32]>, rate: u32, looping: bool) {
-        self.start_at(id, pcm, rate, looping, 0);
+    fn start_at(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) {}
+    fn set(&mut self, _: u64, _: f32, _: f32) {}
+    fn stop(&mut self, _: u64) {}
+}
+/// Explicit test recorder; never used by agent sessions.
+pub struct RecordingOutput {
+    pub calls: Vec<Call>,
+    pub capacity: usize,
+    pub ready: bool,
+}
+impl Default for RecordingOutput {
+    fn default() -> Self {
+        Self {
+            calls: Vec::new(),
+            capacity: usize::MAX,
+            ready: true,
+        }
     }
-    fn start_at(&mut self, id: u64, pcm: &Arc<[f32]>, rate: u32, looping: bool, offset: usize) {
+}
+impl Output for RecordingOutput {
+    fn capacity(&self) -> usize {
+        self.capacity
+    }
+    fn ready(&self) -> bool {
+        self.ready
+    }
+    fn start_at(
+        &mut self,
+        id: u64,
+        pcm: &Arc<[f32]>,
+        rate: u32,
+        looping: bool,
+        offset: usize,
+        pitch: f32,
+    ) {
         self.calls.push(Call::Start {
             id,
             samples: pcm.len(),
             rate,
             looping,
             offset,
+            pitch,
         });
     }
     fn set(&mut self, id: u64, left: f32, right: f32) {
@@ -128,10 +178,13 @@ struct Active {
 struct Wanted {
     key: Key,
     sound: String,
-    at: At,
-    gain: f32,
+    synth: audio::Synth,
+    gains: (f32, f32),
     began: u64,
     looping: bool,
+    pitch: f32,
+    offset: usize,
+    digest: u64,
 }
 /// PCM cache and identities belong to the executor, never to the world.
 pub struct Player<O: Output> {
@@ -140,7 +193,7 @@ pub struct Player<O: Output> {
     cache: BTreeMap<(String, u64), Arc<[f32]>>,
     active: BTreeMap<Key, Active>,
     next_id: u64,
-    last_tick: Option<u64>,
+    transport: Option<Transport>,
 }
 impl<O: Output> Player<O> {
     pub fn new(output: O, rate: u32) -> Self {
@@ -151,123 +204,165 @@ impl<O: Output> Player<O> {
             cache: BTreeMap::new(),
             active: BTreeMap::new(),
             next_id: 0,
-            last_tick: None,
+            transport: None,
         }
     }
     pub fn cached_sounds(&self) -> usize {
         self.cache.len()
     }
-    /// Stop all outputs; call on explicit seeks/restores when reusing a Player.
-    /// A fresh Player automatically starts each saved voice at its saved offset.
-    pub fn reset(&mut self) {
+    fn stop_all(&mut self) {
         for active in self.active.values() {
             self.output.stop(active.output_id);
         }
         self.active.clear();
-        self.last_tick = None;
     }
-    /// Execute one frame's state without mutating it. None means no spatial ears.
-    pub fn sync(&mut self, world: &World, listener: Option<Listener>) {
-        if self.last_tick.is_some_and(|tick| tick > world.tick()) {
-            self.reset();
+    /// Stable priority: loops first, then louder (max stereo gain), then newer
+    /// start boundary, then larger stable identity. Stops precede all starts.
+    pub fn sync(&mut self, world: &World, listener: Option<Listener>, transport: Transport) {
+        self.output.flush();
+        let effective = Transport {
+            playing: transport.playing && self.output.ready(),
+            ..transport
+        };
+        if self.transport != Some(effective) {
+            self.stop_all();
         }
-        self.last_tick = Some(world.tick());
+        self.transport = Some(effective);
+        let master = world
+            .try_resource::<audio::Audio>()
+            .map_or(1.0, |a| audio::gain(a.master));
+        let gains = |at: &At, position: Option<Vec3>, gain: f32| {
+            let gain = audio::gain(gain) * master;
+            let point = match at {
+                At::Ui => return (audio::gain(gain), audio::gain(gain)),
+                At::Point(p) => Some(*p),
+                At::Entity(e) => world.global(*e).map(|t| t.translation.into()).or(position),
+            };
+            let (l, r) = listener
+                .zip(point)
+                .map(|(l, p)| spatial_gains(l, p, gain))
+                .unwrap_or((0.0, 0.0));
+            (audio::gain(l), audio::gain(r))
+        };
         let mut wanted = Vec::new();
+        let mut keep = BTreeSet::new();
         if world.has_audio() {
-            for voice in &world.resource::<Voices>().voices {
-                if voice.began <= world.tick() && world.tick() < voice.ends {
-                    wanted.push(Wanted {
-                        key: Key::Voice(voice.id),
-                        sound: voice.sound.clone(),
-                        at: voice.at.clone(),
-                        gain: voice.gain,
-                        began: voice.began,
-                        looping: false,
-                    });
+            for (name, synth) in &world.resource::<Sounds>().0 {
+                keep.insert((name.clone(), hash::of(synth)));
+            }
+            if effective.playing {
+                for v in &world.resource::<Voices>().voices {
+                    if v.began <= world.tick() && world.tick() < v.ends {
+                        wanted.push(Wanted {
+                            key: Key::Voice(v.id),
+                            sound: v.sound.clone(),
+                            synth: v.synth.clone(),
+                            gains: gains(&v.at, v.position, v.gain),
+                            began: v.began,
+                            looping: false,
+                            pitch: if v.pitch.is_finite() {
+                                v.pitch.clamp(0.01, 16.0)
+                            } else {
+                                1.0
+                            },
+                            offset: 0,
+                            digest: 0,
+                        });
+                    }
+                }
+                for (e, source) in world.query::<&AudioSource>().iter() {
+                    if source.playing {
+                        if let Some(synth) = world.resource::<Sounds>().0.get(&source.sound) {
+                            wanted.push(Wanted {
+                                key: Key::Source(e),
+                                sound: source.sound.clone(),
+                                synth: synth.clone(),
+                                gains: gains(&At::Entity(e), None, source.gain),
+                                began: 0,
+                                looping: true,
+                                pitch: 1.0,
+                                offset: 0,
+                                digest: 0,
+                            });
+                        }
+                    }
                 }
             }
         }
-        for (e, source) in world.query::<&AudioSource>().iter() {
-            if source.playing {
-                wanted.push(Wanted {
-                    key: Key::Source(e),
-                    sound: source.sound.clone(),
-                    at: At::Entity(e),
-                    gain: source.gain,
-                    began: 0,
-                    looping: true,
-                });
-            }
-        }
-        let mut retained = BTreeSet::new();
-        for w in wanted {
-            assert!(world.has_audio(), "unknown sound `{}`", w.sound);
-            let sounds = world.resource::<Sounds>();
-            let synth = sounds
-                .0
-                .get(&w.sound)
-                .unwrap_or_else(|| panic!("unknown sound `{}`", w.sound));
-            let digest = hash::of(synth);
-            let cache_key = (w.sound.clone(), digest);
+        wanted.retain_mut(|w| {
+            w.digest = hash::of(&w.synth);
             let pcm = self
                 .cache
-                .entry(cache_key)
-                .or_insert_with(|| audio::render(synth, self.rate).into());
+                .entry((w.sound.clone(), w.digest))
+                .or_insert_with(|| audio::render(&w.synth, self.rate).into());
             if pcm.is_empty() {
-                continue;
+                return false;
             }
-            let elapsed = (world.tick() - w.began) as u128 * self.rate as u128 / world.hz() as u128;
-            let offset = if w.looping {
-                (elapsed % pcm.len() as u128) as usize
+            let elapsed = ((world.tick() - w.began) as f64 * self.rate as f64 * w.pitch as f64
+                / world.hz() as f64)
+                .floor();
+            w.offset = if w.looping {
+                (elapsed % pcm.len() as f64) as usize
             } else {
-                elapsed.min(usize::MAX as u128) as usize
+                elapsed as usize
             };
-            if offset >= pcm.len() {
-                continue;
-            }
-            let signature = hash::of(&(w.sound.clone(), digest, w.began));
-            if self
-                .active
-                .get(&w.key)
-                .is_some_and(|a| a.signature != signature)
-            {
-                self.output
-                    .stop(self.active.remove(&w.key).unwrap().output_id);
-            }
-            let active = self.active.entry(w.key.clone()).or_insert_with(|| {
-                let id = self.next_id;
-                self.next_id += 1;
-                self.output.start_at(id, pcm, self.rate, w.looping, offset);
-                Active {
-                    output_id: id,
-                    signature,
-                }
-            });
-            let gains = match w.at {
-                At::Ui => (w.gain, w.gain),
-                At::Point(point) => listener
-                    .map(|l| spatial_gains(l, point, w.gain))
-                    .unwrap_or((0.0, 0.0)),
-                At::Entity(e) => listener
-                    .zip(world.global(e))
-                    .map(|(l, t)| spatial_gains(l, t.translation.into(), w.gain))
-                    .unwrap_or((0.0, 0.0)),
-            };
-            self.output.set(active.output_id, gains.0, gains.1);
-            retained.insert(w.key);
-        }
-        self.active.retain(|key, active| {
-            if retained.contains(key) {
+            w.offset < pcm.len()
+        });
+        wanted.sort_by(|a, b| {
+            b.looping
+                .cmp(&a.looping)
+                .then_with(|| {
+                    b.gains
+                        .0
+                        .max(b.gains.1)
+                        .total_cmp(&a.gains.0.max(a.gains.1))
+                })
+                .then_with(|| b.began.cmp(&a.began))
+                .then_with(|| b.key.cmp(&a.key))
+        });
+        wanted.truncate(self.output.capacity());
+        let signatures: BTreeMap<_, _> = wanted
+            .iter()
+            .map(|w| {
+                (
+                    w.key.clone(),
+                    hash::of(&(w.sound.clone(), w.digest, w.began)),
+                )
+            })
+            .collect();
+        self.active.retain(|key, a| {
+            if signatures.get(key) == Some(&a.signature) {
                 true
             } else {
-                self.output.stop(active.output_id);
+                self.output.stop(a.output_id);
                 false
             }
         });
+        for w in wanted {
+            let cache_key = (w.sound, w.digest);
+            let pcm = &self.cache[&cache_key];
+            keep.insert(cache_key);
+            let active = self.active.entry(w.key.clone()).or_insert_with(|| {
+                let id = self.next_id;
+                self.next_id += 1;
+                self.output
+                    .start_at(id, pcm, self.rate, w.looping, w.offset, w.pitch);
+                Active {
+                    output_id: id,
+                    signature: signatures[&w.key],
+                }
+            });
+            self.output.set(active.output_id, w.gains.0, w.gains.1);
+        }
+        self.cache.retain(|key, _| keep.contains(key));
+        self.output
+            .retain_pcm(&self.cache.values().cloned().collect::<Vec<_>>());
+        self.output.flush();
     }
 }
 impl<O: Output> Drop for Player<O> {
     fn drop(&mut self) {
-        self.reset();
+        self.stop_all();
+        self.output.flush();
     }
 }

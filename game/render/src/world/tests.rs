@@ -8,6 +8,7 @@ enum Call {
     Begin(Rewrite),
     Transform(u32, usize, bool),
     Material(u32, usize),
+    Previous(u32, usize),
     Batches,
 }
 struct Recording {
@@ -76,6 +77,16 @@ impl Writes for Recording {
             }
             self.previous[start..end].copy_from_slice(values);
         }
+        Ok(())
+    }
+    fn previous(&mut self, first: u32, values: &[f32]) -> Result<(), RenderError> {
+        self.call(Call::Previous(first, values.len()));
+        let start = first as usize * 10;
+        let end = start + values.len();
+        if self.previous.len() < end {
+            self.previous.resize(end, 0.);
+        }
+        self.previous[start..end].copy_from_slice(values);
         Ok(())
     }
     fn materials(&mut self, first: u32, values: &[f32]) -> Result<(), RenderError> {
@@ -170,7 +181,13 @@ fn moved_then_two_still_ticks_stop_all_history_work() {
     assert!(!r.calls.contains(&Call::Batches));
     r.calls.clear();
     sim.advance_with(34., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
-    assert_eq!(r.calls, [Call::Begin(Rewrite::Some)]);
+    assert_eq!(
+        r.calls,
+        [
+            Call::Begin(Rewrite::All),
+            Call::Transform(0, PAGE * 10, false)
+        ]
+    );
     assert_eq!(r.previous, r.current);
     r.calls.clear();
     sim.advance_with(51., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
@@ -198,7 +215,7 @@ fn propagated_chain_overlays_page_and_fresh_teleport_writes_both() {
     r.calls.clear();
     w.teleport(b, Transform::at(10., 0., 0.));
     f.feed_to(&w, &mut r).unwrap();
-    assert!(r.calls.contains(&Call::Transform(b.index(), 10, true)));
+    assert!(r.calls.contains(&Call::Previous(b.index(), 10)));
     assert_eq!(r.position(b, true), r.position(b, false));
     let e = w.spawn((Transform::at(50., 0., 0.), Mesh::Cube));
     f.feed_to(&w, &mut r).unwrap();
@@ -290,7 +307,7 @@ fn capacity_refuses_before_history_and_allows_partial_last_page() {
     assert!(r.calls.is_empty());
     r.limit += 1;
     f.feed_to(&w, &mut r).unwrap();
-    assert!(r.calls.contains(&Call::Transform(PAGE as u32, 10, true)));
+    assert!(r.calls.contains(&Call::Transform(0, (PAGE + 1) * 10, true)));
 }
 #[test]
 fn primitive_dimensions_and_bit_keys_match_agent_geometry() {
@@ -474,4 +491,284 @@ fn first_transform_on_an_older_entity_initializes_history_and_reset_reuses_meshe
     f.reset();
     f.feed_to(sim.world(), &mut r).unwrap();
     assert_eq!(r.meshes.len(), 1);
+}
+
+#[test]
+fn ancestor_teleports_and_parent_edits_snap_mesh_camera_and_lights() {
+    struct Empty;
+    impl Game for Empty {
+        const ID: &'static str = "parent-snap";
+        fn setup(_: &mut World, _: &Args) -> Result<(), String> {
+            Ok(())
+        }
+        fn tick(_: &mut World, _: &Input) {}
+    }
+    let mut sim = Sim::<Empty>::new(&[]).unwrap();
+    let w = sim.world_mut();
+    let root = w.spawn(Transform::default());
+    let middle = w.spawn((Transform::at(1., 0., 0.), Parent(root)));
+    let mesh = w.spawn((Transform::at(1., 0., 0.), Parent(middle), Mesh::Cube));
+    let camera = w.spawn((Transform::at(0., 0., 8.), Parent(middle), Camera::default()));
+    let light = w.spawn((Transform::default(), Parent(middle), PointLight::default()));
+    w.propagate();
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(w, &mut r).unwrap();
+    sim.advance(0., Clock::Seekable);
+    sim.advance_with(17., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
+    sim.world_mut().teleport(root, Transform::at(20., 0., 0.));
+    f.feed_to(sim.world(), &mut r).unwrap();
+    assert_eq!(r.position(mesh, true).x, 22.);
+    assert_eq!(r.position(mesh, false).x, 22.);
+    let frame = f.frame(sim.world(), 0.5, 1.);
+    assert_eq!(frame.camera_position.x, 21.);
+    assert_eq!(frame.points[0].position.x, 21.);
+    // Clear freshness, then remove/reinsert Parent with no fresh entity involved.
+    sim.advance_with(34., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
+    sim.world_mut().remove::<Parent>(middle);
+    sim.world_mut().propagate();
+    f.feed_to(sim.world(), &mut r).unwrap();
+    assert_eq!(r.position(middle, true).x, 1.);
+    assert_eq!(r.position(mesh, true).x, 2.);
+    assert_eq!(f.frame(sim.world(), 0.5, 1.).camera_position.x, 1.);
+    sim.world_mut().insert(middle, Parent(root));
+    sim.world_mut().propagate();
+    f.feed_to(sim.world(), &mut r).unwrap();
+    assert_eq!(r.position(mesh, true).x, 22.);
+    assert_eq!(r.position(camera, true).x, 21.);
+    assert_eq!(r.position(light, true).x, 21.);
+}
+
+#[test]
+fn load_invalidates_equal_revisions_and_does_not_change_save_or_hash() {
+    let mut w = World::new(60, 0);
+    let e = w.spawn((Transform::at(1., 0., 0.), Mesh::Cube, Camera::default()));
+    let a = w.save();
+    w.get_mut::<Transform>(e).unwrap().position.x = 8.;
+    let b = w.save();
+    w.load(&a).unwrap();
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(&w, &mut r).unwrap();
+    let revision = w.revision::<Transform>();
+    let generation = w.presentation_generation();
+    w.load(&b).unwrap();
+    assert_eq!(w.revision::<Transform>(), revision);
+    assert!(w.presentation_generation() > generation);
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.position(e, true).x, 8.);
+    assert_eq!(r.position(e, false).x, 8.);
+    assert_eq!(f.frame(&w, 0.5, 1.).camera_position.x, 8.);
+    let hash = w.hash();
+    w.load(&b).unwrap();
+    assert_eq!(w.hash(), hash);
+    assert_eq!(w.save(), b);
+}
+
+#[test]
+fn sun_skips_transformless_light_and_slerps_each_tick() {
+    let mut sim = Sim::<Stop>::new(&[]).unwrap();
+    sim.world_mut().spawn(DirectionalLight::default());
+    let sun = sim
+        .world_mut()
+        .spawn((Transform::default(), DirectionalLight::default()));
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(sim.world(), &mut r).unwrap();
+    assert!(f.frame(sim.world(), 0., 1.).sun.is_some());
+    sim.advance(0., Clock::Seekable);
+    sim.advance_with(17., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
+    sim.world().get_mut::<Transform>(sun).unwrap().rotation = Quat::from_rotation_y(1.);
+    f.feed_to(sim.world(), &mut r).unwrap();
+    let direction = f.frame(sim.world(), 0.5, 1.).sun.unwrap().direction;
+    assert!(direction.distance(Quat::from_rotation_y(0.5) * -Vec3::Z) < 1e-5);
+}
+
+#[test]
+fn zero_quaternion_cpu_pose_is_finite_identity() {
+    let mut w = World::new(60, 0);
+    let e = w.spawn(Transform {
+        rotation: Quat::from_xyzw(0., 0., 0., 0.),
+        ..Default::default()
+    });
+    assert_eq!(scene::pose(&w, e).unwrap().rotation, Quat::IDENTITY);
+    // Degenerate decomposition must not normalize zero/non-finite into NaN either.
+    w.get_mut::<Transform>(e).unwrap().scale = Vec3::ZERO;
+    assert_eq!(scene::pose(&w, e).unwrap().rotation, Quat::IDENTITY);
+}
+
+#[test]
+fn light_membership_retains_near_ties_then_replaces_clearly_farther_light() {
+    let mut sim = Sim::<Stop>::new(&[]).unwrap();
+    let w = sim.world_mut();
+    let camera = w.spawn((Transform::default(), Camera::default()));
+    for _ in 0..15 {
+        w.spawn((Transform::at(0., 1., 0.), PointLight::default()));
+    }
+    let old = w.spawn((Transform::at(-10., 0., 0.), PointLight::default()));
+    let challenger = w.spawn((Transform::at(10.1, 0., 0.), PointLight::default()));
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(w, &mut r).unwrap();
+    sim.advance(0., Clock::Seekable);
+    sim.advance_with(17., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
+    let selected = |f: &Feed, e| f.scene.lights_for_test().contains(&e);
+    assert!(selected(&f, old));
+    for x in [0.2, 0., 0.2, 0.] {
+        sim.world().get_mut::<Transform>(camera).unwrap().position.x = x;
+        f.feed_to(sim.world(), &mut r).unwrap();
+        assert!(selected(&f, old));
+        assert!(!selected(&f, challenger));
+    }
+    sim.world().get_mut::<Transform>(camera).unwrap().position.x = 2.;
+    f.feed_to(sim.world(), &mut r).unwrap();
+    assert!(!selected(&f, old));
+    assert!(selected(&f, challenger));
+}
+
+#[test]
+fn greybox_writes_one_or_two_pages_while_moving_and_none_at_rest() {
+    let mut sim = Sim::<greybox_logic::Greybox>::new(&[
+        exact_game::Value::Number(7.),
+        exact_game::Value::Bool(false),
+    ])
+    .unwrap();
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(sim.world(), &mut r).unwrap();
+    sim.advance(0., Clock::Seekable);
+    sim.input(exact_game::InputEvent::Key {
+        code: "KeyW".into(),
+        down: true,
+        at_ms: 0.,
+    });
+    let writes = |r: &Recording| {
+        r.calls
+            .iter()
+            .filter(|c| matches!(c, Call::Transform(..) | Call::Material(..)))
+            .count()
+    };
+    for tick in 1..=96 {
+        r.calls.clear();
+        sim.advance_with(
+            tick as f64 * 1000. / 60. + 0.001,
+            Clock::Seekable,
+            |w, _| f.feed_to(w, &mut r).unwrap(),
+        );
+        assert_eq!(writes(&r), 1);
+        assert!(r.calls.contains(&Call::Transform(0, PAGE * 10, false)));
+    }
+    sim.input(exact_game::InputEvent::Key {
+        code: "KeyW".into(),
+        down: false,
+        at_ms: 1600.001,
+    });
+    sim.input(exact_game::InputEvent::Key {
+        code: "KeyE".into(),
+        down: true,
+        at_ms: 1600.001,
+    });
+    let mut glowing = 0;
+    for tick in 97..=360 {
+        r.calls.clear();
+        sim.advance_with(
+            tick as f64 * 1000. / 60. + 0.001,
+            Clock::Seekable,
+            |w, _| f.feed_to(w, &mut r).unwrap(),
+        );
+        assert!(writes(&r) <= 2);
+        glowing += usize::from(r.calls.iter().any(|c| matches!(c, Call::Material(..))));
+        if tick > 300 {
+            assert_eq!(writes(&r), 0);
+        }
+    }
+    assert!(glowing > 1, "the actual greybox beacon must have glowed");
+    eprintln!("greybox writes: moving=1 transform page/tick; glow <=2 pages/tick; settled=0");
+}
+
+#[test]
+fn dirty_pages_coalesce_overrides_and_dense_mode_reprobes() {
+    let mut sim = Sim::<Stop>::new(&[]).unwrap();
+    let w = sim.world_mut();
+    let root = w.spawn(Transform::default());
+    let mut entities = Vec::new();
+    for i in 2..PAGE * 40 {
+        entities.push(w.spawn((Transform::at(i as f32, 0., 0.), Material::default())));
+    }
+    let child = entities[PAGE];
+    w.insert(child, Parent(root));
+    w.propagate();
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(w, &mut r).unwrap();
+    assert_eq!(
+        r.calls
+            .iter()
+            .filter(|c| matches!(c, Call::Transform(..)))
+            .count(),
+        1
+    );
+    sim.advance(0., Clock::Seekable);
+    sim.advance_with(17., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
+    // Repeated writes of identical values still bump the column revision.
+    for tick in 2..100 {
+        sim.world().get_mut::<Transform>(root).unwrap().position.x = 1.;
+        sim.world_mut().propagate();
+        r.calls.clear();
+        sim.advance_with(
+            tick as f64 * 1000. / 60. + 0.001,
+            Clock::Seekable,
+            |w, _| f.feed_to(w, &mut r).unwrap(),
+        );
+        if tick > 40 {
+            assert!(!r.calls.iter().any(|c| matches!(c, Call::Transform(..))));
+        }
+        assert!(!r.calls.contains(&Call::Begin(Rewrite::Some)));
+    }
+    assert_eq!(r.position(child, true), r.position(child, false));
+}
+
+#[test]
+fn half_million_still_transforms_with_moving_camera_write_only_its_page() {
+    struct CameraOnly;
+    impl Game for CameraOnly {
+        const ID: &'static str = "large-still-writes";
+        fn setup(w: &mut World, _: &Args) -> Result<(), String> {
+            for _ in 0..500_000 {
+                w.spawn(Transform::default());
+            }
+            w.spawn((Transform::default(), Camera::default()));
+            Ok(())
+        }
+        fn tick(w: &mut World, _: &Input) {
+            for (_, (_, t)) in w.query::<(&Camera, &mut Transform)>().iter() {
+                t.position.x += 1.;
+            }
+        }
+    }
+    let mut sim = Sim::<CameraOnly>::new(&[]).unwrap();
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(sim.world(), &mut r).unwrap();
+    sim.advance(0., Clock::Seekable);
+    for tick in 1..=40 {
+        r.calls.clear();
+        sim.advance_with(
+            tick as f64 * 1000. / 60. + 0.001,
+            Clock::Seekable,
+            |w, _| f.feed_to(w, &mut r).unwrap(),
+        );
+        if tick >= 35 {
+            assert_eq!(
+                r.calls,
+                [
+                    Call::Begin(Rewrite::All),
+                    Call::Transform((500_000 / PAGE * PAGE) as u32, PAGE * 10, false)
+                ]
+            );
+        }
+    }
+    eprintln!(
+        "500000 still entities + moving camera: 1 transform page/write per tick, 0 material writes"
+    );
 }

@@ -80,7 +80,6 @@ pub struct Sim<G: Game> {
     pub(crate) last_us: Option<i64>,
     world_us: i64,
     game: PhantomData<G>,
-    generation: u64,
 }
 const QUEUE_LIMIT: usize = 1024;
 pub(crate) fn micros(ms: f64) -> i64 {
@@ -118,7 +117,6 @@ impl<G: Game> Sim<G> {
             last_us: None,
             world_us: 0,
             game: PhantomData,
-            generation: 0,
         })
     }
     /// Validate first, then seek under the old arguments to the host's stamp.
@@ -160,8 +158,12 @@ impl<G: Game> Sim<G> {
         if let Some(at) = at_ms {
             self.advance_with(at, Clock::Seekable, after);
         }
-        if let Some(world) = restart {
-            self.generation = self.generation.wrapping_add(1);
+        if let Some(mut world) = restart {
+            world.presentation_generation = self
+                .world
+                .presentation_generation
+                .checked_add(1)
+                .expect("presentation generation exhausted");
             self.world = world;
             self.world_us = 0;
             self.queue.clear();
@@ -323,6 +325,23 @@ impl<G: Game> Sim<G> {
         }
         self.input.clear_edges();
     }
+    /// Number of steps the next advance would complete. Presentation can skip
+    /// timing samples that a long advance would immediately evict from its ring.
+    pub fn ticks_due(&self, now_ms: f64, clock: Clock) -> u32 {
+        if !now_ms.is_finite() || G::paused(self.world.args()) {
+            return 0;
+        }
+        let now = micros(now_ms);
+        let gap = now.saturating_sub(self.last_us.unwrap_or(now)).max(0);
+        let elapsed = if clock == Clock::Live {
+            gap.min(250_000)
+        } else {
+            gap
+        };
+        let us = self.world_us.saturating_add(elapsed);
+        let target = us as u128 * G::HZ as u128 / 1_000_000;
+        u32::try_from(target.saturating_sub(self.world.tick() as u128)).unwrap_or(u32::MAX)
+    }
     /// Advance integer world time; the first call establishes the host epoch only.
     pub fn advance(&mut self, now_ms: f64, clock: Clock) -> u32 {
         self.advance_with(now_ms, clock, |_, _| {})
@@ -403,7 +422,7 @@ impl<G: Game> Sim<G> {
     }
     /// Replacement generation for presentation caches; not saved or hashed.
     pub fn generation(&self) -> u64 {
-        self.generation
+        self.world.presentation_generation()
     }
     /// Read simulation state.
     pub fn world(&self) -> &World {
@@ -515,7 +534,11 @@ impl<G: Game> Sim<G> {
         }
         next.world_us = s.world_us;
         next.rebase_queue = true;
-        next.generation = self.generation.wrapping_add(1);
+        next.world.presentation_generation = self
+            .world
+            .presentation_generation
+            .checked_add(1)
+            .expect("presentation generation exhausted");
         *self = next;
         Ok(())
     }

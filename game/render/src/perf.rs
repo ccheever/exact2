@@ -1,5 +1,7 @@
 use crate::Stats;
 use std::fmt::Write;
+#[cfg(test)]
+thread_local! { pub(crate) static CLOCK_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 
 pub(crate) struct Stamp {
     #[cfg(not(target_arch = "wasm32"))]
@@ -9,6 +11,8 @@ pub(crate) struct Stamp {
 }
 impl Stamp {
     pub fn now() -> Self {
+        #[cfg(test)]
+        CLOCK_READS.with(|n| n.set(n.get() + 1));
         Self {
             #[cfg(not(target_arch = "wasm32"))]
             time: std::time::Instant::now(),
@@ -17,6 +21,8 @@ impl Stamp {
         }
     }
     pub fn elapsed(&self) -> f64 {
+        #[cfg(test)]
+        CLOCK_READS.with(|n| n.set(n.get() + 1));
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.time.elapsed().as_secs_f64() * 1000.0
@@ -29,10 +35,11 @@ impl Stamp {
 }
 #[cfg(target_arch = "wasm32")]
 fn performance_now() -> f64 {
-    web_sys::window()
-        .and_then(|w| w.performance())
-        .expect("WorldSurface requires window.performance")
-        .now()
+    thread_local! {
+        static PERFORMANCE: web_sys::Performance = web_sys::window()
+            .and_then(|w| w.performance()).expect("WorldSurface requires window.performance");
+    }
+    PERFORMANCE.with(web_sys::Performance::now)
 }
 pub(crate) struct Ring {
     values: [f64; 240],

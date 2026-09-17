@@ -1,18 +1,34 @@
 use crate::{Bloom, Environment, Fog, FrameInput, PointLightInput, Shadows, Sun};
-use exact_game::{Camera, DirectionalLight, Entity, PointLight, Transform, World};
+use exact_game::{Camera, DirectionalLight, Entity, Parent, PointLight, Transform, World};
 use glam::{Mat4, Vec3};
 
 pub(super) fn pose(w: &World, e: Entity) -> Option<Transform> {
     let (scale, rotation, position) = w.global(e)?.to_scale_rotation_translation();
     Some(Transform {
         position,
-        rotation: if rotation.is_finite() {
-            rotation.normalize()
-        } else {
-            glam::Quat::IDENTITY
-        },
+        rotation: glam::Quat::from_vec4(
+            glam::Vec4::from_array(rotation.to_array())
+                .try_normalize()
+                .unwrap_or(glam::Vec4::W),
+        ),
         scale,
     })
+}
+// Bounded even if tools edit a cycle before propagation.
+pub(super) fn snap(w: &World, mut e: Entity, parent_changed: bool) -> bool {
+    if parent_changed {
+        return true;
+    }
+    for _ in 0..=w.len() {
+        if w.fresh().contains(&e) {
+            return true;
+        }
+        let Some(parent) = w.get::<Parent>(e) else {
+            return false;
+        };
+        e = parent.0;
+    }
+    false
 }
 #[derive(Clone, Copy)]
 struct History {
@@ -28,13 +44,13 @@ impl History {
             curr,
         }
     }
-    fn update(&mut self, w: &World, next_tick: bool) {
+    fn update(&mut self, w: &World, next_tick: bool, parent_changed: bool) {
         if let Some(curr) = pose(w, self.entity) {
             if next_tick {
                 self.prev = self.curr;
             }
             self.curr = curr;
-            if w.fresh().contains(&self.entity) {
+            if snap(w, self.entity, parent_changed) {
                 self.prev = curr;
             }
         }
@@ -50,19 +66,41 @@ impl History {
 struct Light {
     history: History,
     light: PointLight,
+    selected: bool,
 }
 #[derive(Default)]
 pub(super) struct Scene {
     versions: Option<[u64; 3]>,
     camera: Option<(History, Camera)>,
-    sun: Option<(Entity, DirectionalLight)>,
+    sun: Option<(History, DirectionalLight)>,
     lights: Vec<Light>,
     selected: [usize; 16],
     count: usize,
     output: [PointLightInput; 16],
 }
 impl Scene {
-    pub fn feed(&mut self, w: &World, next_tick: bool, moved: bool, structure: bool) {
+    #[cfg(test)]
+    pub(super) fn lights_for_test(&self) -> Vec<Entity> {
+        self.selected[..self.count]
+            .iter()
+            .map(|&i| self.lights[i].history.entity)
+            .collect()
+    }
+    pub fn reset(&mut self) {
+        self.versions = None;
+        self.camera = None;
+        self.sun = None;
+        self.lights.clear();
+        self.count = 0;
+    }
+    pub fn feed(
+        &mut self,
+        w: &World,
+        next_tick: bool,
+        moved: bool,
+        structure: bool,
+        parent_changed: bool,
+    ) {
         let versions = [
             w.revision::<Camera>(),
             w.revision::<DirectionalLight>(),
@@ -89,14 +127,22 @@ impl Scene {
             });
         }
         if let Some((history, _)) = &mut self.camera {
-            history.update(w, next_tick);
+            history.update(w, next_tick, parent_changed);
         }
         if old.is_none_or(|v| v[1] != versions[1]) || structure {
-            self.sun = w
-                .query::<&DirectionalLight>()
-                .iter()
-                .next()
-                .map(|(e, s)| (e, *s));
+            self.sun = w.query::<&DirectionalLight>().iter().find_map(|(e, s)| {
+                pose(w, e).map(|t| {
+                    (
+                        self.sun
+                            .filter(|(h, _)| h.entity == e)
+                            .map_or(History::new(e, t), |(h, _)| h),
+                        *s,
+                    )
+                })
+            });
+        }
+        if let Some((history, _)) = &mut self.sun {
+            history.update(w, next_tick, parent_changed);
         }
         if old.is_none_or(|v| v[2] != versions[2]) || structure {
             // Entity order allows an in-place merge: reuse matching histories, insert
@@ -117,6 +163,7 @@ impl Scene {
                         Light {
                             history: History::new(e, t),
                             light: *light,
+                            selected: false,
                         },
                     );
                 }
@@ -129,16 +176,37 @@ impl Scene {
             let camera = self.camera.map_or(Vec3::ZERO, |(h, _)| h.curr.position);
             let mut distances = [f32::INFINITY; 16];
             for (i, light) in self.lights.iter_mut().enumerate() {
-                light.history.update(w, next_tick);
+                light.history.update(w, next_tick, parent_changed);
                 let distance = light.history.curr.position.distance_squared(camera);
-                let at = distances.partition_point(|d| *d <= distance);
+                // Selected lights keep membership until a challenger is >10% nearer.
+                // Entity order breaks exact ties; this scan happens only at feed time.
+                let score = if light.selected {
+                    distance / 1.21
+                } else {
+                    distance
+                };
+                let at = distances.partition_point(|d| *d <= score);
                 if at < 16 {
                     distances.copy_within(at..15, at + 1);
                     self.selected.copy_within(at..15, at + 1);
-                    distances[at] = distance;
+                    distances[at] = score;
                     self.selected[at] = i;
                     self.count = (self.count + 1).min(16);
                 }
+                light.selected = false;
+            }
+            self.selected[..self.count].sort_unstable_by(|a, b| {
+                let distance = |i: usize| {
+                    self.lights[i]
+                        .history
+                        .curr
+                        .position
+                        .distance_squared(camera)
+                };
+                distance(*a).total_cmp(&distance(*b)).then(a.cmp(b))
+            });
+            for &i in &self.selected[..self.count] {
+                self.lights[i].selected = true;
             }
         }
         self.versions = Some(versions);
@@ -161,15 +229,12 @@ impl Scene {
             };
             self.output[i] = point;
         }
-        let sun = self.sun.and_then(|(e, s)| {
-            w.global(e).map(|t| Sun {
-                direction: t.transform_vector3(-Vec3::Z).normalize_or(-Vec3::Y),
-                color: s.color.into(),
-                // Engine lights use lux; renderer scenes use display-referred radiance.
-                // 10,000 lux maps to its default key light of 3.
-                illuminance: s.illuminance * 0.0003,
-                shadows: s.shadows.then(Shadows::default),
-            })
+        let sun = self.sun.map(|(h, s)| Sun {
+            direction: (h.at(alpha).rotation * -Vec3::Z).normalize_or(-Vec3::Y),
+            color: s.color.into(),
+            // 10,000 lux maps to the renderer's default key radiance of 3.
+            illuminance: s.illuminance * 0.0003,
+            shadows: s.shadows.then(Shadows::default),
         });
         let e = w
             .try_resource::<exact_game::Environment>()

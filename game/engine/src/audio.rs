@@ -50,6 +50,8 @@ pub struct Synth {
     pub gain: f32,
     /// Simultaneous voices, summed without clipping.
     pub layers: Vec<Synth>,
+    /// Crossfade the loop seam after synthesis. One-shots default to false.
+    pub looping: bool,
 }
 impl Default for Synth {
     fn default() -> Self {
@@ -68,6 +70,7 @@ impl Default for Synth {
             highpass_hz: 0.0,
             gain: 0.5,
             layers: vec![],
+            looping: false,
         }
     }
 }
@@ -132,6 +135,11 @@ impl Synth {
         self.layers.push(voice);
         self
     }
+    /// Render with a 10 ms equal-power overlap at the loop seam.
+    pub fn looped(mut self) -> Self {
+        self.looping = true;
+        self
+    }
     /// Longest layer, in seconds.
     pub fn duration(&self) -> f32 {
         self.layers
@@ -193,6 +201,24 @@ pub fn render(s: &Synth, sample_rate: u32) -> Vec<f32> {
     s.validate();
     let mut out = vec![0.0; math::ceil(s.duration() * sample_rate as f32) as usize];
     render_into(s, sample_rate, &mut out);
+    for sample in &mut out {
+        *sample = if sample.is_finite() {
+            sample.clamp(-4.0, 4.0)
+        } else {
+            0.0
+        };
+    }
+    if s.looping && out.len() > 3 {
+        // Overlap the tail onto the head, then remove that tail. The end of the
+        // overlap joins the untouched head; the wrap joins adjacent tail samples.
+        let n = (sample_rate as usize / 100).max(2).min(out.len() / 2);
+        let end = out.len() - n;
+        for i in 0..n {
+            let angle = i as f32 / (n - 1) as f32 * std::f32::consts::FRAC_PI_2;
+            out[i] = (out[end + i] * math::cos(angle) + out[i] * math::sin(angle)).clamp(-4.0, 4.0);
+        }
+        out.truncate(end);
+    }
     out
 }
 fn render_into(s: &Synth, rate: u32, out: &mut [f32]) {
@@ -299,6 +325,12 @@ pub struct Voice {
     pub at: At,
     /// Per-play gain.
     pub gain: f32,
+    /// Playback rate, saved with the voice.
+    pub pitch: f32,
+    /// Last observed world position, retained after despawn.
+    pub position: Option<Vec3>,
+    /// Definition at play time; edits affect subsequent plays.
+    pub synth: Synth,
     /// Inclusive starting tick.
     pub began: u64,
     /// Exclusive ending tick, rounded up to a whole tick.
@@ -368,17 +400,63 @@ impl Default for AudioSource {
         }
     }
 }
+/// A stable handle returned by `Play::start`.
+pub type VoiceId = u64;
+/// Saved master gain and source journal baseline.
+#[derive(Resource, Clone)]
+pub struct Audio {
+    /// Linear master gain, default 1; games can set this from a live argument.
+    pub master: f32,
+    reports: Vec<SourceReport>,
+}
+impl Default for Audio {
+    fn default() -> Self {
+        Self {
+            master: 1.0,
+            reports: Vec::new(),
+        }
+    }
+}
+#[derive(Data, Default, Clone)]
+struct SourceReport {
+    entity: Entity,
+    sound: String,
+    gain: f32,
+    playing: bool,
+    refused: bool,
+}
+/// Finite linear gain, bounded to avoid overflow at the output boundary.
+pub fn gain(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 4.0)
+    } else {
+        0.0
+    }
+}
+/// Stop a saved finite voice.
+pub fn stop(world: &mut World, id: VoiceId) {
+    if world.has_audio() {
+        world.resource_mut::<Voices>().voices.retain(|v| v.id != id);
+    }
+}
 /// The ears. `step` refuses extra listeners, keeping the lowest entity index.
 #[derive(Component, Default, Clone)]
 pub struct AudioListener;
 
 impl World {
+    fn audio_boundary(&self) -> u64 {
+        self.tick().saturating_add(u64::from(self.in_tick))
+    }
     /// Register audio types before loading a save; initialize resources only if absent.
     pub fn register_audio(&mut self) -> &mut Self {
         self.register::<AudioSource>()
             .register::<AudioListener>()
             .register_resource::<Sounds>()
-            .register_resource::<Voices>();
+            .register_resource::<Voices>()
+            .register_resource::<Audio>();
+        if self.try_resource::<Audio>().is_none() {
+            self.insert_resource(Audio::default());
+        }
         if self.try_resource::<Sounds>().is_none() {
             self.insert_resource(Sounds::default());
         }
@@ -394,13 +472,14 @@ impl World {
     /// Build a play event, committed once at the end of the statement.
     pub fn play(&mut self, sound: &str) -> Play<'_> {
         self.register_audio();
-        let duration = self
+        let synth = self
             .resource::<Sounds>()
             .0
             .get(sound)
             .unwrap_or_else(|| panic!("unknown sound `{sound}`"))
-            .duration();
-        let began = self.tick();
+            .clone();
+        let duration = synth.duration();
+        let began = self.audio_boundary();
         let ends = began.saturating_add(math::ceil(duration * self.hz() as f32) as u64);
         Play {
             world: self,
@@ -408,6 +487,9 @@ impl World {
                 sound: sound.into(),
                 at: At::Ui,
                 gain: 1.0,
+                pitch: 1.0,
+                position: None,
+                synth,
                 began,
                 ends,
                 id: 0,
@@ -423,7 +505,9 @@ pub struct Play<'a> {
 impl Play<'_> {
     /// Follow an entity.
     pub fn at(mut self, entity: Entity) -> Self {
-        self.voice.as_mut().unwrap().at = At::Entity(entity);
+        let voice = self.voice.as_mut().unwrap();
+        voice.at = At::Entity(entity);
+        voice.position = self.world.global(entity).map(|t| t.translation.into());
         self
     }
     /// Play at a fixed position.
@@ -438,17 +522,33 @@ impl Play<'_> {
     }
     /// Set play gain.
     pub fn gain(mut self, gain: f32) -> Self {
-        assert!(gain.is_finite() && gain >= 0.0, "invalid sound gain");
-        self.voice.as_mut().unwrap().gain = gain;
+        let sanitized = crate::audio::gain(gain);
+        if sanitized != gain {
+            self.world.log("refusal: invalid play gain");
+        }
+        self.voice.as_mut().unwrap().gain = sanitized;
         self
     }
-}
-impl Drop for Play<'_> {
-    fn drop(&mut self) {
-        if std::thread::panicking() {
-            return;
-        }
-        let mut voice = self.voice.take().unwrap();
+    /// Playback rate (1 is authored pitch), bounded to 0.01..16.
+    pub fn pitch(mut self, rate: f32) -> Self {
+        let rate = if rate.is_finite() {
+            rate.clamp(0.01, 16.0)
+        } else {
+            1.0
+        };
+        let voice = self.voice.as_mut().unwrap();
+        voice.pitch = rate;
+        voice.ends = voice.began.saturating_add(math::ceil(
+            voice.synth.duration() / rate * self.world.hz() as f32,
+        ) as u64);
+        self
+    }
+    /// Commit now and return a handle. Drop still commits if this is omitted.
+    pub fn start(mut self) -> VoiceId {
+        self.commit().unwrap()
+    }
+    fn commit(&mut self) -> Option<VoiceId> {
+        let mut voice = self.voice.take()?;
         let mut voices = self.world.resource_mut::<Voices>();
         voice.id = voices.next_id;
         voices.next_id = voices.next_id.checked_add(1).expect("voice ids exhausted");
@@ -458,18 +558,80 @@ impl Drop for Play<'_> {
             voice.at.label(self.world),
             voice.gain
         ));
+        let id = voice.id;
         voices.voices.push(voice);
+        Some(id)
+    }
+}
+impl Drop for Play<'_> {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            self.commit();
+        }
     }
 }
 /// Fixed-tick housekeeping, called after game logic like `physics::step`.
 /// No audio resources are added to worlds that do not use sound.
 pub fn step(world: &mut World) {
     if world.has_audio() {
-        let tick = world.tick();
+        let tick = world.audio_boundary();
         world
             .resource_mut::<Voices>()
             .voices
             .retain(|v| v.ends > tick);
+        for voice in &mut world.resource_mut::<Voices>().voices {
+            if let At::Entity(e) = voice.at {
+                if let Some(pose) = world.global(e) {
+                    voice.position = Some(pose.translation.into());
+                }
+            }
+        }
+    }
+    if world.has_audio() || world.query::<&AudioSource>().iter().next().is_some() {
+        world.register_audio();
+        let mut audio = world.resource_mut::<Audio>();
+        audio.master = gain(audio.master);
+        let mut reports = Vec::new();
+        for (entity, source) in world.query::<&mut AudioSource>().iter() {
+            let old = audio.reports.iter().find(|r| r.entity == entity);
+            let sanitized = gain(source.gain);
+            let invalid = sanitized != source.gain;
+            let refused = old.is_some_and(|r| r.refused) || invalid;
+            if invalid && !old.is_some_and(|r| r.refused) {
+                world.log(format_args!(
+                    "refusal: invalid AudioSource gain at {}",
+                    At::Entity(entity).label(world)
+                ));
+            }
+            source.gain = sanitized;
+            if let Some(old) = old {
+                if old.playing && (!source.playing || old.sound != source.sound) {
+                    world.log(format_args!("loop {} off", old.sound));
+                }
+            }
+            if source.playing
+                && !old
+                    .is_some_and(|r| r.playing && r.sound == source.sound && r.gain == source.gain)
+            {
+                world.log(format_args!(
+                    "loop {} on gain {:.2}",
+                    source.sound, source.gain
+                ));
+            }
+            reports.push(SourceReport {
+                entity,
+                sound: source.sound.clone(),
+                gain: source.gain,
+                playing: source.playing,
+                refused,
+            });
+        }
+        for old in &audio.reports {
+            if old.playing && !reports.iter().any(|r| r.entity == old.entity) {
+                world.log(format_args!("loop {} off", old.sound));
+            }
+        }
+        audio.reports = reports;
     }
     let listeners: Vec<_> = world
         .query::<&AudioListener>()
@@ -506,10 +668,21 @@ pub fn state(world: &World) -> String {
     } else {
         String::new()
     };
-    format!(
-        "{{\"voices\":[{voices}],\"sources\":{}}}",
-        world.query::<&AudioSource>().iter().count()
-    )
+    let sources = world
+        .query::<&AudioSource>()
+        .iter()
+        .map(|(e, s)| {
+            format!(
+                "{{\"sound\":{},\"entity\":{},\"gain\":{},\"playing\":{}}}",
+                crate::values::quote(&s.sound),
+                crate::values::quote(&At::Entity(e).label(world)),
+                gain(s.gain),
+                s.playing
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{{\"voices\":[{voices}],\"sources\":[{sources}]}}")
 }
 
 #[cfg(test)]

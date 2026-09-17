@@ -18,6 +18,10 @@ struct Orbit {
     radius: f32,
 }
 struct Cubes;
+#[derive(Default, Resource)]
+struct Still {
+    enabled: bool,
+}
 impl Game for Cubes {
     const ID: &'static str = "cubes-bench";
     const ARGS: &'static [Arg] = &[Arg::setup("n")];
@@ -77,8 +81,10 @@ impl Game for Cubes {
         Ok(())
     }
     fn tick(w: &mut World, _: &Input) {
-        for (_, (spin, t)) in w.query::<(&Spin, &mut Transform)>().iter() {
-            t.rotation = (spin.step * t.rotation).normalize();
+        if !w.try_resource::<Still>().is_some_and(|s| s.enabled) {
+            for (_, (spin, t)) in w.query::<(&Spin, &mut Transform)>().iter() {
+                t.rotation = (spin.step * t.rotation).normalize();
+            }
         }
         let orbit = w.resource::<Orbit>();
         *w.get_mut::<Transform>(orbit.camera).unwrap() =
@@ -143,6 +149,10 @@ fn main() {
     for n in counts {
         assert!(n > 0);
         let mut sim = Sim::<Cubes>::new(&[Value::Number(n as f64)]).unwrap();
+        let still = args.get(2).is_some_and(|s| s == "still");
+        if still {
+            sim.world_mut().insert_resource(Still { enabled: true });
+        }
         let mut feed = Feed::default();
         let mut renderer = gpu
             .as_ref()
@@ -211,6 +221,6 @@ fn main() {
                 g.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
             }
         }
-        println!("N={n} 2560x1440 4xMSAA frames={frames} | sim/tick ms {} | feed/tick ms {} | encode/frame ms {}",summary(&mut ticks),summary(&mut feeds),summary(&mut encodes));
+        println!("still={still} N={n} 2560x1440 4xMSAA frames={frames} | sim/tick ms {} | feed/tick ms {} | encode/frame ms {}",summary(&mut ticks),summary(&mut feeds),summary(&mut encodes));
     }
 }

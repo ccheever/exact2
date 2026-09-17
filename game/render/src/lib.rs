@@ -36,7 +36,8 @@ pub use timing::{GPU_PASS_COUNT, GPU_PASS_NAMES};
 /// Which transform slots the caller will rewrite after advancing history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rewrite {
-    /// Rewrite every live slot before drawing; swap buffers without copying.
+    /// Make every live slot current before drawing; swap without copying.
+    /// A feed may retain already-matching target pages instead of rewriting them.
     All,
     /// Rewrite a subset; copy history so untouched slots stay still.
     Some,

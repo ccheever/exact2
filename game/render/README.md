@@ -160,7 +160,7 @@ completion before its separate resolve submission (otherwise Metal can return
 trailing zero samples), and reports invalid/reversed pairs as NaN, never zero.
 
 
-## WorldSurface (B1a)
+## WorldSurface
 
 `WorldSurface::<G>::default()` implements `exact_gpu::Surface`; bind constructs the
 simulation, and the first render compiles every pipeline. A game's GPU crate can
@@ -171,20 +171,35 @@ shaders. `examples/module.rs` exercises the expansion on native and wasm.
 
 `Feed` owns tick uploads, mesh registrations, retained batches and small camera/light
 histories. Seed it with the setup world, then call `feed` from `advance_with` only
-when `ticks_left < 2`. It uploads allocated Transform pages directly as floats,
-then overwrites parented slots from the engine's propagated affine globals. TRS
-decomposition is exact with uniform ancestor scale; nonuniform ancestor scale can
-introduce shear, which this TRS renderer approximates. Camera rotation uses slerp.
-The light list is retained; nearest sixteen selection happens on fed ticks, and
-frames interpolate just those sixteen. Selection does not change between ticks.
+when `ticks_left < 2`. Each GPU tick buffer has an eight-byte content fingerprint
+per allocated Transform page. The feed swaps roles with `Rewrite::All`, hashes
+against the target buffer, patches propagated parent poses into retained scratch,
+and submits one write per consecutive dirty run. No GPU history copy is needed.
+`Rewrite::Some` remains available for direct Renderer callers; **Feed never uses it**.
+TRS decomposition is exact with uniform ancestor scale; shear is approximated.
 
-Every changed transform column uses `Rewrite::All`. One unchanged tick uses
-`Rewrite::Some` to bring history together; the second still tick and subsequent
-ones do no upload or copy. Initial pages initialize both histories; fresh entities
-and teleports initialize both slots after ordinary writes. The engine's existing
-`advance_with()` is reused; `fresh()` also covers adding a first Transform to an
-older entity. Material remains its engine-owned
-40-byte layout: a reused page buffer converts it to the renderer's 48-byte layout.
+One unchanged tick catches the target buffer up; after two still ticks, unchanged
+column revisions skip even hashing. Fresh slots, teleports (including descendants),
+and Parent edits patch the other buffer and invalidate its page fingerprint.
+The retained parent list also catches removed Parent components. Initial feeding
+and a changed World presentation generation rewrite both histories. `load`, setup
+rebuilds and `Sim::restore` preserve and increment that generation; render checks
+it even without a bind or a simulation tick. Mesh registrations and scratch survive.
+
+At least 75% dirty pages enables full-run uploads without hashing. Every 32nd feed
+starts a three-feed probe, long enough to establish both target histories before
+judging dirtiness. A single probe with unknown hashes would always look 100% dirty
+and never leave that mode. Scenes below 32 pages stay hashed: skipping their cheap
+hash would miss same-value assignments when a player or glow comes to rest.
+Material pages use the same hashing/coalescing path with one GPU buffer; retained
+page scratch repacks the engine's 40-byte records to 48-byte renderer records.
+
+Camera, sun and point-light rotations use safe normalization and slerp histories.
+The selected sun is the first DirectionalLight with a pose. Ancestor freshness and
+Parent edits reset camera/light histories too. Point-light membership is selected
+only during feeds; incumbents get a 10% distance margin, with entity-order ties.
+Frames visit only the retained sixteen lights, never the entity storage.
+
 Missing materials use the default white material. Mesh keys include exact float
 bits; Asset uses Cube. Sphere/cylinder radii and capsule cylinder length are mapped
 to the engine's layout/pick dimensions (the core shapes have different conventions).
@@ -205,16 +220,21 @@ Perf lives in fixed 240-sample rings and is spliced into `state.world.perf` only
 `tickMs` measures individual simulation steps, excluding feeding; `feedMs` measures
 each fed tick; `encodeMs` includes frame inputs, draw encoding and submission;
 `ticksPerFrame` has the same p50/p95/p99/max summary. Native CPU samples use Instant;
-wasm uses window.performance.now(). Samples are diagnostic and outside world hashes.
+wasm caches the Performance object. Only ticks retained in the 240-sample ring
+are timed; seekable renders, agent advances and timed binds make no perf clock
+calls. `Sim::ticks_due` determines whether the first tick's sample will survive.
+Samples are diagnostic and outside world hashes.
 No allocations occur in steady Sim/Feed/frame-input work (instrumented unit test).
 wgpu retains ownership of its command/staging allocations.
 
-Capacity errors are returned before Feed swaps history. The existing GPU Surface
-trait has no render-error return or error-drain seam: `WorldSurface::error()` retains
-the refusal, agent replies include `renderError`, and later bind returns it as a
-SurfaceError. No GPU files were changed to add a host ABI seam. A fresh Surface is
-needed after such a refusal. Replacing a world resets Feed; renderer arenas retain and reuse
-registered geometry until the surface is destroyed.
+Capacity errors are returned before Feed swaps history. `Surface::take_error`
+reports them through Module render/readback/input/agent failures (render returns
+ABI status 2; native readback retains its existing failure status 1, since 2 there
+already means a successful read that wants another frame); a failed draw is never presented as success. A timed bind
+that already committed still returns Ok; its advance error is drained separately.
+`WorldSurface::error()` retains the sticky capacity refusal. Empty or non-finite
+viewports skip drawing without setting an error or changing the input viewport;
+a finite seekable clock still advances. A non-finite clock is ignored for that frame.
 
 Proof and timing, from `game/`:
 
@@ -274,3 +294,64 @@ assertions remain failing until their owner updates them; seek partition equalit
 and save/restore equality pass. No out-of-scope fixture was edited for B1a.
 Validation used disposable manifests under `render/target/` pointing at the actual
 source files, to keep the concurrently edited `game/Cargo.lock` untouched.
+
+## B1d proof — 2026-09-17, Apple M5 Max / Metal
+
+Same diagnostic as above, 2560×1440, 4× MSAA, 60 warm-up + 240 measured
+frames. This worktree and machine were shared with the audio/physics/game lanes;
+load averages during the run were roughly 32–44. These are submission timings,
+not a claim about vsync or GPU completion.
+
+Before B1d:
+
+| Cubes | Sim ms p50 / p95 | Feed ms p50 / p95 | Encode ms p50 / p95 |
+|---:|---:|---:|---:|
+| 10,000 | 0.0350 / 0.0638 | 0.2233 / 0.4027 | 0.1314 / 0.2442 |
+| 100,000 | 0.3465 / 0.4062 | 1.8112 / 2.1159 | 0.1708 / 0.2433 |
+| 200,000 | 0.6997 / 0.8332 | 3.4663 / 3.9879 | 0.1739 / 0.2646 |
+| 500,000 | 1.8412 / 2.1100 | 8.8117 / 9.9677 | 0.1825 / 0.2722 |
+
+After B1d:
+
+| Cubes | Sim ms p50 / p95 | Feed ms p50 / p95 | Encode ms p50 / p95 |
+|---:|---:|---:|---:|
+| 10,000 | 0.0418 / 0.0911 | 0.1724 / 0.4077 | 0.1671 / 0.5722 |
+| 100,000 | 0.4080 / 0.8699 | 0.9537 / 2.0966 | 0.1929 / 0.4053 |
+| 200,000 | 0.7976 / 1.1324 | 1.6949 / 2.2815 | 0.1960 / 0.3274 |
+| 500,000 | 2.3245 / 3.0835 | 4.5562 / 5.6280 | 0.2170 / 0.4038 |
+
+**The two feed latency targets are not met.** The final 500k turning result is
+4.5562 ms versus the 3 ms target. `cubes -- 500000 240 still` (only the camera
+moves) measures 1.1262 / 1.4261 ms feed p50 / p95 versus the 0.3 ms target.
+The eight-lane page hash measures **28.72 GB/s** in its release diagnostic,
+exceeding the requested 5 GB/s. But reading 20 MB at 28.72 GB/s alone costs about
+0.70 ms; a 0.3 ms whole-feed target needs more than 66.7 GB/s before other work.
+Page mutation metadata, or a substantially faster hash path, would be needed to
+close that gap. Neither performance target is claimed from write-count reduction.
+
+The recording backend asserts one contiguous transform submit for a dense scene,
+one page/write per tick for **500,000 still transforms with a moving camera**,
+and the actual Greybox's **one transform page per moving tick, at most two pages
+while the beacon glows, zero writes after settling**. It also proves the dense
+mode returns to hashing after unchanged assignments, sparse runs stay separate,
+capacity refusal precedes swaps, and steady feed/frame work allocates nothing.
+Run the hash diagnostic with `cargo test --release -p exact-game-render --lib
+hash_bandwidth -- --ignored --nocapture`.
+
+All 45 non-ignored renderer tests and the engine tests pass, including a GPU
+half-alpha teleport fixture whose pixels exactly equal the new child pose,
+zero-size recovery, load/restore generation collisions, committed timed-bind
+capacity failure, sun interpolation, zero quaternion, light hysteresis, and zero
+perf clock reads for a 3,600-tick seek. All 12 exact-gpu tests pass through the
+native ABI; render failure returns 2 and readback retains its existing error 1.
+Workspace build/clippy, scoped fmt, renderer wasm32 build, GPU clippy/fmt and
+repository caps pass.
+The full game workspace test run encountered four failures in the concurrently
+edited physics lane (character step, two query fixtures, sphere rolling); its fmt
+check also reported physics-only differences. Those files were not edited here.
+
+The browser proof passes with **zero failures**: setup hash
+`0x4a9f1ad15148813e`, 1.5-second W position `[0, 0.9, -5.733332]`, replay hash
+`0x70c17d4a69834418`. The half-alpha child fixture was also inspected visually.
+Logs and pictures are under `render/target/`, with the browser transcript in
+`render/target/greybox-proof/`.

@@ -47,6 +47,7 @@ impl World {
             })
     }
     pub(crate) fn begin_tick(&mut self) {
+        self.in_tick = true;
         self.state.busy.clear();
         self.fresh.clear();
     }

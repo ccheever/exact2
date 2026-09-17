@@ -114,6 +114,8 @@ pub struct Event {
 /// Ordered simulation state, with dynamic storage borrows and no host clock.
 pub struct World {
     pub(crate) args: crate::Args,
+    // Executor phase, never saved: audio authored in a tick starts at its end.
+    pub(crate) in_tick: bool,
     state: State,
     pub(crate) alive_mask: Vec<u64>,
     rng: Storage<Rng>,
@@ -128,6 +130,7 @@ pub struct World {
     pub(crate) fresh: Vec<Entity>,
     orphans: Vec<Entity>,
     entities_revision: u64,
+    pub(crate) presentation_generation: u64,
 }
 const SINGLETON: Entity = Entity {
     index: 0,
@@ -143,6 +146,7 @@ impl World {
         rng.insert(0, Rng::new(seed), 0);
         Self {
             args: crate::Args::default(),
+            in_tick: false,
             state: State {
                 hz,
                 seed,
@@ -161,7 +165,12 @@ impl World {
             fresh: vec![],
             orphans: vec![],
             entities_revision: 0,
+            presentation_generation: 0,
         }
+    }
+    /// Replacement epoch for presentation caches, excluded from saves and hashes.
+    pub fn presentation_generation(&self) -> u64 {
+        self.presentation_generation
     }
     /// Register a component before loading. Registration itself is not state.
     pub fn register<C: Component>(&mut self) -> &mut Self {
@@ -533,6 +542,7 @@ impl World {
     }
     // Sim will own clock advancement; keep the primitive private to this crate.
     pub(crate) fn step_clock(&mut self) {
+        self.in_tick = false;
         self.state.tick = self
             .state
             .tick
@@ -595,6 +605,10 @@ impl World {
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;
         next.validate_hierarchy(&mut r)?;
+        next.presentation_generation = self
+            .presentation_generation
+            .checked_add(1)
+            .expect("presentation generation exhausted");
         *self = next;
         Ok(())
     }

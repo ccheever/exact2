@@ -4,6 +4,7 @@ use exact_game::{Material, Mesh, Parent, Transform, Visible, World, PAGE};
 use std::collections::BTreeMap;
 
 mod scene;
+mod upload;
 use scene::Scene;
 
 // The same feed algorithm runs against the GPU and the recording test backend.
@@ -11,6 +12,7 @@ pub(crate) trait Writes {
     fn max_slots(&self) -> u32;
     fn begin_tick(&mut self, rewrite: Rewrite);
     fn transforms(&mut self, first: u32, floats: &[f32], both: bool) -> Result<(), RenderError>;
+    fn previous(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError>;
     fn materials(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError>;
     fn mesh(&mut self, vertices: &[Vertex], indices: &[u32]) -> MeshId;
     fn batches(&mut self, batches: &[Batch], slots: &[u32]) -> Result<(), RenderError>;
@@ -28,6 +30,9 @@ impl Writes for Renderer {
         } else {
             self.write_transforms(first, floats)
         }
+    }
+    fn previous(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError> {
+        self.write_previous_transforms(first, floats)
     }
     fn materials(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError> {
         self.write_materials(first, floats)
@@ -128,8 +133,9 @@ impl Versions {
     }
 }
 
-/// Persistent bridge from one world to one renderer. Reset it when replacing the world.
-/// Full transform pages are memcpy uploads; parented slots overlay propagated globals.
+/// Persistent bridge from one world to one renderer. World loads invalidate it
+/// automatically; reset it when replacing a World with an unrelated instance.
+/// Page hashes select coalesced uploads; parented poses are patched before hashing.
 /// Decomposed globals are exact TRS for uniform ancestor scale; shear is approximated.
 /// Storage, batches and meshes grow only when scene structure changes.
 pub struct Feed {
@@ -141,6 +147,14 @@ pub struct Feed {
     batches: Vec<Batch>,
     slots: Vec<u32>,
     material_page: Box<[f32; PAGE * 12]>,
+    transform_page: Box<[f32; PAGE * 10]>,
+    scratch: Vec<f32>,
+    transforms: [upload::Pages; 2],
+    materials: upload::Pages,
+    current: usize,
+    generation: u64,
+    parents: Vec<exact_game::Entity>,
+    overrides: Vec<(exact_game::Entity, [f32; 10])>,
     scene: Scene,
 }
 impl Default for Feed {
@@ -154,6 +168,14 @@ impl Default for Feed {
             batches: Vec::new(),
             slots: Vec::new(),
             material_page: Box::new([0.0; PAGE * 12]),
+            transform_page: Box::new([0.0; PAGE * 10]),
+            scratch: Vec::new(),
+            transforms: Default::default(),
+            materials: Default::default(),
+            current: 0,
+            generation: 0,
+            parents: Vec::new(),
+            overrides: Vec::new(),
             scene: Scene::default(),
         }
     }
@@ -164,7 +186,12 @@ impl Feed {
         self.versions = None;
         self.tick = 0;
         self.history_pending = false;
-        self.scene = Scene::default();
+        self.scene.reset();
+        for buffer in &mut self.transforms {
+            buffer.reset();
+        }
+        self.materials.reset();
+        self.parents.clear();
     }
 
     /// Feed one completed tick. With Sim::advance_with, call only when ticks_left < 2.
@@ -178,6 +205,10 @@ impl Feed {
         self.scene.frame(world, alpha, aspect)
     }
     pub(crate) fn feed_to(&mut self, w: &World, r: &mut impl Writes) -> Result<(), RenderError> {
+        if self.generation != w.presentation_generation() {
+            self.reset();
+            self.generation = w.presentation_generation();
+        }
         let next = Versions::of(w);
         let initial = self.versions.is_none();
         let old = self.versions.unwrap_or_default();
@@ -199,36 +230,109 @@ impl Feed {
                 check_page(page.first, page.mask, r.max_slots(), "materials")?;
             }
         }
-        if moved {
+        let parent_changed = next.parent != old.parent;
+        if moved || (self.history_pending && w.tick() != self.tick) {
             r.begin_tick(Rewrite::All);
-            for page in w.pages::<Transform>().iter() {
-                let len = page_len(page.first, r.max_slots());
-                r.transforms(page.first, &page.floats()[..len * 10], initial)?;
-            }
+            self.current = 1 - self.current;
+            self.overrides.clear();
             for (e, _) in w.query::<(&Parent, &Transform)>().iter() {
                 if let Some(t) = scene::pose(w, e) {
-                    r.transforms(e.index(), &floats(t), initial)?;
+                    self.overrides.push((e, floats(t)));
                 }
             }
+            let (a, b) = self.transforms.split_at_mut(1);
+            if self.current == 0 {
+                a[0].inherit_policy(&b[0]);
+            } else {
+                b[0].inherit_policy(&a[0]);
+            }
+            let pages = w.pages::<Transform>();
+            let hashing = self.transforms[self.current].start(pages.iter().count(), initial);
+            let mut overrides = self.overrides.iter().peekable();
+            let mut run = 0;
+            self.scratch.clear();
+            for page in pages.iter() {
+                let len = page_len(page.first, r.max_slots()) * 10;
+                let index = page.first as usize / PAGE;
+                let mut values = &page.floats()[..len];
+                if overrides
+                    .peek()
+                    .is_some_and(|(e, _)| e.index() < page.first + PAGE as u32)
+                {
+                    self.transform_page[..len].copy_from_slice(values);
+                    while let Some((e, pose)) =
+                        overrides.next_if(|(e, _)| e.index() < page.first + PAGE as u32)
+                    {
+                        let at = (e.index() - page.first) as usize * 10;
+                        self.transform_page[at..at + 10].copy_from_slice(pose);
+                    }
+                    values = &self.transform_page[..len];
+                }
+                let hash = if hashing { upload::hash(values) } else { 0 };
+                if self.transforms[self.current].dirty(index, hash, initial) {
+                    if !self.scratch.is_empty()
+                        && run + (self.scratch.len() / 10) as u32 != page.first
+                    {
+                        r.transforms(run, &self.scratch, initial)?;
+                        self.scratch.clear();
+                    }
+                    if self.scratch.is_empty() {
+                        run = page.first;
+                    }
+                    self.scratch.extend_from_slice(values);
+                }
+                if initial {
+                    let other = &mut self.transforms[1 - self.current].hashes;
+                    if other.len() <= index {
+                        other.resize(index + 1, 0);
+                    }
+                    other[index] = hash;
+                }
+            }
+            if !self.scratch.is_empty() {
+                r.transforms(run, &self.scratch, initial)?;
+            }
+            self.transforms[self.current].finish();
             if !initial {
                 for &e in w.fresh() {
                     if let Some(t) = scene::pose(w, e) {
-                        r.transforms(e.index(), &floats(t), true)?;
+                        r.previous(e.index(), &floats(t))?;
+                        self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
+                    }
+                }
+                for &(e, t) in &self.overrides {
+                    if !w.fresh().contains(&e) && scene::snap(w, e, parent_changed) {
+                        r.previous(e.index(), &t)?;
+                        self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
+                    }
+                }
+                if parent_changed {
+                    for &e in &self.parents {
+                        if !w.has::<Parent>(e) {
+                            if let Some(t) = scene::pose(w, e) {
+                                r.previous(e.index(), &floats(t))?;
+                                self.transforms[1 - self.current]
+                                    .invalidate(e.index() as usize / PAGE);
+                            }
+                        }
                     }
                 }
             }
-            self.history_pending = !initial;
-        } else if self.history_pending && w.tick() != self.tick {
-            // One unchanged tick catches prev up to curr. The next still tick and
-            // every subsequent tick does no upload or GPU copy at all.
-            r.begin_tick(Rewrite::Some);
-            self.history_pending = false;
+            self.parents.clear();
+            self.parents.extend(self.overrides.iter().map(|(e, _)| *e));
+            self.history_pending = moved && !initial;
         }
         if material {
             let transforms = w.pages::<Transform>();
             let materials = w.pages::<Material>();
+            let hashing = self.materials.start(
+                transforms.iter().count().max(materials.iter().count()),
+                initial,
+            );
             let mut tp = transforms.iter().peekable();
             let mut mp = materials.iter().peekable();
+            let mut run = 0;
+            self.scratch.clear();
             while tp.peek().is_some() || mp.peek().is_some() {
                 let first = tp
                     .peek()
@@ -258,8 +362,23 @@ impl Feed {
                         out.copy_from_slice(&default);
                     }
                 }
-                r.materials(first, &self.material_page[..len * 12])?;
+                let values = &self.material_page[..len * 12];
+                let hash = if hashing { upload::hash(values) } else { 0 };
+                if self.materials.dirty(first as usize / PAGE, hash, initial) {
+                    if !self.scratch.is_empty() && run + (self.scratch.len() / 12) as u32 != first {
+                        r.materials(run, &self.scratch)?;
+                        self.scratch.clear();
+                    }
+                    if self.scratch.is_empty() {
+                        run = first;
+                    }
+                    self.scratch.extend_from_slice(values);
+                }
             }
+            if !self.scratch.is_empty() {
+                r.materials(run, &self.scratch)?;
+            }
+            self.materials.finish();
         }
         if batches {
             for group in &mut self.groups {
@@ -299,6 +418,7 @@ impl Feed {
             initial || self.tick != w.tick(),
             moved,
             next.live != old.live || next.membership != old.membership,
+            parent_changed,
         );
         self.tick = w.tick();
         self.versions = Some(next);

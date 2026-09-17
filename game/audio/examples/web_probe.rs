@@ -5,12 +5,13 @@ mod probe {
         audio::{Sounds, Synth},
         World,
     };
-    use exact_game_audio::{Player, WebOutput};
+    use exact_game_audio::{Player, Transport, WebOutput};
     use wasm_bindgen::prelude::*;
     #[wasm_bindgen]
     pub struct Probe {
         player: Player<WebOutput>,
         world: World,
+        transport: Transport,
     }
     #[wasm_bindgen]
     impl Probe {
@@ -25,13 +26,14 @@ mod probe {
             Ok(Self {
                 player: Player::new(WebOutput::new()?, 48000),
                 world,
+                transport: Transport::default(),
             })
         }
-        pub fn unlock(&self) -> Result<(), JsValue> {
-            self.player.output.unlock()
+        pub async fn unlock(&mut self) -> Result<(), JsValue> {
+            self.player.output.unlock(&mut self.transport).await
         }
         pub fn frame(&mut self) {
-            self.player.sync(&self.world, None);
+            self.player.sync(&self.world, None, self.transport);
         }
     }
 }

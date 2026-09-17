@@ -85,6 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .decay(0.0)
                 .sustain(1.0)
                 .release(0.0)
+                .looped()
                 .seconds(2.0)
                 .lowpass_hz(500.0)
                 .highpass_hz(60.0)
@@ -119,8 +120,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let pcm = pcm.into();
             output.start(0, &pcm, 48000, name == "wind");
             output.set(0, 0.7, 0.7);
+            output.flush();
             std::thread::sleep(std::time::Duration::from_secs(2));
             output.stop(0);
+            output.flush();
         }
     }
     Ok(())

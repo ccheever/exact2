@@ -66,7 +66,7 @@ impl Frame {
     }
 }
 
-/// Why a surface refused its inputs.
+/// Why a surface refused its inputs or could not draw committed state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SurfaceError(pub String);
 
@@ -89,6 +89,10 @@ pub trait Surface {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool;
+    /// Drain an error discovered while rendering or advancing committed state.
+    fn take_error(&mut self) -> Option<SurfaceError> {
+        None
+    }
     /// Raw input inside this canvas (LLP 1041.002 S1); app gestures elsewhere are untouched.
     fn wants_input(&self) -> bool {
         false
@@ -378,6 +382,10 @@ impl Module {
         };
         inst.surface.input(event);
         inst.messages.extend(inst.surface.messages());
+        if let Some(SurfaceError(e)) = inst.surface.take_error() {
+            self.error = e;
+            return false;
+        }
         inst.dirty = true;
         true
     }
@@ -407,6 +415,10 @@ impl Module {
         let messages = inst.surface.messages();
         inst.dirty |= reply.is_some() || !messages.is_empty();
         inst.messages.extend(messages);
+        if let Some(SurfaceError(e)) = inst.surface.take_error() {
+            self.error = e;
+            return None;
+        }
         reply
     }
 
@@ -703,6 +715,10 @@ impl Module {
             .surface
             .render(&frame, &gpu.device, &gpu.queue, &view, inst.config.format);
         inst.messages.extend(inst.surface.messages());
+        if let Some(SurfaceError(e)) = inst.surface.take_error() {
+            self.error = e;
+            return None;
+        }
         gpu.queue.present(texture);
         inst.dirty = false;
         Some(wants)
@@ -904,6 +920,10 @@ impl Module {
         };
         let result = fixture::render(gpu, inst.surface.as_mut(), &frame);
         inst.messages.extend(inst.surface.messages());
+        if let Some(SurfaceError(e)) = inst.surface.take_error() {
+            self.error = e;
+            return None;
+        }
         match result {
             Ok((pixels, wants)) => {
                 // The picture was taken: nothing is unshown any more.

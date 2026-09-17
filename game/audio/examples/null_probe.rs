@@ -23,7 +23,7 @@ mod probe {
                 .add("chime", Synth::sine(880.0));
             world.play("chime").ui();
             Ok(Self {
-                player: Player::new(NullOutput::default(), 48000),
+                player: Player::new(NullOutput, 48000),
                 world,
             })
         }
@@ -31,7 +31,7 @@ mod probe {
             Ok(())
         }
         pub fn frame(&mut self) {
-            self.player.sync(&self.world, None);
+            self.player.sync(&self.world, None, Default::default());
         }
     }
 }

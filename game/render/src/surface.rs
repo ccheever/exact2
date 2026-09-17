@@ -14,6 +14,8 @@ pub struct WorldSurface<G: Game> {
     perf: Perf,
     error: Option<SurfaceError>,
     dirty: bool,
+    reported: bool,
+    generation: u64,
 }
 impl<G: Game> Default for WorldSurface<G> {
     fn default() -> Self {
@@ -24,12 +26,13 @@ impl<G: Game> Default for WorldSurface<G> {
             perf: Perf::default(),
             error: None,
             dirty: true,
+            reported: false,
+            generation: 0,
         }
     }
 }
 impl<G: Game> WorldSurface<G> {
-    /// Last render refusal. The existing GPU Surface ABI has no render-error return;
-    /// this error also appears in agent replies and is returned by subsequent binds.
+    /// Sticky capacity refusal; also drained through the GPU Surface error seam.
     pub fn error(&self) -> Option<&SurfaceError> {
         self.error.as_ref()
     }
@@ -42,20 +45,28 @@ fn observer<'a>(
     render: &'a mut Option<(Renderer, Feed)>,
     perf: &'a mut Perf,
     error: &'a mut Option<SurfaceError>,
+    measure: bool,
+    ticks: u32,
 ) -> impl FnMut(&World, u32) + 'a {
-    let mut start = Stamp::now();
+    let mut start = (measure && (1..=240).contains(&ticks)).then(Stamp::now);
     move |world, left| {
-        perf.tick.push(start.elapsed());
+        if let Some(start) = &start {
+            if left < 240 {
+                perf.tick.push(start.elapsed());
+            }
+        }
         if left < 2 && error.is_none() {
             if let Some((renderer, feed)) = render {
-                let upload = Stamp::now();
+                let upload = measure.then(Stamp::now);
                 if let Err(e) = feed.feed(world, renderer) {
                     *error = Some(SurfaceError(e.to_string()));
                 }
-                perf.feed.push(upload.elapsed());
+                if let Some(upload) = upload {
+                    perf.feed.push(upload.elapsed());
+                }
             }
         }
-        start = Stamp::now();
+        start = (measure && left > 0 && left <= 240).then(Stamp::now);
     }
 }
 impl<G: Game> Surface for WorldSurface<G> {
@@ -71,7 +82,7 @@ impl<G: Game> Surface for WorldSurface<G> {
             sim.bind_with(
                 values,
                 at_ms,
-                observer(&mut self.render, &mut self.perf, &mut self.error),
+                observer(&mut self.render, &mut self.perf, &mut self.error, false, 0),
             )
             .map_err(SurfaceError)?;
             if generation != sim.generation() {
@@ -84,7 +95,14 @@ impl<G: Game> Surface for WorldSurface<G> {
             self.sim = Some(Sim::new(values).map_err(SurfaceError)?);
         }
         self.dirty = true;
-        self.error.clone().map_or(Ok(()), Err)
+        Ok(())
+    }
+    fn take_error(&mut self) -> Option<SurfaceError> {
+        if self.reported {
+            return None;
+        }
+        self.reported = self.error.is_some();
+        self.error.clone()
     }
     fn render(
         &mut self,
@@ -94,22 +112,36 @@ impl<G: Game> Surface for WorldSurface<G> {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
+        self.reported = false;
         if self.error.is_some() {
             return false;
         }
         let Some(sim) = &mut self.sim else {
             return false;
         };
-        if !frame.now_ms.is_finite()
-            || !frame.width.is_finite()
-            || !frame.height.is_finite()
-            || frame.width <= 0.0
-            || frame.height <= 0.0
-        {
-            self.error = Some(SurfaceError(
-                "world frame needs finite clock and positive viewport".into(),
-            ));
-            return false;
+        if self.generation != sim.world().presentation_generation() {
+            self.generation = sim.world().presentation_generation();
+            self.dirty = true;
+        }
+        let drawable = frame.width.is_finite()
+            && frame.height.is_finite()
+            && frame.width > 0.0
+            && frame.height > 0.0
+            && frame.scale.is_finite()
+            && frame.scale > 0.0;
+        if !frame.now_ms.is_finite() {
+            return true;
+        }
+        if !drawable {
+            if frame.seekable {
+                sim.advance_with(
+                    frame.now_ms,
+                    Clock::Seekable,
+                    observer(&mut self.render, &mut self.perf, &mut self.error, false, 0),
+                );
+            }
+            self.dirty = true;
+            return self.error.is_none();
         }
         sim.viewport(frame.width, frame.height);
         if self.format != Some(format) {
@@ -126,6 +158,7 @@ impl<G: Game> Surface for WorldSurface<G> {
             }
         }
         self.perf.frame(frame.now_ms, frame.seekable);
+        let due = sim.ticks_due(frame.now_ms, Clock::Live);
         let ticks = sim.advance_with(
             frame.now_ms,
             if frame.seekable {
@@ -133,17 +166,25 @@ impl<G: Game> Surface for WorldSurface<G> {
             } else {
                 Clock::Live
             },
-            observer(&mut self.render, &mut self.perf, &mut self.error),
+            observer(
+                &mut self.render,
+                &mut self.perf,
+                &mut self.error,
+                !frame.seekable,
+                due,
+            ),
         );
         self.perf.ticks.push(ticks as f64);
         if self.error.is_some() {
             return false;
         }
         let (renderer, feed) = self.render.as_mut().unwrap();
-        let start = Stamp::now();
+        let start = (!frame.seekable).then(Stamp::now);
         let input = feed.frame(sim.world(), sim.alpha(), frame.width / frame.height);
         self.perf.stats = renderer.draw(device, queue, target, format, frame.pixels(), &input);
-        self.perf.encode.push(start.elapsed());
+        if let Some(start) = start {
+            self.perf.encode.push(start.elapsed());
+        }
         let wants = !G::paused(sim.world().args()) || ticks != 0;
         self.dirty = false;
         wants
@@ -152,6 +193,7 @@ impl<G: Game> Surface for WorldSurface<G> {
         true
     }
     fn input(&mut self, event: &InputEvent) {
+        self.reported = false;
         use exact_game::{InputEvent as E, PointerPhase as P};
         use exact_gpu::PointerPhase as Q;
         let Some(sim) = &mut self.sim else {
@@ -197,10 +239,11 @@ impl<G: Game> Surface for WorldSurface<G> {
         self.sim.as_mut().map_or_else(Vec::new, Sim::take_messages)
     }
     fn agent(&mut self, request: &str) -> Option<String> {
+        self.reported = false;
         let sim = self.sim.as_mut()?;
         let mut reply = sim.agent_with(
             request,
-            observer(&mut self.render, &mut self.perf, &mut self.error),
+            observer(&mut self.render, &mut self.perf, &mut self.error, false, 0),
         );
         // Engine world-state replies have this fixed suffix. Parse the reply using
         // its own Data decoder to distinguish state from tree/error/entity replies.
@@ -243,3 +286,7 @@ fn world_state(reply: &str) -> bool {
     let mut parse = parse;
     parse().unwrap_or(false)
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "surface_tests.rs"]
+mod tests;

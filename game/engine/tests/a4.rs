@@ -385,7 +385,7 @@ fn a4_6_names_schema_journal_and_cylinder_hits_follow_the_declared_contract() {
     assert_eq!(s.world().resolve("#0"), s.world().named("probe"));
     assert!(s.agent(r#"{"op":"tree"}"#).contains("\"tags\":[]"));
     let state = s.agent(r#"{"op":"state"}"#);
-    assert!(state.contains("\"audio\":{\"voices\":[],\"sources\":0}"));
+    assert!(state.contains("\"audio\":{\"voices\":[],\"sources\":[]}"));
     assert!(state.contains("\"args\":{\"seed\":7,\"run\":0,\"paused\":false,\"volume\":1}"));
     s.advance(1500.0, Clock::Seekable);
     s.world().log("test event");
