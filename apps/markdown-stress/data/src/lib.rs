@@ -3,6 +3,9 @@
 #![deny(missing_docs)]
 
 pub mod fixture;
+mod native;
+
+pub use native::NativeMarkdownStress;
 
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource};
@@ -17,6 +20,18 @@ struct Parsed {
     bytes: usize,
     document: Document,
     largest_block: usize,
+    #[cfg(test)]
+    drop_witness: Option<DropWitness>,
+}
+
+#[cfg(test)]
+struct DropWitness(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+#[cfg(test)]
+impl Drop for DropWitness {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 /// One cached parsed fixture. Page/width/input changes do not reparse it.
@@ -37,15 +52,15 @@ fn integer(value: &Value, limit: usize) -> Result<usize, DataError> {
     }
 }
 
-impl DataSource for MarkdownStress {
-    fn app_id(&self) -> &str {
-        "com.exact.markdown-stress"
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DocumentArgs {
+    key: (Profile, usize, usize),
+    page: usize,
+    eager: bool,
+}
 
-    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
-        if source == "theme" && args.is_empty() {
-            return Ok(markdown_parse::theme::value());
-        }
+impl DocumentArgs {
+    fn read(source: &str, args: &[Value]) -> Result<Self, DataError> {
         if source != "document" {
             return Err(DataError::UnknownSource(source.into()));
         }
@@ -63,66 +78,93 @@ impl DataSource for MarkdownStress {
                 "unsupported source byte budget".into(),
             ));
         }
-        let key = (profile, budget, revision);
-        if self.parsed.as_ref().is_none_or(|p| p.key != key) {
-            let text = generate(profile, budget).map_err(|e| DataError::BadArguments(e.into()))?;
-            let document = markdown_parse::parse(&text, &str::to_owned);
-            let largest_block = document
-                .blocks
-                .iter()
-                .map(|b| {
-                    b.text.len()
-                        + b.runs.iter().map(|r| r.text.len()).sum::<usize>()
-                        + b.cells
-                            .iter()
-                            .flatten()
-                            .map(|r| r.text.len())
-                            .sum::<usize>()
-                })
-                .max()
-                .unwrap_or(0);
-            self.parsed = Some(Parsed {
-                key,
-                bytes: text.len(),
-                document,
-                largest_block,
-            });
-        }
-        let parsed = self.parsed.as_ref().unwrap();
-        let total = parsed.document.blocks.len();
-        let first = if *eager {
+        Ok(Self {
+            key: (profile, budget, revision),
+            page,
+            eager: *eager,
+        })
+    }
+}
+
+impl Parsed {
+    fn build(key: (Profile, usize, usize)) -> Result<Self, DataError> {
+        let text = generate(key.0, key.1).map_err(|e| DataError::BadArguments(e.into()))?;
+        let document = markdown_parse::parse(&text, &str::to_owned);
+        let largest_block = document
+            .blocks
+            .iter()
+            .map(|b| {
+                b.text.len()
+                    + b.runs.iter().map(|r| r.text.len()).sum::<usize>()
+                    + b.cells
+                        .iter()
+                        .flatten()
+                        .map(|r| r.text.len())
+                        .sum::<usize>()
+            })
+            .max()
+            .unwrap_or(0);
+        Ok(Self {
+            key,
+            bytes: text.len(),
+            document,
+            largest_block,
+            #[cfg(test)]
+            drop_witness: None,
+        })
+    }
+
+    fn value(&self, args: DocumentArgs) -> Value {
+        let total = self.document.blocks.len();
+        let first = if args.eager {
             0
         } else {
-            page.min((total - 1) / PAGE_BLOCKS) * PAGE_BLOCKS
+            args.page.min((total - 1) / PAGE_BLOCKS) * PAGE_BLOCKS
         };
-        let end = if *eager {
+        let end = if args.eager {
             total
         } else {
             (first + PAGE_BLOCKS).min(total)
         };
-        let blocks = parsed.document.blocks[first..end]
+        let blocks = self.document.blocks[first..end]
             .iter()
             .enumerate()
             .map(|(i, block)| markdown_parse::value::block(first + i, block))
             .collect();
-        Ok(Value::record(vec![
-            Value::str(&parsed.document.title),
-            Value::Number(parsed.bytes as f64),
+        Value::record(vec![
+            Value::str(&self.document.title),
+            Value::Number(self.bytes as f64),
             Value::Number(total as f64),
             Value::Number((end - first) as f64),
             Value::Number(first as f64),
             Value::Number(end as f64),
-            Value::Number(revision as f64),
-            Value::Number(parsed.largest_block as f64),
+            Value::Number(args.key.2 as f64),
+            Value::Number(self.largest_block as f64),
             Value::Number(
-                parsed
-                    .document
+                self.document
                     .blocks
                     .iter()
                     .filter(|b| b.kind == Kind::TableRow)
                     .count() as f64,
             ),
             Value::list(blocks),
-        ]))
+        ])
+    }
+}
+
+impl DataSource for MarkdownStress {
+    fn app_id(&self) -> &str {
+        "com.exact.markdown-stress"
+    }
+
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        if source == "theme" && args.is_empty() {
+            return Ok(markdown_parse::theme::value());
+        }
+        let args = DocumentArgs::read(source, args)?;
+        if self.parsed.as_ref().is_none_or(|p| p.key != args.key) {
+            self.parsed = Some(Parsed::build(args.key)?);
+        }
+        Ok(self.parsed.as_ref().unwrap().value(args))
     }
 }

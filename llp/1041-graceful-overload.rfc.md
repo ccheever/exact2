@@ -1754,13 +1754,59 @@ Clippy. Initial failure, isolated pass and reproduction remain preserved under
 `target/image-delivery-test-integration/`.
 Sources, failures and integration evidence are in `target/text-transfer-ink-validation/`.
 The preceding actual-Linux 42-test capture does not include this follow-up.
+A subsequent immutable `7fe1b7e` Ubuntu ARM64 build passes all 47 selected tests:
+22 transfer (including five prepared-ink tests), four sharing, 14 CPU ink oracles
+and seven text integration tests. The 53,248-glyph fixture builds its index on
+the worker; top, middle and final CPU paints match exact RGBA with zero UI index
+builds. One build and four test processes complete without retries under the
+existing 2.5GiB address-space and 60-second process guards. The font files remain
+unchanged from the preceding Linux run. Sources, ELFs, raw results and terminal
+cleanup are in `target/linux-text-transfer-ink-native-execution/`. This is worker
+ink correctness on Linux, not a giant controller drive or latency measurement.
 
 Controller admission must still reject mismatched paint context. Ordinary
 painting at another scale can rebuild the cache, conservative queries can fall
 back to all glyphs, and GPU painting still constructs full position vectors.
 Visible glyph raster work also remains on the UI. These helpers therefore do not
-prove a complete responsive publication path or physical 120Hz. Separately,
-Markdown Stress still generates and parses uncached documents synchronously;
-the private pre-parsed native fixture excludes that cost. The actual Markdown
+prove a complete responsive publication path or physical 120Hz. The private
+pre-parsed native fixture also excludes Markdown Stress's cold source generation
+and parse cost, addressed separately by the opt-in below. The actual Markdown
 reader already reads and parses files in its native continuation, but constructs
 Runner Values and enumerates sibling files when settling on the UI owner.
+
+### 8.18 Native Markdown Stress parse continuation, 2026-09-17
+
+Newton implements an explicit `NativeMarkdownStress` data source on the existing
+ordered native continuation lane. Cold runtime requests generate and parse the
+fixture on that worker, retaining the baked or previous document while pending.
+The original `MarkdownStress` stays synchronous for bake, web and the pathological
+control. Host runtime selection is a separate integration step; adding this data
+source alone does not change the shipped native entry or move Contract execution.
+
+One accepted parsed document and one latest result cell are retained. Queued
+closures hold weak references, so superseded generations skip work; a running
+obsolete parse drops its result without requiring a Runner parse callback.
+Same-source page requests share one parse and get distinct checked process-wide
+serials. Completion carries only an eight-byte acknowledgement; adoption checks
+the current serial, claim and all request arguments. Invalid input or exhaustion
+preserves the current request. Admission failure retains accepted content and
+reports an error, with no automatic retry or synchronous fallback. Running work
+is not preempted, and the executor's queued closures are accounted separately.
+
+The original synchronous source fails eight behavioral tests. Final private and
+integrated data suites pass 26 tests, then two explicitly selected giant tests
+compare complete 1MiB and 4MiB paragraph/code Values against that source. This is
+28 distinct passes (21 new), with the preexisting ignored giant parser test still
+unrun. Real threads prove stale payload release, one active parse through 100-key
+churn and one shared parse for 20 page tickets. A real baked Runner keeps its old
+document while pending; typing and width changes issue no new data work.
+Strict all-target Clippy, scoped formatting and the integrated wasm32 data-crate
+check pass. Sources, behavioral and setup failures are preserved in
+`target/markdown-continuation-validation/`; integrated results are in
+`target/markdown-continuation-integration/`.
+
+Value/Rc string construction, table-row counting, previous-document destruction,
+Runner validation/realization and layout remain on the UI owner. Forty blocks
+per manual page is not a byte bound: the giant single block stays intact.
+This app-specific continuation does not implement general module placement,
+generic resource cancellation, total-memory bounds or native responsiveness.
