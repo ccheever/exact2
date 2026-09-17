@@ -349,6 +349,26 @@ impl<D: DataSource> Host<D> {
         self.runner.take_requests()
     }
 
+    /// Admission failures remain on the runner's current tickets, not a queue.
+    pub fn refuse_request(&mut self, ticket: u64, reason: &'static str, ordered: bool) {
+        self.runner.refuse_request(ticket, reason, ordered);
+    }
+
+    /// Take one admission failure through the usual settlement path.
+    pub fn take_request_refusal(&mut self, allow_ordered: bool) -> Option<(u64, Outcome)> {
+        self.runner.take_request_refusal(allow_ordered)
+    }
+
+    /// Ordered refusals hold later ordered dispatch until they settle or are forgotten.
+    pub fn has_ordered_request_refusals(&self) -> bool {
+        self.runner.has_ordered_request_refusals()
+    }
+
+    /// Whether another pump must settle an admission failure.
+    pub fn has_request_refusals(&self, allow_ordered: bool) -> bool {
+        self.runner.has_request_refusals(allow_ordered)
+    }
+
     /// The executor's replies, oldest first, each a commit at `now_ms` (a
     /// ticket no longer held commits nothing); a reply the source cannot
     /// shape is the error, and the ones before it stand.

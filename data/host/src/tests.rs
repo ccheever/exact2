@@ -391,3 +391,24 @@ fn invalid_utf8_is_never_repaired_into_an_effectful_request() {
         "malformed data creates no app directories"
     );
 }
+
+#[test]
+fn independent_storage_is_refused_before_conversion_or_disk_touch() {
+    let paths = Paths::new();
+    let mut source = Fixture::new();
+    source.request = source.request.independent_http(4096);
+    let mut host = Storage::new(source);
+    paths.configure(&mut host);
+    host.activate().unwrap();
+    let result = host.answer(&mut Store::default(), "operation", &[]);
+    assert!(
+        result.is_err(),
+        "storage annotation must not be erased into an executable continuation"
+    );
+    assert!(host.pending.is_empty());
+    assert!(host.continuation(1).is_none());
+    assert!(
+        !paths.0.exists(),
+        "no directory or file may be created on refusal"
+    );
+}

@@ -1,7 +1,7 @@
 # LLP 1041: Graceful overload, proved by interactive workloads
 
 **Type:** RFC
-**Status:** Draft design; three stress examples and native resize diagnostics implemented. Host evidence and the first runner optimization are recorded below. This does not claim a new scheduler, worker placement, virtualization, or 120 Hz support has shipped.
+**Status:** Draft design; three stress examples, native resize diagnostics, dependency memos and a bounded native HTTP/pump slice are implemented. Host evidence is recorded below. Module-worker placement, viewport collections and physical 120 Hz remain incomplete.
 **Systems:** Data execution, runner settlement, host completion pumps, presentation, workload diagnostics
 **Author:** Tuft / Codex for Charlie Cheever
 **Implementer:** Tuft / Codex with Astra workers; first examples start 2026-09-16. Runtime changes follow measured examples and the accepted worker-placement design.
@@ -419,3 +419,59 @@ string slicing, keeps the complete input, and does not alter worker placement.
 Other potentially expensive Markdown algorithms are unchanged. Thirty
 milliseconds still exceeds the entire 8.33 ms target interval before layout;
 this throughput improvement does not establish smooth giant-block rendering.
+
+### 8.4 Bounded native HTTP admission and completion pumping
+
+Native requests now stay ordered by default. A source can explicitly promise
+that an HTTP operation **and its settlement** may overlap/reorder, with a declared
+response ceiling. Storage and native continuations cannot opt in. Two independent
+HTTP owners use separate transports; the original ordered owner retains control
+capacity. Completion Storm opts its held data requests in and keeps release
+controls ordered. No independence is inferred from GET or matching origins.
+
+Independent admission counts queued, running and undrained outcomes against
+128 requests / 32 MiB. The ordered lane has 16 requests / 512 MiB; reserving its
+64 MiB response ceiling conservatively normally admits three calls. Request
+buffers are capped at 4 MiB; response limits apply during HTTP reads. Reservations
+last until consumption. One completion or admission refusal settles per pump,
+with alternating opportunities for ready lanes/refusals and coalesced wakes.
+Ordered refusals wait for prior admitted work and prevent later ordered effects
+from bypassing their settlement. Refusals occupy existing current runner tickets,
+not a new unbounded failure queue.
+
+Retirement clears interest, aborts HTTP and drops queued work on its executor
+owner. It never joins arbitrary native closures on the UI thread. Each native
+host implementation limits live and retiring executor workers to 48 until exit.
+Opaque Rust closure captures and transient allocations remain **count-bounded
+only**, outside the transport byte reservation. D2 is not fully satisfied for
+arbitrary native work; this is no absolute heap bound. Nor does one transaction
+per pump bound its duration or prove that AppKit's run loop presents between
+consecutive main-queue blocks. Those are remaining measurement/scheduling work.
+
+The macOS and actual Ubuntu Linux 128-lane drives both observed two held data
+responses while an **in-app** release control succeeded; the old baseline needed
+an external releaser. Each drive discarded 128 stale replies, accepted 128 fresh
+ones, reconciled 64 valid / 64 failed mixed outcomes, preserved exact input echo
+and reported no host exceptions. The rebuilt web drive passed the same outcome
+checks; browser connection admission remains browser-owned.
+
+The final Linux build used frozen Git tree
+`8c7320d3f1146a756b175da9cfe503750fda650c`, excluding concurrent collection/painter
+edits. Its executable SHA-256 is
+`ca38139adab8a7f30929fb9add7ff0962235abd1ba50dd078d345b1fd019bb16`;
+reports are in `target/scheduler-final-linux/storm-smoke/` and
+`target/scheduler-final-web/`. The macOS report is
+`/tmp/exact2-http-macos-review/macos-check.json`. The focused suite passed 134
+Rust tests, including admission retention, illegal annotations, ordered refusal
+recovery, response limits, retirement and stale-cohort recovery; scoped Clippy,
+formatting, caps and boot also passed. These are correctness and bounded-work
+results, not a 120 Hz frame-budget pass. Linux headless agent pumping occurs
+between commands and does not exercise a desktop event loop or compositor.
+
+Final review also found that a direct, unwrapped Rust web source could attach
+independent HTTP metadata to storage/continuations. Web validation now precedes
+token conversion and effect serialization, and defers a terminal Refused outcome
+until the enclosing batch is applied. Five web request-path Rust tests and three
+JavaScript response/refusal tests pass, alongside scoped Clippy and formatting.
+The rebuilt 128-lane browser drive passes again in
+`target/scheduler-final-web-refusal/`; the native executor sources are unchanged.

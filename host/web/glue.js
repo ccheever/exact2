@@ -2,10 +2,17 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-// Nothing here runs per frame; layout and motion are the browser's.
-
 import { navigation } from "./navigation.js";
-
+// Native independent HTTP carries a response ceiling; enforce it during browser reads too.
+async function boundedHttpBody(response, limit) {
+  if (limit == null) return new Uint8Array(await response.arrayBuffer());
+  if (!Number.isInteger(limit) || limit < 1 || limit > 64 * 1024 * 1024) throw Error("invalid HTTP response limit");
+  if (!response.body) return new Uint8Array();
+  const reader=response.body.getReader(), chunks=[]; let size=0;
+  try { for (;;) { const {done,value}=await reader.read(); if(done) break; size+=value.length; if(size>limit) throw Error("HTTP response exceeds limit"); if(value.length) chunks.push(value); } }
+  catch(error) { await reader.cancel().catch(()=>{}); throw error; } finally { reader.releaseLock(); }
+  const bytes=new Uint8Array(size); let at=0; for(const chunk of chunks) { bytes.set(chunk,at); at+=chunk.length; } return bytes;
+}
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
 const retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
@@ -751,6 +758,7 @@ function apply(batch) {
           .catch(error=>safelyFulfill(requestIncarnation,op.ticket,3,0,"",enc.encode(String(error))));
         inflight.add(p);p.finally(()=>inflight.delete(p));break;
       }
+      case "refuse": { deferFulfill(incarnation, op.ticket, 2, 0, "", enc.encode(op.message)); break; }
       case "continue": {
         const requestIncarnation = incarnation;
         const p = Promise.resolve().then(() => moduleLoader.run(op.token))
@@ -769,6 +777,7 @@ function apply(batch) {
           deferFulfill(requestIncarnation, ticket, 2, 0, "", enc.encode(`refused by grant: ${url}`));
           break;
         }
+        if (op.nativeHttp === "independent" && (!Number.isInteger(op.maxResponseBytes) || op.maxResponseBytes < 1 || op.maxResponseBytes > 64 * 1024 * 1024)) { deferFulfill(requestIncarnation, ticket, 2, 0, "", enc.encode("invalid independent HTTP response limit")); break; }
         let decodedBody;
         try {
           if (body) decodedBody = Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
@@ -781,7 +790,7 @@ function apply(batch) {
         const init = { method, headers, redirect: op.scope == null ? "follow" : "error", cache: cache === "reload" ? "reload" : "default", signal: controller.signal };
         if (decodedBody) init.body = decodedBody;
         const p = fetch(url, init)
-          .then(async (r) => safelyFulfill(requestIncarnation, ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), new Uint8Array(await r.arrayBuffer())))
+          .then(async (r) => safelyFulfill(requestIncarnation, ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), await boundedHttpBody(r, op.maxResponseBytes)))
           .catch((e) => safelyFulfill(requestIncarnation, ticket, controller.signal.aborted ? 4 : 1, 0, "", enc.encode(String(e?.message ?? e))));
         inflight.add(p);
         p.finally(() => { inflight.delete(p); controllers.delete(controller); });

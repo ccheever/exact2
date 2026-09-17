@@ -65,6 +65,7 @@ pub struct Bridge<D: DataSource> {
     prepared: Option<PreparedHost<D>>,
     painted: bool,
     executor: Option<crate::executor::Executor>,
+    refusal_turn: bool,
     fonts: Option<FontsFn>,
     fonts_ctx: *mut c_void,
     /// The archive's `compat.json` (LLP 1030 D3a), from the `host!`
@@ -97,6 +98,7 @@ impl<D: DataSource> Bridge<D> {
             prepared: None,
             painted: false,
             executor: None,
+            refusal_turn: false,
             fonts: None,
             fonts_ctx: std::ptr::null_mut(),
             compat: None,
@@ -186,12 +188,20 @@ impl<D: DataSource> Bridge<D> {
         // Whatever the last call asked the host to run goes to the executor
         // with the batch (LLP 1016 D2); the presenter never sees a request.
         if let (Some(h), Some(x)) = (self.host.as_mut(), self.executor.as_ref()) {
+            if !h.has_ordered_request_refusals() {
+                x.resume_ordered();
+            }
             for r in h.take_requests() {
+                let ordered = r.request.is_ordered();
                 let work = r
                     .request
                     .continuation
                     .and_then(|token| h.continuation(token));
-                x.run(r, work);
+                let ticket = r.ticket;
+                if let Err(reason) = x.run(r, work) {
+                    h.refuse_request(ticket, reason, ordered);
+                    x.notify();
+                }
             }
         }
         self.output = s.into_bytes();
@@ -202,11 +212,33 @@ impl<D: DataSource> Bridge<D> {
     /// presenter calls this on its thread after the wake; the output is the
     /// batch of every reply's commit.
     pub fn pump(&mut self, now_ms: f64) -> u32 {
-        let outcomes = self
-            .executor
-            .as_ref()
-            .map(|x| x.drain())
-            .unwrap_or_default();
+        self.refusal_turn = !self.refusal_turn;
+        let outcomes = match (self.host.as_mut(), self.executor.as_ref()) {
+            (Some(host), Some(executor)) => {
+                executor.begin_pump();
+                let mut outcomes = if self.refusal_turn {
+                    host.take_request_refusal(executor.ordered_idle())
+                        .into_iter()
+                        .collect()
+                } else {
+                    executor.drain()
+                };
+                if outcomes.is_empty() {
+                    outcomes = if self.refusal_turn {
+                        executor.drain()
+                    } else {
+                        host.take_request_refusal(executor.ordered_idle())
+                            .into_iter()
+                            .collect()
+                    };
+                }
+                if host.has_request_refusals(executor.ordered_idle()) {
+                    executor.notify();
+                }
+                outcomes
+            }
+            _ => vec![],
+        };
         let out = match self.host.as_mut() {
             Some(h) => h.fulfill_all(outcomes, now_ms),
             None => not_booted(),
@@ -1166,3 +1198,7 @@ macro_rules! host {
 #[cfg(test)]
 #[path = "abi_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "executor_order_tests.rs"]
+mod executor_order_tests;

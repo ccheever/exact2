@@ -66,6 +66,7 @@ pub struct Presenter<D: DataSource> {
     pub painter: PainterInfo,
     /// The executor for a request that leaves the process (LLP 1016 D2).
     executor: crate::executor::Executor,
+    refusal_turn: bool,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
     /// The commands the last commits' actions asked for, for the loop that
@@ -288,6 +289,7 @@ impl<D: DataSource> Presenter<D> {
         let mut p = Presenter {
             host,
             executor,
+            refusal_turn: false,
             brush: Painter::new(text.clone(), scale, backend),
             text,
             viewport,
@@ -733,12 +735,20 @@ impl<D: DataSource> Presenter<D> {
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
         // for the loop (`run_commands`).
+        if !self.host.has_ordered_request_refusals() {
+            self.executor.resume_ordered();
+        }
         for r in self.host.take_requests() {
+            let ordered = r.request.is_ordered();
             let work = r
                 .request
                 .continuation
                 .and_then(|token| self.host.continuation(token));
-            self.executor.run(r, work);
+            let ticket = r.ticket;
+            if let Err(reason) = self.executor.run(r, work) {
+                self.host.refuse_request(ticket, reason, ordered);
+                self.executor.notify();
+            }
         }
         self.commands.extend(self.host.take_commands());
         let live = self.host.preorder();
@@ -1221,7 +1231,29 @@ impl<D: DataSource> Presenter<D> {
     /// commit: the display loop calls this when the executor's fd is
     /// readable, the agent when it waits. `None` when nothing was queued.
     pub fn pump(&mut self, now_ms: f64) -> Option<String> {
-        let outcomes = self.executor.drain();
+        self.executor.begin_pump();
+        self.refusal_turn = !self.refusal_turn;
+        let mut outcomes = if self.refusal_turn {
+            self.host
+                .take_request_refusal(self.executor.ordered_idle())
+                .into_iter()
+                .collect()
+        } else {
+            self.executor.drain()
+        };
+        if outcomes.is_empty() {
+            outcomes = if self.refusal_turn {
+                self.executor.drain()
+            } else {
+                self.host
+                    .take_request_refusal(self.executor.ordered_idle())
+                    .into_iter()
+                    .collect()
+            };
+        }
+        if self.host.has_request_refusals(self.executor.ordered_idle()) {
+            self.executor.notify();
+        }
         if outcomes.is_empty() {
             return None;
         }

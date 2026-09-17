@@ -9,6 +9,19 @@ pub struct Batch {
     ops: Vec<String>,
 }
 
+/// Validate before token translation or storage/continuation serialization.
+pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'static str> {
+    if let exact_runner::HttpScheduling::Independent { max_response_bytes } = request.http {
+        if request.storage.is_some() || request.continuation.is_some() {
+            return Some("only HTTP may opt into independent transport");
+        }
+        if max_response_bytes == 0 || max_response_bytes > 64 * 1024 * 1024 {
+            return Some("independent HTTP response limit must be 1..=64 MiB");
+        }
+    }
+    None
+}
+
 pub(crate) fn quote(s: &str, out: &mut String) {
     out.push('"');
     for c in s.chars() {
@@ -70,6 +83,14 @@ impl Batch {
         }
         s.push_str("]}");
         self.ops.push(s);
+    }
+
+    /// A terminal admission refusal, delivered after the enclosing DOM batch.
+    pub(crate) fn refuse(&mut self, ticket: u64, message: &str) {
+        let mut out = format!("{{\"op\":\"refuse\",\"ticket\":{ticket},\"message\":");
+        quote(message, &mut out);
+        out.push('}');
+        self.ops.push(out);
     }
 
     /// Whether nothing was recorded.
@@ -188,6 +209,10 @@ impl Batch {
     /// — a request the runner handed the host to run (LLP 1016 D2); the
     /// reply comes back through `exact_fulfill`.
     pub fn request(&mut self, r: &exact_runner::RequestOut) {
+        if let Some(message) = request_refusal(&r.request) {
+            self.refuse(r.ticket, message);
+            return;
+        }
         if let Some(token) = r.request.continuation {
             self.ops.push(format!(
                 "{{\"op\":\"continue\",\"ticket\":{},\"token\":{token}}}",
@@ -217,6 +242,11 @@ impl Batch {
             quote(scope, &mut s)
         } else {
             s.push_str("null")
+        }
+        if let exact_runner::HttpScheduling::Independent { max_response_bytes } = r.request.http {
+            s.push_str(&format!(
+                ",\"nativeHttp\":\"independent\",\"maxResponseBytes\":{max_response_bytes}"
+            ));
         }
         s.push_str(",\"method\":");
         quote(&r.request.method, &mut s);

@@ -254,6 +254,7 @@ fn request_from_json(text: &str) -> Result<Request, String> {
         }
     }
     Ok(Request {
+        http: exact_runner::HttpScheduling::Ordered,
         continuation: None,
         storage: None,
         grants: None,

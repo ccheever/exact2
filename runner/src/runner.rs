@@ -6,6 +6,7 @@
 //! sites, and applies one atomic kernel batch; hosts then lay out and paint.
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
 
+mod admission;
 mod carry;
 mod source;
 pub use source::{DataError, DataSource};
@@ -216,6 +217,7 @@ enum Target {
 /// answers, and the arguments it was asked with (what `parse` sees).
 #[derive(Clone)]
 struct PendingReq {
+    refusal: Option<(&'static str, bool)>,
     ticket: u64,
     target: Target,
     source: String,
@@ -1351,6 +1353,7 @@ impl<D: DataSource> Runner<D> {
             ),
         });
         self.pending.push(PendingReq {
+            refusal: None,
             ticket,
             target,
             source,

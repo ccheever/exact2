@@ -264,7 +264,7 @@ component CompletionStorm
             text "Release all old + current"
           button press=inspectFixture testId="inspect-fixture" padding=10 background-color="#dfebf7" border-radius=6
             text "Inspect fixture"
-        text "Native: release with curl from another process; the serial request worker cannot execute an in-app release behind held data." font-size=12 color="#8c641e" testId="native-release-hint"
+        text "Native: two independent HTTP workers hold data; ordered control requests keep release available. Capacity failures are visible." font-size=12 color="#8c641e" testId="native-release-hint"
         text "Release opens the gate for queued arrivals too. The browser limits open HTTP/1 sockets; issued lanes are not simultaneous sockets." font-size=12 color="#52667c"
         match fixture
           case some(f)

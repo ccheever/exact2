@@ -57,13 +57,16 @@ code path on macOS, **not actual Linux**. The smoke report names both host and O
    remounted lanes nor decrement their pending count. Replacing a held wave
    without leaving exercises the same newest-ticket rule.
 
-On **native**, release the old wave externally **before** starting/remounting
-the next wave, using the `curl` command below. Release each subsequent held
-wave externally too. The in-app release, inspect and new-wave requests share
-the same serial worker as held data and will queue behind it. The separate
-control port only avoids the browser's per-origin connection-pool restriction;
-it does not add a second native executor. Typing and local navigation still
-run while that worker waits. A UI hint repeats this limitation.
+On **native**, held data explicitly opts into two independent HTTP workers.
+Wave opening, release and inspection remain ordered on a separate transport, so
+**Release current** and **Release all old + current** work while data is held.
+This is transport concurrency; native module continuations and storage still
+share the ordered worker. HTTP methods and origins do not infer independence.
+
+At the 128-request admission limit, old work retains its reservations even after
+navigation forgets its tickets. Release and let those results retire before
+starting another full cohort. Starting earlier may visibly refuse new lanes;
+it must not grow an overflow queue. The smoke drive exercises this recovery.
 
 The compiler currently permits resources only at the root. There are 128
 explicit root resources, one per possible lane; inactive lanes answer idle
@@ -101,15 +104,28 @@ lane and exact `wave N lane M` payload before it can count as valid.
   releases later browser-queued arrivals. Thus “together” means the fixture
   releases its currently held responses in one turn, **not** 128 simultaneous
   sockets or 128 commits in one frame. This is not an HTTP/2 benchmark.
-- Exact's native request worker executes requests serially. Selected lanes
-  count logical pending tickets; typically only one HTTP request reaches the
-  fixture before release. Native tests use external release and do not claim
-  web-like transport concurrency. No shared scheduler or host is changed.
+- Native limits: 128 admitted independent requests and 32 MiB of reserved
+  payload/result capacity, including queued, running and undrained results;
+  two concurrent data transports. The ordered lane separately reserves up to
+  16 requests / 512 MiB. Its unchanged 64 MiB response ceiling is conservatively
+  reserved for each call, so the byte limit normally admits three ordered calls.
+  Request-owned buffers are capped at 4 MiB. Independent replies here are capped
+  at 4 KiB while received, not just after JSON decode. No effect runs on refusal.
+- One outcome settles per native pump; ready lanes and admission refusals get
+  alternating turns. Ordered refusals wait for earlier accepted results and
+  prevent later ordered admission until settled or forgotten, so failure parsing
+  cannot reorder Store writes. Wakes coalesce. Retirement aborts HTTP and drops
+  queued work on its executor owner, without joining active native closures.
+  Each native host implementation caps live/retiring executor workers at 48
+  until they actually exit. Arbitrary Rust closure captures are count-bounded
+  only; their heap size and transient source allocations are outside transport
+  byte accounting. This is no absolute memory bound for native continuations.
 
 The input remains bound to Contract state and its echo is the full value. There
 is no app-side frame sampler; use the shared metrics integration to measure
 responsiveness. Web completion work still runs on the browser's main thread. This
-example exposes overload; it does not implement graceful scheduling.
+example exposes overload and exercises the first bounded native transport/pump slice.
+It does not implement module-worker placement or prove a physical frame rate.
 
 ## Drive and test
 
@@ -123,6 +139,8 @@ bun test apps/completion-storm/fixture.test.mjs
 
 # With the fixture running and CHROME set to a Chrome executable:
 bun apps/completion-storm/smoke.mjs web
+# With an API-only fixture and a separately served build:
+EXACT_STORM_WEB_URL=http://127.0.0.1:4322 bun apps/completion-storm/smoke.mjs web
 
 # Native defaults to 6 lanes; optionally select 6, 32, or 128.
 bun apps/completion-storm/smoke.mjs macos 32
@@ -136,8 +154,9 @@ held requests first, or deliberately wait for the bounded fixture timeout.
 
 Smoke timing is agent command → matching echo and Contract state acknowledgement,
 including protocol roundtrips. It is not hardware input latency, physical-display
-presentation, or a 120fps result. Native release is external, and the report
-includes how many responses the fixture actually held. Run one smoke at a time:
+presentation, or a 120fps result. Releases in the smoke come from app controls;
+external release is used only in cleanup. The report includes the number of
+responses the fixture held before release. Run one smoke at a time:
 its cleanup releases remaining waves from this local fixture.
 
 Integration members: `data`, `web`, `apple`, and `linux` under this app,

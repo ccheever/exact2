@@ -207,6 +207,10 @@ impl<D: DataSource> Host<D> {
         }
         batch.grants(host.runner.data().grants());
         for mut r in host.runner.take_requests() {
+            if let Some(message) = crate::batch::request_refusal(&r.request) {
+                batch.refuse(r.ticket, message);
+                continue;
+            }
             if let Some(token) = r.request.continuation {
                 r.request.continuation = host.runner.data().continuation_token(token);
             }
@@ -411,6 +415,10 @@ impl<D: DataSource> Host<D> {
             batch.store(&w);
         }
         for mut r in self.runner.take_requests() {
+            if let Some(message) = crate::batch::request_refusal(&r.request) {
+                batch.refuse(r.ticket, message);
+                continue;
+            }
             if let Some(token) = r.request.continuation {
                 r.request.continuation = self.runner.data().continuation_token(token);
             }

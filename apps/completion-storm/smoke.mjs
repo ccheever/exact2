@@ -16,7 +16,8 @@ assert.ok(['web','macos','linux'].includes(host),'host: web, macos, linux');
 assert.ok([6,32,128].includes(lanes),'lanes: 6, 32, 128');
 mkdirSync(output,{recursive:true});
 const acknowledgements=[];
-const app = await open({host,app:'completion-storm',...(host==='web'?{url:'http://127.0.0.1:4320'}:{}),size:[1000,2000]});
+let retiredDropLines=0;
+const app = await open({host,app:'completion-storm',...(host==='web'?{url:process.env.EXACT_STORM_WEB_URL ?? 'http://127.0.0.1:4320'}:{}),size:[1000,2000]});
 const release = async (wave=0) => {
   const response=await fetch(`http://127.0.0.1:4320/api/release?wave=${wave}`,{method:'POST'});
   assert.equal(response.status,200);
@@ -51,13 +52,28 @@ try {
   await app.tap('navigate-away');
   assert.equal((await app.state()).derives.pendingCount,0);
   assert.equal((await app.tree()).nodes.filter(n=>n.props.testId==='lane-0').length,0);
-  // On native, the old held HTTP request blocks the one FIFO worker.
-  // External release precedes remount/admission so that queue can progress.
-  const oldRelease=host==='web'?null:await release(firstId);
+  // Old work retains admission until its result is consumed. Release it from
+  // the app's ordered control lane, then observe retirement before remounting
+  // a full-capacity cohort. No external releaser participates in this proof.
+  let oldRelease=null;
+  if(host!=='web') {
+    oldRelease=await (await fetch('http://127.0.0.1:4320/api/stats')).json();
+    assert.equal(oldRelease.held,2,'both independent native transports should be held');
+    await app.tap('release-all');
+    const deadline=Date.now()+20000;
+    for (;;) {
+      await app.state();
+      retiredDropLines+=(await app.logs()).lines.filter(line=>String(line).includes('dropped: no such request')).length;
+      if(retiredDropLines>=lanes) break;
+      if(Date.now()>deadline) throw Error('old replies did not retire after in-app release');
+      await Bun.sleep(10);
+    }
+  }
   await app.tap('start-wave');
   const second=await until(s=>s.derives.pendingCount===lanes,'remounted pending');
   assert.notEqual(second.derives.waveId,firstId);
-  const freshRelease=await release(host==='web'?0:second.derives.waveId);
+  const freshRelease=await (await fetch('http://127.0.0.1:4320/api/stats')).json();
+  await app.tap(host==='web'?'release-all':'release-wave');
   await typeAndAcknowledge('input during real completion settlement','release');
   const complete=await until(s=>s.derives.pendingCount===0,'completed');
   assert.equal(complete.derives.validCount,lanes);
@@ -68,18 +84,17 @@ try {
     assert.equal(complete.resources['r'+lane].ok,true);
   }
   const logs=await app.logs();
-  const dropped=logs.lines.filter(line=>String(line).includes('dropped: no such request')).length;
+  const dropped=retiredDropLines+logs.lines.filter(line=>String(line).includes('dropped: no such request')).length;
   assert.ok(dropped>0,'old replies should be logged as dropped');
   await app.tap('errors-50');
   await app.tap('start-wave');
   await until(s=>s.derives.pendingCount===lanes,'mixed pending');
-  if (host==='web') await app.tap('release-wave');
-  else await release((await app.state()).derives.waveId);
+  await app.tap('release-wave');
   const mixed=await until(s=>s.derives.pendingCount===0,'mixed complete');
   const failed=Array.from({length:lanes},(_,lane)=>lane).filter(lane=>(lane*37)%100<50).length;
   assert.equal(mixed.derives.failedCount,failed);
   assert.equal(mixed.derives.validCount,lanes-failed);
-  const report={passed:true,host,os:platform(),lanes,execution:host==='linux'&&platform()!=='linux'?'Linux host executed on '+platform()+'; not actual Linux':host,acknowledgements,measurement:'agent command to echoed Contract state acknowledgement; not hardware key latency, display presentation, or FPS',fixtureRelease:{old:oldRelease,fresh:freshRelease},firstWave:firstId,remountedWave:second.derives.waveId,validAfterRemount:complete.derives.validCount,mixedValid:mixed.derives.validCount,mixedFailed:mixed.derives.failedCount,staleDropLinesInBoundedJournal:dropped,echo:complete.slots.note,hostErrors:logs.host.filter(x=>x.includes('exception:'))};
+  const report={passed:true,host,os:platform(),lanes,execution:host==='linux'&&platform()!=='linux'?'Linux host executed on '+platform()+'; not actual Linux':host,acknowledgements,measurement:'agent command to echoed Contract state acknowledgement; not hardware key latency, display presentation, or FPS',fixtureRelease:{method:'in-app control request',heldBeforeOld:oldRelease,heldBeforeFresh:freshRelease},firstWave:firstId,remountedWave:second.derives.waveId,validAfterRemount:complete.derives.validCount,mixedValid:mixed.derives.validCount,mixedFailed:mixed.derives.failedCount,staleDropLinesInBoundedJournal:dropped,echo:complete.slots.note,hostErrors:logs.host.filter(x=>x.includes('exception:'))};
   await app.screenshot(resolve(output,`${host}-check.png`));
   writeFileSync(resolve(output,`${host}-check.json`),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify(report,null,2));

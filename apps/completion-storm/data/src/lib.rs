@@ -140,7 +140,10 @@ impl DataSource for Storm {
                     return self.query(source, args).map(Answer::Now);
                 }
                 self.emitted += 1;
+                // Each wave/lane has its own immutable result. These reads and
+                // their settlement commute with other lanes and wave control.
                 Request::get(&format!("{DATA}/api/hold?wave={wave}&lane={lane}"))
+                    .independent_http(4096)
             }
             _ => return self.query(source, args).map(Answer::Now),
         };

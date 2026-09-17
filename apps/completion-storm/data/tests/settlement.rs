@@ -142,3 +142,51 @@ fn replacement_and_unmount_drop_late_replies_without_reusing_results() {
     assert_eq!(r.slot("clicks"), Some(&Value::Number(1.0)));
     assert_eq!(r.pending().len(), 5);
 }
+
+#[test]
+fn admission_refusals_are_bounded_by_current_tickets_and_settle_as_failures() {
+    let mut r = boot();
+    tap(&mut r, "count-6");
+    let requests = open(&mut r, 9, 6);
+    for request in &requests {
+        assert_eq!(
+            request.request.http,
+            exact_runner::HttpScheduling::Independent {
+                max_response_bytes: 4096
+            }
+        );
+    }
+    for _ in 0..1000 {
+        for request in &requests {
+            r.refuse_request(request.ticket, "capacity", false);
+        }
+    }
+    assert_eq!(r.pending().len(), 6);
+    for _ in 0..6 {
+        let (ticket, outcome) = r.take_request_refusal(true).unwrap();
+        assert!(matches!(
+            outcome,
+            Outcome::Failed {
+                kind: FailureKind::Refused,
+                ..
+            }
+        ));
+        r.fulfill(ticket, outcome).unwrap();
+    }
+    assert!(!r.has_request_refusals(true));
+    assert!(!r.has_pending());
+    assert_eq!(text(&r, "valid-count"), "0 valid successes in this wave");
+    // A late or duplicate refusal adds neither a ticket nor a new completion.
+    for request in &requests {
+        r.refuse_request(request.ticket, "late capacity", false);
+    }
+    assert!(r.take_request_refusal(true).is_none());
+
+    let requests = open(&mut r, 10, 6);
+    for request in &requests {
+        r.refuse_request(request.ticket, "capacity", false);
+    }
+    tap(&mut r, "navigate-away");
+    assert!(!r.has_request_refusals(true));
+    assert!(r.take_request_refusal(true).is_none());
+}
