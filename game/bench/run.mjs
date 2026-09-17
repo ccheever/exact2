@@ -21,16 +21,19 @@ const seconds = process.env.BENCH_SECONDS ?? '8';
 const GODOT = process.env.GODOT ?? resolve(process.env.HOME, 'Library/Caches/exact2-game/godot/Godot.app/Contents/MacOS/Godot');
 const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
-// The largest N whose p95 frame stays within 15% of the refresh interval (BENCH_HZ,
-// default 120): doubling until it breaks, then bisecting to 10%. One line per run.
+// The largest N that holds the refresh rate (BENCH_HZ, default 120): at least 96% of
+// its frames per second, and a p95 frame under one and a half intervals — a browser's
+// rAF jitters by a couple of milliseconds with nothing on screen, and a dropped frame
+// is a whole interval. Doubling until it breaks, then bisecting to 10%.
 async function sweep([engine, scene = 'cubes', mode, variant]) {
-  const budget = 1000 / Number(process.env.BENCH_HZ ?? 120) * 1.15;
+  const hz = Number(process.env.BENCH_HZ ?? 120), budget = 1000 / hz * 1.5;
   const run = (n) => {
     const r = spawnSync(process.execPath, [import.meta.path, engine, scene, String(n), ...(mode ? [mode] : []), ...(variant ? [variant] : [])], { encoding: 'utf8', env: { ...process.env, BENCH_SECONDS: process.env.BENCH_SECONDS ?? '5' } });
     const line = (r.stdout ?? '').trim().split('\n').pop();
     let out; try { out = JSON.parse(line); } catch { console.error(r.stdout, r.stderr); process.exit(1); }
-    console.log(JSON.stringify({ n, fps: out.fps_avg, p95: out.ms_p95, script: out.script_ms_avg ?? null, holds: out.ms_p95 <= budget }));
-    return out.ms_p95 <= budget;
+    const holds = out.fps_avg >= hz * 0.96 && out.ms_p95 <= budget;
+    console.log(JSON.stringify({ n, fps: out.fps_avg, p95: out.ms_p95, script: out.script_ms_avg ?? null, holds }));
+    return holds;
   };
   let lo = 0, hi = Number(process.env.BENCH_START ?? 10000);
   while (run(hi)) { lo = hi; hi *= 2; if (hi > 8_000_000) break; }
@@ -51,7 +54,9 @@ function browse(root, page, map = (r) => r) {
       const url = new URL(req.url);
       if (url.pathname === '/__bench') {
         const result = JSON.parse(await req.text());
-        setTimeout(() => { chrome?.kill(); server.stop(true); rmSync(profile, { recursive: true, force: true }); finish(map(result)); }, 50);
+        // Chrome ignores a polite signal while it is drawing: kill it, and leave only once it has gone.
+        chrome.once('exit', () => { server.stop(true); rmSync(profile, { recursive: true, force: true }); finish(map(result)); });
+        chrome.kill('SIGKILL');
         return new Response('ok');
       }
       const file = Bun.file(join(root, decodeURIComponent(url.pathname)));
@@ -61,7 +66,7 @@ function browse(root, page, map = (r) => r) {
   });
   chrome = spawn(CHROME, [`--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--window-size=1400,900',
     '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', `--app=http://localhost:${server.port}/${page}`], { stdio: 'ignore' });
-  setTimeout(() => { console.error(`${engine}: no result in time`); chrome?.kill(); process.exit(1); }, (Number(seconds) + 90) * 1000);
+  setTimeout(() => { console.error(`${engine}: no result in time`); chrome.once('exit', () => process.exit(1)); chrome.kill('SIGKILL'); }, (Number(seconds) + 90) * 1000);
 }
 
 function finish(result) {
