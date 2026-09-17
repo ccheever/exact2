@@ -36,6 +36,35 @@ struct Run: Hashable {
     var color: [Double]? = nil
     var decoration: String = ""
     var href: String = ""
+
+    static func == (lhs: Run, rhs: Run) -> Bool {
+        guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
+              lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
+              lhs.letterSpacing == rhs.letterSpacing, lhs.color == rhs.color,
+              lhs.decoration == rhs.decoration, lhs.href == rhs.href else { return false }
+        // CoreText's ranges address the original UTF16 source. Swift String's
+        // canonical equality would alias NFC/NFD paragraphs with different
+        // source lengths, so both equality and hashing use the exact UTF8.
+        var a = lhs.text, b = rhs.text
+        return a.withUTF8 { left in b.withUTF8 { right in left.elementsEqual(right) } }
+    }
+
+    func hash(into hasher: inout Hasher) {
+        // Native Strings expose their existing storage; no byte-array key or
+        // full-text copy is created for each lookup. Foreign Strings may need
+        // UTF8 materialization, but use the identical byte/hash contract.
+        var value = text
+        value.withUTF8 { hasher.combine(bytes: UnsafeRawBufferPointer($0)) }
+        hasher.combine(size)
+        hasher.combine(weight)
+        hasher.combine(family)
+        hasher.combine(italic)
+        hasher.combine(lineHeight)
+        hasher.combine(letterSpacing)
+        hasher.combine(color)
+        hasher.combine(decoration)
+        hasher.combine(href)
+    }
 }
 
 /// A paragraph's specification: runs plus paragraph style.
@@ -56,6 +85,7 @@ final class Paragraph {
     let width: CGFloat
     let height: CGFloat
     let lineBottoms: [CGFloat]
+    private(set) var cachedInk: ParagraphInkIndex?
     var firstBaseline: CGFloat { baselines.first ?? 0 }
     init(lines: [CTLine], baselines: [CGFloat], width: CGFloat, height: CGFloat, lineBottoms: [CGFloat] = []) {
         self.lineBottoms = lineBottoms
@@ -63,6 +93,75 @@ final class Paragraph {
         self.baselines = baselines
         self.width = width
         self.height = height
+    }
+
+    /// Built only when a dirty viewport is first painted, then shared by every
+    /// subsequent clip of this immutable paragraph. Measurement stays ink-free.
+    func inkBounds() -> ParagraphInkIndex {
+        if let cachedInk { return cachedInk }
+        let index = ParagraphInkIndex(lines: lines, baselines: baselines)
+        cachedInk = index
+        return index
+    }
+}
+
+/// A segment tree in logical paint order. Each node encloses the ink of its
+/// descendant lines; pruning is safe even when baselines go backwards or many
+/// zero-height lines overlap. Horizontal culling would also need alignment and
+/// overhang, so this index deliberately considers only the dirty vertical band.
+final class ParagraphInkIndex {
+    private struct Span {
+        var top: CGFloat = .infinity
+        var bottom: CGFloat = -.infinity
+    }
+    private let spans: [Span]
+    private let leaves: Int
+    private let count: Int
+    /// Array payload only: excludes the object/array headers and allocator slack.
+    var storageBytes: Int { spans.count * MemoryLayout<Span>.stride }
+
+    init(lines: [CTLine], baselines: [CGFloat]) {
+        count = lines.count
+        var size = 1
+        while size < count { size *= 2 }
+        leaves = size
+        var spans = [Span](repeating: Span(), count: size * 2)
+        for (i, line) in lines.enumerated() {
+            let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+            var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
+            _ = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
+            // Glyph paths include overhang; typographic extents also include
+            // whitespace and decoration space. Retain the existing 2pt raster
+            // allowance and use the same rounded baseline as CTLineDraw.
+            let above = max(ascent + max(leading, 0), ink.isNull ? 0 : ink.maxY)
+            let below = max(descent + max(leading, 0), ink.isNull ? 0 : -ink.minY)
+            let top = baselines[i].rounded() - above - 2
+            let bottom = baselines[i].rounded() + below + 2
+            spans[size + i] = top.isFinite && bottom.isFinite
+                ? Span(top: top, bottom: bottom) : Span(top: -.infinity, bottom: .infinity)
+        }
+        if size > 1 {
+            for i in stride(from: size - 1, through: 1, by: -1) {
+                spans[i] = Span(top: min(spans[i * 2].top, spans[i * 2 + 1].top),
+                                bottom: max(spans[i * 2].bottom, spans[i * 2 + 1].bottom))
+            }
+        }
+        self.spans = spans
+    }
+
+    func forEachLine(from top: CGFloat, through bottom: CGFloat, _ body: (Int) -> Void) {
+        func visit(_ node: Int) {
+            let span = spans[node]
+            guard span.top <= bottom && span.bottom >= top else { return }
+            if node >= leaves {
+                let line = node - leaves
+                if line < count { body(line) }
+            } else {
+                visit(node * 2)
+                visit(node * 2 + 1)
+            }
+        }
+        visit(1)
     }
 }
 
@@ -73,10 +172,13 @@ struct TextCache<Key: Hashable, Value> {
     private var clock: UInt64 = 0
     var count: Int { entries.count }
     mutating func get(_ key: Key) -> Value? {
-        guard let entry = entries[key] else { return nil }
+        guard let index = entries.index(forKey: key) else { return nil }
         clock &+= 1
-        entries[key] = (entry.value, clock)
-        return entry.value
+        let value = entries.values[index].value
+        // Mutate through the found index: no second content hash, while the
+        // dictionary still performs value-semantic COW for saved checkpoints.
+        entries.values[index].used = clock
+        return value
     }
     mutating func put(_ key: Key, _ value: Value) {
         if entries.count >= 4096, entries[key] == nil {
@@ -522,16 +624,17 @@ final class TextEngine {
         ctx.saveGState()
         ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
         let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
-        for (line, baseline) in zip(p.lines, p.baselines) {
-            if let dirty {
-                let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
-                let rect = CGRect(x: bounds.minX + ink.minX, y: bounds.minY + baseline - ink.maxY,
-                                  width: max(bounds.width, ink.width), height: ink.height).insetBy(dx: -2, dy: -2)
-                if !rect.intersects(dirty) { continue }
-            }
+        func paint(_ index: Int) {
+            let line = p.lines[index], baseline = p.baselines[index]
             let x = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width)))
             ctx.textPosition = CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
             CTLineDraw(line, ctx)
+        }
+        if let dirty {
+            p.inkBounds().forEachLine(from: dirty.minY - bounds.minY,
+                                     through: dirty.maxY - bounds.minY, paint)
+        } else {
+            for index in p.lines.indices { paint(index) }
         }
         ctx.restoreGState()
     }

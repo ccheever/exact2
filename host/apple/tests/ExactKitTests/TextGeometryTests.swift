@@ -303,3 +303,195 @@ final class TextGeometryTests: XCTestCase {
     }
     #endif
 }
+
+// Viewport culling must be indistinguishable from painting every shaped line.
+extension TextGeometryTests {
+    private func inkBitmap(_ paragraph: Paragraph, spec: Spec, bounds: CGRect,
+                           clip: CGRect, exhaustive: Bool) -> Data {
+        let width = 360, height = 180, stride = width * 4
+        let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                bytesPerRow: stride, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        context.clip(to: clip)
+        if exhaustive {
+            // Deliberately independent of TextEngine.draw and its candidate index.
+            context.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
+            let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
+            for (line, baseline) in zip(paragraph.lines, paragraph.baselines) {
+                let x = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width)))
+                context.textPosition = CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
+                CTLineDraw(line, context)
+            }
+        } else {
+            TextEngine.draw(paragraph, spec: spec, in: bounds, context: context, dirty: clip)
+        }
+        return Data(bytes: context.data!, count: stride * height)
+    }
+
+    private func assertInkMatches(_ paragraph: Paragraph, spec: Spec, bounds: CGRect,
+                                  clip: CGRect, file: StaticString = #filePath, line: UInt = #line) {
+        let expected = inkBitmap(paragraph, spec: spec, bounds: bounds, clip: clip, exhaustive: true)
+        XCTAssertTrue(expected.contains { $0 != 0 }, "Oracle clip must contain ink", file: file, line: line)
+        let actual = inkBitmap(paragraph, spec: spec, bounds: bounds, clip: clip, exhaustive: false)
+        XCTAssertTrue(actual == expected, "Viewport differs from exhaustive paint: \(clip)", file: file, line: line)
+    }
+
+    func testViewportInkMatchesExhaustiveAtBeginningMiddleAndEnd() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let run = Run(text: String(repeating: "Café e\u{301} 🦀 東京 — complete paragraph. ", count: 180),
+                      size: 16, weight: 400, family: 0, italic: false,
+                      lineHeight: 23.125, letterSpacing: 0)
+        let spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [30, 60, 90, 255])
+        let paragraph = engine.paragraph(spec, width: 230)
+        XCTAssertGreaterThan(paragraph.lines.count, 100)
+        let coverage = paragraph.lines.map { CTLineGetStringRange($0) }
+        XCTAssertEqual(coverage.last!.location + coverage.last!.length, run.text.utf16.count)
+        let clip = CGRect(x: 12.5, y: 8.25, width: 320, height: 150)
+        for index in [0, paragraph.lines.count / 2, paragraph.lines.count - 1, 0] {
+            let top = paragraph.baselines[index]
+            assertInkMatches(paragraph, spec: spec,
+                             bounds: CGRect(x: 28.25, y: 48.5 - top, width: 230, height: paragraph.height), clip: clip)
+        }
+        XCTAssertEqual(paragraph.lines.map { CTLineGetStringRange($0).location }, coverage.map(\.location))
+        XCTAssertEqual(paragraph.lines.map { CTLineGetStringRange($0).length }, coverage.map(\.length))
+    }
+
+    func testViewportInkKeepsOverlappingFractionalLinesFontsAndStyledLinks() {
+        let engine = TextEngine(resolve: { _ in nil })
+        for height: CGFloat in [0, 0.25, 5.125, 24.25] {
+            var small = Run(text: "flair café\n", size: 13.25, weight: 400, family: 3,
+                            italic: true, lineHeight: height, letterSpacing: 0.125)
+            small.color = [210, 30, 60, 170]
+            small.href = "https://example.com/first"
+            var large = small
+            large.text = "🧙🏽‍♀️ 東京 fj\n"
+            large.size = 39.5; large.family = 0; large.weight = 700
+            large.color = [20, 100, 220, 160]; large.decoration = "underline line-through"
+            var last = small
+            last.text = "last link\n"; last.family = 5; last.size = 21.25
+            var strut = small; strut.text = ""; strut.size = 16
+            for alignment in [0, 1, 2] {
+                let spec = Spec(runs: [small, large, last, small, large, last], align: alignment,
+                                lineClamp: 0, color: [0, 0, 0, 255], strut: strut)
+                let paragraph = engine.paragraph(spec, width: 180)
+                for index in [0, paragraph.lines.count / 2, paragraph.lines.count - 1] {
+                    let top = paragraph.baselines[index]
+                    let bounds = CGRect(x: 72.25, y: 75.5 - top, width: 180, height: paragraph.height)
+                    for clip in [CGRect(x: 10.25, y: 25.5, width: 330, height: 100.25),
+                                 CGRect(x: 70.5, y: 72.25, width: 200, height: 10.5)] {
+                        assertInkMatches(paragraph, spec: spec, bounds: bounds, clip: clip)
+                    }
+                }
+            }
+        }
+    }
+
+    func testViewportInkRetainsAlignedOverflowOutsideTheContentBox() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let run = Run(text: String(repeating: "f", count: 32), size: 19.25, weight: 400,
+                      family: 3, italic: true, lineHeight: 24.25, letterSpacing: 0)
+        let spec = Spec(runs: [run], align: 2, lineClamp: 0, color: [0, 0, 0, 255])
+        let paragraph = engine.paragraph(spec, width: 45)
+        XCTAssertEqual(paragraph.lines.count, 1)
+        XCTAssertGreaterThan(paragraph.width, 120)
+        assertInkMatches(paragraph, spec: spec,
+                         bounds: CGRect(x: 240, y: 35, width: 45, height: paragraph.height),
+                         clip: CGRect(x: 0, y: 20, width: 220, height: 80))
+    }
+
+    func testViewportInkIndexIsReusedAndKeepsZeroHeightPaintOrder() {
+        let engine = TextEngine(resolve: { _ in nil })
+        var run = Run(text: String(repeating: "line\n", count: 1024), size: 16, weight: 400,
+                      family: 0, italic: false, lineHeight: 24, letterSpacing: 0)
+        var spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let paragraph = engine.paragraph(spec, width: 200)
+        XCTAssertTrue(paragraph.cachedInk == nil)
+        let index = paragraph.inkBounds()
+        XCTAssertTrue(paragraph.inkBounds() === index)
+        XCTAssertEqual(index.storageBytes, 2048 * 2 * MemoryLayout<CGFloat>.stride)
+        var visible: [Int] = []
+        index.forEachLine(from: 12000, through: 12048) { visible.append($0) }
+        XCTAssertGreaterThan(visible.count, 0)
+        XCTAssertTrue(visible.count < 6)
+        XCTAssertEqual(visible, visible.sorted())
+
+        // Many lines may paint the same pixels. No binary search on baselines,
+        // line-height division, or one-candidate shortcut may omit any of them.
+        run.lineHeight = 0
+        spec.runs = [run]
+        let overlapping = engine.paragraph(spec, width: 200)
+        var all: [Int] = []
+        overlapping.inkBounds().forEachLine(from: -100, through: 100) { all.append($0) }
+        XCTAssertEqual(all, Array(overlapping.lines.indices))
+        XCTAssertTrue(overlapping.inkBounds() !== index)
+        XCTAssertTrue(paragraph.inkBounds() === index)
+    }
+
+    func testTextCacheDistinguishesCanonicallyEquivalentSourceRanges() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let composed = "Café 🦀 東京"
+        let decomposed = "Cafe\u{301} 🦀 東京"
+        XCTAssertEqual(composed, decomposed) // Swift String equality is canonical.
+        XCTAssertTrue(composed.utf16.count != decomposed.utf16.count)
+        let first = Run(text: composed, size: 16, weight: 400, family: 0,
+                        italic: false, lineHeight: 24.25, letterSpacing: 0)
+        var second = first; second.text = decomposed
+        XCTAssertTrue(first != second) // CoreText indexes the actual UTF16 source.
+        var bridged = first; bridged.text = NSString(string: composed) as String
+        XCTAssertEqual(first, bridged)
+        XCTAssertEqual(first.hashValue, bridged.hashValue)
+        let spec = Spec(runs: [first], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        var other = spec; other.runs = [second]
+        let a = engine.paragraph(spec, width: 60)
+        let b = engine.paragraph(other, width: 60)
+        XCTAssertTrue(a !== b)
+        for (paragraph, source) in [(a, composed), (b, decomposed)] {
+            var end = 0
+            for line in paragraph.lines {
+                let range = CTLineGetStringRange(line)
+                XCTAssertEqual(range.location, end)
+                end += range.length
+            }
+            XCTAssertEqual(end, source.utf16.count)
+        }
+        XCTAssertTrue(engine.paragraph(spec, width: 60) === a)
+        XCTAssertTrue(engine.paragraph(other, width: 60) === b)
+    }
+
+    func testTextCacheHitKeepsCheckpointEvictionOrderIndependent() {
+        var cache = TextCache<Int, Int>()
+        for i in 0..<4096 { cache.put(i, i) }
+        let saved = cache
+        XCTAssertEqual(cache.get(0), 0)
+        cache.put(4096, 4096)
+        XCTAssertEqual(cache.get(0), 0)
+        var restored = saved
+        restored.put(4096, 4096)
+        XCTAssertTrue(restored.get(0) == nil)
+        XCTAssertEqual(restored.get(4095), 4095)
+        XCTAssertEqual(cache.get(4095), 4095)
+    }
+
+    func testViewportInkKeepsPaintOrderWhenBaselinesGoBackwards() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let baselines: [CGFloat] = [50.125, 15.25, 50.125, -8.5, 110.25, 0.25]
+        var specs: [Spec] = []
+        let lines = baselines.indices.map { i -> CTLine in
+            var run = Run(text: "fj café 🦀 \(i)", size: 24.25, weight: 400,
+                          family: 3, italic: true, lineHeight: 0, letterSpacing: 0)
+            run.color = i.isMultiple(of: 2) ? [220, 20, 50, 150] : [20, 60, 220, 170]
+            run.href = "example.md#\(i)"
+            let spec = Spec(runs: [run], align: 1, lineClamp: 0, color: [0, 0, 0, 255])
+            specs.append(spec)
+            return CTLineCreateWithAttributedString(engine.attributed(spec))
+        }
+        let paragraph = Paragraph(lines: lines, baselines: baselines, width: 180, height: 130)
+        for clip in [CGRect(x: 0, y: 20, width: 360, height: 140),
+                     CGRect(x: 30.25, y: 75.5, width: 300, height: 12.25)] {
+            assertInkMatches(paragraph, spec: specs[0],
+                             bounds: CGRect(x: 72.25, y: 40.5, width: 180, height: 130), clip: clip)
+        }
+    }
+}

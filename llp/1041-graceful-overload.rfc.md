@@ -647,3 +647,58 @@ supplies all 25,000 Arrange/Read records while preserving manual/eager controls;
 metadata-only actions reuse row values and do no record keying. Photos remains
 manually paged. Discrete buttons, static screenshots and bounded mounted rows
 do not establish the continuous interactions or decoded-image budget.
+
+### 8.8 Giant Apple paragraph: measured warm-path changes, 2026-09-17
+
+Profiling the unchanged 4,194,181-byte Markdown fixture identified two warm
+costs: canonical Unicode hashing during cache lookup/LRU updates, and computing
+glyph ink bounds for all 48,932 lines before rejecting off-viewport lines. The
+suspected repeated UTF16-length calculation was not a dominant cost in this
+optimized fixture; no optimization based on that hypothesis was made.
+
+Apple paragraphs now lazily retain a conservative vertical ink interval tree,
+visited in logical paint order. Repeated dirty viewport paints select intersecting
+lines before drawing; overlapping/zero-height lines still all contribute. The
+first dirty paint constructs the index and retains that cost. Cache hits update
+LRU through the found dictionary index, preserving checkpoint copy-on-write.
+Run text uses matching exact UTF8 equality and hashing: canonical String equality
+previously aliased NFC/NFD text whose CoreText UTF16 ranges differ. No pointer
+identity, text truncation or alternate renderer is introduced.
+
+Three fresh processes per size and stage compare baseline, paint-only,
+dictionary-index and final changes on Apple M4/16 GiB/macOS 26.2. Timed measurement
+includes the C request's UTF8-to-String conversion; paint targets a 640×820 bitmap.
+The entire paragraph's contiguous UTF16 coverage is checked at widths 640 and 641.
+Four-MiB medians, in milliseconds:
+
+| Phase | Baseline | Final |
+|---|---:|---:|
+| Cold measurement at 640 | 293.078 | 252.571 |
+| Warm measurement at 640 | 27.033 | 6.010 |
+| First dirty viewport paint | 269.646 | 272.853 |
+| Repeated dirty viewport paint | 266.886 | 0.200 |
+| First measurement at 641 | 228.123 | 164.570 |
+| Return to cached 640 | 26.990 | 6.231 |
+
+The 4 MiB index adds 2,097,152 bytes of array payload per painted paragraph/width,
+excluding headers and allocator slack; 256 KiB/1 MiB fixtures add 131,072/524,288
+bytes. Unpainted width variants have no ink index. Existing paragraph/typesetter
+caches still cap entries at 4,096, not bytes. Warm comparison and bridge ingress
+remain O(source bytes); first paint and fresh-width reflow remain far beyond an
+8.33 ms budget. Byte-bounded snapshots and asynchronous reflow are not implemented
+by this increment.
+
+Seventeen actual engine test methods pass 255 assertions, including exhaustive
+bitmap comparisons, aligned overflow, backwards baselines, Unicode source ranges
+and checkpoint eviction independence. The old paint cull and canonical-source
+cache both have recorded failing regressions. This machine lacks XCTest, so
+standalone optimized Swift runs the methods using temporary assertion functions;
+it excludes session/view tests and is not a full-host or UIKit validation.
+
+Artifacts, four preserved source/binary stages, raw samples and profiles are in
+`target/apple-text-20260917/`; its `report.md` and `manifest.json` identify every
+preserved artifact. Final Text.swift
+SHA-256 is `1979567fce5dd591e51279e3e51f1dbef3f01c44fe5334bdc00772adf5f503c7`;
+the timing executable is `1c2f17ccd75ad69eb7689a86fda6b95e8c7e5f63cb8b91c0ea180cdf6412e7a3`.
+These are exploratory same-machine CPU observations without an exclusive quiet
+window, Linux text result, whole-app input latency or physical presentation claim.
