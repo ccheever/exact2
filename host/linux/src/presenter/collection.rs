@@ -249,6 +249,13 @@ impl<D: DataSource> Presenter<D> {
             if self.host.route_visibility(view).0 {
                 continue;
             }
+            if self.host.content_region().is_some_and(|region| {
+                !region.collection_feedback_allowed(self.host.kernel(), snapshot)
+            }) {
+                // A completion queues this view again. Do not spin frames, or
+                // relabel old accepted height with current row epochs.
+                continue;
+            }
             let Some(g) = geometry(self.host.kernel(), snapshot, self.viewport.0 as f64) else {
                 continue;
             };

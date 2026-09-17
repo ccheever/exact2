@@ -34,14 +34,14 @@ Also drag the real window edge, scroll partway through the document and type in
 the persistent input. The echo is bound to Contract state and capped at 512
 Unicode characters. Neither width changes nor typing depend on the document
 resource arguments. Paging reuses the parsed fixture; changing profile, size or
-revision reparses it. **Parse again** performs one full synchronous reparse;
+revision reparses it. In the ordinary control, **Parse again** performs one full synchronous reparse;
 the timed control requests 20 reparses at 1 Hz, capped at revision 1,000 until
 Reset. Pause cannot interrupt a synchronous operation already in flight.
 
 Manual and eager modes remain stress controls beside the windowed path. This
-fixture does not establish 120 FPS or move parsing to a worker. The production Markdown
-reader reads and parses native files on its continuation worker, whereas this
-cross-platform synthetic source currently parses synchronously. Do not present
+fixture does not establish 120 FPS. Its ordinary cross-platform synthetic source
+parses synchronously; the explicit Linux trial below uses a native continuation.
+The production Markdown reader already reads and parses native files on its continuation worker. Do not present
 its parse latency as a regression in that reader's existing file-open worker.
 
 ## Run
@@ -62,6 +62,37 @@ EXACT_AGENT=1 EXACT_PAINTER=cpu target/release/markdown-stress-linux
 The web dev loop is `bun host/web/dev.mjs --app markdown-stress`.
 The Linux executable uses the existing headless/DRM host; a headless screenshot
 does not exercise a desktop compositor or prove physical-display refresh rate.
+
+### Explicit Linux cold-paragraph trial
+
+The same executable can select a complete cold paragraph before its first layout:
+
+```sh
+EXACT_PAINTER=cpu target/release/markdown-stress-linux --content-region=1048576
+EXACT_PAINTER=cpu target/release/markdown-stress-linux --content-region=4194304
+```
+
+These are nominal source budgets, with the unchanged complete-chunk generator.
+Bare, unknown or duplicate region arguments refuse before boot. The trial uses
+an explicitly contained 400px content area with controls outside it. Generation
+and parsing use the ordered native continuation; a separate bounded text worker
+prepares fonts, shape, width layout and the CPU ink index. Contract and layout
+publication remain on the UI owner. The initial loading view is real authored
+content, and acceptance requires the complete requested paragraph.
+
+Width reflow retains the last successfully painted document. Later source
+reparses can display “Generating…” instead; keeping that document visible through
+source parsing remains unfinished. Mixed/code layout has a known nonfinite-width
+failure and is outside this paragraph trial. The ordinary synchronous control
+remains available. CPU painting and one fixed DPR are required; changing DPR or
+unsupported transforms refuses the trial. Read-only source/link metadata is
+retained, but general selection and link activation are not implemented here.
+
+Mac-hosted Rust tests exercise full 1MiB/4MiB cold publication with zero giant UI
+measurement calls. Actual Linux display acceptance, memory under the VM cap,
+continuous resize and latency remain separate work. The display loop watches
+completion readiness; the stdio agent only pumps on commands. Neither the
+worker queues nor their source/index limits imply a total-memory or 120Hz claim.
 
 ## Reproduce
 

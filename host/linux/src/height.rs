@@ -106,6 +106,22 @@ impl<D: DataSource> Host<D> {
         self.sync_height_owner()?;
         let projection = self.current_height_projection()?;
         let (w, h) = self.viewport;
+        if let Some(region) = &mut self.content_region {
+            region.validate_lifetime(self.runner.kernel())?;
+            if projection.is_some() {
+                return Err("content region does not compose with height projection".into());
+            }
+            let roots = self.runner.roots();
+            if roots.len() != 1 {
+                return Err("content region lost its single root".into());
+            }
+            region.collection_context(self.runner.kernel(), &self.runner.collections())?;
+            let changed =
+                region.layout(self.runner.kernel_mut(), roots[0], Offer::definite(w, h))?;
+            self.height_projection = None;
+            self.height_layout_valid = true;
+            return Ok(changed);
+        }
         let mut changed = false;
         for root in self.runner.roots() {
             let receipt = self

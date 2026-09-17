@@ -37,7 +37,25 @@ fn main() {
     std::fs::write(
         out_dir.join("entry.rs"),
         format!(
-            "{}\nfn main() {{ std::process::exit({host}::run::<AppData>(PLAN, COMPAT)); }}\n",
+            "{}\nfn main() {{
+    let region_args: Vec<_> = std::env::args().filter(|a| a == \"--content-region\" || a.starts_with(\"--content-region=\")).collect();
+    if !region_args.is_empty() {{
+        let activate = match region_args.as_slice() {{
+            [one] if one == \"--content-region=1048576\" => \"launchParagraph1MiB\",
+            [one] if one == \"--content-region=4194304\" => \"launchParagraph4MiB\",
+            _ => {{
+                eprintln!(\"content-region trial requires --content-region=1048576 or --content-region=4194304 (paragraph, explicit CPU); default mixed startup is unsupported\");
+                std::process::exit(2);
+            }}
+        }};
+        let region = exact_linux::content_region::ContentRegionRegistration {{
+            activate: Some(activate), owner: \"markdown-region-owner\",
+            content: \"markdown-region-content\", pending: \"markdown-region-pending\",
+        }};
+        std::process::exit(exact_linux::app::run_with_content_region::<markdown_stress_data::NativeMarkdownStress>(PLAN, COMPAT, region));
+    }}
+    std::process::exit({host}::run::<AppData>(PLAN, COMPAT));
+}}\n",
             contract::rust_entry(
                 "markdown_stress_data::MarkdownStress",
                 "markdown_stress_data::MarkdownStress::default()",

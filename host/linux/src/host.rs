@@ -19,6 +19,8 @@ use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
 
+#[path = "content_region/host.rs"]
+mod content;
 #[path = "height.rs"]
 mod height;
 #[path = "height_binding.rs"]
@@ -59,6 +61,7 @@ pub struct Host<D: DataSource> {
     transform_bindings: transform_binding::Bindings,
     height_projection: Option<exact_kernel::PresentedHeight>,
     height_layout_valid: bool,
+    content_region: Option<crate::content_region::ContentRegionState>,
     #[cfg(test)]
     layout_calls: usize,
     data_activated: bool,
@@ -106,9 +109,28 @@ impl<D: DataSource> Host<D> {
         delivery: Option<exact_runner::Delivery>,
         launch: &str,
     ) -> Result<(Host<D>, Option<String>), HostError> {
+        Self::boot_at_with_region(
+            plan_bytes, data, measurer, width, height, carried, delivery, launch, None,
+        )
+    }
+
+    /// Boot one explicitly registered native content region before any layout.
+    /// Opt-out is exactly the ordinary `boot_at` path.
+    #[allow(clippy::too_many_arguments)]
+    pub fn boot_at_with_region(
+        plan_bytes: &[u8],
+        data: D,
+        measurer: Box<dyn TextMeasurer>,
+        width: f32,
+        height: f32,
+        carried: Option<&Carried>,
+        delivery: Option<exact_runner::Delivery>,
+        launch: &str,
+        region: Option<crate::content_region::ContentRegionRegistration>,
+    ) -> Result<(Host<D>, Option<String>), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         let kernel = Kernel::new(measurer);
-        let runner = Runner::boot_with_delivery(
+        let mut runner = Runner::boot_with_delivery(
             plan,
             data,
             kernel,
@@ -122,6 +144,9 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        if let Some(action) = region.and_then(|r| r.activate) {
+            runner.act(action, Vec::new()).map_err(HostError::Runner)?;
+        }
         let mut host = Host {
             runner,
             engine: Engine::new(),
@@ -134,6 +159,7 @@ impl<D: DataSource> Host<D> {
             transform_bindings: Default::default(),
             height_projection: None,
             height_layout_valid: false,
+            content_region: None,
             #[cfg(test)]
             layout_calls: 0,
             data_activated: false,
@@ -165,6 +191,17 @@ impl<D: DataSource> Host<D> {
         host.project_navigation();
         host.reconcile_height_bindings();
         host.reconcile_transform_bindings();
+        if let Some(registration) = region {
+            let roots = host.runner.roots();
+            host.content_region = Some(
+                crate::content_region::ContentRegionState::register(
+                    host.runner.kernel_mut(),
+                    &roots,
+                    registration,
+                )
+                .map_err(HostError::Layout)?,
+            );
+        }
         let error = host.layout().err();
         host.present();
         Ok((host, error))
@@ -214,6 +251,11 @@ impl<D: DataSource> Host<D> {
     /// The kernel.
     pub fn kernel(&self) -> &Kernel {
         self.runner.kernel()
+    }
+
+    /// Explicit region selection, including retained provenance while pending.
+    pub fn content_region(&self) -> Option<&crate::content_region::ContentRegionState> {
+        self.content_region.as_ref()
     }
 
     /// Mounted collection metadata; no record keys or unmounted rows cross here.

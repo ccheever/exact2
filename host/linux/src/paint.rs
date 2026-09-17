@@ -29,6 +29,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
+mod region;
 
 /// A node's presentation values: what the motion engine says to paint.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -225,12 +226,21 @@ pub struct Painter {
     // One lease per actually accepted owner, not one global width per string.
     // Retained while a subsequent backend frame fails.
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    region_picture: Option<Rc<region::Picture>>,
+    region_frame: Option<region::Published>,
 }
 
 struct Walk<'a, 'b> {
     scene: &'b Scene<'a>,
     boxes: Vec<PaintedBox>,
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    skip: Option<exact_kernel::NodeKey>,
+    // Record traversal alone supplies native exact paragraphs. The normal
+    // shell path and ordinary opt-out remain unchanged.
+    region: Option<&'b exact_kernel::RegionPublication>,
+    capture: Option<&'b region::Capture>,
+    replay: Option<&'b region::Replay<'b>>,
+    region_error: Option<&'static str>,
 }
 
 impl Painter {
@@ -242,6 +252,8 @@ impl Painter {
             dark: false,
             backend,
             accepted_text: BTreeMap::new(),
+            region_picture: None,
+            region_frame: None,
         }
     }
 
@@ -272,11 +284,90 @@ impl Painter {
 
     /// Paint the scene into a viewport of the given size (points).
     pub fn paint(&mut self, scene: &Scene<'_>, viewport: (f32, f32)) -> Result<Frame, String> {
+        self.paint_selected(scene, viewport, None, None)
+    }
+
+    /// Paint exactly the registered selected branch. An accepted publication
+    /// requires its native snapshot; live candidate text is never a fallback.
+    pub fn paint_region(
+        &mut self,
+        scene: &Scene<'_>,
+        viewport: (f32, f32),
+        region: &crate::content_region::ContentRegionState,
+    ) -> Result<Frame, String> {
+        region.validate_scale(self.scale)?;
+        self.validate_region_presentation(scene, region)?;
+        if self.backend.name() == "gpu" {
+            return Err("content-region trial requires CPU painting".into());
+        }
+        let receipt = region
+            .receipt()
+            .ok_or("content region has no successful layout")?;
+        match &receipt.selection {
+            exact_kernel::RegionSelection::Pending(key) if *key == region.binding().pending => {
+                let frame =
+                    self.paint_selected(scene, viewport, Some(region.binding().content), None)?;
+                self.region_picture = None;
+                self.region_frame = Some(region::Published {
+                    incarnation: region.incarnation().clone(),
+                    selection: None,
+                });
+                Ok(frame)
+            }
+            exact_kernel::RegionSelection::Pending(_) => {
+                Err("content region placeholder identity mismatch".into())
+            }
+            exact_kernel::RegionSelection::Accepted(publication) => {
+                let picture = if receipt.current {
+                    // A flat native paint/hit snapshot, never an app/layout
+                    // graph. No UTF-8 copy or cold text lookup is permitted.
+                    region::Picture::capture(self, scene, region, publication)?
+                } else {
+                    self.region_picture
+                        .as_ref()
+                        .filter(|p| p.belongs_to(region))
+                        .cloned()
+                        .ok_or("retained content has no matching native picture")?
+                };
+                let replay = region::Replay {
+                    picture: &picture,
+                    origin: receipt.origin,
+                    content: region.binding().content,
+                    viewport,
+                };
+                let frame = self.paint_selected(
+                    scene,
+                    viewport,
+                    Some(region.binding().pending),
+                    Some(&replay),
+                )?;
+                self.region_frame = Some(region::Published {
+                    incarnation: region.incarnation().clone(),
+                    selection: Some((picture.publication().clone(), receipt.origin)),
+                });
+                self.region_picture = Some(picture);
+                Ok(frame)
+            }
+        }
+    }
+
+    fn paint_selected(
+        &mut self,
+        scene: &Scene<'_>,
+        viewport: (f32, f32),
+        skip: Option<exact_kernel::NodeKey>,
+        replay: Option<&region::Replay<'_>>,
+    ) -> Result<Frame, String> {
         self.backend.begin(viewport.0, viewport.1, self.scale);
         let mut walk = Walk {
             scene,
             boxes: Vec::new(),
             text: BTreeMap::new(),
+            skip,
+            region: None,
+            capture: None,
+            replay,
+            region_error: None,
         };
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
@@ -284,7 +375,10 @@ impl Painter {
         if let Some((px, py)) = scene.pointer {
             self.backend.pointer(px, py);
         }
-        let finished = self.backend.finish();
+        let finished = self.backend.finish().and_then(|p| match walk.region_error {
+            Some(error) => Err(error.into()),
+            None => Ok(p),
+        });
         // Publication is the ownership boundary. On Err the previous accepted
         // set remains intact; candidate leases simply unwind with `walk`.
         if finished.is_ok() {
@@ -309,9 +403,24 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
+        if walk.region_error.is_some() {
+            return;
+        }
+        if let Some(replay) = walk.replay.filter(|r| {
+            walk.scene
+                .kernel
+                .node(id)
+                .is_some_and(|n| n.key == r.content)
+        }) {
+            replay.paint(self, walk, ts, offset, clip_rect);
+            return;
+        }
         let Some(node) = walk.scene.kernel.node(id) else {
             return;
         };
+        if walk.skip == Some(node.key) {
+            return;
+        }
         if (walk.scene.hidden)(id)
             || node.is_inline_run()
             || node.style.display == Display::None
@@ -343,6 +452,9 @@ impl Painter {
             clip: clip_rect,
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),
         });
+        if let Some(capture) = walk.capture {
+            capture.hit(node.key, *walk.boxes.last().unwrap());
+        }
         let opacity = p.opacity.clamp(0.0, 1.0);
         if opacity <= 0.0 {
             return;
@@ -444,38 +556,57 @@ impl Painter {
                 }
             }
             NodeType::Text => {
-                // The kernel measures a Text subtree as one paragraph. Inline
-                // descendants deliberately have zero frames, not paint boxes.
-                let build = || {
-                    let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
-                    spec.runs = node
-                        .text_runs()
-                        .iter()
-                        .map(|run| Run::from_style(run.text, run.style))
-                        .collect();
-                    spec
-                };
-                let paragraph = if let Some(stamp) = node.paragraph_stamp() {
-                    self.text
-                        .borrow_mut()
-                        .paragraph_identified(&stamp, Some(content.2), build)
+                if let Some(publication) = walk.region {
+                    if let Some(artifact) = publication.paint_artifact(node.key) {
+                        if let Some(native) =
+                            artifact.payload::<crate::content_region::NativeText>()
+                        {
+                            if let Some(paragraph) = native.paragraph() {
+                                walk.text.insert(node.key, paragraph.clone());
+                                self.backend.text(
+                                    &mut self.text.borrow_mut(),
+                                    paragraph,
+                                    &native.palette(self.dark),
+                                    (content.0, content.1),
+                                    ts,
+                                );
+                            }
+                        }
+                    }
                 } else {
-                    let spec = build();
-                    (!spec.is_empty())
-                        .then(|| self.text.borrow_mut().paragraph(&spec, Some(content.2)))
-                };
-                if let Some(paragraph) = paragraph {
-                    let mut palette = Vec::new();
-                    text_palette(walk.scene.kernel, node, self.dark, &mut palette);
-                    walk.text.insert(node.key, paragraph.clone());
-                    let mut engine = self.text.borrow_mut();
-                    self.backend.text(
-                        &mut engine,
-                        &paragraph,
-                        &palette,
-                        (content.0, content.1),
-                        ts,
-                    );
+                    // The kernel measures a Text subtree as one paragraph. Inline
+                    // descendants deliberately have zero frames, not paint boxes.
+                    let build = || {
+                        let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
+                        spec.runs = node
+                            .text_runs()
+                            .iter()
+                            .map(|run| Run::from_style(run.text, run.style))
+                            .collect();
+                        spec
+                    };
+                    let paragraph = if let Some(stamp) = node.paragraph_stamp() {
+                        self.text
+                            .borrow_mut()
+                            .paragraph_identified(&stamp, Some(content.2), build)
+                    } else {
+                        let spec = build();
+                        (!spec.is_empty())
+                            .then(|| self.text.borrow_mut().paragraph(&spec, Some(content.2)))
+                    };
+                    if let Some(paragraph) = paragraph {
+                        let mut palette = Vec::new();
+                        text_palette(walk.scene.kernel, node, self.dark, &mut palette);
+                        walk.text.insert(node.key, paragraph.clone());
+                        let mut engine = self.text.borrow_mut();
+                        self.backend.text(
+                            &mut engine,
+                            &paragraph,
+                            &palette,
+                            (content.0, content.1),
+                            ts,
+                        );
+                    }
                 }
             }
             NodeType::TextInput => {
@@ -552,19 +683,30 @@ impl Painter {
                 None => own,
             });
         }
-        let child_offset = if ox == Overflow::Scroll || oy == Overflow::Scroll {
+        let scrolls = ox == Overflow::Scroll || oy == Overflow::Scroll;
+        let child_offset = if scrolls {
             let (sx, sy) = walk
                 .scene
                 .scroll
                 .get(&node.id)
                 .copied()
                 .unwrap_or((0.0, 0.0));
-            (offset.0 + sx, offset.1 + sy)
+            if let Some(capture) = walk.capture {
+                capture.scroll(node.key, (sx, sy));
+                offset
+            } else {
+                (offset.0 + sx, offset.1 + sy)
+            }
         } else {
             offset
         };
         for child in node.children() {
             self.node(walk, child, ts, child_offset, child_rect);
+        }
+        if scrolls {
+            if let Some(capture) = walk.capture {
+                capture.end_scroll();
+            }
         }
         if clips {
             self.backend.pop_clip();

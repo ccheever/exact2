@@ -42,7 +42,7 @@ impl<D: DataSource> Presenter<D> {
         let Some(node) = self.host.kernel().node_by_key(key) else {
             return false;
         };
-        if self.host.route_visibility(node.id).1 {
+        if self.host.route_visibility(node.id).1 || self.brush.region_blocks_action(node.id) {
             return false;
         }
         let mut at = Some(node.id);

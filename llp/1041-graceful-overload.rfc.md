@@ -1820,3 +1820,68 @@ Runner validation/realization and layout remain on the UI owner. Forty blocks
 per manual page is not a byte bound: the giant single block stays intact.
 This app-specific continuation does not implement general module placement,
 generic resource cancellation, total-memory bounds or native responsiveness.
+
+### 8.19 Linux content-region controller and cold launch, 2026-09-17
+
+Epicurus implements the native controller; Zeno reviews thread/source/adoption
+and Tuft reviews paint, display readiness and integration. One explicitly
+registered region discovers exact offers on the UI owner and sends owned work
+to one process-lifetime font service. One active job, one replaceable pending
+job and one undrained result are permitted. Retiring work keeps admission until
+its actual worker-owned allocations drop. There is no UI join, per-request
+thread or parallel Contract/Taffy execution.
+
+The first successful authored placeholder frame precedes font-recipe capture.
+Worker-prepared final paragraphs carry the exact source, stamp, both offers,
+catalog and raster scale. Stale results cannot adopt. The painter admits only
+prepared CPU indexes compatible with the current query; unsupported queries
+cannot silently invoke full-paragraph fallback. Flat retained paint commands
+pin source, palette, paragraphs and hit metadata. Successful backend completion
+publishes them together; failed B can preserve displayed A while C is pending.
+Collection feedback additionally requires the painted publication, origin and
+current row epochs. Read-only retained boxes cannot dispatch current actions;
+general selection and link activation remain outside this trial.
+
+The real Linux display loop watches the region completion FD alongside existing
+executor/image readiness. The stdio agent is still command-pumped. Source
+inspection and Host tests do not establish autonomous native presentation;
+the next actual Linux acceptance uses the existing display/VKMS path.
+
+Markdown Stress opts in with explicit CPU painting and
+`--content-region=1048576` or `--content-region=4194304`. An authored action
+selects the paragraph and full budget before first layout. Bake and ordinary
+native/web controls retain synchronous `MarkdownStress`; this runtime uses
+`NativeMarkdownStress`. The trial's independently sized 400px region leaves
+typing and controls outside. A reproduced delayed default mixed launch returned
+`InvalidTextMetrics(298)` and permanently refused its registration. Bare,
+malformed and duplicate trial arguments now refuse before boot. The existing
+ordinary mixed/code nonfinite-width bug is preserved and assigned separately,
+not treated as solved by selecting the paragraph workload.
+
+Two source-inclusive tests on macOS park the actual ordered continuation before
+generation and let font work finish first. They distinguish a ready loading
+label from the requested document, exercise typing, then require full unsplit
+1MiB/4MiB paragraph source and prepared ink after release, with zero giant UI
+measurement calls. Raw source sizes are 1,048,531 and 4,194,181 bytes; paragraph
+sizes are 1,048,499 and 4,194,149 bytes. Both pass. Seven generated-executable
+argument checks also pass. The canonical controller package records 272 passes
+and one existing GPU ignore; strict Clippy passes. An older 1MiB complete CPU
+pixel oracle predates canonical query-helper consolidation, as its archived
+source identity states. No actual Linux, capped-memory or latency conclusion
+follows from these Mac-hosted tests.
+
+While later source parsing is pending, the authored loading branch can replace
+the old document with “Generating…”. Retaining the DataSource Value does not
+mean retaining its displayed pixels. Width-only reflow does retain the accepted
+picture. Fixed DPR, explicit CPU and the read-only paragraph consumer are trial
+constraints. UI source/range capture, one native Spec source copy, Value/Rc
+conversion, shell layout, visible glyph raster work and destruction remain.
+The 64KiB link limit is per paragraph; displayed A, kernel-accepted B and working
+C may coexist. Count/source/index limits and viewport surfaces are separate
+categories, not a total resident-memory bound.
+
+Frozen sources, behavioral failures, private harnesses and independent reviews
+are retained in `target/content-region-controller-validation/`; integration
+checks are in `target/content-region-controller-integration/`. Actual Linux
+cold-to-correct publication, continuous input/resize, measured memory and Apple
+consumer integration remain in progress. No physical 120Hz claim is made.

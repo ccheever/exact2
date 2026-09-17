@@ -316,6 +316,9 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         // finished update check the same.
         fds.push(p.executor_fd());
         fds.push(p.image_fd());
+        if let Some(fd) = p.content_region_fd() {
+            fds.push(fd);
+        }
         if let Some(fd) = p.update_fd() {
             fds.push(fd);
         }
