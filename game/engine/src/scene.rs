@@ -192,12 +192,15 @@ pub struct DirectionalLight {
     pub color: [f32; 3],
     /// Illuminance in lux.
     pub illuminance: f32,
+    /// Cast sun shadows; enabled by default.
+    pub shadows: bool,
 }
 impl Default for DirectionalLight {
     fn default() -> Self {
         Self {
             color: [1.0; 3],
             illuminance: 10000.0,
+            shadows: true,
         }
     }
 }
@@ -242,6 +245,7 @@ impl World {
             .register::<DirectionalLight>()
             .register::<PointLight>()
             .register::<Visible>()
+            .register_resource::<crate::Environment>()
     }
     /// Resolve only parented entities, reusing indexed scratch and chain stamps.
     /// Stale parents act as roots; parents without Transform contribute identity.

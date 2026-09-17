@@ -73,6 +73,8 @@ pub(crate) struct Storage<C> {
     len: usize,
     borrowed: Cell<isize>,
     changed: Cell<u64>,
+    revision: Cell<u64>,
+    membership: u64,
 }
 impl<C> Default for Storage<C> {
     fn default() -> Self {
@@ -84,6 +86,8 @@ impl<C> Default for Storage<C> {
             len: 0,
             borrowed: Cell::new(0),
             changed: Cell::new(0),
+            revision: Cell::new(0),
+            membership: 0,
         }
     }
 }
@@ -109,6 +113,15 @@ impl<C> Storage<C> {
             .get(index / 64)
             .is_some_and(|word| word & (1 << (index % 64)) != 0)
     }
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision.get()
+    }
+    pub(crate) fn membership(&self) -> u64 {
+        self.membership
+    }
+    fn edited(&self) {
+        self.revision.set(self.revision.get().wrapping_add(1));
+    }
     pub(crate) fn changed(&self) -> u64 {
         self.changed.get()
     }
@@ -128,6 +141,7 @@ impl<C: Data> Storage<C> {
             n.checked_add(1).expect("too many borrows")
         });
         if mutable {
+            self.edited();
             self.changed.set(tick);
         }
         Lease {
@@ -136,6 +150,7 @@ impl<C: Data> Storage<C> {
         }
     }
     pub(crate) fn insert(&mut self, index: usize, c: C, tick: u64) {
+        self.edited();
         self.changed.set(tick);
         if self.has(index) {
             // SAFETY: the bit proves initialization; &mut self excludes all leases.
@@ -143,6 +158,7 @@ impl<C: Data> Storage<C> {
             drop(unsafe { self.ptr(index).replace(c) });
             return;
         }
+        self.membership = self.membership.wrapping_add(1);
         let page = index / PAGE;
         if page >= self.pages.len() {
             self.pages.resize_with(page + 1, || None);
@@ -165,6 +181,8 @@ impl<C: Data> Storage<C> {
         if !self.has(index) {
             return None;
         }
+        self.edited();
+        self.membership = self.membership.wrapping_add(1);
         self.changed.set(tick);
         let ptr = self.ptr(index);
         self.mask[index / 64] &= !(1 << (index % 64));

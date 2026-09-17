@@ -80,6 +80,7 @@ pub struct Sim<G: Game> {
     pub(crate) last_us: Option<i64>,
     world_us: i64,
     game: PhantomData<G>,
+    generation: u64,
 }
 const QUEUE_LIMIT: usize = 1024;
 pub(crate) fn micros(ms: f64) -> i64 {
@@ -117,11 +118,21 @@ impl<G: Game> Sim<G> {
             last_us: None,
             world_us: 0,
             game: PhantomData,
+            generation: 0,
         })
     }
     /// Validate first, then seek under the old arguments to the host's stamp.
     /// Setup changes restart at tick zero; live changes affect subsequent ticks.
     pub fn bind(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), String> {
+        self.bind_with(values, at_ms, |_, _| {})
+    }
+    /// Timed bind with the same post-tick observer as advance_with.
+    pub fn bind_with(
+        &mut self,
+        values: &[Value],
+        at_ms: Option<f64>,
+        after: impl FnMut(&World, u32),
+    ) -> Result<(), String> {
         if at_ms.is_some_and(|at| !at.is_finite()) {
             return Err("bind clock must be finite".into());
         }
@@ -147,9 +158,10 @@ impl<G: Game> Sim<G> {
             Some(Self::build(args.clone())?)
         };
         if let Some(at) = at_ms {
-            self.advance(at, Clock::Seekable);
+            self.advance_with(at, Clock::Seekable, after);
         }
         if let Some(world) = restart {
+            self.generation = self.generation.wrapping_add(1);
             self.world = world;
             self.world_us = 0;
             self.queue.clear();
@@ -389,6 +401,10 @@ impl<G: Game> Sim<G> {
     pub fn alpha(&self) -> f32 {
         (self.world_us as u128 * G::HZ as u128 % 1_000_000) as f32 / 1_000_000.0
     }
+    /// Replacement generation for presentation caches; not saved or hashed.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
     /// Read simulation state.
     pub fn world(&self) -> &World {
         &self.world
@@ -499,6 +515,7 @@ impl<G: Game> Sim<G> {
         }
         next.world_us = s.world_us;
         next.rebase_queue = true;
+        next.generation = self.generation.wrapping_add(1);
         *self = next;
         Ok(())
     }

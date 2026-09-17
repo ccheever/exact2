@@ -1,0 +1,245 @@
+use crate::{
+    perf::{Perf, Stamp},
+    Feed, Renderer,
+};
+use exact_game::{Clock, Game, Sim, World};
+use exact_gpu::{wgpu, Frame, InputEvent, Surface, SurfaceError, Value};
+
+/// One simulation and its lazily created GPU renderer, for an exact canvas.
+/// Pipeline creation happens at the first render, never during bind or agent reads.
+pub struct WorldSurface<G: Game> {
+    sim: Option<Sim<G>>,
+    render: Option<(Renderer, Feed)>,
+    format: Option<wgpu::TextureFormat>,
+    perf: Perf,
+    error: Option<SurfaceError>,
+    dirty: bool,
+}
+impl<G: Game> Default for WorldSurface<G> {
+    fn default() -> Self {
+        Self {
+            sim: None,
+            render: None,
+            format: None,
+            perf: Perf::default(),
+            error: None,
+            dirty: true,
+        }
+    }
+}
+impl<G: Game> WorldSurface<G> {
+    /// Last render refusal. The existing GPU Surface ABI has no render-error return;
+    /// this error also appears in agent replies and is returned by subsequent binds.
+    pub fn error(&self) -> Option<&SurfaceError> {
+        self.error.as_ref()
+    }
+    /// Read the simulation after a successful bind.
+    pub fn sim(&self) -> Option<&Sim<G>> {
+        self.sim.as_ref()
+    }
+}
+fn observer<'a>(
+    render: &'a mut Option<(Renderer, Feed)>,
+    perf: &'a mut Perf,
+    error: &'a mut Option<SurfaceError>,
+) -> impl FnMut(&World, u32) + 'a {
+    let mut start = Stamp::now();
+    move |world, left| {
+        perf.tick.push(start.elapsed());
+        if left < 2 && error.is_none() {
+            if let Some((renderer, feed)) = render {
+                let upload = Stamp::now();
+                if let Err(e) = feed.feed(world, renderer) {
+                    *error = Some(SurfaceError(e.to_string()));
+                }
+                perf.feed.push(upload.elapsed());
+            }
+        }
+        start = Stamp::now();
+    }
+}
+impl<G: Game> Surface for WorldSurface<G> {
+    fn bind(&mut self, values: &[Value]) -> Result<(), SurfaceError> {
+        self.bind_at(values, None)
+    }
+    fn bind_at(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
+        if let Some(e) = &self.error {
+            return Err(e.clone());
+        }
+        if let Some(sim) = &mut self.sim {
+            let generation = sim.generation();
+            sim.bind_with(
+                values,
+                at_ms,
+                observer(&mut self.render, &mut self.perf, &mut self.error),
+            )
+            .map_err(SurfaceError)?;
+            if generation != sim.generation() {
+                if let Some((_, feed)) = &mut self.render {
+                    feed.reset();
+                }
+                self.perf = Perf::default();
+            }
+        } else {
+            self.sim = Some(Sim::new(values).map_err(SurfaceError)?);
+        }
+        self.dirty = true;
+        self.error.clone().map_or(Ok(()), Err)
+    }
+    fn render(
+        &mut self,
+        frame: &Frame,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        target: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+    ) -> bool {
+        if self.error.is_some() {
+            return false;
+        }
+        let Some(sim) = &mut self.sim else {
+            return false;
+        };
+        if !frame.now_ms.is_finite()
+            || !frame.width.is_finite()
+            || !frame.height.is_finite()
+            || frame.width <= 0.0
+            || frame.height <= 0.0
+        {
+            self.error = Some(SurfaceError(
+                "world frame needs finite clock and positive viewport".into(),
+            ));
+            return false;
+        }
+        sim.viewport(frame.width, frame.height);
+        if self.format != Some(format) {
+            self.render = Some((Renderer::new(device, queue, format), Feed::default()));
+            self.format = Some(format);
+            self.dirty = true;
+        }
+        // Seed setup/current state before running ticks; no origin streak on frame one.
+        if self.dirty {
+            let (renderer, feed) = self.render.as_mut().unwrap();
+            if let Err(e) = feed.feed(sim.world(), renderer) {
+                self.error = Some(SurfaceError(e.to_string()));
+                return false;
+            }
+        }
+        self.perf.frame(frame.now_ms, frame.seekable);
+        let ticks = sim.advance_with(
+            frame.now_ms,
+            if frame.seekable {
+                Clock::Seekable
+            } else {
+                Clock::Live
+            },
+            observer(&mut self.render, &mut self.perf, &mut self.error),
+        );
+        self.perf.ticks.push(ticks as f64);
+        if self.error.is_some() {
+            return false;
+        }
+        let (renderer, feed) = self.render.as_mut().unwrap();
+        let start = Stamp::now();
+        let input = feed.frame(sim.world(), sim.alpha(), frame.width / frame.height);
+        self.perf.stats = renderer.draw(device, queue, target, format, frame.pixels(), &input);
+        self.perf.encode.push(start.elapsed());
+        let wants = !G::paused(sim.world().args()) || ticks != 0;
+        self.dirty = false;
+        wants
+    }
+    fn wants_input(&self) -> bool {
+        true
+    }
+    fn input(&mut self, event: &InputEvent) {
+        use exact_game::{InputEvent as E, PointerPhase as P};
+        use exact_gpu::PointerPhase as Q;
+        let Some(sim) = &mut self.sim else {
+            return;
+        };
+        let e = match event {
+            InputEvent::Key {
+                code, down, at_ms, ..
+            } => E::Key {
+                code: code.clone(),
+                down: *down,
+                at_ms: *at_ms,
+            },
+            InputEvent::Pointer {
+                id,
+                phase,
+                x,
+                y,
+                at_ms,
+                ..
+            } => E::Pointer {
+                id: u64::from(*id),
+                phase: match phase {
+                    Q::Down => P::Down,
+                    Q::Move => P::Move,
+                    Q::Up => P::Up,
+                    Q::Cancel => P::Cancel,
+                },
+                x: *x,
+                y: *y,
+                at_ms: *at_ms,
+            },
+            InputEvent::Wheel { dx, dy, at_ms, .. } => E::Wheel {
+                dx: *dx,
+                dy: *dy,
+                at_ms: *at_ms,
+            },
+            InputEvent::Blur { at_ms } => E::Blur { at_ms: *at_ms },
+        };
+        sim.input(e);
+    }
+    fn messages(&mut self) -> Vec<String> {
+        self.sim.as_mut().map_or_else(Vec::new, Sim::take_messages)
+    }
+    fn agent(&mut self, request: &str) -> Option<String> {
+        let sim = self.sim.as_mut()?;
+        let mut reply = sim.agent_with(
+            request,
+            observer(&mut self.render, &mut self.perf, &mut self.error),
+        );
+        // Engine world-state replies have this fixed suffix. Parse the reply using
+        // its own Data decoder to distinguish state from tree/error/entity replies.
+        let state = world_state(&reply);
+        if state {
+            reply.truncate(reply.len() - 2);
+            self.perf.append(&mut reply);
+            reply.push_str("}}");
+        }
+        if let Some(error) = &self.error {
+            reply.pop();
+            reply.push_str(",\"renderError\":");
+            reply.push_str(&exact_game::json::to_string(&error.0).unwrap());
+            reply.push('}');
+        }
+        Some(reply)
+    }
+}
+fn world_state(reply: &str) -> bool {
+    use exact_game::Reader;
+    let mut reader = exact_game::json::Decoder::new(reply);
+    let parse = || -> Result<bool, exact_game::DataError> {
+        reader.begin_struct()?;
+        while let Some(field) = reader.field()? {
+            if field == "world" {
+                reader.begin_struct()?;
+                while let Some(field) = reader.field()? {
+                    if field == "hash" {
+                        return Ok(true);
+                    }
+                    reader.skip()?;
+                }
+            } else {
+                reader.skip()?;
+            }
+        }
+        Ok(false)
+    };
+    // The input is produced by Sim, so malformed replies are never spliced.
+    let mut parse = parse;
+    parse().unwrap_or(false)
+}

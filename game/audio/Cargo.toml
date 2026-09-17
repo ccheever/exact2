@@ -1,0 +1,20 @@
+[package]
+name = "exact-game-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+exact-game = { path = "../engine" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["AudioContext", "BaseAudioContext", "AudioDestinationNode", "AudioNode", "AudioParam", "AudioBuffer", "AudioBufferSourceNode", "AudioScheduledSourceNode", "GainNode", "StereoPannerNode"] }
+
+[[example]]
+name = "web_probe"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "null_probe"
+crate-type = ["cdylib"]

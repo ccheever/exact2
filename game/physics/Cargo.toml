@@ -1,0 +1,12 @@
+[package]
+name = "exact-game-physics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+exact-game = { path = "../engine" }
+glam = { version = "0.33", default-features = false, features = ["std", "scalar-math", "libm"] }
+
+[dev-dependencies]
+rapier3d = { version = "=0.35.3", features = ["enhanced-determinism"] }

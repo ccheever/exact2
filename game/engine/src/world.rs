@@ -127,6 +127,7 @@ pub struct World {
     pub(crate) hierarchy: crate::scene::Hierarchy,
     pub(crate) fresh: Vec<Entity>,
     orphans: Vec<Entity>,
+    entities_revision: u64,
 }
 const SINGLETON: Entity = Entity {
     index: 0,
@@ -159,6 +160,7 @@ impl World {
             hierarchy: crate::scene::Hierarchy::default(),
             fresh: vec![],
             orphans: vec![],
+            entities_revision: 0,
         }
     }
     /// Register a component before loading. Registration itself is not state.
@@ -216,6 +218,7 @@ impl World {
             self.alive_mask.push(0);
         }
         self.alive_mask[word] |= 1 << (index % 64);
+        self.entities_revision = self.entities_revision.wrapping_add(1);
         self.fresh.push(e);
         bundle.insert(self, e);
         self.log(format_args!("spawn #{}", e.index));
@@ -240,6 +243,7 @@ impl World {
         slot.name = None;
         self.alive_mask[e.index as usize / 64] &= !(1 << (e.index % 64));
         self.state.free.0.insert(e.index);
+        self.entities_revision = self.entities_revision.wrapping_add(1);
         self.log(format_args!("despawn #{}", e.index));
         true
     }
@@ -263,7 +267,8 @@ impl World {
         }
         self.orphans = orphans;
     }
-    /// Entities spawned or teleported since this tick began; Sim clears each tick.
+    /// Entities spawned, first given a pose, or teleported since this tick began.
+    /// Sim clears this list at the start of each tick.
     /// Entries retain their incarnation, so consumers can ignore entities now dead.
     pub fn fresh(&self) -> &[Entity] {
         &self.fresh
@@ -334,6 +339,14 @@ impl World {
         if !self.contains(e) {
             return false;
         }
+        // Acquiring a first pose is also a presentation birth, even when an
+        // entity was spawned in an earlier tick without a Transform.
+        if TypeId::of::<C>() == TypeId::of::<crate::Transform>()
+            && !self.has::<C>(e)
+            && self.fresh.last() != Some(&e)
+        {
+            self.fresh.push(e);
+        }
         self.register::<C>();
         self.components
             .entry(C::NAME)
@@ -389,6 +402,18 @@ impl World {
     pub fn changed<C: Component>(&self) -> u64 {
         self.storage::<C>().map_or(0, Storage::changed)
     }
+    /// Mutation generation, including repeated edits within one tick. Not saved or hashed.
+    pub fn revision<C: Component>(&self) -> u64 {
+        self.storage::<C>().map_or(0, Storage::revision)
+    }
+    /// Component membership generation; changing an existing value leaves it alone.
+    pub fn membership<C: Component>(&self) -> u64 {
+        self.storage::<C>().map_or(0, Storage::membership)
+    }
+    /// Spawn/despawn generation, including equal-count slot recycling. Not simulation state.
+    pub fn entities_revision(&self) -> u64 {
+        self.entities_revision
+    }
     /// Scan for direct children in entity order, for tools;
     /// a tick that needs children keeps them in a component.
     pub fn children(&self, e: Entity) -> Vec<Entity> {
@@ -417,6 +442,14 @@ impl World {
             .get(R::NAME)
             .and_then(|s| s.any().downcast_ref())
             .unwrap_or_else(|| panic!("resource {} is absent", R::NAME))
+    }
+    /// Borrow optional singleton data without requiring its installation.
+    pub fn try_resource<R: Resource>(&self) -> Option<Ref<'_, R>> {
+        self.resources
+            .get(R::NAME)?
+            .any()
+            .downcast_ref::<Storage<R>>()?
+            .get(0)
     }
     /// Borrow a resource; absence panics with its name.
     pub fn resource<R: Resource>(&self) -> Ref<'_, R> {

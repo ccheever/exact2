@@ -118,3 +118,22 @@ impl Page<'_, Transform> {
         })
     }
 }
+
+// These two closed layouts consist entirely of f32, including zeroed absent slots.
+macro_rules! floats {
+    ($component:ty) => {
+        impl Page<'_, $component> {
+            /// The whole allocated page as floats, including zeroed absent slots.
+            pub fn floats(&self) -> &[f32] {
+                const {
+                    assert!(std::mem::size_of::<$component>() == 40);
+                }
+                // SAFETY: asserted padding-free scalar layout, aligned to f32;
+                // initialized backing and shared lease are the same as bytes().
+                unsafe { std::slice::from_raw_parts(self.slots.cast(), PAGE * 10) }
+            }
+        }
+    };
+}
+floats!(Transform);
+floats!(Material);

@@ -1,0 +1,139 @@
+mod common;
+use common::*;
+use exact_game::{Entity, Transform, Vec3, World};
+use exact_game_physics::{self as physics, Body, BodyKind, Character, Collider};
+fn world() -> (World, Entity) {
+    let mut w = World::new(60, 0);
+    physics::register(&mut w);
+    ground(&mut w);
+    let e = w.spawn_named(
+        "fox",
+        (Transform::at(-1.0, 0.91, 0.0), Character::default()),
+    );
+    physics::move_character(&mut w, e, Vec3::ZERO);
+    physics::step(&mut w);
+    (w, e)
+}
+fn drive(w: &mut World, e: Entity, v: Vec3, ticks: usize) {
+    for _ in 0..ticks {
+        {
+            let mut c = w.get_mut::<Character>(e).unwrap();
+            c.velocity.y -= 9.81 / 60.0;
+        }
+        physics::move_character(w, e, v);
+        physics::step(w);
+    }
+}
+#[test]
+fn steps_below_and_above_limit() {
+    for height in [0.25, 0.5] {
+        let (mut w, e) = world();
+        box_at(
+            &mut w,
+            "step",
+            Vec3::new(2.0, height * 0.5, 0.0),
+            Vec3::new(1.0, height * 0.5, 2.0),
+            false,
+        );
+        drive(&mut w, e, Vec3::X * 2.0, 100);
+        let p = w.get::<Transform>(e).unwrap().position;
+        eprintln!("step {height}: {p:?}");
+        if height < 0.3 {
+            assert!(p.x > 1.5 && p.y > 1.1);
+        } else {
+            assert!(p.x < 0.8);
+        }
+    }
+}
+#[test]
+fn slopes_walkable_and_steep() {
+    for angle in [30.0, 60.0] {
+        let (mut w, e) = world();
+        let rotation = rotated(angle);
+        w.spawn_named(
+            "ramp",
+            (
+                Transform {
+                    position: rotation * Vec3::new(3.0, -0.1, 0.0),
+                    rotation,
+                    ..Transform::default()
+                },
+                Collider {
+                    shape: physics::Shape::Box {
+                        half: Vec3::new(3.0, 0.1, 2.0),
+                    },
+                    ..Collider::default()
+                },
+            ),
+        );
+        drive(&mut w, e, Vec3::X * 2.0, 100);
+        let p = w.get::<Transform>(e).unwrap().position;
+        eprintln!("ramp {angle}: {p:?}");
+        if angle == 30.0 {
+            assert!(p.x > 1.0 && p.y > 1.5);
+        } else {
+            assert!(p.x < 0.3);
+        }
+    }
+}
+#[test]
+fn wall_slide_and_thin_wall_at_twenty_metres_per_second() {
+    let (mut w, e) = world();
+    box_at(
+        &mut w,
+        "wall",
+        Vec3::new(1.0, 2.0, 0.0),
+        Vec3::new(0.05, 2.0, 10.0),
+        false,
+    );
+    drive(&mut w, e, Vec3::new(20.0, 0.0, 2.0), 60);
+    let p = w.get::<Transform>(e).unwrap().position;
+    assert!(p.x < 0.66, "tunneled: {p:?}");
+    assert!(p.z > 1.8, "stuck: {p:?}");
+}
+#[test]
+fn platform_transport_and_finite_push_budget() {
+    let (mut w, e) = world();
+    let p = box_at(
+        &mut w,
+        "platform",
+        Vec3::new(0.0, 0.2, 0.0),
+        Vec3::new(2.0, 0.2, 2.0),
+        false,
+    );
+    w.insert(
+        p,
+        Body {
+            kind: BodyKind::Kinematic,
+            ..Body::default()
+        },
+    );
+    w.get_mut::<Transform>(e).unwrap().position = Vec3::new(0.0, 1.31, 0.0);
+    drive(&mut w, e, Vec3::ZERO, 3);
+    for _ in 0..60 {
+        w.get_mut::<Transform>(p).unwrap().position.x += 0.01;
+        drive(&mut w, e, Vec3::ZERO, 1);
+    }
+    let pos = w.get::<Transform>(e).unwrap().position;
+    assert!((pos.x - 0.6).abs() < 0.02, "platform carry {pos:?}");
+    assert!(w.get::<Character>(e).unwrap().grounded);
+    for mass in [10.0, 1000.0] {
+        let (mut w, e) = world();
+        let b = box_at(
+            &mut w,
+            "crate",
+            Vec3::new(1.0, 0.5, 0.0),
+            Vec3::splat(0.5),
+            true,
+        );
+        w.get_mut::<Body>(b).unwrap().mass = mass;
+        drive(&mut w, e, Vec3::X * 2.0, 120);
+        let x = w.get::<Transform>(b).unwrap().position.x;
+        eprintln!("push {mass}kg: crate x={x}");
+        if mass < 80.0 {
+            assert!(x > 2.0);
+        } else {
+            assert!((x - 1.0).abs() < 0.01);
+        }
+    }
+}

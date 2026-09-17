@@ -11,11 +11,21 @@
 mod bloom;
 mod buffers;
 mod frame;
+mod perf;
 mod pipeline;
 mod renderer;
 mod shadows;
 pub mod shapes;
+mod surface;
 mod timing;
+pub mod world;
+
+/// Simulation vocabulary, also used by module! without a direct dependency.
+pub use exact_game;
+/// GPU surface ABI, also used by module! without a direct dependency.
+pub use exact_gpu;
+pub use surface::WorldSurface;
+pub use world::Feed;
 
 use exact_gpu::wgpu;
 use glam::{Mat4, Vec3};
@@ -177,7 +187,7 @@ impl Default for Fog {
 }
 
 /// An inverse-square point light, smoothly extinguished at its range.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct PointLightInput {
     /// World-space position.
     pub position: Vec3,
@@ -296,4 +306,21 @@ mod tests {
             .unwrap();
         }
     }
+}
+
+/// Export one game's surface and the native or wasm GPU module ABI.
+#[macro_export]
+macro_rules! module {
+    ($game:ty) => {
+        /// The game's sole surface; shaders are embedded in the renderer.
+        pub static REGISTRY: $crate::exact_gpu::Registry = $crate::exact_gpu::Registry {
+            surfaces: &[(
+                <$game as $crate::exact_game::Game>::NAME,
+                <$game as $crate::exact_game::Game>::ARGS.len(),
+                || Box::new($crate::WorldSurface::<$game>::default()),
+            )],
+            shaders: &[],
+        };
+        $crate::exact_gpu::module!(REGISTRY);
+    };
 }

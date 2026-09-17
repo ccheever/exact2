@@ -1,7 +1,9 @@
 # exact-game-render
 
-Opaque PBR over slot-indexed floats. No World, simulation, or CPU per-instance
-work in `draw`. Dependencies remain `exact-gpu` and `glam`.
+Opaque PBR over slot-indexed floats, plus `WorldSurface<G>` connecting an
+`exact-game` simulation to the GPU canvas. `Renderer::draw` still does no CPU
+per-instance work. Dependencies are `exact-game`, `exact-gpu`, `glam`, and on wasm
+`web-sys` for wall-clock performance samples.
 
 Create `Renderer::new(device, queue, target_format)`, add meshes, initialize
 transforms with `write_transforms_both` and materials with `write_materials`, then
@@ -156,3 +158,119 @@ request TIMESTAMP_QUERY and resolve/read it outside draw. `GPU_PASS_NAMES` maps
 the 16 pairs; disabled passes do not write theirs. The diagnostic waits for GPU
 completion before its separate resolve submission (otherwise Metal can return
 trailing zero samples), and reports invalid/reversed pairs as NaN, never zero.
+
+
+## WorldSurface (B1a)
+
+`WorldSurface::<G>::default()` implements `exact_gpu::Surface`; bind constructs the
+simulation, and the first render compiles every pipeline. A game's GPU crate can
+contain just `exact_game_render::module!(MyGame);`. It needs this crate and its
+logic crate, plus wasm-bindgen, wasm-bindgen-futures and web-sys/HtmlCanvasElement
+on wasm. The macro reuses the GPU ABI through re-exports and declares no external
+shaders. `examples/module.rs` exercises the expansion on native and wasm.
+
+`Feed` owns tick uploads, mesh registrations, retained batches and small camera/light
+histories. Seed it with the setup world, then call `feed` from `advance_with` only
+when `ticks_left < 2`. It uploads allocated Transform pages directly as floats,
+then overwrites parented slots from the engine's propagated affine globals. TRS
+decomposition is exact with uniform ancestor scale; nonuniform ancestor scale can
+introduce shear, which this TRS renderer approximates. Camera rotation uses slerp.
+The light list is retained; nearest sixteen selection happens on fed ticks, and
+frames interpolate just those sixteen. Selection does not change between ticks.
+
+Every changed transform column uses `Rewrite::All`. One unchanged tick uses
+`Rewrite::Some` to bring history together; the second still tick and subsequent
+ones do no upload or copy. Initial pages initialize both histories; fresh entities
+and teleports initialize both slots after ordinary writes. The engine's existing
+`advance_with()` is reused; `fresh()` also covers adding a first Transform to an
+older entity. Material remains its engine-owned
+40-byte layout: a reused page buffer converts it to the renderer's 48-byte layout.
+Missing materials use the default white material. Mesh keys include exact float
+bits; Asset uses Cube. Sphere/cylinder radii and capsule cylinder length are mapped
+to the engine's layout/pick dimensions (the core shapes have different conventions).
+
+The small engine additions are mutation/membership/live-set revisions (tick stamps
+cannot detect setup-to-first-tick edits or repeated same-tick edits), whole-page
+float views for the two closed Plain layouts, optional resource lookup, presentation
+replacement generation, and post-tick observers on agent seeks and timed binds.
+All revisions and presentation histories are outside saves and hashes.
+`DirectionalLight.shadows` is saved scene state and defaults to true. The new
+`Environment` resource supplies sky colours, fog, exposure and bloom; absence uses
+its default: gradient sky, 0.5 hemisphere ambient, exposure 1, bloom intensity 0.08,
+no fog. Engine illuminance is lux: 10,000 lux maps to renderer illuminance 3.
+Point intensity is passed directly to the renderer's inverse-square light.
+
+Perf lives in fixed 240-sample rings and is spliced into `state.world.perf` only.
+`frameMs` measures consecutive LIVE display stamps, resetting continuity on a seek;
+`tickMs` measures individual simulation steps, excluding feeding; `feedMs` measures
+each fed tick; `encodeMs` includes frame inputs, draw encoding and submission;
+`ticksPerFrame` has the same p50/p95/p99/max summary. Native CPU samples use Instant;
+wasm uses window.performance.now(). Samples are diagnostic and outside world hashes.
+No allocations occur in steady Sim/Feed/frame-input work (instrumented unit test).
+wgpu retains ownership of its command/staging allocations.
+
+Capacity errors are returned before Feed swaps history. The existing GPU Surface
+trait has no render-error return or error-drain seam: `WorldSurface::error()` retains
+the refusal, agent replies include `renderError`, and later bind returns it as a
+SurfaceError. No GPU files were changed to add a host ABI seam. A fresh Surface is
+needed after such a refusal. Replacing a world resets Feed; renderer arenas retain and reuse
+registered geometry until the surface is destroyed.
+
+Proof and timing, from `game/`:
+
+```sh
+export EXACT_UPDATE_TRUST=development CARGO_TARGET_DIR="$PWD/render/target"
+export EXACT_GPU_OUT="$PWD/render/target/pictures/world"
+cargo build -p exact-game -p exact-game-render
+cargo test -p exact-game -p exact-game-render --no-fail-fast -- --nocapture
+cargo clippy -p exact-game -p exact-game-render --all-targets -- -D warnings
+cargo fmt -p exact-game -p exact-game-render -- --check
+cargo build -p exact-game-render --target wasm32-unknown-unknown
+cargo build -p exact-game-render --example module --target wasm32-unknown-unknown
+cargo run --release -p exact-game-render --example cubes
+# Or select a count and measured frame count (60 warm-up frames precede them):
+cargo run --release -p exact-game-render --example cubes -- 200000 240
+```
+
+GPU tests explicitly print SKIP when no adapter exists; recording-backend tests and
+allocation tests always run. `tests/world.rs` uses the real Greybox through fixture
+render/readback. Its camera follows the player exactly, so the up-screen movement
+proof uses a wrapper that freezes only the camera. Beacon tests use actual input,
+material emission and projected agent bounds. Stopped pixels are byte-identical
+across several alphas, and agent-seek versus frame-seek pixels match.
+
+The benchmark runs the authored cubes Game at 2560×1440, 4× MSAA, with shadows,
+bloom and fog off and flat ambient, matching the bench scene. It defaults to 10k,
+100k, 200k and 500k, printing sim/tick, feed/tick and encode/frame p50/p95 in ms.
+GPU completion is awaited outside the measured regions to bound work in flight.
+These are CPU submission diagnostics, not displayed FPS or GPU execution timings.
+
+B1a measured on Apple M5 Max / Metal, 2026-09-17, shared machine, repository
+release profile (thin LTO, one codegen unit), 60 warm-up + 240 measured frames:
+
+| Cubes | Sim/tick ms p50 / p95 | Feed/tick ms p50 / p95 | Encode/frame ms p50 / p95 |
+|---:|---:|---:|---:|
+| 10,000 | 0.0339 / 0.0467 | 0.2080 / 0.3201 | 0.1204 / 0.2032 |
+| 100,000 | 0.3251 / 0.3962 | 1.6291 / 2.0565 | 0.1646 / 0.2452 |
+| 200,000 | 0.5445 / 0.7305 | 2.8900 / 3.4996 | 0.1532 / 0.2334 |
+| 500,000 | 1.4670 / 2.0095 | 7.5832 / 9.4575 | 0.1632 / 0.2642 |
+
+All 31 non-ignored renderer tests pass, including GPU readback on Metal; three
+new engine bridge tests pass. Both native and wasm cdylib macro consumers compiled
+with only renderer + logic + the three required wasm dependencies. The capsule
+pixel centroid moved from y=178.31 to 130.53 after one second of W in the fixed-camera
+fixture. Beacon projected-box luminance rose from 166.61 to 177.20 (8-bit weighted
+RGB). Two still ticks produce byte-identical pictures across interpolation alphas.
+The pictures were inspected: ground contact and glow are present, but the large
+Greybox plane exposes a fine shadow self-pattern, and the nearby player partly
+occludes the beacon. These are visible limitations, not a claim of artifact-free
+shadows or a luminance change for every pixel of the projected bounding box.
+
+Two existing engine tests include Greybox fixtures outside this brief's permitted
+edit directories. Adding saved `DirectionalLight.shadows` intentionally changes
+those pinned hashes: setup `0x81029be74d2334e2` → `0x4a9f1ad15148813e`, and the
+1.5-second W replay `0x4dcde63de7f70139` → `0x70c17d4a69834418`. The old fixture
+assertions remain failing until their owner updates them; seek partition equality
+and save/restore equality pass. No out-of-scope fixture was edited for B1a.
+Validation used disposable manifests under `render/target/` pointing at the actual
+source files, to keep the concurrently edited `game/Cargo.lock` untouched.
