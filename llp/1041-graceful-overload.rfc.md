@@ -632,6 +632,26 @@ The earlier `resize-10k-windowed-final/` directory actually exercised the manual
 not evidence of virtualization. The preceding PATH-only startup failure is
 retained separately. No compiler quiet-window claim follows from these runs.
 
+**Normal-clock AppKit progress, Tuft and Newton, 2026-09-17:** a separate
+optimized `7a6fde2` build adds only three ignored observer files. It boots with
+`EXACT_AGENT=0`, no clock override, and the unchanged production 250-ms,
+default-run-loop-mode timer. The observer starts the existing stdio carrier and
+rejects clock/settle commands; it records bounded scalar timer/wake events.
+With 10,000 supplied records, virtualization and batch32 selected, one
+2,002.111-ms interval sends no app commands. Eight distinct timer/advance/apply
+chains finish before the following state-handler begins, and committed history
+revision advances from zero to eight. This establishes autonomous progress in
+that interval, not sustained loaded throughput, tracking-mode progress or 120 Hz.
+
+The executable SHA-256 is
+`f7d304ec3f2446e2870e82bbc32c9d0cf9b3f1d43ea5792ffe94979617c4a40e`;
+source, receipt, raw records and the independently checked replay are in
+`target/normal-clock-carrier-native/messages-silent-02/` and its sibling build
+capture. The first drive's oracle failure is preserved: equal JSON records had
+different object-key order. A named regression and structural comparison fix
+pass on the unchanged binary. This is one nonquiet instrumented correctness
+sample, with no input/resize latency or physical-presentation measurement.
+
 The matching 72-cohort drive also passes on actual Ubuntu ARM64 with final
 binary `d5c89044…`; all 10,000 records are supplied there too. Typing-ACK p95s
 are 17.80 / 15.92 / 15.92 ms and resize-ACK p95s 15.05 / 13.45 / 13.43 ms.
