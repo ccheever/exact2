@@ -6,7 +6,8 @@
 //!
 //! A [`Paragraph`] is a width-specific snapshot sharing an immutable full
 //! cosmic-text shape and its font catalog. Layout vectors and CSS baselines
-//! belong to the width snapshot. It is cached by (spec, width); the measurer answers
+//! are immutable and may be shared by distinct exact-request wrappers. It is
+//! cached by (spec, width); the measurer answers
 //! from it and the painter paints from it, so what was measured is what is
 //! painted, by construction. `line-height: normal` is the font's ascent +
 //! descent + line gap (the browser's); a set line height centers the glyphs
@@ -141,7 +142,7 @@ impl Spec {
 pub struct Paragraph {
     /// Width-independent canonical text, shape and catalog.
     source: Rc<ShapedSource>,
-    layouts: Vec<Vec<cosmic_text::LayoutLine>>,
+    layouts: Arc<Vec<Vec<cosmic_text::LayoutLine>>>,
     #[cfg(test)]
     layout_lifetime: Arc<()>,
     /// Points, rounded up.
@@ -151,7 +152,7 @@ pub struct Paragraph {
     /// Top to the first alphabetic baseline, points.
     pub first_baseline: f32,
     /// CSS shared-baseline placement for each wrapped line, used by both painters.
-    baselines: Vec<f32>,
+    baselines: Arc<Vec<f32>>,
     ink: RefCell<ink::Cache>,
     // S + L, excluding canonical key K. Shared S must be deduplicated across
     // snapshots; lazy ink is read separately below.
@@ -230,7 +231,7 @@ impl Paragraph {
         palette: &'a [RunPaint],
     ) -> impl Iterator<Item = (&'a LayoutGlyph, f32, RunPaint)> + 'a {
         self.layout_runs()
-            .zip(&self.baselines)
+            .zip(self.baselines.iter())
             .flat_map(move |(line, baseline)| {
                 line.glyphs
                     .iter()
@@ -713,7 +714,7 @@ impl TextEngine {
             {
                 self.ink_builds += 1;
             }
-            cache.index = ink::Index::build(&mut catalog, paragraph, scale);
+            cache.index = ink::Index::build(&mut catalog, paragraph, scale).map(Into::into);
         }
         let paint = PixmapPaint::default();
         let mut draw = |g: &LayoutGlyph, baseline: f32, ink: RunPaint| {

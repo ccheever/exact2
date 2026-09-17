@@ -188,12 +188,16 @@ fn zero_and_backwards_baselines_keep_every_overlapping_line_in_paint_order() {
     let mut s = spec(&"Áf\n".repeat(30));
     s.runs.push(s.runs[0].clone());
     let mut p = engine.layout(&s, Some(180.0));
-    for (i, baseline) in p.baselines.iter_mut().enumerate() {
+    for (i, baseline) in Arc::get_mut(&mut p.baselines)
+        .unwrap()
+        .iter_mut()
+        .enumerate()
+    {
         *baseline = [40.0, -10.0, 100.0, 15.0, 35.0][i % 5];
     }
     compare(&mut engine, &p, &palette(), View::at(0.375, 1.25), None);
     let mut zero = engine.layout(&s, Some(180.0));
-    zero.baselines.fill(18.0);
+    Arc::get_mut(&mut zero.baselines).unwrap().fill(18.0);
     zero.height = 0.0;
     let all = zero.paint_glyphs(&palette()).count();
     assert_eq!(
@@ -252,7 +256,7 @@ fn nested_mask_and_fractional_clip_edges_keep_exact_pixels() {
 fn large_fractional_scroll_and_narrow_clip_do_not_lose_end_ink() {
     let mut engine = engine();
     let mut p = engine.layout(&spec(&"large extent\n".repeat(90)), Some(200.0));
-    for baseline in &mut p.baselines {
+    for baseline in Arc::get_mut(&mut p.baselines).unwrap() {
         *baseline += 16_777_216.0;
     }
     compare(
@@ -425,7 +429,8 @@ fn refused_index_keeps_full_paint_without_rebuilding_until_scale_changes() {
     {
         let mut cache = p.ink.borrow_mut();
         cache.reset(&engine.catalog.borrow().ink_catalog, 1.0);
-        cache.index = ink::Index::with_limit(&mut engine.catalog.borrow_mut(), &p, 1.0, 64);
+        cache.index =
+            ink::Index::with_limit(&mut engine.catalog.borrow_mut(), &p, 1.0, 64).map(Into::into);
         assert!(cache.index.is_none());
     }
     let builds = engine.ink_builds;

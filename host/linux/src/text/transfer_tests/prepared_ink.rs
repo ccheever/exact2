@@ -145,11 +145,17 @@ fn scale_change_refuses_old_job_and_each_exact_scale_keeps_pixels_without_ui_bui
     let a_index = oa.ink_probe.clone();
     let b_index = ob.ink_probe.clone();
     let stale = ink::build_work();
+    assert!(std::sync::Weak::ptr_eq(&late_index, &a_index));
+    let owners = a_index.strong_count();
     assert!(matches!(
         adopt(late, &b, &raster),
         Err(TransferError::StaleResult)
     ));
-    assert!(late_index.upgrade().is_none());
+    assert!(
+        late_index.upgrade().is_some(),
+        "valid sibling still owns shared index"
+    );
+    assert_eq!(a_index.strong_count(), owners);
     assert_eq!(ink::build_work(), stale);
     let pa = adopt(oa, &a, &raster).unwrap();
     let pb = adopt(ob, &b, &raster).unwrap();
@@ -364,4 +370,249 @@ fn prepared_query_does_not_change_ordinary_lazy_build_or_full_fallback() {
         "ordinary fail-open renderer stays unchanged"
     );
     assert_eq!(engine.ink_builds, 1);
+}
+
+#[test]
+fn real_two_axis_offers_share_one_definite_layout_and_index() {
+    let mut engine = TextEngine::with_catalog(fixture_catalog());
+    let (recipe, raster) = freeze_catalog(&engine).unwrap();
+    let (mut kernel, _) = large_request(recipe.catalog_label());
+    let catalog = recipe.catalog_label();
+    let q = next_request(&mut kernel, catalog, 600.);
+    assert!(q.source().bytes() >= 65536);
+    let (jobs, incoming) = std::sync::mpsc::channel::<PreparedText>();
+    let (outgoing, results) = std::sync::mpsc::channel();
+    let worker_recipe = recipe.clone();
+    let worker = thread::spawn(move || {
+        let mut worker = FontWorker::new(worker_recipe).unwrap();
+        for job in incoming {
+            let before = (work::read(), ink::build_work());
+            let output = worker.execute(job).unwrap();
+            let after = (work::read(), ink::build_work());
+            outgoing.send((output, before, after)).unwrap();
+        }
+    });
+    let mut source = None;
+    let mut ready = Vec::new();
+    let mut offers = Vec::new();
+    let mut builds = (0, 0);
+    let mut current = false;
+    for _ in 0..64 {
+        let q = kernel.region_text_request().unwrap().clone();
+        offers.push(q.offer());
+        eprintln!("actual kernel offer {}: {:?}", offers.len(), q.offer());
+        let input = prepare(&recipe, q, PaintContext::new(1.).unwrap(), source.as_ref()).unwrap();
+        source = Some(input.source().clone());
+        jobs.send(input.clone()).unwrap();
+        let (output, before, after) = results.recv().unwrap();
+        if matches!(input.request().offer().width, AxisOffer::Definite(_)) {
+            builds.0 += after.0.layouts - before.0.layouts;
+            builds.1 += after.1.attempts - before.1.attempts;
+        }
+        let adopted = Rc::new(adopt(output, &input, &raster).unwrap());
+        assert!(kernel
+            .resolve_region_text(adopted.request(), adopted.metrics(), adopted.clone())
+            .unwrap());
+        ready.push(adopted);
+        let receipt = kernel
+            .compute_region_layout(
+                1,
+                Offer::definite(600., 300.),
+                RegionInputs {
+                    catalog,
+                    consumer_revision: 1,
+                },
+            )
+            .unwrap();
+        if receipt.current {
+            current = true;
+            break;
+        }
+    }
+    drop(jobs);
+    worker.join().unwrap();
+    assert!(current);
+    let definite: Vec<_> = ready.iter().filter(|a| a.paragraph().is_some()).collect();
+    assert!(
+        definite.len() >= 2,
+        "actual two-axis requests required: {offers:?}"
+    );
+    let first = definite[0].paragraph().unwrap();
+    for a in &definite {
+        assert_eq!(a.request().offer().width, AxisOffer::Definite(600.));
+        let p = a.paragraph().unwrap();
+        assert_eq!(a.metrics(), definite[0].metrics());
+        for y in [0., -p.height / 2., -p.height + 100.] {
+            assert_eq!(clipped(&mut engine, p, y, 1.), full(first, y, 1.));
+        }
+    }
+    assert!(definite
+        .windows(2)
+        .any(|a| a[0].request().offer().height != a[1].request().offer().height));
+    eprintln!(
+        "definite layouts={} indexes={}; offers={offers:?}",
+        builds.0, builds.1
+    );
+    assert_eq!(
+        builds,
+        (1, 1),
+        "same effective inputs built duplicate numeric payloads"
+    );
+    for a in definite.iter().skip(1) {
+        let p = a.paragraph().unwrap();
+        assert_eq!(first.layouts.as_ptr(), p.layouts.as_ptr());
+        assert_eq!(first.baselines.as_ptr(), p.baselines.as_ptr());
+    }
+}
+
+#[test]
+fn definite_reuse_rejects_other_job_without_retaining_or_dropping_valid_sibling() {
+    let engine = TextEngine::with_catalog(fixture_catalog());
+    let (recipe, raster) = freeze_catalog(&engine).unwrap();
+    let (_k, q) = request(recipe.catalog_label(), 220.);
+    let a = prepare(&recipe, q.clone(), PaintContext::new(1.).unwrap(), None).unwrap();
+    let b = prepare(&recipe, q, PaintContext::new(1.).unwrap(), Some(a.source())).unwrap();
+    let mut worker = FontWorker::new(recipe).unwrap();
+    let output = worker.execute(a.clone()).unwrap();
+    let layout_life = output.probe.clone();
+    let ink_life = output.ink_probe.clone();
+    let pa = adopt(output, &a, &raster).unwrap();
+    let before = (work::read(), ink::build_work());
+    let owners = (layout_life.strong_count(), ink_life.strong_count());
+    let other = worker.execute(b.clone()).unwrap();
+    assert_eq!(
+        (work::read(), ink::build_work()),
+        before,
+        "reuse ran giant work"
+    );
+    assert!(std::sync::Weak::ptr_eq(&layout_life, &other.probe));
+    assert!(std::sync::Weak::ptr_eq(&ink_life, &other.ink_probe));
+    assert!(matches!(
+        adopt(other, &a, &raster),
+        Err(TransferError::StaleResult)
+    ));
+    assert_eq!(
+        (layout_life.strong_count(), ink_life.strong_count()),
+        owners
+    );
+    drop(pa);
+    assert!(layout_life.upgrade().is_none());
+    assert!(ink_life.upgrade().is_none());
+    // Worker, PreparedSource and both private requests still exist. None owns
+    // historical definite arrays after the last valid snapshot has gone.
+    let before = work::read();
+    let fresh = worker.execute(b).unwrap();
+    assert_eq!(work::read().layouts, before.layouts + 1);
+    assert!(!std::sync::Weak::ptr_eq(&layout_life, &fresh.probe));
+}
+
+#[test]
+fn definite_reuse_single_slot_misses_width_scale_and_returns_to_old_width() {
+    let engine = TextEngine::with_catalog(fixture_catalog());
+    let (recipe, raster) = freeze_catalog(&engine).unwrap();
+    let (mut k, q) = request(recipe.catalog_label(), 220.);
+    let a = prepare(&recipe, q, PaintContext::new(1.).unwrap(), None).unwrap();
+    let mut worker = FontWorker::new(recipe.clone()).unwrap();
+    let first = worker.execute(a.clone()).unwrap();
+    let pa = adopt(first, &a, &raster).unwrap();
+    let mut held = vec![pa];
+    for (width, scale) in [(240., 1.), (220., 1.), (220., 2.), (220., 1.)] {
+        let q = next_request(&mut k, recipe.catalog_label(), width);
+        let input = prepare(
+            &recipe,
+            q,
+            PaintContext::new(scale).unwrap(),
+            Some(a.source()),
+        )
+        .unwrap();
+        let before = (work::read(), ink::build_work());
+        let result = worker.execute(input.clone()).unwrap();
+        assert_eq!(work::read().layouts, before.0.layouts + 1);
+        assert_eq!(ink::build_work().attempts, before.1.attempts + 1);
+        assert_eq!(work::read().shapes, before.0.shapes);
+        held.push(adopt(result, &input, &raster).unwrap());
+    }
+    assert_ne!(
+        held[0].paragraph().unwrap().layouts.as_ptr(),
+        held[2].paragraph().unwrap().layouts.as_ptr(),
+        "one-slot policy must not keep a history of widths"
+    );
+    for pair in held.windows(2) {
+        assert_ne!(
+            pair[0].paragraph().unwrap().layouts.as_ptr(),
+            pair[1].paragraph().unwrap().layouts.as_ptr()
+        );
+    }
+}
+
+#[test]
+fn definite_shared_capacity_deduplicates_arrays_and_local_ink_independently() {
+    let engine = TextEngine::with_catalog(fixture_catalog());
+    let (recipe, raster) = freeze_catalog(&engine).unwrap();
+    let (_k, q) = request(recipe.catalog_label(), 220.);
+    let a = prepare(&recipe, q.clone(), PaintContext::new(1.).unwrap(), None).unwrap();
+    let b = prepare(&recipe, q, PaintContext::new(1.).unwrap(), Some(a.source())).unwrap();
+    let mut worker = FontWorker::new(recipe).unwrap();
+    let oa = worker.execute(a.clone()).unwrap();
+    let life = (oa.probe.clone(), oa.ink_probe.clone());
+    let pa = adopt(oa, &a, &raster).unwrap();
+    let pb = adopt(worker.execute(b.clone()).unwrap(), &b, &raster).unwrap();
+    let (p, q) = (pa.paragraph().unwrap(), pb.paragraph().unwrap());
+    let owned = p.owned_capacity_bytes();
+    let index_bytes = p.ink_capacity_bytes();
+    let mut cache = cache::Cache::default();
+    let r = cache.retiring([p, q, p].into_iter());
+    assert_eq!((r.owners, r.paragraphs), (3, 2));
+    assert_eq!(
+        r.owned_capacity_bytes, owned,
+        "L+I double-counted across wrappers"
+    );
+    cache.hold_measured(1, Some(220.).into(), p);
+    cache.hold_measured(2, Some(220.).into(), q);
+    assert_eq!(cache.handoff_residency().owned_capacity_bytes, owned);
+    cache.finish_handoff();
+    let key = cache.identity(&p.source.spec);
+    cache.set_source(key, p.source.clone());
+    cache.insert(key, Some(220.).into(), p);
+    let current = cache.residency();
+    assert_eq!(
+        current.owned_capacity_bytes - current.key_capacity_bytes,
+        owned
+    );
+    assert_eq!(
+        cache.retiring([q].into_iter()).owned_capacity_bytes,
+        0,
+        "current/retiring shared data overlap"
+    );
+    // Reset is local. A retains its prepared index; B's replacement is a new
+    // immutable numeric index over the same shared layout arrays.
+    let catalog = q.source.catalog.clone();
+    q.ink.borrow_mut().reset(&catalog.borrow().ink_catalog, 2.);
+    assert_eq!(p.ink_capacity_bytes(), index_bytes);
+    assert_eq!(q.ink_capacity_bytes(), 0);
+    q.ink.borrow_mut().index = ink::Index::build(&mut catalog.borrow_mut(), q, 2.).map(Into::into);
+    let second_index_bytes = q.ink_capacity_bytes();
+    assert!(second_index_bytes > 0);
+    assert_eq!(
+        cache.retiring([q].into_iter()).owned_capacity_bytes,
+        second_index_bytes
+    );
+    cache.hold_measured(1, Some(220.).into(), p);
+    cache.hold_measured(2, Some(220.).into(), q);
+    assert_eq!(
+        cache.handoff_residency().owned_capacity_bytes,
+        owned + second_index_bytes
+    );
+    cache.clear();
+    drop(cache);
+    drop(pa);
+    assert!(life.1.upgrade().is_none());
+    assert!(
+        life.0.upgrade().is_some(),
+        "B still owns shared layout arrays"
+    );
+    drop(pb);
+    assert!(life.0.upgrade().is_none());
+    // Source/worker/request handles are still live but only have weak slots.
+    assert!(life.1.upgrade().is_none());
 }

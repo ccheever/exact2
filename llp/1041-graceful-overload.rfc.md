@@ -2222,6 +2222,16 @@ macOS ARM64 with the native Rust Presenter and CPU painter. Actual Linux
 display/stdio input, GPU order, full 25k traversal, timing and physical 120Hz remain
 separate validation; no current native display claim is inferred from these tests.
 
+A subsequent actual Linux run at1f48f28 passes all eighteen focused tests and
+the gallery build, then fails the first100-row stdio cell: typing is acknowledged
+during an admitted drag, but the next hold reports no contact. No drop or C0
+assertion was reached, and no retry replaces the failure. The source trace finds
+that unchanged `when` frames prevent collection body memoization, ending the
+preview on unrelated draft writes. A focused repair and actual-app regression
+remain pending. Exact binaries, raw replies, images and terminal ownership are
+retained under `target/arrange-linux-native-1f48f28/`; this is synthesized
+Presenter contact, not physical evdev delivery or a successful25k traversal.
+
 ### 8.27 Actual Linux scroll repair and remaining 4MiB allocation failure, 2026-09-17
 
 Carson captures merged d6b3431 with the unchanged fourteen-path diagnostic
@@ -2269,3 +2279,43 @@ The remaining work is 4MiB allocation ownership, repeated same-source reflow and
 UI publication cost, followed by actual continuous-resize/input measurements.
 This single 1MiB run's roughly1.95s cold-publication envelope is not an 8.33ms
 frame result or a robust latency distribution.
+
+### 8.28 Share identical worker layout payloads across exact requests, 2026-09-17
+
+A real kernel regression reproduces two requests for the same paragraph:
+`(Definite(600), MinContent)` followed by `(Definite(600), MaxContent)`. Linux
+wraps both at the same width, but previously built two complete layout vectors
+and two ink indexes. The regression preserves both request identities and their
+sampled pixels; the new implementation builds one layout and one index.
+
+Each prepared source has one weak slot keyed by exact width and paint-scale
+bits. Its immutable backing contains layout lines, baselines, metrics and the
+numeric ink index. Adoption retains that backing in the paragraph's local ink
+cache, so the slot remains reusable after the completed worker result is consumed.
+Every answer still has a fresh private job and the complete two-axis request;
+sharing never admits a stale answer. The backing retains no source, job, ticket
+or UI catalog, and the weak slot retains no payload after the last owner releases
+it. Width/scale changes replace the slot, with no visited-width history.
+
+Construction and indexing remain outside the slot lock. Failed and intrinsic
+answers cannot seed it. Resetting one paragraph's ink cache leaves siblings
+intact. Capacity diagnostics deduplicate source, layout, baseline and index
+allocations separately across current, handoff and retiring wrappers. These are
+accessible vector capacities, excluding Arc headers, private font storage,
+allocator reservation and RSS; wrapper counts remain separate.
+
+The frozen nine-file change has 92 passing text tests, including four new
+regressions for actual offers, adopted-owner reuse, stale siblings, slot misses,
+independent reset and allocation lifetime. Strict all-targets Clippy passes.
+The latest full-library invocation is **208 pass, one unchanged image-test
+failure, one GPU ignore**, not a whole-package pass. The image test assumes zero
+reserved delivery cells immediately after enabling workers, although admission
+can reserve a cell before its held completion hook. Its failure, the initial
+compile errors and updated ownership expectations are retained without image
+edits or retries. Evidence is under `target/shared-width-validation/`, source
+manifest `947af46afa2dfc94ef319091ac1689be73785c9986bbbe21623b8b5cfd74f460`.
+
+The approximately610MiB duplicate layout/index payload observed in the earlier
+4MiB fixture motivates this repair; its removal is not yet a measured native
+peak-memory saving or proof that the complete display workload fits the cap.
+Actual Linux replay, repeated resizing and physical120Hz remain unproved.

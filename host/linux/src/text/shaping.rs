@@ -192,13 +192,13 @@ impl ShapedSource {
         }; // Request scratch dies before publication, never accumulates by width.
         let mut paragraph = Paragraph {
             source: self.clone(),
-            layouts,
+            layouts: Arc::new(layouts),
             #[cfg(test)]
             layout_lifetime: Arc::new(()),
             width: 0.,
             height: 0.,
             first_baseline: 0.,
-            baselines: Vec::new(),
+            baselines: Arc::new(Vec::new()),
             ink: RefCell::new(ink::Cache::default()),
             resident_capacity_bytes: 0,
             private_text_bytes_estimate: 0,
@@ -254,7 +254,7 @@ impl ShapedSource {
         paragraph.width = w.ceil();
         paragraph.height = if explicit { h } else { h.ceil() };
         paragraph.first_baseline = baselines.first().copied().unwrap_or(0.);
-        paragraph.baselines = baselines;
+        paragraph.baselines = Arc::new(baselines);
         paragraph.resident_capacity_bytes = cache::capacities(&paragraph);
         paragraph
     }

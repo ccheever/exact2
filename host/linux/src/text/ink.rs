@@ -3,6 +3,7 @@ use super::{catalog::Catalog, Paragraph};
 use cosmic_text::{CacheKey, SubpixelBin};
 use std::mem::size_of;
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 use tiny_skia::Transform;
 
 pub(super) const MAX_BYTES: usize = 8 * 1024 * 1024;
@@ -82,15 +83,15 @@ impl Bounds {
 pub(super) struct Cache {
     catalog: Weak<()>,
     scale: u32,
-    pub index: Option<Index>,
+    pub index: Option<IndexOwner>,
 }
 impl Cache {
-    /// Attach numeric worker output to this UI catalog; no Weak crosses threads.
-    pub fn from_index(catalog: &Rc<()>, scale: f32, index: Index) -> Self {
+    /// Attach numeric worker output; the UI catalog Weak stays local.
+    pub fn from_index(catalog: &Rc<()>, scale: f32, layout: Arc<super::transfer::Layout>) -> Self {
         Self {
             catalog: Rc::downgrade(catalog),
             scale: scale.to_bits(),
-            index: Some(index),
+            index: Some(IndexOwner::Prepared(layout)),
         }
     }
 
@@ -98,12 +99,34 @@ impl Cache {
         self.scale == scale.to_bits() && self.catalog.ptr_eq(&Rc::downgrade(catalog))
     }
     pub fn reset(&mut self, catalog: &Rc<()>, scale: f32) {
-        self.index = None; // Old arrays die before the new scale allocates.
+        self.index = None; // Release this owner before allocation; siblings may pin it.
         self.catalog = Rc::downgrade(catalog);
         self.scale = scale.to_bits();
     }
     pub fn bytes(&self) -> usize {
-        self.index.as_ref().map_or(0, Index::bytes)
+        self.index.as_ref().map_or(0, |index| index.bytes())
+    }
+}
+
+// The UI cache owns its prepared backing, not merely cloned arrays. This is
+// what keeps the source's weak slot usable after CompletedText is consumed.
+// Reset affects only this cache; sibling numeric indices remain immutable.
+pub(super) enum IndexOwner {
+    Local(Index),
+    Prepared(Arc<super::transfer::Layout>),
+}
+impl From<Index> for IndexOwner {
+    fn from(index: Index) -> Self {
+        Self::Local(index)
+    }
+}
+impl std::ops::Deref for IndexOwner {
+    type Target = Index;
+    fn deref(&self) -> &Index {
+        match self {
+            Self::Local(index) => index,
+            Self::Prepared(layout) => &layout.index,
+        }
     }
 }
 

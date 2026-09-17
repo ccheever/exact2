@@ -39,7 +39,7 @@ pub struct HandoffResidency {
     pub identities: usize,
     /// Count limit, not a byte limit or a bound on all live paragraph owners.
     pub identity_limit: usize,
-    /// Unique backing allocations in this transient set.
+    /// Distinct paragraph wrappers; their numeric backings may be shared.
     pub paragraphs: usize,
     /// Exact accessible vector capacities of those unique backings.
     pub owned_capacity_bytes: usize,
@@ -88,13 +88,15 @@ pub struct Residency {
 }
 
 /// Accepted painter storage outside the current catalog's paragraph index.
-/// Shared Rc backings are counted once; this excludes keys, fonts, private cosmic
-/// caches, allocator overhead and other engines/callers. This is not total RSS.
+/// Source, layout and ink backings are each counted once, excluding backings
+/// already in the current catalog. Wrapper counts stay separate from bytes.
+/// This excludes keys, fonts, private cosmic caches, Arc headers, allocator
+/// overhead and other engines/callers. This is not total RSS.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RetiringResidency {
     /// Accepted generational node owners outside the current catalog.
     pub owners: usize,
-    /// Unique paragraph backings shared by those owners.
+    /// Distinct paragraph wrappers shared by those owners.
     pub paragraphs: usize,
     /// Exact accessible vector capacities of those unique paragraph backings.
     pub owned_capacity_bytes: usize,
@@ -107,6 +109,45 @@ pub(super) struct Width(Option<u32>);
 impl From<Option<f32>> for Width {
     fn from(width: Option<f32>) -> Self {
         Self(width.map(f32::to_bits))
+    }
+}
+
+// Numeric payloads can be shared by distinct exact-request Paragraph wrappers.
+// These short-lived sets count accessible vector capacities, not Arc headers,
+// allocator reservations, font caches, or RSS. Never retain payloads/history.
+#[derive(Default)]
+struct Payloads {
+    sources: HashSet<*const super::shaping::ShapeData>,
+    lines: HashSet<*const Vec<Vec<cosmic_text::LayoutLine>>>,
+    baselines: HashSet<*const Vec<f32>>,
+    indexes: HashSet<*const super::ink::Index>,
+}
+impl Payloads {
+    fn source(&mut self, source: &ShapedSource) -> usize {
+        if self.sources.insert(Arc::as_ptr(&source.data)) {
+            source.accessible_capacity_bytes
+        } else {
+            0
+        }
+    }
+    fn width(&mut self, p: &Paragraph) -> usize {
+        let mut bytes = 0;
+        let baselines = p.baselines.capacity() * size_of::<f32>();
+        if self.lines.insert(Arc::as_ptr(&p.layouts)) {
+            bytes += p.resident_capacity_bytes - p.source.accessible_capacity_bytes - baselines;
+        }
+        if self.baselines.insert(Arc::as_ptr(&p.baselines)) {
+            bytes += baselines;
+        }
+        if let Some(index) = &p.ink.borrow().index {
+            if self.indexes.insert(&**index as *const _) {
+                bytes += index.bytes();
+            }
+        }
+        bytes
+    }
+    fn paragraph(&mut self, p: &Paragraph) -> usize {
+        self.source(&p.source) + self.width(p)
     }
 }
 
@@ -260,14 +301,11 @@ impl Cache {
             ..HandoffResidency::default()
         };
         let mut unique = HashSet::new();
-        let mut sources = HashSet::new();
+        let mut payloads = Payloads::default();
         for h in &self.handoffs {
             if unique.insert(Rc::as_ptr(&h.paragraph)) {
                 result.paragraphs += 1;
-                result.owned_capacity_bytes += h.paragraph.layout_capacity_bytes();
-                if sources.insert(Arc::as_ptr(&h.paragraph.source.data)) {
-                    result.owned_capacity_bytes += h.paragraph.source.accessible_capacity_bytes;
-                }
+                result.owned_capacity_bytes += payloads.paragraph(&h.paragraph);
                 result.private_text_bytes_estimate += h.paragraph.private_text_bytes_estimate;
             }
         }
@@ -361,12 +399,28 @@ impl Cache {
             cold_target_bytes: self.target,
             ..Residency::default()
         };
+        let mut payloads = Payloads::default();
+        let mut cold = Payloads::default();
+        // A cold wrapper sharing a pinned payload cannot claim those bytes as
+        // exclusively cold. Seed only identities, without owning anything.
+        for entry in self.identities.values().flatten() {
+            if entry.pinned() {
+                if let Some(source) = &entry.source {
+                    cold.source(source);
+                }
+            }
+            for slot in entry.widths.values().filter(|s| s.pinned()) {
+                if let Some(p) = slot.weak.upgrade() {
+                    cold.width(&p);
+                }
+            }
+        }
         for entry in self.identities.values().flatten() {
             result.identities += 1;
             result.key_capacity_bytes += entry.key_bytes();
-            let source_bytes = entry.source_bytes();
-            result.owned_capacity_bytes += source_bytes;
+            result.owned_capacity_bytes += entry.source.as_ref().map_or(0, |s| payloads.source(s));
             if !entry.pinned() {
+                let source_bytes = entry.source.as_ref().map_or(0, |s| cold.source(s));
                 result.cold_owned_capacity_bytes += source_bytes;
                 result.cold_policy_bytes += entry.key_bytes() + source_bytes;
             }
@@ -376,7 +430,7 @@ impl Cache {
                 let Some(paragraph) = slot.weak.upgrade() else {
                     continue;
                 };
-                let owned = paragraph.layout_capacity_bytes();
+                let owned = payloads.width(&paragraph);
                 result.paragraphs += 1;
                 result.owned_capacity_bytes += owned;
                 result.private_text_bytes_estimate += paragraph.private_text_bytes_estimate;
@@ -384,8 +438,9 @@ impl Cache {
                     result.pinned_paragraphs += 1;
                 } else {
                     result.cold_paragraphs += 1;
-                    result.cold_owned_capacity_bytes += owned;
-                    result.cold_policy_bytes += owned + paragraph.private_text_bytes_estimate;
+                    let cold_bytes = cold.width(&paragraph);
+                    result.cold_owned_capacity_bytes += cold_bytes;
+                    result.cold_policy_bytes += cold_bytes + paragraph.private_text_bytes_estimate;
                 }
             }
         }
@@ -411,7 +466,17 @@ impl Cache {
             .flat_map(|e| e.widths.values().map(|s| s.weak.as_ptr()))
             .collect();
         let mut seen = HashSet::new();
-        let mut sources = HashSet::new();
+        let mut payloads = Payloads::default();
+        for entry in self.identities.values().flatten() {
+            if let Some(source) = &entry.source {
+                payloads.source(source);
+            }
+            for slot in entry.widths.values() {
+                if let Some(p) = slot.weak.upgrade() {
+                    payloads.width(&p);
+                }
+            }
+        }
         let mut result = RetiringResidency::default();
         for paragraph in accepted {
             let pointer = Rc::as_ptr(paragraph);
@@ -421,10 +486,7 @@ impl Cache {
             result.owners += 1;
             if seen.insert(pointer) {
                 result.paragraphs += 1;
-                result.owned_capacity_bytes += paragraph.layout_capacity_bytes();
-                if sources.insert(Arc::as_ptr(&paragraph.source.data)) {
-                    result.owned_capacity_bytes += paragraph.source.accessible_capacity_bytes;
-                }
+                result.owned_capacity_bytes += payloads.paragraph(paragraph);
                 result.private_text_bytes_estimate += paragraph.private_text_bytes_estimate;
             }
         }
@@ -568,7 +630,7 @@ pub(super) fn capacities(paragraph: &Paragraph) -> usize {
     let mut bytes = paragraph.source.accessible_capacity_bytes
         + vector(&paragraph.baselines)
         + vector(&paragraph.layouts);
-    for layouts in &paragraph.layouts {
+    for layouts in paragraph.layouts.iter() {
         bytes += vector(layouts);
         for line in layouts {
             bytes += vector(&line.glyphs) + vector(&line.decorations);

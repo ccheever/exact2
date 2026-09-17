@@ -1078,7 +1078,8 @@ fn lazy_ink_capacity_tracks_current_arrays_after_scale_reset_and_refusal() {
     {
         let mut cache = paragraph.ink.borrow_mut();
         cache.reset(&engine.catalog.borrow().ink_catalog, 4.);
-        cache.index = ink::Index::with_limit(&mut engine.catalog.borrow_mut(), &paragraph, 4., 0);
+        cache.index = ink::Index::with_limit(&mut engine.catalog.borrow_mut(), &paragraph, 4., 0)
+            .map(Into::into);
         assert!(cache.index.is_none());
     }
     assert_eq!(paint_lazy_ink(&mut engine, &paragraph, 4.), 0);
