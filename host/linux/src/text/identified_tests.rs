@@ -416,7 +416,7 @@ fn identified_latest_definite_handoffs_keep_the_existing_64_identity_bound() {
 }
 
 #[test]
-fn new_width_reshapes_from_canonical_spec_without_owned_source_copy_or_hash() {
+fn new_width_reuses_shape_without_owned_source_copy_or_hash() {
     let e = TextEngine::shared();
     let k = tree(
         e.clone(),
@@ -427,6 +427,88 @@ fn new_width_reshapes_from_canonical_spec_without_owned_source_copy_or_hash() {
     let before = e.borrow().shape_calls;
     let narrow = request(&k, e.clone(), 2, AxisOffer::Definite(101.125));
     assert!(narrow.height > initial.height);
-    assert!(e.borrow().shape_calls > before);
+    assert_eq!(e.borrow().shape_calls, before);
     assert_eq!(work(), Work::default());
+}
+
+#[test]
+fn retained_identified_600_to_632_reuses_giant_shape() {
+    let e = TextEngine::shared();
+    let text = "office café e\u{301} العربية 漢字 🧪 word ".repeat(2048);
+    assert!(text.len() >= 65536);
+    let mut k = tree(e.clone(), "");
+    let mut bold = StyleProps {
+        font_weight: 700,
+        ..StyleProps::default()
+    };
+    bold.mask.set(StyleId::FontWeight);
+    apply(
+        &mut k,
+        &[
+            Op::ClearProp {
+                id: 2,
+                prop: PropId::Text,
+            },
+            Op::CreateView {
+                id: 4,
+                node_type: NodeType::Text,
+            },
+            Op::CreateView {
+                id: 5,
+                node_type: NodeType::Text,
+            },
+            prop(4, PropId::Text, &text),
+            prop(5, PropId::Text, " styled tail e\u{301} 🧪"),
+            Op::SetStyle {
+                id: 5,
+                patch: Box::new(bold),
+            },
+            Op::SetChildren {
+                id: 2,
+                children: vec![4, 5],
+            },
+        ],
+    );
+    let stamp = k.node(2).unwrap().paragraph_stamp().unwrap();
+    request(&k, e.clone(), 2, AxisOffer::Definite(600.));
+    let a = e
+        .borrow_mut()
+        .paragraph_identified(&stamp, Some(600.), || panic!("warm source"))
+        .unwrap();
+    let signature = |p: &Paragraph| {
+        p.layout_runs()
+            .map(|r| format!("{:?} {:?} {:?} {:?}", r.text, r.glyphs, r.line_y, r.line_w))
+            .collect::<Vec<_>>()
+    };
+    let original = signature(&a);
+    let metrics = paragraph_metrics(&a);
+    let baselines = a.baselines.clone();
+    let calls = e.borrow().shape_calls;
+    let actual_calls = shaping::shape_line_calls();
+    reset();
+    let b = e
+        .borrow_mut()
+        .paragraph_identified(&stamp, Some(632.), || panic!("width copied source"))
+        .unwrap();
+    assert_ne!(a.height, b.height, "fixture must change wrapping");
+    assert_eq!(signature(&a), original);
+    assert_eq!(paragraph_metrics(&a), metrics);
+    assert_eq!(a.baselines, baselines);
+    assert!(Rc::ptr_eq(
+        &a,
+        &e.borrow_mut()
+            .paragraph_identified(&stamp, Some(600.), || panic!("A lost identity"))
+            .unwrap()
+    ));
+    assert_eq!(work().copied, 0);
+    assert_eq!(work().hashed, 0);
+    assert_eq!(
+        e.borrow().shape_calls,
+        calls,
+        "new width reshaped retained source: {:?}",
+        work()
+    );
+    assert_eq!(work().giant_shapes, 0);
+    assert_eq!(shaping::shape_line_calls(), actual_calls);
+    assert!(Rc::ptr_eq(&a.source, &b.source));
 }

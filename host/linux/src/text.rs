@@ -4,9 +4,9 @@
 //!
 //! @ref LLP 1015 §3; LLP 1001 §6 (a per-kernel injected measurer)
 //!
-//! A [`Paragraph`] is a width-specific snapshot: the shaped, wrapped
-//! cosmic-text `Buffer`, its size with the same `ceil` the kernel receives,
-//! its first baseline. It is cached by (spec, width); the measurer answers
+//! A [`Paragraph`] is a width-specific snapshot sharing an immutable full
+//! cosmic-text shape and its font catalog. Layout vectors and CSS baselines
+//! belong to the width snapshot. It is cached by (spec, width); the measurer answers
 //! from it and the painter paints from it, so what was measured is what is
 //! painted, by construction. `line-height: normal` is the font's ascent +
 //! descent + line gap (the browser's); a set line height centers the glyphs
@@ -14,6 +14,9 @@
 //! once per (glyph, color) into small premultiplied pixmaps.
 
 mod cache;
+mod catalog;
+mod shaping;
+use shaping::ShapedSource;
 mod ink;
 pub use cache::{HandoffResidency, Residency, RetiringResidency};
 
@@ -131,8 +134,9 @@ impl Spec {
 /// A shaped, wrapped paragraph at one width: what is measured is what is
 /// painted.
 pub struct Paragraph {
-    /// The laid-out buffer.
-    buffer: Buffer,
+    /// Width-independent canonical text, shape and catalog.
+    source: Rc<ShapedSource>,
+    layouts: Vec<Vec<cosmic_text::LayoutLine>>,
     /// Points, rounded up.
     pub width: f32,
     /// Points, rounded up.
@@ -142,8 +146,10 @@ pub struct Paragraph {
     /// CSS shared-baseline placement for each wrapped line, used by both painters.
     baselines: Vec<f32>,
     ink: RefCell<ink::Cache>,
-    // Immutable Buffer/baseline capacities; lazy ink is read separately below.
+    // S + L, excluding canonical key K. Shared S must be deduplicated across
+    // snapshots; lazy ink is read separately below.
     resident_capacity_bytes: usize,
+    // Moved source String capacities are included above; no length estimate.
     private_text_bytes_estimate: usize,
 }
 
@@ -159,9 +165,13 @@ pub struct RunPaint {
 }
 
 impl Paragraph {
-    /// Immutable full shaped source; CPU visibility never changes this buffer.
-    pub fn buffer(&self) -> &Buffer {
-        &self.buffer
+    /// Full immutable width layout and canonical source in cosmic line order.
+    pub fn layout_runs(&self) -> impl Iterator<Item = cosmic_text::LayoutRun<'_>> {
+        shaping::Runs::new(&self.source, &self.layouts)
+    }
+
+    fn layout_capacity_bytes(&self) -> usize {
+        self.owned_capacity_bytes() - self.source.accessible_capacity_bytes
     }
 
     /// CSS baselines in original wrapped-line order.
@@ -187,8 +197,7 @@ impl Paragraph {
         &'a self,
         palette: &'a [RunPaint],
     ) -> impl Iterator<Item = (&'a LayoutGlyph, f32, RunPaint)> + 'a {
-        self.buffer
-            .layout_runs()
+        self.layout_runs()
             .zip(&self.baselines)
             .flat_map(move |(line, baseline)| {
                 line.glyphs
@@ -243,37 +252,26 @@ pub struct GlyphRun {
 
 /// The engine: fonts, the paragraph cache, the glyph cache, the counters.
 pub struct TextEngine {
-    fonts: FontSystem,
-    swash: SwashCache,
-    ink_catalog: Rc<()>,
+    catalog: catalog::Lease,
+    paragraphs: cache::Cache,
+    /// Canonical shaped-source builds, independent of width layout.
+    pub shape_calls: usize,
+    layout_calls: usize,
+    #[cfg(test)]
+    before_layout: Option<Box<dyn FnMut()>>,
     #[cfg(test)]
     ink_visits: usize,
     #[cfg(test)]
     ink_nodes: usize,
     #[cfg(test)]
     ink_builds: usize,
-    paragraphs: cache::Cache,
-    /// Buffer builds, including temporary intrinsic measurements.
-    pub shape_calls: usize,
-    #[cfg(test)]
-    before_layout: Option<Box<dyn FnMut()>>,
-    glyphs: HashMap<(CacheKey, u32), Option<Rc<Glyph>>>,
-    normal: HashMap<(u16, u32, u16, bool), FontMetrics>,
-    font_data: HashMap<(fontdb::ID, u16), Option<PenikoFont>>,
-    /// A requested (weight, italic) → the weight of the face the family
-    /// actually has for it (see `snap_weight`).
-    weights: HashMap<(u16, u16, bool), u16>,
-    /// Plan stack id → the fontdb family this plan-scoped catalog owns.
-    families: Vec<FamilyChoice>,
-    /// Declared face identity: the ids loaded from the declared bytes.
-    declared_faces: HashMap<(u16, u16, bool), fontdb::ID>,
     /// How many times the kernel asked, since launch.
     pub measures: usize,
-    /// How many were answered from cache.
+    /// Questions answered without a layout miss.
     pub hits: usize,
-    /// Time spent shaping on misses.
+    /// Total synchronous shape/layout miss work, not isolated shaper CPU time.
     pub shaping: Duration,
-    /// The family `sans-serif` resolves to.
+    /// The family sans-serif resolves to.
     pub sans: String,
 }
 
@@ -370,53 +368,27 @@ impl TextEngine {
     /// weight: at 600 the Caltrain app's button came out in URW Bookman with
     /// a space from Noto Color Emoji, 16 pt wide.
     pub fn new() -> TextEngine {
-        let mut fonts = FontSystem::new();
-        if let Ok(dir) = std::env::var("EXACT_FONTS") {
-            fonts.db_mut().load_fonts_dir(dir);
-        }
-        if fonts.db().faces().next().is_none() {
-            eprintln!("exact: no fonts found; text will not shape (set EXACT_FONTS to a directory of .ttf files)");
-        }
-        let sans = sans_family(fonts.db());
-        if let Some(name) = &sans {
-            fonts.db_mut().set_sans_serif_family(name.clone());
-        }
-        if let Some(name) = monospace_family(fonts.db()) {
-            fonts.db_mut().set_monospace_family(name);
-        }
-        TextEngine {
-            sans: sans.unwrap_or_default(),
-            fonts,
-            swash: SwashCache::new(),
-            ink_catalog: Rc::new(()),
+        Self::with_catalog(catalog::Catalog::new())
+    }
+
+    fn with_catalog(catalog: catalog::Catalog) -> Self {
+        Self {
+            sans: catalog.sans.clone(),
+            catalog: Rc::new(RefCell::new(catalog)),
+            paragraphs: cache::Cache::default(),
+            shape_calls: 0,
+            layout_calls: 0,
+            measures: 0,
+            hits: 0,
+            shaping: Duration::ZERO,
+            #[cfg(test)]
+            before_layout: None,
             #[cfg(test)]
             ink_visits: 0,
             #[cfg(test)]
             ink_nodes: 0,
             #[cfg(test)]
             ink_builds: 0,
-            paragraphs: cache::Cache::default(),
-            shape_calls: 0,
-            #[cfg(test)]
-            before_layout: None,
-            glyphs: HashMap::new(),
-            normal: HashMap::new(),
-            font_data: HashMap::new(),
-            weights: HashMap::new(),
-            families: vec![
-                FamilyChoice::SansSerif,
-                FamilyChoice::SansSerif,
-                FamilyChoice::SansSerif,
-                FamilyChoice::Serif,
-                FamilyChoice::Serif,
-                FamilyChoice::Monospace,
-                FamilyChoice::Monospace,
-                FamilyChoice::SansSerif,
-            ],
-            declared_faces: HashMap::new(),
-            measures: 0,
-            hits: 0,
-            shaping: Duration::ZERO,
         }
     }
 
@@ -447,76 +419,7 @@ impl TextEngine {
     }
 
     fn install_plan_assets(&mut self, plan: &Plan, assets: &Assets) {
-        let mut next = TextEngine::new();
-        next.families = Vec::with_capacity(plan.stacks.len());
-        next.families
-            .extend(plan.stacks.iter().enumerate().map(|(i, _)| {
-                let stack = plan.stack(StacksId(i as u32));
-                let member =
-                    plan.stack_member(stack.members.iter().next().expect("validated stack"));
-                match member.kind {
-                    StackMemberKind::UiSerif | StackMemberKind::Serif => FamilyChoice::Serif,
-                    StackMemberKind::UiMonospace | StackMemberKind::Monospace => {
-                        FamilyChoice::Monospace
-                    }
-                    _ => FamilyChoice::SansSerif,
-                }
-            }));
-
-        for (stack_index, stack) in plan.stacks.iter().enumerate() {
-            let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
-            if member.kind != StackMemberKind::Family {
-                continue;
-            }
-            let family_id = member.family.expect("validated family member");
-            let family = plan.familie(family_id);
-            let alias = format!("ExactPlanStack{stack_index}");
-            let mut staged = Vec::new();
-            let mut failed = false;
-            for face_id in family.faces.iter() {
-                let face = plan.face(face_id);
-                let source = plan.str(face.source);
-                let Some(bytes) = assets.read(source) else {
-                    failed = true;
-                    break;
-                };
-                let mut parsed = fontdb::Database::new();
-                let ids = parsed.load_font_source(fontdb::Source::Binary(Arc::new(bytes.to_vec())));
-                if ids.len() != 1 {
-                    failed = true;
-                    break;
-                }
-                let mut info = parsed.face(ids[0]).expect("returned face id").clone();
-                let Some(language) = info.families.first().map(|(_, language)| *language) else {
-                    failed = true;
-                    break;
-                };
-                info.id = fontdb::ID::dummy();
-                info.families = vec![(alias.clone(), language)];
-                info.weight = fontdb::Weight(face.weight);
-                info.style = if face.italic {
-                    fontdb::Style::Italic
-                } else {
-                    fontdb::Style::Normal
-                };
-                info.stretch = fontdb::Stretch::Normal;
-                staged.push((face.weight, face.italic, info));
-            }
-            if failed || staged.len() != family.faces.len as usize {
-                eprintln!(
-                    "[Fonts] font.registration.failed: stack={stack_index} family={}",
-                    family_id.0
-                );
-                continue;
-            }
-            next.families[stack_index] = FamilyChoice::Declared(alias);
-            for (weight, italic, info) in staged {
-                let id = next.fonts.db_mut().push_face_info(info);
-                next.declared_faces
-                    .insert((stack_index as u16, weight, italic), id);
-            }
-        }
-        *self = next;
+        *self = Self::with_catalog(catalog::Catalog::for_assets(plan, assets));
     }
 
     /// The exact loaded face id chosen for a run, for identity assertions.
@@ -526,134 +429,27 @@ impl TextEngine {
         weight: u16,
         italic: bool,
     ) -> Option<fontdb::ID> {
-        let choice = self
-            .families
-            .get(family as usize)
-            .cloned()
-            .unwrap_or(FamilyChoice::SansSerif);
-        self.fonts.db().query(&fontdb::Query {
-            families: &[choice.cosmic()],
-            weight: fontdb::Weight(weight),
-            stretch: fontdb::Stretch::Normal,
-            style: if italic {
-                fontdb::Style::Italic
-            } else {
-                fontdb::Style::Normal
-            },
-        })
+        self.catalog
+            .borrow_mut()
+            .resolved_face_id(family, weight, italic)
     }
 
     /// The id loaded for one declared face before matching.
     pub fn declared_face_id(&self, family: u16, weight: u16, italic: bool) -> Option<fontdb::ID> {
-        self.declared_faces.get(&(family, weight, italic)).copied()
+        self.catalog
+            .borrow()
+            .declared_face_id(family, weight, italic)
     }
 
     /// How many font faces are loaded.
     pub fn face_count(&self) -> usize {
-        self.fonts.db().faces().count()
-    }
-
-    /// The weight to shape with for a requested one: the weight of the face
-    /// CSS font matching picks from the `sans-serif` family (`fontdb::Query`
-    /// — for 600 with Book and Bold on hand, Bold). cosmic-text's fallback
-    /// takes the requested weight literally and ranks any face whose
-    /// variable `wght` axis covers it above the family's nearest static
-    /// face: on a Mac, weight 500 and 600 came out in San Francisco while
-    /// 400 and 700 were the pinned DejaVu, and the app's weight-600 button
-    /// measured 104 wide here against 128 on a builder with the same font
-    /// bytes. Asking for the family's own weight keeps the family first,
-    /// the browser's rule (family, then weight).
-    fn snap_weight(&mut self, family: u16, weight: u16, italic: bool) -> u16 {
-        let key = (family, weight, italic);
-        if let Some(w) = self.weights.get(&key) {
-            return *w;
-        }
-        let family_choice = self
-            .families
-            .get(family as usize)
-            .cloned()
-            .unwrap_or(FamilyChoice::SansSerif);
-        let query = fontdb::Query {
-            families: &[family_choice.cosmic()],
-            weight: fontdb::Weight(weight),
-            stretch: fontdb::Stretch::Normal,
-            style: if italic {
-                fontdb::Style::Italic
-            } else {
-                fontdb::Style::Normal
-            },
-        };
-        let db = self.fonts.db();
-        let snapped = db
-            .query(&query)
-            .and_then(|id| db.face(id))
-            .map(|face| face.weight.0)
-            .unwrap_or(weight);
-        self.weights.insert(key, snapped);
-        snapped
-    }
-
-    fn attrs<'a>(run: &Run, weight: u16, family: Family<'a>) -> Attrs<'a> {
-        let mut a = Attrs::new()
-            .family(family)
-            .weight(Weight(weight))
-            .style(if run.italic {
-                Style::Italic
-            } else {
-                Style::Normal
-            });
-        if run.letter_spacing != 0.0 && run.size > 0.0 {
-            a = a.letter_spacing(run.letter_spacing / run.size);
-        }
-        a
+        self.catalog.borrow().face_count()
     }
 
     /// CSS `line-height: normal` for a run: the font's ascent + descent +
     /// line gap at the run's size, from the font the shaper picks.
     pub fn normal_line_height(&mut self, run: &Run) -> f32 {
-        let (ascent, descent, leading) = self.font_metrics(run);
-        ascent + descent + leading
-    }
-
-    fn font_metrics(&mut self, run: &Run) -> FontMetrics {
-        let key = (run.family, run.size.to_bits(), run.weight, run.italic);
-        if let Some(h) = self.normal.get(&key) {
-            return *h;
-        }
-        let weight = self.snap_weight(run.family, run.weight, run.italic);
-        let family = self
-            .families
-            .get(run.family as usize)
-            .cloned()
-            .unwrap_or(FamilyChoice::SansSerif);
-        let mut probe = Buffer::new(
-            &mut self.fonts,
-            Metrics::new(run.size.max(1.0), run.size.max(1.0)),
-        );
-        probe.set_text(
-            "x",
-            &Self::attrs(run, weight, family.cosmic()),
-            Shaping::Advanced,
-            None,
-        );
-        probe.shape_until_scroll(&mut self.fonts, false);
-        let mut height = (run.size * 0.9, run.size * 0.3, 0.0);
-        if let Some(g) = probe.layout_runs().flat_map(|r| r.glyphs.iter()).next() {
-            if let Some(font) = self.fonts.get_font(g.font_id, g.font_weight) {
-                let m = font.metrics();
-                if m.units_per_em > 0 {
-                    let scale = run.size / m.units_per_em as f32;
-                    height = (m.ascent * scale, m.descent.abs() * scale, m.leading * scale);
-                }
-            }
-        }
-        self.normal.insert(key, height);
-        height
-    }
-
-    fn line_height(&mut self, run: &Run) -> f32 {
-        run.line_height
-            .unwrap_or_else(|| self.normal_line_height(run))
+        self.catalog.borrow_mut().normal_line_height(run)
     }
 
     /// Accessible paragraph storage for this catalog. This excludes fonts,
@@ -731,184 +527,76 @@ impl TextEngine {
         self.measure_for(&spec, request.width, key)
     }
 
-    fn paragraph_for(&mut self, spec: &Spec, width: Option<f32>, key: (u64, u64)) -> Rc<Paragraph> {
+    fn paragraph_for(
+        &mut self,
+        _spec: &Spec,
+        width: Option<f32>,
+        key: (u64, u64),
+    ) -> Rc<Paragraph> {
         if let Some(p) = self.paragraphs.get(key, width.into()) {
             return p;
         }
         self.paragraphs.before_shape(key);
-        let p = Rc::new(self.layout(spec, width));
+        let source = self.source(key);
+        let p = Rc::new(self.layout_source(&source, width, None));
         self.paragraphs.insert(key, width.into(), &p);
         p
     }
 
-    fn layout(&mut self, spec: &Spec, width: Option<f32>) -> Paragraph {
+    fn source(&mut self, key: (u64, u64)) -> Rc<ShapedSource> {
+        if let Some(source) = self.paragraphs.source(key) {
+            return source;
+        }
+        let spec = self.paragraphs.spec(key).expect("current identity");
+        let source = self.build_source(spec);
+        self.paragraphs.set_source(key, source.clone());
+        source
+    }
+
+    fn build_source(&mut self, spec: Rc<Spec>) -> Rc<ShapedSource> {
+        self.shape_calls += 1;
+        #[cfg(test)]
+        identified_tests::shaped(&spec);
+        Rc::new(ShapedSource::new(self.catalog.clone(), spec))
+    }
+
+    fn layout_source(
+        &mut self,
+        source: &Rc<ShapedSource>,
+        width: Option<f32>,
+        wrap: Option<Wrap>,
+    ) -> Paragraph {
         #[cfg(test)]
         if let Some(callback) = &mut self.before_layout {
             callback();
         }
-        #[cfg(test)]
-        identified_tests::shaped(spec);
-        self.shape_calls += 1;
-        let minimum = self.line_height(&spec.strut);
-        let (ascent, descent, leading) = self.font_metrics(&spec.strut);
-        let half = (minimum - ascent - descent - leading) / 2.0;
-        let strut = (ascent + half, descent + leading + half);
-        let line_heights: Vec<f32> = spec.runs.iter().map(|r| self.line_height(r)).collect();
-        let run_metrics: Vec<_> = spec.runs.iter().map(|r| self.font_metrics(r)).collect();
-        let base = spec.runs.first().map_or(16.0, |r| r.size.max(0.5));
-        let tallest = line_heights.iter().copied().fold(minimum, f32::max);
-        let mut buffer = Buffer::new(
-            &mut self.fonts,
-            Metrics::new(base, tallest.max(f32::EPSILON)),
-        );
-        // CSS `overflow-wrap: normal`: lines break between words; a word
-        // longer than the line overflows it, never breaks.
-        buffer.set_wrap(
-            if spec.overflow_wrap == exact_kernel::OverflowWrap::Normal {
-                Wrap::Word
-            } else {
-                Wrap::WordOrGlyph
-            },
-        );
-        buffer.set_size(width.map(|w| w.max(0.0)), None);
-        if spec.line_clamp > 0 {
-            buffer.set_ellipsize(Ellipsize::End(EllipsizeHeightLimit::Lines(
-                spec.line_clamp as usize,
-            )));
-        }
-        let align = match spec.align {
-            TextAlign::Left => None,
-            TextAlign::Center => Some(Align::Center),
-            TextAlign::Right => Some(Align::Right),
-            TextAlign::Justify => Some(Align::Justified),
-        };
-        let weights: Vec<u16> = spec
-            .runs
-            .iter()
-            .map(|r| self.snap_weight(r.family, r.weight, r.italic))
-            .collect();
-        let families: Vec<FamilyChoice> = spec
-            .runs
-            .iter()
-            .map(|r| {
-                self.families
-                    .get(r.family as usize)
-                    .cloned()
-                    .unwrap_or(FamilyChoice::SansSerif)
-            })
-            .collect();
-        let spans: Vec<(&str, Attrs<'_>)> = spec
-            .runs
-            .iter()
-            .zip(line_heights.iter())
-            .zip(weights.iter())
-            .zip(families.iter())
-            .enumerate()
-            .map(|(index, (((r, lh), w), family))| {
-                (
-                    r.text.as_str(),
-                    // cosmic-text's scrolling loop requires positive pitch.
-                    // This shaping-only pitch never escapes: CSS placement below
-                    // uses the original lengths, including zero, by run metadata.
-                    Self::attrs(r, *w, family.cosmic())
-                        .metadata(index)
-                        .metrics(Metrics::new(r.size.max(0.5), lh.max(1.0))),
-                )
-            })
-            .collect();
-        let default = spec
-            .runs
-            .first()
-            .zip(weights.first())
-            .zip(families.first())
-            .map(|((r, w), family)| Self::attrs(r, *w, family.cosmic()))
-            .unwrap_or_else(Attrs::new);
-        buffer.set_rich_text(spans, &default, Shaping::Advanced, align);
-        buffer.shape_until_scroll(&mut self.fonts, false);
-        let mut w = 0.0f32;
-        let mut h = 0.0f32;
-        let mut baselines = Vec::new();
-        let mut explicit = false;
-        for run in buffer.layout_runs() {
-            w = w.max(run.line_w);
-            let (mut above, mut below) = strut;
-            let mut above_explicit = spec.strut.line_height.is_some();
-            let mut below_explicit = above_explicit;
-            for glyph in run.glyphs {
-                if let Some(font) = self.fonts.get_font(glyph.font_id, glyph.font_weight) {
-                    let m = font.metrics();
-                    let scale = glyph.font_size / m.units_per_em as f32;
-                    // Explicit lengths size the authored inline box; only
-                    // normal expands to the actual fallback glyph font.
-                    let (ascent, descent, leading) =
-                        if spec.runs[glyph.metadata].line_height.is_some() {
-                            run_metrics[glyph.metadata]
-                        } else {
-                            (m.ascent * scale, m.descent.abs() * scale, m.leading * scale)
-                        };
-                    let height = spec.runs[glyph.metadata]
-                        .line_height
-                        .unwrap_or(ascent + descent + leading);
-                    let half = (height - ascent - descent - leading) / 2.0;
-                    let run_explicit = spec.runs[glyph.metadata].line_height.is_some();
-                    let (a, b) = (ascent + half, descent + leading + half);
-                    if a > above {
-                        above = a;
-                        above_explicit = run_explicit;
-                    } else if a == above {
-                        above_explicit &= run_explicit;
-                    }
-                    if b > below {
-                        below = b;
-                        below_explicit = run_explicit;
-                    } else if b == below {
-                        below_explicit &= run_explicit;
-                    }
-                }
-            }
-            explicit |= above_explicit || below_explicit;
-            baselines.push(h + above);
-            h += above + below;
-        }
-        let mut paragraph = Paragraph {
-            buffer,
-            width: w.ceil(),
-            height: if explicit { h } else { h.ceil() },
-            first_baseline: baselines.first().copied().unwrap_or(0.0),
-            baselines,
-            ink: RefCell::new(ink::Cache::default()),
-            resident_capacity_bytes: 0,
-            private_text_bytes_estimate: 0,
-        };
-        (
-            paragraph.resident_capacity_bytes,
-            paragraph.private_text_bytes_estimate,
-        ) = cache::capacities(&paragraph);
-        paragraph
+        self.layout_calls += 1;
+        source.layout(width, wrap)
     }
 
-    // Intrinsic questions keep scalar answers only. The zero-width scratch
-    // Buffer is dropped before allocating the final min-content measurement.
+    #[cfg(test)]
+    fn layout(&mut self, spec: &Spec, width: Option<f32>) -> Paragraph {
+        let source = self.build_source(Rc::new(spec.clone()));
+        self.layout_source(&source, width, None)
+    }
+
+    // Intrinsic questions retain the shared source and scalar answers only.
+    // Zero-width layout scratch drops before the final min-content layout.
     fn intrinsic(&mut self, spec: &Spec, minimum: bool, key: (u64, u64)) -> TextMetrics {
         if let Some(metrics) = self.paragraphs.intrinsic(key, minimum) {
             return metrics;
         }
-        // No intrinsic Buffer enters the handoff set. A miss trades this
-        // identity's pending definite result for scratch; accepted owners remain.
         self.paragraphs.release_handoff(key.1);
         self.paragraphs.before_shape(key);
+        let source = self.source(key);
         let width = if minimum {
-            if spec.overflow_wrap == exact_kernel::OverflowWrap::BreakWord {
-                let mut intrinsic = spec.clone();
-                intrinsic.overflow_wrap = exact_kernel::OverflowWrap::Normal;
-                Some(self.layout(&intrinsic, Some(0.0)).width)
-            } else {
-                Some(self.layout(spec, Some(0.0)).width)
-            }
+            let wrap =
+                (spec.overflow_wrap == exact_kernel::OverflowWrap::BreakWord).then_some(Wrap::Word);
+            Some(self.layout_source(&source, Some(0.0), wrap).width)
         } else {
             None
         };
-        let metrics = paragraph_metrics(&self.layout(spec, width));
+        let metrics = paragraph_metrics(&self.layout_source(&source, width, None));
         self.paragraphs.set_intrinsic(key, minimum, metrics);
         metrics
     }
@@ -929,7 +617,7 @@ impl TextEngine {
             return TextMetrics::default();
         }
         let started = Instant::now();
-        let before = self.shape_calls;
+        let before = self.layout_calls;
         let metrics = match width {
             AxisOffer::Definite(w) => {
                 let width = Some(w.max(0.0));
@@ -941,60 +629,12 @@ impl TextEngine {
             AxisOffer::MaxContent => self.intrinsic(spec, false, key),
             AxisOffer::MinContent => self.intrinsic(spec, true, key),
         };
-        if self.shape_calls == before {
+        if self.layout_calls == before {
             self.hits += 1;
         } else {
             self.shaping += started.elapsed();
         }
         metrics
-    }
-
-    fn glyph(&mut self, key: CacheKey, color: [u8; 4]) -> Option<Rc<Glyph>> {
-        let color_bits = u32::from_be_bytes(color);
-        if let Some(g) = self.glyphs.get(&(key, color_bits)) {
-            return g.clone();
-        }
-        if self.glyphs.len() > 8192 {
-            self.glyphs.clear();
-        }
-        let image = self.swash.get_image(&mut self.fonts, key).clone();
-        let glyph = image.and_then(|img| {
-            let (w, h) = (img.placement.width, img.placement.height);
-            if w == 0 || h == 0 {
-                return None;
-            }
-            let [r, g, b, a] = color;
-            let mut data = Vec::with_capacity((w * h * 4) as usize);
-            match img.content {
-                SwashContent::Mask => {
-                    for &m in &img.data {
-                        let alpha = (m as u32 * a as u32 / 255) as u8;
-                        data.extend_from_slice(&premultiply(r, g, b, alpha));
-                    }
-                }
-                SwashContent::SubpixelMask => {
-                    for px in img.data.chunks_exact(4) {
-                        let m = px[0].max(px[1]).max(px[2]);
-                        let alpha = (m as u32 * a as u32 / 255) as u8;
-                        data.extend_from_slice(&premultiply(r, g, b, alpha));
-                    }
-                }
-                SwashContent::Color => {
-                    for px in img.data.chunks_exact(4) {
-                        let alpha = (px[3] as u32 * a as u32 / 255) as u8;
-                        data.extend_from_slice(&premultiply(px[0], px[1], px[2], alpha));
-                    }
-                }
-            }
-            let pixmap = Pixmap::from_vec(data, IntSize::from_wh(w, h)?)?;
-            Some(Rc::new(Glyph {
-                pixmap,
-                left: img.placement.left,
-                top: img.placement.top,
-            }))
-        });
-        self.glyphs.insert((key, color_bits), glyph.clone());
-        glyph
     }
 
     /// Paint a paragraph. `origin` is the paragraph's top-left in points;
@@ -1033,14 +673,15 @@ impl TextEngine {
         // Glyph positions already carry device scale. The GPU stream is separate
         // and remains full; only this CPU loop selects conservative ink spans.
         let glyph_ts = transform.pre_scale(1.0 / scale, 1.0 / scale);
+        let mut catalog = paragraph.source.catalog.borrow_mut();
         let mut cache = paragraph.ink.borrow_mut();
-        if !cache.matches(&self.ink_catalog, scale) {
-            cache.reset(&self.ink_catalog, scale);
+        if !cache.matches(&catalog.ink_catalog, scale) {
+            cache.reset(&catalog.ink_catalog, scale);
             #[cfg(test)]
             {
                 self.ink_builds += 1;
             }
-            cache.index = ink::Index::build(self, paragraph, scale);
+            cache.index = ink::Index::build(&mut catalog, paragraph, scale);
         }
         let paint = PixmapPaint::default();
         let mut draw = |g: &LayoutGlyph, baseline: f32, ink: RunPaint| {
@@ -1052,7 +693,7 @@ impl TextEngine {
                 return;
             }
             let phys = g.physical((origin.0 * scale, (origin.1 + baseline) * scale), scale);
-            let Some(glyph) = self.glyph(phys.cache_key, ink.color) else {
+            let Some(glyph) = catalog.glyph(phys.cache_key, ink.color) else {
                 return;
             };
             target.draw_pixmap(
@@ -1088,17 +729,6 @@ impl TextEngine {
 }
 
 impl TextEngine {
-    /// A font's data handle (shared, cheap to clone), cached.
-    pub fn font_data(&mut self, id: fontdb::ID, weight: Weight) -> Option<PenikoFont> {
-        let key = (id, weight.0);
-        if let Some(f) = self.font_data.get(&key) {
-            return f.clone();
-        }
-        let f = self.fonts.get_font(id, weight).map(|f| f.as_peniko());
-        self.font_data.insert(key, f.clone());
-        f
-    }
-
     /// A paragraph as glyph runs grouped by font, size and source run, positions in
     /// points from the paragraph's top-left, the same numbers the raster
     /// path snaps to pixels.
@@ -1121,10 +751,11 @@ impl TextEngine {
                 _ => runs.push((key, vec![(g.glyph_id as u32, x, y)])),
             }
         }
+        let mut catalog = paragraph.source.catalog.borrow_mut();
         runs.into_iter()
             .filter_map(
                 |((id, weight, size, run_index, synthetic_italic), glyphs)| {
-                    let font = self.font_data(id, Weight(weight))?;
+                    let font = catalog.font_data(id, Weight(weight))?;
                     Some(GlyphRun {
                         font,
                         size: f32::from_bits(size),
@@ -1177,6 +808,8 @@ mod tests {
     fn installed_normal_monospace_is_used_for_normal_code() {
         let mut engine = TextEngine::new();
         if !engine
+            .catalog
+            .borrow()
             .fonts
             .db()
             .faces()
@@ -1192,8 +825,9 @@ mod tests {
         };
         let spec = crate::paint::text_spec(&style, "let section = 0;");
         let paragraph = engine.paragraph(&spec, Some(300.0));
-        let glyph = &paragraph.buffer.layout_runs().next().unwrap().glyphs[0];
-        let face = engine.fonts.db().face(glyph.font_id).unwrap();
+        let glyph = &paragraph.layout_runs().next().unwrap().glyphs[0];
+        let catalog = paragraph.source.catalog.borrow();
+        let face = catalog.fonts.db().face(glyph.font_id).unwrap();
         assert!(face.monospaced, "code selected {:?}", face.families);
         assert_eq!(
             face.style,
@@ -1215,3 +849,7 @@ mod ink_tests;
 #[cfg(test)]
 #[path = "text/identified_tests.rs"]
 mod identified_tests;
+
+#[cfg(test)]
+#[path = "text/sharing_tests.rs"]
+mod sharing_tests;

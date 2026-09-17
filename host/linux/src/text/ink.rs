@@ -1,5 +1,5 @@
 //! CPU-only conservative ink selection. Full shaping and GPU paint stay intact.
-use super::{Paragraph, TextEngine};
+use super::{catalog::Catalog, Paragraph};
 use cosmic_text::{CacheKey, SubpixelBin};
 use std::mem::size_of;
 use std::rc::{Rc, Weak};
@@ -122,11 +122,11 @@ fn storage(count: usize, limit: usize) -> Option<(usize, usize)> {
 }
 
 impl Index {
-    pub fn build(engine: &mut TextEngine, p: &Paragraph, scale: f32) -> Option<Self> {
+    pub fn build(engine: &mut Catalog, p: &Paragraph, scale: f32) -> Option<Self> {
         Self::with_limit(engine, p, scale, MAX_BYTES)
     }
     pub(super) fn with_limit(
-        engine: &mut TextEngine,
+        engine: &mut Catalog,
         p: &Paragraph,
         scale: f32,
         limit: usize,
@@ -150,8 +150,8 @@ impl Index {
         // Bounded build scratch; no image/font ownership survives an envelope.
         let mut envelopes: Vec<(CacheKey, Bounds)> = Vec::new();
         envelopes.try_reserve_exact(ENVELOPES).ok()?;
-        for (source, line) in p.buffer.lines.iter().enumerate() {
-            for (wrapped, layout) in line.layout_opt()?.iter().enumerate() {
+        for (source, line) in p.layouts.iter().enumerate() {
+            for (wrapped, layout) in line.iter().enumerate() {
                 let n = result.lines.len();
                 let baseline = *p.baselines.get(n)?;
                 result.lines.push(Line { source, wrapped });
@@ -213,7 +213,7 @@ impl Index {
     ) -> (&'a [cosmic_text::LayoutGlyph], f32) {
         let loc = self.lines[line];
         (
-            &p.buffer.lines[loc.source].layout_opt().unwrap()[loc.wrapped].glyphs,
+            &p.layouts[loc.source][loc.wrapped].glyphs,
             p.baselines[line],
         )
     }
@@ -318,7 +318,7 @@ impl Index {
     }
 }
 
-fn envelope(engine: &mut TextEngine, mut key: CacheKey) -> Bounds {
+fn envelope(engine: &mut Catalog, mut key: CacheKey) -> Bounds {
     if !f32::from_bits(key.font_size_bits).is_finite() {
         return Bounds::ALL;
     }

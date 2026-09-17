@@ -1,3 +1,6 @@
+//! Each exact identity owns one immutable source; width snapshots share it.
+//! Accounting separates canonical key K, shared source S, width layout L and ink.
+//! Sources of pinned widths are live storage, not multiplied cold-policy costs.
 //! Width snapshots are weakly indexed; cold entries and bounded handoffs are owned.
 //! A painter pins each accepted generational node independently of text identity.
 //! A new width retires the previous unpinned widths of that exact identity before
@@ -15,7 +18,7 @@
 //! They own neither text nor paragraph; revision replacement and cold eviction
 //! retire them. Their vector capacity is counted in key/owned diagnostics, not
 //! added to the existing cold-paragraph budget. Catalog replacement drops all.
-use super::{Paragraph, Run, Spec};
+use super::{Paragraph, Run, ShapedSource, Spec};
 use exact_kernel::{ParagraphStamp, TextMetrics};
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -39,7 +42,7 @@ pub struct HandoffResidency {
     pub paragraphs: usize,
     /// Exact accessible vector capacities of those unique backings.
     pub owned_capacity_bytes: usize,
-    /// Private BufferLine text lengths, not their inaccessible capacities.
+    /// Zero: source Strings now expose capacity, counted in owned bytes.
     pub private_text_bytes_estimate: usize,
     /// Accessible capacities plus private text-length estimates, excluding keys.
     pub policy_bytes: usize,
@@ -56,16 +59,16 @@ pub struct HandoffResidency {
 pub struct Residency {
     /// Exact visible vector capacities of indexed paragraphs and canonical keys.
     pub owned_capacity_bytes: usize,
-    /// Private BufferLine text lengths; capacity and other private caches unknown.
+    /// Zero for moved source Strings; private cosmic internals remain excluded.
     pub private_text_bytes_estimate: usize,
-    /// Unique live Buffer snapshots, including cache and painter owners.
+    /// Unique live width snapshots, including cache and painter owners.
     pub paragraphs: usize,
     /// Snapshots retained by a caller, frame, or measured handoff. These overlap
     /// HandoffResidency; they are not an accepted-frame-only count.
     pub pinned_paragraphs: usize,
     /// Snapshots owned only by the cache.
     pub cold_paragraphs: usize,
-    /// Exact accessible capacities of cold snapshots, excluding canonical keys.
+    /// Cold source and layout capacities, source counted once; excludes keys.
     pub cold_owned_capacity_bytes: usize,
     /// Maintenance policy cost: cold accessible capacities + private text length
     /// estimates + canonical keys with no pinned width. Not exact resident bytes.
@@ -94,7 +97,7 @@ pub struct RetiringResidency {
     pub paragraphs: usize,
     /// Exact accessible vector capacities of those unique paragraph backings.
     pub owned_capacity_bytes: usize,
-    /// Private BufferLine text lengths; capacity and other private caches unknown.
+    /// Zero for moved source Strings; private cosmic internals remain excluded.
     pub private_text_bytes_estimate: usize,
 }
 
@@ -119,6 +122,7 @@ impl Snapshot {
 struct Identity {
     id: u64,
     spec: Rc<Spec>,
+    source: Option<Rc<ShapedSource>>,
     widths: HashMap<Width, Snapshot>,
     intrinsic: [Option<TextMetrics>; 2],
     used: u64,
@@ -132,6 +136,11 @@ struct Handoff {
 impl Identity {
     fn pinned(&self) -> bool {
         self.widths.values().any(Snapshot::pinned)
+    }
+    fn source_bytes(&self) -> usize {
+        self.source
+            .as_ref()
+            .map_or(0, |s| s.accessible_capacity_bytes)
     }
     fn key_bytes(&self) -> usize {
         self.spec.runs.capacity() * size_of::<Run>()
@@ -250,10 +259,14 @@ impl Cache {
             ..HandoffResidency::default()
         };
         let mut unique = HashSet::new();
+        let mut sources = HashSet::new();
         for h in &self.handoffs {
             if unique.insert(Rc::as_ptr(&h.paragraph)) {
                 result.paragraphs += 1;
-                result.owned_capacity_bytes += h.paragraph.owned_capacity_bytes();
+                result.owned_capacity_bytes += h.paragraph.layout_capacity_bytes();
+                if sources.insert(Rc::as_ptr(&h.paragraph.source)) {
+                    result.owned_capacity_bytes += h.paragraph.source.accessible_capacity_bytes;
+                }
                 result.private_text_bytes_estimate += h.paragraph.private_text_bytes_estimate;
             }
         }
@@ -278,6 +291,7 @@ impl Cache {
         self.identities.entry(hash).or_default().push(Identity {
             id: self.serial,
             spec: Rc::new(spec.clone()),
+            source: None,
             widths: HashMap::new(),
             intrinsic: [None; 2],
             used: self.clock,
@@ -292,6 +306,14 @@ impl Cache {
             .find(|e| e.id == key.1)
             .unwrap()
     }
+    pub fn source(&mut self, key: (u64, u64)) -> Option<Rc<ShapedSource>> {
+        self.entry(key).source.clone()
+    }
+    pub fn set_source(&mut self, key: (u64, u64), source: Rc<ShapedSource>) {
+        let entry = self.entry(key);
+        debug_assert!(entry.source.is_none());
+        entry.source = Some(source);
+    }
     pub fn get(&mut self, key: (u64, u64), width: Width) -> Option<Rc<Paragraph>> {
         self.clock += 1;
         let clock = self.clock;
@@ -299,8 +321,8 @@ impl Cache {
         snapshot.used = clock;
         snapshot.weak.upgrade()
     }
-    /// BEFORE allocating a new Buffer: every unpinned old width of this exact
-    /// content/metric identity dies. Pinned widths remain weakly discoverable.
+    /// BEFORE allocating a new width layout: every unpinned old width of this exact
+    /// identity dies; its immutable shape remains. Pinned widths stay indexed.
     pub fn before_shape(&mut self, key: (u64, u64)) {
         let entry = self.entry(key);
         for value in entry.widths.values_mut() {
@@ -341,8 +363,11 @@ impl Cache {
         for entry in self.identities.values().flatten() {
             result.identities += 1;
             result.key_capacity_bytes += entry.key_bytes();
+            let source_bytes = entry.source_bytes();
+            result.owned_capacity_bytes += source_bytes;
             if !entry.pinned() {
-                result.cold_policy_bytes += entry.key_bytes();
+                result.cold_owned_capacity_bytes += source_bytes;
+                result.cold_policy_bytes += entry.key_bytes() + source_bytes;
             }
             result.intrinsic_metrics += entry.intrinsic.iter().flatten().count();
             for slot in entry.widths.values() {
@@ -350,7 +375,7 @@ impl Cache {
                 let Some(paragraph) = slot.weak.upgrade() else {
                     continue;
                 };
-                let owned = paragraph.owned_capacity_bytes();
+                let owned = paragraph.layout_capacity_bytes();
                 result.paragraphs += 1;
                 result.owned_capacity_bytes += owned;
                 result.private_text_bytes_estimate += paragraph.private_text_bytes_estimate;
@@ -385,6 +410,7 @@ impl Cache {
             .flat_map(|e| e.widths.values().map(|s| s.weak.as_ptr()))
             .collect();
         let mut seen = HashSet::new();
+        let mut sources = HashSet::new();
         let mut result = RetiringResidency::default();
         for paragraph in accepted {
             let pointer = Rc::as_ptr(paragraph);
@@ -394,7 +420,10 @@ impl Cache {
             result.owners += 1;
             if seen.insert(pointer) {
                 result.paragraphs += 1;
-                result.owned_capacity_bytes += paragraph.owned_capacity_bytes();
+                result.owned_capacity_bytes += paragraph.layout_capacity_bytes();
+                if sources.insert(Rc::as_ptr(&paragraph.source)) {
+                    result.owned_capacity_bytes += paragraph.source.accessible_capacity_bytes;
+                }
                 result.private_text_bytes_estimate += paragraph.private_text_bytes_estimate;
             }
         }
@@ -425,7 +454,7 @@ impl Cache {
                     .widths
                     .retain(|_, value| value.weak.strong_count() != 0);
                 if !entry.pinned() {
-                    bytes += entry.key_bytes();
+                    bytes += entry.key_bytes() + entry.source_bytes();
                     if Some(entry.id) != keep {
                         cold_keys.push((entry.used, *hash, entry.id));
                     }
@@ -433,7 +462,7 @@ impl Cache {
                 for (width, slot) in &entry.widths {
                     if !slot.pinned() {
                         if let Some(p) = &slot.cold {
-                            let cost = p.owned_capacity_bytes() + p.private_text_bytes_estimate;
+                            let cost = p.layout_capacity_bytes() + p.private_text_bytes_estimate;
                             bytes += cost;
                             cold.push((slot.used, *hash, entry.id, *width, cost));
                         }
@@ -458,7 +487,7 @@ impl Cache {
             let bucket = self.identities.get_mut(&hash).unwrap();
             let pos = bucket.iter().position(|e| e.id == id).unwrap();
             let old = bucket.remove(pos);
-            bytes = bytes.saturating_sub(old.key_bytes());
+            bytes = bytes.saturating_sub(old.key_bytes() + old.source_bytes());
             count -= 1;
             if bucket.is_empty() {
                 self.identities.remove(&hash);
@@ -531,29 +560,18 @@ fn equal(a: &Spec, b: &Spec) -> bool {
             })
 }
 
-pub(super) fn capacities(paragraph: &Paragraph) -> (usize, usize) {
+pub(super) fn capacities(paragraph: &Paragraph) -> usize {
     fn vector<T>(v: &Vec<T>) -> usize {
         v.capacity() * size_of::<T>()
     }
-    let mut owned = vector(&paragraph.baselines) + vector(&paragraph.buffer.lines);
-    let mut private = 0;
-    for line in &paragraph.buffer.lines {
-        private += line.text().len(); // capacity/attrs list/ellipsis cache private
-        if let Some(shape) = line.shape_opt() {
-            owned += vector(&shape.spans);
-            for span in &shape.spans {
-                owned += vector(&span.words) + vector(&span.decoration_spans);
-                for word in &span.words {
-                    owned += vector(&word.glyphs);
-                }
-            }
-        }
-        if let Some(layout) = line.layout_opt() {
-            owned += vector(layout);
-            for line in layout {
-                owned += vector(&line.glyphs) + vector(&line.decorations);
-            }
+    let mut bytes = paragraph.source.accessible_capacity_bytes
+        + vector(&paragraph.baselines)
+        + vector(&paragraph.layouts);
+    for layouts in &paragraph.layouts {
+        bytes += vector(layouts);
+        for line in layouts {
+            bytes += vector(&line.glyphs) + vector(&line.decorations);
         }
     }
-    (owned, private)
+    bytes
 }

@@ -1585,3 +1585,39 @@ the same full source stamp, isolate font/shaping ownership, and make the painter
 consume only the accepted publication. No host cold-shaping fallback, worker
 latency, autonomous background reflow or physical 120Hz result is established
 by these kernel tests.
+
+### 8.15 Shared immutable Linux paragraph shaping, 2026-09-17
+
+Tuft and Carson implement, with Zeno reviewing, one canonical shaped source per
+exact text/metric/catalog identity. Each width owns independent wrapped glyph
+arrays, CSS baselines and lazy ink data. Width changes reuse the public cosmic
+`ShapeLine::layout_to_buffer` operation instead of rebuilding a full Buffer's
+shaped source. Request-local layout scratch is dropped before publication.
+The production cosmic-text 0.19 dependency and its reserve behavior are unchanged.
+
+Accepted paragraph leases keep their original font/raster catalog alive through
+CPU painting and GPU font extraction, including after catalog replacement. The
+catalog has no back-reference to source, cache or engine. Existing per-NodeKey
+accepted-frame leases and success/failure publication behavior remain unchanged.
+Current, handoff, cold and retiring diagnostics deduplicate shared source and
+width owners; source/layout subtotals overlap and must not be added twice.
+The cold target remains soft, and private shaping scratch, font storage and RSS
+are separate from accessible vector/string capacity accounting.
+
+A retained identified rich-Unicode paragraph regression first showed a new
+width shaping again despite zero canonical source copy/hash. It now reuses the
+shape while preserving the previous width's glyphs, metrics and baselines.
+The legacy full-Buffer oracle compares glyph fields, source clusters, selection
+ranges and baseline bits across rich runs, bidi text, combining/emoji, blank
+lines, spacing, alignment, wrapping and fractional offers. Catalog replacement
+tests retain exact CPU pixels and GPU font owners, then prove old owners release.
+
+All 226 integrated Linux-package tests pass on macOS, with one existing native
+GPU test ignored; strict all-target Clippy, build, scoped formatting, caps and
+boot pass. Five new tests and their meaningful failure, exact ten-file sources,
+independent review and integration logs are in `target/immutable-shape-validation/`.
+This increment remains synchronous. Width layout is still O(glyphs/lines), and
+accepted plus working widths still require separate output arrays. It establishes
+neither actual-Linux speed/RSS improvement nor 4MiB completion under the existing
+address-space guard. Worker transfer and native asynchronous publication remain
+separate work.

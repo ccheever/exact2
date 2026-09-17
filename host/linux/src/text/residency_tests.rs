@@ -256,7 +256,7 @@ fn intrinsic_scratch_does_not_displace_pinned_frame_and_is_not_retained() {
     assert_eq!(engine.residency().pinned_paragraphs, 1);
     assert_eq!(engine.residency().intrinsic_metrics, 2);
     let after = engine.shape_calls;
-    assert!(after > shapes);
+    assert_eq!(after, shapes);
     for _ in 0..5 {
         engine.measure(&s, AxisOffer::MaxContent);
         engine.measure(&s, AxisOffer::MinContent);
@@ -293,10 +293,11 @@ fn cold_target_never_rejects_work_or_evicts_painter_owned_snapshots() {
     assert!(engine.residency().owned_capacity_bytes > 0);
     assert!(
         pinned
-            .buffer
-            .lines
+            .source
+            .spec
+            .runs
             .iter()
-            .map(|l| l.text().len())
+            .map(|r| r.text.len())
             .sum::<usize>()
             >= s.runs[0].text.trim_end().len()
     );
@@ -335,8 +336,7 @@ fn eviction_preserves_metrics_and_all_glyph_positions() {
     let p = engine.paragraph(&s, Some(140.));
     let metrics = paragraph_metrics(&p);
     let glyphs = |p: &Paragraph| {
-        p.buffer
-            .layout_runs()
+        p.layout_runs()
             .flat_map(|line| {
                 line.glyphs.iter().map(|g| {
                     (
@@ -1023,6 +1023,8 @@ fn lazy_ink_growth_enters_cold_policy_and_is_reclaimed_by_budget_maintenance() {
     let mut engine = TextEngine::new();
     let paragraph = engine.paragraph(&spec(&"budgeted words\n".repeat(40)), Some(140.));
     let base = paragraph.resident_capacity_bytes;
+    let source = Rc::downgrade(&paragraph.source);
+    let source_bytes = paragraph.source.accessible_capacity_bytes;
     let private = paragraph.private_text_bytes_estimate;
     let keys = engine.residency().key_capacity_bytes;
     let target = base + private + keys;
@@ -1044,8 +1046,13 @@ fn lazy_ink_growth_enters_cold_policy_and_is_reclaimed_by_budget_maintenance() {
         weak.upgrade().is_none(),
         "maintenance ignored lazy capacity growth"
     );
-    assert_eq!(engine.residency().cold_owned_capacity_bytes, 0);
+    // Layout and lazy ink were reclaimed; the independent source still fits.
+    assert!(source.upgrade().is_some());
+    assert_eq!(engine.residency().cold_owned_capacity_bytes, source_bytes);
     assert!(engine.residency().cold_policy_bytes <= target);
+    engine.paragraphs.set_target(0);
+    assert!(source.upgrade().is_none());
+    assert_eq!(engine.residency().cold_owned_capacity_bytes, 0);
 }
 
 #[test]
@@ -1060,7 +1067,7 @@ fn lazy_ink_capacity_tracks_current_arrays_after_scale_reset_and_refusal() {
         paragraph
             .ink
             .borrow_mut()
-            .reset(&engine.ink_catalog, scale + 0.125);
+            .reset(&engine.catalog.borrow().ink_catalog, scale + 0.125);
         assert_eq!(paragraph.ink_capacity_bytes(), 0);
         assert_eq!(
             engine.residency().owned_capacity_bytes,
@@ -1070,8 +1077,8 @@ fn lazy_ink_capacity_tracks_current_arrays_after_scale_reset_and_refusal() {
     }
     {
         let mut cache = paragraph.ink.borrow_mut();
-        cache.reset(&engine.ink_catalog, 4.);
-        cache.index = ink::Index::with_limit(&mut engine, &paragraph, 4., 0);
+        cache.reset(&engine.catalog.borrow().ink_catalog, 4.);
+        cache.index = ink::Index::with_limit(&mut engine.catalog.borrow_mut(), &paragraph, 4., 0);
         assert!(cache.index.is_none());
     }
     assert_eq!(paint_lazy_ink(&mut engine, &paragraph, 4.), 0);

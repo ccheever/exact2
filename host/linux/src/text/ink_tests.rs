@@ -4,12 +4,22 @@ use exact_kernel::StyleProps;
 use tiny_skia::{Color, FillRule, PathBuilder, Rect};
 
 fn engine() -> TextEngine {
-    let mut engine = TextEngine::new();
-    engine.fonts.db_mut().load_fonts_dir(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../scripts/fixtures/fonts/assets"
-    ));
-    engine.fonts.db_mut().set_sans_serif_family("DejaVu Sans");
+    let engine = TextEngine::new();
+    engine
+        .catalog
+        .borrow_mut()
+        .fonts
+        .db_mut()
+        .load_fonts_dir(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/fixtures/fonts/assets"
+        ));
+    engine
+        .catalog
+        .borrow_mut()
+        .fonts
+        .db_mut()
+        .set_sans_serif_family("DejaVu Sans");
     engine
 }
 
@@ -49,7 +59,7 @@ impl View {
 // The old renderer, intentionally retaining its complete paint-order traversal.
 // This is the pixel oracle, not an alternate implementation of ink selection.
 fn full(
-    engine: &mut TextEngine,
+    _engine: &mut TextEngine,
     paragraph: &Paragraph,
     palette: &[RunPaint],
     view: View,
@@ -58,6 +68,7 @@ fn full(
     let mut target = Pixmap::new(320, 128).unwrap();
     target.fill(Color::WHITE);
     let glyph_ts = view.transform.pre_scale(1.0 / view.scale, 1.0 / view.scale);
+    let mut catalog = paragraph.source.catalog.borrow_mut();
     for (g, baseline, ink) in paragraph.paint_glyphs(palette) {
         if ink.color[3] == 0 {
             continue;
@@ -69,7 +80,7 @@ fn full(
             ),
             view.scale,
         );
-        let Some(glyph) = engine.glyph(phys.cache_key, ink.color) else {
+        let Some(glyph) = catalog.glyph(phys.cache_key, ink.color) else {
             continue;
         };
         target.draw_pixmap(
@@ -287,7 +298,7 @@ fn physical_cpu_placement_uses_all_x_bins_and_only_zero_y_bin() {
     use cosmic_text::SubpixelBin;
     let mut engine = engine();
     let p = engine.layout(&spec("f"), Some(100.0));
-    let mut g = p.buffer.layout_runs().next().unwrap().glyphs[0].clone();
+    let mut g = p.layout_runs().next().unwrap().glyphs[0].clone();
     g.x = 0.0;
     g.x_offset = 0.0;
     g.y = 0.375;
@@ -317,9 +328,11 @@ fn actual_color_bitmap_placement_matches_full_paint() {
     s.runs[0].size = 28.0;
     let p = engine.layout(&s, Some(230.0));
     let color = p.paint_glyphs(&palette()).any(|(g, _, _)| {
-        engine
+        let mut borrow = p.source.catalog.borrow_mut();
+        let catalog = &mut *borrow;
+        catalog
             .swash
-            .get_image_uncached(&mut engine.fonts, g.physical((0.0, 0.0), 1.25).cache_key)
+            .get_image_uncached(&mut catalog.fonts, g.physical((0.0, 0.0), 1.25).cache_key)
             .is_some_and(|image| image.content == SwashContent::Color)
     });
     assert!(color, "fixture must exercise an actual Swash color bitmap");
@@ -341,7 +354,7 @@ fn unsafe_transform_fails_open_and_catalog_replacement_rebuilds() {
     view.transform = Transform::from_row(f32::NAN, 0.0, 0.0, 1.0, 0.0, 0.0);
     assert_eq!(compare(&mut engine, &p, &palette(), view, None), all);
     let builds = engine.ink_builds;
-    engine.ink_catalog = Rc::new(());
+    engine.catalog.borrow_mut().ink_catalog = Rc::new(());
     compare(&mut engine, &p, &palette(), View::at(-400.0, 1.0), None);
     assert_eq!(engine.ink_builds, builds + 1);
 }
@@ -411,8 +424,8 @@ fn refused_index_keeps_full_paint_without_rebuilding_until_scale_changes() {
     let all = p.paint_glyphs(&palette()).count();
     {
         let mut cache = p.ink.borrow_mut();
-        cache.reset(&engine.ink_catalog, 1.0);
-        cache.index = ink::Index::with_limit(&mut engine, &p, 1.0, 64);
+        cache.reset(&engine.catalog.borrow().ink_catalog, 1.0);
+        cache.index = ink::Index::with_limit(&mut engine.catalog.borrow_mut(), &p, 1.0, 64);
         assert!(cache.index.is_none());
     }
     let builds = engine.ink_builds;

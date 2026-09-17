@@ -183,7 +183,6 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
             None,
         );
         let shaped = paragraph
-            .buffer()
             .layout_runs()
             .flat_map(|run| run.glyphs.iter())
             .next()
