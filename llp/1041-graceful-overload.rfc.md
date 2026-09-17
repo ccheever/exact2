@@ -2248,9 +2248,24 @@ fixture syntax and revision-field mistakes are identified separately from the
 behavioral REDs. The integrated tree repeats the 73 common/collection/native
 tests and passes strict all-targets Clippy for runner, Contract and Linux, plus
 scoped formatting, caps and boot. These tests ran on macOS with the Rust CPU Presenter, not in a
-new Linux VM cell. The original Linux failure remains; treatment Linux replay,
-complete25k traversal and physical timing are still pending. Frozen sources and
+new Linux VM cell. The original Linux failure remains. Frozen sources and
 raw results are under `target/arrange-empty-frames-validation/freeze-v1/`.
+
+The first 898dd74 Linux gallery capture reused an older optimized Runner from
+the warm target, although its test-profile Runner was fresh. That failed replay
+cannot establish the repair's outcome. A byte-preserving source-mtime refresh
+and one rebuild recompile both Runner profiles and downstream host/gallery;
+the retained ELF changes from `6008d3a4…` to `77eaa2e3…`, with the same app plan.
+
+One unchanged 100-row driver replay on the coherent binary retains contact
+through typing, swaps exactly the first two items with revision+1, and passes
+nine same-clock positional-continuity comparisons. It later attempts a second
+catch at y=137.5 above the List's clipped viewport top=250 and fails. This is an
+invalid driver coordinate, not evidence of another product contact-loss bug.
+The overall run remains FAIL; cancel/resize checks are unexecuted, with no retry.
+Build linkage, raw partial success/failure and terminal cleanup are preserved at
+`target/arrange-linux-native-898dd74/coherent-rebuild-v2/`. Complete 25k traversal,
+physical input and frame timing remain unproved.
 
 ### 8.27 Actual Linux scroll repair and remaining 4MiB allocation failure, 2026-09-17
 

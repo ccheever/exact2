@@ -320,6 +320,12 @@ display/stdio delivery, GPU ordering, physical input or frame performance.
 Sources, meaningful failures and integration checks are under
 `target/arrange-linux-validation/`; LLP1041 §8.26 records the scope.
 
+A separate coherent actual-Linux 100-row stdio replay retains a drag through
+typing and performs one exact reorder with nine same-clock position comparisons.
+The whole driver remains failed: its later recatch targets a grip above the List
+clip. Cancel/resize and 25k/display acceptance remain unproved; the earlier stale
+build failure and this partial result are preserved separately in LLP1041 §8.26.
+
 The photo app slice passes **41 scoped Rust tests** against the frozen common
 binding/parser overlay: 18 model/resource, seven photo, eight retained runtime
 and eight retained collection tests. Twelve tests are new, covering model
