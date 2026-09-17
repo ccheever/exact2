@@ -23,7 +23,9 @@ use cosmic_text::{
     FontSystem, LayoutGlyph, Metrics, PenikoFont, Shaping, Style, SwashCache, SwashContent, Weight,
     Wrap,
 };
-use exact_kernel::{AxisOffer, TextAlign, TextMeasureRequest, TextMeasurer, TextMetrics};
+use exact_kernel::{
+    AxisOffer, ParagraphStamp, TextAlign, TextMeasureRequest, TextMeasurer, TextMetrics,
+};
 use exact_plan::{Plan, StackMemberKind, StacksId};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -37,7 +39,8 @@ use tiny_skia::{IntSize, Mask, Pixmap, PixmapPaint, Transform};
 type FontMetrics = (f32, f32, f32);
 
 /// One styled run: what changes glyph metrics.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(not(test), derive(Clone))]
 pub struct Run {
     /// The text.
     pub text: String,
@@ -55,9 +58,27 @@ pub struct Run {
     pub letter_spacing: f32,
 }
 
+#[cfg(test)]
+impl Clone for Run {
+    fn clone(&self) -> Self {
+        identified_tests::copied(self.text.len());
+        Self {
+            text: self.text.clone(),
+            size: self.size,
+            weight: self.weight,
+            family: self.family,
+            italic: self.italic,
+            line_height: self.line_height,
+            letter_spacing: self.letter_spacing,
+        }
+    }
+}
+
 impl Run {
     /// Project the kernel's resolved text style for measuring and painting.
     pub fn from_style(text: &str, style: exact_kernel::TextStyle) -> Self {
+        #[cfg(test)]
+        identified_tests::copied(text.len());
         Self {
             text: text.into(),
             size: style.font_size,
@@ -672,6 +693,44 @@ impl TextEngine {
         self.paragraph_for(spec, width, key)
     }
 
+    fn identified_spec(
+        &mut self,
+        stamp: &ParagraphStamp,
+        build: impl FnOnce() -> Spec,
+    ) -> ((u64, u64), Rc<Spec>) {
+        if let Some(key) = self.paragraphs.identified(stamp) {
+            return (key, self.paragraphs.spec(key).expect("checked identity"));
+        }
+        let spec = build();
+        let key = self.paragraphs.identity(&spec);
+        self.paragraphs.bind(stamp, key);
+        (key, self.paragraphs.spec(key).expect("new identity"))
+    }
+
+    /// Only the kernel's complete independent paragraph may use this proof.
+    /// The closure is never called on a warm metric identity (even a new width).
+    pub(crate) fn paragraph_identified(
+        &mut self,
+        stamp: &ParagraphStamp,
+        width: Option<f32>,
+        build: impl FnOnce() -> Spec,
+    ) -> Option<Rc<Paragraph>> {
+        let (key, spec) = self.identified_spec(stamp, build);
+        if spec.is_empty() {
+            return None;
+        }
+        Some(self.paragraph_for(&spec, width, key))
+    }
+
+    fn measure_identified(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+    ) -> TextMetrics {
+        let (key, spec) = self.identified_spec(stamp, || Spec::from_request(request));
+        self.measure_for(&spec, request.width, key)
+    }
+
     fn paragraph_for(&mut self, spec: &Spec, width: Option<f32>, key: (u64, u64)) -> Rc<Paragraph> {
         if let Some(p) = self.paragraphs.get(key, width.into()) {
             return p;
@@ -687,6 +746,8 @@ impl TextEngine {
         if let Some(callback) = &mut self.before_layout {
             callback();
         }
+        #[cfg(test)]
+        identified_tests::shaped(spec);
         self.shape_calls += 1;
         let minimum = self.line_height(&spec.strut);
         let (ascent, descent, leading) = self.font_metrics(&spec.strut);
@@ -828,8 +889,7 @@ impl TextEngine {
 
     // Intrinsic questions keep scalar answers only. The zero-width scratch
     // Buffer is dropped before allocating the final min-content measurement.
-    fn intrinsic(&mut self, spec: &Spec, minimum: bool) -> TextMetrics {
-        let key = self.paragraphs.identity(spec);
+    fn intrinsic(&mut self, spec: &Spec, minimum: bool, key: (u64, u64)) -> TextMetrics {
         if let Some(metrics) = self.paragraphs.intrinsic(key, minimum) {
             return metrics;
         }
@@ -855,6 +915,15 @@ impl TextEngine {
 
     /// The kernel's question: a paragraph under an offer.
     pub fn measure(&mut self, spec: &Spec, width: AxisOffer) -> TextMetrics {
+        if spec.is_empty() {
+            self.measures += 1;
+            return TextMetrics::default();
+        }
+        let key = self.paragraphs.identity(spec);
+        self.measure_for(spec, width, key)
+    }
+
+    fn measure_for(&mut self, spec: &Spec, width: AxisOffer, key: (u64, u64)) -> TextMetrics {
         self.measures += 1;
         if spec.is_empty() {
             return TextMetrics::default();
@@ -864,14 +933,13 @@ impl TextEngine {
         let metrics = match width {
             AxisOffer::Definite(w) => {
                 let width = Some(w.max(0.0));
-                let key = self.paragraphs.identity(spec);
                 self.paragraphs.prepare_handoff(key.1, width.into());
                 let p = self.paragraph_for(spec, width, key);
                 self.paragraphs.hold_measured(key.1, width.into(), &p);
                 paragraph_metrics(&p)
             }
-            AxisOffer::MaxContent => self.intrinsic(spec, false),
-            AxisOffer::MinContent => self.intrinsic(spec, true),
+            AxisOffer::MaxContent => self.intrinsic(spec, false, key),
+            AxisOffer::MinContent => self.intrinsic(spec, true, key),
         };
         if self.shape_calls == before {
             self.hits += 1;
@@ -1088,6 +1156,13 @@ fn premultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
 pub struct Measurer(pub Shared);
 
 impl TextMeasurer for Measurer {
+    fn measure_identified(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+    ) -> TextMetrics {
+        self.0.borrow_mut().measure_identified(stamp, request)
+    }
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         let spec = Spec::from_request(request);
         self.0.borrow_mut().measure(&spec, request.width)
@@ -1136,3 +1211,7 @@ mod residency_tests;
 #[cfg(test)]
 #[path = "text/ink_tests.rs"]
 mod ink_tests;
+
+#[cfg(test)]
+#[path = "text/identified_tests.rs"]
+mod identified_tests;

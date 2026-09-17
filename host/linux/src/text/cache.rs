@@ -11,8 +11,12 @@
 //! their bytes nor paragraph size are bounded by the cold target.
 //! Paragraph costs include current lazy CPU ink capacity in O(1); diagnostics and
 //! maintenance run outside paint/build while its exclusive ink borrow is released.
+//! At most 256 payload-free stamp shortcuts refer to current canonical identities.
+//! They own neither text nor paragraph; revision replacement and cold eviction
+//! retire them. Their vector capacity is counted in key/owned diagnostics, not
+//! added to the existing cold-paragraph budget. Catalog replacement drops all.
 use super::{Paragraph, Run, Spec};
-use exact_kernel::TextMetrics;
+use exact_kernel::{ParagraphStamp, TextMetrics};
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
@@ -75,7 +79,7 @@ pub struct Residency {
     pub identities: usize,
     /// Cached intrinsic scalar answers. At most two per identity.
     pub intrinsic_metrics: usize,
-    /// Exact capacity of canonical UTF8 strings and run vectors.
+    /// Exact capacity of canonical UTF8/run vectors and bounded stamp shortcuts.
     pub key_capacity_bytes: usize,
 }
 
@@ -114,7 +118,7 @@ impl Snapshot {
 }
 struct Identity {
     id: u64,
-    spec: Spec,
+    spec: Rc<Spec>,
     widths: HashMap<Width, Snapshot>,
     intrinsic: [Option<TextMetrics>; 2],
     used: u64,
@@ -148,6 +152,8 @@ pub(super) struct Cache {
     target: usize,
     // Oldest measurement first; refreshed deterministically, never width history.
     handoffs: Vec<Handoff>,
+    // Non-owning shortcuts, one latest metric identity per owner; no revisions.
+    bindings: Vec<(ParagraphStamp, (u64, u64))>,
 }
 impl Default for Cache {
     fn default() -> Self {
@@ -157,10 +163,51 @@ impl Default for Cache {
             clock: 0,
             target: COLD_BYTES,
             handoffs: Vec::new(),
+            bindings: Vec::new(),
         }
     }
 }
 impl Cache {
+    /// The catalog owns these specs; shortcut handles never retain them.
+    pub fn spec(&self, key: (u64, u64)) -> Option<Rc<Spec>> {
+        self.identities
+            .get(&key.0)?
+            .iter()
+            .find(|e| e.id == key.1)
+            .map(|e| e.spec.clone())
+    }
+    pub fn identified(&mut self, stamp: &ParagraphStamp) -> Option<(u64, u64)> {
+        let i = self
+            .bindings
+            .iter()
+            .position(|(old, _)| old.same_metrics(stamp))?;
+        let (_, key) = self.bindings.remove(i);
+        self.spec(key)?; // Evicted identities are misses, never unchecked handles.
+        self.clock += 1;
+        self.entry(key).used = self.clock;
+        self.bindings.push((stamp.clone(), key));
+        Some(key)
+    }
+    pub fn bind(&mut self, stamp: &ParagraphStamp, key: (u64, u64)) {
+        // Equal NodeKeys in different domains can replace a shortcut, never
+        // alias: lookup above compares the complete metric proof. Correctness
+        // falls back to exact content; this table is only a bounded accelerator.
+        self.bindings
+            .retain(|(old, _)| old.owner() != stamp.owner());
+        if self.bindings.len() == COLD_IDENTITIES {
+            self.bindings.remove(0);
+        }
+        self.bindings.push((stamp.clone(), key));
+    }
+    fn prune_bindings(&mut self) {
+        let identities = &self.identities;
+        self.bindings.retain(|(_, key)| {
+            identities
+                .get(&key.0)
+                .is_some_and(|bucket| bucket.iter().any(|e| e.id == key.1))
+        });
+    }
+
     pub fn prepare_handoff(&mut self, identity: u64, width: Width) {
         if let Some(index) = self.handoffs.iter().position(|h| h.identity == identity) {
             if self.handoffs[index].width == width {
@@ -230,7 +277,7 @@ impl Cache {
         self.serial += 1;
         self.identities.entry(hash).or_default().push(Identity {
             id: self.serial,
-            spec: spec.clone(),
+            spec: Rc::new(spec.clone()),
             widths: HashMap::new(),
             intrinsic: [None; 2],
             used: self.clock,
@@ -317,6 +364,11 @@ impl Cache {
             }
         }
         result.owned_capacity_bytes += result.key_capacity_bytes;
+        // Bounded shortcut metadata owns no source or paragraph. Count its
+        // allocated vector capacity separately from the cold paragraph policy.
+        let bindings = self.bindings.capacity() * size_of::<(ParagraphStamp, (u64, u64))>();
+        result.key_capacity_bytes += bindings;
+        result.owned_capacity_bytes += bindings;
         result.cold_overage_bytes = result.cold_policy_bytes.saturating_sub(self.target);
         result
     }
@@ -361,6 +413,7 @@ impl Cache {
             bucket.retain(Identity::pinned);
             !bucket.is_empty()
         });
+        self.prune_bindings();
     }
     pub fn trim(&mut self, keep: Option<u64>) {
         let mut cold = Vec::new();
@@ -411,6 +464,15 @@ impl Cache {
                 self.identities.remove(&hash);
             }
         }
+        self.prune_bindings();
+    }
+    #[cfg(test)]
+    pub fn binding_count(&self) -> usize {
+        self.bindings.len()
+    }
+    #[cfg(test)]
+    pub fn forget_bindings(&mut self) {
+        self.bindings.clear();
     }
     #[cfg(test)]
     pub fn indexed_widths(&self) -> usize {
@@ -438,6 +500,8 @@ fn fingerprint(spec: &Spec) -> u64 {
     spec.line_clamp.hash(&mut h);
     spec.runs.len().hash(&mut h);
     for run in std::iter::once(&spec.strut).chain(&spec.runs) {
+        #[cfg(test)]
+        super::identified_tests::hashed(run.text.len());
         run.text.hash(&mut h);
         run.size.to_bits().hash(&mut h);
         run.weight.hash(&mut h);

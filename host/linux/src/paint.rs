@@ -446,17 +446,27 @@ impl Painter {
             NodeType::Text => {
                 // The kernel measures a Text subtree as one paragraph. Inline
                 // descendants deliberately have zero frames, not paint boxes.
-                let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
-                spec.runs = node
-                    .text_runs()
-                    .iter()
-                    .map(|run| Run::from_style(run.text, run.style))
-                    .collect();
-                if !spec.is_empty() {
-                    let mut palette = Vec::with_capacity(spec.runs.len());
+                let build = || {
+                    let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
+                    spec.runs = node
+                        .text_runs()
+                        .iter()
+                        .map(|run| Run::from_style(run.text, run.style))
+                        .collect();
+                    spec
+                };
+                let paragraph = if let Some(stamp) = node.paragraph_stamp() {
+                    self.text
+                        .borrow_mut()
+                        .paragraph_identified(&stamp, Some(content.2), build)
+                } else {
+                    let spec = build();
+                    (!spec.is_empty())
+                        .then(|| self.text.borrow_mut().paragraph(&spec, Some(content.2)))
+                };
+                if let Some(paragraph) = paragraph {
+                    let mut palette = Vec::new();
                     text_palette(walk.scene.kernel, node, self.dark, &mut palette);
-                    debug_assert_eq!(spec.runs.len(), palette.len());
-                    let paragraph = self.text.borrow_mut().paragraph(&spec, Some(content.2));
                     walk.text.insert(node.key, paragraph.clone());
                     let mut engine = self.text.borrow_mut();
                     self.backend.text(

@@ -934,6 +934,42 @@ executable SHA-256 is
 Full-source synchronous wrapping and accepted-plus-working storage remain the
 next bottlenecks; the warm paint improvement does not resolve them.
 
+**Identified Linux inputs, Tuft and Leibniz, 2026-09-17:** independent paragraph
+measurement and painting now resolve the kernel's paragraph stamp before owning
+or hashing the full source. At most 256 catalog-local shortcuts retain a stamp
+and checked canonical handle, without owning text or a paragraph. Metric changes,
+catalog changes, eviction and unrelated kernel domains fall back to exact UTF8
+identity. Paint-only changes still rebuild the current palette/source mapping;
+TextInput's separate shown-value paint path is unchanged. New widths borrow the
+canonical source but still shape synchronously. Existing accepted owner leases,
+64 measured handoffs and soft cold-cache policy remain intact.
+
+Nine tests pass on actual Ubuntu ARM64 as well as in the 203-test Linux-crate
+suite on macOS (one existing GPU test ignored). A real giant-paragraph/sibling
+typing regression reduces Linux-owned copied/hashed source bytes from
+12,582,912/12,582,912 to zero/zero, with zero new giant shaping in both arms.
+The tests separately check exact geometry and RGBA, catalog/owner lifetime,
+paint-only changes, new widths and bounded shortcut metadata. The kernel still
+constructs borrowed runs; this is not a zero-work or asynchronous layout claim.
+
+Three fresh-process pairs then compare uninstrumented CPU-presenter release
+binaries on the same four-vCPU/4-GiB Ubuntu ARM64 VM with DejaVu Sans. The document
+contains 1,048,531 source bytes in two unchanged blocks. All six warm cells and
+one additional fresh-width pair pass, with matching document hashes, complete
+geometry and PNG bytes. Across nine typing and nine scroll ACKs per arm, pooled
+medians are 2.604→2.439 ms and 1.476→1.250 ms respectively. This small sample is
+not a robust tail estimate. Cold-size medians remain 209.07→208.33 ms; the single
+fresh-width control is 197.66→205.31 ms, not evidence of faster reflow. The
+2.5-GiB address-space and 60-second guards remain; no 4-MiB run was performed.
+
+These ACKs include IPC and host work, not physical display cadence. Raw tests
+and the reviewed four-file source are in `target/linux-paragraph-stamps-validation/`;
+source/font/binary identities, eight cells and pixels are in
+`target/linux-paragraph-stamps-native/`. The after release executable SHA-256 is
+`51e5535ebedc13c6effb565dbf082374a4be4939afcaf07357cf4d13222732e1`.
+Cold full-source wrapping and the earlier 4-MiB accepted-plus-working allocation
+failure remain open.
+
 The wider parallel suite also exposed an image-worker scheduling edge: a decode
 obtained through `wait_decode` did not give the next turn to metadata. A
 controlled arrival test now fails on two consecutive decodes and passes with
