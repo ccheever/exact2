@@ -13,6 +13,9 @@
 //! in the box, which cosmic-text does itself. Glyphs are rasterized by swash
 //! once per (glyph, color) into small premultiplied pixmaps.
 
+mod cache;
+pub use cache::{Residency, RetiringResidency};
+
 use crate::image::Assets;
 use cosmic_text::{
     fontdb, Align, Attrs, Buffer, CacheKey, CacheKeyFlags, Ellipsize, EllipsizeHeightLimit, Family,
@@ -101,31 +104,6 @@ impl Spec {
     pub fn is_empty(&self) -> bool {
         self.runs.iter().all(|r| r.text.is_empty())
     }
-
-    fn key(&self, width: Option<f32>) -> String {
-        // A hash key with the floats as bits, so 0.1 + 0.2 is not 0.3.
-        let mut s = String::new();
-        for r in std::iter::once(&self.strut).chain(&self.runs) {
-            s.push_str(&format!(
-                "{}|{}|{}|{}|{}|{}|{}\u{1}",
-                r.text,
-                r.size.to_bits(),
-                r.weight,
-                r.family,
-                r.italic,
-                r.line_height.map_or(u32::MAX, f32::to_bits),
-                r.letter_spacing.to_bits()
-            ));
-        }
-        s.push_str(&format!(
-            "{:?}|{:?}|{}|{}",
-            self.overflow_wrap,
-            self.align,
-            self.line_clamp,
-            width.map_or(u32::MAX, f32::to_bits)
-        ));
-        s
-    }
 }
 
 /// A shaped, wrapped paragraph at one width: what is measured is what is
@@ -141,6 +119,8 @@ pub struct Paragraph {
     pub first_baseline: f32,
     /// CSS shared-baseline placement for each wrapped line, used by both painters.
     pub baselines: Vec<f32>,
+    resident_capacity_bytes: usize,
+    private_text_bytes_estimate: usize,
 }
 
 /// Paint-only data in canonical text-run order. Colors and source identity
@@ -219,7 +199,11 @@ pub struct GlyphRun {
 pub struct TextEngine {
     fonts: FontSystem,
     swash: SwashCache,
-    paragraphs: HashMap<String, Rc<Paragraph>>,
+    paragraphs: cache::Cache,
+    /// Buffer builds, including temporary intrinsic measurements.
+    pub shape_calls: usize,
+    #[cfg(test)]
+    before_layout: Option<Box<dyn FnMut()>>,
     glyphs: HashMap<(CacheKey, u32), Option<Rc<Glyph>>>,
     normal: HashMap<(u16, u32, u16, bool), FontMetrics>,
     font_data: HashMap<(fontdb::ID, u16), Option<PenikoFont>>,
@@ -351,7 +335,10 @@ impl TextEngine {
             sans: sans.unwrap_or_default(),
             fonts,
             swash: SwashCache::new(),
-            paragraphs: HashMap::new(),
+            paragraphs: cache::Cache::default(),
+            shape_calls: 0,
+            #[cfg(test)]
+            before_layout: None,
             glyphs: HashMap::new(),
             normal: HashMap::new(),
             font_data: HashMap::new(),
@@ -609,22 +596,44 @@ impl TextEngine {
             .unwrap_or_else(|| self.normal_line_height(run))
     }
 
+    /// Accessible paragraph storage for this catalog. This excludes fonts,
+    /// shared shaper scratch, glyphs and allocator overhead; it is not RSS.
+    /// Accepted paragraphs from a replaced catalog are reported separately by
+    /// `Painter::retiring_text_residency`, not included here.
+    pub fn residency(&self) -> Residency {
+        self.paragraphs.residency()
+    }
+
+    pub(crate) fn retiring_accepted<'a>(
+        &self,
+        accepted: impl Iterator<Item = &'a Rc<Paragraph>>,
+    ) -> RetiringResidency {
+        self.paragraphs.retiring(accepted)
+    }
+
+    pub(crate) fn trim_paragraphs(&mut self) {
+        self.paragraphs.trim(None);
+    }
+
     /// The paragraph for `spec` wrapped at `width` (`None` is max-content).
-    /// Cached.
+    /// Accepted frames pin snapshots; width lookup does not own their lifetime.
     pub fn paragraph(&mut self, spec: &Spec, width: Option<f32>) -> Rc<Paragraph> {
-        let key = spec.key(width);
-        if let Some(p) = self.paragraphs.get(&key) {
-            return p.clone();
+        let key = self.paragraphs.identity(spec);
+        if let Some(p) = self.paragraphs.get(key, width.into()) {
+            return p;
         }
-        if self.paragraphs.len() > 4096 {
-            self.paragraphs.clear();
-        }
+        self.paragraphs.before_shape(key);
         let p = Rc::new(self.layout(spec, width));
-        self.paragraphs.insert(key, p.clone());
+        self.paragraphs.insert(key, width.into(), &p);
         p
     }
 
     fn layout(&mut self, spec: &Spec, width: Option<f32>) -> Paragraph {
+        #[cfg(test)]
+        if let Some(callback) = &mut self.before_layout {
+            callback();
+        }
+        self.shape_calls += 1;
         let minimum = self.line_height(&spec.strut);
         let (ascent, descent, leading) = self.font_metrics(&spec.strut);
         let half = (minimum - ascent - descent - leading) / 2.0;
@@ -746,25 +755,44 @@ impl TextEngine {
             baselines.push(h + above);
             h += above + below;
         }
-        Paragraph {
+        let mut paragraph = Paragraph {
             buffer,
             width: w.ceil(),
             height: if explicit { h } else { h.ceil() },
             first_baseline: baselines.first().copied().unwrap_or(0.0),
             baselines,
-        }
+            resident_capacity_bytes: 0,
+            private_text_bytes_estimate: 0,
+        };
+        (
+            paragraph.resident_capacity_bytes,
+            paragraph.private_text_bytes_estimate,
+        ) = cache::capacities(&paragraph);
+        paragraph
     }
 
-    /// As narrow as the content can be: the longest unbreakable piece —
-    /// wrapped at every word boundary (width zero), the widest line is the
-    /// widest word.
-    fn min_content_width(&mut self, spec: &Spec) -> f32 {
-        let mut intrinsic = spec.clone();
-        if intrinsic.overflow_wrap == exact_kernel::OverflowWrap::BreakWord {
-            intrinsic.overflow_wrap = exact_kernel::OverflowWrap::Normal;
+    // Intrinsic questions keep scalar answers only. The zero-width scratch
+    // Buffer is dropped before allocating the final min-content measurement.
+    fn intrinsic(&mut self, spec: &Spec, minimum: bool) -> TextMetrics {
+        let key = self.paragraphs.identity(spec);
+        if let Some(metrics) = self.paragraphs.intrinsic(key, minimum) {
+            return metrics;
         }
-        let p = self.paragraph(&intrinsic, Some(0.0));
-        p.width
+        self.paragraphs.before_shape(key);
+        let width = if minimum {
+            if spec.overflow_wrap == exact_kernel::OverflowWrap::BreakWord {
+                let mut intrinsic = spec.clone();
+                intrinsic.overflow_wrap = exact_kernel::OverflowWrap::Normal;
+                Some(self.layout(&intrinsic, Some(0.0)).width)
+            } else {
+                Some(self.layout(spec, Some(0.0)).width)
+            }
+        } else {
+            None
+        };
+        let metrics = paragraph_metrics(&self.layout(spec, width));
+        self.paragraphs.set_intrinsic(key, minimum, metrics);
+        metrics
     }
 
     /// The kernel's question: a paragraph under an offer.
@@ -774,23 +802,18 @@ impl TextEngine {
             return TextMetrics::default();
         }
         let started = Instant::now();
-        let before = self.paragraphs.len();
-        let w = match width {
-            AxisOffer::Definite(w) => Some(w.max(0.0)),
-            AxisOffer::MaxContent => None,
-            AxisOffer::MinContent => Some(self.min_content_width(spec)),
+        let before = self.shape_calls;
+        let metrics = match width {
+            AxisOffer::Definite(w) => paragraph_metrics(&self.paragraph(spec, Some(w.max(0.0)))),
+            AxisOffer::MaxContent => self.intrinsic(spec, false),
+            AxisOffer::MinContent => self.intrinsic(spec, true),
         };
-        let p = self.paragraph(spec, w);
-        if self.paragraphs.len() == before {
+        if self.shape_calls == before {
             self.hits += 1;
         } else {
             self.shaping += started.elapsed();
         }
-        TextMetrics {
-            width: p.width,
-            height: p.height,
-            first_baseline: Some(p.first_baseline),
-        }
+        metrics
     }
 
     fn glyph(&mut self, key: CacheKey, color: [u8; 4]) -> Option<Rc<Glyph>> {
@@ -932,6 +955,14 @@ impl TextEngine {
     }
 }
 
+fn paragraph_metrics(p: &Paragraph) -> TextMetrics {
+    TextMetrics {
+        width: p.width,
+        height: p.height,
+        first_baseline: Some(p.first_baseline),
+    }
+}
+
 fn premultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
     let p = |c: u8| (c as u32 * a as u32 / 255) as u8;
     [p(r), p(g), p(b), a]
@@ -981,3 +1012,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "text/residency_tests.rs"]
+mod residency_tests;

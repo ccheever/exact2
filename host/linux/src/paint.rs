@@ -26,6 +26,7 @@ use exact_kernel::{
     StyleProps, ViewId,
 };
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 
@@ -221,11 +222,15 @@ pub struct Painter {
     /// app's `setScheme` last said; `light` until it says otherwise.
     pub dark: bool,
     backend: Box<dyn Backend>,
+    // One lease per actually accepted owner, not one global width per string.
+    // Retained while a subsequent backend frame fails.
+    accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
 }
 
 struct Walk<'a, 'b> {
     scene: &'b Scene<'a>,
     boxes: Vec<PaintedBox>,
+    text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
 }
 
 impl Painter {
@@ -236,6 +241,7 @@ impl Painter {
             scale,
             dark: false,
             backend,
+            accepted_text: BTreeMap::new(),
         }
     }
 
@@ -255,12 +261,22 @@ impl Painter {
         self.backend.last_frame_ms()
     }
 
+    /// Accepted leases outside the current text catalog, deduplicated by Rc.
+    /// A catalog swap followed by failed frames retains the previous accepted
+    /// set until successful replacement. Diagnostic-only; not total residency.
+    pub fn retiring_text_residency(&self) -> crate::text::RetiringResidency {
+        self.text
+            .borrow()
+            .retiring_accepted(self.accepted_text.values())
+    }
+
     /// Paint the scene into a viewport of the given size (points).
     pub fn paint(&mut self, scene: &Scene<'_>, viewport: (f32, f32)) -> Result<Frame, String> {
         self.backend.begin(viewport.0, viewport.1, self.scale);
         let mut walk = Walk {
             scene,
             boxes: Vec::new(),
+            text: BTreeMap::new(),
         };
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
@@ -269,6 +285,10 @@ impl Painter {
             self.backend.pointer(px, py);
         }
         let pixmap = self.backend.finish()?;
+        // Publication is the ownership boundary. On Err the previous accepted
+        // set remains intact; candidate leases simply unwind with `walk`.
+        self.accepted_text = walk.text;
+        self.text.borrow_mut().trim_paragraphs();
         Ok(Frame {
             pixmap,
             boxes: walk.boxes,
@@ -431,6 +451,7 @@ impl Painter {
                     text_palette(walk.scene.kernel, node, self.dark, &mut palette);
                     debug_assert_eq!(spec.runs.len(), palette.len());
                     let paragraph = self.text.borrow_mut().paragraph(&spec, Some(content.2));
+                    walk.text.insert(node.key, paragraph.clone());
                     let mut engine = self.text.borrow_mut();
                     self.backend.text(
                         &mut engine,
@@ -456,6 +477,7 @@ impl Painter {
                     .text
                     .borrow_mut()
                     .paragraph(&spec, multiline.then_some(content.2));
+                walk.text.insert(node.key, paragraph.clone());
                 let oy = content.1
                     + if multiline {
                         0.0

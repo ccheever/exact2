@@ -38,6 +38,7 @@ extension NodeView {
         if let cached = cachedTextLayout, cached.width == width { return cached.paragraph }
         guard let paragraph = text?.paragraph(paragraphSpec(), width: width) else { return nil }
         cachedTextLayout = (width, paragraph)
+        text?.accepted(paragraph)
         return paragraph
     }
 

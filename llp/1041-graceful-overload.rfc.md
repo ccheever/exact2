@@ -793,3 +793,86 @@ independently reran the gallery and DOM tests. Artifacts are preserved in
 This combines current JavaScript with an identified prior Wasm/plan, colors
 wrappers/spacers to isolate coverage, and makes no typography, physical gesture
 or physical 120 Hz claim. Native image and text-residency work remains separate.
+
+### 8.11 Native paragraph residency, 2026-09-17
+
+Newton implements the Linux cache/painter ownership change; Zeno implements
+Apple's cache and acceptance hook. Tuft integrates and measures both. Exact
+UTF8, metric styles and font-catalog identity select paragraphs, with typed
+width keys and weak lookup for retained owners. A new width retires obsolete
+unpinned full paragraphs before shaping. Intrinsic min/max questions retain
+scalar answers. Each actual accepted view/frame pins its own width: identical
+content can be visible at multiple widths, and a failed paint cannot retire
+the preceding accepted frame. Apple checkpoints preserve independent value
+semantics; colored text retains its authored attributes and source ranges.
+
+Both cold policies use a named 64 MiB **soft** target. Maintenance/acceptance
+evicts cold ownership; last-caller drops and hits need not trim an oversized
+measurement-to-paint handoff immediately. Overage is explicitly reported. Linux
+reports accessible capacities, private text-length estimates and separately
+deduplicated retiring accepted owners outside the current catalog. Apple reports
+current cold logical payload and named CoreText estimates. Accepted owners,
+checkpoints, opaque font/shaping storage and allocator/RSS costs are not silently
+counted as cold or refunded on cache eviction. Neither policy is a total-memory
+ceiling, a bound on arbitrary paragraph size, or a global two-width limit.
+
+**Actual Linux:** fourteen residency and seven existing text tests pass with
+strict all-targets Clippy on the frozen Ubuntu ARM64 source. Eighteen fresh
+processes compare the raster foundation with the four Linux residency files,
+using identical fonts, inputs and the §8.9 protocol. All 256 KiB cells finish;
+last acknowledged RSS falls from about 838 MiB to 205 MiB. All three current
+1 MiB baseline cells abort on the third new width under the 2.5 GiB address-space
+limit, after two fresh-width ACKs. All three after cells finish eight widths at
+762–769 MiB RSS. Exact document digests and all nine available common
+phase-boundary node/viewport geometries match.
+
+The trade is visible: 1 MiB alternating-width queued-input medians rise from
+388–406 ms to 737–742 ms, and fresh-width medians from 583–603 ms over the two
+acknowledged baseline widths to 729–732 ms over all eight after widths. This
+does not establish the cause of the additional cost; repeated probe shaping,
+synchronous destruction and capacity bookkeeping need discrimination. All six
+4 MiB cells still abort during wide-column setup, before warm measurements.
+Their last acknowledged RSS is about 1,239–1,241 MiB, not peak RSS at failure.
+The address-space limit and preserved allocation failures remain part of the
+result. This fixes retained width history, not synchronous giant reflow.
+
+Source captures are `8d498d5546ce28a562dedfa46e83280a536a332d863bd76e6535bf469ae4f4d7`
+and `13a1a542effe4b097d3c2faebd301d6defd4a79a68cf7b07095db564d0cee287`;
+binary/provenance records are in `target/linux-giant-text-20260917/paired-build/`.
+The eighteen raw runs and report are in `target/linux-text-residency-20260917/`.
+The 36 guest boundary observations contain no competing compiler/gallery/
+Markdown process. Host background processes are recorded separately.
+
+**Apple engine:** twenty-five actual engine methods pass 437 assertions in the
+optimized standalone harness, including complete Unicode ranges, independent
+accepted widths, last-owner release, checkpoint/catalog isolation and exhaustive
+bitmap geometry. This remains distinct from full-host/XCTest/device validation.
+Eighteen paired phase cells complete: 4 MiB cold measurement is 249.740→252.235 ms,
+first dirty paint 270.366→272.138 ms and fresh-width measurement
+168.525→150.157 ms. Warm measurement remains about 6 ms and warm dirty paint
+about 0.2 ms. Whole source and UTF16 coverage remain intact.
+
+Fifty-four separate ownership sweeps exercise 0/8/100 unseen widths with two
+accepted paragraph owners, one resizing and one fixed at 900 units. All 27 after
+cells finish. In the 100-width case, the 256 KiB median final Mach physical
+footprint falls from 597.88 to 33.92 MiB. The 1 MiB and 4 MiB baseline cells
+cross the 2 GiB diagnostic footprint guard after 87 and 18 widths respectively;
+these six runs are incomplete, not 100-width successes. All after runs reach
+100 widths, with median final footprint 103.53 and 357.74 MiB respectively.
+Two accepted paragraphs remain live at the end; dropping those owners leaves
+zero live historical Paragraphs, which does not imply zero process memory.
+Full source/fixture/binary hashes, raw guard stops and samples are under
+`target/apple-text-residency-20260917/paired/`. These standalone measurements
+do not establish whole-app latency, asynchronous reflow or physical 120 Hz.
+
+The integrated optimized AppKit Markdown build also passes a real-window drive:
+4,194,181 source bytes, two unsplit blocks, revision zero, exact input echoes,
+scrolling and eight fresh window widths. The paragraph's 4,194,149 UTF8 bytes
+and 3,998,422 UTF16 units retain their source digest. The agent observes source
+and rectangles, not every glyph's hit range; the bitmap/range oracles above
+cover that distinction. Nonquiet ACKs still expose 311–746 ms fresh-width work
+and roughly 0.6 s for some first inputs following reflow. Preserved binary
+SHA-256 is `74de0e08174483914bccacb9d01c927a940b0ab3caff19e08993f38c2f06d18d`;
+build logs, exact samples and screenshots are in `target/apple-text-integration-final/`.
+Full macOS compilation and this drive validate the acceptance hook; Swift
+Package XCTest and UIKit remain unverified on this Command Line Tools machine.

@@ -487,6 +487,21 @@ Preserved executable SHA-256 is
 source identities, logs and screenshots are in `target/apple-raster/`.
 Endpoint visits do not prove twenty whole-document traversals or a frame rate.
 
+A subsequent AppKit 1,000-row run completes twenty full sequential traversals
+(ten round trips), 9,486 wheels, exact Unicode input and interleaved resizing.
+Every traversal independently observes all 1,000 logical cards intersecting the
+viewport. Mounted rows stay between 5 and 12 and mapped/kernel nodes between
+108 and 200. Sampled RSS ranges from 145.36 to 173.00 MiB, with a 0.90 MiB
+managed-raster lifetime peak. The six source images are reused; distinct-source
+replacement remains a separate loader test. The earlier attempt is retained:
+AppKit corrected a natural-language test token, so the harness now uses a nonce
+while preserving exact composed/decomposed Unicode assertions. Full evidence
+is `target/native-raster-20260917/macos-accept1k-20260917-015430/`.
+The actual Linux 100-row pilot also exposes every row, with 45 wheels and
+6–12 mounted rows, but its larger traversal sweep remains open. Targeted input
+works there while the existing focus command is unsupported; this is not a
+keyboard-navigation parity claim. Neither drive measures physical frame cadence.
+
 ### 6.4 Acceptance and landing
 
 At a fixed viewport and row shape, 1,000 and 25,000 records have the same
