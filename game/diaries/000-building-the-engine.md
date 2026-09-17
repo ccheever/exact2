@@ -41,11 +41,19 @@ are read by name each tick. `Game::bind` is gone and the grey box got shorter.
 **`pick` had become a ninth operation on the wire.** A reviewer caught it; it is a
 `layout` with a point and no entity, everywhere now.
 
-**Physics is ours, and it is too slow.** rapier measured 700 KB of wasm and 97 crates
-with solver state a save cannot carry; the engine's own soft-step solver keeps contacts
-and impulses in the `World`, resumes exactly, and hashes the same on both
-architectures — and costs 40 ms a tick for 1,000 boxes. Correct first was the right
-order; the performance rework is in flight and rapier is the oracle and the bar.
+**Physics was ours, was too slow, and was deleted.** rapier first measured 700 KB of
+wasm and 97 crates with solver state a save cannot carry, so the engine got its own
+soft-step solver with contacts and impulses as `Data` in the `World`. It resumed
+exactly and hashed the same on both architectures — and after six rounds it still
+cost 35 ms a tick for 2,000 boxes where rapier costs 7.7, and a settled pile's bodies
+never calmed (median 0.1 m/s), so nothing slept. That is the clunky-and-slow case the
+goal says to delete rather than grind on. rapier now runs behind the *same*
+components; the promise that made the own solver attractive was kept another way —
+rapier's sets are serialized into the saved `Physics` resource, so a save taken
+mid-bounce still resumes bit for bit, and the hash still agrees across architectures.
+The price is honest: 438 KB of gzipped wasm, 43 crates, and a 10 MB snapshot for a
+2,000-box pile. The first attempt's scenes stayed as the acceptance suite, which is
+what made the swap a day's work instead of a rewrite of the tests too.
 
 **What the twins taught.** Godot and three.js both built Task 001 in about seven
 minutes with a fresh builder each. Each had to hand-write its save/restore (every
