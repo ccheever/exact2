@@ -817,3 +817,84 @@ fn measured_interior_zero_run_bounds_25k_realized_views_and_row_slots() {
     assert_eq!(h.collection().keys.len(), COUNT);
     assert_eq!(h.collection().index.len(), COUNT);
 }
+
+#[test]
+fn identical_order_with_new_content_still_invalidates_rows_and_updates_layout() {
+    let mut h = Harness::new(100, false, false);
+    h.send(h.feedback(0.)); // establish width before reporting measurements
+    let before = h.snapshot();
+    let mut measured = h.feedback(0.);
+    measured.measurements = before
+        .rows
+        .iter()
+        .map(|row| RowMeasurement {
+            view: row.view,
+            epoch: row.epoch,
+            height: 20.,
+        })
+        .collect();
+    h.send(measured);
+    let before = h.snapshot();
+    let old_row = before.rows[0].clone();
+    assert!(old_row.measured);
+    let key = h.collection().index.key(old_row.index).unwrap().to_owned();
+    let old_token = h.collection().index.measurement_token(&key).unwrap();
+    // New immutable source allocation forces the normal key pass, although all
+    // keys remain equal. Changed text still needs body and layout invalidation.
+    h.slots[0] = values(100);
+    h.slots[1] = Value::Number(9.);
+    h.update().unwrap();
+    assert_eq!(
+        h.tree.last_work.rows_keyed, 100,
+        "this change does not skip key evaluation"
+    );
+    assert!(h.tree.last_work.nodes_visited > 0);
+    let after = h.snapshot();
+    assert!(after.revision > before.revision);
+    let row = after
+        .rows
+        .iter()
+        .find(|row| row.index == old_row.index)
+        .unwrap();
+    assert_eq!(row.view, old_row.view);
+    assert_eq!(row.root, old_row.root);
+    assert_ne!(row.epoch, old_row.epoch);
+    assert!(!row.measured);
+    assert_ne!(
+        h.collection().index.measurement_token(&key),
+        Some(old_token)
+    );
+    assert_eq!(
+        h.kernel.node(row.root).unwrap().props.str(PropId::Text),
+        Some("9")
+    );
+    h.kernel
+        .compute_layout(after.view, exact_kernel::Offer::definite(640., 320.))
+        .unwrap();
+    let frame = h.kernel.node(row.root).unwrap().frame;
+    assert!(frame.height.is_finite() && frame.height > 0.);
+    let mut stale = h.feedback(0.);
+    stale.measurements = vec![RowMeasurement {
+        view: old_row.view,
+        epoch: old_row.epoch,
+        height: 99.,
+    }];
+    assert!(!h.send(stale));
+    let fresh = h.snapshot();
+    let mut next = h.feedback(0.);
+    next.measurements = fresh
+        .rows
+        .iter()
+        .map(|row| RowMeasurement {
+            view: row.view,
+            epoch: row.epoch,
+            height: 24.,
+        })
+        .collect();
+    assert!(h.send(next));
+    assert!(h
+        .snapshot()
+        .rows
+        .iter()
+        .any(|row| row.measured && row.height == 24.));
+}

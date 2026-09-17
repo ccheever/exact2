@@ -2452,3 +2452,27 @@ The four-file patch is
 The earlier carrier did not record enough source identity to attribute its
 suspected duplicate spans. This source repair therefore carries no measured
 giant-paragraph speedup, memory bound or physical 120 Hz claim.
+
+### 8.32 Retain the height index when ordered keys are identical, 2026-09-17
+
+`HeightIndex::replace_keys` now returns immediately when the incoming ordered
+keys equal the already validated order. This retains the positions map, row
+measurements, sum tree and generations instead of reconstructing them for a
+fresh immutable list with unchanged membership. Changed order, insertion,
+deletion and duplicate refusal still use the existing transactional path.
+Caller content/width invalidation and row realization remain unchanged.
+
+The behavioral RED observes an unnecessary rebuild. Its regression now retains
+allocations and measurements for empty, three-row and 25,000-row orders. Controls
+cover structural changes, stale measurements, and equal keys with changed text:
+all keys are evaluated, changed content lays out, and old feedback is refused.
+The private collection suite passes 45 tests; integration passes all 64 Runner
+library tests plus the 13 Messages reuse tests, with scoped strict Clippy.
+The three-file source manifest is
+`18b037d1c95731f6fb2f6425f6b7c6795147ed9cacbc062c4155ac42f0236eda`;
+raw evidence is under `target/collection-identical-keys-validation/`.
+
+Equality still compares O(N) strings. The caller still evaluates keys, allocates
+key strings, checks uniqueness and validates fresh values; this is not constant
+time settlement. The source tests establish avoided reconstruction, with no
+host timing result or change to the pinned Linux Arrange replay.

@@ -117,6 +117,9 @@ impl HeightIndex {
     /// same-key content changes must separately call `invalidate_row`/`invalidate_all`.
     /// Deleted and later reinserted keys always receive new measurement generations.
     pub(crate) fn replace_keys(&mut self, keys: Vec<String>) -> Result<(), IndexError> {
+        if self.order.as_ref() == keys.as_slice() {
+            return Ok(());
+        }
         let mut positions = BTreeMap::new();
         let mut rows = Vec::with_capacity(keys.len());
         let mut generation = self.next_generation;

@@ -664,3 +664,84 @@ fn source_excluded_gap_certifies_zero_run_even_for_upper_half_of_source() {
     assert_eq!(i.certified_gap_excluding(25., 1).unwrap(), None);
     assert_eq!(i.certified_gap_excluding(35., 1).unwrap(), None);
 }
+
+#[test]
+fn identical_order_preserves_index_allocations_generations_and_measurements() {
+    for n in [0, 3, 25_000] {
+        let heights: Vec<_> = (0..n).map(|i| if i % 3 == 0 { 0. } else { 12.5 }).collect();
+        let mut index = index(&heights);
+        if n > 0 {
+            index.invalidate_row("k1").unwrap();
+        }
+        let order = Rc::clone(&index.order);
+        let rows = index.rows.clone();
+        let positions = index.positions.clone();
+        let row_allocation = index.rows.as_ptr();
+        let tree_allocation = index.tree.sums.as_ptr();
+        let measured_allocation = index.tree.measured.as_ptr();
+        let sums = index.tree.sums.clone();
+        let measured = index.tree.measured.clone();
+        let generation = index.next_generation;
+        let epoch = index.epoch;
+        let rebuilds = index.rebuilds;
+        index.tree.visits.set(17);
+        for _ in 0..3 {
+            index.replace_keys(keys(n)).unwrap();
+            assert_eq!(
+                index.rebuilds, rebuilds,
+                "identical order rebuilt the index"
+            );
+            assert!(Rc::ptr_eq(&index.order, &order));
+            assert_eq!(index.rows.as_ptr(), row_allocation);
+            assert_eq!(index.tree.sums.as_ptr(), tree_allocation);
+            assert_eq!(index.tree.measured.as_ptr(), measured_allocation);
+            assert_eq!(index.rows, rows);
+            assert_eq!(index.positions, positions);
+            assert_eq!(index.tree.sums, sums);
+            assert_eq!(index.tree.measured, measured);
+            assert_eq!(index.next_generation, generation);
+            assert_eq!(index.epoch, epoch);
+            assert_eq!(index.tree.visits.get(), 17);
+        }
+        if n > 0 {
+            assert!(index.is_measured("k0"));
+            assert!(!index.is_measured("k1"));
+            assert!(index.is_measured("k2"));
+        }
+    }
+}
+
+#[test]
+fn identical_order_fastpath_does_not_mask_reorder_insert_delete_or_duplicate() {
+    let mut index = index(&[10., 20., 30.]);
+    let old = index.measurement_token("k1").unwrap();
+    let rebuilds = index.rebuilds;
+    index
+        .replace_keys(vec!["k2".into(), "k0".into(), "k1".into()])
+        .unwrap();
+    assert_eq!(index.rebuilds, rebuilds + 1);
+    assert_eq!(index.measurement_token("k1"), Some(old));
+    assert_eq!(index.height(2), Some(20.));
+    let order = Rc::clone(&index.order);
+    let generation = index.next_generation;
+    let rows = index.rows.clone();
+    let sums = index.tree.sums.clone();
+    assert_eq!(
+        index.replace_keys(vec!["k2".into(), "k0".into(), "k2".into()]),
+        Err(IndexError::DuplicateKey("k2".into()))
+    );
+    assert_eq!(index.rebuilds, rebuilds + 1);
+    assert!(Rc::ptr_eq(&index.order, &order));
+    assert_eq!(index.next_generation, generation);
+    assert_eq!(index.rows, rows);
+    assert_eq!(index.tree.sums, sums);
+    index.replace_keys(vec!["k2".into(), "k0".into()]).unwrap();
+    assert_eq!(index.rebuilds, rebuilds + 2);
+    index
+        .replace_keys(vec!["k2".into(), "k0".into(), "k1".into()])
+        .unwrap();
+    assert_eq!(index.rebuilds, rebuilds + 3);
+    assert_ne!(index.measurement_token("k1"), Some(old));
+    assert!(!index.set_measured_height("k1", old, 90.).unwrap());
+    assert_eq!(index.height(2), Some(10.));
+}
