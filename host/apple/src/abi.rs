@@ -690,11 +690,41 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
+            16 | 17 => {
+                let event = if kind == 16 {
+                    Event::transform_geometry_payload(&payload)
+                } else {
+                    Event::transform_release_payload(&payload)
+                };
+                let Some(event) = event else {
+                    let out = self
+                        .host
+                        .as_ref()
+                        .map_or_else(not_booted, |h| h.hold_refusal("invalid transform event"));
+                    return self.emit(out);
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
             Some(h) => h.dispatch_at(view, event, now_ms),
             None => not_booted(),
+        };
+        self.emit(out)
+    }
+
+    /// Consume the exact120-byte paired transform packet from the owned input buffer.
+    pub fn transform_motion(&mut self, len: usize) -> u32 {
+        let out = match self.host.as_mut() {
+            Some(host) if len == 120 && self.input.len() >= len => {
+                host.transform_motion(&self.input[..len])
+            }
+            Some(host) => format!(
+                "{{\"accepted\":false,\"batch\":{}}}",
+                host.hold_refusal("malformed transform length")
+            ),
+            None => format!("{{\"accepted\":false,\"batch\":{}}}", not_booted()),
         };
         self.emit(out)
     }
@@ -1227,6 +1257,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_dispatch(rt: u32, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.dispatch(view, kind, len, now_ms), |n| n)
+        }
+
+        /// Process one frozen paired transform packet from exact_in.
+        #[no_mangle]
+        pub extern "C" fn exact_transform_motion(rt: u32, len: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.transform_motion(len as usize), |n| n)
         }
 
         /// Capture one property's native presentation.

@@ -189,6 +189,7 @@ uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 uint32_t exact_height_drag_begin(ExactRuntime rt, uint64_t handle_key, uint64_t target_key, double now_ms);
 uint32_t exact_height_drag_update(ExactRuntime rt, uint64_t token, double height, double now_ms);
 uint32_t exact_height_drag_release(ExactRuntime rt, uint64_t token, double height, double velocity, double now_ms);
+uint32_t exact_transform_motion(uint32_t rt, uint32_t len);
 uint32_t exact_hold_begin(ExactRuntime rt, uint32_t view, uint32_t property, double now_ms);
 uint32_t exact_has_hold(ExactRuntime rt, uint64_t token);
 uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, double now_ms);

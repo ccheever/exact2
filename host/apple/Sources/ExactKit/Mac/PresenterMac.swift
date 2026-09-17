@@ -60,10 +60,13 @@ final class Presenter {
     let viewport = PageScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
     var heightBindings: [UInt32: HeightDragBinding] = [:]
+    var transformBindings: [UInt32: TransformDragBinding] = [:]
+    lazy var transformGeometry = TransformGeometryHost(self)
     lazy var collections = CollectionHost(self)
     lazy var selection = TextSelection(self)
     lazy var mouseSwipe = MouseSwipe(self)
     lazy var mouseHeightDrag = MouseHeightDrag(self)
+    lazy var mouseTransformDrag = MouseTransformDrag(self)
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
     /// The native menu arm (LLP 1021 D3).
@@ -95,7 +98,7 @@ final class Presenter {
         viewport.backgroundColor = .white
         viewport.contentView.postsBoundsChangedNotifications = true
         scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
-            object: viewport.contentView, queue: .main) { [weak self] _ in self?.refreshVisibleText() }
+            object: viewport.contentView, queue: .main) { [weak self] _ in self?.refreshVisibleText(); self?.transformGeometry.changed() }
     }
 
     deinit { if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) } }
@@ -138,6 +141,7 @@ final class Presenter {
         session?.rasters.reset()
         mouseSwipe.cancel()
         mouseHeightDrag.cancel()
+        mouseTransformDrag.cancel()
         collections.reset()
         resetting = true
         defer { resetting = false }
@@ -149,6 +153,8 @@ final class Presenter {
         root.subviews.forEach { $0.removeFromSuperview() }
         views.removeAll()
         heightBindings.removeAll()
+        transformBindings.removeAll()
+        transformGeometry.reset()
         selection.structureChanged()
         visibleText.removeAll()
     }
@@ -289,6 +295,21 @@ final class Presenter {
             let id = UInt32(op["id"] as? Int ?? 0)
             if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id, textChanged: kind == "props" || kind == "style" || kind == "destroy") }
             switch kind {
+            case "transform-drag":
+                if let binding = TransformDragBinding(op) {
+                    if binding.target == nil {
+                        if transformBindings[binding.id]?.handleKey == binding.handleKey
+                            && transformBindings[binding.id]?.runtime == binding.runtime {
+                            transformBindings.removeValue(forKey: binding.id)
+                            transformGeometry.retire(binding.id)
+                        }
+                    } else { transformBindings[binding.id] = binding }
+                }
+            case "retire-motion":
+                if let rawRuntime = op["runtime"] as? String, let runtime = UInt64(rawRuntime),
+                   let rawToken = op["token"] as? String, let token = UInt64(rawToken) {
+                    session?.transformInputHold?.retire(runtime: runtime, token: token)
+                }
             case "height-drag":
                 if let binding = HeightDragBinding(op) {
                     if binding.target == nil {
@@ -329,11 +350,14 @@ final class Presenter {
             case "destroy":
                 mouseSwipe.retire(id)
                 mouseHeightDrag.retire(id)
+                mouseTransformDrag.retire(id)
                 session?.canvases.destroy(view: id)
                 views[id]?.forget()
                 // Out of the map before out of the window: the editing-ended
                 // notification removal fires finds no view to send for.
                 heightBindings.removeValue(forKey: id)
+                transformBindings.removeValue(forKey: id)
+                transformGeometry.retire(id)
                 let gone = views.removeValue(forKey: id)
                 gone?.removeFromSuperview()
             case "roots":

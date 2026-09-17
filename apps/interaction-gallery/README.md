@@ -5,9 +5,9 @@ One Contract shell, one logical data owner, six local photographic illustrations
 Arrange and Read now use the shared viewport collection over complete records.
 Photos retains explicit manual pages. Read authors a header-only numeric-height
 binding; gesture recognition and hold delivery belong to the shared host adapters.
-Photos authors fit/2× controls and a paired transform binding. The Web adapter
-supports primary-pointer dragging; native photo validation, animated reorder with
-edge scrolling, and sheet/inner-scroll ownership transfer remain separate work.
+Photos authors fit/2× controls and a paired transform binding. Web, AppKit and
+Linux support primary-pointer dragging; animated reorder with edge scrolling
+and sheet/inner-scroll ownership transfer remain separate work.
 
 ## What works
 
@@ -16,7 +16,7 @@ edge scrolling, and sheet/inner-scroll ownership transfer remain separate work.
   off-page source is located in the current order; a deleted source closes the
   viewer without resurrecting it. Fit/2× and reset are synchronous local actions;
   an authored drag surface targets the contained image's transform wrapper.
-  On the web, drag that surface to pan, including while its spring is running.
+  On Web, AppKit and Linux, drag that surface to pan, including while its spring is running.
   Changing Fit/2× during a drag updates the destination used on release.
 - **Arrange:** pick up, preview earlier/later or before another card, Place, and
   Cancel. Preview never changes order. Place consumes an interaction token once;
@@ -174,9 +174,24 @@ single-property takeover case uses the real ABI directly. These are correctness
 checks, not a latency, native parity or physical display result. Frozen sources,
 raw exploratory failures and the final replay are in
 `target/photo-gallery-browser/`; LLP 1041 §8.13 records the scope.
-The Linux adapter is integrated with tests through the actual Presenter pointer
-methods. Those tests run on macOS; actual Linux gallery/display delivery remains
-to be validated separately. Apple photo delivery is still being implemented.
+The Linux adapter also passes 18 contact/binding tests on actual Ubuntu ARM64
+and a shared-agent gallery drive through the real stdio protocol. A separate
+VKMS/VNC display run shows pan, release, cancellation and source replacement;
+framebuffer comparison distinguishes parent-space movement from scale-divided
+movement. The stricter return-frame pixel-equality check failed and remains
+recorded separately. This software 60Hz display has no evdev hardware input;
+these observations do not measure physical presentation or latency. Evidence is
+in `target/photo-linux-native-e565158/`.
+The AppKit adapter passes a full optimized build and a 55-operation gallery
+drive with real NSWindow NSEvents and a seekable clock. It covers pan, typing,
+spring catch/reverse, a programmatic 2× action while held, and stale delivery
+after source replacement/deletion. Resize occurs after contact ends; this drive
+does not establish held-resize or held-scroll cancellation. The immediate-catch
+oracle failure and replay with an explicit 60ms held-contact phase before
+recognition are preserved in `target/photo-apple-validation/final/`. The viewer
+was outside a collection, so this drive exercises no active collection pin.
+UIKit remains uncompiled; a supplemental runtime probe was compiled but not run.
+None of these runs proves physical FPS.
 Continuous reorder still needs shared host hooks. Its existing `galleryAction`
 endpoints provide preview and token-checked commit/cancel; they must receive
 logical outcomes from the shared adapters.

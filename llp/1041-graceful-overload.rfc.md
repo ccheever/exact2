@@ -652,6 +652,31 @@ different object-key order. A named regression and structural comparison fix
 pass on the unchanged binary. This is one nonquiet instrumented correctness
 sample, with no input/resize latency or physical-presentation measurement.
 
+The matching normal-clock Storm build then completes two sequential 128-lane
+waves. During a 2,002.050-ms interval with no app commands, an external release
+of that run's wave produces 129 complete coalesced wake/pump/apply chains and
+128 valid current outcomes before the next state handler begins. The second
+wave receives 25 fixed-schedule offers: eight typing, eight responder-path wheel,
+eight programmatic resize and one authored ordered release. All are sent, with
+zero skips and a cap of four outstanding requests. Four novel widths precede
+revisits to primed 800/960 widths. The final echo matches, actual scroll moves
+0→120, and 130 coalesced pump chains occur during the offered-load interval.
+These chain counts are not per-ticket ready counts. Both waves reconcile to
+256 received/issued responses, with no held, rejected or abandoned response.
+
+One nonquiet sample's transport/native ACK min/median/max is 0.504/7.634/50.592ms;
+resize's eight-sample median is 26.108ms. These are not robust tail estimates or
+8.33ms frame acceptance. The separate external Quartz window-edge input occurs
+after HTTP recovery. AppKit records will-start, 11 `inLiveResize=true` changes
+and did-end, but the observer's current-mode value is nil throughout. The
+required tracking-mode witness is therefore **NOT ESTABLISHED**. No ordinary
+timer callback appears inside that 1,274.146-ms span; callbacks resume afterward.
+This observation does not establish loaded background progress during tracking
+or identify a cause. No notifications or tracking loop were synthesized.
+The raw input, unchanged observer, owned fixture lifecycle and exact captures
+are under `target/normal-clock-carrier-native/`; the Storm executable SHA-256 is
+`371a8455ac0b83f3a4b1a9cd807e72ab082430ba555a5f3aa260be664b086064`.
+
 The matching 72-cohort drive also passes on actual Ubuntu ARM64 with final
 binary `d5c89044…`; all 10,000 records are supplied there too. Typing-ACK p95s
 are 17.80 / 15.92 / 15.92 ms and resize-ACK p95s 15.05 / 13.45 / 13.43 ms.
@@ -1379,7 +1404,7 @@ recorded workspace Hermes and sibling-format limitations unchanged. Exact
 sources, failed reproductions, commands and logs are retained under
 `target/height-binding-integration-validation/`.
 
-### 8.13 Paired photo dragging on the web, 2026-09-17
+### 8.13 Paired photo dragging on Web and native hosts, 2026-09-17
 
 Tuft, Carson, Newton and Zeno implement and validate the first photo drag
 consumer. A keyed viewer owns local pan/zoom state; accepted source replacement
@@ -1445,6 +1470,75 @@ current receipt declaration/time, geometry changes and callback destruction.
 A retained failure caught unrelated Height motion advancing during a pair update
 without projected layout; pair lowering now uses the ordinary complete hold path.
 Exact eight-file sources, failures, independent review and integration logs are
-in `target/photo-linux-validation/`. Actual Linux gallery, display/stdio carrier
-and GPU validation remain outstanding; macOS execution of this crate supplies
-none of those results and no native photo frame-rate claim.
+in `target/photo-linux-validation/`. This macOS package run supplies no actual
+Linux, display or GPU result.
+
+**Actual Linux acceptance, Tuft, Leibniz and Zeno, 2026-09-17:** an immutable
+`e565158` capture passes all 18 binding/contact tests on Ubuntu ARM64 and builds
+the optimized gallery against registry cosmic-text, without the reserve/trace
+experiment. The real shared-agent stdio replay passes 54 recorded observations:
+zero-displacement catch, 96×48 parent-space pan at scale 2, typing, latest Fit
+while held, release, spring recatch/reversal, resize cancellation and keyed
+source replacement. Fit during a hold is programmatic control dispatch, not a
+second physical click. An initial driver-only resource-path error is preserved;
+the corrected replay uses the identical executable without a rebuild.
+
+A separate non-agent run uses VNC input through the ordinary VKMS display loop
+and CPU painter at 1024×768. Real decoded North shore and Ochre dunes images
+appear in the framebuffer. Comparing recognition and held frames after a
+96×48 translation gives mean absolute RGB channel error 0.000619; incorrectly
+dividing movement by scale gives 49.2445 over the same 58,176 channels. The
+centered Fit image spans 546 pixels, consistent with the expected 546.67 inside
+a 984-pixel clip. These checks support containment and parent-space movement.
+
+The exploratory two-channel-level return-frame error bound **fails** for Escape,
+late-up and disconnect captures (2.9172, 2.0677 and 2.2827). The threshold and raw
+failure remain unchanged; these live spring/image-resolution frames are not an
+exact settled-image oracle. They show approximate visual return; precise stale
+action/cancellation assertions come from the separate native tests and stdio
+drive. The display journal also retains an existing unsupported `focus` command.
+No all-VNC-checks-pass, GPU, hardware-input, latency or physical 120Hz claim is
+made. VKMS advertises software 60Hz and has no attached evdev device.
+
+All 1,174 captured source entries, fonts and executable/bake identities match
+after execution, and all owned processes are gone. Evidence, both agent attempts,
+pixel failure and framebuffer sequences are in `target/photo-linux-native-e565158/`.
+The retained executable SHA-256 is
+`7f3b7989f7c74d04bc2209ceac6ba9db8a9927ccee32b404e71d2c9c77d10d9d`.
+Six asset files were hash-verified, but only two rendered studies were inspected;
+this is not exhaustive decode, memory-bound, pinch or shared-element evidence.
+
+**Apple adapter, Tuft, Darwin and Zeno, 2026-09-17:** the reviewed 21-file
+implementation shares the atomic pair protocol and uses actual AppKit layer
+presentation for catch. Both tokens are installed locally before synchronous
+batch reentry. Geometry feedback coalesces and permits two refinement turns;
+cancellation retires original token survivors before releasing the captured
+collection pin. Rust validation passes 139 tests and strict all-target Clippy;
+six standalone Swift methods/65 assertions and boundary-double probes are
+separate from the full optimized AppKit product build, which also passes.
+
+The actual NSWindow NSEvent gallery replay passes 55 operations and 12 geometry
+observations at 100 logical records, using a seekable clock. Fit pan reaches
+(120,55), exact Unicode typing preserves it, and a released spring is recaught
+at (106.39,48.76) then reversed. A programmatic Space-key control action changes
+the authored zoom to 2 while both properties remain held at scale 1; release
+settles at 2. Reset, resize after contact ends, keyed source replacement and
+deletion with stale lift also pass. Screenshots contain decoded imagery.
+
+The first immediate-catch oracle failed because a virtual-clock layout report
+and the current layer presentation differed. The corrected replay adds a 60ms
+real held-contact phase before recognition, allowing the layer transaction to
+reach presentation; exact continuity assertions remain. This establishes neither
+immediate model/presentation equality nor normal-clock photo latency. The public
+agent refuses resize during contact, so this drive proves no held-resize or
+held-scroll invalidation. A supplemental runtime probe for those cases was
+compiled but **not run**. The viewer is outside a collection, so this drive also
+does not exercise a live collection interaction pin. UIKit is uncompiled and
+standalone Swift checks are not the complete XCTest suite.
+
+The first native link reused a stale shared Rust archive; refreshing only
+`host/apple/src/abi.rs`'s mtime forced a rebuild with unchanged source bytes. That failure
+and both gallery attempts are preserved in `target/photo-apple-validation/final/`.
+The accepted executable SHA-256 is
+`c67a15c2a631495bc609156bf4a7da23d9735570a88cddf1b983b63724670449`.
+No physical pinch, shared-element return, latency or 120Hz claim is made.

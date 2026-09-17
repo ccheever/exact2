@@ -116,6 +116,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var heightRecognizer: UIPanGestureRecognizer?
     var heightHold: HeightDragHold?
     var heightOrigin = 0.0
+    var transformRecognizer: UIPanGestureRecognizer?
+    var transformHold: TransformDragHold?
+    var transformOrigin = CGPoint.zero
     var swipeOrigin = 0.0
     lazy var swipeFeedback = UISelectionFeedbackGenerator()
     func allowsTouchPan(_ velocity: CGPoint) -> Bool {
@@ -142,6 +145,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+        if gesture === transformRecognizer {
+            return SwipeInput.allows(self) && presenter?.transformBindings[id]?.target != nil
+        }
         if gesture === heightRecognizer, let pan = gesture as? UIPanGestureRecognizer {
             let velocity = pan.velocity(in: window)
             return SwipeInput.allows(self) && abs(velocity.y) > abs(velocity.x)
@@ -182,7 +188,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         var hit = touch.view
         while let current = hit, current !== self {
             if current is UITextView || current is UITextField { return false }
-            if gestureRecognizer === heightRecognizer, current is UIScrollView { return false }
+            if (gestureRecognizer === heightRecognizer || gestureRecognizer === transformRecognizer), current is UIScrollView { return false }
             hit = current.superview
         }
         return true
@@ -432,6 +438,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        let previousTransform = transformHold; transformHold = nil
+        DispatchQueue.main.async { previousTransform?.cancel() }
         let previousHeight = heightHold; heightHold = nil
         DispatchQueue.main.async { previousHeight?.cancel() }
         let prior = swipeHold; swipeHold = nil
@@ -499,6 +507,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        presenter?.transformGeometry.changed()
         if window != nil { presenter?.flushPendingFocus() }
     }
 
@@ -534,6 +543,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         presenter?.collections.changed(id, user: true)
+        presenter?.transformGeometry.changed()
         repaintThrough()
         // User scrolling is already a coherent position. Deliver before the
         // frame paints so authored scroll-linked geometry cannot lag a frame.
@@ -1044,6 +1054,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         super.layoutSubviews()
         if kind == "image" { presenter?.session?.rasters.resized(self) }
         presenter?.collections.changed(id)
+        presenter?.transformGeometry.changed()
         if field != nil { field?.frame = contentBox() }
         layoutTextArea()
         layoutSymbol()

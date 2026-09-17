@@ -15,6 +15,8 @@ final class Presenter {
     let viewport = ScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
     var heightBindings: [UInt32: HeightDragBinding] = [:]
+    var transformBindings: [UInt32: TransformDragBinding] = [:]
+    lazy var transformGeometry = TransformGeometryHost(self)
     lazy var collections = CollectionHost(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var swipeActions = SwipeActionsHost(self)
@@ -230,6 +232,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        session?.transformInputHold?.cancel()
         session?.rasters.reset()
         collections.reset()
         segments.reset()
@@ -242,6 +245,8 @@ final class Presenter {
         root.subviews.forEach { $0.removeFromSuperview() }
         views.removeAll()
         heightBindings.removeAll()
+        transformBindings.removeAll()
+        transformGeometry.reset()
     }
 
     /// Size the document to its roots, never smaller than the viewport.
@@ -426,6 +431,22 @@ final class Presenter {
             let id = UInt32(op["id"] as? Int ?? 0)
             if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id, textChanged: kind == "props" || kind == "style" || kind == "destroy") }
             switch kind {
+            case "transform-drag":
+                if let binding = TransformDragBinding(op) {
+                    if binding.target == nil {
+                        if transformBindings[binding.id]?.handleKey == binding.handleKey
+                            && transformBindings[binding.id]?.runtime == binding.runtime {
+                            transformBindings.removeValue(forKey: binding.id)
+                            transformGeometry.retire(binding.id)
+                        }
+                    } else { transformBindings[binding.id] = binding }
+                    views[binding.id]?.updateTransformDragGesture()
+                }
+            case "retire-motion":
+                if let rawRuntime = op["runtime"] as? String, let runtime = UInt64(rawRuntime),
+                   let rawToken = op["token"] as? String, let token = UInt64(rawToken) {
+                    session?.transformInputHold?.retire(runtime: runtime, token: token)
+                }
             case "height-drag":
                 if let binding = HeightDragBinding(op) {
                     if binding.target == nil {
@@ -469,6 +490,8 @@ final class Presenter {
                 // Out of the map before out of the window: the editing-ended
                 // notification removal fires finds no view to send for.
                 heightBindings.removeValue(forKey: id)
+                transformBindings.removeValue(forKey: id)
+                transformGeometry.retire(id)
                 let gone = views.removeValue(forKey: id)
                 if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
             case "roots":

@@ -628,6 +628,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     @objc func clipScrolled() {
         presenter?.collections.changed(id, user: true)
+        presenter?.transformGeometry.changed()
         repaintThrough(); presenter?.refreshVisibleText(); queueScrollEvent()
     }
     private var scrollEventQueued = false
@@ -1031,11 +1032,17 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         layer?.setAffineTransform(t)
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        presenter?.transformGeometry.changed()
+    }
+
     override func layout() {
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layout()
         if kind == "image" { presenter?.session?.rasters.resized(self) }
         presenter?.collections.changed(id)
+        presenter?.transformGeometry.changed()
         if field != nil { field?.frame = contentBox() }
         layoutTextArea()
         layoutSymbol()
@@ -1141,6 +1148,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func mouseDown(with event: NSEvent) {
         presenter?.collections.pointerDown(id, event: event)
         presenter?.mouseHeightDrag.down(self, event: event)
+        presenter?.mouseTransformDrag.down(self, event: event)
         presenter?.mouseSwipe.down(self, event: event)
         guard !disabled else { pressed = false; return }
         if isParagraph, !handlers.contains("press"), !hasPressableAncestor {
@@ -1163,6 +1171,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return false
     }
     override func mouseDragged(with event: NSEvent) {
+        if presenter?.mouseTransformDrag.drag(event) == true { return }
         if presenter?.mouseHeightDrag.drag(event) == true { return }
         if presenter?.mouseSwipe.drag(event) == true { return }
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
@@ -1173,6 +1182,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.contextmenu(id)
     }
     override func mouseUp(with event: NSEvent) {
+        if presenter?.mouseTransformDrag.up(event) == true { return }
         if presenter?.mouseHeightDrag.up(event) == true { return }
         if presenter?.mouseSwipe.up(event) == true { return }
         presenter?.collections.releaseInteractionLater()

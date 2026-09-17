@@ -29,6 +29,13 @@ impl<D: DataSource> Host<D> {
                 self.now_ms = now_ms;
                 self.holds.insert(start.token.serial(), start.token);
                 batch.hold(start.token.serial(), start.value.x, start.value.y);
+                if matches!(
+                    property,
+                    Property::Translate | Property::Scale | Property::Rotate
+                ) {
+                    self.reconcile_transform_drags(&mut batch);
+                    self.emit_transform_drags(&mut batch);
+                }
                 self.height_layout_if_needed(&mut batch).err()
             }
             Ok(None) => None,
@@ -93,6 +100,13 @@ impl<D: DataSource> Host<D> {
         let layout_error = if matches!(result, Ok(true)) {
             self.now_ms = now_ms;
             self.holds.remove(&handle);
+            self.transform_member_ended(handle);
+            if matches!(
+                token.property(),
+                Property::Translate | Property::Scale | Property::Rotate
+            ) {
+                self.emit_transform_drags(&mut batch);
+            }
             self.height_layout_if_needed(&mut batch).err()
         } else {
             None

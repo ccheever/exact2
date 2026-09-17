@@ -29,12 +29,20 @@ mod height_drag;
 mod height_tests;
 #[path = "holds.rs"]
 mod holds;
+#[cfg(test)]
+#[path = "transform_drag_tests.rs"]
+mod transform_drag_tests;
 use exact_plan::{EventKind, Plan};
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
 use height_drag::{HeightDrag, HeightHandle};
+#[path = "transform_drag.rs"]
+mod transform_drag;
+#[path = "transform_drag_wire.rs"]
+mod transform_drag_wire;
 use ibex2::host::Secrets;
 use std::collections::BTreeMap;
+use transform_drag::TransformDrags;
 
 /// Why the host refused.
 #[allow(missing_docs)]
@@ -44,6 +52,7 @@ pub enum HostError {
     Runner(RunnerError),
     Layout(String),
     Delivery(String),
+    RuntimeIdExhausted,
 }
 
 impl std::fmt::Display for HostError {
@@ -75,6 +84,7 @@ pub struct Host<D: DataSource> {
     height_handles: BTreeMap<NodeKey, HeightHandle>,
     height_auto_owned: bool,
     height_drag: Option<HeightDrag>,
+    transform_drags: TransformDrags,
     height_projection: Option<(NodeKey, f32)>,
     #[cfg(test)]
     layout_calls: usize,
@@ -238,6 +248,7 @@ impl<D: DataSource> Host<D> {
             height_handles: BTreeMap::new(),
             height_auto_owned: false,
             height_drag: None,
+            transform_drags: TransformDrags::new()?,
             height_projection: None,
             #[cfg(test)]
             layout_calls: 0,
@@ -291,6 +302,7 @@ impl<D: DataSource> Host<D> {
         // A failed first layout is a refused boot, not a partially committed
         // host. In particular, no candidate secret writes escape before this
         // point on a dev reload.
+        host.emit_transform_drags(&mut batch);
         host.present(&mut batch, true);
         let timers = host.runner.has_timers();
         let motion = !host.engine.quiescent();
@@ -638,6 +650,11 @@ impl<D: DataSource> Host<D> {
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         let error = self.height_layout_if_needed(&mut batch).err();
+        // Only suspended ancestor mappings need a settle recheck. Normal
+        // photo Translate/Scale frames keep the existing cheap tick path.
+        if self.transform_drags.mapping_pending {
+            self.emit_transform_drags(&mut batch);
+        }
         self.present(&mut batch, false);
         self.finish(batch, error)
     }
@@ -666,6 +683,7 @@ impl<D: DataSource> Host<D> {
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
                     self.mirror.remove(&id);
+                    self.transform_drags.remove(id);
                     batch.destroy(id);
                 }
             }
@@ -720,6 +738,7 @@ impl<D: DataSource> Host<D> {
             // Latest target/declaration must reach the held slot before an
             // invalidated header cancels it (negative delays sample at once).
             self.cancel_invalid_height_drag();
+            self.reconcile_transform_drags(&mut batch);
         }
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
@@ -740,6 +759,7 @@ impl<D: DataSource> Host<D> {
             batch.command(&c.name, &c.args);
         }
         self.persist();
+        self.emit_transform_drags(&mut batch);
         self.present(&mut batch, false);
         self.finish(batch, error.or(layout_error))
     }
@@ -885,6 +905,14 @@ impl<D: DataSource> Host<D> {
             .collect();
         if handlers.contains(&"heightrelease") {
             self.track_height_handle(id);
+        }
+        if handlers.contains(&"transformgeometry") || handlers.contains(&"transformrelease") {
+            self.transform_drags.insert(
+                id,
+                key,
+                handlers.contains(&"transformgeometry"),
+                handlers.contains(&"transformrelease"),
+            );
         }
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
