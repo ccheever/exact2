@@ -13,8 +13,8 @@ fn rest_poses_and_sleep_against_rapier() {
         let mut sim = scene(name);
         let mut oracle = PhysicsWorld::new();
         let mut handles = Vec::new();
-        // Match the executor's solver/material model; both use four substeps,
-        // per-contact PGS sweeps, per-contact Coulomb friction and no opaque recycling.
+        // Converged per-contact PGS reference, with Coulomb friction and no
+        // opaque recycling. Exact uses eight soft substeps with one biased sweep.
         oracle.integration_parameters.num_internal_pgs_iterations = 8;
         oracle.integration_parameters.friction_model = FrictionModel::Coulomb;
         oracle.integration_parameters.friction_in_bias_pass = true;

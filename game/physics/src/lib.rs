@@ -11,6 +11,7 @@ mod character;
 mod geometry;
 mod queries;
 mod round;
+mod scratch;
 mod solver;
 mod step;
 mod types;
@@ -18,7 +19,7 @@ mod types;
 pub use character::move_character;
 use exact_game::{Ref, World};
 pub use queries::{overlap, raycast, sweep};
-pub use step::step;
+pub use step::{step, step_observed};
 pub use types::*;
 
 /// Register all physics data before setup or loading a save, and install defaults.

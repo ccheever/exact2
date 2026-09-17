@@ -32,7 +32,7 @@ fn drop_stack_and_block_sleep() {
             assert!(drift < 0.01, "stack drift {drift}");
         }
         if name == "drop" {
-            assert!((min_y - 0.5).abs() < 0.001, "drop rest height {min_y}");
+            assert!((min_y - 0.5).abs() < 0.0004, "drop rest height {min_y}");
         }
     }
 }
@@ -283,11 +283,38 @@ fn free_spheres_roll_without_slipping_on_both_slopes() {
         let contact_velocity = b.velocity + b.spin.cross(-n * 0.5);
         let tangent = rotation * Vec3::X;
         assert!(
-            contact_velocity.dot(tangent).abs() < 0.02,
+            contact_velocity.length() < 0.02,
             "rolling slip at {angle}: {contact_velocity:?}"
         );
         let expected =
             5.0 / 7.0 * 9.81 * exact_game::math::sin(angle * std::f32::consts::PI / 180.0);
+        eprintln!(
+            "rolling {angle}: contact speed={} acceleration={} expected={expected}",
+            contact_velocity.dot(tangent),
+            b.velocity.dot(-tangent)
+        );
         assert!((b.velocity.dot(-tangent) - expected).abs() < 0.05);
+    }
+}
+
+#[test]
+fn resume_mid_bounce_every_tick() {
+    let mut original = scene("bounce");
+    for t in 1..=45 {
+        tick(&mut original, t);
+    }
+    let ball = original.world().named("ball").unwrap();
+    assert!(original.world().get::<Body>(ball).unwrap().velocity.y > 0.0);
+    let mut restored = scene("bounce");
+    restored.restore(&original.save()).unwrap();
+    tick(&mut restored, 45);
+    for t in 46..=240 {
+        tick(&mut original, t);
+        tick(&mut restored, t);
+        assert_eq!(
+            original.world().hash(),
+            restored.world().hash(),
+            "mid-bounce resume tick {t}"
+        );
     }
 }

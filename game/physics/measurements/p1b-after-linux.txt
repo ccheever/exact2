@@ -1,0 +1,100 @@
+   Compiling exact-game v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/engine)
+   Compiling exact-game-physics v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/physics)
+    Finished `release` profile [optimized] target(s) in 9.47s
+     Running `target/release/examples/pile 1000 2000 5000`
+exact boxes=1000 tick=0 poured=0
+exact boxes=1000 tick=300 poured=1000
+exact boxes=1000 tick=600 poured=1000
+exact boxes=1000 tick=900 poured=1000
+exact boxes=1000 tick=1200 poured=1000
+exact boxes=1000 tick=1500 poured=1000
+exact boxes=1000 tick=1800 poured=1000
+exact boxes=1000 tick=2100 poured=1000
+exact boxes=1000 active p50=29.820 p95=30.315 asleep p50=0.000 p95=0.000 sleep_tick=0 allocations/tick=5013
+phase gather       0.1033 ms
+phase broadphase   0.8868 ms
+phase narrowphase  8.4321 ms
+phase matching     0.9865 ms
+phase islands      0.8958 ms
+phase warm         9.2402 ms
+phase solve        4.1095 ms
+phase integrate    0.0692 ms
+phase relax        4.1159 ms
+phase restitution  0.0134 ms
+phase sleep        0.5570 ms
+phase writeback    0.4441 ms
+phase other        0.0047 ms
+substep 0 warm=1.1577 solve=0.5227 integrate=0.0088 relax=0.5209
+substep 1 warm=1.1565 solve=0.5184 integrate=0.0086 relax=0.5190
+substep 2 warm=1.1563 solve=0.5158 integrate=0.0086 relax=0.5172
+substep 3 warm=1.1550 solve=0.5129 integrate=0.0087 relax=0.5147
+substep 4 warm=1.1559 solve=0.5115 integrate=0.0087 relax=0.5138
+substep 5 warm=1.1534 solve=0.5105 integrate=0.0086 relax=0.5113
+substep 6 warm=1.1528 solve=0.5096 integrate=0.0087 relax=0.5099
+substep 7 warm=1.1526 solve=0.5080 integrate=0.0085 relax=0.5091
+counts candidates=8896 narrow_tests=8896 touching=2116 points=11902 profile_samples=76
+awake=1000 median_v=0.01286 max_v=0.44446 max_spin=0.54293 min_calm=0
+exact boxes=2000 tick=0 poured=0
+exact boxes=2000 tick=300 poured=2000
+exact boxes=2000 tick=600 poured=2000
+exact boxes=2000 tick=900 poured=2000
+exact boxes=2000 tick=1200 poured=2000
+exact boxes=2000 tick=1500 poured=2000
+exact boxes=2000 tick=1800 poured=2000
+exact boxes=2000 tick=2100 poured=2000
+exact boxes=2000 active p50=41.260 p95=42.958 asleep p50=0.000 p95=0.000 sleep_tick=0 allocations/tick=6802
+phase gather       0.2175 ms
+phase broadphase   1.9654 ms
+phase narrowphase  10.3005 ms
+phase matching     1.3917 ms
+phase islands      1.3823 ms
+phase warm         12.9638 ms
+phase solve        5.7704 ms
+phase integrate    0.1399 ms
+phase relax        5.8452 ms
+phase restitution  0.0180 ms
+phase sleep        0.8692 ms
+phase writeback    0.7100 ms
+phase other        0.0064 ms
+substep 0 warm=1.6229 solve=0.7330 integrate=0.0176 relax=0.7348
+substep 1 warm=1.6222 solve=0.7267 integrate=0.0178 relax=0.7344
+substep 2 warm=1.6204 solve=0.7215 integrate=0.0173 relax=0.7315
+substep 3 warm=1.6208 solve=0.7194 integrate=0.0174 relax=0.7302
+substep 4 warm=1.6197 solve=0.7182 integrate=0.0175 relax=0.7289
+substep 5 warm=1.6194 solve=0.7176 integrate=0.0175 relax=0.7286
+substep 6 warm=1.6195 solve=0.7173 integrate=0.0175 relax=0.7295
+substep 7 warm=1.6189 solve=0.7167 integrate=0.0175 relax=0.7272
+counts candidates=14328 narrow_tests=14328 touching=3217 points=16573 profile_samples=72
+awake=2000 median_v=0.10883 max_v=2.70933 max_spin=2.86256 min_calm=0
+exact boxes=5000 tick=0 poured=0
+exact boxes=5000 tick=300 poured=2500
+exact boxes=5000 tick=600 poured=5000
+exact boxes=5000 tick=900 poured=5000
+exact boxes=5000 tick=1200 poured=5000
+exact boxes=5000 tick=1500 poured=5000
+exact boxes=5000 tick=1800 poured=5000
+exact boxes=5000 tick=2100 poured=5000
+exact boxes=5000 active p50=56.815 p95=89.755 asleep p50=0.000 p95=0.000 sleep_tick=0 allocations/tick=9751
+phase gather       0.5893 ms
+phase broadphase   4.4918 ms
+phase narrowphase  14.4570 ms
+phase matching     2.2404 ms
+phase islands      2.3807 ms
+phase warm         18.7110 ms
+phase solve        8.2543 ms
+phase integrate    0.3482 ms
+phase relax        8.3647 ms
+phase restitution  0.0274 ms
+phase sleep        1.5057 ms
+phase writeback    1.2590 ms
+phase other        0.0094 ms
+substep 0 warm=2.3470 solve=1.0442 integrate=0.0446 relax=1.0496
+substep 1 warm=2.3381 solve=1.0373 integrate=0.0435 relax=1.0479
+substep 2 warm=2.3388 solve=1.0334 integrate=0.0435 relax=1.0466
+substep 3 warm=2.3437 solve=1.0293 integrate=0.0433 relax=1.0449
+substep 4 warm=2.3378 solve=1.0282 integrate=0.0433 relax=1.0434
+substep 5 warm=2.3338 solve=1.0270 integrate=0.0431 relax=1.0447
+substep 6 warm=2.3374 solve=1.0271 integrate=0.0433 relax=1.0439
+substep 7 warm=2.3343 solve=1.0278 integrate=0.0435 relax=1.0437
+counts candidates=17711 narrow_tests=17711 touching=4533 points=23537 profile_samples=60
+awake=4996 median_v=0.44059 max_v=301.64944 max_spin=13.91989 min_calm=0

@@ -185,9 +185,11 @@ pub struct ColliderState {
 /// All cross-tick physics state; no opaque solver exists beside the world.
 #[derive(Clone, Debug, Resource)]
 pub struct Physics {
+    #[data(skip)]
+    pub(crate) scratch: crate::scratch::Scratch,
     /// World-space acceleration; defaults to (0, -9.81, 0) m/s².
     pub gravity: Vec3,
-    /// Soft steps per world tick, at least one; defaults to four.
+    /// Soft steps per world tick, at least one; defaults to eight.
     pub substeps: u32,
     /// Persistent, sorted contact manifolds including their warm-start impulses.
     pub manifolds: Vec<Manifold>,
@@ -199,8 +201,9 @@ pub struct Physics {
 impl Default for Physics {
     fn default() -> Self {
         Self {
+            scratch: Default::default(),
             gravity: Vec3::new(0.0, -9.81, 0.0),
-            substeps: 4,
+            substeps: 8,
             manifolds: Vec::new(),
             events: Vec::new(),
             previous: Vec::new(),

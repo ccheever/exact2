@@ -45,7 +45,25 @@ fn ray_overlap_and_sphere_sweep_against_oracle() {
             if let (Some(g), Some(x)) = (got, expected) {
                 assert_eq!(g.entity, e);
                 assert!(
-                    (g.distance - x.time_of_impact).abs() < 1e-4,
+                    (g.distance
+                        - match shape {
+                            Shape::Capsule { radius, height } => {
+                                // Ray (-3, .63, .13)+t(1,0,0), cap center (0,.6,0):
+                                // (t-3)^2 + .03^2 + .13^2 = .4^2;
+                                // t = 3 - sqrt(.1422) = 2.622905847 m.
+                                // Parry's GJK ray gives 2.6247108: ~1.8 mm error.
+                                let y = (origin.y.abs() as f64
+                                    - (height as f64 * 0.5 - radius as f64))
+                                    .max(0.0);
+                                (3.0 - ((radius as f64).powi(2)
+                                    - (origin.z as f64).powi(2)
+                                    - y * y)
+                                    .sqrt()) as f32
+                            }
+                            _ => x.time_of_impact,
+                        })
+                    .abs()
+                        < 1e-4,
                     "ray {shape:?} origin={origin:?}: exact={} rapier={} point={:?}",
                     g.distance,
                     x.time_of_impact,

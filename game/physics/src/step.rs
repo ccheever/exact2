@@ -16,17 +16,25 @@ fn index(nodes: &[Node], e: Entity) -> Option<usize> {
 fn passive(n: &Node) -> bool {
     n.body.kind == BodyKind::Static || (n.dynamic() && n.body.asleep)
 }
-fn collect(world: &World, old: &[ColliderState]) -> Vec<Node> {
-    let mut nodes = Vec::new();
-    for e in world.entities() {
-        let collider = world.get::<Collider>(e).map(|c| c.clone());
-        let body = world.get::<Body>(e).map(|b| b.clone());
+fn collect(world: &World, old: &[ColliderState], nodes: &mut Vec<Node>) {
+    nodes.clear();
+    for (e, (collider, body, transform, parent)) in world
+        .query::<(
+            Option<&Collider>,
+            Option<&Body>,
+            Option<&Transform>,
+            Option<&Parent>,
+        )>()
+        .iter()
+    {
+        let collider = collider.cloned();
+        let body = body.cloned();
         if collider.is_none() && body.is_none() {
             continue;
         }
         if body.is_some() {
             debug_assert!(
-                !world.has::<Parent>(e),
+                parent.is_none(),
                 "physics: Body `{}` must be a root",
                 world.name(e).unwrap_or("unnamed")
             );
@@ -36,7 +44,11 @@ fn collect(world: &World, old: &[ColliderState]) -> Vec<Node> {
             kind: BodyKind::Static,
             ..Body::default()
         });
-        let target = world_pose(world, e);
+        let target = if parent.is_some() {
+            world_pose(world, e)
+        } else {
+            transform.copied().unwrap_or_default()
+        };
         let mut pose = target;
         assert!(
             body.velocity.is_finite()
@@ -110,7 +122,6 @@ fn collect(world: &World, old: &[ColliderState]) -> Vec<Node> {
             changed,
         });
     }
-    nodes
 }
 struct Islands(Vec<usize>);
 impl Islands {
@@ -166,60 +177,99 @@ fn wake(nodes: &mut [Node], old: &[Manifold]) {
         }
     }
 }
-fn broadphase(nodes: &[Node], dt: f32) -> Vec<(usize, usize)> {
-    let mut bounds = Vec::new();
-    let mut mean = Vec3::ZERO;
-    for (i, n) in nodes.iter().enumerate() {
-        let Some(c) = &n.collider else {
-            continue;
-        };
-        let g = Geometry::new(&c.shape, n.pose);
-        let (lo, hi) = g.aabb();
+fn broadphase(
+    nodes: &[Node],
+    dt: f32,
+    bounds: &mut Vec<(usize, Vec3, Vec3)>,
+    statics: &mut Vec<(usize, Vec3, Vec3)>,
+    pairs: &mut Vec<(usize, usize)>,
+) {
+    let count = nodes.iter().filter(|n| n.collider.is_some()).count();
+    if bounds.len() + statics.len() != count
+        || bounds.iter().any(|b| {
+            nodes
+                .get(b.0)
+                .is_none_or(|n| n.collider.is_none() || n.body.kind == BodyKind::Static)
+        })
+        || statics.iter().any(|b| {
+            nodes
+                .get(b.0)
+                .is_none_or(|n| n.collider.is_none() || n.body.kind != BodyKind::Static)
+        })
+    {
+        bounds.clear();
+        statics.clear();
+        for (i, n) in nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.collider.is_some())
+        {
+            let list = if n.body.kind == BodyKind::Static {
+                &mut *statics
+            } else {
+                &mut *bounds
+            };
+            list.push((i, Vec3::ZERO, Vec3::ZERO));
+        }
+    }
+    for (i, lo, hi) in bounds.iter_mut().chain(statics.iter_mut()) {
+        let n = &nodes[*i];
+        let g = Geometry::new(&n.collider.as_ref().unwrap().shape, n.pose);
+        let (l, h) = g.aabb();
         let motion = n.body.velocity * dt;
         let pad = Vec3::splat(0.02 + n.body.spin.length() * g.radius() * dt);
-        bounds.push((
-            i,
-            lo + motion.min(Vec3::ZERO) - pad,
-            hi + motion.max(Vec3::ZERO) + pad,
-        ));
-        mean += (lo + hi) * 0.5;
+        *lo = l + motion.min(Vec3::ZERO) - pad;
+        *hi = h + motion.max(Vec3::ZERO) + pad;
     }
-    mean /= bounds.len().max(1) as f32;
-    let mut variance = Vec3::ZERO;
-    for (_, lo, hi) in &bounds {
-        let d = (*lo + *hi) * 0.5 - mean;
-        variance += d * d;
-    }
-    let axis = if variance.x >= variance.y && variance.x >= variance.z {
-        0
-    } else if variance.y >= variance.z {
-        1
-    } else {
-        2
+    // Coherent X order, with a bounded insertion-sort budget for teleports/spawns.
+    // Pair sorting below makes the choice of sorting algorithm unobservable.
+    let cmp = |a: &(usize, Vec3, Vec3), b: &(usize, Vec3, Vec3)| {
+        a.1.x.total_cmp(&b.1.x).then(a.0.cmp(&b.0))
     };
-    bounds.sort_by(|a, b| a.1[axis].total_cmp(&b.1[axis]).then(a.0.cmp(&b.0)));
-    let mut pairs = Vec::new();
-    for (i, &(a, lo, hi)) in bounds.iter().enumerate() {
-        for &(b, bl, bh) in &bounds[i + 1..] {
-            if bl[axis] > hi[axis] {
-                break;
-            }
-            if passive(&nodes[a]) && passive(&nodes[b]) {
-                continue;
-            }
-            if lo.cmple(bh).all() && bl.cmple(hi).all() {
-                let ca = nodes[a].collider.as_ref().unwrap();
-                let cb = nodes[b].collider.as_ref().unwrap();
-                if ca.layer & cb.mask != 0 && cb.layer & ca.mask != 0 {
-                    pairs.push((a.min(b), a.max(b)));
-                }
+    let mut swaps = 0;
+    'sort: for i in 1..bounds.len() {
+        let mut j = i;
+        while j > 0 && cmp(&bounds[j], &bounds[j - 1]).is_lt() {
+            bounds.swap(j, j - 1);
+            j -= 1;
+            swaps += 1;
+            if swaps > bounds.len() * 8 {
+                bounds.sort_unstable_by(cmp);
+                break 'sort;
             }
         }
     }
+    pairs.clear();
+    let mut add = |a: usize, lo: Vec3, hi: Vec3, b: usize, bl: Vec3, bh: Vec3| {
+        if !(passive(&nodes[a]) && passive(&nodes[b])) && lo.cmple(bh).all() && bl.cmple(hi).all() {
+            let ca = nodes[a].collider.as_ref().unwrap();
+            let cb = nodes[b].collider.as_ref().unwrap();
+            if ca.layer & cb.mask != 0 && cb.layer & ca.mask != 0 {
+                pairs.push((a.min(b), a.max(b)));
+            }
+        }
+    };
+    for (i, &(a, lo, hi)) in bounds.iter().enumerate() {
+        for &(b, bl, bh) in &bounds[i + 1..] {
+            if bl.x > hi.x {
+                break;
+            }
+            add(a, lo, hi, b, bl, bh);
+        }
+        for &(b, bl, bh) in statics.iter() {
+            add(a, lo, hi, b, bl, bh);
+        }
+    }
     pairs.sort_unstable();
-    pairs
 }
-fn contacts(nodes: &[Node], old: &[Manifold], dt: f32) -> Vec<Manifold> {
+
+fn contacts(
+    nodes: &[Node],
+    old: &[Manifold],
+    dt: f32,
+    pairs: &[(usize, usize)],
+    observe: &mut impl FnMut(&'static str, usize),
+) -> Vec<Manifold> {
     let mut out = Vec::new();
     // Sleeping pairs retain impulses and touching state without rerunning geometry.
     for m in old {
@@ -235,17 +285,27 @@ fn contacts(nodes: &[Node], old: &[Manifold], dt: f32) -> Vec<Manifold> {
             }
         }
     }
-    for (a, b) in broadphase(nodes, dt) {
+    observe("matching", 0);
+    for &(a, b) in pairs {
         let na = &nodes[a];
         let nb = &nodes[b];
         let ca = na.collider.as_ref().unwrap();
         let cb = nb.collider.as_ref().unwrap();
         let ga = Geometry::new(&ca.shape, na.pose);
         let gb = Geometry::new(&cb.shape, nb.pose);
-        let patch = collide(ga, gb);
         let margin = 0.02
             + (nb.body.velocity - na.body.velocity).length() * dt
             + (na.body.spin.length() * ga.radius() + nb.body.spin.length() * gb.radius()) * dt;
+        let patch = match (ga, gb) {
+            (Geometry::Box { .. }, Geometry::Box { .. }) => {
+                crate::boxes::box_box_with_margin(ga, gb, margin)
+            }
+            _ => Some(collide(ga, gb)),
+        };
+        observe("narrowphase", 1);
+        let Some(patch) = patch else {
+            continue;
+        };
         if patch.separation() > margin {
             continue;
         }
@@ -277,8 +337,10 @@ fn contacts(nodes: &[Node], old: &[Manifold], dt: f32) -> Vec<Manifold> {
             sensor: ca.sensor || cb.sensor,
             touching,
         });
+        observe("matching", 0);
     }
     out.sort_by_key(key);
+    observe("matching", 0);
     out
 }
 fn islands(nodes: &mut [Node], manifolds: &[Manifold], sleep: bool) {
@@ -415,6 +477,13 @@ fn unchanged_asleep(world: &World, physics: &Physics) -> bool {
 /// Panics on invalid geometry/materials; debug builds name parented Bodies.
 /// Reports `world.busy("physics")` until every dynamic body is asleep.
 pub fn step(world: &mut World) {
+    step_observed(world, |_, _| {});
+}
+
+/// Diagnostic phase boundaries; the observer owns its clock outside world state.
+/// Each callback ends the named phase; its value is a count or substep index.
+#[doc(hidden)]
+pub fn step_observed(world: &mut World, mut observe: impl FnMut(&'static str, usize)) {
     {
         let physics = world.resource::<Physics>();
         if unchanged_asleep(world, &physics) {
@@ -423,46 +492,71 @@ pub fn step(world: &mut World) {
             return;
         }
     }
-    let mut physics = world.resource::<Physics>().clone();
+    let mut physics = std::mem::take(&mut *world.resource_mut::<Physics>());
+    let mut scratch = std::mem::take(&mut physics.scratch);
+    let nodes = &mut scratch.nodes;
     assert!(
         physics.substeps > 0 && physics.gravity.is_finite(),
         "physics: invalid step configuration"
     );
-    let mut nodes = collect(world, &physics.previous);
-    wake(&mut nodes, &physics.manifolds);
+    collect(world, &physics.previous, nodes);
+    observe("gather", 0);
+    wake(nodes, &physics.manifolds);
+    observe("islands", 0);
     // This still checks all world-owned poses: no hidden cache can miss a game write.
     if nodes.iter().all(|n| passive(n) && !n.changed)
         && physics.previous.len() == nodes.iter().filter(|n| n.collider.is_some()).count()
     {
-        world.resource_mut::<Physics>().events.clear();
+        physics.events.clear();
+        physics.scratch = scratch;
+        *world.resource_mut::<Physics>() = physics;
         return;
     }
-    let mut manifolds = contacts(&nodes, &physics.manifolds, world.dt());
-    islands(&mut nodes, &manifolds, false);
-    let mut constraints = Vec::new();
+    broadphase(
+        nodes,
+        world.dt(),
+        &mut scratch.bounds,
+        &mut scratch.statics,
+        &mut scratch.pairs,
+    );
+    observe("broadphase", scratch.pairs.len());
+    let mut manifolds = contacts(
+        nodes,
+        &physics.manifolds,
+        world.dt(),
+        &scratch.pairs,
+        &mut observe,
+    );
+    observe("touching", manifolds.iter().filter(|m| m.touching).count());
+    observe("points", manifolds.iter().map(|m| m.points.len()).sum());
+    islands(nodes, &manifolds, false);
+    let constraints = &mut scratch.constraints;
+    constraints.clear();
     let mut dormant = Vec::new();
     for m in manifolds {
-        let a = index(&nodes, m.a).unwrap();
-        let b = index(&nodes, m.b).unwrap();
+        let a = index(nodes, m.a).unwrap();
+        let b = index(nodes, m.b).unwrap();
         if m.sensor || (!nodes[a].active() && !nodes[b].active()) {
             dormant.push(m);
         } else {
-            constraints.push(Constraint::new(m, a, b, &nodes));
+            constraints.push(Constraint::new(m, a, b, nodes));
         }
     }
+    observe("islands", 0);
     solver::solve(
-        &mut nodes,
-        &mut constraints,
+        nodes,
+        constraints,
         physics.gravity,
         world.dt(),
         physics.substeps,
+        &mut observe,
     );
     manifolds = dormant;
-    manifolds.extend(constraints.into_iter().map(|c| c.manifold));
+    manifolds.extend(constraints.drain(..).map(|c| c.manifold));
     manifolds.sort_by_key(key);
     for m in &mut manifolds {
-        let a = &nodes[index(&nodes, m.a).unwrap()];
-        let b = &nodes[index(&nodes, m.b).unwrap()];
+        let a = &nodes[index(nodes, m.a).unwrap()];
+        let b = &nodes[index(nodes, m.b).unwrap()];
         for p in &mut m.points {
             p.separation = (b.pose.position + b.pose.rotation * p.local_b
                 - a.pose.position
@@ -471,12 +565,13 @@ pub fn step(world: &mut World) {
         }
         m.touching = m.points.iter().any(|p| p.separation <= SKIN);
     }
-    islands(&mut nodes, &manifolds, true);
+    islands(nodes, &manifolds, true);
+    observe("sleep", 0);
     physics.events = transitions(world, &physics.manifolds, &manifolds);
     physics.manifolds = manifolds;
     physics.previous.clear();
     let mut busy = false;
-    for mut n in nodes {
+    for mut n in nodes.drain(..) {
         if n.has_body {
             if n.dynamic() {
                 world.insert(n.entity, n.pose);
@@ -499,7 +594,9 @@ pub fn step(world: &mut World) {
             });
         }
     }
-    world.insert_resource(physics);
+    physics.scratch = scratch;
+    *world.resource_mut::<Physics>() = physics;
+    observe("writeback", 0);
     if busy {
         world.busy("physics");
     }

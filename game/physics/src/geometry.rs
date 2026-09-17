@@ -16,7 +16,7 @@ pub(crate) enum Geometry {
         half: Vec3,
     },
 }
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Point {
     pub a: Vec3,
     pub b: Vec3,
@@ -26,18 +26,20 @@ pub(crate) struct Point {
 #[derive(Clone, Debug)]
 pub(crate) struct Patch {
     pub normal: Vec3,
-    pub points: Vec<Point>,
+    pub points: crate::scratch::Inline<Point, 8>,
 }
 impl Patch {
     pub fn one(a: Vec3, b: Vec3, normal: Vec3, feature: u32) -> Self {
         Self {
             normal,
-            points: vec![Point {
+            points: [Point {
                 a,
                 b,
                 separation: (b - a).dot(normal),
                 feature,
-            }],
+            }]
+            .into_iter()
+            .collect(),
         }
     }
     pub fn flip(mut self) -> Self {

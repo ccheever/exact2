@@ -5,6 +5,7 @@ use crate::{
 use exact_game::{Entity, Transform, Vec2, Vec3};
 use glam::Mat3;
 
+#[derive(Clone, Debug)]
 pub(crate) struct Node {
     pub entity: Entity,
     pub pose: Transform,
@@ -38,7 +39,7 @@ impl Node {
         self.tensor = rot * Mat3::from_diagonal(self.inertia) * rot.transpose();
     }
 }
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, Default)]
 struct Prepared {
     ra: Vec3,
     rb: Vec3,
@@ -47,7 +48,11 @@ struct Prepared {
     cross: f32,
     approach: f32,
     maximum: f32,
+    angular_a: [Vec3; 3],
+    angular_b: [Vec3; 3],
+    tangent_inverse: Vec3,
 }
+#[derive(Clone, Debug)]
 pub(crate) struct Constraint {
     pub manifold: Manifold,
     pub a: usize,
@@ -55,7 +60,7 @@ pub(crate) struct Constraint {
     friction: f32,
     bounce: f32,
     tangent: [Vec3; 2],
-    points: Vec<Prepared>,
+    points: [Prepared; 4],
 }
 fn two(nodes: &mut [Node], a: usize, b: usize) -> (&mut Node, &mut Node) {
     let (left, right) = nodes.split_at_mut(b);
@@ -66,18 +71,12 @@ impl Constraint {
         let ca = nodes[a].collider.as_ref().unwrap();
         let cb = nodes[b].collider.as_ref().unwrap();
         let (t, u) = basis(manifold.normal);
-        let points = manifold
-            .points
-            .iter()
-            .map(|p| {
-                let ra = nodes[a].pose.rotation * p.local_a;
-                let rb = nodes[b].pose.rotation * p.local_b;
-                Prepared {
-                    approach: (nodes[b].velocity(rb) - nodes[a].velocity(ra)).dot(manifold.normal),
-                    ..Prepared::default()
-                }
-            })
-            .collect();
+        let mut points = [Prepared::default(); 4];
+        for (p, c) in manifold.points.iter().zip(&mut points) {
+            let ra = nodes[a].pose.rotation * p.local_a;
+            let rb = nodes[b].pose.rotation * p.local_b;
+            c.approach = (nodes[b].velocity(rb) - nodes[a].velocity(ra)).dot(manifold.normal);
+        }
         Self {
             manifold,
             a,
@@ -95,6 +94,22 @@ impl Constraint {
         for (p, c) in self.manifold.points.iter_mut().zip(&mut self.points) {
             c.ra = a.pose.rotation * p.local_a;
             c.rb = b.pose.rotation * p.local_b;
+            if let Some(Collider {
+                shape: crate::Shape::Sphere { radius },
+                ..
+            }) = &a.collider
+            {
+                c.ra = n * (*radius * a.pose.scale.x);
+                p.local_a = a.pose.rotation.conjugate() * c.ra;
+            }
+            if let Some(Collider {
+                shape: crate::Shape::Sphere { radius },
+                ..
+            }) = &b.collider
+            {
+                c.rb = -n * (*radius * b.pose.scale.x);
+                p.local_b = b.pose.rotation.conjugate() * c.rb;
+            }
             p.separation = (b.pose.position + c.rb - a.pose.position - c.ra).dot(n);
             c.mass = 1.0 / effective(a, b, c.ra, c.rb, n, n).max(1e-12);
             c.tangent = Vec2::new(
@@ -102,6 +117,19 @@ impl Constraint {
                 effective(a, b, c.ra, c.rb, self.tangent[1], self.tangent[1]),
             );
             c.cross = effective(a, b, c.ra, c.rb, self.tangent[0], self.tangent[1]);
+            for (i, axis) in [n, self.tangent[0], self.tangent[1]]
+                .into_iter()
+                .enumerate()
+            {
+                c.angular_a[i] = a.tensor * c.ra.cross(axis);
+                c.angular_b[i] = b.tensor * c.rb.cross(axis);
+            }
+            let det = c.tangent.x * c.tangent.y - c.cross * c.cross;
+            c.tangent_inverse = if det > 1e-16 {
+                Vec3::new(c.tangent.y, c.tangent.x, c.cross) / det
+            } else {
+                Vec3::ZERO
+            };
         }
     }
     fn warm(&self, nodes: &mut [Node]) {
@@ -118,7 +146,7 @@ impl Constraint {
         let (a, b) = two(nodes, self.a, self.b);
         let n = self.manifold.normal;
         // Catto's mass-independent soft constraint coefficients: 30 Hz, zeta=10.
-        let omega = std::f32::consts::TAU * 30.0;
+        let omega = std::f32::consts::TAU * 30.0f32.min(0.25 / h);
         let a1 = 20.0 + h * omega;
         let a2 = h * omega * a1;
         let impulse_scale = 1.0 / (1.0 + a2);
@@ -138,22 +166,22 @@ impl Constraint {
             };
             let delta = -mass_scale * c.mass * (vn + push) - soft * p.normal_impulse;
             let next = (p.normal_impulse + delta).max(0.0);
-            let impulse = n * (next - p.normal_impulse);
+            let normal_delta = next - p.normal_impulse;
+            let impulse = n * normal_delta;
             p.normal_impulse = next;
             c.maximum = c.maximum.max(next);
-            a.impulse(-impulse, c.ra);
-            b.impulse(impulse, c.rb);
+            if a.active() {
+                a.body.velocity -= impulse * a.inv_mass;
+                a.body.spin -= c.angular_a[0] * normal_delta;
+            }
+            if b.active() {
+                b.body.velocity += impulse * b.inv_mass;
+                b.body.spin += c.angular_b[0] * normal_delta;
+            }
             let v = b.velocity(c.rb) - a.velocity(c.ra);
             let vt = Vec2::new(v.dot(self.tangent[0]), v.dot(self.tangent[1]));
-            let det = c.tangent.x * c.tangent.y - c.cross * c.cross;
-            let delta = if det > 1e-16 {
-                -Vec2::new(
-                    c.tangent.y * vt.x - c.cross * vt.y,
-                    c.tangent.x * vt.y - c.cross * vt.x,
-                ) / det
-            } else {
-                Vec2::ZERO
-            };
+            let inv = c.tangent_inverse;
+            let delta = -Vec2::new(inv.x * vt.x - inv.z * vt.y, inv.y * vt.y - inv.z * vt.x);
             let mut next = p.tangent_impulse + delta;
             let limit = self.friction * p.normal_impulse;
             if next.length_squared() > limit * limit {
@@ -162,8 +190,14 @@ impl Constraint {
             let d = next - p.tangent_impulse;
             p.tangent_impulse = next;
             let impulse = self.tangent[0] * d.x + self.tangent[1] * d.y;
-            a.impulse(-impulse, c.ra);
-            b.impulse(impulse, c.rb);
+            if a.active() {
+                a.body.velocity -= impulse * a.inv_mass;
+                a.body.spin -= c.angular_a[1] * d.x + c.angular_a[2] * d.y;
+            }
+            if b.active() {
+                b.body.velocity += impulse * b.inv_mass;
+                b.body.spin += c.angular_b[1] * d.x + c.angular_b[2] * d.y;
+            }
         }
     }
     fn restitution(&mut self, nodes: &mut [Node]) {
@@ -198,6 +232,7 @@ pub(crate) fn solve(
     gravity: Vec3,
     dt: f32,
     substeps: u32,
+    observe: &mut impl FnMut(&'static str, usize),
 ) {
     let h = dt / substeps as f32;
     for sub in 0..substeps {
@@ -216,22 +251,27 @@ pub(crate) fn solve(
             c.prepare(nodes);
             c.warm(nodes);
         }
-        for _ in 0..4 {
+        observe("warm", sub as usize);
+        for _ in 0..1 {
             for c in constraints.iter_mut() {
                 c.solve(nodes, h, true);
             }
         }
+        observe("solve", sub as usize);
         for n in nodes.iter_mut() {
             if n.active() || n.body.kind == BodyKind::Kinematic {
                 n.pose.position += n.body.velocity * h;
                 n.pose.rotation = integrate(n.pose.rotation, n.body.spin, h);
             }
         }
+        observe("integrate", sub as usize);
         for c in constraints.iter_mut() {
             c.solve(nodes, h, false);
         }
+        observe("relax", sub as usize);
     }
     for c in constraints.iter_mut() {
         c.restitution(nodes);
     }
+    observe("restitution", 0);
 }

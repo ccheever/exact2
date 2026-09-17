@@ -1,0 +1,11 @@
+rapier boxes=1000 tick=0 poured=0
+rapier boxes=1000 tick=300 poured=1000
+rapier boxes=1000 active p50=2.671 p95=3.301 asleep p50=0.000 p95=0.000 sleep_tick=243 allocations/tick=149
+rapier boxes=2000 tick=0 poured=0
+rapier boxes=2000 tick=300 poured=2000
+rapier boxes=2000 active p50=7.670 p95=9.153 asleep p50=0.000 p95=0.000 sleep_tick=406 allocations/tick=72
+rapier boxes=5000 tick=0 poured=0
+rapier boxes=5000 tick=300 poured=2500
+rapier boxes=5000 tick=600 poured=5000
+rapier boxes=5000 tick=900 poured=5000
+rapier boxes=5000 active p50=18.822 p95=22.152 asleep p50=0.000 p95=0.000 sleep_tick=905 allocations/tick=62

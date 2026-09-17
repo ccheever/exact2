@@ -51,13 +51,18 @@ impl BoxFrame {
         )
     }
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct Vertex {
     p: Vec3,
     id: u32,
 }
-fn clip(poly: Vec<Vertex>, n: Vec3, limit: f32, bit: u32) -> Vec<Vertex> {
-    let mut out = Vec::with_capacity(8);
+fn clip(
+    poly: crate::scratch::Inline<Vertex, 8>,
+    n: Vec3,
+    limit: f32,
+    bit: u32,
+) -> crate::scratch::Inline<Vertex, 8> {
+    let mut out = crate::scratch::Inline::<Vertex, 8>::default();
     if poly.is_empty() {
         return out;
     }
@@ -95,7 +100,7 @@ fn face(a: BoxFrame, b: BoxFrame, axis: usize, n: Vec3, key: u32) -> Patch {
     let bc = b.c + b.u[incident] * b.h[incident] * sign;
     let j = (incident + 1) % 3;
     let k = (incident + 2) % 3;
-    let mut poly = Vec::with_capacity(8);
+    let mut poly = crate::scratch::Inline::<Vertex, 8>::default();
     for (id, (x, y)) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
         .into_iter()
         .enumerate()
@@ -180,11 +185,13 @@ fn reduce(patch: &mut Patch) {
     patch.points.sort_by_key(|p| p.feature);
 }
 fn separated(a: BoxFrame, b: BoxFrame) -> Patch {
+    let av: [Vec3; 8] = std::array::from_fn(|i| a.vertex(i as u32));
+    let bv: [Vec3; 8] = std::array::from_fn(|i| b.vertex(i as u32));
     let mut best = (f32::INFINITY, a.c, b.c, 0);
     for i in 0..8 {
         for (x, y, id) in [
-            (a.vertex(i), b.closest(a.vertex(i)), i),
-            (a.closest(b.vertex(i)), b.vertex(i), 8 + i),
+            (av[i as usize], b.closest(av[i as usize]), i),
+            (a.closest(bv[i as usize]), bv[i as usize], 8 + i),
         ] {
             let d = (x - y).length_squared();
             if d < best.0 {
@@ -203,10 +210,10 @@ fn separated(a: BoxFrame, b: BoxFrame) -> Patch {
                         continue;
                     }
                     let (x, y, _, _) = segments(
-                        a.vertex(va),
-                        a.vertex(va | (1 << ia)),
-                        b.vertex(vb),
-                        b.vertex(vb | (1 << ib)),
+                        av[va as usize],
+                        av[(va | (1 << ia)) as usize],
+                        bv[vb as usize],
+                        bv[(vb | (1 << ib)) as usize],
                     );
                     let d = (x - y).length_squared();
                     if d < best.0 {
@@ -224,9 +231,19 @@ fn separated(a: BoxFrame, b: BoxFrame) -> Patch {
     )
 }
 pub(crate) fn box_box(ga: Geometry, gb: Geometry) -> Patch {
+    box_box_with_margin(ga, gb, f32::INFINITY).unwrap()
+}
+
+// SAT separation is a lower bound on distance: reject before clipping or the
+// expensive exact closest-edge query. Queries retain their unbounded path.
+pub(crate) fn box_box_with_margin(ga: Geometry, gb: Geometry, margin: f32) -> Option<Patch> {
     let a = BoxFrame::new(ga);
     let b = BoxFrame::new(gb);
     let d = b.c - a.c;
+    let radius = a.h.length() + b.h.length() + margin;
+    if d.length_squared() > radius * radius {
+        return None;
+    }
     let mut gap = f32::NEG_INFINITY;
     let mut normal = Vec3::X;
     let mut feature = 0;
@@ -243,6 +260,9 @@ pub(crate) fn box_box(ga: Geometry, gb: Geometry) -> Patch {
         }
         let n = unit(axis, Vec3::X);
         let s = d.dot(n).abs() - a.radius(n) - b.radius(n);
+        if s > margin {
+            return None;
+        }
         // Prefer face axes at essentially equal depth, giving four-point face contacts.
         if s > gap + 1e-6 {
             gap = s;
@@ -263,8 +283,8 @@ pub(crate) fn box_box(ga: Geometry, gb: Geometry) -> Patch {
         Patch::one(x, y, normal, feature as u32 + 0x4000_0000)
     };
     if patch.points.is_empty() || (gap > 0.0 && feature >= 6) {
-        return separated(a, b);
+        return Some(separated(a, b));
     }
     reduce(&mut patch);
-    patch
+    Some(patch)
 }

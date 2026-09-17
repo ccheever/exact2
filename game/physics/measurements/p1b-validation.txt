@@ -1,0 +1,329 @@
+Mac release tests
+   Compiling bytemuck v1.25.2
+   Compiling rawpointer v0.2.1
+   Compiling byteorder v1.5.0
+   Compiling stable_deref_trait v1.2.1
+   Compiling smallvec v1.16.1
+   Compiling num-traits v0.2.19
+   Compiling hashbrown v0.17.1
+   Compiling serde_core v1.0.229
+   Compiling ena v0.14.4
+   Compiling bitflags v2.13.2
+   Compiling arrayvec v0.7.8
+   Compiling thiserror v2.0.20
+   Compiling downcast-rs v2.0.2
+   Compiling either v1.18.0
+   Compiling slab v0.4.12
+   Compiling profiling v1.0.18
+   Compiling matrixmultiply v0.3.11
+   Compiling hash32 v0.3.1
+   Compiling wide v1.7.1
+   Compiling heapless v0.8.0
+   Compiling approx v0.5.1
+   Compiling num-complex v0.4.6
+   Compiling num-integer v0.1.47
+   Compiling rstar v0.13.0
+   Compiling ordered-float v5.5.0
+   Compiling glam v0.33.7
+   Compiling num-rational v0.4.2
+   Compiling indexmap v2.14.2
+   Compiling exact-game v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/engine)
+   Compiling exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics)
+   Compiling simba v0.10.2
+   Compiling nalgebra v0.35.0
+   Compiling glamx v0.3.0
+   Compiling parry3d v0.30.2
+   Compiling rapier3d v0.35.3
+    Finished `release` profile [optimized] target(s) in 1m 06s
+     Running unittests src/lib.rs (game/target/release/deps/exact_game_physics-eb6bad46073a910f)
+
+running 4 tests
+test geometry_tests::clipped_face_has_four_stable_features ... ok
+test geometry_tests::segment_closest_points_against_dense_samples ... ok
+test geometry_tests::degenerate_alignments_and_inside_sphere ... ok
+test geometry_tests::all_six_pairs_against_independent_geometry ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/character.rs (game/target/release/deps/character-6b8aa8e1b27df00e)
+
+running 4 tests
+ramp 30: Vec3(1.6428014, 1.9006524, 0.0)
+step 0.25: Vec3(2.3195035, 1.1508148, 0.0test wall_slide_and_thin_wall_at_twenty_metres_per_second ... ok
+)
+ramp 60: Vec3(-0.18273458, 0.9008148, 0.0)
+test slopes_walkable_and_steep ... ok
+step 0.5: Vec3(0.6900088, 0.9008148, 0.0)
+test steps_below_and_above_limit ... ok
+push 10kg: crate x=3.5672147
+push 1000kg: crate x=0.99999833
+test platform_transport_and_finite_push_budget ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/oracle.rs (game/target/release/deps/oracle-481aef6c7e561f95)
+
+running 1 test
+oracle drop: position=0.007746m angle=0.0000deg sleep exact=68 rapier=72
+oracle stack: position=0.002294m angle=0.0396deg sleep exact=40 rapier=42
+oracle pile: position=0.017719m angle=0.6573deg sleep exact=91 rapier=97
+test rest_poses_and_sleep_against_rapier ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+
+     Running tests/queries.rs (game/target/release/deps/queries-72e2b42bab13dc46)
+
+running 2 tests
+test hierarchy_and_sorted_ties_are_live_reads ... ok
+test ray_overlap_and_sphere_sweep_against_oracle ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/scenes.rs (game/target/release/deps/scenes-8cd0172ec5c89f9b)
+
+running 9 tests
+bounce apex=0.488607, expected 0.5
+rolling 20: contact speed=0 acceleration=2.3965855 expected=2.3965843
+rolling 40: contact speed=0.00000018263921 acceleration=4.5041 expected=4.504105
+box slope 20: displacement=0.00035941962
+box slope 40: displacement=207.47948
+test busy_participates_in_settle ... ok
+test bounce_height ... ok
+test free_spheres_roll_without_slipping_on_both_slopes ... ok
+test sensors_filter_events_and_journal ... ok
+test resume_mid_bounce_every_tick ... ok
+test slopes_box_static_and_sliding ... ok
+scene drop: sleep=68 drift=0.000733 bottom=0.499635
+scene stack: sleep=40 drift=0.002074 bottom=0.497179
+test wake_supporter_edits_and_despawn ... ok
+scene pile: sleep=91 drift=0.017678 bottom=0.498535
+test drop_stack_and_block_sleep ... ok
+PILE_HASH_600=0x07d77113bfe4413b
+test resume_and_replay_every_tick ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.16s
+
+   Doc-tests exact_game_physics
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+
+Mac stronger scene assertions
+   Compiling exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics)
+    Finished `release` profile [optimized] target(s) in 5.30s
+     Running tests/scenes.rs (game/target/release/deps/scenes-8cd0172ec5c89f9b)
+
+running 9 tests
+scene drop: sleep=68 drift=0.000733 bottom=0.499635
+box slope 20: displacement=0.00035941962
+bounce apex=0.488607, expected 0.5
+rolling 20: contact speed=0 acceleration=2.3965855 expected=2.3965843
+rolling 40: contact speed=0.00000018263921 acceleration=4.5041 expected=4.504105
+test bounce_height ... ok
+test busy_participates_in_settle ... ok
+test sensors_filter_events_and_journal ... ok
+test free_spheres_roll_without_slipping_on_both_slopes ... ok
+box slope 40: displacement=207.47948
+scene stack: sleep=40 drift=0.002074 bottom=0.497179
+test resume_mid_bounce_every_tick ... ok
+test slopes_box_static_and_sliding ... ok
+test wake_supporter_edits_and_despawn ... ok
+scene pile: sleep=91 drift=0.017678 bottom=0.498535
+test drop_stack_and_block_sleep ... ok
+PILE_HASH_600=0x07d77113bfe4413b
+test resume_and_replay_every_tick ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.74s
+
+
+
+Mac release Clippy
+    Blocking waiting for file lock on build directory
+    Checking bytemuck v1.25.2
+    Checking byteorder v1.5.0
+   Compiling exact-game-derive v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/derive)
+    Checking rawpointer v0.2.1
+    Checking libm v0.2.16
+    Checking foldhash v0.2.0
+    Checking stable_deref_trait v1.2.1
+    Checking typenum v1.20.1
+    Checking serde_core v1.0.229
+    Checking smallvec v1.16.1
+    Checking log v0.4.34
+    Checking equivalent v1.0.2
+    Checking either v1.18.0
+    Checking thiserror v2.0.20
+    Checking arrayvec v0.7.8
+    Checking downcast-rs v2.0.2
+    Checking exact-plan v0.1.0 (/Users/ccheever/projects/exact2-wt-game/plan)
+    Checking static_assertions v1.1.0
+    Checking matrixmultiply v0.3.11
+    Checking hashbrown v0.17.1
+    Checking bitflags v2.13.2
+    Checking hash32 v0.3.1
+    Checking slab v0.4.12
+    Checking wide v1.7.1
+    Checking ena v0.14.4
+    Checking profiling v1.0.18
+    Checking heapless v0.8.0
+    Checking num-traits v0.2.19
+    Checking exact-motion v0.1.0 (/Users/ccheever/projects/exact2-wt-game/motion)
+    Checking approx v0.5.1
+    Checking num-integer v0.1.47
+    Checking num-complex v0.4.6
+    Checking rstar v0.13.0
+    Checking ordered-float v5.5.0
+    Checking glam v0.33.7
+    Checking num-rational v0.4.2
+    Checking indexmap v2.14.2
+    Checking exact-game v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/engine)
+    Checking simba v0.10.2
+    Checking exact-game-physics v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/physics)
+    Checking nalgebra v0.35.0
+    Checking glamx v0.3.0
+    Checking parry3d v0.30.2
+    Checking rapier3d v0.35.3
+    Finished `release` profile [optimized] target(s) in 20.55s
+
+
+Linux debug tests
+   Compiling exact-game v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/engine)
+   Compiling exact-game-physics v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/physics)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1.96s
+     Running unittests src/lib.rs (target/debug/deps/exact_game_physics-d04d1668a8b07591)
+
+running 4 tests
+test geometry_tests::clipped_face_has_four_stable_features ... ok
+test geometry_tests::segment_closest_points_against_dense_samples ... ok
+test geometry_tests::degenerate_alignments_and_inside_sphere ... ok
+test geometry_tests::all_six_pairs_against_independent_geometry ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/character.rs (target/debug/deps/character-485b73c86cc63f67)
+
+running 4 tests
+ramp 30: Vec3(1.6428014, 1.9006524, 0.0)
+step 0.25: Vec3(2test wall_slide_and_thin_wall_at_twenty_metres_per_second ... .ok3195035
+, 1.1508148, 0.0)
+ramp 60: Vec3(-0.18273458, 0.9008148, 0.0)
+test slopes_walkable_and_steep ... ok
+push 10kg: crate x=3.5672147
+step 0.5: Vec3(0.6900088, 0.9008148, 0.0)
+test steps_below_and_above_limit ... ok
+push 1000kg: crate x=0.99999833
+test platform_transport_and_finite_push_budget ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/oracle.rs (target/debug/deps/oracle-d4fecbc5644a9430)
+
+running 1 test
+oracle drop: position=0.007746m angle=0.0000deg sleep exact=68 rapier=72
+oracle stack: position=0.002294m angle=0.0396deg sleep exact=40 rapier=42
+oracle pile: position=0.017719m angle=0.6573deg sleep exact=91 rapier=97
+test rest_poses_and_sleep_against_rapier ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+
+     Running tests/queries.rs (target/debug/deps/queries-40e08e49f50cbca8)
+
+running 2 tests
+test hierarchy_and_sorted_ties_are_live_reads ... ok
+test ray_overlap_and_sphere_sweep_against_oracle ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/scenes.rs (target/debug/deps/scenes-5f9d3d798d20f407)
+
+running 10 tests
+bounce apex=0.488607, expected 0.5
+
+thread 'refuses_parented_body_by_name' (462548) panicked at physics/src/step.rs:36:13:
+physics: Body `child` must be a root
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+rolling 20: contact speed=0 acceleration=2.3965855 expected=2.3965843
+test bounce_height ... ok
+test refuses_parented_body_by_name - should panic ... ok
+rolling 40: contact speed=0.00000018263921 acceleration=4.5041 expected=4.504105
+test free_spheres_roll_without_slipping_on_both_slopes ... ok
+test sensors_filter_events_and_journal ... ok
+test busy_participates_in_settle ... ok
+scene drop: sleep=68 drift=0.000733 bottom=0.499635
+box slope 20: displacement=0.00035941962
+test resume_mid_bounce_every_tick ... ok
+box slope 40: displacement=207.47948
+test slopes_box_static_and_sliding ... ok
+scene stack: sleep=40 drift=0.002074 bottom=0.497179
+test wake_supporter_edits_and_despawn ... ok
+scene pile: sleep=91 drift=0.017678 bottom=0.498535
+test drop_stack_and_block_sleep ... ok
+PILE_HASH_600=0x07d77113bfe4413b
+test resume_and_replay_every_tick ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.32s
+
+   Doc-tests exact_game_physics
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+
+Linux stronger scene assertions
+   Compiling exact-game-physics v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/physics)
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.60s
+     Running tests/scenes.rs (target/debug/deps/scenes-5f9d3d798d20f407)
+
+running 10 tests
+bounce apex=test busy_participates_in_settle ... 
+thread 'refuses_parented_body_by_name' (471653) panicked at physics/src/step.rs:36:13:
+physics: Body `child` must be a root
+0.oknote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+488607
+, expected 0.5
+scene drop: sleep=68 drift=0.000733 bottom=0.499635
+test bounce_height ... ok
+test sensors_filter_events_and_journal ... ok
+test refuses_parented_body_by_name - should panic ... ok
+rolling 20: contact speed=0 acceleration=2.3965855 expected=2.3965843
+box slope 20: displacement=0.00035941962
+rolling 40: contact speed=0.00000018263921 acceleration=4.5041 expected=4.504105
+test free_spheres_roll_without_slipping_on_both_slopes ... ok
+test resume_mid_bounce_every_tick ... ok
+box slope 40: displacement=207.47948
+test slopes_box_static_and_sliding ... ok
+scene stack: sleep=40 drift=0.002074 bottom=0.497179
+test wake_supporter_edits_and_despawn ... ok
+scene pile: sleep=91 drift=0.017678 bottom=0.498535
+test drop_stack_and_block_sleep ... ok
+PILE_HASH_600=0x07d77113bfe4413b
+test resume_and_replay_every_tick ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.25s
+
+
+
+Linux debug Clippy
+    Checking exact-game v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/engine)
+    Checking exact-game-physics v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/physics)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 1.16s
+
+
+Final caps
+caps — budgets declared in rules/RULES.md
+
+  rules/RULES.md: 697 words
+  blocking checks: 5 (build, test, lint, caps, boot)
+  product-latency row: filled
+  working set: 15 of 15
+  foundation: 7 of 10
+  source files: 528 scanned, 0 skipped as generated, 52 skipped as vendored
+
+All budgets within cap. 6 categories inspected.
+
+Final cargo fmt -p exact-game-physics -- --check: exit 0, no output.
