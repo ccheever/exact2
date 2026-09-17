@@ -36,8 +36,22 @@ GDScript each frame), `shader` (the rotation in the vertex shader; no CPU work).
 | three.js r186 WebGPU | meshes | 10,000 | 20 | 58.8 | 2.3 |
 | | instanced | 100,000 | 120 | 10.0 | 2.3 |
 
+`bun game/bench/run.mjs sweep <engine> cubes <mode> [variant]` finds the largest N that
+holds the refresh rate (≥ 96% of 120 fps and p95 under one and a half intervals):
+
+| engine | mode | holds | breaks | what gives out | load |
+|---|---|---|---|---|---|
+| Godot 4.7.2 Forward+ (native) | nodes | 1,500 | 2,000 | draw calls | 72 |
+| | multimesh | 50,000 | 53,500 | GDScript (5 ms) | 111 |
+| Godot 4.7.2 web (WebGL2) | multimesh | 66,000 | 69,000 | GDScript in wasm | 16 |
+| three.js r186 WebGL | instanced | 225,000 | 237,500 | the JS loop (8 ms) | 30 |
+
+(The native Godot MultiMesh run held 100,000 at 118 fps when the machine was quieter;
+its sweep was taken under a load average of 111. Compare runs taken together.) Godot's
+web export is 39.5 MB of wasm — 10.1 MB gzipped, 7.9 MB brotli — before a game is in it.
+
 The bar these set: the idiomatic path here — one entity per cube — should hold 120 Hz
-past where both twins' *optimized* paths stop.
+past where both twins' *optimized* paths stop: past 225,000 in a browser.
 
 ## This engine, so far — the simulation alone (no renderer yet)
 
