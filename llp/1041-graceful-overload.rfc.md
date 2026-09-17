@@ -1764,9 +1764,19 @@ unchanged from the preceding Linux run. Sources, ELFs, raw results and terminal
 cleanup are in `target/linux-text-transfer-ink-native-execution/`. This is worker
 ink correctness on Linux, not a giant controller drive or latency measurement.
 
-Controller admission must still reject mismatched paint context. Ordinary
-painting at another scale can rebuild the cache, conservative queries can fall
-back to all glyphs, and GPU painting still constructs full position vectors.
+Controller admission must still reject mismatched paint context. A crate-private
+paragraph predicate now checks the existing index, catalog token, exact scale
+and conservative viewport calculation without building, walking glyphs or
+allocating. Conflicting borrows and unsupported queries refuse. Three focused
+tests cover missing/stale indexes, uncertain placement and repeated probes;
+supported fractional-scale paints remain exact, while ordinary lazy building
+and full-glyph fallback are unchanged. Integrated tests and strict Clippy pass;
+the initial RED is a missing-API compile failure, not a behavioral comparison.
+Evidence is in `target/prepared-ink-query-validation/` and
+`target/prepared-ink-query-integration/`. The controller still must call this
+predicate before accepted text reaches the fallback-capable painter.
+Ordinary painting at another scale can rebuild the cache, conservative queries
+can fall back to all glyphs, and GPU painting still constructs full position vectors.
 Visible glyph raster work also remains on the UI. These helpers therefore do not
 prove a complete responsive publication path or physical 120Hz. The private
 pre-parsed native fixture also excludes Markdown Stress's cold source generation

@@ -236,3 +236,132 @@ fn index_arrays_are_send_and_foreign_catalog_refusal_releases_them() {
     ));
     assert!(weak.upgrade().is_none());
 }
+
+#[test]
+fn prepared_query_refuses_missing_identity_and_uncertain_geometry_without_work() {
+    let mut engine = TextEngine::with_catalog(fixture_catalog());
+    let (recipe, raster) = freeze_catalog(&engine).unwrap();
+    let (_k, q) = request(recipe.catalog_label(), 220.);
+    let cold = engine.paragraph(&q.with_request(Spec::from_request), Some(220.));
+    let origin = (0., 0.);
+    let ts = Transform::identity();
+    let clip = (0., 0., 320., 128.);
+    let before = (ink::build_work(), engine.ink_builds, engine.ink_visits);
+    assert!(!cold.prepared_ink_supports(origin, 1., ts, clip));
+    cold.ink
+        .borrow_mut()
+        .reset(&cold.source.catalog.borrow().ink_catalog, 1.);
+    assert!(
+        !cold.prepared_ink_supports(origin, 1., ts, clip),
+        "matching identity is not an index"
+    );
+    assert_eq!(cold.ink_capacity_bytes(), 0);
+    assert_eq!(
+        (ink::build_work(), engine.ink_builds, engine.ink_visits),
+        before
+    );
+
+    let input = prepare(&recipe, q, PaintContext::new(1.).unwrap(), None).unwrap();
+    let job = input.clone();
+    let output = thread::spawn(move || FontWorker::new(recipe).unwrap().execute(job).unwrap())
+        .join()
+        .unwrap();
+    let adopted = adopt(output, &input, &raster).unwrap();
+    let p = adopted.paragraph().unwrap();
+    let bytes = p.ink_capacity_bytes();
+    assert!(p.prepared_ink_supports(origin, 1., ts, clip));
+    for scale in [0., f32::NAN, 2., f32::from_bits(1f32.to_bits() + 1)] {
+        assert!(!p.prepared_ink_supports(origin, scale, ts, clip));
+    }
+    for origin in [(f32::NAN, 0.), (0., f32::INFINITY), (0., 30_000_000.)] {
+        assert!(!p.prepared_ink_supports(origin, 1., ts, clip));
+    }
+    for ts in [
+        Transform::from_scale(0., 1.),
+        Transform::from_scale(f32::NAN, 1.),
+    ] {
+        assert!(!p.prepared_ink_supports(origin, 1., ts, clip));
+    }
+    for clip in [(f32::NAN, 0., 320., 128.), (0., 0., f32::INFINITY, 128.)] {
+        assert!(!p.prepared_ink_supports(origin, 1., ts, clip));
+    }
+    let token = p.source.catalog.borrow().ink_catalog.clone();
+    p.source.catalog.borrow_mut().ink_catalog = Rc::new(());
+    assert!(!p.prepared_ink_supports(origin, 1., ts, clip));
+    p.source.catalog.borrow_mut().ink_catalog = token;
+    {
+        let _exclusive = p.ink.borrow_mut();
+        assert!(!p.prepared_ink_supports(origin, 1., ts, clip));
+    }
+    {
+        let _exclusive = p.source.catalog.borrow_mut();
+        assert!(!p.prepared_ink_supports(origin, 1., ts, clip));
+    }
+    assert!(p.prepared_ink_supports(origin, 1., ts, clip));
+    assert_eq!(p.ink_capacity_bytes(), bytes);
+    assert_eq!(
+        (ink::build_work(), engine.ink_builds, engine.ink_visits),
+        before
+    );
+}
+
+#[test]
+fn prepared_query_supported_fractional_scale_matches_actual_clipped_paint() {
+    let mut engine = TextEngine::with_catalog(fixture_catalog());
+    let (recipe, raster) = freeze_catalog(&engine).unwrap();
+    let (_k, q) = large_request(recipe.catalog_label());
+    let scale = 1.25;
+    let input = prepare(&recipe, q, PaintContext::new(scale).unwrap(), None).unwrap();
+    let job = input.clone();
+    let output = thread::spawn(move || FontWorker::new(recipe).unwrap().execute(job).unwrap())
+        .join()
+        .unwrap();
+    let adopted = adopt(output, &input, &raster).unwrap();
+    let p = adopted.paragraph().unwrap();
+    let ts = Transform::from_scale(scale, scale).pre_scale(1. / scale, 1. / scale);
+    let clip = (0., 0., 320., 128.);
+    let bytes = p.ink_capacity_bytes();
+    let work = ink::build_work();
+    let token = p.source.catalog.borrow().ink_catalog.clone();
+    let weak_count = Rc::weak_count(&token);
+    for _ in 0..1000 {
+        assert!(p.prepared_ink_supports((0., 0.), scale, ts, clip));
+    }
+    assert_eq!(Rc::weak_count(&token), weak_count);
+    assert_eq!(engine.ink_visits, 0);
+    assert_eq!(ink::build_work(), work);
+    for y in [0., -p.height / 2., -p.height + 70.] {
+        assert!(p.prepared_ink_supports((0., y), scale, ts, clip));
+        let actual = clipped(&mut engine, p, y, scale);
+        assert_eq!(actual, full(p, y, scale));
+        assert!(actual.chunks_exact(4).any(|px| px[3] != 0));
+    }
+    assert_eq!(engine.ink_builds, 0);
+    assert_eq!(ink::build_work(), work);
+    assert_eq!(p.ink_capacity_bytes(), bytes);
+}
+
+#[test]
+fn prepared_query_does_not_change_ordinary_lazy_build_or_full_fallback() {
+    let mut engine = TextEngine::with_catalog(fixture_catalog());
+    let spec = crate::paint::text_spec(&StyleProps::default(), "Ordinary eager paragraph ffi");
+    let p = engine.paragraph(&spec, Some(220.));
+    let clip = (0., 0., 320., 128.);
+    assert!(!p.prepared_ink_supports((0., 0.), 1., Transform::identity(), clip));
+    assert_eq!(engine.ink_builds, 0);
+    let actual = clipped(&mut engine, &p, 0., 1.);
+    assert_eq!(actual, full(&p, 0., 1.));
+    assert_eq!(engine.ink_builds, 1, "ordinary paint still builds lazily");
+    let ts = Transform::from_scale(0., 1.);
+    assert!(!p.prepared_ink_supports((0., 0.), 1., ts, clip));
+    let all = p.paint_glyphs(&palette()).count();
+    let before = engine.ink_visits;
+    let mut target = Pixmap::new(320, 128).unwrap();
+    engine.paint_clipped(&mut target, &p, &palette(), (0., 0.), 1., ts, None, clip);
+    assert_eq!(
+        engine.ink_visits - before,
+        all,
+        "ordinary fail-open renderer stays unchanged"
+    );
+    assert_eq!(engine.ink_builds, 1);
+}

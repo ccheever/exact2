@@ -192,6 +192,31 @@ impl Paragraph {
         self.ink.borrow().bytes()
     }
 
+    /// Whether CPU paint can use the existing index for these exact inputs.
+    /// Pass paint's device transform after pre_scale(1/scale, 1/scale), and
+    /// a device-pixel clip. No lazy build, glyph access, allocation or mutation.
+    #[allow(dead_code)] // Consumed by the separately integrated region replay.
+    pub(crate) fn prepared_ink_supports(
+        &self,
+        origin: (f32, f32),
+        scale: f32,
+        glyph_transform: Transform,
+        device_clip: (f32, f32, f32, f32),
+    ) -> bool {
+        let Ok(catalog) = self.source.catalog.try_borrow() else {
+            return false;
+        };
+        let Ok(cache) = self.ink.try_borrow() else {
+            return false;
+        };
+        cache.matches(&catalog.ink_catalog, scale)
+            && cache.index.as_ref().is_some_and(|index| {
+                index
+                    .viewport(origin, scale, glyph_transform, device_clip)
+                    .is_some()
+            })
+    }
+
     /// Current accessible capacity in O(1), without visiting shaped glyphs.
     /// Accounting/maintenance runs outside paint's exclusive ink borrow.
     fn owned_capacity_bytes(&self) -> usize {
