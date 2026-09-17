@@ -898,15 +898,15 @@ build logs, exact samples and screenshots are in `target/apple-text-integration-
 Full macOS compilation and this drive validate the acceptance hook; Swift
 Package XCTest and UIKit remain unverified on this Command Line Tools machine.
 
-### 8.12 Numeric sheet-height presentation trial, starts 2026-09-17
+### 8.12 Numeric sheet-height presentation trial, 2026-09-17
 
-The next sheet increment separates sampled layout height from authored state.
+The kernel trial separates sampled layout height from authored state.
 Leibniz owns the kernel prototype and tests in an isolated worktree; Tuft owns
 integration and the subsequent native/DOM experiment. The first consumer is one
 numeric-pixel-height panel and its virtualized nested collection. This does not
 introduce a general parallel layout engine or a second application value graph.
 
-Proposed kernel input is `PresentedHeight { node: NodeKey, epoch: u64, px: f32 }`
+Kernel input is `PresentedHeight { node: NodeKey, epoch: u64, px: f32 }`
 on `compute_layout_presented(root, offer, Option<PresentedHeight>)`; ordinary
 layout passes `None`. Height remains a CSS height subject to current box sizing,
 min/max constraints and aspect ratio, not a forced border-box rectangle. One
@@ -932,3 +932,32 @@ Then price the actual projection plus collection feedback against the existing
 price native fonts, paint, projection or gesture delivery. Motion property and
 host recognition changes follow this proof; no continuous sheet implementation
 or physical-frame result is claimed by writing this plan.
+
+The kernel implementation passes all160 kernel tests, including20 projection
+cases, and strict all-target Clippy. Independent review added cross-root failure,
+percentage max-height during same-epoch resizing, border/content sizing, min>max
+and the existing auto-width-root border-box exception. One global projection is
+intentional: switching/clearing restores derived state for the old root but only
+the addressed root publishes in that call. Native adapters must account for this
+when they iterate multiple roots; no multi-root motion policy is implemented.
+
+The same-binary gallery comparison runs three fresh processes per arm/count,
+120 expanding heights each: all12 cells and1,440 samples pass. At25k records,
+authored action+layout+feedback p50 is45.250–50.833 µs and p95 is56.667–61.458 µs;
+projection+feedback p50 is4.542–4.875 µs and p95 is6.583–7.542 µs. The first1k
+authored repetition is slower than the other two and remains in the raw data.
+Paired geometry, coverage endpoints and lifetime counts match exactly; both arms
+perform135 monospace text measures per120 changing samples, and repeated equal
+samples perform none. No resources are queried or full inputs keyed after setup.
+The projected arm keeps the authored target178px; collection refinement refreshes
+the sample epoch after its own commits. Two to five rows stay mounted while all
+25,000 logical records remain supplied.
+
+`target/presented-height-metrics/` retains raw cells, full source/binary hashes,
+controller, compiler observations and readable report. Binary SHA-256 is
+`76526657a914ad1a652df61c734fef5e50a96ebf9113e969183ab2dd3b557f35`.
+This is M4 Runner/kernel CPU evidence using deterministic monospace, fixed width
+and top-of-list expansion. It admits the next narrow motion/adapter experiment;
+it does not establish native text/paint cost, continuous gestures or physical
+120Hz. Max-height takeover must still sample displayed CSS height, and switching
+to auto/%/env must retire Height alone while other properties continue.

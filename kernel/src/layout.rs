@@ -51,6 +51,8 @@ fn from_available(space: AvailableSpace) -> AxisOffer {
 pub struct LayoutTree {
     taffy: TaffyTree<u32>,
     fault: Option<String>,
+    // One derived height, not an authored target or a second style graph.
+    presented_height: Option<(NodeKey, NodeId, f32)>,
 }
 
 impl Default for LayoutTree {
@@ -66,7 +68,11 @@ impl LayoutTree {
         // here loses subpixel edits and snaps Retina views to whole points.
         let mut taffy = TaffyTree::new();
         taffy.disable_rounding();
-        LayoutTree { taffy, fault: None }
+        LayoutTree {
+            taffy,
+            fault: None,
+            presented_height: None,
+        }
     }
 
     fn note(&mut self, what: &str, result: Result<impl Sized, taffy::TaffyError>) {
@@ -107,14 +113,69 @@ impl LayoutTree {
 
     /// Remove a node.
     pub fn remove(&mut self, node: NodeId) {
+        if self
+            .presented_height
+            .is_some_and(|(_, active, _)| active == node)
+        {
+            self.presented_height = None;
+        }
         let r = self.taffy.remove(node);
         self.note("remove", r);
     }
 
-    /// Replace a node's style (marks it dirty).
-    pub fn set_style(&mut self, node: NodeId, style: taffy::style::Style) {
+    /// Replace authored lowering, retaining an active presentation height.
+    /// Dirty only when the resulting full derived style changes. This is also
+    /// the path for environment/intrinsic updates that do not bump the epoch.
+    pub fn set_style(&mut self, node: NodeId, mut style: taffy::style::Style) {
+        if let Some((_, active, px)) = self.presented_height {
+            if active == node {
+                style.size.height = taffy::style::Dimension::length(px);
+            }
+        }
+        self.write_style(node, style);
+    }
+
+    fn write_style(&mut self, node: NodeId, style: taffy::style::Style) {
+        if self.taffy.style(node).is_ok_and(|old| *old == style) {
+            return;
+        }
         let r = self.taffy.set_style(node, style);
         self.note("set_style", r);
+    }
+
+    /// Install a preflighted sample, or restore current authored lowering.
+    /// The caller validates generation, membership and eligibility before any
+    /// change here; epochs belong to requests, not to this derived cache.
+    pub(crate) fn present_height(&mut self, arena: &NodeArena, sample: Option<(u32, f32)>) {
+        let next = match sample {
+            Some((slot, px)) => {
+                let Some(node) = arena.taffy(slot) else {
+                    self.fault
+                        .get_or_insert_with(|| "presented height has no engine node".into());
+                    return;
+                };
+                Some((arena.key(slot), node, px))
+            }
+            None => None,
+        };
+        if self.presented_height == next {
+            return;
+        }
+        if let Some((key, node, _)) = self.presented_height.take() {
+            // Same-node samples can replace height directly. Restoring first
+            // would dirty twice and momentarily reinstall an obsolete target.
+            if next.is_none_or(|(next_key, _, _)| next_key != key) {
+                if let Some(slot) = arena.resolve(key) {
+                    self.write_style(node, taffy_style(arena, slot));
+                }
+            }
+        }
+        if let Some((key, node, px)) = next {
+            let mut style = taffy_style(arena, key.index);
+            style.size.height = taffy::style::Dimension::length(px);
+            self.write_style(node, style);
+        }
+        self.presented_height = next;
     }
 
     /// Replace a node's ordered children.

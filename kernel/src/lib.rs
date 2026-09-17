@@ -49,7 +49,7 @@ pub use error::{
 };
 pub use generated::*;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
-pub use kernel::{Kernel, NodeRef};
+pub use kernel::{Kernel, NodeRef, PresentedHeight};
 pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use props::{PropList, PropValue};
