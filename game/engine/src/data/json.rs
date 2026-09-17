@@ -261,7 +261,10 @@ impl<'a> Decoder<'a> {
         if !first {
             self.eat(b',')?;
         }
-        self.frames.last_mut().unwrap().first = false;
+        self.frames
+            .last_mut()
+            .ok_or_else(|| DataError::new("expected container"))?
+            .first = false;
         self.ws();
         if self.peek() == Some(end) {
             return Err(self.err("trailing comma"));
@@ -415,7 +418,10 @@ impl Reader for Decoder<'_> {
                 }
                 Some(0..=31) => return Err(self.err("unescaped control character")),
                 Some(_) => {
-                    let c = self.text[self.pos..].chars().next().unwrap();
+                    let c = self.text[self.pos..]
+                        .chars()
+                        .next()
+                        .ok_or_else(|| self.err("unterminated string"))?;
                     self.pos += c.len_utf8();
                     out.push(c);
                 }
@@ -438,7 +444,11 @@ impl Reader for Decoder<'_> {
         }
         let name = self.string()?;
         self.eat(b':')?;
-        let seen = &mut self.frames.last_mut().unwrap().names;
+        let seen = &mut self
+            .frames
+            .last_mut()
+            .ok_or_else(|| DataError::new("expected object"))?
+            .names;
         if seen.contains(&name) {
             return Err(DataError::new("duplicate field").at(name));
         }

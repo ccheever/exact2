@@ -96,7 +96,6 @@ public final class Agent {
             Agent.reply(["error": "canvas creation is still in flight"])
             return
         }
-        if let error = session.canvases.worldRestoreError { Agent.reply(["error": error]); return }
         if Agent.worldRequest(req) { Agent.reply(tagged(world(req))); return }
         switch op {
         case "tree": Agent.reply(session.canvases.decorate(req, session.webviews.tree()))
@@ -126,7 +125,7 @@ public final class Agent {
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
             var reply = session.agent(json)
             let world = session.canvases.worlds(["op": "state"])
-            var extra = stateSections()
+            var extra = session.canvases.restoreReply(stateSections())
             if !world.isEmpty { extra["world"] = world }
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
                let sections = try? JSONSerialization.data(withJSONObject: extra) {
@@ -150,6 +149,7 @@ public final class Agent {
     /// the world it left behind; a reply's own `clock` (where a `clock` call
     /// landed) is kept. An error is left alone.
     func tagged(_ r: [String: Any]) -> [String: Any] {
+        let r = session.canvases.restoreReply(r)
         guard r["error"] == nil,
               let d = session.agent("{\"op\":\"tags\"}").data(using: .utf8),
               let tags = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return r }

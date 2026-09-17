@@ -65,6 +65,7 @@ struct Saved {
     changing: Vec<String>,
     journal: Vec<Event>,
     journal_next: u64,
+    overflow_logged: bool,
     published: std::collections::BTreeMap<String, Value>,
 }
 /// The clock, bounded device queue, and a game's world, without a host or GPU.
@@ -170,6 +171,7 @@ impl<G: Game> Sim<G> {
             self.input = Input::new(G::actions());
             self.input.viewport = viewport;
             self.overflow_logged = false;
+            self.restored = false;
             self.world
                 .log(format_args!("world restarted: {}", changes.join(", ")));
         }
@@ -488,6 +490,27 @@ impl<G: Game> Sim<G> {
                 },
             )
     }
+    /// Device state at the host boundary, including events waiting for a tick.
+    pub(crate) fn held_keys(&self) -> Vec<String> {
+        let mut keys: std::collections::BTreeSet<_> = self.input.keys.iter().cloned().collect();
+        for queued in &self.queue {
+            match &queued.event {
+                InputEvent::Key {
+                    code, down: true, ..
+                } => {
+                    keys.insert(code.clone());
+                }
+                InputEvent::Key {
+                    code, down: false, ..
+                } => {
+                    keys.remove(code);
+                }
+                InputEvent::Blur { .. } => keys.clear(),
+                _ => {}
+            }
+        }
+        keys.into_iter().collect()
+    }
     /// Save world time and relative pending input, independent of the host epoch.
     pub fn save(&self) -> Vec<u8> {
         let mut queue: Vec<_> = self.queue.iter().cloned().collect();
@@ -513,6 +536,7 @@ impl<G: Game> Sim<G> {
             published: self.world.publications(),
             journal: self.world.journal(),
             journal_next: self.world.journal_next(),
+            overflow_logged: self.overflow_logged,
         };
         let mut bytes = b"EXSIM\0\x02".to_vec();
         bytes.extend(bin::to_vec(&saved));
@@ -576,6 +600,7 @@ impl<G: Game> Sim<G> {
         next.world_us = s.world_us;
         next.world.still = s.still;
         next.world.changing = s.changing;
+        next.overflow_logged = s.overflow_logged;
         next.rebase_queue = true;
         next.restored = true;
         next.world.presentation_generation = self

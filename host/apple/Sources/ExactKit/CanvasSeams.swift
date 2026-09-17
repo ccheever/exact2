@@ -2,6 +2,29 @@
 // The runner never learns what a surface's world is; the web host is the oracle.
 import Foundation
 
+// The file carrier has a product budget before allocation; engine limits remain
+// the second, structural boundary. The same limit applies before base64 capture.
+struct WorldCarrier {
+    static let limit = 256 * 1024 * 1024
+    static let refusal = "world carrier exceeds 256 MiB limit"
+    static func check(_ count: Int) throws {
+        if count > limit { throw NSError(domain: "ExactWorld", code: 1, userInfo: [NSLocalizedDescriptionKey: refusal]) }
+    }
+    static func read(_ path: String?) -> (bytes: Data?, error: String?) {
+        guard let path else { return (nil, nil) }
+        do {
+            let file = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+            defer { try? file.close() }
+            let length = try file.seekToEnd()
+            guard length <= UInt64(limit) else { return (nil, refusal) }
+            try file.seek(toOffset: 0)
+            let bytes = try file.read(upToCount: limit + 1) ?? Data()
+            try check(bytes.count)
+            return (bytes, nil)
+        } catch { return (nil, "world carrier: \(error.localizedDescription)") }
+    }
+}
+
 extension Canvases {
     func live(_ id: UInt32) -> Entry? {
         guard let e = entries[id], e.id != 0, e.view.window != nil,
@@ -10,16 +33,33 @@ extension Canvases {
     }
 
     func restoreWorld(_ m: GpuModule, _ e: Entry) {
-        guard let bytes = worldCarry, let carry = m.carry, carry(e.id) != UInt32.max else { return }
-        worldCarry = nil
+        guard !e.restoreAttempted, let bytes = worldInput.bytes else { return }
+        e.restoreAttempted = true
+        guard let carry = m.carry, carry(e.id) != UInt32.max else { return }
         let ok = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count) ?? false }
-        if !ok { worldRestoreError = "surface \(e.name): restore refused: \(m.error())" }
+        if ok { worldInput.bytes = nil }
+        else {
+            e.restoreError = "surface \(e.name): restore refused: \(m.error())"
+            restoreJournal.append(["canvas": e.view.id, "lines": [e.restoreError!]])
+        }
+    }
+
+    func restoreReply(_ reply: [String: Any]) -> [String: Any] {
+        guard !terminalRestoreReported else { return reply }
+        let errors = entries.values.compactMap(\.restoreError)
+        let terminal = worldInput.bytes != nil && !errors.isEmpty && entries.values.allSatisfy { $0.id != 0 && $0.restoreAttempted }
+        guard worldInput.error != nil || terminal else { return reply }
+        terminalRestoreReported = true
+        var reply = reply
+        reply["error"] = worldInput.error ?? errors.joined(separator: "; ")
+        return reply
     }
 
     func save(_ e: Entry) -> [String: Any] {
         guard let m = module, let carry = m.carry else { return ["error": "world save unavailable on this host yet"] }
         let length = carry(e.id)
         guard length != UInt32.max else { return ["error": "canvas \(e.name) carries no state"] }
+        guard length <= WorldCarrier.limit else { return ["error": WorldCarrier.refusal] }
         guard let bytes = length == 0 ? Data() : m.output(length) else { return ["error": "surface returned no save bytes"] }
         let state = agent(e.view.id, ["op": "state"])?["world"] as? [String: Any] ?? [:]
         return ["data": bytes.base64EncodedString(), "bytes": bytes.count, "hash": state["hash"] ?? NSNull(), "tick": state["tick"] ?? NSNull()]
@@ -105,9 +145,12 @@ extension Canvases {
         messages(e)
         s.frames.requestCanvas()
         guard let answer else { return nil }
-        guard let value = try? JSONSerialization.jsonObject(with: answer) as? [String: Any] else {
+        guard var value = try? JSONSerialization.jsonObject(with: answer) as? [String: Any] else {
             fputs("exact gpu: view \(view): world reply must be an object\n", stderr)
             return nil
+        }
+        if request["op"] as? String == "state", let error = e.restoreError, var world = value["world"] as? [String: Any] {
+            world["restoreError"] = error; value["world"] = world
         }
         return value
     }
@@ -145,10 +188,11 @@ extension Canvases {
                 world.append(["canvas": id, "from": from, "next": next, "lines": lines, "dropped": max(0, from - e.logCursor)])
                 e.logCursor = next
             }
+            world.append(contentsOf: restoreJournal); restoreJournal.removeAll()
             if !world.isEmpty { reply["world"] = world }
         default: break
         }
-        return reply
+        return restoreReply(reply)
     }
 
     struct WorldClock {

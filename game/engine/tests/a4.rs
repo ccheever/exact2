@@ -467,3 +467,13 @@ fn a4_8_renderer_observes_completed_propagated_ticks_and_can_upload_only_the_las
     assert_eq!(uploads, [5, 6]);
     s.advance_with(100.0, Clock::Seekable, |_, _| panic!("no completed tick"));
 }
+
+#[test]
+fn setup_rebuild_clears_restored_status() {
+    let mut s = sim();
+    s.restore(&s.save()).unwrap();
+    assert!(s.agent(r#"{"op":"state"}"#).contains("\"restored\":true"));
+    let values = args(999.0, 1.0, false, 1.0);
+    s.bind(&values, None).unwrap();
+    assert!(s.agent(r#"{"op":"state"}"#).contains("\"restored\":false"));
+}

@@ -54,5 +54,33 @@ final class SurfaceRecordTests: XCTestCase {
         canvases.destroy(view: 100)
         XCTAssertEqual(text.props["text"], "Count 0")
     }
+
+    func testWorldCarrierRefusesSizeBeforeReadingAndCaptureBeforeEncoding() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        FileManager.default.createFile(atPath: path.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: path) }
+        let file = try FileHandle(forWritingTo: path)
+        try file.truncate(atOffset: UInt64(WorldCarrier.limit + 1)); try file.close()
+        let result = WorldCarrier.read(path.path)
+        XCTAssertNil(result.bytes)
+        XCTAssertEqual(result.error, WorldCarrier.refusal)
+        XCTAssertThrowsError(try WorldCarrier.check(WorldCarrier.limit + 1))
+        XCTAssertNoThrow(try WorldCarrier.check(WorldCarrier.limit))
+    }
+
+    func testTerminalRestoreRefusalIsOneReplyAndCanvasStateRemainsAvailable() throws {
+        let session = try fixture()
+        defer { session.destroy() }
+        let c = session.canvases
+        let view = NodeView(id: 100, kind: "canvas", presenter: session.presenter)
+        c.surface(view: view, name: "world", values: [])
+        let entry = try XCTUnwrap(c.entries[100])
+        entry.id = 1; entry.restoreAttempted = true; entry.restoreError = "surface world: restore refused: fixture"
+        c.worldInput.bytes = Data([1])
+        XCTAssertEqual(c.restoreReply(["ok": true])["error"] as? String, entry.restoreError)
+        XCTAssertNil(c.restoreReply(["ok": true])["error"])
+        XCTAssertEqual(c.worldInput.bytes, Data([1]), "refusal keeps bytes for a later capable surface")
+        entry.id = 0
+    }
 }
 #endif

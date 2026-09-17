@@ -342,3 +342,41 @@ fn explicit_events_are_saved_in_order_and_publication_is_separate() {
         "delivery cursor is not simulation state"
     );
 }
+
+#[test]
+fn overflow_warning_is_saved_behavior() {
+    let mut a = sim();
+    for i in 0..1030 {
+        key(&mut a, "KeyE", i % 2 == 0, 0.0);
+    }
+    let mut b = sim();
+    b.restore(&a.save()).unwrap();
+    b.advance(0.0, Clock::Seekable);
+    for i in 1030..1040 {
+        key(&mut a, "KeyE", i % 2 == 0, 0.0);
+        key(&mut b, "KeyE", i % 2 == 0, 0.0);
+    }
+    assert_eq!(a.save(), b.save());
+}
+
+#[test]
+fn older_saves_default_the_overflow_warning_flag() {
+    let s = sim();
+    let mut bytes = s.save();
+    let field = b"\x01\x00\x0foverflow_logged";
+    let at = bytes.windows(field.len()).position(|v| v == field).unwrap();
+    bytes.drain(at..at + field.len() + 1);
+    let mut restored = sim();
+    restored.restore(&bytes).unwrap();
+    assert_eq!(s.save(), restored.save());
+}
+
+#[test]
+fn forwarded_keys_include_pending_downs_and_releases_without_changing_tick_held_state() {
+    let mut s = sim();
+    key(&mut s, "KeyE", true, 0.0);
+    let state = s.agent(r#"{"op":"state"}"#);
+    assert!(state.contains(r#""held":[],"forwarded":["KeyE"]"#));
+    key(&mut s, "KeyE", false, 0.0);
+    assert!(s.agent(r#"{"op":"state"}"#).contains(r#""forwarded":[]"#));
+}

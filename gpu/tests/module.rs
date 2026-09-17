@@ -417,3 +417,22 @@ mod seams {
         exact_gpu::native::unload();
     }
 }
+
+#[test]
+fn empty_null_carry_and_oversized_length_are_distinct() {
+    // SAFETY: zero-length ranges require no backing allocation.
+    unsafe {
+        assert_eq!(
+            exact_gpu::native::bytes("restore", std::ptr::null(), 0),
+            Some(&[][..])
+        );
+        assert_eq!(
+            exact_gpu::native::bytes_mut("restore", std::ptr::null_mut(), 0),
+            Some(&mut [][..])
+        );
+    }
+    assert_eq!(exact_gpu::native::carry_length(0), Some(0));
+    assert_eq!(exact_gpu::native::carry_length(u32::MAX as usize), None);
+    assert_eq!(exact_gpu::native::carry_length(u32::MAX as usize + 1), None);
+    assert!(exact_gpu::native::error().contains("carry exceeds ABI byte limit"));
+}

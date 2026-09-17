@@ -94,6 +94,11 @@ const position = state => state?.entity?.components?.Transform?.position;
     await s.type('pause', {key:'KeyW',phase:'up'});
     const afterKeys = await s.state('world:player');
     check('W bubbles from the focused Resume button and moves the world', position(afterKeys)?.[2] < position(beforeKeys)?.[2]);
+    await s.type('world', {key:'Space',phase:'down'});
+    await s.tap('pause');
+    await s.type('pause', {key:'Space',phase:'up'});
+    check('hold Space then click Pause releases the world key', !(await s.state()).world[0].input.held.includes('Space'));
+    await s.tap('pause');
     await s.type('pause', {key:'Space'});
     check('Space activates the focused button', (await s.state()).world[0].paused);
     await s.tap('pause'); await s.clock('+100');
@@ -140,5 +145,19 @@ const position = state => state?.entity?.components?.Transform?.position;
   check('D6 two sessions continue to the same state, position, tick and hash', continued.world.restored === false && continued.world.hash === uninterrupted.world.hash
     && continued.world.tick === uninterrupted.world.tick && equal(position(continued.player), position(uninterrupted.player)), {expected:uninterrupted.world.hash, actual:continued.world.hash});
   check('D6 entire Sim save is byte-identical, including held input, queue, clock, journal and publications', readFileSync(originalFile).equals(readFileSync(restoredFile)));
+
+  await session.close(); session = null;
+  const refusedFile = resolve(out, 'refused.world');
+  writeFileSync(refusedFile, 'invalid simulation save');
+  session = await open({world:refusedFile});
+  let refusal;
+  try { await session.tap('play'); } catch (error) { refusal = error.message; }
+  check('the operation creating the canvas reports its restore refusal', refusal?.includes('restore refused'), refusal);
+  const fresh = (await session.state()).world[0];
+  check('refusal belongs to canvas state and leaves a fresh world', fresh.tick === 0 && fresh.restoreError?.includes('restore refused'), fresh);
+  await session.clock('+100');
+  check('unrelated operations keep working after a refused restore', (await session.state()).world[0].tick === 6);
+  const refusedLogs = await session.logs();
+  check('restore refusal is in the canvas journal', refusedLogs.world?.some(w=>w.lines.some(line=>line.includes('restore refused'))), refusedLogs.world);
 
 });

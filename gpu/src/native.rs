@@ -32,6 +32,9 @@ pub fn refuse(why: &str) {
 /// # Safety
 /// `ptr`, when non-null, is `len` readable bytes that outlive the call.
 pub unsafe fn bytes<'a>(what: &str, ptr: *const u8, len: usize) -> Option<&'a [u8]> {
+    if len == 0 {
+        return Some(&[]);
+    }
     if ptr.is_null() {
         refuse(&format!("{what}: a null pointer for {len} bytes"));
         return None;
@@ -46,12 +49,26 @@ pub unsafe fn bytes<'a>(what: &str, ptr: *const u8, len: usize) -> Option<&'a [u
 /// # Safety
 /// `ptr`, when non-null, is `len` writable bytes that outlive the call.
 pub unsafe fn bytes_mut<'a>(what: &str, ptr: *mut u8, len: usize) -> Option<&'a mut [u8]> {
+    if len == 0 {
+        return Some(&mut []);
+    }
     if ptr.is_null() {
         refuse(&format!("{what}: a null pointer for {len} bytes"));
         return None;
     }
     // SAFETY: the caller's contract, the pointer checked.
     Some(unsafe { std::slice::from_raw_parts_mut(ptr, len) })
+}
+
+/// u32::MAX is reserved for no carry; never truncate a host-sized length.
+pub fn carry_length(len: usize) -> Option<u32> {
+    match u32::try_from(len) {
+        Ok(n) if n != u32::MAX => Some(n),
+        _ => {
+            refuse("gpu_carry: carry exceeds ABI byte limit");
+            None
+        }
+    }
 }
 
 /// Create the device and the module. Returns 0 on success, 1 on failure
@@ -558,7 +575,11 @@ macro_rules! module {
         pub extern "C" fn gpu_carry(id: u32) -> u32 {
             EXACT_GPU_OUT.with(|b| b.borrow_mut().clear());
             match $crate::native::carry(id) {
-                Some(bytes) => EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = bytes; b.borrow().len() as u32 }),
+                Some(bytes) => {
+                    let Some(len) = $crate::native::carry_length(bytes.len()) else { return u32::MAX };
+                    EXACT_GPU_OUT.with(|b| *b.borrow_mut() = bytes);
+                    len
+                },
                 None => u32::MAX,
             }
         }

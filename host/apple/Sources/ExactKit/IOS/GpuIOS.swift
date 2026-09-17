@@ -41,6 +41,8 @@ final class Canvases {
         var wants = false
         var wantsInput = false
         var logCursor = 0
+        var restoreAttempted = false
+        var restoreError: String?
         /// The surface samples the children (LLP 1014 D2): the overlay is
         /// captured into its texture and composited at alpha 0.
         var through = false
@@ -65,8 +67,9 @@ final class Canvases {
     var entries: [UInt32: Entry] = [:]
     var publishers: [String: Entry] = [:]
     var module: GpuModule?
-    var worldCarry: Data? = ExactEnv.agentMode ? ProcessInfo.processInfo.environment["EXACT_WORLD"].flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) } : nil
-    var worldRestoreError: String?
+    var worldInput = WorldCarrier.read(ExactEnv.agentMode ? ProcessInfo.processInfo.environment["EXACT_WORLD"] : nil)
+    var terminalRestoreReported = false
+    var restoreJournal: [[String: Any]] = []
     var failed: String?
     var loadRequested = false
     var loadedMs: Double?

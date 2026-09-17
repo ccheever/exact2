@@ -135,8 +135,11 @@ agent hears. Capture the complete simulation with `s.screenshot('run.world', 'wo
 (CLI: `screenshot run.world world save`). `open({world: 'run.world'})` or
 `--world run.world` holds the bytes until Play creates the first carrying surface,
 then restores before its first render. Web, macOS and the iOS Simulator use the
-same forms. The capture replies with the byte count, world hash and tick; state
-reports `restored: true` until the next tick. Current app bindings win over saved
+same forms. Both carriers refuse input files and captures above 256 MiB before
+reading/encoding the carrier. A refused restore is reported once by the creating
+operation and remains in that canvas's `state.world.restoreError` and journal;
+other operations continue on the fresh world. The capture replies with the byte count, world hash and tick; state
+reports `restored: true` until the next tick or setup-argument rebuild. Current app bindings win over saved
 arguments. The iOS path is implemented but has not been driven in this session.
 
 `state world:*` reads every entity's components in one reply (512 maximum,
@@ -186,4 +189,7 @@ A carry keeps the old setup's entities. New component fields default by name;
 changing `setup` does not respawn a carried world. Reload the page or press
 `f` then Enter in the dev server to start fresh. Contract edits carry uniquely
 named surfaces across the plan restart; duplicate surface instances restart fresh
-because their reassigned view ids cannot identify them honestly.
+because their reassigned view ids cannot identify them honestly. A GPU swap stages
+all replacement canvases before cutover; a create/bind/render failure leaves the
+old worlds running. Dev bindgen glue has function scope so old Wasm instances can
+be collected; production keeps its static ES module loader.

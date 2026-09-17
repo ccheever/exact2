@@ -247,11 +247,19 @@ impl Reader for Decoder<'_> {
                 Number::Signed(((n >> 1) as i64) ^ -((n & 1) as i64))
             }
             4 => {
-                let n = f32::from_le_bytes(self.take(4)?.try_into().unwrap());
+                let n = f32::from_le_bytes(
+                    self.take(4)?
+                        .try_into()
+                        .map_err(|_| self.err("invalid f32 bytes"))?,
+                );
                 Number::F32(f32::from_bits(f32_bits(n)))
             }
             5 => {
-                let n = f64::from_le_bytes(self.take(8)?.try_into().unwrap());
+                let n = f64::from_le_bytes(
+                    self.take(8)?
+                        .try_into()
+                        .map_err(|_| self.err("invalid f64 bytes"))?,
+                );
                 Number::F64(f64::from_bits(f64_bits(n)))
             }
             _ => return Err(self.err("expected a number")),

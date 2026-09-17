@@ -505,3 +505,5 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Native bake root dep-info: replace the explicit `--emit=dep-info=<path>` with Cargo-owned dependency tracking while retaining the exact source receipt; the explicit path forces native root relinks. Web uses Cargo-owned dep-info after E1.
 
 - **World carries after E2** (2026-09-17): drive the shared save/restore path on an iOS Simulator (web and macOS proofs pass); physical-device saves are refused by the driver. Contract reload carries unique surface names; duplicate stateful surfaces need an honest identity before they can carry across reassigned view ids.
+
+- macOS canvas descendant keys: route keydown from non-editable HUD descendants to the nearest input canvas, excluding button Space/Enter, composition, Tab and Command/Control chords; track forwarded codes for matching keyup and blur on editable focus. `CanvasInputMac` still requires the canvas as first responder; `NodeViewMac.resignFirstResponder` clears held input, so Pause prevents stuck keys but subsequent movement keys remain deaf. Cover native control dispatch and the agent's direct NSWindow route together.

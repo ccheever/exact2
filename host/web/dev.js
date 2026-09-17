@@ -187,7 +187,6 @@ function generationClient({ fetchGeneration, apply, applied = () => {}, failed =
 if (!es) globalThis.exactDevProtocol = { digest, generationClient, validIdentity };
 if (es) {
   globalThis.exact.devError = show;
-  let gpuSwap = Promise.resolve();
   // Host affordance, outside the app tree and absent from static/production pages.
   const opening = document.body.appendChild(document.createElement('a'));
   opening.href = '/__dev/open' + location.search + location.hash;
@@ -233,12 +232,12 @@ if (es) {
       // A drive owns its clock and code. Do not change either behind the driver.
       if (new URLSearchParams(location.search).get('agent') === '1') return;
       globalThis.exact.gpuVersion = message.gpu;
-      if (globalThis.exact.gpu) gpuSwap = gpuSwap.then(async () => {
+      if (globalThis.exact.gpu) (async () => {
         if (message.gpu !== globalThis.exact.gpuVersion) return;
         const result = await globalThis.exact.gpu.swap(message.gpu);
         show(result.errors.join('\n') || null);
         navigator.sendBeacon(`/__dev/gpu?g=${message.gpu}&swap=${result.ms.toFixed(1)}`);
-      }).catch(error => { show(String(error)); console.error('exact dev:', error); });
+      })().catch(error => { show(String(error)); console.error('exact dev:', error); });
       return;
     }
     if (message.ready === false) return;

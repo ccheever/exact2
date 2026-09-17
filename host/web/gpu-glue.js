@@ -4,6 +4,10 @@
 // runs each canvas's surface: bind on new inputs, render while dirty or
 // wanted, resize from the element's box and devicePixelRatio.
 let gpu;
+const WORLD_LIMIT = 256 * 1024 * 1024;
+const worldSize = bytes => { if (bytes.length > WORLD_LIMIT) throw new Error("world carrier exceeds 256 MiB limit"); return bytes; };
+let terminalRestoreReported = false;
+const restoreJournal = [];
 
 const exact = globalThis.exact;
 const publishers = new Map(); // name -> first live entry
@@ -60,34 +64,63 @@ function frame(now) {
 
 function schedule() { if (raf === null) raf = requestAnimationFrame(frame); }
 
-function ensure(entry) {
-  if (entry.id || !loaded) return;
-  const { w, h, s } = size(entry.el);
+// Creation/binding is a hard result. Staging never publishes or attaches listeners.
+function create(entry, module, carry) {
+  const { w, h, s } = size(entry.host);
   entry.el.width = Math.max(1, Math.round(w * s));
   entry.el.height = Math.max(1, Math.round(h * s));
-  entry.id = gpu.gpu_create(entry.name, entry.el, entry.el.width, entry.el.height);
-  if (!entry.id) { console.error("exact gpu:", gpu.gpu_error()); return; }
-  entry.observer = new ResizeObserver(() => { if (entry.id) { render(entry, performance.now()); } });
-  // (`render` takes the agent's clock over that timestamp in agent mode.)
+  entry.id = module.gpu_create(entry.name, entry.el, entry.el.width, entry.el.height);
+  if (!entry.id) throw new Error(`surface ${entry.name}: create: ${module.gpu_error()}`);
+  if (!module.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) throw new Error(`surface ${entry.name}: bind: ${module.gpu_error()}`);
+  if (carry !== undefined) {
+    if (module.gpu_restore(entry.id, worldSize(carry))) entry.restoredCarry = true;
+    else entry.restoreError = `surface ${entry.name}: restore refused: ${module.gpu_error()}`;
+  }
+}
+function attach(entry) {
+  entry.observer = new ResizeObserver(() => { if (entry.id) render(entry, performance.now()); });
   entry.observer.observe(entry.el);
-  if (!gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error());
-  // A plan carry belongs to a unique surface name in the previous plan.
-  delete entry.restoreError;
-  let carry = entry.carry;
-  delete entry.carry;
-  if (exact.worldCarry !== undefined && gpu.gpu_carry(entry.id) !== undefined) {
-    carry = exact.worldCarry; delete exact.worldCarry; delete globalThis.exactWorldCarry;
-  }
-  if (carry !== undefined && !gpu.gpu_restore(entry.id, carry)) {
-    const error = `surface ${entry.name}: restore refused: ${gpu.gpu_error()}`;
-    entry.restoreError = error; exact.worldRestoreError = error;
-    exact.devError?.(error); console.error(error);
-  }
-  messages(entry);
-  if (live(entry.view) !== entry) return;
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
   if (entry.wantsInput) listen(entry);
-  schedule();
+  if (entry.restoreError) {
+    restoreJournal.push({ canvas: entry.view, error: entry.restoreError });
+    exact.devError?.(entry.restoreError); console.error(entry.restoreError);
+  }
+  messages(entry); schedule();
+}
+function restorePending(entry, module = gpu, carrier = exact) {
+  if (carrier.worldCarry === undefined || entry.attemptedCarry === carrier.worldCarry || module.gpu_carry(entry.id) === undefined) return;
+  entry.attemptedCarry = carrier.worldCarry;
+  if (module.gpu_restore(entry.id, worldSize(carrier.worldCarry))) {
+    delete carrier.worldCarry; delete entry.attemptedCarry;
+    if (carrier === exact) delete globalThis.exactWorldCarry;
+    delete entry.restoreError; entry.restoredCarry = true;
+  } else entry.restoreError = `surface ${entry.name}: restore refused: ${module.gpu_error()}`;
+}
+
+function ensure(entry) {
+  if (entry.id || !loaded) return;
+  try {
+    create(entry, gpu, entry.carry);
+    if (!entry.restoreError) delete entry.carry;
+    restorePending(entry);
+  } catch (error) {
+    if (entry.id) gpu.gpu_destroy(entry.id);
+    entry.id = 0;
+    throw error;
+  }
+  attach(entry);
+}
+function restoreReply(reply) {
+  if (exact.worldCarry !== undefined && !terminalRestoreReported) {
+    const candidates = [...surfaces.values()];
+    if (candidates.length && candidates.every(e => e.id && (e.attemptedCarry === exact.worldCarry || gpu.gpu_carry(e.id) === undefined))
+        && candidates.some(e => e.restoreError)) {
+      terminalRestoreReported = true;
+      return { ...reply, error: candidates.filter(e => e.restoreError).map(e => e.restoreError).join("; ") };
+    }
+  }
+  return reply;
 }
 
 function live(view) {
@@ -143,14 +176,25 @@ function listen(entry) {
     event.preventDefault();
     send(event, { t: "wheel", dx: event.deltaX, dy: event.deltaY, ...point(event) });
   }, { passive: false });
-  for (const name of ["keydown", "keyup"]) on(name, (event) => {
+  // A restored keydown (including a queued one) still owns its future keyup.
+  const held = new Set(entry.restoredCarry ? agent(entry.view, {op:"state"})?.world?.input?.forwarded ?? [] : []);
+  delete entry.restoredCarry;
+  const editable = target => target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
+  const blur = event => { held.clear(); send(event, { t: "blur" }); };
+  on("keydown", event => {
     const target = event.target instanceof Element ? event.target : null;
-    if (event.defaultPrevented || target?.closest('input, textarea, select, [contenteditable]')) return;
+    if (event.defaultPrevented || event.isComposing || event.code === "Tab" || event.metaKey || event.ctrlKey || editable(target)) return;
     if (["Space", "Enter"].includes(event.code) && target?.closest('button, a[href], [role="button"], [role="link"]')) return;
-    if (!event.metaKey && !event.ctrlKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "PageUp", "PageDown", "Home", "End"].includes(event.code)) event.preventDefault();
-    send(event, { t: "key", code: event.code, key: event.key, down: name === "keydown", repeat: event.repeat });
+    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "PageUp", "PageDown", "Home", "End"].includes(event.code)) event.preventDefault();
+    held.add(event.code);
+    send(event, { t: "key", code: event.code, key: event.key, down: true, repeat: event.repeat });
   });
-  on("focusout", (event) => { if (!el.contains(event.relatedTarget)) send(event, { t: "blur" }); });
+  on("keyup", event => {
+    if (!held.delete(event.code)) return;
+    send(event, { t: "key", code: event.code, key: event.key, down: false, repeat: false });
+  });
+  on("focusin", event => { if (editable(event.target)) blur(event); });
+  on("focusout", event => { if (!el.contains(event.relatedTarget)) blur(event); });
   entry.unlisten = () => {
     for (const [name, fn, options] of listeners) el.removeEventListener(name, fn, options);
     entry.el.style.touchAction = previous.touchAction; delete el.dataset.gpuInput;
@@ -169,6 +213,7 @@ function agent(view, request) {
   try {
     const value = JSON.parse(reply);
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("world reply must be an object");
+    if (request.op === "state" && value.world && entry.restoreError) value.world.restoreError = entry.restoreError;
     return value;
   } catch (error) { console.error(`exact gpu: view ${view}:`, error); return null; }
 }
@@ -215,6 +260,7 @@ exact.gpu = {
     if (request.op === "screenshot" && request.form === "save") {
       const bytes = gpu.gpu_carry(entry.id);
       if (bytes === undefined) return { error: `canvas ${entry.name} carries no state` };
+      worldSize(bytes);
       const state = agent(request.id, { op: "state" });
       let encoded = "";
       for (let i = 0; i < bytes.length; i += 8192) encoded += String.fromCharCode(...bytes.subarray(i, i + 8192));
@@ -228,11 +274,12 @@ exact.gpu = {
     const reply = agent(request.id, request) ?? { error: `view ${request.id} has no world` };
     const r = entry.host.getBoundingClientRect();
     for (const box of [reply.entity?.screen, reply.hit?.screen]) if (box) { box.x += r.left; box.y += r.top; }
-    return tagged(reply);
+    return restoreReply(tagged(reply));
   },
   decorate(request, reply) {
     if (reply?.then) return reply.then((r) => exact.gpu.decorate(request, r));
-    if (!reply || reply.error || exact.gpu.answers(request)) return reply;
+    if (!reply || reply.error) return reply;
+    if (exact.gpu.answers(request)) return restoreReply(reply);
     if (request.op === "tree") for (const node of reply.nodes ?? []) {
       const summary = agent(node.id, { op: "tree", summary: true });
       if (summary?.world) node.world = summary.world;
@@ -250,9 +297,10 @@ exact.gpu = {
         world.push({ canvas, from, next, lines, dropped: Math.max(0, from - entry.logCursor) });
         entry.logCursor = next;
       }
+      for (const {canvas, error} of restoreJournal.splice(0)) world.push({canvas, lines:[error]});
       if (world.length) reply.world = world;
     }
-    return reply;
+    return restoreReply(reply);
   },
   // The existing clock loop owns the 16-round bound; this is its next candidate.
   clock(settle) {
@@ -303,41 +351,7 @@ exact.gpu = {
   },
   finishRestart() { planCarries.clear(); },
   // Dev only; callers serialize versions. Agent pages never receive automatic swaps.
-  async swap(version) {
-    if (!await ready || version === exact.gpu.version) return { ms: 0, errors: [] };
-    const start = performance.now();
-    const next = await import(`./gpu.js?g=${version}`);
-    try {
-      await next.default({ module_or_path: new URL(`./gpu_bg.wasm?g=${version}`, import.meta.url) });
-      await next.gpu_load();
-      if (exact.now) next.gpu_seekable(true);
-      const rows = await loadShaders(next);
-      for (const [name, text] of rows) if (!await next.gpu_shader_check(name, text)) throw new Error(next.gpu_error());
-      replaceShaders(rows, next);
-    } catch (error) { next.gpu_unload(); throw error; }
-    // No await after taking carries: listeners, ownership, publication and first
-    // render transfer in one turn. The old world keeps running while fetch compiles.
-    if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
-    const entries = [...surfaces.values()];
-    for (const entry of entries) {
-      if (entry.id) entry.carry = gpu.gpu_carry(entry.id);
-      entry.observer?.disconnect(); entry.unlisten?.();
-      if (entry.id) gpu.gpu_destroy(entry.id);
-      entry.id = 0;
-    }
-    gpu.gpu_unload(); gpu = next;
-    const errors = []; delete exact.worldRestoreError;
-    // Restored records wait until all surfaces exist, so one publication cannot
-    // make the runner observe another surface's fresh defaults in this batch.
-    const depth = exact.applyDepth ?? 0; exact.applyDepth = depth + 1;
-    try { for (const entry of entries) ensure(entry); }
-    finally { exact.applyDepth = depth; drainRecords(); }
-    for (const entry of entries) if (entry.restoreError) errors.push(entry.restoreError);
-    for (const entry of surfaces.values()) if (entry.id) render(entry, performance.now());
-    exact.gpu.version = version;
-    console.info('exact gpu: carried the live state; setup edits apply to a fresh world. Reload the page (or press f + Enter in the dev server) to start fresh.');
-    return { ms: performance.now() - start, errors };
-  },
+  swap(version) { return exact.mutate(() => swap(version)); },
   /// A shader's text (LLP 1030 D8) — the dev loop's edit, or the first
   /// registration: validated, its interface checked against the module's;
   /// every surface renders again through the new pipeline. False, with the
@@ -351,10 +365,14 @@ exact.gpu = {
   // Registration is checked before the host commits. Replacement then runs
   // synchronously in the same turn, including clearing omitted names.
   async prepareShaders(assets) {
-    if (!await ready) return () => {}; // An unavailable optional device cannot block core plans.
-    const rows = shaderRows(assets);
-    for (const [name, text] of rows) if (!await gpu.gpu_shader_check(name, text)) throw new Error(gpu.gpu_error());
-    return () => replaceShaders(rows);
+    await ready; if (!loaded) return () => {}; // An unavailable optional device cannot block core plans.
+    const module = gpu, rows = shaderRows(assets, module);
+    for (const [name, text] of rows) if (!await module.gpu_shader_check(name, text)) throw new Error(module.gpu_error());
+    if (module !== gpu) throw new Error("GPU changed during shader preparation");
+    return () => {
+      if (module !== gpu) throw new Error("GPU changed before shader commit");
+      replaceShaders(rows, module);
+    };
   },
   /// Time moved (the agent's `clock`): render what wants a frame, once.
   schedule() { for (const entry of surfaces.values()) if (entry.id && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },
@@ -379,22 +397,84 @@ async function loadShaders(module) {
   }
   return exact.devAssets === null ? rows : shaderRows(exact.devAssets, module);
 }
+// Only development uses function-scoped bindgen glue: no immortal module-map
+// entry owns a candidate's Wasm memory. Production remains the static ES module.
+async function loadModule(version) {
+  if (!version) {
+    const module = await import("./gpu.js");
+    await module.default({ module_or_path: new URL("./gpu_bg.wasm", import.meta.url) });
+    return module;
+  }
+  const response = await fetch(new URL(`./gpu.js?g=${version}`, import.meta.url));
+  if (!response.ok) throw new Error(`GPU loader HTTP ${response.status}`);
+  const module = new Function(`${await response.text()}; return wasm_bindgen;`)();
+  await module({ module_or_path: new URL(`./gpu_bg.wasm?g=${version}`, import.meta.url) });
+  return module;
+}
+async function swap(version) {
+  await ready;
+  if (loaded && version === exact.gpu.version) return { ms: 0, errors: [] };
+  const start = performance.now(), next = await loadModule(version), staged = [];
+  const carrier = { worldCarry: exact.worldCarry };
+  try {
+    await next.gpu_load();
+    if (exact.now) next.gpu_seekable(true);
+    const rows = await loadShaders(next);
+    for (const [name, text] of rows) if (!await next.gpu_shader_check(name, text)) throw new Error(next.gpu_error());
+    replaceShaders(rows, next);
+    // A canvas context belongs to one device. Stage on detached replacement
+    // canvases; the old canvases and their worlds remain untouched until commit.
+    // No await from carry through cutover; input cannot arrive between them.
+    for (const old of surfaces.values()) {
+      const entry = { ...old, el: old.el.cloneNode(false), id: 0, observer: null, unlisten: null };
+      delete entry.restoreError; delete entry.attemptedCarry;
+      staged.push([old, entry]);
+      create(entry, next, old.id ? gpu.gpu_carry(old.id) : old.carry);
+      restorePending(entry, next, carrier);
+      const {w,h,s} = size(old.host);
+      if (next.gpu_render(entry.id, w, h, s, clockFor(performance.now())) === 2) throw new Error(`surface ${entry.name}: render: ${next.gpu_error()}`);
+    }
+  } catch (error) {
+    for (const [,entry] of staged) if (entry.id) next.gpu_destroy(entry.id);
+    next.gpu_unload(); exact.devError?.(String(error)); throw error;
+  }
+  if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
+  const oldModule = gpu;
+  for (const [old, entry] of staged) {
+    old.observer?.disconnect(); old.unlisten?.();
+    old.el.replaceWith(entry.el);
+    if (publishers.get(old.name) === old) publishers.set(old.name, entry);
+    surfaces.set(entry.view, entry);
+    if (old.id) oldModule.gpu_destroy(old.id);
+  }
+  oldModule?.gpu_unload(); gpu = next; loaded = true;
+  exact.gpu.version = version;
+  if (carrier.worldCarry === undefined) { delete exact.worldCarry; delete globalThis.exactWorldCarry; }
+  const depth = exact.applyDepth ?? 0; exact.applyDepth = depth + 1;
+  try { for (const [,entry] of staged) attach(entry); }
+  finally { exact.applyDepth = depth; drainRecords(); }
+  const errors = staged.flatMap(([,e]) => e.restoreError ? [e.restoreError] : []);
+  return { ms: performance.now() - start, errors };
+}
 const t0 = performance.now();
 try {
-  const version = exact.gpuVersion ?? 0, query = version ? `?g=${version}` : "";
-  gpu = await import(`./gpu.js${query}`);
-  await gpu.default({ module_or_path: new URL(`./gpu_bg.wasm${query}`, import.meta.url) });
+  const version = exact.gpuVersion ?? 0;
+  gpu = await loadModule(version);
   await gpu.gpu_load();
   if (exact.now) gpu.gpu_seekable(true);
   replaceShaders(await loadShaders(gpu));
   exact.gpu.version = version;
   loaded = true;
-} catch (error) { console.error("exact gpu:", error); }
+} catch (error) { gpu?.gpu_unload(); gpu = undefined; console.error("exact gpu:", error); }
 if (loaded) exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
-// A smoke run asks (`?smoke=1`) to be told when the module is up.
 if (loaded && new URLSearchParams(location.search).get("smoke") === "1") navigator.sendBeacon(`/__gpu?ms=${exact.root.dataset.gpuMs}`);
 try {
-  for (const s of exact.pendingSurfaces ?? []) if (s.generation === exact.generation) exact.gpu.surface(s.id, s.name, s.values);
+  const waiting = [...surfaces.values()];
+  const report = error => { exact.devError?.(String(error)); console.error("exact gpu:", error); };
+  for (const s of exact.pendingSurfaces ?? []) if (s.generation === exact.generation) {
+    try { exact.gpu.surface(s.id, s.name, s.values); } catch (error) { report(error); }
+  }
   exact.pendingSurfaces = [];
-  for (const entry of surfaces.values()) ensure(entry);
+  // A refused initial surface must not prevent independent canvases from loading.
+  for (const entry of waiting) { try { ensure(entry); } catch (error) { report(error); } }
 } finally { finishReady(loaded); }

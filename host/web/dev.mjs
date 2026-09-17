@@ -56,7 +56,7 @@ let portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') 
 let rebuildOn = rebuildPolicy(app.manifest);
 let manualTypescript = null, rustChild = null, rustActive = false, rustRun = 0, rustHeartbeat = null, rustDirty = false, rustSaved = 0, rustSourceWatch = null, rustOutputWatch = null;
 let rustInputFiles = new Set();
-let changed = new Set(), timer=null, building=false, again=false, builds=0;
+let changed = new Set(), timer=null, building=false, buildPending=false, rustPending=false, builds=0;
 const plan = resolve(dist, 'app.plan');
 const graphPath = resolve(dist, 'bake.json');
 buildEnv.EXACT_DEV_BAKE = graphPath;
@@ -68,7 +68,7 @@ if (!builtAppMatches(dist, app) || !existsSync(graphPath) || JSON.parse(readFile
 // path dependencies outside this workspace. Unknown/shared inputs take the full build.
 let gpuInputs = new Set(), appInputs = new Set();
 const gpuSideRoot = resolve(app.target, 'dev-gpu', app.name);
-// A new server must not reuse an ESM import URL cached by a surviving page.
+// A server epoch pairs function-scoped glue with its Wasm bytes.
 let gpuSide = null, gpuVersion = Date.now(), gpuBuildChild = null;
 const gpuTimings = new Map(), gpuVersions = new Map();
 function readGpuInputs(profile = 'web') {
@@ -281,7 +281,8 @@ function startCompiler() {
   if (typescript) { startModuleCompiler(); return; }
   if (portableRust) return;
   const metadata = spawnSync('cargo', ['metadata','--no-deps','--format-version','1'], {cwd:app.workspace,env:buildEnv,encoding:'utf8'});
-  const hasDev = metadata.status === 0 && JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web'))?.targets.some(t=>t.name==='dev'&&t.kind.includes('bin'));
+  if (metadata.status !== 0) throw new Error(`cargo metadata failed: ${metadata.stderr || metadata.error || metadata.status}`);
+  const hasDev = JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web'))?.targets.some(t=>t.name==='dev'&&t.kind.includes('bin'));
   dev = spawn('cargo', ['run', '-q', '--release', '-p', hasDev ? app.crate('web') : 'exact-web', '--bin', hasDev ? 'dev' : 'exact-dev', '--', source, plan], { cwd: hasDev ? app.workspace : root, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
@@ -311,7 +312,7 @@ function startCompiler() {
       }
     }
   });
-  dev.on('exit', (code) => { if (dev === me) { console.error(`dev compiler exited ${code}`); process.exit(code ?? 1); } });
+  dev.on('exit', (code) => { if (dev === me) { console.error(`dev compiler exited ${code}`); killCompiler(); process.exit(code ?? 1); } });
 }
 // Direct file watchers avoid recursive-directory event coalescing on macOS.
 // The directory watcher discovers new paths; file metadata suppresses its
@@ -471,10 +472,16 @@ function readRustGeneration() {
   push(announcement());
   console.log(`Rust generation ${id.slice(0,12)} ready; restart with carry`);
 }
-function produceRust() {
-  if (building) { rustDirty = true; again = true; return; }
-  if (changed.size) { rebuild(); return; }
-  if (rustActive) { rustDirty = true; return; }
+function produceRust() { rustPending = true; drainBuilds(); }
+function drainBuilds() {
+  if (building || rustActive) return;
+  if (buildPending || changed.size) {
+    buildPending = false;
+    const files = [...changed]; changed = new Set();
+    if (gpuOnly(files)) void produceGpu(files); else rebuildNow(files);
+  } else if (rustPending) { rustPending = false; produceRustNow(); }
+}
+function produceRustNow() {
   if (!rustChild) {
     const child=rustChild=spawn(process.execPath,[resolve(root,'scripts/rust.mjs'),app.name,'--serve'],{cwd:root,env:buildEnv,detached:true,stdio:['pipe','pipe','pipe']});
     let buffer='';
@@ -483,6 +490,7 @@ function produceRust() {
       rustChild=null;rustActive=false;clearInterval(rustHeartbeat);rustHeartbeat=null;
       console.error(error.message);push({error:error.message});
       try{process.kill(-child.pid,'SIGTERM');}catch{}
+      drainBuilds();
     };
     child.on('error',failed);
     child.on('exit',(code,signal)=>failed(new Error(`Rust producer exited (${code??signal})`)));
@@ -498,7 +506,8 @@ function produceRust() {
           if(reply.id!==rustRun||!rustActive||typeof reply.ok!=='boolean')throw new Error('invalid Rust producer reply');
           rustActive=false;clearInterval(rustHeartbeat);rustHeartbeat=null;
           if(!reply.ok){console.error(reply.error);push({error:reply.error});}
-          if(rustDirty && rebuildOn.rust==='save')produceRust();
+          if(rustDirty && rebuildOn.rust==='save') rustPending = true;
+          drainBuilds();
         } catch(error){failed(error);return;}
       }
     });
@@ -530,6 +539,8 @@ function startRustCompiler() {
   produceRust();
 }
 const killCompiler = () => {
+  const gpuChild = gpuBuildChild; gpuBuildChild = null;
+  if (gpuChild) { try { process.kill(-gpuChild.pid, 'SIGKILL'); } catch {} }
   manualTypescript = null;
   rustSourceWatch?.close(); rustSourceWatch = null; rustOutputWatch?.close(); rustOutputWatch = null;
   clearInterval(rustHeartbeat); rustHeartbeat = null; rustActive = false;
@@ -544,7 +555,6 @@ const stop = async () => {
   const children = [dev, rustChild, gpuBuildChild, localInstallChild].filter(Boolean);
   const exits = children.map(child => new Promise(ok => child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok)));
   killCompiler();
-  if (gpuBuildChild) { try { process.kill(-gpuBuildChild.pid, 'SIGKILL'); } catch {} }
   localInstallChild?.kill('SIGTERM');
   await Promise.all(exits); process.exit(0);
 };
@@ -751,10 +761,8 @@ process.stdin.on('data', input => {
 });
 console.log(`rebuild: Rust ${rebuildOn.rust}, TypeScript ${rebuildOn.typescript}; r + Enter builds Rust, t + Enter builds TypeScript, f + Enter starts a fresh page`);
 
-function rebuild() {
-  if (building) { again = true; return; }
-  const files = [...changed]; changed = new Set();
-  if (gpuOnly(files)) { produceGpu(files); return; }
+function rebuild() { buildPending = true; drainBuilds(); }
+function rebuildNow(files) {
   building = true;
   const t = Date.now();
   console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the wasm`);
@@ -780,7 +788,7 @@ function rebuild() {
       program = programIdentity();
       // The restarted producer consumes module edits; queued core edits start
       // their rebuild there. Do not re-arm a third build below on that success.
-      again = false;
+      rustPending = false;
       startCompiler();
       console.log(`rust: rebuilt in ${(ms / 1000).toFixed(1)} s · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading\n  ${classifyRebuild().join('\n  ')}`);
       push({ rebuilt: builds });
@@ -789,7 +797,7 @@ function rebuild() {
       console.log(`rust: build failed in ${(ms / 1000).toFixed(1)} s\n${errors}`);
       push({ error: `the wasm did not build:\n${errors}` });
     }
-    if (again) { again = false; rebuild(); }
+    drainBuilds();
   });
 }
 
@@ -812,7 +820,7 @@ async function produceGpu(files) {
     console.log(`gpu: ${files.length} source file(s) changed; building ${app.crate('gpu')} (${profile})`);
     await run('cargo', ['build','-p',app.crate('gpu'),'--target','wasm32-unknown-unknown','--profile',profile]);
     const compiled = Date.now();
-    await run('wasm-bindgen', ['--target','web','--no-typescript','--out-dir',stage,'--out-name','gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate('gpu').replaceAll('-','_')+'.wasm')]);
+    await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',stage,'--out-name','gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate('gpu').replaceAll('-','_')+'.wasm')]);
     gpuSide = stage; gpuVersion++; gpuVersions.set(gpuVersion, stage);
     // Query versions pin JS and wasm together. A lagging fetch gets 404 rather
     // than silently pairing exports from one build with another build's wasm.
@@ -828,7 +836,7 @@ async function produceGpu(files) {
     push({error:`GPU module did not build:\n${error.message}`});
   } finally {
     building = false;
-    if (again || changed.size) { again = false; rebuild(); }
+    drainBuilds();
   }
 }
 
@@ -843,7 +851,7 @@ const server = createServer(async (req, res) => {
     if (timing) console.log(`gpu: rebuilt in ${timing.ms} ms · swapped in ${url.searchParams.get('swap')} ms · build start → running ${Date.now()-timing.start} ms (warm budget 2000 ms)`);
     res.writeHead(204); res.end(); return;
   }
-  if (gpuSide && ['/gpu.js','/gpu_bg.wasm'].includes(url.pathname)) {
+  if (gpuSide && url.searchParams.has('g') && ['/gpu.js','/gpu_bg.wasm'].includes(url.pathname)) {
     const directory = url.searchParams.has('g') ? gpuVersions.get(Number(url.searchParams.get('g'))) : gpuSide;
     if (!directory) { res.writeHead(404, {'cache-control':'no-store'}); res.end(); return; }
     res.writeHead(200, {'content-type':webContentType(url.pathname),'cache-control':'no-store'});

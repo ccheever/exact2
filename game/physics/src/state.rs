@@ -7,6 +7,9 @@ use exact_game::{
 use rapier3d::{pipeline::PhysicsWorld, prelude::*};
 use std::{cell::RefCell, collections::BTreeMap};
 
+// Bump when Rapier, its serde representation, or bincode options change.
+const SNAPSHOT: &[u8] = b"EXPHYS\0\x01";
+
 #[derive(Clone, Debug, Default, Data)]
 pub(crate) struct Entry {
     pub entity: Entity,
@@ -55,35 +58,41 @@ pub(crate) struct Saved {
 }
 impl Saved {
     pub fn live(&mut self) -> &mut Live {
-        self.live.get_or_insert_with(|| {
-            if self.bytes.is_empty() {
-                return Live::default();
-            }
-            let rapier = bincode::DefaultOptions::new()
-                .deserialize(&self.bytes)
-                .expect("physics: invalid Rapier snapshot");
-            let entries: BTreeMap<_, _> = self
+        self.live.get_or_insert_with(Live::default)
+    }
+    fn decode(&mut self) -> Result<(), DataError> {
+        if self.bytes.is_empty() {
+            return Ok(());
+        }
+        let payload = self
+            .bytes
+            .strip_prefix(SNAPSHOT)
+            .ok_or_else(|| DataError::new("physics: snapshot format/version mismatch"))?;
+        let rapier = bincode::DefaultOptions::new()
+            .with_limit(payload.len() as u64)
+            .deserialize(payload)
+            .map_err(|e| DataError::new(format!("physics: invalid snapshot: {e}")))?;
+        self.live = Some(Live {
+            rapier,
+            entries: self
                 .entries
                 .iter()
                 .cloned()
                 .map(|e| (e.entity, e))
-                .collect();
-            let reverse = self
+                .collect(),
+            reverse: self
                 .entries
                 .iter()
                 .filter_map(|e| e.collider_handle.map(|h| (h, e.entity)))
-                .collect();
-            Live {
-                rapier,
-                entries,
-                reverse,
-            }
-        })
+                .collect(),
+        });
+        Ok(())
     }
     fn refresh(&mut self) -> usize {
         if self.dirty {
             if let Some(live) = &self.live {
                 self.bytes.clear();
+                self.bytes.extend_from_slice(SNAPSHOT);
                 bincode::DefaultOptions::new()
                     .serialize_into(&mut self.bytes, &live.rapier)
                     .expect("physics: snapshot serialization");
@@ -108,7 +117,23 @@ impl Clone for Executor {
         Self(RefCell::new(Saved {
             bytes: s.bytes.clone(),
             entries: s.entries.clone(),
-            ..Saved::default()
+            live: s.live.as_ref().map(|live| Live {
+                rapier: PhysicsWorld {
+                    gravity: live.rapier.gravity,
+                    integration_parameters: live.rapier.integration_parameters,
+                    islands: live.rapier.islands.clone(),
+                    broad_phase: live.rapier.broad_phase.clone(),
+                    narrow_phase: live.rapier.narrow_phase.clone(),
+                    bodies: live.rapier.bodies.clone(),
+                    colliders: live.rapier.colliders.clone(),
+                    impulse_joints: live.rapier.impulse_joints.clone(),
+                    multibody_joints: live.rapier.multibody_joints.clone(),
+                    ..PhysicsWorld::default()
+                },
+                entries: live.entries.clone(),
+                reverse: live.reverse.clone(),
+            }),
+            dirty: false,
         }))
     }
 }
@@ -128,6 +153,7 @@ impl Data for Executor {
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         let mut next = Saved::default();
         next.read(r)?;
+        next.decode()?;
         *self.0.get_mut() = next;
         Ok(())
     }
@@ -135,4 +161,26 @@ impl Data for Executor {
 pub(crate) fn raw(handle: ColliderHandle) -> [u32; 2] {
     let (i, g) = handle.into_raw_parts();
     [i, g]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use exact_game::bin;
+
+    #[test]
+    fn stale_physics_is_refused_during_read() {
+        for bytes in [
+            b"old rapier snapshot".to_vec(),
+            b"EXPHYS\0\x01broken".to_vec(),
+        ] {
+            let saved = Saved {
+                bytes,
+                ..Saved::default()
+            };
+            let result = bin::from_slice::<Executor>(&bin::to_vec(&saved));
+            assert!(result.is_err(), "stale physics accepted by Data::read");
+            assert!(result.unwrap_err().to_string().contains("physics"));
+        }
+    }
 }

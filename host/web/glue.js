@@ -1319,8 +1319,9 @@ function activateData() {
 
 // Boot the app — from the plan baked into the wasm, or from `bytes` (the
 // dev loop's restart carrying compatible state, LLP 1007 §6).
-// Returns the milliseconds from call to first frame in the DOM.
-async function boot(bytes, assets = devAssets, current = () => true, module = null) {
+let mutation = Promise.resolve(); function mutate(work) { const next = mutation.then(work); mutation = next.catch(() => {}); return next; }
+function boot(...args) { return mutate(() => bootNow(...args)); }
+async function bootNow(bytes, assets = devAssets, current = () => true, module = null) {
   const t = performance.now(), request = ++bootAttempt;
   // Decode and load private font faces while the live page keeps running.
   // Carry state only at the synchronous host acceptance point below.
@@ -1358,8 +1359,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   const oldAssets = devAssets;
   devAssets = assets;
   shaderCommit?.();
-  // The candidate is now the live Rust Host. Tear down without yielding;
-  // attach's ownership guard refuses synchronous events from removed nodes.
+  // Tear down without yielding; ownership guards refuse retired views.
   incarnation += 1;
   globalThis.exact.generation = incarnation;
   // A queued surface belongs to the plan that named it. The GPU device may
@@ -1393,7 +1393,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
 // `agent` and `now` exist only in agent mode: a normal page has no agent
 // surface and no clock but the browser's.
 let ready;
-globalThis.exact = {
+globalThis.exact = { mutate,
   // @ref LLP 1038 D8/D11 — synchronous for the serialized popstate caller.
   navigate: (location) => {
     const nav = root.firstElementChild;
