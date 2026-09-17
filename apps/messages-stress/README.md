@@ -70,12 +70,20 @@ keys stay stable across streaming revisions and history sizes.
 - UTF-8 body bytes: a sum of returned message bodies, not heap/RSS, record
   metadata, DOM cost, or decoded images. There are no image attachments.
 
-The source reconstructs its supplied list synchronously on each revision.
+The default source reconstructs its supplied list synchronously on each revision.
 Eager data and UI are O(N); windowing bounds UI lifetime, not record generation
 or key validation after a changed list. There is no worker placement or
 preemption of that synchronous work in this fixture. Typing alone
 only changes the draft and its live echo, not the history resource arguments.
 No FPS, frame deadline or physical presentation result is asserted by this UI.
+
+The data crate also exports opt-in `ReusableMessagesStress` for comparing
+allocation costs. It keeps one latest immutable result and reuses unchanged row
+records: a 10,000-row update changing 32 bodies retains the other 9,968 records.
+It uses the original generator for a temporary 100-row tail page, copies O(N)
+row handles, and still incurs fresh-answer validation and all 10,000 key
+evaluations. All shipped entries and the bake continue to use the stateless
+control. This source has correctness coverage, not a measured host speedup.
 
 Use the existing optional browser diagnostic, once the server is ready:
 
@@ -106,6 +114,12 @@ Virtual-clock assertions are correctness checks, not performance evidence.
 `data/tests/windowed.rs` also covers the actual 10,000-record Contract's
 bounded mounted rows, an active offscreen row retained until release, exact
 typing, reply identity and the preserved eager/manual controls.
+`data/tests/reuse.rs` compares complete canonical values and bytes with the
+stateless source, checks immutable sharing and last-owner release, and runs the
+real Contract through typing, width changes and ticks. The integrated data suite
+has 26 passing tests and one ignored opt-in timing test; strict all-targets
+Clippy passes. The original source produces nine behavioral failures in the
+13-test reuse suite, retained under `target/messages-row-reuse-validation/`.
 
 The final browser drive (`target/messages-windowed-web-final/`) passes five
 endpoint round trips from 10,000 supplied records, exact typing, a streaming

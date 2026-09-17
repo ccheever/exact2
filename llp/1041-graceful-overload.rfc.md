@@ -2391,3 +2391,31 @@ The runtime archive contains80 verified entries/29,048,549 bytes, manifest
 `ce4e93f29b5c1c76d1c5516dfaf8ef7d8b080d2fe9790c7976066c49419ba082`.
 The final build/runtime/report archive has126 entries/92,334,840 bytes, manifest
 `ed06f46dfb571aad55b7aa4b2c7f43ef986ef4a5e14ae1c2946392ae7dc3ac22`.
+
+### 8.30 Immutable Messages row reuse, 2026-09-17
+
+An explicit `ReusableMessagesStress` data source retains one latest immutable
+history result. It preserves the stateless source's complete values and bytes,
+including changed-tail rollback, manual pages, local echo and invalid-input
+refusal. With 10,000 supplied rows and 32 revised bodies, 9,968 record owners are
+reused; unchanged string fields within the 32 replacement records also survive.
+Accepted older results remain immutable, and neither old revisions nor visited
+pages are retained after their last owner releases them.
+
+Same arguments reuse the complete result. Other same-range requests copy an
+O(N) vector of row handles and use the existing generator's temporary 100-row
+tail page for changed content. This is not only 32 temporary allocations or
+O(batch) total settlement. Cold/count/range changes use the original generator.
+The real Contract test still observes 10,000 key evaluations per tick; fresh
+answer validation, reconciliation and layout remain synchronous. Typing and
+width changes issue no history query in either source.
+
+The original source produces 9 behavioral failures and 4 passes in the 13-test
+reuse suite; the candidate passes all 13. Integrated validation runs the complete
+data package: 26 pass, one existing opt-in timing test ignored, strict all-targets
+Clippy pass. Frozen three-file source manifest is
+`0151ac1924345c8189387768caffc2b1b51a295ccb45a5451c42da45a50ec908`,
+with raw RED/GREEN evidence under `target/messages-row-reuse-validation/`.
+All bake, Web and native entry selections remain the stateless control.
+No host activation, measured speedup, worker placement or 120 Hz result follows
+from these allocation and correctness tests.

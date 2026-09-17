@@ -2,6 +2,9 @@
 #![forbid(unsafe_code)]
 
 pub mod model;
+mod reuse;
+
+pub use reuse::ReusableMessagesStress;
 
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource};
