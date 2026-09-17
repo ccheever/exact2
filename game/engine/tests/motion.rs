@@ -1,4 +1,4 @@
-use exact_game::{bin, hash, math, Rng, Spring, SpringConfig, Transform, Vec3, World};
+use exact_game::{bin, hash, math, Now, Rng, Spring, SpringConfig, Transform, Vec3, World};
 
 #[test]
 fn spring_seeks_have_no_sampling_history() {
@@ -11,25 +11,25 @@ fn spring_seeks_have_no_sampling_history() {
             },
             ..Spring::new(3.0)
         };
-        spring.set_target(0, 60, 15.0);
-        let direct = spring.value(120, 60);
+        spring.set_target(Now { tick: 0, hz: 60 }, 15.0);
+        let direct = spring.value(Now { tick: 120, hz: 60 });
         let before = hash::of(&spring);
         let mut last = 0.0;
         for tick in 0..=120 {
-            last = spring.value(tick, 60);
+            last = spring.value(Now { tick, hz: 60 });
         }
         assert_eq!(last.to_bits(), direct.to_bits());
         assert_eq!(hash::of(&spring), before);
-        let old_value = spring.value(60, 60);
-        spring.set_target(60, 60, 20.0);
-        assert!((spring.value(60, 60) - old_value).abs() < 1e-12);
+        let old_value = spring.value(Now { tick: 60, hz: 60 });
+        spring.set_target(Now { tick: 60, hz: 60 }, 20.0);
+        assert!((spring.value(Now { tick: 60, hz: 60 }) - old_value).abs() < 1e-12);
         let loaded: Spring = bin::from_slice(&bin::to_vec(&spring)).unwrap();
         assert_eq!(
-            loaded.value(120, 60).to_bits(),
-            spring.value(120, 60).to_bits()
+            loaded.value(Now { tick: 120, hz: 60 }).to_bits(),
+            spring.value(Now { tick: 120, hz: 60 }).to_bits()
         );
     }
-    assert!(Spring::new(8.0).at_rest(0, 60));
+    assert!(Spring::new(8.0).at_rest(Now { tick: 0, hz: 60 }));
 }
 #[test]
 fn rng_is_reproducible_bounded_and_round_trips() {

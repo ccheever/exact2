@@ -211,6 +211,9 @@ impl<C> Drop for Storage<C> {
 }
 
 pub(crate) trait Erased {
+    fn has(&self, index: usize) -> bool;
+    fn moving(&self, now: crate::Now) -> bool;
+    fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool;
     fn any(&self) -> &dyn Any;
     fn any_mut(&mut self) -> &mut dyn Any;
     fn len(&self) -> usize;
@@ -227,6 +230,32 @@ pub(crate) fn make<C: Component>() -> Box<dyn Erased> {
     Box::new(Storage::<C>::default())
 }
 impl<C: Component> Erased for Storage<C> {
+    fn has(&self, index: usize) -> bool {
+        self.has(index)
+    }
+    fn moving(&self, now: crate::Now) -> bool {
+        let _lease = self.lease(false, 0);
+        self.mask.iter().enumerate().any(|(word, &bits)| {
+            let mut bits = bits;
+            while bits != 0 {
+                let i = word * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                // SAFETY: presence proves initialization; the shared lease excludes writers.
+                if unsafe { &*self.ptr(i) }.moving(now) {
+                    return true;
+                }
+            }
+            false
+        })
+    }
+    fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
+        if let Some(c) = self.get(index) {
+            c.write(w);
+            true
+        } else {
+            false
+        }
+    }
     fn any(&self) -> &dyn Any {
         self
     }

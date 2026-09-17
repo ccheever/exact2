@@ -37,6 +37,10 @@ pub mod json;
 /// struct Unordered { entries: std::collections::HashMap<String, u32> }
 /// ```
 pub trait Data: Sized + Default + 'static {
+    /// Whether any nested spring is still moving. Derives walk non-transient fields.
+    fn moving(&self, _now: crate::Now) -> bool {
+        false
+    }
     /// Write fields in declaration order, omitting transient fields.
     fn write(&self, w: &mut dyn Writer);
     /// Overwrite present fields; missing fields retain their current values.

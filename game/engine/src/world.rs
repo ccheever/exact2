@@ -1,7 +1,7 @@
 use crate::storage::{self, Erased, Storage};
 use crate::{
-    bin, hash, Affine3A, Data, DataError, Pages, Parent, Query, QueryBorrow, Reader, Ref, RefMut,
-    Rng, Value, Writer,
+    bin, hash, Affine3A, Data, DataError, Now, Pages, Parent, Query, QueryBorrow, Reader, Ref,
+    RefMut, Rng, Value, Writer,
 };
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -41,10 +41,15 @@ pub trait Component: Data {
 pub trait Resource: Component {}
 impl<C: Component> Resource for C {}
 
-/// Components supplied to spawn; use a tuple, including a one-element tuple.
+/// One component or a tuple of components supplied to spawn.
 pub trait Bundle {
     /// Insert this bundle into an existing entity.
     fn insert(self, world: &mut World, entity: Entity);
+}
+impl<C: Component> Bundle for C {
+    fn insert(self, w: &mut World, e: Entity) {
+        w.insert(e, self);
+    }
 }
 impl Bundle for () {
     fn insert(self, _: &mut World, _: Entity) {}
@@ -78,6 +83,7 @@ struct State {
     seed: u64,
     slots: Vec<Slot>,
     free: Vec<u32>,
+    busy: Vec<String>,
 }
 #[derive(Clone, Copy)]
 struct Registration {
@@ -86,8 +92,10 @@ struct Registration {
 }
 
 /// One journal event. Reads never generate per-tick samples.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default, Data)]
 pub struct Event {
+    /// Monotonically increasing journal cursor.
+    pub index: u64,
     /// Simulation tick at the event.
     pub tick: u64,
     /// Simulation seconds at the event.
@@ -105,6 +113,8 @@ pub struct World {
     components: BTreeMap<&'static str, Box<dyn Erased>>,
     resources: BTreeMap<&'static str, Box<dyn Erased>>,
     journal: RefCell<VecDeque<Event>>,
+    journal_next: std::cell::Cell<u64>,
+    pub(crate) messages_pending: std::cell::Cell<bool>,
     published: RefCell<BTreeMap<String, Value>>,
     pub(crate) globals: BTreeMap<Entity, Affine3A>,
     pub(crate) previous: BTreeMap<Entity, Affine3A>,
@@ -134,6 +144,8 @@ impl World {
             components: BTreeMap::new(),
             resources: BTreeMap::new(),
             journal: RefCell::new(VecDeque::new()),
+            journal_next: std::cell::Cell::new(0),
+            messages_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),
             globals: BTreeMap::new(),
             previous: BTreeMap::new(),
@@ -417,10 +429,13 @@ impl World {
         if j.len() == 4096 {
             j.pop_front();
         }
+        let index = self.journal_next.get();
+        self.journal_next.set(index + 1);
         j.push_back(Event {
+            index,
             tick: self.tick(),
             seconds: self.seconds(),
-            line: line.to_string(),
+            line: format!("tick={} {line}", self.tick()),
         });
     }
     /// Snapshot journal events; journal reads do not affect simulation state.
@@ -428,20 +443,21 @@ impl World {
         self.journal.borrow().iter().cloned().collect()
     }
     /// Publish to the app and journal only changes to this key.
-    pub fn publish(&self, key: &str, value: Value) {
+    pub fn publish(&self, key: &str, value: impl Into<crate::Published>) {
+        let value = value.into().0;
         let mut p = self.published.borrow_mut();
         if p.get(key) == Some(&value) {
             return;
         }
         self.log(format_args!("publish {key}: {value:?}"));
         p.insert(key.into(), value);
+        self.messages_pending.set(true);
     }
     /// Last value published under a key.
     pub fn published(&self, key: &str) -> Option<Value> {
         self.published.borrow().get(key).cloned()
     }
     // Sim will own clock advancement; keep the primitive private to this crate.
-    #[allow(dead_code)]
     pub(crate) fn step_clock(&mut self) {
         self.state.tick = self
             .state
@@ -600,3 +616,5 @@ impl World {
 
 #[cfg(test)]
 mod tests;
+
+mod inspect;

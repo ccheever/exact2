@@ -35,8 +35,16 @@ pub struct Encoder {
     text: String,
     frames: Vec<Frame>,
     error: Option<DataError>,
+    rounded: bool,
 }
 impl Encoder {
+    /// Round floating-point output to four decimal places, for agent replies only.
+    pub fn rounded() -> Self {
+        Self {
+            rounded: true,
+            ..Self::default()
+        }
+    }
     /// Return JSON, or the first unrepresentable number and its field path.
     pub fn finish(self) -> Result<String, DataError> {
         self.error.map_or(Ok(self.text), Err)
@@ -91,11 +99,21 @@ impl Writer for Encoder {
             Number::Signed(n) => write!(self.text, "{n}").unwrap(),
             Number::F32(n) => {
                 self.finite(n.is_finite());
-                write!(self.text, "{n:?}").unwrap();
+                if self.rounded {
+                    let n = rounded(n as f64);
+                    write!(self.text, "{n}").unwrap();
+                } else {
+                    write!(self.text, "{n:?}").unwrap();
+                }
             }
             Number::F64(n) => {
                 self.finite(n.is_finite());
-                write!(self.text, "{n:?}").unwrap();
+                if self.rounded {
+                    let n = rounded(n);
+                    write!(self.text, "{n}").unwrap();
+                } else {
+                    write!(self.text, "{n:?}").unwrap();
+                }
             }
         }
     }
@@ -443,5 +461,13 @@ impl Reader for Decoder<'_> {
             }
         }
         Ok(())
+    }
+}
+
+fn rounded(n: f64) -> f64 {
+    if n.abs() > f64::MAX / 10000.0 {
+        n
+    } else {
+        (n * 10000.0).round() / 10000.0
     }
 }

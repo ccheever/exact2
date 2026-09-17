@@ -139,14 +139,18 @@ fn expand(input: TokenStream, component: bool) -> Result<String, String> {
             "{name}: Data does not support generics or lifetimes"
         ));
     }
-    let (write, read) = if kind == "struct" {
+    let (write, read, moving) = if kind == "struct" {
         let b = body(tokens.get(2))?;
         let access: Vec<_> = b
             .fields
             .iter()
             .map(|f| format!("self.{}", f.name))
             .collect();
-        (write_body(&b, &access), read_body(&b, &access))
+        (
+            write_body(&b, &access),
+            read_body(&b, &access),
+            moving_body(&b, &access),
+        )
     } else {
         let Some(TokenTree::Group(g)) = tokens.get(2) else {
             return Err(format!("{name}: expected enum body"));
@@ -161,6 +165,7 @@ fn expand(input: TokenStream, component: bool) -> Result<String, String> {
             });
         }
         let mut write = String::from("match self {");
+        let mut moving = String::from("match self {");
         let mut read = String::from("let arm = r.variant()?; match arm.as_str() {");
         for (index, arm) in arms.iter().enumerate() {
             let b = &arm.body;
@@ -173,6 +178,7 @@ fn expand(input: TokenStream, component: bool) -> Result<String, String> {
                 .map(|(v, f)| if f.skip { "_".into() } else { v.clone() })
                 .collect();
             let write_pat = pattern(&arm.name, b, &write_vars);
+            moving += &format!("{write_pat} => {},", moving_body(b, &refs));
             write += &format!(
                 "{write_pat} => {{ w.variant({:?}, {index}); {} w.end_variant(); }},",
                 clean(&arm.name),
@@ -194,9 +200,10 @@ fn expand(input: TokenStream, component: bool) -> Result<String, String> {
         }
         write += "}";
         read += "_ => return Err(::exact_game::DataError::new(format!(\"unknown variant {}\", arm))), } r.end_variant()?;";
-        (write, read)
+        moving += "}";
+        (write, read, moving)
     };
-    let mut out = format!("impl ::exact_game::Data for {name} {{ fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> Result<(), ::exact_game::DataError> {{ {read} Ok(()) }} }}");
+    let mut out = format!("impl ::exact_game::Data for {name} {{ fn moving(&self, now: ::exact_game::Now) -> bool {{ let _ = now; {moving} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> Result<(), ::exact_game::DataError> {{ {read} Ok(()) }} }}");
     if component {
         out += &format!(
             "impl ::exact_game::Component for {name} {{ const NAME: &'static str = {:?}; }}",
@@ -293,4 +300,19 @@ fn read_body(b: &Body, access: &[String]) -> String {
     }
     s += "}";
     s
+}
+
+fn moving_body(b: &Body, access: &[String]) -> String {
+    let parts: Vec<_> = b
+        .fields
+        .iter()
+        .zip(access)
+        .filter(|(f, _)| !f.skip)
+        .map(|(_, a)| format!("::exact_game::Data::moving(&{a}, now)"))
+        .collect();
+    if parts.is_empty() {
+        "false".into()
+    } else {
+        parts.join(" || ")
+    }
 }

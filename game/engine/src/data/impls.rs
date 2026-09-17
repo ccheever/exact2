@@ -69,6 +69,9 @@ impl Data for String {
     }
 }
 impl<T: Data> Data for Vec<T> {
+    fn moving(&self, now: crate::Now) -> bool {
+        self.iter().any(|v| v.moving(now))
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_seq(self.len());
         for v in self {
@@ -89,6 +92,9 @@ impl<T: Data> Data for Vec<T> {
     }
 }
 impl<T: Data> Data for Option<T> {
+    fn moving(&self, now: crate::Now) -> bool {
+        self.as_ref().is_some_and(|v| v.moving(now))
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.option(self.is_some());
         if let Some(v) = self {
@@ -109,6 +115,9 @@ impl<T: Data, const N: usize> Data for [T; N]
 where
     [T; N]: Default,
 {
+    fn moving(&self, now: crate::Now) -> bool {
+        self.iter().any(|v| v.moving(now))
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_seq(N);
         for v in self {
@@ -132,6 +141,9 @@ where
     }
 }
 impl<T: Data> Data for Box<T> {
+    fn moving(&self, now: crate::Now) -> bool {
+        (**self).moving(now)
+    }
     fn write(&self, w: &mut dyn Writer) {
         (**self).write(w);
     }
@@ -140,6 +152,9 @@ impl<T: Data> Data for Box<T> {
     }
 }
 impl<T: Data> Data for BTreeMap<String, T> {
+    fn moving(&self, now: crate::Now) -> bool {
+        self.values().any(|v| v.moving(now))
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
         for (k, v) in self {
@@ -162,6 +177,7 @@ impl<T: Data> Data for BTreeMap<String, T> {
 macro_rules! tuple {
     ($n:expr; $($T:ident:$i:tt),*) => {
         impl<$($T: Data),*> Data for ($($T,)*) {
+            fn moving(&self, now: crate::Now) -> bool { false $(|| self.$i.moving(now))* }
             fn write(&self, w: &mut dyn Writer) {
                 w.begin_seq($n); $(w.item(); self.$i.write(w);)* w.end_seq();
             }

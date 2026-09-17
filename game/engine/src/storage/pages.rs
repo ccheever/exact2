@@ -80,3 +80,41 @@ impl<C: Plain> Page<'_, C> {
         unsafe { std::slice::from_raw_parts(self.slots.cast(), PAGE * std::mem::size_of::<C>()) }
     }
 }
+
+impl<C> Page<'_, C> {
+    /// Present contiguous runs, with absolute first-slot indices. A run never
+    /// crosses an absent slot, so its values need no MaybeUninit or unsafe caller.
+    pub fn runs(&self) -> impl Iterator<Item = (u32, &[C])> {
+        let mut at = 0;
+        std::iter::from_fn(move || {
+            let present = |i: usize| self.mask[i / 64] & (1 << (i % 64)) != 0;
+            while at < PAGE && !present(at) {
+                at += 1;
+            }
+            if at == PAGE {
+                return None;
+            }
+            let start = at;
+            while at < PAGE && present(at) {
+                at += 1;
+            }
+            // SAFETY: every bit in this run is present and the page holds a shared
+            // lease. Unlike bytes(), this works for components with owned fields.
+            Some((self.first + start as u32, unsafe {
+                std::slice::from_raw_parts(self.slots.add(start), at - start)
+            }))
+        })
+    }
+}
+impl Page<'_, Transform> {
+    /// Present runs as ten floats per transform, ready for a renderer's byte copy.
+    pub fn float_runs(&self) -> impl Iterator<Item = (u32, &[f32])> {
+        self.runs().map(|(first, values)| {
+            // SAFETY: Transform's asserted repr(C) layout is ten adjacent f32s;
+            // this run contains initialized values and shares the page lease.
+            (first, unsafe {
+                std::slice::from_raw_parts(values.as_ptr().cast(), values.len() * 10)
+            })
+        })
+    }
+}
