@@ -348,3 +348,53 @@ fn timing_effects_300() {
     );
     fixture::read(&gpu, &texture).unwrap().save("effects-300");
 }
+
+#[test]
+#[ignore = "Beacons camera, 40 m plane and cube; GPU timestamps on a GPU host"]
+fn timing_beacons_shadows() {
+    let Some(mut gpu) = gpu() else {
+        return;
+    };
+    if !gpu
+        .adapter
+        .features()
+        .contains(wgpu::Features::TIMESTAMP_QUERY)
+    {
+        eprintln!("SKIP Beacons GPU timing: TIMESTAMP_QUERY unavailable");
+        return;
+    }
+    (gpu.device, gpu.queue) =
+        exact_gpu::block_on(gpu.adapter.request_device(&wgpu::DeviceDescriptor {
+            required_features: wgpu::Features::TIMESTAMP_QUERY,
+            ..Default::default()
+        }))
+        .unwrap();
+    let (mut r, mut f) = effects::shadow_quality::scene(&gpu);
+    f.camera_position = Vec3::new(0.0, 9.0, 13.0);
+    f.view = view::look_at_mat4(f.camera_position, Vec3::ZERO, Vec3::Y);
+    f.sun.as_mut().unwrap().direction = Vec3::new(-5.0, -10.0, -5.0);
+    let texture = target(&gpu, (1280, 720), wgpu::TextureFormat::Rgba8Unorm);
+    let view = texture.create_view(&Default::default());
+    let queries = Queries::new(&gpu).unwrap();
+    f.timestamps = Some(&queries.set);
+    let mut spans = Vec::new();
+    let mut encodes = Vec::new();
+    for i in 0..300 {
+        let stats = r.draw(
+            &gpu.device,
+            &gpu.queue,
+            &view,
+            texture.format(),
+            (1280, 720),
+            &f,
+        );
+        let ms = queries.read(&gpu)[16];
+        if i >= 60 {
+            spans.push(ms);
+            encodes.push(stats.encode_us / 1000.0);
+        }
+    }
+    spans.sort_by(f64::total_cmp);
+    encodes.sort_by(f64::total_cmp);
+    eprintln!("Beacons 40m plane + cube, 1280x720, shadowed: GPU median {:.4} ms, mean {:.4} ms; CPU encode median {:.4} ms",spans[120],spans.iter().sum::<f64>()/240.0,encodes[120]);
+}

@@ -19,5 +19,8 @@ struct SkyVarying {
         let glow = exp(-angle / (radius * 6.0)) * 0.12;
         color += frame.sun_color_count.xyz * frame.sun_direction_illuminance.w * (disc + glow);
     }
+    if frame.fog_color_density.w > 0.0 {
+        color = height_fog(color, frame.camera_alpha.xyz + direction * 10000.0);
+    }
     return vec4(color, 1.0);
 }

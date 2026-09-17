@@ -127,12 +127,12 @@ impl Targets {
         let color = texture(
             wgpu::TextureFormat::Rgba16Float,
             4,
-            wgpu::TextureUsages::RENDER_ATTACHMENT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TRANSIENT_ATTACHMENT,
         );
         let depth = texture(
             wgpu::TextureFormat::Depth32Float,
             4,
-            wgpu::TextureUsages::RENDER_ATTACHMENT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TRANSIENT_ATTACHMENT,
         );
         let resolved = texture(
             wgpu::TextureFormat::Rgba16Float,

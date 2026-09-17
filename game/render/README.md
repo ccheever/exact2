@@ -37,11 +37,16 @@ Base alpha is reserved; geometry is opaque. Capsule height is tip-to-tip.
   (Y is the sign axis; continuous near vertical, hemisphere seam at the horizon), comparison-sampled 3×3 PCF of radius 1.5 texels.
   The final 10% of each slice cross-fades; the last fades to unshadowed. Casters
   up to one shadow distance towards the sun beyond the slice are included.
-- Shadow bias is **slope scale 3, constant 2 depth units, plus receiver normal
-  offset 0.35 texels × (1 − N·L)**. Back faces are culled. This keeps single-sided
-  casters, unlike front-face culling. Slope scale 1.5 produced visible PCF acne;
-  3 removes it while preserving contact in the fixtures. Bias is tuned for the
-  default softness; very wide custom kernels may need a different bias policy.
+- Receiver bias uses each cascade's **world metres per texel**: normal offset
+  `0.5 × texel × sin(angle to light)`, plus slope-scaled comparison depth bias
+  converted through that cascade's light-space depth scale. Each PCF tap compares
+  against the receiver plane at that tap, so the remaining slope bias covers only
+  the bilinear comparison footprint, independent of PCF radius. A 1e-6 depth floor
+  covers floating-point roundoff; raster depth bias is zero. The nine-tap grid
+  needs no per-pixel rotation after this correction (18 taps during cross-fade).
+  Back faces remain culled: global front-face culling erases open sheets, and the
+  renderer has no closed-mesh classification. The thin-sheet fixture casts.
+  CPU fitting overlaps exactly the preceding slice's final 10%, matching sampling.
 - `FrameInput.bloom = Some(Bloom::default())`: threshold 1, intensity 0.08,
   tent radius 1. A one-sided soft knee starts at the threshold, followed by
   13-tap half-resolution/downsample filters and additive tent upsampling.
@@ -51,10 +56,13 @@ Base alpha is reserved; geometry is opaque. Capsule height is tip-to-tip.
 - `Environment { zenith, horizon, ground, .. }` supplies both the directional sky
   and hemisphere lighting. Sky draws at far depth after geometry. `sun_disc`
   is an angular radius in radians (zero removes disc/glow). Equal sky colours
-  and no disc use the clear directly, with no sky draw or inverse-matrix work.
+  and no disc use the clear directly, with no sky draw or inverse-matrix work,
+  unless an explicit fog colour differs from that clear.
 - `Environment.fog = Some(Fog::default())`: exponential extinction, analytically
   integrated through an exponential Y-height density profile. `color: None`
-  uses the horizon. Density defaults to 0.02/m, height falloff to 0.1/m.
+  uses the horizon. Density defaults to 0.02/m, height falloff to 0.1/m. Geometry
+  and sky share the integral; sky integrates 10 km along the view ray. The height
+  difference remains unclamped so upward rays retain the correct finite extinction.
 
 All pipeline variants compile in `Renderer::new`, including fog-free and
 shadow-free forward entry points and bloom-free tonemapping. Setting an effect
@@ -67,6 +75,9 @@ including shadow/effect enables; it stays unchanged on shrink or within a bucket
 Steady frames allocate no renderer-owned CPU collections, upload a
 1040-byte stack frame uniform (+768 bytes with shadows, +3072 bytes with bloom), and walk only retained
 batches, at most four times. wgpu owns command encoding and staging allocations.
+Both discarded 4× MSAA attachments (RGBA16F colour and Depth32Float) are
+`RENDER_ATTACHMENT | TRANSIENT_ATTACHMENT`, accepted by wgpu 30 / Metal on the
+M5 Max (`transient_saves_memory: true`); wgpu makes this a no-op where unsupported.
 The resolved 4× MSAA HDR image passes through ACES-fitted tonemapping; non-sRGB
 outputs use an explicit sRGB transfer, sRGB outputs the hardware transfer once.
 HDR reads map NaN to zero and clamp to [0, 65472] (the last half-float below 65504).
@@ -355,3 +366,83 @@ The browser proof passes with **zero failures**: setup hash
 `0x70c17d4a69834418`. The half-alpha child fixture was also inspected visually.
 Logs and pictures are under `render/target/`, with the browser transcript in
 `render/target/greybox-proof/`.
+
+
+## R3 shadow and fog proof — 2026-09-17, Apple M5 Max / Metal
+
+`tests/effects/shadow_quality.rs` renders a 40 m matte plane and resting 1 m cube
+at 1280×720, elevations 12/30/55/80°, azimuths 35/145°, from (0,9,13) looking at
+zero and (0,1.5,13) looking horizontally. Each shadowed picture has a paired
+shadow-disabled clean reference. Lit-ground masks exclude the cube, its possible
+shadow and the plane edges; every 5×5 neighbourhood must be fully inside the mask.
+The test also compares lit pixels against the reference so uniformly darkened
+receivers cannot pass the banding check.
+
+Post-tonemap normalized luminance MAD from each pixel's 5×5 mean (ranges over
+both cameras and azimuths):
+
+| Elevation | Before R3 | Clean reference = after R3 |
+|---|---:|---:|
+| 12° | 0.001530–0.001609 | 0.000060–0.000229 |
+| 30° | 0.002206–0.002236 | 0.000013–0.000099 |
+| 55° | 0.002247–0.002294 | 0–0.000065 |
+| 80° | 0.002350–0.002359 | 0–0.000065 |
+
+The fixed bar is **0.001**: all 16 original pictures fail, all 16 corrected pictures
+pass. Maximum clean-relative luminance step across sampled cascade overlap edges
+is **0% after**, versus up to **1.7143% before** (bar 2%). A supplementary translated
+40 m fixture samples the last cascade's 54–62 m fade at two azimuths, including
+110°: MAD **0.000138–0.000881**, identical to clean, with **0%** fade error.
+These larger clean values reflect the compressed BRDF gradient near the horizon.
+
+A 256×8192 readback with the **same projection and cascade fits** resolves contact
+in the grazing camera; a 720p image alone cannot prove 3 cm there. Ground-only
+pixels exclude the cube's MSAA footprint. The conservative contact-gap bounds,
+including half-pixel extent, are **0.665 cm high / 2.407 cm grazing** (bar 3 cm).
+At least four interior pixels per case agree with ambient-only brightness within
+2/255; measured interior/lit ratios **0.2837–0.4609** match the expected ratios.
+The sheet caster, all-cascade reach and subdegree stability fixtures also pass.
+
+Default fog: far object and adjacent horizon sky both **[201,214,217]**.
+Explicit fog colour over a constant sky: both **[206,165,112]**. An upward-ray
+probe checks finite integrated density rather than merely painting the sky solid.
+The saved PNGs were inspected: the high camera shows a smooth ground plane and
+an attached short shadow; the grazing camera shows a smooth plane and long,
+attached shadow with a soft tip. No concentric rings remain. The earlier Beacons
+artifact and original fixture renders visibly contain the fine repeating pattern.
+
+Performance uses three sequential before/after pairs, reversing order for pair 2,
+with saved native binaries, 600 frames per fast-path mode and 60 warm-up + 240
+measured frames for the Beacons camera/40 m plane/cube/sun (-5,-10,-5) diagnostic.
+Medians of the three run summaries, milliseconds:
+
+| Diagnostic | Before | After |
+|---|---:|---:|
+| 200k `Some`, CPU encode | 0.3072 | 0.2848 |
+| 200k `Some`, tick copy/upload | 1.9868 | 1.8620 |
+| 200k `Some`, GPU-completed wall | 2.7664 | 2.6269 |
+| 200k `All`, CPU encode | 0.3027 | 0.2920 |
+| 200k `All`, tick upload | 1.8535 | 1.6740 |
+| 200k `All`, GPU-completed wall | 2.9219 | 2.6513 |
+| Beacons-like shadowed frame, GPU timestamp median | 0.2075 | 0.2160 |
+| Beacons-like shadowed frame, CPU encode median | 0.2795 | 0.3051 |
+
+Observed fast-path medians improve 3.5–9.3% for encode/completed-frame time, inside
+the requested 2% regression bar. The shadowed GPU frame costs **8.5 µs more**;
+the sampling arithmetic changes, but texture comparisons stay at nine per cascade.
+This is a shared machine: individual fast-path runs varied substantially (e.g.
+`Some` completed-frame time 2.45–5.10 ms before), so this is not a precise 2%
+confidence bound or a speedup claim. An earlier after-run overlapping the GPU
+suite was discarded. Local native launches worked; no builder fallback was needed.
+
+Artifacts and logs are in `render/target/r3-before`, `r3-after`, and `r3-*.log`.
+Run the new diagnostics with the README's absolute `EXACT_GPU_OUT` convention;
+`cargo test --release -p exact-game-render --test core timing_ -- --ignored
+--nocapture --test-threads=1` includes the Beacons GPU timestamp fixture.
+The existing Greybox GPU fixture now consumes `published()` for HUD state, matching
+the concurrent core migration; `surface.rs` and the core crates were not edited
+as part of R3.
+
+Final validation: **49 tests passed**, four diagnostics ignored by the ordinary
+run; all three GPU timing diagnostics were run separately. Scoped clippy with
+`-D warnings`, scoped rustfmt, and the staged repository caps check pass.

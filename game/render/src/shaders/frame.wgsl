@@ -30,3 +30,16 @@ fn finite_hdr(c: vec3<f32>) -> vec3<f32> {
     let nan = (bitcast<vec3<u32>>(c) & vec3(0x7fffffffu)) > vec3(0x7f800000u);
     return clamp(select(c, vec3(0.0), nan), vec3(0.0), vec3(65472.0));
 }
+
+// Analytic integral of exponential height density along the eye-to-end segment.
+// Shared by surfaces and sky; the near-horizontal limit avoids cancellation.
+fn height_fog(color: vec3<f32>, end: vec3<f32>) -> vec3<f32> {
+    let falloff = frame.height_bloom.x;
+    let a = clamp(-falloff * frame.camera_alpha.y, -40.0, 40.0);
+    let difference = -falloff * (end.y - frame.camera_alpha.y);
+    let b = clamp(a + difference, -40.0, 40.0);
+    var average = exp(a);
+    if abs(difference) > 0.001 { average = (exp(b) - exp(a)) / difference; }
+    let transmission = exp(-frame.fog_color_density.w * distance(end, frame.camera_alpha.xyz) * average);
+    return mix(frame.fog_color_density.xyz, color, transmission);
+}

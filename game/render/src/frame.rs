@@ -5,7 +5,11 @@ pub(crate) const FLOATS: usize = 260;
 
 pub(crate) fn has_sky(frame: &FrameInput<'_>) -> bool {
     let e = frame.environment;
-    e.zenith != e.horizon || e.ground != e.horizon || (e.sun_disc > 0.0 && frame.sun.is_some())
+    e.zenith != e.horizon
+        || e.ground != e.horizon
+        || (e.sun_disc > 0.0 && frame.sun.is_some())
+        || e.fog
+            .is_some_and(|fog| fog.density > 0.0 && fog.color.is_some_and(|c| c != e.horizon))
 }
 
 pub(crate) fn uniform(

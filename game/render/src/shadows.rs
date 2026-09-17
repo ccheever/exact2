@@ -47,6 +47,7 @@ impl Cascades {
         .transpose();
         let camera_world = frame.view.inverse();
         let mut start = near;
+        let mut prev_start = near;
         for i in 0..count as usize {
             let t = (i + 1) as f32 / count as f32;
             let end = 0.7 * near * (far / near).powf(t) + 0.3 * (near + (far - near) * t);
@@ -55,7 +56,7 @@ impl Cascades {
             let overlap_start = if i == 0 {
                 near
             } else {
-                start - (start - near) * 0.1
+                start - (start - prev_start) * 0.1
             };
             let corners: [Vec3; 8] = std::array::from_fn(|j| {
                 let x = if j & 1 == 0 { -1.0 } else { 1.0 };
@@ -88,6 +89,7 @@ impl Cascades {
                 -c.z + radius,
             );
             result.matrices[i] = projection * light_view;
+            prev_start = start;
             start = end;
         }
         result

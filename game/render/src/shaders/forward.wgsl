@@ -54,16 +54,7 @@ fn shade(input: Varying, visibility: f32) -> vec4<f32> {
         color += brdf(n, v, delta * inverseSqrt(distance2), base, metallic, roughness) * radiance;
     }
     if FOG {
-        let delta = input.world - frame.camera_alpha.xyz;
-        let falloff = frame.height_bloom.x;
-        let a = clamp(-falloff * frame.camera_alpha.y, -40.0, 40.0);
-        let b = clamp(-falloff * input.world.y, -40.0, 40.0);
-        // Analytic integral along the eye-to-surface segment, stable at level views.
-        let difference = b - a;
-        var average = exp(a);
-        if abs(difference) > 0.001 { average = (exp(b) - exp(a)) / difference; }
-        let transmission = exp(-frame.fog_color_density.w * length(delta) * average);
-        color = mix(frame.fog_color_density.xyz, color, transmission);
+        color = height_fog(color, input.world);
     }
     return vec4(color, 1.0);
 }

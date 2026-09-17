@@ -191,15 +191,7 @@ impl Pipelines {
             None,
             &[Some(&scene_layout), Some(&camera_layout)],
             &vertex_layout,
-            depth(
-                true,
-                wgpu::CompareFunction::Less,
-                wgpu::DepthBiasState {
-                    constant: 2,
-                    slope_scale: 3.0,
-                    clamp: 0.0,
-                },
-            ),
+            depth(true, wgpu::CompareFunction::Less, Default::default()),
             1,
             wgpu::TextureFormat::Rgba16Float,
             None,

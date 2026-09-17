@@ -320,3 +320,5 @@ fn sky_gradient_sun_disc_and_height_fog() {
     let high = render(&gpu, &mut r, &texture, &f);
     assert!(at_world(&high, &f, far + Vec3::Y * 20.0).abs_diff(tone(0.02)) <= 3);
 }
+
+pub(super) mod shadow_quality;
