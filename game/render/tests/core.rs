@@ -8,6 +8,7 @@ use glam::{Quat, Vec3};
 mod support;
 use support::*;
 mod effects;
+mod review;
 mod timing;
 
 #[test]
@@ -51,10 +52,14 @@ fn lit_scene_and_output_transfer() {
     .into_iter()
     .enumerate()
     {
-        renderer.write_transforms_both(slot as u32, &transform(p, Quat::IDENTITY, s));
-        renderer.write_materials(slot as u32, &material(color, 0.0));
+        renderer
+            .write_transforms_both(slot as u32, &transform(p, Quat::IDENTITY, s))
+            .unwrap();
+        renderer
+            .write_materials(slot as u32, &material(color, 0.0))
+            .unwrap();
     }
-    renderer.set_batches(&batches, &[0, 1, 2, 3]);
+    renderer.set_batches(&batches, &[0, 1, 2, 3]).unwrap();
     let mut frame = frame();
     frame.camera_position = Vec3::new(5.0, 4.0, 8.0);
     frame.view = view::look_at_mat4(frame.camera_position, Vec3::new(0.0, 0.6, 0.0), Vec3::Y);
@@ -110,7 +115,7 @@ fn lit_scene_and_output_transfer() {
     // An sRGB target must encode exactly once, matching the non-sRGB shader path.
     let srgb_format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let mut srgb = Renderer::new(&gpu.device, &gpu.queue, srgb_format);
-    srgb.set_batches(&[], &[]);
+    srgb.set_batches(&[], &[]).unwrap();
     let background = render(
         &gpu,
         &mut srgb,
@@ -151,24 +156,32 @@ fn interpolation_teleport_untouched_and_growth() {
     let mut renderer = Renderer::new(&gpu.device, &gpu.queue, format);
     let (v, i) = shapes::cube();
     let cube = renderer.add_mesh(&v, &i);
-    renderer.write_transforms_both(
-        7,
-        &transform(Vec3::new(-2.0, 0.0, 0.0), Quat::IDENTITY, Vec3::ONE),
-    );
-    renderer.write_materials(7, &material([0.5; 3], 1.0));
-    renderer.set_batches(
-        &[Batch {
-            mesh: cube,
-            casts_shadows: true,
-            slots: 1..2,
-        }],
-        &[7, 7],
-    );
-    renderer.begin_tick();
-    renderer.write_transforms(
-        7,
-        &transform(Vec3::new(2.0, 0.0, 0.0), Quat::IDENTITY, Vec3::ONE),
-    );
+    renderer
+        .write_transforms_both(
+            7,
+            &transform(Vec3::new(-2.0, 0.0, 0.0), Quat::IDENTITY, Vec3::ONE),
+        )
+        .unwrap();
+    renderer
+        .write_materials(7, &material([0.5; 3], 1.0))
+        .unwrap();
+    renderer
+        .set_batches(
+            &[Batch {
+                mesh: cube,
+                casts_shadows: true,
+                slots: 1..2,
+            }],
+            &[7, 7],
+        )
+        .unwrap();
+    renderer.begin_tick(exact_game_render::Rewrite::Some);
+    renderer
+        .write_transforms(
+            7,
+            &transform(Vec3::new(2.0, 0.0, 0.0), Quat::IDENTITY, Vec3::ONE),
+        )
+        .unwrap();
     let target = target(&gpu, (256, 160), format);
     let mut frame = frame();
     for (alpha, expected, name) in [
@@ -181,55 +194,65 @@ fn interpolation_teleport_untouched_and_growth() {
         pixels.save(name);
         assert!((silhouette(&pixels).0 - expected).abs() < 1.0);
     }
-    renderer.write_transforms_both(7, &transform(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE));
-    renderer.begin_tick();
-    renderer.write_transforms(
-        7,
-        &transform(
-            Vec3::ZERO,
-            Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
-            Vec3::ONE,
-        ),
-    );
+    renderer
+        .write_transforms_both(7, &transform(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE))
+        .unwrap();
+    renderer.begin_tick(exact_game_render::Rewrite::Some);
+    renderer
+        .write_transforms(
+            7,
+            &transform(
+                Vec3::ZERO,
+                Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+                Vec3::ONE,
+            ),
+        )
+        .unwrap();
     frame.alpha = 0.5;
     let rotated = render(&gpu, &mut renderer, &target, &frame);
     rotated.save("rotation-eighth-turn");
     assert!(silhouette(&rotated).1 > 42);
-    renderer.write_transforms_both(
-        7,
-        &transform(
-            Vec3::ZERO,
-            Quat::from_rotation_y(std::f32::consts::FRAC_PI_4),
-            Vec3::ONE,
-        ),
-    );
+    renderer
+        .write_transforms_both(
+            7,
+            &transform(
+                Vec3::ZERO,
+                Quat::from_rotation_y(std::f32::consts::FRAC_PI_4),
+                Vec3::ONE,
+            ),
+        )
+        .unwrap();
     let reference = render(&gpu, &mut renderer, &target, &frame);
     assert_eq!(
         rotated.data, reference.data,
         "nlerp quarter turn midpoint must be an eighth turn"
     );
     // Antipodal quaternion representations denote the same rotation.
-    renderer.begin_tick();
-    renderer.write_transforms(
-        7,
-        &transform(
-            Vec3::ZERO,
-            -Quat::from_rotation_y(std::f32::consts::FRAC_PI_4),
-            Vec3::ONE,
-        ),
-    );
+    renderer.begin_tick(exact_game_render::Rewrite::Some);
+    renderer
+        .write_transforms(
+            7,
+            &transform(
+                Vec3::ZERO,
+                -Quat::from_rotation_y(std::f32::consts::FRAC_PI_4),
+                Vec3::ONE,
+            ),
+        )
+        .unwrap();
     assert_eq!(
         reference.data,
         render(&gpu, &mut renderer, &target, &frame).data
     );
 
-    renderer.write_transforms_both(
-        7,
-        &transform(Vec3::new(1.0, 0.0, 0.0), Quat::IDENTITY, Vec3::ONE),
-    );
+    renderer
+        .write_transforms_both(
+            7,
+            &transform(Vec3::new(1.0, 0.0, 0.0), Quat::IDENTITY, Vec3::ONE),
+        )
+        .unwrap();
     for tick in 0..3 {
         if tick != 0 {
-            renderer.begin_tick();
+            renderer.begin_tick(exact_game_render::Rewrite::Some);
         }
         for alpha in [0.0, 0.5, 1.0] {
             frame.alpha = alpha;
@@ -239,31 +262,37 @@ fn interpolation_teleport_untouched_and_growth() {
         }
     }
     // Grow every storage arena and both geometry arenas, after uploading live data.
-    renderer.write_transforms_both(
-        1_000_000,
-        &transform(Vec3::new(-1.0, 0.0, 0.0), Quat::IDENTITY, Vec3::ONE),
-    );
-    renderer.write_materials(1_000_000, &material([0.5; 3], 1.0));
+    renderer
+        .write_transforms_both(
+            1_000_000,
+            &transform(Vec3::new(-1.0, 0.0, 0.0), Quat::IDENTITY, Vec3::ONE),
+        )
+        .unwrap();
+    renderer
+        .write_materials(1_000_000, &material([0.5; 3], 1.0))
+        .unwrap();
     let (v, i) = shapes::sphere(64);
     let sphere = renderer.add_mesh(&v, &i);
     let mut slots = vec![7; 100];
     slots[99] = 1_000_000;
-    renderer.set_batches(
-        &[
-            Batch {
-                mesh: cube,
-                casts_shadows: true,
-                slots: 0..1,
-            },
-            Batch {
-                mesh: sphere,
-                casts_shadows: true,
-                slots: 99..100,
-            },
-        ],
-        &slots,
-    );
-    renderer.begin_tick();
+    renderer
+        .set_batches(
+            &[
+                Batch {
+                    mesh: cube,
+                    casts_shadows: true,
+                    slots: 0..1,
+                },
+                Batch {
+                    mesh: sphere,
+                    casts_shadows: true,
+                    slots: 99..100,
+                },
+            ],
+            &slots,
+        )
+        .unwrap();
+    renderer.begin_tick(exact_game_render::Rewrite::Some);
     for alpha in [0.0, 0.5, 1.0] {
         frame.alpha = alpha;
         let pixels = render(&gpu, &mut renderer, &target, &frame);
@@ -301,16 +330,22 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
     });
     let source = renderer.add_mesh(&vertices, &[0, 1, 2]);
     let reference = renderer.add_mesh(&baked, &[0, 1, 2]);
-    renderer.write_materials(0, &material([0.6; 3], 0.0));
-    renderer.write_transforms_both(0, &transform(Vec3::ZERO, rotation, scale));
-    renderer.set_batches(
-        &[Batch {
-            mesh: source,
-            casts_shadows: true,
-            slots: 0..1,
-        }],
-        &[0],
-    );
+    renderer
+        .write_materials(0, &material([0.6; 3], 0.0))
+        .unwrap();
+    renderer
+        .write_transforms_both(0, &transform(Vec3::ZERO, rotation, scale))
+        .unwrap();
+    renderer
+        .set_batches(
+            &[Batch {
+                mesh: source,
+                casts_shadows: true,
+                slots: 0..1,
+            }],
+            &[0],
+        )
+        .unwrap();
     let mut frame = frame();
     frame.environment = Environment {
         zenith: [0.3, 0.4, 0.5],
@@ -328,15 +363,19 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
     });
     let target = target(&gpu, (256, 160), format);
     let actual = render(&gpu, &mut renderer, &target, &frame);
-    renderer.write_transforms_both(0, &transform(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE));
-    renderer.set_batches(
-        &[Batch {
-            mesh: reference,
-            casts_shadows: true,
-            slots: 0..1,
-        }],
-        &[0],
-    );
+    renderer
+        .write_transforms_both(0, &transform(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE))
+        .unwrap();
+    renderer
+        .set_batches(
+            &[Batch {
+                mesh: reference,
+                casts_shadows: true,
+                slots: 0..1,
+            }],
+            &[0],
+        )
+        .unwrap();
     let expected = render(&gpu, &mut renderer, &target, &frame);
     assert!(actual.at(128, 80)[0] > 150);
     let mean_error = actual

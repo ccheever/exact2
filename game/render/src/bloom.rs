@@ -5,6 +5,7 @@ pub(crate) struct BloomTargets {
     pub levels: Vec<wgpu::TextureView>,
     pub binds: Vec<wgpu::BindGroup>,
     source: wgpu::BindGroup,
+    sampling: wgpu::Buffer,
 }
 
 impl BloomTargets {
@@ -23,11 +24,25 @@ impl BloomTargets {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let sampling = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("game bloom logical sizes"),
+            size: 12 * 256,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let bind = |view: &wgpu::TextureView| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("game bloom source"),
                 layout: &pipelines.bloom_layout,
                 entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &sampling,
+                            offset: 0,
+                            size: std::num::NonZeroU64::new(16),
+                        }),
+                    },
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: uniform.as_entire_binding(),
@@ -67,26 +82,48 @@ impl BloomTargets {
                 .create_view(&Default::default());
             binds.push(bind(&view));
             levels.push(view);
-            if levels.len() == 6 || width / 2 < 8 || height / 2 < 8 {
+            if levels.len() == 6 {
                 break;
             }
-            width /= 2;
-            height /= 2;
+            width = (width / 2).max(1);
+            height = (height / 2).max(1);
         }
         Self {
             levels,
             binds,
             source,
+            sampling,
         }
     }
 
     pub fn encode(
         &self,
+        queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         pipelines: &Pipelines,
         timestamps: Option<&wgpu::QuerySet>,
+        size: (u32, u32),
     ) -> u32 {
-        for i in 0..self.levels.len() {
+        let mut sizes = [(1, 1); 6];
+        let mut source = size;
+        let mut count = 0;
+        let mut data = [0.0_f32; 12 * 64];
+        for (i, dest) in sizes.iter_mut().enumerate() {
+            data[i * 64] = source.0 as f32;
+            data[i * 64 + 1] = source.1 as f32;
+            *dest = ((source.0 / 2).max(1), (source.1 / 2).max(1));
+            source = *dest;
+            count += 1;
+            if source.0 / 2 < 8 || source.1 / 2 < 8 {
+                break;
+            }
+        }
+        for i in 0..count - 1 {
+            data[(6 + i) * 64] = sizes[i + 1].0 as f32;
+            data[(6 + i) * 64 + 1] = sizes[i + 1].1 as f32;
+        }
+        queue.write_buffer(&self.sampling, 0, crate::buffers::bytes(&data));
+        for (i, &size) in sizes.iter().enumerate().take(count) {
             let bind = if i == 0 {
                 &self.source
             } else {
@@ -100,9 +137,11 @@ impl BloomTargets {
                 false,
                 timestamps,
                 4 + i as u32,
+                size,
+                i as u32 * 256,
             );
         }
-        for i in (0..self.levels.len() - 1).rev() {
+        for i in (0..count - 1).rev() {
             self.pass(
                 encoder,
                 &pipelines.bloom[2],
@@ -111,9 +150,11 @@ impl BloomTargets {
                 true,
                 timestamps,
                 10 + i as u32,
+                sizes[i],
+                (6 + i as u32) * 256,
             );
         }
-        (self.levels.len() * 2 - 1) as u32
+        (count * 2 - 1) as u32
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -126,6 +167,8 @@ impl BloomTargets {
         add: bool,
         timestamps: Option<&wgpu::QuerySet>,
         slot: u32,
+        size: (u32, u32),
+        offset: u32,
     ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(if add {
@@ -151,8 +194,9 @@ impl BloomTargets {
             occlusion_query_set: None,
             multiview_mask: None,
         });
+        crate::renderer::viewport(&mut pass, size);
         pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, bind, &[]);
+        pass.set_bind_group(0, bind, &[offset]);
         pass.draw(0..3, 0..1);
     }
 }

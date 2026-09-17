@@ -23,6 +23,37 @@ pub use renderer::Renderer;
 use std::ops::Range;
 pub use timing::{GPU_PASS_COUNT, GPU_PASS_NAMES};
 
+/// Which transform slots the caller will rewrite after advancing history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rewrite {
+    /// Rewrite every live slot before drawing; swap buffers without copying.
+    All,
+    /// Rewrite a subset; copy history so untouched slots stay still.
+    Some,
+}
+
+/// A refused arena capacity request. `limit` is an exclusive slot count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderError {
+    /// Arena whose requested slot exceeds capacity.
+    pub arena: &'static str,
+    /// Highest zero-based slot requested.
+    pub slot: u64,
+    /// Maximum supported slot count (valid slots are below this value).
+    pub limit: u64,
+}
+
+impl std::fmt::Display for RenderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} arena: slot {} exceeds limit {}",
+            self.arena, self.slot, self.limit
+        )
+    }
+}
+impl std::error::Error for RenderError {}
+
 /// A mesh in one renderer's append-only arena.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MeshId(pub(crate) usize);
@@ -245,6 +276,8 @@ pub struct Stats {
     pub triangles: u64,
     /// CPU upload/encoding/submission time in microseconds; zero on wasm32.
     pub encode_us: f64,
+    /// Cumulative attachment textures created by this renderer, including bloom/shadows.
+    pub texture_creations: u64,
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

@@ -1,6 +1,6 @@
 use crate::{FrameInput, Shadows};
 use exact_gpu::wgpu;
-use glam::camera::rh::{proj::directx, view};
+use glam::camera::rh::proj::directx;
 use glam::{Mat4, Vec3};
 
 pub(crate) const RESOLUTION: u32 = 2048;
@@ -29,12 +29,22 @@ impl Cascades {
             count,
         };
         let light = frame.sun.unwrap().direction.normalize();
-        let up = if light.dot(Vec3::Y).abs() > 0.99 {
-            Vec3::Z
-        } else {
-            Vec3::Y
-        };
-        let light_view = view::look_at_mat4(Vec3::ZERO, light, up);
+        // Duff et al., JCGT 2017, listing 3. Permute Y to the sign axis so
+        // the hemisphere seam is at the horizon, away from a vertical sun.
+        // https://graphics.pixar.com/library/OrthonormalB/paper.pdf
+        let n = Vec3::new(-light.z, -light.x, -light.y);
+        let sign = 1.0_f32.copysign(n.z);
+        let a = -1.0 / (sign + n.z);
+        let b = n.x * n.y * a;
+        let x = Vec3::new(sign * b, -sign * n.x, 1.0 + sign * n.x * n.x * a);
+        let y = Vec3::new(sign + n.y * n.y * a, -n.y, b);
+        let light_view = Mat4::from_cols(
+            x.extend(0.0),
+            y.extend(0.0),
+            (-light).extend(0.0),
+            glam::Vec4::W,
+        )
+        .transpose();
         let camera_world = frame.view.inverse();
         let mut start = near;
         for i in 0..count as usize {

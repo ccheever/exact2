@@ -14,14 +14,17 @@ fn shadow_scene(gpu: &Gpu, depth: f32) -> (Renderer, FrameInput<'static>, Vec<Ba
             Quat::IDENTITY,
             Vec3::splat(200.0),
         ),
-    );
+    )
+    .unwrap();
     r.write_transforms_both(
         1,
         &transform(Vec3::new(0.0, 0.5, -depth), Quat::IDENTITY, Vec3::ONE),
-    );
-    r.write_materials(0, &material([0.5; 3], 0.0).repeat(2));
+    )
+    .unwrap();
+    r.write_materials(0, &material([0.5; 3], 0.0).repeat(2))
+        .unwrap();
     let batches = vec![Batch::new(plane, 0..1), Batch::new(cube, 1..2)];
-    r.set_batches(&batches, &[0, 1]);
+    r.set_batches(&batches, &[0, 1]).unwrap();
     let mut f = frame();
     // With near=2 the practical splits are 10.75, 25.72, 60 m: 5/25/55
     // exercise distinct cascades (25 m lies in the second/third overlap).
@@ -106,23 +109,25 @@ fn sun_shadow_ratio_acne_and_subdegree_stability() {
     eprintln!("world shadow edge {before:.4} -> {after:.4}, lit variance {variance:.4}");
     assert!((before - after).abs() <= 0.018, "shadow swims");
     batches[1].casts_shadows = false;
-    r.set_batches(&batches, &[0, 1]);
+    r.set_batches(&batches, &[0, 1]).unwrap();
     let disabled = render(&gpu, &mut r, &texture, &f);
     assert!(at_world(&disabled, &f, probe) > dark + 60);
     // Moving casters must use the very same prev/current interpolation as forward.
     batches[1].casts_shadows = true;
-    r.set_batches(&batches, &[0, 1]);
-    r.begin_tick();
+    r.set_batches(&batches, &[0, 1]).unwrap();
+    r.begin_tick(exact_game_render::Rewrite::Some);
     r.write_transforms(
         1,
         &transform(Vec3::new(2.0, 0.5, -5.0), Quat::IDENTITY, Vec3::ONE),
-    );
+    )
+    .unwrap();
     f.alpha = 0.5;
     let interpolated = render(&gpu, &mut r, &texture, &f);
     r.write_transforms_both(
         1,
         &transform(Vec3::new(1.0, 0.5, -5.0), Quat::IDENTITY, Vec3::ONE),
-    );
+    )
+    .unwrap();
     assert_eq!(interpolated.data, render(&gpu, &mut r, &texture, &f).data);
 }
 
@@ -137,7 +142,8 @@ fn all_cascades_and_shadow_distance() {
         r.write_transforms_both(
             1,
             &transform(Vec3::new(0.0, 0.5, -depth), Quat::IDENTITY, Vec3::ONE),
-        );
+        )
+        .unwrap();
         f.sun.as_mut().unwrap().shadows = Some(Shadows::default());
         let shadow = render(&gpu, &mut r, &texture, &f);
         shadow.save(&format!("shadow-depth-{depth}"));
@@ -183,9 +189,10 @@ fn bloom_spreads_light_and_leaves_subthreshold_identical() {
     let mut r = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
     let (v, i) = shapes::sphere(48);
     let sphere = r.add_mesh(&v, &i);
-    r.write_transforms_both(0, &transform(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE));
-    r.write_materials(0, &material([0.0; 3], 20.0));
-    r.set_batches(&[Batch::new(sphere, 0..1)], &[0]);
+    r.write_transforms_both(0, &transform(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE))
+        .unwrap();
+    r.write_materials(0, &material([0.0; 3], 20.0)).unwrap();
+    r.set_batches(&[Batch::new(sphere, 0..1)], &[0]).unwrap();
     let texture = target(&gpu, (512, 320), wgpu::TextureFormat::Rgba8Unorm);
     let mut f = frame();
     let off = render(&gpu, &mut r, &texture, &f);
@@ -199,7 +206,7 @@ fn bloom_spreads_light_and_leaves_subthreshold_identical() {
     eprintln!("bloom: {outside} pixels outside silhouette exceed 5/255");
     assert!(outside > 1000);
     assert!(on.at(298, 160)[0] > 10 && off.at(298, 160)[0] == 0);
-    r.write_materials(0, &material([0.0; 3], 0.95));
+    r.write_materials(0, &material([0.0; 3], 0.95)).unwrap();
     let low_on = render(&gpu, &mut r, &texture, &f);
     f.bloom = None;
     let low_off = render(&gpu, &mut r, &texture, &f);
@@ -209,7 +216,7 @@ fn bloom_spreads_light_and_leaves_subthreshold_identical() {
         .zip(&low_off.data)
         .all(|(a, b)| a.abs_diff(*b) <= 1));
     assert_eq!(off.data, {
-        r.write_materials(0, &material([0.0; 3], 20.0));
+        r.write_materials(0, &material([0.0; 3], 20.0)).unwrap();
         render(&gpu, &mut r, &texture, &f).data
     });
     f.bloom = Some(Bloom::default());
@@ -259,11 +266,13 @@ fn sky_gradient_sun_disc_and_height_fog() {
     assert!(disc.at(256, 256)[0] > sky.at(256, 256)[0] + 20);
     let (v, i) = shapes::cube();
     let cube = r.add_mesh(&v, &i);
-    r.write_materials(0, &material([0.0; 3], 0.02).repeat(2));
+    r.write_materials(0, &material([0.0; 3], 0.02).repeat(2))
+        .unwrap();
     r.write_transforms_both(
         0,
         &transform(Vec3::new(-0.8, 0.0, -2.0), Quat::IDENTITY, Vec3::ONE * 0.6),
-    );
+    )
+    .unwrap();
     r.write_transforms_both(
         1,
         &transform(
@@ -271,8 +280,9 @@ fn sky_gradient_sun_disc_and_height_fog() {
             Quat::IDENTITY,
             Vec3::ONE * 10.0,
         ),
-    );
-    r.set_batches(&[Batch::new(cube, 0..2)], &[0, 1]);
+    )
+    .unwrap();
+    r.set_batches(&[Batch::new(cube, 0..2)], &[0, 1]).unwrap();
     f.proj = directx::perspective(70f32.to_radians(), 1.0, 0.1, 100.0);
     f.sun = None;
     f.environment.sun_disc = 0.0;
@@ -296,7 +306,8 @@ fn sky_gradient_sun_disc_and_height_fog() {
     r.write_transforms_both(
         0,
         &transform(Vec3::new(-0.8, 20.0, -2.0), Quat::IDENTITY, Vec3::ONE * 0.6),
-    );
+    )
+    .unwrap();
     r.write_transforms_both(
         1,
         &transform(
@@ -304,7 +315,8 @@ fn sky_gradient_sun_disc_and_height_fog() {
             Quat::IDENTITY,
             Vec3::ONE * 10.0,
         ),
-    );
+    )
+    .unwrap();
     let high = render(&gpu, &mut r, &texture, &f);
     assert!(at_world(&high, &f, far + Vec3::Y * 20.0).abs_diff(tone(0.02)) <= 3);
 }

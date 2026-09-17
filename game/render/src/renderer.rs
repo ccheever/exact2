@@ -6,7 +6,7 @@ use crate::{
     shadows::{Cascades, ShadowMaps},
     timing,
 };
-use crate::{Batch, FrameInput, MeshId, Stats, Vertex};
+use crate::{Batch, FrameInput, MeshId, RenderError, Rewrite, Stats, Vertex};
 use exact_gpu::wgpu;
 use glam::Vec3;
 use std::ops::Range;
@@ -39,6 +39,7 @@ pub struct Renderer {
     counts: Stats,
     shadows: Option<ShadowMaps>,
     bloom: Option<BloomTargets>,
+    texture_creations: u64,
 }
 
 impl Renderer {
@@ -82,7 +83,7 @@ impl Renderer {
             &materials,
             &slots,
         );
-        let targets = Targets::new(device, (1, 1), &pipelines.tone_layout, &uniform);
+        let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
         Self {
             device: device.clone(),
             queue: queue.clone(),
@@ -101,6 +102,7 @@ impl Renderer {
             targets,
             shadows: None,
             bloom: None,
+            texture_creations: 3,
             counts: Stats {
                 draws: 1,
                 triangles: 1,
@@ -109,14 +111,14 @@ impl Renderer {
         }
     }
 
-    /// Advance history, then copy the previous tick into the new current buffer.
-    /// Untouched slots therefore stay still. One GPU copy of the written high-water
-    /// range, submitted before subsequent write calls for this tick.
-    pub fn begin_tick(&mut self) {
+    /// Advance history. `Some` copies the written high-water range before later
+    /// writes, preserving untouched slots. `All` only swaps roles: the caller must
+    /// rewrite every live slot before drawing (including sparse holes it lists).
+    pub fn begin_tick(&mut self, rewrite: Rewrite) {
         let previous = self.current;
         self.current = 1 - self.current;
         let size = self.transforms[previous].live;
-        if size != 0 {
+        if size != 0 && rewrite == Rewrite::Some {
             let mut encoder = self.device.create_command_encoder(&Default::default());
             encoder.copy_buffer_to_buffer(
                 &self.transforms[previous].raw,
@@ -131,50 +133,65 @@ impl Renderer {
     }
 
     /// Upload one contiguous run (ten floats per slot) into the current tick.
-    /// Exactly one queue write for a nonempty run. Panics on incomplete records
-    /// or a range larger than the device's storage binding limit.
-    pub fn write_transforms(&mut self, first_slot: u32, values: &[f32]) {
+    /// Scale is positive; stray negative components draw as their absolute values.
+    /// Mirroring belongs to a future double-sided material, not the scale sign.
+    /// Exactly one queue write for a nonempty run. Panics on incomplete records;
+    /// capacity refusals return the arena, requested slot and exclusive limit.
+    pub fn write_transforms(&mut self, first_slot: u32, values: &[f32]) -> Result<(), RenderError> {
         let end = record_end(first_slot, values.len(), 10);
         if values.is_empty() {
-            return;
+            return Ok(());
         }
+        self.check_capacity("transforms", end)?;
         self.ensure_slots(end);
         self.transforms[self.current].write(&self.queue, u64::from(first_slot) * 40, bytes(values));
+        Ok(())
     }
 
     /// Initialize or teleport a run: write the same transforms into both ticks.
-    pub fn write_transforms_both(&mut self, first_slot: u32, values: &[f32]) {
+    /// Uses the positive-scale contract and capacity errors of [`Self::write_transforms`].
+    pub fn write_transforms_both(
+        &mut self,
+        first_slot: u32,
+        values: &[f32],
+    ) -> Result<(), RenderError> {
         let end = record_end(first_slot, values.len(), 10);
         if values.is_empty() {
-            return;
+            return Ok(());
         }
+        self.check_capacity("transforms", end)?;
         self.ensure_slots(end);
         for buffer in &mut self.transforms {
             buffer.write(&self.queue, u64::from(first_slot) * 40, bytes(values));
         }
+        Ok(())
     }
 
     /// Upload contiguous material records (twelve floats per slot), one queue write.
     /// Base alpha and the final three floats are reserved; all geometry is opaque.
-    pub fn write_materials(&mut self, first_slot: u32, values: &[f32]) {
+    /// Capacity refusals return the arena, requested slot and exclusive limit.
+    pub fn write_materials(&mut self, first_slot: u32, values: &[f32]) -> Result<(), RenderError> {
         let end = record_end(first_slot, values.len(), 12);
         if values.is_empty() {
-            return;
+            return Ok(());
         }
+        self.check_capacity("materials", end)?;
         self.ensure_slots(end);
         self.materials
             .write(&self.queue, u64::from(first_slot) * 48, bytes(values));
+        Ok(())
     }
 
     /// Replace the persistent draw list. It may be any visible subset of slots:
     /// future culling only needs to replace this list, not the transform arenas.
     /// Panics on invalid mesh IDs/ranges or slots beyond the written high-water
     /// marks. The caller initializes every referenced slot; sparse holes are not
-    /// tracked on the CPU.
-    pub fn set_batches(&mut self, batches: &[Batch], slot_list: &[u32]) {
-        assert!(slot_list.len() <= u32::MAX as usize);
+    /// tracked on the CPU. Capacity refusals return an error before changing the list.
+    pub fn set_batches(&mut self, batches: &[Batch], slot_list: &[u32]) -> Result<(), RenderError> {
+        self.check_capacity("slots", slot_list.len() as u64)?;
         for &slot in slot_list {
             let end = u64::from(slot) + 1;
+            self.check_capacity("transforms", end)?;
             assert!(
                 self.transforms.iter().all(|buffer| end * 40 <= buffer.live)
                     && end * 48 <= self.materials.live,
@@ -209,6 +226,7 @@ impl Renderer {
         self.batches.clear();
         self.batches.extend_from_slice(batches);
         self.counts = counts;
+        Ok(())
     }
 
     /// Append a triangle mesh to the shared vertex/index arenas. Indices are local
@@ -257,8 +275,9 @@ impl Renderer {
     }
 
     /// Upload fixed-size frame data and submit the enabled passes.
-    /// Zero dimensions become one. Attachments change on resize or effect toggles; this method
-    /// allocates no CPU collections in steady state (wgpu manages its own encoding).
+    /// Zero dimensions become one. Attachments grow in 64-pixel buckets or change
+    /// on effect toggles. No CPU collections are allocated in steady state
+    /// (wgpu manages its own encoding).
     /// Panics if `format` differs from the construction format.
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
@@ -277,9 +296,16 @@ impl Renderer {
             "output format is fixed at Renderer::new"
         );
         let size = (size_px.0.max(1), size_px.1.max(1));
-        if self.targets.size != size {
+        if size.0 > self.targets.size.0 || size.1 > self.targets.size.1 {
+            let bucket = |n: u32| n.div_ceil(64) * 64;
+            let capacity = (
+                bucket(size.0).max(self.targets.size.0),
+                bucket(size.1).max(self.targets.size.1),
+            );
             self.bloom = None;
-            self.targets = Targets::new(device, size, &self.pipelines.tone_layout, &self.uniform);
+            self.targets =
+                Targets::new(device, capacity, &self.pipelines.tone_layout, &self.uniform);
+            self.texture_creations += 3;
         }
         let cascades = frame
             .sun
@@ -287,6 +313,7 @@ impl Renderer {
             .map(|s| Cascades::new(frame, s));
         if let Some(c) = &cascades {
             if self.shadows.as_ref().is_none_or(|s| s.count != c.count) {
+                self.texture_creations += 1;
                 self.shadows = Some(ShadowMaps::new(
                     device,
                     c.count,
@@ -302,11 +329,12 @@ impl Renderer {
             if self.bloom.is_none() {
                 self.bloom = Some(BloomTargets::new(
                     device,
-                    size,
+                    self.targets.size,
                     &self.pipelines,
                     &self.uniform,
                     &self.targets.resolved,
                 ));
+                self.texture_creations += 6;
             }
         } else {
             self.bloom = None;
@@ -314,7 +342,7 @@ impl Renderer {
         queue.write_buffer(
             &self.uniform,
             0,
-            bytes(&frame::uniform(frame, cascades.as_ref())),
+            bytes(&frame::uniform(frame, cascades.as_ref(), size)),
         );
         let mut encoder = device.create_command_encoder(&Default::default());
         let mut extra_draws = 0;
@@ -380,6 +408,7 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            viewport(&mut pass, size);
             let variant = usize::from(self.shadows.is_some())
                 + 2 * usize::from(frame.environment.fog.is_some());
             pass.set_pipeline(&self.pipelines.forward[variant]);
@@ -403,7 +432,8 @@ impl Renderer {
             }
         }
         if let Some(bloom) = &self.bloom {
-            extra_draws += bloom.encode(&mut encoder, &self.pipelines, frame.timestamps);
+            extra_draws +=
+                bloom.encode(queue, &mut encoder, &self.pipelines, frame.timestamps, size);
         }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -422,9 +452,10 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            viewport(&mut pass, size);
             pass.set_pipeline(&self.pipelines.tone[usize::from(self.bloom.is_some())]);
             if let Some(bloom) = &self.bloom {
-                pass.set_bind_group(1, &bloom.binds[0], &[]);
+                pass.set_bind_group(1, &bloom.binds[0], &[0]);
             }
             pass.set_bind_group(0, &self.targets.tone_bind, &[]);
             pass.draw(0..3, 0..1);
@@ -432,6 +463,7 @@ impl Renderer {
         queue.submit([encoder.finish()]);
         let mut stats = self.counts;
         stats.draws += extra_draws;
+        stats.texture_creations = self.texture_creations;
         #[cfg(not(target_arch = "wasm32"))]
         {
             stats.encode_us = start.elapsed().as_secs_f64() * 1_000_000.0;
@@ -441,6 +473,31 @@ impl Renderer {
             stats.encode_us = 0.0;
         }
         stats
+    }
+
+    /// Maximum slot count under the device's granted adapter limits and the widest
+    /// arena (48-byte materials). Valid slot indices are strictly below this count.
+    pub fn max_slots(&self) -> u32 {
+        (self
+            .device
+            .limits()
+            .max_storage_buffer_binding_size
+            .min(self.device.limits().max_buffer_size)
+            / 48)
+            .min(u64::from(u32::MAX)) as u32
+    }
+
+    fn check_capacity(&self, arena: &'static str, end: u64) -> Result<(), RenderError> {
+        let limit = u64::from(self.max_slots());
+        if end > limit {
+            Err(RenderError {
+                arena,
+                slot: end - 1,
+                limit,
+            })
+        } else {
+            Ok(())
+        }
     }
 
     fn ensure_slots(&mut self, end: u64) {
@@ -466,9 +523,7 @@ impl Renderer {
 
 fn record_end(first: u32, len: usize, stride: usize) -> u64 {
     assert!(len.is_multiple_of(stride), "incomplete slot record");
-    let end = u64::from(first) + (len / stride) as u64;
-    assert!(end <= u64::from(u32::MAX) + 1, "slot range overflow");
-    end
+    u64::from(first) + (len / stride) as u64
 }
 
 fn scene_binds(
@@ -497,4 +552,9 @@ fn scene_binds(
             entries: &entries,
         })
     })
+}
+
+pub(crate) fn viewport(pass: &mut wgpu::RenderPass<'_>, size: (u32, u32)) {
+    pass.set_viewport(0.0, 0.0, size.0 as f32, size.1 as f32, 0.0, 1.0);
+    pass.set_scissor_rect(0, 0, size.0, size.1);
 }

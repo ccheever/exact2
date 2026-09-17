@@ -116,6 +116,16 @@ impl Pipelines {
             "game bloom",
             &[
                 uniform,
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: std::num::NonZeroU64::new(16),
+                    },
+                    count: None,
+                },
                 texture(
                     1,
                     wgpu::TextureSampleType::Float { filterable: true },

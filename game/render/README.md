@@ -6,9 +6,22 @@ work in `draw`. Dependencies remain `exact-gpu` and `glam`.
 Create `Renderer::new(device, queue, target_format)`, add meshes, initialize
 transforms with `write_transforms_both` and materials with `write_materials`, then
 call `set_batches`. `Batch::new(mesh, slots)` casts shadows by default. Each tick
-calls `begin_tick` followed by contiguous transform writes. The GPU interpolates
+calls `begin_tick(Rewrite::Some)` followed by contiguous transform writes: history
+is copied GPU-side so untouched slots stay still. `begin_tick(Rewrite::All)` swaps
+roles without copying; the caller promises to rewrite every live slot before draw. The GPU interpolates
 the two ticks; forward and shadow vertices share `shaders/transform.wgsl`.
 The caller initializes every listed slot, including holes in sparse uploads.
+Quaternions should be unit length; a zero quaternion draws as identity.
+**Scale is positive.** Stray negative components use their absolute values in both
+position and normal transforms, before interpolation. Mirrored instances return
+as a double-sided material, not as a sign.
+
+`max_slots()` is the exclusive slot limit from the device's granted adapter storage
+binding limit and the widest arena (48-byte materials), capped by max buffer size.
+`write_transforms`, `write_transforms_both`, `write_materials`, and `set_batches`
+return `Result<(), RenderError>` with arena, requested slot and limit on capacity
+refusal, before changing state. Incomplete records and invalid meshes/draw ranges
+remain caller errors.
 
 `FrameInput::default()` gives a shadowed sun, a gradient sky, hemisphere ambient
 light and bloom. Supply matching view/projection/camera-position values. Matrices
@@ -18,7 +31,8 @@ Base alpha is reserved; geometry is opaque. Capsule height is tip-to-tip.
 
 - `Sun.shadows = Some(Shadows::default())`: 60 m reach, three 2048² Depth32Float
   layers, practical splits (lambda 0.7), rotation-invariant frustum spheres,
-  light-space texel snapping, comparison-sampled 3×3 PCF of radius 1.5 texels.
+  light-space texel snapping in a [Duff basis](https://graphics.pixar.com/library/OrthonormalB/paper.pdf)
+  (Y is the sign axis; continuous near vertical, hemisphere seam at the horizon), comparison-sampled 3×3 PCF of radius 1.5 texels.
   The final 10% of each slice cross-fades; the last fades to unshadowed. Casters
   up to one shadow distance towards the sun beyond the slice are included.
 - Shadow bias is **slope scale 3, constant 2 depth units, plus receiver normal
@@ -43,17 +57,25 @@ Base alpha is reserved; geometry is opaque. Capsule height is tip-to-tip.
 All pipeline variants compile in `Renderer::new`, including fog-free and
 shadow-free forward entry points and bloom-free tonemapping. Setting an effect
 to None skips its passes and releases its textures/bindings; no dummy effect
-textures are retained. Attachments allocate only on enable, cascade-count change,
-or resize. Steady frames allocate no renderer-owned CPU collections, upload a
-1 KiB stack frame uniform (+768 bytes with shadows), and walk only retained
+textures are retained. HDR/depth and bloom attachments grow in 64-pixel buckets;
+shrinking never reallocates. Viewports/scissors use the logical size, and post-pass
+UVs clamp to its edges, excluding unused padding. Bloom level count still follows
+the logical size. `Stats.texture_creations` counts cumulative attachment textures,
+including shadow/effect enables; it stays unchanged on shrink or within a bucket.
+Steady frames allocate no renderer-owned CPU collections, upload a
+1040-byte stack frame uniform (+768 bytes with shadows, +3072 bytes with bloom), and walk only retained
 batches, at most four times. wgpu owns command encoding and staging allocations.
 The resolved 4× MSAA HDR image passes through ACES-fitted tonemapping; non-sRGB
 outputs use an explicit sRGB transfer, sRGB outputs the hardware transfer once.
+HDR reads map NaN to zero and clamp to [0, 65472] (the last half-float below 65504).
+The bright pass sanitizes before bilinear interpolation; tonemapping sanitizes
+HDR, bloom and exposure-scaled values before the ACES fit.
 
 `mesh_bounds` retains conservative local spheres. `set_batches` accepts any
 subset; shadow casters must be present in that retained list, including offscreen
 casters that should affect visible receivers. Arenas grow with GPU copies and
-never shrink. Sparse slot 1,000,000 therefore retains a large high-water copy.
+never shrink. Sparse slot 1,000,000 retains a large high-water copy with `Rewrite::Some`;
+`Rewrite::All` avoids that tick copy.
 `Stats.instances/triangles` describe the forward scene; `draws` includes all passes.
 `encode_us` includes upload/encoding/submission, not completion, and is zero on wasm.
 
@@ -91,9 +113,23 @@ Measured 2026-09-17, Apple M5 Max, shared machine (not vsync/FPS):
 |---|---:|---:|---:|
 | B0 before edits, 200k cubes, 1280×720 | 0.3812 | 2.4352 | 3.9829 |
 | B0b, all effects off, same 200k geometry/resolution | 0.1437 | 1.1760 | 1.8355 |
+| B0c, `Rewrite::Some`, same 200k scene | 0.2558 | 1.6117 | 2.3480 |
+| B0c, `Rewrite::All`, same 200k scene | 0.3186 | 2.0196 | 3.2794 |
+
+B0c ran both modes for 600 frames each on the shared M5 Max. `All` removes the
+GPU history copy but was slower in this run; these measurements do not establish
+a speedup. All release tests and both ignored diagnostics pass on Metal; scoped
+clippy (`-D warnings`), fmt, wasm32 build and the repository caps check pass.
+The new fixtures verify half-float RGB before byte conversion, the unchanged far
+corner under over-range bloom, zero/sparse quaternions, negative-scale twins,
+capacity refusal without mutation, both tick modes, and grow/shrink pixel identity.
+The vertical-sun sweep reaches ±8.25° (the old switch was 8.11°): its straight edge,
+recovered across a small patch, moves at most 0.008200 m versus a 0.029480 m shadow
+texel. A single rasterized scanline can jump a full projected texel; this is not a
+universal sub-texel motion guarantee for arbitrary casters and camera settings.
 
 The brief's earlier baseline was 0.26 / 1.6 / 2.3. Machine load changed during the
-session: these show no observed regression, not a claimed renderer speedup. The
+earlier B0/B0b session: those numbers show no observed regression, not a claimed renderer speedup. The
 effects-off benchmark uses a constant environment (flat ambient, no sky pass).
 
 The 300-object diagnostic renders at **2560×1440**, 4× MSAA. Off / shadows / all

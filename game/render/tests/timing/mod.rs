@@ -23,16 +23,18 @@ fn timing_200k() {
         transforms.extend(transform(p, Quat::IDENTITY, Vec3::ONE));
         materials.extend(material([0.35, 0.55, 0.8], 0.0));
     }
-    renderer.write_transforms_both(0, &transforms);
-    renderer.write_materials(0, &materials);
-    renderer.set_batches(
-        &[Batch {
-            mesh: cube,
-            casts_shadows: true,
-            slots: 0..N as u32,
-        }],
-        &(0..N as u32).collect::<Vec<_>>(),
-    );
+    renderer.write_transforms_both(0, &transforms).unwrap();
+    renderer.write_materials(0, &materials).unwrap();
+    renderer
+        .set_batches(
+            &[Batch {
+                mesh: cube,
+                casts_shadows: true,
+                slots: 0..N as u32,
+            }],
+            &(0..N as u32).collect::<Vec<_>>(),
+        )
+        .unwrap();
     let target = target(&gpu, (1280, 720), format);
     let view = target.create_view(&Default::default());
     let mut frame = frame();
@@ -59,42 +61,47 @@ fn timing_200k() {
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
     }
-    let mut encode_us = 0.0;
-    let mut upload_ms = 0.0;
-    let mut total_ms = 0.0;
-    for index in 0..600 {
-        if index % 2 == 0 {
-            // Simulation work is deliberately outside the upload timer.
-            let rotation = Quat::from_rotation_y(index as f32 / 120.0);
-            for transform in transforms.chunks_exact_mut(10) {
-                transform[3..7].copy_from_slice(&rotation.to_array());
+    for rewrite in [
+        exact_game_render::Rewrite::Some,
+        exact_game_render::Rewrite::All,
+    ] {
+        let mut encode_us = 0.0;
+        let mut upload_ms = 0.0;
+        let mut total_ms = 0.0;
+        for index in 0..600 {
+            if index % 2 == 0 {
+                // Simulation work is deliberately outside the upload timer.
+                let rotation = Quat::from_rotation_y(index as f32 / 120.0);
+                for transform in transforms.chunks_exact_mut(10) {
+                    transform[3..7].copy_from_slice(&rotation.to_array());
+                }
+            }
+            let start = std::time::Instant::now();
+            if index % 2 == 0 {
+                let upload = std::time::Instant::now();
+                renderer.begin_tick(rewrite);
+                renderer.write_transforms(0, &transforms).unwrap();
+                upload_ms += upload.elapsed().as_secs_f64() * 1000.0;
+            }
+            frame.alpha = if index % 2 == 0 { 0.0 } else { 0.5 };
+            let stats = renderer.draw(&gpu.device, &gpu.queue, &view, format, (1280, 720), &frame);
+            assert_eq!(
+                (stats.draws, stats.instances, stats.triangles),
+                (2, N as u64, N as u64 * 12 + 1)
+            );
+            encode_us += stats.encode_us;
+            // Bound outstanding work; wall time includes GPU completion, encode does not.
+            gpu.device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            total_ms += start.elapsed().as_secs_f64() * 1000.0;
+            if index % 100 == 99 {
+                eprintln!("timing: {} / 600 frames", index + 1);
             }
         }
-        let start = std::time::Instant::now();
-        if index % 2 == 0 {
-            let upload = std::time::Instant::now();
-            renderer.begin_tick();
-            renderer.write_transforms(0, &transforms);
-            upload_ms += upload.elapsed().as_secs_f64() * 1000.0;
-        }
-        frame.alpha = if index % 2 == 0 { 0.0 } else { 0.5 };
-        let stats = renderer.draw(&gpu.device, &gpu.queue, &view, format, (1280, 720), &frame);
-        assert_eq!(
-            (stats.draws, stats.instances, stats.triangles),
-            (2, N as u64, N as u64 * 12 + 1)
-        );
-        encode_us += stats.encode_us;
-        // Bound outstanding work; wall time includes GPU completion, encode does not.
-        gpu.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-        total_ms += start.elapsed().as_secs_f64() * 1000.0;
-        if index % 100 == 99 {
-            eprintln!("timing: {} / 600 frames", index + 1);
-        }
-    }
-    eprintln!("200000 cubes, 1280x720, 4x MSAA, 600 frames: CPU encode {:.4} ms/frame; tick copy+upload {:.4} ms/tick; GPU-completed wall {:.4} ms/frame",
+        eprintln!("200000 cubes {rewrite:?}, 1280x720, 4x MSAA, 600 frames: CPU encode {:.4} ms/frame; tick copy+upload {:.4} ms/tick; GPU-completed wall {:.4} ms/frame",
         encode_us / 600_000.0, upload_ms / 300.0, total_ms / 600.0);
+    }
     fixture::read(&gpu, &target).unwrap().save("timing-200k");
 }
 
@@ -238,8 +245,8 @@ fn timing_effects_300() {
     let mut beacon = material([0.0; 3], 0.0);
     beacon[6..9].copy_from_slice(&[20.0, 12.0, 1.0]);
     materials.extend(beacon);
-    r.write_transforms_both(0, &transforms);
-    r.write_materials(0, &materials);
+    r.write_transforms_both(0, &transforms).unwrap();
+    r.write_materials(0, &materials).unwrap();
     r.set_batches(
         &[
             Batch::new(plane, 0..1),
@@ -247,7 +254,8 @@ fn timing_effects_300() {
             Batch::new(sphere, 299..300),
         ],
         &(0..300).collect::<Vec<_>>(),
-    );
+    )
+    .unwrap();
     let texture = target(&gpu, (2560, 1440), wgpu::TextureFormat::Rgba8Unorm);
     let view = texture.create_view(&Default::default());
     let queries = Queries::new(&gpu);

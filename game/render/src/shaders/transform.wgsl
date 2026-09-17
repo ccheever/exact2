@@ -20,11 +20,12 @@ fn transform(position: vec3<f32>, normal: vec3<f32>,
     let p = mix(vec3(prev[i], prev[i+1u], prev[i+2u]), vec3(curr[i], curr[i+1u], curr[i+2u]), a);
     let qp = vec4(prev[i+3u], prev[i+4u], prev[i+5u], prev[i+6u]);
     let qc = vec4(curr[i+3u], curr[i+4u], curr[i+5u], curr[i+6u]);
-    let q = normalize(mix(qp, select(qc, -qc, dot(qp, qc) < 0.0), a));
-    let s = mix(vec3(prev[i+7u], prev[i+8u], prev[i+9u]), vec3(curr[i+7u], curr[i+8u], curr[i+9u]), a);
+    let mixed_q = mix(qp, select(qc, -qc, dot(qp, qc) < 0.0), a);
+    let q = mixed_q * inverseSqrt(max(dot(mixed_q, mixed_q), 1e-12));
+    let s = mix(abs(vec3(prev[i+7u], prev[i+8u], prev[i+9u])), abs(vec3(curr[i+7u], curr[i+8u], curr[i+9u])), a);
     let world = p + rotate(q, s * position);
     // A collapsed axis has a finite limiting normal instead of a NaN.
-    let safe_scale = select(vec3(1.0), vec3(-1.0), s < vec3(0.0)) * max(abs(s), vec3(0.000001));
+    let safe_scale = max(s, vec3(0.000001));
     return Varying(frame.view_proj * vec4(world, 1.0), world, rotate(q, normal / safe_scale), slot);
 }
 

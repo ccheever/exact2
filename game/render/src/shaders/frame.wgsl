@@ -16,9 +16,17 @@ struct Frame {
     splits_count: vec4<f32>,
     texels_softness: vec4<f32>,
     shadow_near: vec4<f32>,
+    logical_size: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> frame: Frame;
 fn environment(y: f32) -> vec3<f32> {
     return mix(frame.horizon_disc.xyz,
         select(frame.ground_exposure.xyz, frame.zenith_ambient.xyz, y >= 0.0), abs(y));
+}
+
+// Inspect the bits: fast-math backends may fold floating-point NaN comparisons.
+// 65472 is the largest half-float strictly below 65504.
+fn finite_hdr(c: vec3<f32>) -> vec3<f32> {
+    let nan = (bitcast<vec3<u32>>(c) & vec3(0x7fffffffu)) > vec3(0x7f800000u);
+    return clamp(select(c, vec3(0.0), nan), vec3(0.0), vec3(65472.0));
 }

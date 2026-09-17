@@ -61,7 +61,10 @@ impl Buffer {
             return false;
         }
         let limit = if self.usage.contains(wgpu::BufferUsages::STORAGE) {
-            device.limits().max_storage_buffer_binding_size
+            device
+                .limits()
+                .max_storage_buffer_binding_size
+                .min(device.limits().max_buffer_size)
         } else {
             device.limits().max_buffer_size
         };
