@@ -34,12 +34,16 @@ final class PlainView: UIView {
 final class ScrollView: UIScrollView {
     var scrollsX = true
     var scrollsY = true
+    override func touchesShouldCancel(in view: UIView) -> Bool {
+        !CanvasInput.owns(view) && super.touchesShouldCancel(in: view)
+    }
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
         if gesture === panGestureRecognizer {
             let velocity = panGestureRecognizer.velocity(in: self)
             let location = panGestureRecognizer.location(in: self)
             let translation = panGestureRecognizer.translation(in: self)
             var view = hitTest(CGPoint(x: location.x - translation.x, y: location.y - translation.y), with: nil)
+            if CanvasInput.owns(view) { return false }
             // CSS intersects touch-action from the hit element through the
             // scroll container. It governs initial direction, not reversal.
             while let current = view {
@@ -161,6 +165,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var contextRecognizer: UILongPressGestureRecognizer?
     var doubleRecognizer: UITapGestureRecognizer?
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if CanvasInput.owns(touch.view) { return false }
         // A nested editor owns its selection gestures, including read-only
         // text. A containing bubble's reply/Tapback recognizers must yield.
         var hit = touch.view
@@ -220,6 +225,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var content = CGSize.zero
     /// A canvas node's Metal layer (LLP 1009).
     var metal: MetalView?
+    var canvasInput: CanvasInput?
     /// A canvas's children live here (LLP 1014): laid out by the kernel in
     /// the canvas's box, over the Metal layer; when the surface samples them
     /// they are painted into its children texture and this view composites
@@ -265,7 +271,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// A node with focus, blur, or key handlers takes the focus (an input's
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. Keys come from a hardware keyboard (`pressesBegan`).
-    override var canBecomeFirstResponder: Bool { !disabled && !inert && field == nil && textArea == nil && !handlers.isDisjoint(with: ["focus", "blur", "key"]) }
+    override var canBecomeFirstResponder: Bool { !disabled && !inert && field == nil && textArea == nil && (canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: ["focus", "blur", "key"])) }
     override func becomeFirstResponder() -> Bool {
         guard !disabled, !inert else { return false }
         let ok = super.becomeFirstResponder()
@@ -274,12 +280,20 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
+        if ok { canvasInput?.blur() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if canvasInput?.presses(presses, down: true) == true { return }
         guard !disabled, handlers.contains("key"), let key = presses.first?.key else { return super.pressesBegan(presses, with: event) }
         presenter?.key(id, NodeView.keyName(key))
+    }
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if canvasInput?.presses(presses, down: false) != true { super.pressesEnded(presses, with: event) }
+    }
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if canvasInput?.presses(presses, down: false) != true { super.pressesCancelled(presses, with: event) }
     }
     /// The web's key names for UIKit's.
     static func keyName(_ key: UIKey) -> String {
@@ -1172,13 +1186,16 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     // bubbles. A pan cancels it (the scroll view's `canCancelContentTouches`):
     // scroll always wins.
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if canvasInput?.touches(touches, phase: "down") == true { return }
         guard !disabled else { pressed = false; return }
         if handlers.contains("press") { pressed = true } else { super.touchesBegan(touches, with: event) }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if canvasInput?.touches(touches, phase: "move") == true { return }
         if !pressed { super.touchesMoved(touches, with: event) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if canvasInput?.touches(touches, phase: "up") == true { return }
         guard !disabled else { pressed = false; return }
         if canBecomeFirstResponder, !isFirstResponder { _ = becomeFirstResponder() }
         guard pressed else { return super.touchesEnded(touches, with: event) }
@@ -1190,6 +1207,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if inside, presenter?.views[id] === self { presenter?.press(id) }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if canvasInput?.touches(touches, phase: "cancel") == true { return }
         if pressed { pressed = false } else { super.touchesCancelled(touches, with: event) }
     }
 

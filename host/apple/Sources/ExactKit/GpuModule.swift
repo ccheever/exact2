@@ -40,6 +40,14 @@ final class GpuModule {
     typealias ClearShadersFn = @convention(c) () -> Void
     typealias ShaderFn = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> UInt32
 
+    typealias SeekableFn = @convention(c) (Bool) -> Void
+
+    let wantsInput: WantsFn?
+    let input: BindFn?
+    let messages: WantsFn?
+    let agent: BindFn?
+    private let outPtr: ErrorPtrFn?
+
     let create: CreateFn
     let bind: BindFn
     let render: RenderFn
@@ -88,12 +96,14 @@ final class GpuModule {
               let errorLen = sym("gpu_error", ErrorFn.self), let errorPtr = sym("gpu_error_ptr", ErrorPtrFn.self) else {
             return .failure(GpuLoadError(message: "\(path) is not an exact GPU module (missing exports)"))
         }
-        let module = GpuModule(create: create, bind: bind, render: render, dirty: dirty, destroy: destroy, texture: texture, textureMetal: sym("gpu_texture_metal", TextureMetalFn.self), sync: sym("gpu_sync", SyncFn.self), wantsChildren: wantsChildren, readback: readback, wantsChildrenEach: wantsChildrenEach, child: child, childrenCount: childrenCount, placement: placement, shader: sym("gpu_shader", ShaderFn.self), validateShader: sym("gpu_shader_validate", ShaderFn.self), clearShaders: sym("gpu_shaders_clear", ClearShadersFn.self), errorLen: errorLen, errorPtr: errorPtr)
+        let module = GpuModule(create: create, bind: bind, render: render, dirty: dirty, destroy: destroy, texture: texture, textureMetal: sym("gpu_texture_metal", TextureMetalFn.self), sync: sym("gpu_sync", SyncFn.self), wantsChildren: wantsChildren, readback: readback, wantsChildrenEach: wantsChildrenEach, child: child, childrenCount: childrenCount, placement: placement, shader: sym("gpu_shader", ShaderFn.self), validateShader: sym("gpu_shader_validate", ShaderFn.self), clearShaders: sym("gpu_shaders_clear", ClearShadersFn.self), errorLen: errorLen, errorPtr: errorPtr, wantsInput: sym("gpu_wants_input", WantsFn.self), input: sym("gpu_input", BindFn.self), messages: sym("gpu_messages", WantsFn.self), agent: sym("gpu_agent", BindFn.self), outPtr: sym("gpu_out_ptr", ErrorPtrFn.self))
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
+        if ExactEnv.agentMode { sym("gpu_seekable", SeekableFn.self)?(true) }
         return .success(module)
     }
 
-    private init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, textureMetal: TextureMetalFn?, sync: SyncFn?, wantsChildren: @escaping WantsFn, readback: @escaping ReadbackFn, wantsChildrenEach: @escaping WantsFn, child: @escaping ChildFn, childrenCount: @escaping CountFn, placement: @escaping PlacementFn, shader: ShaderFn?, validateShader: ShaderFn?, clearShaders: ClearShadersFn?, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn) {
+    private init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, textureMetal: TextureMetalFn?, sync: SyncFn?, wantsChildren: @escaping WantsFn, readback: @escaping ReadbackFn, wantsChildrenEach: @escaping WantsFn, child: @escaping ChildFn, childrenCount: @escaping CountFn, placement: @escaping PlacementFn, shader: ShaderFn?, validateShader: ShaderFn?, clearShaders: ClearShadersFn?, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn, wantsInput: WantsFn?, input: BindFn?, messages: WantsFn?, agent: BindFn?, outPtr: ErrorPtrFn?) {
+        self.wantsInput = wantsInput; self.input = input; self.messages = messages; self.agent = agent; self.outPtr = outPtr
         self.create = create; self.bind = bind; self.render = render; self.dirty = dirty; self.destroy = destroy; self.texture = texture; self.textureMetal = textureMetal; self.sync = sync; self.wantsChildren = wantsChildren; self.readback = readback
         self.wantsChildrenEach = wantsChildrenEach; self.child = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.validateShader = validateShader; self.clearShaders = clearShaders; self.errorLen = errorLen; self.errorPtr = errorPtr
     }
@@ -128,6 +138,12 @@ final class GpuModule {
         let bytes = Array(name.utf8)
         let r = bytes.withUnsafeBufferPointer { n in text.withUnsafeBytes { t in shader(n.baseAddress, bytes.count, t.bindMemory(to: UInt8.self).baseAddress, text.count) } }
         return r == 0
+    }
+
+    /// Copy before any other module call can reuse its output buffer.
+    func output(_ length: UInt32) -> Data? {
+        guard length > 0, let p = outPtr?() else { return nil }
+        return Data(bytes: p, count: Int(length))
     }
 
     func error() -> String {

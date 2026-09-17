@@ -50,6 +50,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         backdropTap = tap
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if CanvasInput.owns(touch.view) { return false }
         guard let container = presentationController?.containerView,
               let presented = presentationController?.presentedView,
               host?.canDismissByBackdrop(routeID) == true else { return false }

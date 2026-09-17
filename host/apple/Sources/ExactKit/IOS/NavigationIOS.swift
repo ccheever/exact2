@@ -360,6 +360,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             let start = CGPoint(x: location.x - delta.x, y: location.y - delta.y)
             var overSwipeRight = false
             var hit = view.hitTest(start, with: nil)
+            if CanvasInput.owns(hit) { return false }
             while let current = hit {
                 if let node = current as? NodeView, node.handlers.contains("swiperight") { overSwipeRight = true; break }
                 if current === view { break }

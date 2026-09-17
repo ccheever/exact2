@@ -10,6 +10,7 @@ import QuartzCore
 /// A canvas node's backing view: a CAMetalLayer the module renders into.
 final class MetalView: NSView {
     override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func makeBackingLayer() -> CALayer {
         let layer = CAMetalLayer()
         // Composited, never direct-to-display: a layer that covers the whole
@@ -45,6 +46,8 @@ final class Canvases {
         var values: [Any]
         var id: UInt32 = 0
         var wants = false
+        var wantsInput = false
+        var logCursor = 0
         /// The surface samples the children (LLP 1014 D2): the overlay is
         /// captured into its texture and composited at alpha 0.
         var through = false
@@ -55,6 +58,7 @@ final class Canvases {
         /// A children texture has been uploaded (so an emptied overlay is
         /// captured once more, to clear it).
         var uploaded = false
+        var capturing = false
         /// The clock at the last readback of a nested canvas: one that wants
         /// frames is read back again only once the clock has moved, so a
         /// clock that stands still — the agent's — never spins it.
@@ -76,6 +80,8 @@ final class Canvases {
     /// Captures since launch (LLP 1014 D3).
     var captures = 0
     private var captureScheduled = false
+    var frameNow: Double?
+    var settling = false
 
     /// The smoke's line: loaded (with the load time and counts) or why not.
     var status: String {
@@ -105,7 +111,7 @@ final class Canvases {
 
     /// A surface op: new inputs for a canvas node.
     func surface(view: NodeView, name: String, values: [Any]) {
-        if let e = entries[view.id], e.view !== view { destroy(view: view.id) }
+        if let e = entries[view.id], e.view !== view || e.name != name { destroy(view: view.id) }
         if let e = entries[view.id] {
             e.values = values
             if e.id != 0, let m = module { bindNow(m, e) }
@@ -117,7 +123,10 @@ final class Canvases {
     }
 
     func destroy(view: UInt32) {
-        if let e = entries.removeValue(forKey: view), e.id != 0 { module?.destroy(e.id) }
+        if let e = entries.removeValue(forKey: view) {
+            e.view.canvasInput = nil
+            if e.id != 0 { module?.destroy(e.id) }
+        }
     }
 
     /// A restart: every surface goes with its view (a reload reuses ids).
@@ -140,7 +149,7 @@ final class Canvases {
             // (LLP 1031 D1): the app's directory in dev, the bundle in a
             // release.
             if let resolver = session?.app.resolver { m.registerShaders(resolver: resolver) }
-            for e in entries.values { create(m, e) }
+            for e in Array(entries.values) where entries[e.view.id] === e { create(m, e) }
         }
     }
 
@@ -157,6 +166,8 @@ final class Canvases {
         bindNow(m, e)
         e.each = m.wantsChildrenEach(e.id) != 0
         e.through = e.each || m.wantsChildren(e.id) != 0
+        e.wantsInput = m.wantsInput?(e.id) == 1 && m.input != nil
+        if e.wantsInput { e.view.canvasInput = CanvasInput(view: e.view) }
         if e.through { capture(m, e) }
     }
 
@@ -170,6 +181,7 @@ final class Canvases {
         let t0 = CACurrentMediaTime()
         for (i, child) in children.enumerated() {
             guard let rep = Capture.bitmap(of: child, scale: scale), let data = rep.bitmapData else { continue }
+            guard live(e.view.id) === e else { return false }
             let f = child.frame
             let r = m.child(e.id, UInt32(i), Float(f.origin.x), Float(f.origin.y), Float(f.width), Float(f.height), UInt32(rep.pixelsWide), UInt32(rep.pixelsHigh), UnsafePointer(data), rep.pixelsHigh * rep.bytesPerRow)
             if r != 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return false }
@@ -206,7 +218,7 @@ final class Canvases {
     /// arrive outside one (D4 b, c).
     func captureIfNeeded() {
         guard let m = module else { return }
-        for e in entries.values where e.id != 0 && e.through && e.view.needsCapture { capture(m, e) }
+        for e in Array(entries.values) where live(e.view.id) === e && e.through && e.view.needsCapture { capture(m, e) }
     }
 
     /// A capture on this run-loop turn, coalesced.
@@ -225,6 +237,10 @@ final class Canvases {
     }
 
     private func capture(_ m: GpuModule, _ e: Entry) {
+        // A nested readback can post a message and apply another batch here.
+        guard live(e.view.id) === e, !e.capturing else { return }
+        e.capturing = true
+        defer { e.capturing = false }
         guard let overlay = e.view.overlay, let win = e.view.window else { return }
         e.view.needsCapture = false
         // Nothing to paint and nothing painted before: no texture at all.
@@ -236,6 +252,7 @@ final class Canvases {
         }
         let t0 = CACurrentMediaTime()
         guard let rep = Capture.bitmap(of: overlay, scale: scale), let data = rep.bitmapData else { return }
+        guard live(e.view.id) === e else { return }
         let t1 = CACurrentMediaTime()
         let w = UInt32(rep.pixelsWide), h = UInt32(rep.pixelsHigh)
         let len = rep.pixelsHigh * rep.bytesPerRow
@@ -267,7 +284,7 @@ final class Canvases {
     /// what a canvas nested under a canvas painted through its surface paints
     /// into its ancestor's capture, since its Metal layer is not seen there.
     func readback(view: NodeView) -> NSBitmapImageRep? {
-        guard let m = module, let e = entries[view.id], e.id != 0, let metal = view.metal else { return nil }
+        guard let m = module, let e = live(view.id), e.view === view, let metal = view.metal else { return nil }
         let scale = CGFloat(metal.layer?.contentsScale ?? 2)
         let w = Int((metal.bounds.width * scale).rounded()), h = Int((metal.bounds.height * scale).rounded())
         guard w > 0, h > 0,
@@ -275,8 +292,9 @@ final class Canvases {
               let data = rep.bitmapData
         else { return nil }
         rep.size = metal.bounds.size
-        let at = session?.now() ?? 0
+        let at = frameNow ?? session?.now() ?? 0
         let r = m.readback(e.id, Float(metal.bounds.width), Float(metal.bounds.height), Float(scale), at, data, w * h * 4)
+        defer { messages(e) }
         e.readAt = at
         if r == 1 {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
@@ -316,10 +334,15 @@ final class Canvases {
     /// to. Bounded: a nested canvas that wants a frame asks its ancestor to
     /// capture again, once more here, then the display link has it.
     func settle(now: Double) {
-        guard module != nil else { return }
+        guard module != nil, !settling else { return }
+        settling = true
+        let previous = frameNow
+        frameNow = now
+        defer { frameNow = previous; settling = false }
         for _ in 0..<3 {
             captureIfNeeded()
             _ = tick(now: now)
+            for e in Array(entries.values) { messages(e) }
             guard entries.values.contains(where: { $0.view.needsCapture }) else { return }
         }
     }
@@ -327,21 +350,24 @@ final class Canvases {
     /// Render every dirty or wanting surface at `now`; whether more is wanted.
     func tick(now: Double) -> Bool {
         guard let m = module, visible else { return false }
+        let previous = frameNow
+        frameNow = now
+        defer { frameNow = previous }
         var more = false
-        for e in entries.values where e.id != 0 {
+        for e in Array(entries.values) where live(e.view.id) === e {
             // Nested under a canvas painted through its surface (LLP 1014):
             // its Metal layer is never composited, so presenting to it would
             // block on a drawable nobody takes. It is only ever read back into
             // the ancestor's capture — which a change asks for here — and it
             // never wants frames of its own.
             if let outer = e.view.canvasAbove, outer.overlay != nil, entries[outer.id]?.through == true {
-                if m.dirty(e.id) != 0 || (e.wants && now != e.readAt) { outer.needsCapture = true; scheduleCapture() }
+                if m.dirty(e.id) != 0 || (e.wants && now != e.readAt) { outer.needsCapture = true }
                 continue
             }
             // D4 (d): every frame while editing under the overlay — but not
             // twice on the turn a batch already captured.
             if e.through, !e.view.paintedThisTurn, let overlay = e.view.overlay, Canvases.editing(under: overlay) { capture(m, e) }
-            guard e.wants || m.dirty(e.id) != 0, let metal = e.view.metal else { continue }
+            guard live(e.view.id) === e, e.wants || m.dirty(e.id) != 0, let metal = e.view.metal else { continue }
             let wall = CACurrentMediaTime()
             if wall < e.starvedUntil { more = true; continue }
             let scale = Float(metal.layer?.contentsScale ?? 2)
@@ -355,7 +381,9 @@ final class Canvases {
             rendered += 1
             more = more || e.wants
             readPlacements(m, e)
+            messages(e)
         }
+        captureIfNeeded()
         return more
     }
 }

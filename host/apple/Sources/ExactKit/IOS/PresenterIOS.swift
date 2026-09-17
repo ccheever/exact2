@@ -391,7 +391,13 @@ final class Presenter {
     func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
-    func message(_ id: UInt32, _ value: String) { send(id) { [self] in onMessage?(id, value) } }
+    func message(_ id: UInt32, _ value: String) {
+        guard let view = views[id], view.handlers.contains("message") else { return }
+        send(id) { [weak self, weak view] in
+            guard let self, let view, views[id] === view, view.handlers.contains("message") else { return }
+            onMessage?(id, value)
+        }
+    }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {

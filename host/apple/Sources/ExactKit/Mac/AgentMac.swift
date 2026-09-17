@@ -317,6 +317,11 @@ extension Agent {
         let p = clip.convert(NSPoint(x: (req["x"] as? Double ?? b.midX) + clip.bounds.origin.x, y: (req["y"] as? Double ?? b.midY) + clip.bounds.origin.y), to: nil)
         let at = [Agent.r2(b.midX), Agent.r2(b.midY)]
         if req["hover"] as? Bool == true {
+            if let node = win.contentView?.hitTest(p) as? NodeView, node.canvasInput != nil,
+               let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
+                node.mouseMoved(with: event)
+                return ["tapped": Int(v.id), "hover": true, "at": at, "delivery": "platform"]
+            }
             // The pointer moved onto the target: the node with a hover
             // handler at the hit point enters (and whatever was hovered
             // leaves), as a tracking area would report for a real move.
@@ -388,6 +393,7 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if session.canvases.wantsInput(v.id) || req["phase"] != nil { return canvasType(v, req) }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {

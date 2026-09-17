@@ -201,6 +201,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var web: NSView?
     /// A canvas node's Metal layer (LLP 1009).
     var metal: MetalView?
+    var canvasInput: CanvasInput?
     /// A canvas's children live here (LLP 1014): laid out by the kernel in
     /// the canvas's box, over the Metal layer; when the surface samples them
     /// they are painted into its children texture and this view composites
@@ -252,7 +253,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if disabled || inert || isHiddenOrHasHiddenAncestor { return false }
         if field != nil || textArea != nil { return false }
         if isParagraph { return true }
-        return handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
+        return canvases?.wantsInput(id) == true || handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
     }
     /// Sequential focus follows the web: a button is in the loop even when
     /// macOS "Keyboard navigation" is off (that setting would otherwise
@@ -266,7 +267,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
-        if ok { presenter?.selection.clear() }
+        if ok { canvasInput?.blur(); presenter?.selection.clear() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
@@ -278,6 +279,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// A key down at a focused node, by the web's key name. Space and Enter
     /// on a pressable fire `press`, as they do on a `<button>`.
     override func keyDown(with event: NSEvent) {
+        if let canvasInput {
+            if !canvasInput.key(event, down: true) { super.keyDown(with: event) }
+            return
+        }
         guard !disabled else { return }
         if isParagraph, window?.firstResponder === self, event.modifierFlags.contains(.command) {
             switch event.charactersIgnoringModifiers?.lowercased() {
@@ -293,6 +298,12 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             return
         }
         super.keyDown(with: event)
+    }
+    override func keyUp(with event: NSEvent) {
+        if canvasInput?.key(event, down: false) != true { super.keyUp(with: event) }
+    }
+    override func flagsChanged(with event: NSEvent) {
+        if canvasInput?.flags(event) != true { super.flagsChanged(with: event) }
     }
     /// ⌘A while this node's field is being edited. The Edit menu is the
     /// usual path; this catches it when that item is disabled (a secure
@@ -352,6 +363,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        canvasInput?.updateTracking()
         if let t = tracking { removeTrackingArea(t); tracking = nil }
         if handlers.contains("hover") {
             let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
@@ -730,9 +742,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !inert, !isHiddenOrHasHiddenAncestor else { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview)) { return nil }
-        guard let overlay, let sup = superview else { return super.hitTest(point) }
+        func ordinary() -> NSView? {
+            let hit = super.hitTest(point)
+            return hit != nil && hit === overlay ? self : hit
+        }
+        guard let overlay, let sup = superview else { return ordinary() }
         let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil }
-        guard !placed.isEmpty else { return super.hitTest(point) }
+        guard !placed.isEmpty else { return ordinary() }
         let inCanvas = convert(point, from: sup)
         guard !isHidden, bounds.contains(inCanvas) else { return nil }
         // Nearest first: what is seen on top is what a tap reaches.
@@ -1170,6 +1186,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // input; a click nothing consumes reaches the viewport, which does the
     // same (a click on the page's ground).
     override func mouseDown(with event: NSEvent) {
+        if canvasInput?.pointer(event, phase: "down") == true { return }
         guard !disabled else { pressed = false; return }
         if isParagraph, !handlers.contains("press"), !hasPressableAncestor {
             window?.makeFirstResponder(self)
@@ -1191,14 +1208,17 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return false
     }
     override func mouseDragged(with event: NSEvent) {
+        if canvasInput?.pointer(event, phase: "move") == true { return }
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
     }
     override func rightMouseUp(with event: NSEvent) {
+        if canvasInput?.pointer(event, phase: "up") == true { return }
         guard !disabled, handlers.contains("contextmenu") else { return super.rightMouseUp(with: event) }
         presenter?.contextmenu(id)
     }
     override func mouseUp(with event: NSEvent) {
+        if canvasInput?.pointer(event, phase: "up") == true { return }
         if event.clickCount == 2 {
             var next: NSView? = self
             while let view = next {
@@ -1215,6 +1235,27 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard pressed else { return super.mouseUp(with: event) }
         pressed = false
         if bounds.contains(local(event.locationInWindow)) { presenter?.press(id) }
+    }
+    override func rightMouseDown(with event: NSEvent) {
+        if canvasInput?.pointer(event, phase: "down") != true { super.rightMouseDown(with: event) }
+    }
+    override func rightMouseDragged(with event: NSEvent) {
+        if canvasInput?.pointer(event, phase: "move") != true { super.rightMouseDragged(with: event) }
+    }
+    override func otherMouseDown(with event: NSEvent) {
+        if canvasInput?.pointer(event, phase: "down") != true { super.otherMouseDown(with: event) }
+    }
+    override func otherMouseDragged(with event: NSEvent) {
+        if canvasInput?.pointer(event, phase: "move") != true { super.otherMouseDragged(with: event) }
+    }
+    override func otherMouseUp(with event: NSEvent) {
+        if canvasInput?.pointer(event, phase: "up") != true { super.otherMouseUp(with: event) }
+    }
+    override func mouseMoved(with event: NSEvent) {
+        if canvasInput?.pointer(event, phase: "move") != true { super.mouseMoved(with: event) }
+    }
+    override func scrollWheel(with event: NSEvent) {
+        if canvasInput?.wheel(event) != true { super.scrollWheel(with: event) }
     }
     func controlTextDidChange(_ obj: Notification) {
         if props["emojiPicker"] == "true", let field {

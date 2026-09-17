@@ -719,6 +719,21 @@ final class Frames: NSObject {
     weak var session: ExactSession?
     var link: CADisplayLink?
     var motion = false
+    private var canvasRequested = false
+
+    /// Input and reads ask for one frame; an agent-owned clock never self-reschedules.
+    func requestCanvas() {
+        guard let s = session else { return }
+        if s.clock == nil { run(true); return }
+        guard !canvasRequested else { return }
+        canvasRequested = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            canvasRequested = false
+            guard let s = session, s.state != .destroyed else { return }
+            s.canvases.settle(now: s.now())
+        }
+    }
     #if canImport(UIKit)
     /// EXACT_FPS=1 (iOS): the display link runs always and the measure
     /// reports once a second (`main.swift` prints it).
@@ -735,8 +750,13 @@ final class Frames: NSObject {
         #if canImport(UIKit)
         if fpsMode { measure(link.timestamp) }
         #endif
+        // Motion keeps its existing sampling clock; canvas frames target presentation.
+        let frameNow = s.clock ?? (link.targetTimestamp - ExactEnv.t0) * 1000
+        let previous = s.canvases.frameNow
+        s.canvases.frameNow = frameNow
+        defer { s.canvases.frameNow = previous }
         if motion { s.apply(s.runtime.tick(now: s.now())) }
-        let more = s.canvases.tick(now: s.now())
+        let more = s.canvases.tick(now: frameNow)
         run(motion || more || s.canvases.wantsFrames)
     }
 
@@ -755,17 +775,16 @@ final class Frames: NSObject {
     }
     #endif
 
-    func run(_ on: Bool) {
+    func run(_ wanted: Bool) {
+        if wanted, session?.clock != nil { requestCanvas() }
         #if canImport(UIKit)
-        let on = on || fpsMode
+        let on = (wanted || fpsMode) && session?.clock == nil
+        #else
+        let on = wanted && session?.clock == nil
         #endif
         if on, link == nil {
             #if canImport(UIKit)
             let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
-            // The measure wants the display's real rate (a ProMotion phone's
-            // 120), so a dropped frame is a dropped frame; the bundle's plist
-            // opts in (CADisableMinimumFrameDurationOnPhone) or this is 60.
-            if fpsMode { l.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120) }
             #else
             guard let viewport = session?.presenter.viewport else { return }
             let l = viewport.displayLink(target: self, selector: #selector(tick(_:)))
@@ -776,5 +795,12 @@ final class Frames: NSObject {
             l.invalidate()
             link = nil
         }
+        #if canImport(UIKit)
+        if let link {
+            let fullRate = fpsMode || session?.canvases.wantsFrames == true
+            let rate = Float(min(120, session?.presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60))
+            link.preferredFrameRateRange = fullRate ? CAFrameRateRange(minimum: min(80, rate), maximum: rate, preferred: rate) : .default
+        }
+        #endif
     }
 }

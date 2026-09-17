@@ -387,6 +387,7 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        if let reply = canvasTap(req) { return reply }
         // A held contact (LLP 1035.003 D1) needs a touch UIKit does not
         // offer publicly: the iOS carrier says so rather than activating a
         // node and calling it a finger (D3).
@@ -509,6 +510,7 @@ extension Agent {
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if session.canvases.wantsInput(v.id) || req["phase"] != nil { return canvasType(v, req) }
         if v.props["editable"] == "false", req["key"] == nil || ["Enter", "Backspace"].contains(req["key"] as? String ?? "") { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {
