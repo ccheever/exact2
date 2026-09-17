@@ -876,3 +876,38 @@ SHA-256 is `74de0e08174483914bccacb9d01c927a940b0ab3caff19e08993f38c2f06d18d`;
 build logs, exact samples and screenshots are in `target/apple-text-integration-final/`.
 Full macOS compilation and this drive validate the acceptance hook; Swift
 Package XCTest and UIKit remain unverified on this Command Line Tools machine.
+
+### 8.12 Numeric sheet-height presentation trial, starts 2026-09-17
+
+The next sheet increment separates sampled layout height from authored state.
+Leibniz owns the kernel prototype and tests in an isolated worktree; Tuft owns
+integration and the subsequent native/DOM experiment. The first consumer is one
+numeric-pixel-height panel and its virtualized nested collection. This does not
+introduce a general parallel layout engine or a second application value graph.
+
+Proposed kernel input is `PresentedHeight { node: NodeKey, epoch: u64, px: f32 }`
+on `compute_layout_presented(root, offer, Option<PresentedHeight>)`; ordinary
+layout passes `None`. Height remains a CSS height subject to current box sizing,
+min/max constraints and aspect ratio, not a forced border-box rectangle. One
+cached derived projection applies at a time. Equal samples reuse layout state;
+switching or clearing restores current authored lowering, never a saved target.
+Central style writes preserve the sample while refreshing other authored fields.
+Arena styles, masks, commit receipts and authored epoch remain unchanged; exported
+frames, hit testing and collection feedback intentionally observe presentation.
+
+Preflight validates offer/root, current epoch, live generational key, root
+membership, eligible box style and finite nonnegative height before changing a
+previous projection. Stale/foreign samples cannot revoke a valid one. Rebuild
+reapplies the validated sample; failed text/layout work preserves published frames
+and invalidates derived cache state so recovery really remeasures. A later motion
+adapter must release ownership when authored height becomes unsupported instead
+of preserving an obsolete pixel target.
+
+Tests cover CSS box constraints and sibling flow, repeated clean samples,
+authored/env/intrinsic changes, switch/clear, stale/detached/reused keys, fault
+rebuild and invalid-measurement recovery, and unchanged authored export columns.
+Then price the actual projection plus collection feedback against the existing
+25k authored-update control. Its earlier microsecond layout result does not
+price native fonts, paint, projection or gesture delivery. Motion property and
+host recognition changes follow this proof; no continuous sheet implementation
+or physical-frame result is claimed by writing this plan.
