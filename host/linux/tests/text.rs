@@ -183,7 +183,7 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
             None,
         );
         let shaped = paragraph
-            .buffer
+            .buffer()
             .layout_runs()
             .flat_map(|run| run.glyphs.iter())
             .next()
@@ -299,7 +299,7 @@ fn fixed_line_height_keeps_each_inline_fonts_shared_baseline_extents() {
     // baseline metric rounding is the separate LLP 1035.000 D6 investigation.
     assert!((measured.height - 26.923828).abs() < 0.02, "{measured:?}");
     assert_eq!(
-        engine.paragraph(&spec, None).baselines[0],
+        engine.paragraph(&spec, None).baselines()[0],
         measured.first_baseline.unwrap()
     );
 }

@@ -14,6 +14,7 @@
 //! once per (glyph, color) into small premultiplied pixmaps.
 
 mod cache;
+mod ink;
 pub use cache::{HandoffResidency, Residency, RetiringResidency};
 
 use crate::image::Assets;
@@ -110,7 +111,7 @@ impl Spec {
 /// painted.
 pub struct Paragraph {
     /// The laid-out buffer.
-    pub buffer: Buffer,
+    buffer: Buffer,
     /// Points, rounded up.
     pub width: f32,
     /// Points, rounded up.
@@ -118,7 +119,9 @@ pub struct Paragraph {
     /// Top to the first alphabetic baseline, points.
     pub first_baseline: f32,
     /// CSS shared-baseline placement for each wrapped line, used by both painters.
-    pub baselines: Vec<f32>,
+    baselines: Vec<f32>,
+    ink: RefCell<ink::Cache>,
+    // Immutable Buffer/baseline capacities; lazy ink is read separately below.
     resident_capacity_bytes: usize,
     private_text_bytes_estimate: usize,
 }
@@ -135,6 +138,28 @@ pub struct RunPaint {
 }
 
 impl Paragraph {
+    /// Immutable full shaped source; CPU visibility never changes this buffer.
+    pub fn buffer(&self) -> &Buffer {
+        &self.buffer
+    }
+
+    /// CSS baselines in original wrapped-line order.
+    pub fn baselines(&self) -> &[f32] {
+        &self.baselines
+    }
+
+    /// Current CPU ink arrays, counted by allocated capacity. This grows lazily
+    /// at paint and replaces its previous scale/catalog rather than retaining it.
+    pub fn ink_capacity_bytes(&self) -> usize {
+        self.ink.borrow().bytes()
+    }
+
+    /// Current accessible capacity in O(1), without visiting shaped glyphs.
+    /// Accounting/maintenance runs outside paint's exclusive ink borrow.
+    fn owned_capacity_bytes(&self) -> usize {
+        self.resident_capacity_bytes + self.ink_capacity_bytes()
+    }
+
     /// The shared CPU/GPU stream: every glyph keeps its canonical run index
     /// and CSS baseline, and selects its paint data by that index.
     pub fn paint_glyphs<'a>(
@@ -199,6 +224,13 @@ pub struct GlyphRun {
 pub struct TextEngine {
     fonts: FontSystem,
     swash: SwashCache,
+    ink_catalog: Rc<()>,
+    #[cfg(test)]
+    ink_visits: usize,
+    #[cfg(test)]
+    ink_nodes: usize,
+    #[cfg(test)]
+    ink_builds: usize,
     paragraphs: cache::Cache,
     /// Buffer builds, including temporary intrinsic measurements.
     pub shape_calls: usize,
@@ -335,6 +367,13 @@ impl TextEngine {
             sans: sans.unwrap_or_default(),
             fonts,
             swash: SwashCache::new(),
+            ink_catalog: Rc::new(()),
+            #[cfg(test)]
+            ink_visits: 0,
+            #[cfg(test)]
+            ink_nodes: 0,
+            #[cfg(test)]
+            ink_builds: 0,
             paragraphs: cache::Cache::default(),
             shape_calls: 0,
             #[cfg(test)]
@@ -776,6 +815,7 @@ impl TextEngine {
             height: if explicit { h } else { h.ceil() },
             first_baseline: baselines.first().copied().unwrap_or(0.0),
             baselines,
+            ink: RefCell::new(ink::Cache::default()),
             resident_capacity_bytes: 0,
             private_text_bytes_estimate: 0,
         };
@@ -904,17 +944,48 @@ impl TextEngine {
         transform: Transform,
         mask: Option<&Mask>,
     ) {
-        // Glyph positions carry the device scale; the transform's own scale
-        // must not apply twice.
+        let clip = (0.0, 0.0, target.width() as f32, target.height() as f32);
+        self.paint_clipped(
+            target, paragraph, palette, origin, scale, transform, mask, clip,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn paint_clipped(
+        &mut self,
+        target: &mut Pixmap,
+        paragraph: &Paragraph,
+        palette: &[RunPaint],
+        origin: (f32, f32),
+        scale: f32,
+        transform: Transform,
+        mask: Option<&Mask>,
+        clip: (f32, f32, f32, f32),
+    ) {
+        // Glyph positions already carry device scale. The GPU stream is separate
+        // and remains full; only this CPU loop selects conservative ink spans.
         let glyph_ts = transform.pre_scale(1.0 / scale, 1.0 / scale);
+        let mut cache = paragraph.ink.borrow_mut();
+        if !cache.matches(&self.ink_catalog, scale) {
+            cache.reset(&self.ink_catalog, scale);
+            #[cfg(test)]
+            {
+                self.ink_builds += 1;
+            }
+            cache.index = ink::Index::build(self, paragraph, scale);
+        }
         let paint = PixmapPaint::default();
-        for (g, baseline, ink) in paragraph.paint_glyphs(palette) {
+        let mut draw = |g: &LayoutGlyph, baseline: f32, ink: RunPaint| {
+            #[cfg(test)]
+            {
+                self.ink_visits += 1;
+            }
             if ink.color[3] == 0 {
-                continue;
+                return;
             }
             let phys = g.physical((origin.0 * scale, (origin.1 + baseline) * scale), scale);
             let Some(glyph) = self.glyph(phys.cache_key, ink.color) else {
-                continue;
+                return;
             };
             target.draw_pixmap(
                 phys.x + glyph.left,
@@ -924,6 +995,26 @@ impl TextEngine {
                 glyph_ts,
                 mask,
             );
+        };
+        if let Some((index, query)) = cache.index.as_ref().and_then(|index| {
+            index
+                .viewport(origin, scale, glyph_ts, clip)
+                .map(|query| (index, query))
+        }) {
+            let _nodes = index.visit(query, |line| {
+                let (glyphs, baseline) = index.glyphs(paragraph, line);
+                for g in glyphs {
+                    draw(g, baseline, palette[g.metadata]);
+                }
+            });
+            #[cfg(test)]
+            {
+                self.ink_nodes += _nodes;
+            }
+        } else {
+            for (g, baseline, ink) in paragraph.paint_glyphs(palette) {
+                draw(g, baseline, ink);
+            }
         }
     }
 }
@@ -1041,3 +1132,7 @@ mod tests {
 #[cfg(test)]
 #[path = "text/residency_tests.rs"]
 mod residency_tests;
+
+#[cfg(test)]
+#[path = "text/ink_tests.rs"]
+mod ink_tests;

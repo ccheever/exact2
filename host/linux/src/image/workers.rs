@@ -49,7 +49,9 @@ pub(super) struct Backend {
 type DecodeHook = dyn Fn(&str, &Arc<Bitmap>) + Send + Sync;
 impl Backend {
     pub fn new() -> Arc<Self> {
-        let workers = Workers::process();
+        Self::for_workers(Workers::process())
+    }
+    fn for_workers(workers: &Workers) -> Arc<Self> {
         let (wake_read, wake_write) = UnixStream::pair().expect("raster wake pair");
         wake_read.set_nonblocking(true).unwrap();
         wake_write.set_nonblocking(true).unwrap();
@@ -363,36 +365,43 @@ impl Workers {
         }
     }
     fn run(&self) {
-        // One metadata turn between decode turns, even under continuous
-        // known-source pressure. A busy metadata queue also cannot starve decode.
         let mut metadata_turn = false;
         loop {
-            if !metadata_turn {
-                metadata_turn = true;
-                if let Some(permit) = self.gate.next_decode() {
-                    self.complete(permit);
-                    continue;
-                }
-            }
-            metadata_turn = false;
-            let backends = self.sessions();
-            for backend in &backends {
-                backend.notify_budget_wait();
-            }
-            let start = {
-                let mut at = self.cursor.lock().unwrap();
-                *at = at.wrapping_add(1);
-                *at
-            };
-            if !backends.is_empty()
-                && (0..backends.len()).any(|i| backends[(start + i) % backends.len()].prepare())
-            {
-                continue;
-            }
-            drop(backends);
-            if let Some(permit) = self.gate.wait_decode(Duration::from_millis(20)) {
+            self.turn(&mut metadata_turn, || {});
+        }
+    }
+    // A single production scheduling turn. The callback is a deterministic test
+    // seam for work arriving after the empty metadata scan and before waiting.
+    fn turn(&self, metadata_turn: &mut bool, before_wait: impl FnOnce()) {
+        // One metadata turn between decode turns, even under continuous
+        // known-source pressure. A busy metadata queue also cannot starve decode.
+        if !*metadata_turn {
+            *metadata_turn = true;
+            if let Some(permit) = self.gate.next_decode() {
                 self.complete(permit);
+                return;
             }
+        }
+        *metadata_turn = false;
+        let backends = self.sessions();
+        for backend in &backends {
+            backend.notify_budget_wait();
+        }
+        let start = {
+            let mut at = self.cursor.lock().unwrap();
+            *at = at.wrapping_add(1);
+            *at
+        };
+        if !backends.is_empty()
+            && (0..backends.len()).any(|i| backends[(start + i) % backends.len()].prepare())
+        {
+            return;
+        }
+        drop(backends);
+        before_wait();
+        if let Some(permit) = self.gate.wait_decode(Duration::from_millis(20)) {
+            *metadata_turn = true;
+            self.complete(permit);
         }
     }
 }
@@ -431,3 +440,7 @@ mod tests {
         assert_eq!(backend.sources(), cap);
     }
 }
+
+#[cfg(test)]
+#[path = "workers/fairness_tests.rs"]
+mod fairness_tests;

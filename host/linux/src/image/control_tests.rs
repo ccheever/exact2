@@ -267,10 +267,17 @@ fn source_identity_survives_displayed_replacement_and_cold_unmount() {
 }
 
 #[test]
-fn metadata_progress_has_a_bounded_turn_under_known_decode_pressure() {
+fn metadata_progresses_under_known_decode_pressure_in_shared_pool() {
     use std::sync::atomic::AtomicUsize;
     let decoded = Arc::new(AtomicUsize::new(0));
     let release = Arc::new(AtomicBool::new(false));
+    struct ReleaseOnDrop(Arc<AtomicBool>);
+    impl Drop for ReleaseOnDrop {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+    let _release_on_unwind = ReleaseOnDrop(release.clone());
     let k = kernel(2);
     let mut sessions = Vec::new();
     for _ in 0..8 {
@@ -289,24 +296,25 @@ fn metadata_progress_has_a_bounded_turn_under_known_decode_pressure() {
         a.poll();
     }
     until(|| decoded.load(Ordering::Acquire) == 2);
-    let observed = Arc::new(AtomicUsize::new(usize::MAX));
-    let seen = observed.clone();
-    let count = decoded.clone();
-    let mut b = Images::with_assets(Assets::selected(
-        PathBuf::new(),
-        Arc::new(move |_| {
-            seen.fetch_min(count.load(Ordering::Acquire), Ordering::AcqRel);
-            Ok(Some(encoded(3, 3, [3, 4, 5, 255])))
-        }),
-    ));
+    let mut b = Images::with_assets(assets());
     b.sync(&k, &[1]);
+    let source = b.views[&1].source_id.as_ref().unwrap().id;
     release.store(true, Ordering::Release);
-    until(|| observed.load(Ordering::Acquire) != usize::MAX);
-    assert!(
-        observed.load(Ordering::Acquire) <= 4,
-        "metadata waited behind {} known decodes",
-        observed.load(Ordering::Acquire)
-    );
+    // This pool also serves other parallel tests. A global completion count at
+    // resolver entry is not a bound on metadata admission: competing metadata
+    // turns and a descheduled Reading worker can both increase it legitimately.
+    // Exact dispatch ordering is covered by workers::fairness_tests on the same
+    // production turn method with an isolated gate and controlled arrivals.
+    until(|| {
+        matches!(
+            b.backend.prepared(source),
+            Some(Prepared::Ready(_) | Prepared::Failed(_))
+        )
+    });
+    assert!(matches!(
+        b.backend.prepared(source),
+        Some(Prepared::Ready(_))
+    ));
 }
 
 #[test]

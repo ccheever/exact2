@@ -879,10 +879,37 @@ is 752.051→555.498 ms. This is nonquiet CPU/IPC evidence, not a repeated laten
 benchmark or physical presentation result. `target/linux-text-trace/handoff-20260917/`
 retains raw traces, source identities and binaries; the corrected executable
 SHA-256 is `f4bb846c9f4ba5d13915d1182d67c1cacde5a3201ba8f18221319ed33b6746b9`.
-Warm painting still visits 978,600 glyphs. Epicurus owns conservative CPU ink
-selection in a separate worktree, with exhaustive clipped-pixel comparisons and
-index accounting required before integration. The 4 MiB accepted-plus-working
-peak, shared shaping and asynchronous presentation remain unresolved.
+That preserved trace still visits 978,600 glyphs per warm paint. The subsequent
+CPU ink increment (Epicurus/Newton/Tuft, 2026-09-17) selects conservative visible
+ink intervals in original line order, including overlapping/backwards baselines.
+It retains the full shaped Buffer and leaves the GPU stream unchanged. Unknown
+or ill-conditioned bounds fall back to exhaustive painting. One lazy index per
+paragraph/catalog/scale has an 8 MiB array-capacity limit; old arrays drop before
+replacement, and bounded envelope scratch does not retain extra glyph rasters.
+First paint still builds the complete index; no giant-fixture speedup is claimed
+before actual-Linux measurement. A 1,200-line pixel oracle visits under five
+percent of glyphs at top/middle/end while matching exhaustive RGBA output.
+
+Current ink array capacities enter catalog, measured-handoff, retiring-owner and
+cold-policy diagnostics/maintenance in O(1) per paragraph. Categories overlap;
+the soft cold target and the 64-identity handoff are not total-memory limits.
+Three failing accounting regressions now prove shared-owner deduplication,
+lazy cold growth followed by reclamation, and scale/refusal replacement without
+history. The combined Linux package passes 173 tests with one existing GPU-only
+test ignored, strict all-targets Clippy, scoped formatting, caps and boot on
+macOS. This is not execution on Linux or physical presentation evidence.
+Sources, pixel oracles, raw failures and integration logs are retained under
+`target/linux-visible-text-validation/`. The 4 MiB accepted-plus-working peak,
+shared shaping and asynchronous presentation remain unresolved.
+
+The wider parallel suite also exposed an image-worker scheduling edge: a decode
+obtained through `wait_decode` did not give the next turn to metadata. A
+controlled arrival test now fails on two consecutive decodes and passes with
+metadata between them. The former shared-pool test's late resolver counter could
+also exceed its constant bound after prompt admission, so deterministic turns
+prove ordering while the shared-pool check retains actual completion. All three
+new scheduling regressions and the final parallel suite pass; the original
+9/12-counter failures remain preserved, rather than treated as passing retries.
 
 **Apple engine:** twenty-five actual engine methods pass 437 assertions in the
 optimized standalone harness, including complete Unicode ranges, independent

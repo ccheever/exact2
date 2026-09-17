@@ -9,6 +9,8 @@
 //! an oversized raw lookup result can remain cold and over target while idle.
 //! Handoffs and externally pinned snapshots are additional live storage; neither
 //! their bytes nor paragraph size are bounded by the cold target.
+//! Paragraph costs include current lazy CPU ink capacity in O(1); diagnostics and
+//! maintenance run outside paint/build while its exclusive ink borrow is released.
 use super::{Paragraph, Run, Spec};
 use exact_kernel::TextMetrics;
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
@@ -204,7 +206,7 @@ impl Cache {
         for h in &self.handoffs {
             if unique.insert(Rc::as_ptr(&h.paragraph)) {
                 result.paragraphs += 1;
-                result.owned_capacity_bytes += h.paragraph.resident_capacity_bytes;
+                result.owned_capacity_bytes += h.paragraph.owned_capacity_bytes();
                 result.private_text_bytes_estimate += h.paragraph.private_text_bytes_estimate;
             }
         }
@@ -301,16 +303,16 @@ impl Cache {
                 let Some(paragraph) = slot.weak.upgrade() else {
                     continue;
                 };
+                let owned = paragraph.owned_capacity_bytes();
                 result.paragraphs += 1;
-                result.owned_capacity_bytes += paragraph.resident_capacity_bytes;
+                result.owned_capacity_bytes += owned;
                 result.private_text_bytes_estimate += paragraph.private_text_bytes_estimate;
                 if pinned {
                     result.pinned_paragraphs += 1;
                 } else {
                     result.cold_paragraphs += 1;
-                    result.cold_owned_capacity_bytes += paragraph.resident_capacity_bytes;
-                    result.cold_policy_bytes +=
-                        paragraph.resident_capacity_bytes + paragraph.private_text_bytes_estimate;
+                    result.cold_owned_capacity_bytes += owned;
+                    result.cold_policy_bytes += owned + paragraph.private_text_bytes_estimate;
                 }
             }
         }
@@ -340,7 +342,7 @@ impl Cache {
             result.owners += 1;
             if seen.insert(pointer) {
                 result.paragraphs += 1;
-                result.owned_capacity_bytes += paragraph.resident_capacity_bytes;
+                result.owned_capacity_bytes += paragraph.owned_capacity_bytes();
                 result.private_text_bytes_estimate += paragraph.private_text_bytes_estimate;
             }
         }
@@ -378,7 +380,7 @@ impl Cache {
                 for (width, slot) in &entry.widths {
                     if !slot.pinned() {
                         if let Some(p) = &slot.cold {
-                            let cost = p.resident_capacity_bytes + p.private_text_bytes_estimate;
+                            let cost = p.owned_capacity_bytes() + p.private_text_bytes_estimate;
                             bytes += cost;
                             cold.push((slot.used, *hash, entry.id, *width, cost));
                         }

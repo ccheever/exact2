@@ -873,3 +873,210 @@ fn two_accepted_owner_widths_survive_handoff_drain_and_warm_repaint() {
     engine.borrow_mut().trim_paragraphs();
     assert_eq!(engine.borrow().residency().paragraphs, 0);
 }
+
+fn paint_lazy_ink(engine: &mut TextEngine, paragraph: &Paragraph, scale: f32) -> usize {
+    let mut target = Pixmap::new(64, 64).unwrap();
+    engine.paint(
+        &mut target,
+        paragraph,
+        &[RunPaint {
+            color: [0, 0, 0, 255],
+            source: 2,
+        }],
+        (0., 0.),
+        scale,
+        Transform::from_scale(scale, scale),
+        None,
+    );
+    paragraph.ink_capacity_bytes()
+}
+
+#[test]
+fn lazy_ink_growth_is_counted_in_overlapping_handoff_catalog_and_retiring_owners() {
+    let text = "One backing shared by accepted owners and a pending measurement.";
+    let engine = TextEngine::shared();
+    engine.borrow_mut().paragraphs.set_target(0);
+    let mut kernel = text_tree(text, 140.);
+    let mut style = StyleProps {
+        width: Dimension::Points(140.),
+        ..StyleProps::default()
+    };
+    style.mask.set(StyleId::Width);
+    kernel
+        .apply(
+            0,
+            3,
+            &[
+                Op::CreateView {
+                    id: 3,
+                    node_type: NodeType::Text,
+                },
+                Op::SetProp {
+                    id: 3,
+                    prop: exact_kernel::PropId::Text,
+                    value: exact_kernel::PropValue::Str(text.into()),
+                },
+                Op::SetStyle {
+                    id: 3,
+                    patch: Box::new(style),
+                },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2, 3],
+                },
+            ],
+        )
+        .unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(400., 400.))
+        .unwrap();
+    let mut painter = Painter::new(
+        engine.clone(),
+        1.,
+        Box::new(ControlledBackend {
+            fail: Rc::new(Cell::new(false)),
+        }),
+    );
+    paint(&mut painter, &kernel).unwrap();
+    let weak = measured_weak(&mut engine.borrow_mut(), &spec(text), 140.);
+    let paragraph = weak.upgrade().unwrap();
+    assert_eq!(paragraph.ink_capacity_bytes(), 0);
+    let catalog_before = engine.borrow().residency();
+    let handoff_before = engine.borrow().handoff_residency();
+    painter.text = TextEngine::shared();
+    let retiring_before = painter.retiring_text_residency();
+    assert_eq!(retiring_before.owners, 2);
+    assert_eq!(retiring_before.paragraphs, 1);
+
+    let ink = paint_lazy_ink(&mut engine.borrow_mut(), &paragraph, 1.);
+    assert!(ink > 0);
+    let catalog = engine.borrow().residency();
+    let handoff = engine.borrow().handoff_residency();
+    let retiring = painter.retiring_text_residency();
+    assert_eq!(
+        catalog.owned_capacity_bytes,
+        catalog_before.owned_capacity_bytes + ink
+    );
+    assert_eq!(
+        handoff.owned_capacity_bytes,
+        handoff_before.owned_capacity_bytes + ink
+    );
+    assert_eq!(handoff.policy_bytes, handoff_before.policy_bytes + ink);
+    assert_eq!(
+        handoff.above_cold_target_bytes,
+        handoff_before.above_cold_target_bytes + ink
+    );
+    assert_eq!(
+        retiring.owned_capacity_bytes,
+        retiring_before.owned_capacity_bytes + ink
+    );
+    assert_eq!(
+        retiring.paragraphs, 1,
+        "two accepted owners must not double count their ink"
+    );
+    assert_eq!(
+        catalog.private_text_bytes_estimate,
+        catalog_before.private_text_bytes_estimate
+    );
+    assert_eq!(
+        handoff.private_text_bytes_estimate,
+        handoff_before.private_text_bytes_estimate
+    );
+    assert_eq!(
+        retiring.private_text_bytes_estimate,
+        retiring_before.private_text_bytes_estimate
+    );
+
+    let work = (
+        engine.borrow().ink_builds,
+        engine.borrow().ink_visits,
+        engine.borrow().shape_calls,
+    );
+    for _ in 0..8 {
+        let current = engine.borrow().residency();
+        assert_eq!(current.owned_capacity_bytes, catalog.owned_capacity_bytes);
+        assert_eq!(current.paragraphs, catalog.paragraphs);
+        assert_eq!(current.pinned_paragraphs, catalog.pinned_paragraphs);
+        assert_eq!(engine.borrow().handoff_residency(), handoff);
+        assert_eq!(painter.retiring_text_residency(), retiring);
+    }
+    assert_eq!(
+        work,
+        (
+            engine.borrow().ink_builds,
+            engine.borrow().ink_visits,
+            engine.borrow().shape_calls
+        )
+    );
+    engine.borrow_mut().finish_text_frame();
+    drop(paragraph);
+    drop(painter);
+    engine.borrow_mut().trim_paragraphs();
+    assert!(
+        weak.upgrade().is_none(),
+        "diagnostics retained the indexed backing"
+    );
+}
+
+#[test]
+fn lazy_ink_growth_enters_cold_policy_and_is_reclaimed_by_budget_maintenance() {
+    let mut engine = TextEngine::new();
+    let paragraph = engine.paragraph(&spec(&"budgeted words\n".repeat(40)), Some(140.));
+    let base = paragraph.resident_capacity_bytes;
+    let private = paragraph.private_text_bytes_estimate;
+    let keys = engine.residency().key_capacity_bytes;
+    let target = base + private + keys;
+    engine.paragraphs.set_target(target);
+    let ink = paint_lazy_ink(&mut engine, &paragraph, 1.);
+    assert!(ink > 0);
+    let weak = Rc::downgrade(&paragraph);
+    drop(paragraph);
+    let cold = engine.residency();
+    assert_eq!(cold.cold_owned_capacity_bytes, base + ink);
+    assert_eq!(cold.cold_policy_bytes, target + ink);
+    assert_eq!(cold.cold_overage_bytes, ink);
+    assert!(
+        weak.upgrade().is_some(),
+        "last-caller drop must not secretly trim"
+    );
+    engine.trim_paragraphs();
+    assert!(
+        weak.upgrade().is_none(),
+        "maintenance ignored lazy capacity growth"
+    );
+    assert_eq!(engine.residency().cold_owned_capacity_bytes, 0);
+    assert!(engine.residency().cold_policy_bytes <= target);
+}
+
+#[test]
+fn lazy_ink_capacity_tracks_current_arrays_after_scale_reset_and_refusal() {
+    let mut engine = TextEngine::new();
+    let paragraph = engine.paragraph(&spec(&"current index arrays\n".repeat(30)), Some(140.));
+    let base = engine.residency().owned_capacity_bytes;
+    for scale in [1., 1.25, 2.] {
+        let ink = paint_lazy_ink(&mut engine, &paragraph, scale);
+        assert!(ink > 0);
+        assert_eq!(engine.residency().owned_capacity_bytes, base + ink);
+        paragraph
+            .ink
+            .borrow_mut()
+            .reset(&engine.ink_catalog, scale + 0.125);
+        assert_eq!(paragraph.ink_capacity_bytes(), 0);
+        assert_eq!(
+            engine.residency().owned_capacity_bytes,
+            base,
+            "retired scale retained accounting history"
+        );
+    }
+    {
+        let mut cache = paragraph.ink.borrow_mut();
+        cache.reset(&engine.ink_catalog, 4.);
+        cache.index = ink::Index::with_limit(&mut engine, &paragraph, 4., 0);
+        assert!(cache.index.is_none());
+    }
+    assert_eq!(paint_lazy_ink(&mut engine, &paragraph, 4.), 0);
+    assert_eq!(engine.residency().owned_capacity_bytes, base);
+    let recovered = paint_lazy_ink(&mut engine, &paragraph, 1.);
+    assert!(recovered > 0);
+    assert_eq!(engine.residency().owned_capacity_bytes, base + recovered);
+}
