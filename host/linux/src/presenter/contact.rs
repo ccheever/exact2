@@ -1,16 +1,28 @@
 //! One native primary contact; property-specific policy stays in its helper.
 use super::*;
-use exact_kernel::NodeKey;
+use exact_kernel::{NodeKey, TransformDragBinding};
 use exact_motion::{HoldEnd, HoldStart, Value, VelocityTracker};
 
 #[derive(Clone, Copy)]
 pub(super) enum Candidate {
     Swipe(NodeKey),
+    Transform(TransformDragBinding),
     Height { handle: NodeKey, target: NodeKey },
 }
+#[derive(Clone, Copy)]
 pub(super) enum HeldKind {
-    Swipe { companions: [Option<HoldStart>; 2] },
-    Height { handle: NodeKey, target: NodeKey },
+    Transform {
+        binding: TransformDragBinding,
+        pair: exact_motion::TransformHold,
+        revision: u64,
+    },
+    Swipe {
+        companions: [Option<HoldStart>; 2],
+    },
+    Height {
+        handle: NodeKey,
+        target: NodeKey,
+    },
 }
 pub(super) struct Hold {
     pub(super) primary: HoldStart,
@@ -50,6 +62,14 @@ impl<D: DataSource> Presenter<D> {
             Some(held) => {
                 self.host.has_hold(held.primary.token)
                     && match held.kind {
+                        HeldKind::Transform {
+                            binding,
+                            pair,
+                            revision,
+                        } => {
+                            self.host.transform_hold_live(pair, binding)
+                                && self.transform_revision(binding) == Some(revision)
+                        }
                         HeldKind::Height { handle, target } => {
                             self.input_live(handle)
                                 && self.host.height_drag_target(handle) == Some(target)
@@ -105,7 +125,8 @@ impl<D: DataSource> Presenter<D> {
             return Ok(false);
         }
         let candidate = self
-            .height_candidate(hit)
+            .transform_candidate(hit)
+            .or_else(|| self.height_candidate(hit))
             .or_else(|| self.swipe_candidate(hit).map(Candidate::Swipe));
         let view = self.host.kernel().node_by_key(hit).unwrap().id;
         self.contact = Some(Contact {
@@ -137,6 +158,7 @@ impl<D: DataSource> Presenter<D> {
                 return Ok(false);
             }
             let begin = match contact.candidate {
+                Some(Candidate::Transform(binding)) => self.begin_transform_drag(binding, now_ms),
                 Some(Candidate::Height { handle, target }) if dy.abs() > dx.abs() => {
                     self.begin_height_drag(handle, target, now_ms)
                 }
@@ -173,6 +195,14 @@ impl<D: DataSource> Presenter<D> {
         }
         let held = contact.hold.as_mut().unwrap();
         let result = match held.kind {
+            HeldKind::Transform { .. } => self.move_transform_drag(
+                held,
+                Value {
+                    x: x as f64 - contact.origin.0 as f64,
+                    y: y as f64 - contact.origin.1 as f64,
+                },
+                now_ms,
+            ),
             HeldKind::Height { .. } => {
                 self.move_height_drag(held, contact.origin.1 as f64 - y as f64, now_ms)
             }
@@ -211,6 +241,7 @@ impl<D: DataSource> Presenter<D> {
             } else {
                 match held.kind {
                     HeldKind::Height { .. } => self.finish_height_drag(&held, now_ms),
+                    HeldKind::Transform { .. } => self.finish_transform_drag(&held, now_ms),
                     HeldKind::Swipe { .. } => {
                         let current = self
                             .host
@@ -243,6 +274,7 @@ impl<D: DataSource> Presenter<D> {
     }
     fn end_contact(&mut self, held: &Hold, end: HoldEnd, now_ms: f64) -> Result<(), String> {
         match held.kind {
+            HeldKind::Transform { pair, .. } => self.end_transform_drag(pair, None, now_ms),
             HeldKind::Height { .. } => self.height_end(held.primary.token, end, now_ms).map(|_| ()),
             HeldKind::Swipe { .. } => self.end_swipe(held, end, now_ms),
         }

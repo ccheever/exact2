@@ -25,6 +25,8 @@ mod height;
 mod height_binding;
 #[path = "holds.rs"]
 mod holds;
+#[path = "transform_binding.rs"]
+mod transform_binding;
 
 /// Why the host refused to boot.
 #[allow(missing_docs)]
@@ -54,6 +56,7 @@ pub struct Host<D: DataSource> {
     now_ms: f64,
     height_owner: Option<NodeKey>,
     height_bindings: height_binding::Bindings,
+    transform_bindings: transform_binding::Bindings,
     height_projection: Option<exact_kernel::PresentedHeight>,
     height_layout_valid: bool,
     #[cfg(test)]
@@ -128,6 +131,7 @@ impl<D: DataSource> Host<D> {
             now_ms: 0.0,
             height_owner: None,
             height_bindings: Default::default(),
+            transform_bindings: Default::default(),
             height_projection: None,
             height_layout_valid: false,
             #[cfg(test)]
@@ -139,6 +143,7 @@ impl<D: DataSource> Host<D> {
         // The engine hears the whole tree once: values, no transitions.
         let mut sync = MotionSync::default();
         host.discover_height_handles();
+        host.discover_transform_handles();
         for id in host.preorder() {
             if let Some(node) = host.runner.kernel().node(id) {
                 let key = node.key;
@@ -159,6 +164,7 @@ impl<D: DataSource> Host<D> {
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
         host.project_navigation();
         host.reconcile_height_bindings();
+        host.reconcile_transform_bindings();
         let error = host.layout().err();
         host.present();
         Ok((host, error))
@@ -529,6 +535,7 @@ impl<D: DataSource> Host<D> {
             let r = &t.receipt;
             for key in &r.destroyed {
                 self.forget_height_handle(*key);
+                self.forget_transform_handle(*key);
                 if let Some(id) = self.keys.remove(key) {
                     self.presented.remove(&id);
                 }
@@ -541,9 +548,11 @@ impl<D: DataSource> Host<D> {
         }
         if receipts.iter().any(|t| !t.receipt.created.is_empty()) {
             self.discover_height_handles();
+            self.discover_transform_handles();
         }
         self.project_navigation();
         self.reconcile_height_bindings();
+        self.reconcile_transform_bindings();
         // Motion observes each commit before projected layout: targets are in place
         // before the engine hears them, and a transition a timer started is
         // born at that timer's due time — one seek and sixty give the same
@@ -566,6 +575,7 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.retire_height_binding();
+        self.retire_transform_binding();
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         let layout_error = if receipts.is_empty() {

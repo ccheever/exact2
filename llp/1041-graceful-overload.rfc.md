@@ -1363,3 +1363,24 @@ runnable bundle are in `target/photo-gallery-browser/`. Its Wasm SHA-256 is
 `b7d9ea51b1621deb756d02b829539c29b1157001dfb18bfa0622a0e3d248eefd`.
 This is instrumented correctness evidence, not latency, native photo parity,
 physical pinch, shared-element return or physical 120-Hz presentation.
+
+**Linux adapter, Tuft, Leibniz and Epicurus, 2026-09-17:** the existing Presenter
+pointer path now recognizes the same authored photo binding. It catches the
+currently published Translate/Scale pair, preserves parent-coordinate pan and
+velocity, dispatches the terminal action while both tokens remain live, and
+cleans only surviving original tokens. Actual kernel frames and accumulated
+scroll offsets certify fill, origin and mapping lifetime. Unsupported ancestor
+presentation refuses admission; same-size mapping changes cancel without a
+duplicate dimension action. Feedback allows two synchronous passes and leaves
+further changes for an external turn, refusing stale contact in the meantime.
+
+All 221 integrated Linux-crate tests pass on macOS, with one existing GPU test
+ignored, plus strict all-target Clippy, build, formatting, caps and boot.
+Eighteen new tests include real Presenter pointer delivery, full-tuple refusal,
+current receipt declaration/time, geometry changes and callback destruction.
+A retained failure caught unrelated Height motion advancing during a pair update
+without projected layout; pair lowering now uses the ordinary complete hold path.
+Exact eight-file sources, failures, independent review and integration logs are
+in `target/photo-linux-validation/`. Actual Linux gallery, display/stdio carrier
+and GPU validation remain outstanding; macOS execution of this crate supplies
+none of those results and no native photo frame-rate claim.

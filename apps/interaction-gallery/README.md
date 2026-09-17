@@ -6,7 +6,7 @@ Arrange and Read now use the shared viewport collection over complete records.
 Photos retains explicit manual pages. Read authors a header-only numeric-height
 binding; gesture recognition and hold delivery belong to the shared host adapters.
 Photos authors fit/2× controls and a paired transform binding. The Web adapter
-supports primary-pointer dragging; native photo delivery, animated reorder with
+supports primary-pointer dragging; native photo validation, animated reorder with
 edge scrolling, and sheet/inner-scroll ownership transfer remain separate work.
 
 ## What works
@@ -174,6 +174,9 @@ single-property takeover case uses the real ABI directly. These are correctness
 checks, not a latency, native parity or physical display result. Frozen sources,
 raw exploratory failures and the final replay are in
 `target/photo-gallery-browser/`; LLP 1041 §8.13 records the scope.
+The Linux adapter is integrated with tests through the actual Presenter pointer
+methods. Those tests run on macOS; actual Linux gallery/display delivery remains
+to be validated separately. Apple photo delivery is still being implemented.
 Continuous reorder still needs shared host hooks. Its existing `galleryAction`
 endpoints provide preview and token-checked commit/cancel; they must receive
 logical outcomes from the shared adapters.

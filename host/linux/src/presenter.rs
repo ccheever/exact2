@@ -39,6 +39,8 @@ mod height_drag;
 mod height_drag_tests;
 mod images;
 mod swipe;
+mod transform;
+mod transform_geometry;
 
 #[cfg(test)]
 #[path = "presenter/collection_tests.rs"]
@@ -86,6 +88,7 @@ pub struct Presenter<D: DataSource> {
     refusal_turn: bool,
     collection: collection::State,
     contact: Option<contact::Contact>,
+    transform_geometry: transform_geometry::State,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
     /// The commands the last commits' actions asked for, for the loop that
@@ -306,6 +309,7 @@ impl<D: DataSource> Presenter<D> {
             refusal_turn: false,
             collection: collection::State::default(),
             contact: None,
+            transform_geometry: Default::default(),
             brush: Painter::new(text.clone(), scale, backend),
             text,
             viewport,
@@ -562,6 +566,7 @@ impl<D: DataSource> Presenter<D> {
         self.scroll.clear();
         self.collection = collection::State::default();
         self.contact = None;
+        self.transform_geometry = Default::default();
         self.page = (0.0, 0.0);
         self.focus = None;
         self.pointer = None;
@@ -676,6 +681,7 @@ impl<D: DataSource> Presenter<D> {
         self.scroll.clear();
         self.collection = collection::State::default();
         self.contact = None;
+        self.transform_geometry = Default::default();
         self.page = (0.0, 0.0);
         self.images.reset();
         self.focus = None;
@@ -749,7 +755,8 @@ impl<D: DataSource> Presenter<D> {
         let error = self.sync_commit();
         self.queue_collections();
         let refined = self.refine_collections();
-        error.or(refined)
+        let geometry = self.refresh_transform_geometry();
+        error.or(refined).or(geometry)
     }
 
     // Collection feedback calls this directly: never recurse through refinement.
@@ -816,6 +823,9 @@ impl<D: DataSource> Presenter<D> {
             self.dirty = true;
             self.clamp_scroll();
             self.queue_collections();
+            if let Some(error) = self.refresh_transform_geometry() {
+                self.host.log(error);
+            }
         }
         any
     }
@@ -1136,6 +1146,9 @@ impl<D: DataSource> Presenter<D> {
                     self.scroll.insert(id, (nx, ny));
                     self.dirty = true;
                     self.collection_scrolled(id);
+                    if let Some(error) = self.refresh_transform_geometry() {
+                        self.host.log(error);
+                    }
                     return;
                 }
             }
@@ -1153,6 +1166,9 @@ impl<D: DataSource> Presenter<D> {
         if next != self.page {
             self.page = next;
             self.dirty = true;
+            if let Some(error) = self.refresh_transform_geometry() {
+                self.host.log(error);
+            }
         }
     }
 
@@ -1298,7 +1314,8 @@ impl<D: DataSource> Presenter<D> {
             self.executor.notify();
         }
         if outcomes.is_empty() {
-            return self.refine_collections();
+            let refined = self.refine_collections();
+            return refined.or(self.refresh_transform_geometry());
         }
         let e = self.host.fulfill_all(outcomes, now_ms);
         let after = self.after_commit();
@@ -1351,6 +1368,9 @@ impl<D: DataSource> Presenter<D> {
         if self.host.tick(now_ms) {
             self.clamp_scroll();
             self.queue_collections();
+            if let Some(error) = self.refresh_transform_geometry() {
+                self.host.log(error);
+            }
         }
         self.dirty = true;
     }
