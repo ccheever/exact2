@@ -157,11 +157,29 @@ fn twenty_replacement_waves_decode_distinct_sources_without_retaining_history() 
 fn full_undrained_session_does_not_block_another_sessions_native_workers() {
     let k = kernel(2);
     let mut a = Images::with_assets(assets());
-    a.sync(&k, &k.roots());
-    until(|| {
-        a.poll();
-        a.views.values().all(|v| v.request.is_some())
-    });
+    // Prepare metadata without occupying a decode worker. Holding one worker
+    // while waiting for more metadata could deadlock another gated fixture.
+    assert!(a.prepare_metadata(&k, &k.roots(), Duration::from_secs(2)));
+    let release = Arc::new(AtomicBool::new(false));
+    struct ReleaseOnDrop(Arc<AtomicBool>);
+    impl Drop for ReleaseOnDrop {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+    let _release_on_unwind = ReleaseOnDrop(release.clone());
+    let released = release.clone();
+    *a.backend.hook.lock().unwrap() = Some(Arc::new(move |_, _| {
+        until(|| released.load(Ordering::Acquire));
+    }));
+    a.enable_decode();
+    a.poll();
+    assert_eq!(a.views.len(), 2);
+    assert!(a.views.values().all(|v| v.request.is_some()));
+    assert!(a.bitmaps.is_empty());
+    assert_eq!(a.stats().delivery_cells, 0);
+    // No poll may consume A between releasing decode and checking B's progress.
+    release.store(true, Ordering::Release);
     until(|| a.stats().delivery_cells == 2 && a.stats().running == 0);
     // A receives no more UI polls during B's metadata, admission and decoding.
     let mut b = Images::with_assets(assets());

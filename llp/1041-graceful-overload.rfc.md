@@ -1742,10 +1742,16 @@ worker thread; first, middle and end CPU paints match the full-glyph pixel oracl
 with zero UI index builds. Visible glyph-cache calls are 156/156/110, not cache
 misses or latency measurements. Scale changes, stale and foreign-catalog results,
 intrinsic probes and refusal lifetimes are covered. The private Darwin run passes
-248 Linux-package tests with one existing GPU ignore. Integration passes 247 but
-hits an image-worker progress timeout in the parallel library suite; that test
-passes alone, with both logs retained. All text tests and strict all-target Clippy
-pass; this is not an all-package integration pass.
+248 Linux-package tests with one existing GPU ignore. Integration initially
+passes 247 but hits an image-worker progress timeout. A deterministic reproduction
+shows the test's setup poll draining the delivery cells it subsequently waits
+to observe; the test also passes alone. A test-only decode-completion barrier
+establishes the intended undrained state, preserving the cross-session progress
+oracle without changing production code or timeouts. The corrected integrated
+run passes all 248 tests with the existing GPU ignore and strict all-target
+Clippy. Initial failure, isolated pass and reproduction remain preserved under
+`target/image-delivery-test-validation/`; integrated results are under
+`target/image-delivery-test-integration/`.
 Sources, failures and integration evidence are in `target/text-transfer-ink-validation/`.
 The preceding actual-Linux 42-test capture does not include this follow-up.
 
