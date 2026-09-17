@@ -2529,3 +2529,38 @@ results remain NOT_ESTABLISHED. Source/runtime identities and cleanup cover 32
 artifacts/1,231,542 bytes under
 `target/web-normal-clock-cells/898dd74-release400-v1/`, manifest
 `f6dc90eb720586c81899b436b11c8834e7e275f07e44964682c9d5ae61449c02`.
+
+### 8.34 Messages during real AppKit resize: three baseline repetitions, 2026-09-17
+
+Three fresh processes use the unchanged d6 Messages binary `f75d9e98…` and
+ordinary-clock observer, with the corrected V3 current-tail setup policy. The
+10,000-row, 32-changed-row windowed workload stays intact. All nine scored
+idle/load/recovery phases establish genuine AppKit resize plus six typed inputs
+and six direction-matching 40px wheels, with all 108 ACKs inside their edges.
+The external resize input is synthetic OS input; typing/wheels use the existing
+stdio carrier. This is not physical-human or display-frame timing.
+
+All 23 complete loaded `Runtime.advance` intervals exceed 8.33 ms. Their per-run
+medians are 17.619, 16.630 and 15.076 ms, maximum 27.717 ms; Swift apply medians
+are 1.026, 1.041 and 0.948 ms. Advance includes bridge decoding, and these spans
+do not isolate Rust query, validation, keys or layout. Loaded main-queue wait
+maxima are 17.828–21.472 ms. Idle also includes a 30.476 ms ACK, so the small
+cohort does not establish a general loaded-versus-idle latency bound.
+
+Separate two-second command-free intervals contain 8/8/7 complete autonomous
+timer→advance→apply chains before the next read. Mode coverage remains
+NOTESTABLISHED despite 108–111 positive tracking samples per phase: passive
+trace quotas overflow. The primary trace does not overflow. Setup preserves
+the viewport but allows the tail's absolute scroll offset to change as rows
+grow; no measured-edge reanchoring or polling is added. These are old-source
+baselines, not measurements of the newer index or row-reuse changes.
+
+The planned six-cell suite stops before any Storm native launch: a coordinator
+preflight queries `/api/stats` on data port 4319 instead of control port 4320.
+That preserved 404 is a setup error; three Storm cells remain unrun in this
+archive. All recorded 23 PIDs and 16 groups retire and both ports are free.
+The partial result covers 563 artifacts/208,058,993 bytes in
+`target/normal-clock-responsiveness-native-d6-v3/`, manifest
+`4f97f8d6ff60302af8eb8cf81c67f5b548231c060dce97c5e808869b8ac77472`.
+The original failed V2 run is unchanged. No complete six-cell PASS or physical
+120 Hz claim follows.
