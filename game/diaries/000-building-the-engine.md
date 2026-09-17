@@ -86,6 +86,33 @@ applied, two canvases sharing a name, an idle frame that still allocated for
 `messages`, a typechecker rule the new source collided with): the pattern holds —
 the builder finds the design's gaps, the reviewers find the builder's.
 
+**One seam, two uses.** The save the agent could not take (LLP 1041.001 D6) and the
+dev loop that lost the world on every edit turned out to be the same missing thing:
+a surface that can hand its state out and take it back. `carry`/`restore` on
+`Surface` gave both: `screenshot <path> <canvas> save` with `open({world})`, and a
+dev server that rebuilds only the world's module and swaps it under the live canvas
+with the world carried across by field name. The first version took 1.5–2 s from a
+saved edit to new code running at the same tick and position; after review (stage on
+detached canvases and cut over atomically; load dev modules so the collector can
+reclaim them — 32 live wasm memories after 30 swaps became 2) it is 410 ms. That is
+faster than Godot restarts a scene, and the scene does not restart.
+
+**Observed, not declared — and then not optimistic.** Quiescence moved from the game
+calling `busy` to the engine comparing hashed component state across the last two
+ticks of a seek, only under the agent's clock. Both reviewers then found the same
+hole from different sides: the observation started life as `true`. A world nobody
+has looked at is not still; it is unknown. The general lesson is older than this
+engine: a cache of a derived fact needs a third state.
+
+**The third reviewer asked a different question.** sol and grok review a change;
+astra was asked to review the *whole add-on* as its most demanding future user and
+to say what to delete. It found what change-reviews structurally cannot: a byte
+vector encoded as tagged numbers and then wrapped again, so a 10 MB physics
+snapshot costs 40 MB of save; every physics query rebuilding its scene behind a
+two-argument function; column-wide invalidation making a moving camera rescan
+500,000 still transforms; a 545-line README that had become a history. Reviews of
+diffs keep a codebase correct; a review of the whole keeps it small.
+
 **Harness lessons.** A sandboxed builder cannot see the GPU or launch a window, so GPU
 and browser work runs unsandboxed and path-scoped, and every GPU test a sandboxed run
 wrote gets run by the orchestrator afterwards (one had never executed and aborted on
