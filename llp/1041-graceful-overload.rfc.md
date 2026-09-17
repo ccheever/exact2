@@ -1969,3 +1969,44 @@ Physical Web/Apple/Linux adapters, same-clip paint and hit elevation, actual
 nested-port edge scrolling and continuous-position terminal rebase remain work
 in progress. No physical drag, velocity-continuous neighbor rebase, latency or
 120Hz result follows from this foundation.
+
+### 8.22 Actual Linux cold publication: partial acceptance, 2026-09-17
+
+Carson runs the captured ac86627 controller and diagnostic observer on ARM Linux,
+with stock cosmic-text 0.19, VKMS 1024×768, CPU painting at scale 1 and the fixed
+DejaVu/system font catalog. Both independent synchronous references pass under
+the unchanged 2,684,354,560-byte address-space cap and 60-second process guard.
+The native coverage certificate verifies omitted ASCII spaces only at actual
+adjacent layout-run boundaries. The 1MiB/4MiB references retain respectively
+1,048,499/4,194,149 canonical bytes and 13,981/55,923 lines. Earlier guard failures
+remain failed; these new certificates do not rewrite their verdicts.
+
+The 1MiB candidate includes real cold source generation and parsing. Pending
+frame 5 and accepted frame 15 share input sequence 18, proving publication
+without another input, agent query or settle command. Continued typing appears
+in frame 17. All 26 source, glyph, geometry, font and boundary fields match the
+independent reference, and the accepted content RGB crop is byte-identical.
+Cumulative giant UI shape calls and UI ink-index builds remain zero. The worker
+records one giant shape and two completed layouts/index builds; this is not a
+one-index claim. Observed running and pending work each peak at one.
+
+The complete candidate cell nevertheless fails: RFB wheel input arrives, but
+the document offset remains zero until the unchanged deadline. Cleanup retires
+the owned process; no successful scrolled frame or normal shutdown is invented.
+Source inspection points to wheel/clamp code reading the shell's extents while
+painting uses the accepted region publication; a focused regression and repair
+remain work in progress. Sampled candidate VmPeak is 1,282,868KiB and VmHWM/RSS
+589,724KiB for this one instrumented cell, not a general memory bound.
+
+The 4MiB candidate fails loopback-port preflight before native launch. It has no
+worker completion or memory result. The synchronous 4MiB reference's memory is
+not a substitute. No unowned listener was killed, cap raised or automatic retry
+performed. Full candidate acceptance, continuous resizing, latency and physical
+120Hz remain unproved.
+
+Exact sources and paired binaries are in
+`target/linux-content-region-native-observer-v2/` and
+`target/linux-content-region-native-execution-v3/`. Raw references, partial
+candidate evidence, both failures and cleanup receipts are retained in
+`target/linux-content-region-native-runtime-v2/` (manifest
+`662a2b82c9755a2bf5a209d0f35728b1fca8d4b3f9a89a5ca8582cbe70ab3445`).

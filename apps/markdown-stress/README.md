@@ -90,10 +90,14 @@ unsupported transforms refuses the trial. Read-only source/link metadata is
 retained, but general selection and link activation are not implemented here.
 
 Mac-hosted Rust tests exercise full 1MiB/4MiB cold publication with zero giant UI
-measurement calls. Actual Linux display acceptance, memory under the VM cap,
-continuous resize and latency remain separate work. The display loop watches
-completion readiness; the stdio agent only pumps on commands. Neither the
-worker queues nor their source/index limits imply a total-memory or 120Hz claim.
+measurement calls. An actual Linux 1MiB run on the captured ac86627 sources
+published without another input, matched the independent reference pixels and
+accepted continued typing, but the complete cell failed because wheel input did
+not scroll. The 4MiB candidate refused port setup before launch. Full display
+acceptance, 4MiB worker memory, continuous resize and latency remain unproved;
+LLP1041 §8.22 records the exact partial evidence and failures. The display loop
+watches completion readiness; the stdio agent only pumps on commands. Neither
+the worker queues nor their source/index limits imply a total-memory or 120Hz claim.
 
 ## Reproduce
 
