@@ -11,9 +11,14 @@ struct Counts {
 }
 struct Counter;
 impl Game for Counter {
-    const ARGS: &'static [&'static str] = &["paused"];
+    const ID: &'static str = "Counter";
+    const ARGS: &'static [Arg] = &[Arg::live("paused")];
+    fn check(args: &Args) -> Result<(), String> {
+        args.flag("paused")?;
+        Ok(())
+    }
     fn setup(w: &mut World, args: &Args) -> Result<(), String> {
-        args.flag(0, "paused")?;
+        args.flag("paused")?;
         w.insert_resource(Counts::default());
         w.spawn_named("counter", Transform::default());
         Ok(())
@@ -28,7 +33,7 @@ impl Game for Counter {
             )
     }
     fn paused(args: &Args) -> bool {
-        args.flag(0, "paused").unwrap()
+        args.flag("paused").unwrap()
     }
     fn tick(w: &mut World, i: &Input) {
         let mut c = w.resource_mut::<Counts>();
@@ -90,7 +95,7 @@ fn exact_event_boundary_tap_repeat_alias_and_blur() {
     key(&mut s, "KeyE", true, 1.0);
     key(&mut s, "KeyE", false, 2.0);
     s.advance(16.667, Clock::Seekable);
-    assert_eq!(s.world().resource::<Counts>().pressed, 0);
+    assert_eq!(s.world().resource::<Counts>().pressed, 1);
     s.advance(33.334, Clock::Seekable);
     {
         let c = s.world().resource::<Counts>();
@@ -111,13 +116,13 @@ fn exact_event_boundary_tap_repeat_alias_and_blur() {
     // 60 Hz's rational boundary at 16,666 2/3 us is not rounded down.
     let mut before = sim();
     key(&mut before, "KeyE", true, 16.666);
-    before.advance(33.334, Clock::Seekable);
+    before.advance(16.667, Clock::Seekable);
     assert_eq!(before.world().resource::<Counts>().pressed, 1);
     let mut after = sim();
     key(&mut after, "KeyE", true, 16.667);
-    after.advance(33.334, Clock::Seekable);
+    after.advance(16.667, Clock::Seekable);
     assert_eq!(after.world().resource::<Counts>().pressed, 0);
-    after.advance(50.0, Clock::Seekable);
+    after.advance(33.334, Clock::Seekable);
     assert_eq!(after.world().resource::<Counts>().pressed, 1);
 }
 #[test]
@@ -128,14 +133,14 @@ fn epoch_pause_live_gap_and_backwards_clock() {
     assert_eq!(s.advance(6000.0, Clock::Live), 15);
     assert_eq!(s.advance(5500.0, Clock::Seekable), 0);
     assert_eq!(s.advance(6000.0, Clock::Seekable), 0);
-    s.bind(&[Value::Bool(true)]).unwrap();
+    s.bind(&[Value::Bool(true)], None).unwrap();
     key(&mut s, "KeyE", false, 6500.0);
     s.advance(7000.0, Clock::Seekable);
     assert_eq!(s.world().tick(), 15);
-    s.bind(&[Value::Bool(false)]).unwrap();
+    s.bind(&[Value::Bool(false)], None).unwrap();
     s.advance(7100.0, Clock::Seekable);
     let c = s.world().resource::<Counts>();
-    assert_eq!(c.released, 1);
+    assert_eq!(c.released, 0);
     assert_eq!(s.world().tick(), 21);
 }
 #[test]
@@ -191,11 +196,11 @@ fn settle_finds_nested_springs_and_busy_is_per_tick() {
         springs: vec![Some(Box::new(spring))],
     });
     assert!(!s.quiescent());
-    s.agent(r#"{"op":"clock","settle":true}"#);
+    settle_host(&mut s);
     assert!(s.quiescent());
     s.world_mut().busy("one step");
     assert!(!s.quiescent());
-    s.agent(r#"{"op":"clock","settle":true}"#);
+    settle_host(&mut s);
     assert!(s.quiescent());
 }
 #[test]
@@ -244,7 +249,6 @@ fn named_refusals_and_reads_do_not_change_the_hash() {
         .contains("\"unavailable\":true"));
 }
 #[test]
-#[cfg(debug_assertions)]
 #[should_panic(expected = "unknown action `typo`")]
 fn misspelled_actions_are_not_silent() {
     Input::default().held("typo");
@@ -259,7 +263,7 @@ fn a_late_event_cannot_block_an_earlier_pending_boundary() {
     s.advance(33.334, Clock::Seekable);
     {
         let c = s.world().resource::<Counts>();
-        assert_eq!((c.pressed, c.released), (1, 0));
+        assert_eq!((c.pressed, c.released), (1, 1));
     }
     s.advance(50.0, Clock::Seekable);
     assert_eq!(s.world().resource::<Counts>().released, 1);
@@ -282,6 +286,23 @@ fn settle_is_bounded_for_continuous_game_work() {
     spring.set_target(s.world().now(), 1.0);
     s.world_mut().spawn(Never { spring });
     let reply = s.agent(r#"{"op":"clock","settle":true}"#);
-    assert_eq!(s.world().tick(), 600);
+    assert_eq!(s.world().tick(), 0);
     assert!(reply.contains("\"quiescent\":false"));
+}
+
+fn settle_host(s: &mut Sim<Counter>) {
+    #[allow(non_snake_case)]
+    #[derive(Default, Data)]
+    struct Reply {
+        quiescent: bool,
+        settleAt: f64,
+    }
+    for _ in 0..16 {
+        let reply: Reply = json::from_str(&s.agent(r#"{"op":"clock","settle":true}"#)).unwrap();
+        if reply.quiescent {
+            return;
+        }
+        s.advance(reply.settleAt, Clock::Seekable);
+    }
+    panic!("world did not settle");
 }

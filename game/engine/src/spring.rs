@@ -85,6 +85,20 @@ impl Spring {
 }
 
 impl Data for Spring {
+    fn settle_tick(&self, now: Now) -> Option<u64> {
+        if self.at_rest(now) {
+            return Some(now.tick);
+        }
+        let seconds = self
+            .config
+            .settle_time(self.start_value - self.target, self.start_velocity);
+        let tick = self
+            .start_tick
+            .saturating_add((seconds * now.hz as f64).ceil() as u64);
+        // exact-motion caps its search at ten seconds; an oscillator still moving
+        // there has no known deadline. Do not claim the cap is a resting state.
+        (tick > now.tick && self.at_rest(Now { tick, ..now })).then_some(tick)
+    }
     fn moving(&self, now: Now) -> bool {
         !self.at_rest(now)
     }

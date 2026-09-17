@@ -169,7 +169,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     {
         return Err("Data does not support generics or lifetimes".into());
     }
-    let (write, read, moving) = if kind == "struct" {
+    let (write, read, moving, settle) = if kind == "struct" {
         let b = body(tokens.get(2))?;
         let access: Vec<_> = b
             .fields
@@ -180,6 +180,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             write_body(&b, &access),
             read_body(&b, &access),
             moving_body(&b, &access),
+            settle_body(&b, &access),
         )
     } else {
         let Some(TokenTree::Group(g)) = tokens.get(2) else {
@@ -202,6 +203,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         }
         let mut write = String::from("match self {");
         let mut moving = String::from("match self {");
+        let mut settle = String::from("match self {");
         let mut read = String::from("let arm = r.variant()?; match arm.as_str() {");
         for (index, arm) in arms.iter().enumerate() {
             let b = &arm.body;
@@ -215,6 +217,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 .collect();
             let write_pat = pattern(&arm.name, b, &write_vars);
             moving += &format!("{write_pat} => {},", moving_body(b, &refs));
+            settle += &format!("{write_pat} => {},", settle_body(b, &refs));
             write += &format!(
                 "{write_pat} => {{ w.variant({:?}, {index}); {} w.end_variant(); }},",
                 clean(&arm.name),
@@ -237,9 +240,10 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         write += "}";
         read += "_ => return ::core::result::Result::Err(::exact_game::DataError::new(::std::format!(\"unknown variant {}\", arm))), } r.end_variant()?;";
         moving += "}";
-        (write, read, moving)
+        settle += "}";
+        (write, read, moving, settle)
     };
-    let mut out = format!("impl ::exact_game::Data for {name} {{ fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    let mut out = format!("impl ::exact_game::Data for {name} {{ fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_game::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
         out += &format!(
             "impl ::exact_game::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?}; }}",
@@ -356,4 +360,15 @@ fn moving_body(b: &Body, access: &[String]) -> String {
     } else {
         parts.join(" || ")
     }
+}
+
+fn settle_body(b: &Body, access: &[String]) -> String {
+    let maxes = b
+        .fields
+        .iter()
+        .zip(access)
+        .filter(|(f, _)| !f.skip)
+        .map(|(_, a)| format!(".max(::exact_game::Data::settle_tick(&{a}, now)?)"))
+        .collect::<String>();
+    format!("::core::option::Option::Some(now.tick{maxes})")
 }

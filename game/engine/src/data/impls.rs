@@ -75,9 +75,22 @@ impl Data for String {
         Ok(())
     }
 }
+impl Data for std::borrow::Cow<'static, str> {
+    fn write(&self, w: &mut dyn Writer) {
+        w.string(self);
+    }
+    fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+        *self = std::borrow::Cow::Owned(r.string()?);
+        Ok(())
+    }
+}
 impl<T: Data> Data for Vec<T> {
     fn moving(&self, now: crate::Now) -> bool {
         self.iter().any(|v| v.moving(now))
+    }
+    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
+        self.iter()
+            .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
     }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_seq(self.len());
@@ -92,6 +105,9 @@ impl<T: Data> Data for Vec<T> {
     }
 }
 impl<T: Data> Data for Option<T> {
+    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
+        self.as_ref().map_or(Some(now.tick), |v| v.settle_tick(now))
+    }
     fn moving(&self, now: crate::Now) -> bool {
         self.as_ref().is_some_and(|v| v.moving(now))
     }
@@ -120,6 +136,10 @@ where
     fn moving(&self, now: crate::Now) -> bool {
         self.iter().any(|v| v.moving(now))
     }
+    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
+        self.iter()
+            .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_seq(N);
         for v in self {
@@ -144,6 +164,9 @@ where
     }
 }
 impl<T: Data> Data for Box<T> {
+    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
+        (**self).settle_tick(now)
+    }
     fn moving(&self, now: crate::Now) -> bool {
         (**self).moving(now)
     }
@@ -158,6 +181,10 @@ impl<T: Data> Data for Box<T> {
 impl<T: Data> Data for BTreeMap<String, T> {
     fn moving(&self, now: crate::Now) -> bool {
         self.values().any(|v| v.moving(now))
+    }
+    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
+        self.values()
+            .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
     }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
@@ -183,6 +210,7 @@ macro_rules! tuple {
     ($n:expr; $($T:ident:$i:tt),*) => {
         impl<$($T: Data),*> Data for ($($T,)*) {
             fn moving(&self, now: crate::Now) -> bool { false $(|| self.$i.moving(now))* }
+            fn settle_tick(&self, now: crate::Now) -> Option<u64> { Some(now.tick $(.max(self.$i.settle_tick(now)?))*) }
             fn write(&self, w: &mut dyn Writer) {
                 w.begin_seq($n); $(w.item(); self.$i.write(w);)* w.end_seq();
             }

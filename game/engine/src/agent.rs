@@ -11,7 +11,6 @@ struct Request {
     entity: Option<String>,
     under: Option<String>,
     summary: bool,
-    settle: bool,
     now: Option<f64>,
     width: Option<f32>,
     height: Option<f32>,
@@ -30,7 +29,6 @@ impl Request {
                 "entity" => q.entity = Some(r.string()?),
                 "under" => q.under = Some(r.string()?),
                 "summary" => q.summary.read(&mut r)?,
-                "settle" => q.settle.read(&mut r)?,
                 "now" => {
                     let mut n = 0.0f64;
                     n.read(&mut r)?;
@@ -141,9 +139,6 @@ impl<G: Game> Sim<G> {
         if let (Some(w), Some(h)) = (q.width, q.height) {
             self.viewport(w, h);
         }
-        if q.op == "clock" && q.settle {
-            self.settle();
-        }
         let w = &self.world;
         let tick = w.tick();
         match q.op.as_str() {
@@ -155,7 +150,7 @@ impl<G: Game> Sim<G> {
                 let end = if subtree.is_some() { (start+1..all.len()).find(|&i| all[i].2 <= all[start].2).unwrap_or(all.len()) } else { all.len() };
                 let entities = all[start..end].iter().take(512).map(|&(e,p,d)| {
                     let names = w.component_names(e).into_iter().map(quote).collect::<Vec<_>>().join(",");
-                    format!("{{{},\"parent\":{},\"depth\":{d},\"components\":[{names}]}}", identity(w,e), p.map_or_else(|| "null".into(), |e| e.index().to_string()))
+                    format!("{{{},\"parent\":{},\"depth\":{d},\"components\":[{names}],\"tags\":[]}}", identity(w,e), p.map_or_else(|| "null".into(), |e| e.index().to_string()))
                 }).collect::<Vec<_>>().join(",");
                 Ok(format!("{{\"tick\":{tick},\"entities\":[{entities}],\"truncated\":{}}}", end-start > 512))
             }
@@ -163,19 +158,23 @@ impl<G: Game> Sim<G> {
                 let e = resolve(w,q.entity.as_deref().unwrap())?;
                 Ok(format!("{{\"tick\":{tick},\"entity\":{{{},\"components\":{}}}}}", identity(w,e), w.components_json(e).map_err(|e|e.to_string())?))
             }
-            "state" => Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"args\":{},\"resources\":{},\"input\":{{\"actions\":{},\"held\":{}}},\"published\":{}}}}}",
-                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), self.args.json(G::ARGS), w.resources_json().map_err(|e|e.to_string())?, self.input.actions.json(), encode(&self.input.keys)?, w.published_json(true))),
-            "layout" => {
+            "state" => Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"args\":{},\"resources\":{},\"audio\":{{\"voices\":[]}},\"input\":{{\"actions\":{},\"held\":{}}},\"published\":{}}}}}",
+                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(w.args()), w.args().json(), w.resources_json().map_err(|e|e.to_string())?, self.input.actions.json(), encode(&self.input.keys)?, w.published_json(true))),
+            "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;
                 self.layout(e)
             }
-            "pick" => {
-                let point = Vec2::new(q.x.ok_or("pick needs x")?,q.y.ok_or("pick needs y")?);
-                let view = spatial::View::new(w,self.input.viewport).ok_or("pick unavailable: needs an active camera and viewport")?;
+            "layout" => {
+                let point = Vec2::new(q.x.ok_or("layout needs x")?,q.y.ok_or("layout needs y")?);
+                let view = spatial::View::new(w,self.input.viewport).ok_or("layout unavailable: needs an active camera and viewport")?;
                 let hit = spatial::pick(w,&view,point).map(|(e,d,p)| Ok::<_,String>(format!("{{{},\"distance\":{},\"point\":{}}}", identity(w,e),encode(&d)?,encode(&p)?))).transpose()?.unwrap_or_else(||"null".into());
                 Ok(format!("{{\"tick\":{tick},\"hit\":{hit}}}"))
             }
-            "clock" => Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":{}}}", w.hash(), self.quiescent())),
+            "clock" => {
+                let quiescent = self.quiescent();
+                let deadline = if quiescent { String::new() } else { format!(",\"settleAt\":{}", self.settle_at()) };
+                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":{quiescent}{deadline}}}", w.hash()))
+            },
             "logs" => {
                 let lines = w.journal(); let next = w.journal_next(); let start = lines.first().map_or(next, |e|e.index); let from = q.since.clamp(start,next);
                 let lines = lines.iter().filter(|e|e.index >= from).map(|e|quote(&e.line)).collect::<Vec<_>>().join(",");

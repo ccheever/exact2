@@ -187,6 +187,14 @@ impl Default for InputEvent {
     }
 }
 impl InputEvent {
+    pub(crate) fn set_at_ms(&mut self, value: f64) {
+        match self {
+            Self::Key { at_ms, .. }
+            | Self::Pointer { at_ms, .. }
+            | Self::Wheel { at_ms, .. }
+            | Self::Blur { at_ms } => *at_ms = value,
+        }
+    }
     pub(crate) fn at_ms(&self) -> f64 {
         match self {
             Self::Key { at_ms, .. }
@@ -217,6 +225,7 @@ struct Contact {
 /// Tick-local action edges and accumulated device state. Only Sim mutates it.
 #[derive(Clone, Default, Data)]
 pub struct Input {
+    #[data(skip)]
     pub(crate) actions: Actions,
     pub(crate) keys: Vec<String>,
     pressed: Vec<String>,
@@ -235,7 +244,16 @@ impl Input {
     }
     fn action(&self, name: &str) -> Option<&Action> {
         let a = self.actions.entries.iter().find(|a| a.name == name);
-        debug_assert!(a.is_some(), "unknown action `{name}`");
+        assert!(
+            a.is_some(),
+            "unknown action `{name}`; declared actions: {}",
+            self.actions
+                .entries
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
         a
     }
     fn touching(&self, regions: &[Region]) -> bool {
@@ -302,6 +320,18 @@ impl Input {
             p.delta = Vec2::ZERO;
         }
     }
+    pub(crate) fn restore_dynamic(&mut self, saved: Self) {
+        self.keys = saved.keys;
+        self.pointer = saved.pointer;
+        self.contacts = saved.contacts;
+        self.clear_edges();
+    }
+    pub(crate) fn apply_paused(&mut self, event: InputEvent) {
+        if !matches!(event, InputEvent::Wheel { .. }) {
+            self.apply_state(event);
+        }
+        self.clear_edges();
+    }
     pub(crate) fn apply(&mut self, event: InputEvent) {
         let before: Vec<_> = self
             .actions
@@ -309,6 +339,18 @@ impl Input {
             .iter()
             .map(|a| self.active(a))
             .collect();
+        self.apply_state(event);
+        for (a, was) in self.actions.entries.iter().zip(before) {
+            let now = self.active(a);
+            if now && !was && !self.pressed.contains(&a.name) {
+                self.pressed.push(a.name.clone());
+            }
+            if was && !now && !self.released.contains(&a.name) {
+                self.released.push(a.name.clone());
+            }
+        }
+    }
+    fn apply_state(&mut self, event: InputEvent) {
         match event {
             InputEvent::Key { code, down, .. } => match (self.keys.binary_search(&code), down) {
                 (Err(i), true) => self.keys.insert(i, code),
@@ -322,9 +364,7 @@ impl Input {
                 self.keys.clear();
                 self.contacts.clear();
                 self.wheel = Vec2::ZERO;
-                if let Some(p) = &mut self.pointer {
-                    p.down = false;
-                }
+                self.pointer = None;
             }
             InputEvent::Pointer {
                 id, phase, x, y, ..
@@ -364,15 +404,6 @@ impl Input {
                     }
                     PointerPhase::Up | PointerPhase::Cancel => self.contacts.retain(|p| p.id != id),
                 }
-            }
-        }
-        for (a, was) in self.actions.entries.iter().zip(before) {
-            let now = self.active(a);
-            if now && !was && !self.pressed.contains(&a.name) {
-                self.pressed.push(a.name.clone());
-            }
-            if was && !now && !self.released.contains(&a.name) {
-                self.released.push(a.name.clone());
             }
         }
     }

@@ -196,6 +196,35 @@ fn capsule(o: Vec3, d: Vec3, radius: f32, height: f32) -> Option<f32> {
     }
     hit
 }
+fn cylinder(o: Vec3, d: Vec3) -> Option<f32> {
+    let mut hit: Option<f32> = None;
+    let mut accept = |t: f32| {
+        if t >= 0.0 && hit.is_none_or(|old| t < old) {
+            hit = Some(t);
+        }
+    };
+    let a = d.x * d.x + d.z * d.z;
+    let b = o.x * d.x + o.z * d.z;
+    let c = o.x * o.x + o.z * o.z - 1.0;
+    let disc = b * b - a * c;
+    if a > 1e-12 && disc >= 0.0 {
+        for t in [(-b - math::sqrt(disc)) / a, (-b + math::sqrt(disc)) / a] {
+            if (o.y + t * d.y).abs() <= 0.5 {
+                accept(t);
+            }
+        }
+    }
+    if d.y.abs() > 1e-8 {
+        for y in [-0.5, 0.5] {
+            let t = (y - o.y) / d.y;
+            let p = o + d * t;
+            if p.x * p.x + p.z * p.z <= 1.0 {
+                accept(t);
+            }
+        }
+    }
+    hit
+}
 pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, Vec3)> {
     let (origin, direction) = view.ray(point);
     let mut hit = None;
@@ -213,6 +242,7 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
         let o = inv.transform_point3(origin);
         let d = inv.transform_vector3(direction);
         let t = match mesh {
+            Mesh::Cylinder => cylinder(o, d),
             Mesh::Sphere => sphere(o, d, Vec3::ZERO, 1.0),
             Mesh::Capsule { radius, height } => capsule(o, d, *radius, *height),
             _ => slab(o, d, extent(Some(mesh))),

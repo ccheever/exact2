@@ -138,10 +138,11 @@ extension Agent {
             guard e.wantsInput else { return ["error": "view \(id)'s surface does not take input"] }
             return ["ok": e.view.focusCanvas()]
         }
-        guard ["layout", "state", "tree", "pick"].contains(op) else { return ["error": "world does not answer \(op)"] }
+        guard ["layout", "state", "tree"].contains(op) else { return ["error": "world does not answer \(op)"] }
         var request = request
         let rect = box(e.view)
-        if op == "pick" {
+        // A `layout` with a point and no entity is the pick (LLP 1041.001 D2): a form, not a ninth name.
+        if op == "layout", request["entity"] == nil {
             if let x = request["x"] as? Double { request["x"] = x - rect.minX }
             if let y = request["y"] as? Double { request["y"] = y - rect.minY }
         }

@@ -257,6 +257,7 @@ fn a09_fifty_thousand_freed_slots_reuse_lowest_first_after_save() {
 fn a10_roots_are_local_parent_chains_reuse_scratch_and_fresh_is_per_tick() {
     struct Moving;
     impl Game for Moving {
+        const ID: &'static str = "Moving";
         fn setup(w: &mut World, _: &Args) -> Result<(), String> {
             w.spawn_named("root", Transform::at(1.0, 0.0, 0.0));
             Ok(())
@@ -296,6 +297,7 @@ fn a10_roots_are_local_parent_chains_reuse_scratch_and_fresh_is_per_tick() {
 fn a11_orphan_chains_leave_after_game_tick_in_entity_order() {
     struct Reaper;
     impl Game for Reaper {
+        const ID: &'static str = "Reaper";
         fn setup(w: &mut World, _: &Args) -> Result<(), String> {
             let leaf = w.spawn_named("leaf", ());
             let middle = w.spawn_named("middle", ());
@@ -324,9 +326,9 @@ fn a11_orphan_chains_leave_after_game_tick_in_entity_order() {
     assert_eq!(
         lines,
         [
-            "tick=0 despawn #2",
-            "tick=0 despawn #1",
-            "tick=0 despawn #0"
+            "t=0 tick=0 despawn #2",
+            "t=0 tick=0 despawn #1",
+            "t=0 tick=0 despawn #0"
         ]
     );
 }
@@ -422,9 +424,10 @@ fn a18_spawn_named_takes_owned_or_borrowed_text() {
 fn a19_integer_argument_and_default_bind_refuse_by_name() {
     struct Seeded;
     impl Game for Seeded {
-        const ARGS: &'static [&'static str] = &["seed"];
+        const ID: &'static str = "Seeded";
+        const ARGS: &'static [Arg] = &[Arg::setup("seed")];
         fn setup(w: &mut World, args: &Args) -> Result<(), String> {
-            w.reseed(args.integer(0, "seed")?);
+            w.reseed(args.integer("seed")?);
             Ok(())
         }
         fn tick(_: &mut World, _: &Input) {}
@@ -449,12 +452,12 @@ fn a19_integer_argument_and_default_bind_refuse_by_name() {
             .seed(),
         9_007_199_254_740_991
     );
-    let mut w = World::new(60, 0);
-    assert!(Seeded::bind(&mut w, &Args::default())
+    let mut sim = Sim::<Seeded>::new(&[Value::Number(1.0)]).unwrap();
+    assert!(sim.bind(&[], None).unwrap_err().contains("seed"));
+    assert!(sim
+        .bind(&[Value::Number(1.0), Value::Number(2.0)], None)
         .unwrap_err()
         .contains("seed"));
-    let extra: Args = json::from_str(r#"[[{"Number":[1]},{"Number":[2]}]]"#).unwrap();
-    assert!(Seeded::bind(&mut w, &extra).unwrap_err().contains("seed"));
 }
 #[test]
 fn a20_one_returns_a_leased_row_and_debug_refuses_ambiguity() {

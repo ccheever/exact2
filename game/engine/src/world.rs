@@ -90,7 +90,7 @@ struct State {
     seed: u64,
     slots: Vec<Slot>,
     free: Free,
-    busy: Vec<String>,
+    busy: Vec<std::borrow::Cow<'static, str>>,
 }
 #[derive(Clone, Copy)]
 struct Registration {
@@ -113,6 +113,7 @@ pub struct Event {
 
 /// Ordered simulation state, with dynamic storage borrows and no host clock.
 pub struct World {
+    pub(crate) args: crate::Args,
     state: State,
     pub(crate) alive_mask: Vec<u64>,
     rng: Storage<Rng>,
@@ -140,6 +141,7 @@ impl World {
         let mut rng = Storage::default();
         rng.insert(0, Rng::new(seed), 0);
         Self {
+            args: crate::Args::default(),
             state: State {
                 hz,
                 seed,
@@ -312,6 +314,9 @@ impl World {
     }
     /// Resolve fox, fox#12, or #12; an explicit name must agree with the slot.
     pub fn resolve(&self, target: &str) -> Option<Entity> {
+        if let Some(e) = self.named(target) {
+            return Some(e);
+        }
         if let Some((name, index)) = target.rsplit_once('#') {
             let index: u32 = index.parse().ok()?;
             let s = self.state.slots.get(index as usize)?;
@@ -467,7 +472,11 @@ impl World {
             index,
             tick: self.tick(),
             seconds: self.seconds(),
-            line: format!("tick={} {line}", self.tick()),
+            line: format!(
+                "t={} tick={} {line}",
+                self.tick() as u128 * 1000 / self.hz() as u128,
+                self.tick()
+            ),
         });
     }
     /// Snapshot journal events; journal reads do not affect simulation state.

@@ -124,8 +124,13 @@ pub fn shader_names() -> String {
 
 /// Bind inputs (a JSON array). `true` on success.
 pub fn bind(id: u32, values: &str) -> bool {
+    bind_at(id, values, None)
+}
+
+/// Bind inputs at an optional host commit clock.
+pub fn bind_at(id: u32, values: &str, at_ms: Option<f64>) -> bool {
     match json::parse_values(values) {
-        Ok(v) => with(|m| m.bind(id, &v)).unwrap_or(false),
+        Ok(v) => with(|m| m.bind(id, &v, at_ms)).unwrap_or(false),
         Err(e) => {
             ERROR.with(|s| *s.borrow_mut() = e);
             false
@@ -244,6 +249,12 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_bind(id: u32, values: &str) -> bool {
             $crate::web::bind(id, values)
+        }
+
+        /// Bind inputs at an optional host commit clock.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_bind_at(id: u32, values: &str, at_ms: Option<f64>) -> bool {
+            $crate::web::bind_at(id, values, at_ms)
         }
 
         /// Render one frame: 1 = wants another, 0 = done, 2 = failed.

@@ -20,6 +20,7 @@ function size(el) {
   return { w: Math.max(r.width, 1), h: Math.max(r.height, 1), s: devicePixelRatio || 1 };
 }
 
+// exact.now() follows each batch `at` marker while surface commits are applied.
 // The surfaces' clock: the page's in agent mode (LLP 1012: the driver owns
 // time, and a picture is a function of it), else the frame's.
 const clockFor = (frameNow) => exact.now?.() ?? frameNow;
@@ -59,7 +60,7 @@ function ensure(entry) {
   entry.observer = new ResizeObserver(() => { if (entry.id) { render(entry, performance.now()); } });
   // (`render` takes the agent's clock over that timestamp in agent mode.)
   entry.observer.observe(entry.el);
-  if (!gpu.gpu_bind(entry.id, JSON.stringify(entry.values))) console.error("exact gpu:", gpu.gpu_error());
+  if (!gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error());
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
   if (entry.wantsInput) listen(entry);
   schedule();
@@ -149,8 +150,8 @@ exact.gpu = {
       if (!entry.wantsInput) return { error: `view ${request.id}'s surface does not take input` };
       entry.host.focus({ preventScroll: true }); return tagged({ ok: document.activeElement === entry.host });
     }
-    if (!["layout", "state", "tree", "pick"].includes(request.op)) return { error: `world does not answer ${request.op}` };
-    if (request.op === "pick") {
+    if (!["layout", "state", "tree"].includes(request.op)) return { error: `world does not answer ${request.op}` };
+    if (request.op === "layout" && request.entity === undefined) {
       const r = entry.host.getBoundingClientRect();
       request = { ...request, x: request.x - r.left, y: request.y - r.top };
     }
@@ -201,7 +202,7 @@ exact.gpu = {
     if (entry && entry.name !== name) { this.destroy(view); entry = null; } // one id cannot retain another plan's surface
     if (!entry) { entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0 }; surfaces.set(view, entry); ensure(entry); return; }
     entry.values = values;
-    if (entry.id) { if (!gpu.gpu_bind(entry.id, JSON.stringify(values))) console.error("exact gpu:", gpu.gpu_error()); schedule(); }
+    if (entry.id) { if (!gpu.gpu_bind_at(entry.id, JSON.stringify(values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error()); schedule(); }
   },
   destroy(view) {
     const entry = surfaces.get(view);
@@ -233,7 +234,7 @@ exact.gpu = {
     return () => replaceShaders(rows);
   },
   /// Time moved (the agent's `clock`): render what wants a frame, once.
-  schedule() { for (const entry of surfaces.values()) if (entry.id && entry.wants) { entry.wants = false; gpu.gpu_bind(entry.id, JSON.stringify(entry.values)); } schedule(); },
+  schedule() { for (const entry of surfaces.values()) if (entry.id && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },
 };
 
 function shaderRows(assets) {

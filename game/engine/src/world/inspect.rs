@@ -2,6 +2,10 @@ use super::*;
 use crate::values::{quote, value_json};
 
 impl World {
+    /// Current canvas arguments, resolved by their declared names.
+    pub fn args(&self) -> &crate::Args {
+        &self.args
+    }
     /// Current simulation instant, suitable for sampling or retargeting springs.
     pub fn now(&self) -> Now {
         Now {
@@ -19,7 +23,7 @@ impl World {
         self.rng.insert(0, Rng::new(seed), self.tick());
     }
     /// Keep clock settle running. Reasons expire at the start of the next tick.
-    pub fn busy(&mut self, reason: impl Into<String>) {
+    pub fn busy(&mut self, reason: &'static str) {
         self.state.busy.push(reason.into());
     }
     /// Whether all component/resource springs rest and the game reported no work.
@@ -30,6 +34,17 @@ impl World {
                 .values()
                 .chain(self.resources.values())
                 .any(|s| s.moving(self.now()))
+    }
+    pub(crate) fn settle_tick(&self) -> Option<u64> {
+        if !self.state.busy.is_empty() {
+            return None;
+        }
+        self.components
+            .values()
+            .chain(self.resources.values())
+            .try_fold(self.tick(), |at, s| {
+                Some(at.max(s.settle_tick(self.now())?))
+            })
     }
     pub(crate) fn begin_tick(&mut self) {
         self.state.busy.clear();

@@ -32,8 +32,19 @@ canvas children are the HUD, a placement is a sign in the world.
 struct Lantern { lit: bool }
 
 impl Game for Lanterns {
-    fn setup(world: &mut World, args: &Args) { /* spawn the level from the canvas's arguments */ }
-    fn tick(world: &mut World, input: &Input) { /* one fixed step: the only place state changes */ }
+    const ID: &'static str = "lanterns";
+    const ARGS: &'static [Arg] = &[Arg::setup("seed"), Arg::setup("run"), Arg::live("paused")];
+    fn check(args: &Args) -> Result<(), String> {
+        args.integer("seed")?; args.integer("run")?; args.flag("paused")?;
+        Ok(())
+    }
+    fn setup(world: &mut World, args: &Args) -> Result<(), String> {
+        world.reseed(args.integer("seed")?);
+        // Spawn the level. Changing seed or run constructs a fresh world.
+        Ok(())
+    }
+    fn paused(args: &Args) -> bool { args.flag("paused").unwrap() }
+    fn tick(world: &mut World, input: &Input) { /* live values: world.args().flag("paused") */ }
 }
 ```
 
@@ -42,6 +53,11 @@ impl Game for Lanterns {
 - **All state is in the `World`, and all of it is `Data`**: one derive gives the
   save game, the hash, the agent's JSON, the level file, and what a dev reload
   carries. A `Game` has no fields.
+- **Setup arguments construct; live arguments are read each tick.** A timed
+  `bind(values, Some(at_ms))` validates first, seeks under the old arguments, then
+  swaps. A refused bind changes nothing. Saves carry the game's `ID` and
+  `SAVE_VERSION`, world time and dynamic input; the first restored host clock
+  establishes a new epoch.
 - **Time is an input.** `tick = floor(clock_ms × hz / 1000)`; a step is `1/hz`
   exactly; there is no `delta`. Rendering interpolates between the last two ticks,
   so motion is smooth at any refresh rate and the simulation never knows.
@@ -70,9 +86,10 @@ reach the world through one export on the module; an entity is a target
 agent hears. The inner loop needs no host at all:
 
 ```rust
-let mut sim = Sim::<Lanterns>::new(&args);
-sim.key("KeyW", true);
-sim.advance_to(1500.0);
+let mut sim = Sim::<Lanterns>::new(&args)?;
+sim.advance(0.0, Clock::Seekable); // establish the host epoch
+sim.input(InputEvent::Key { code: "KeyW".into(), down: true, at_ms: 0.0 });
+sim.advance(1500.0, Clock::Seekable);
 assert_eq!(sim.world().hash(), 0x…);
 ```
 

@@ -158,6 +158,11 @@ pub fn validate_shader(name: &str, text: &str) -> u32 {
 
 /// Bind inputs (a JSON array of values). Returns 0 on success.
 pub fn bind(id: u32, values: &str) -> u32 {
+    bind_at(id, values, None)
+}
+
+/// Bind inputs at an optional host commit clock.
+pub fn bind_at(id: u32, values: &str, at_ms: Option<f64>) -> u32 {
     let values = match json::parse_values(values) {
         Ok(v) => v,
         Err(e) => {
@@ -165,7 +170,7 @@ pub fn bind(id: u32, values: &str) -> u32 {
             return 1;
         }
     };
-    match with(|m| m.bind(id, &values)) {
+    match with(|m| m.bind(id, &values, at_ms)) {
         Some(true) => 0,
         _ => 1,
     }
@@ -403,6 +408,17 @@ macro_rules! module {
             let Some(text) = (unsafe { $crate::native::bytes("gpu_bind", values, len) }) else { return 1 };
             let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_bind: the values are not UTF-8"); return 1 };
             $crate::native::bind(id, text)
+        }
+
+        /// Bind inputs at the host commit clock. 0 on success.
+        ///
+        /// # Safety
+        /// `values` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_bind_at(id: u32, values: *const u8, len: usize, at_ms: f64) -> u32 {
+            let Some(text) = (unsafe { $crate::native::bytes("gpu_bind_at", values, len) }) else { return 1 };
+            let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_bind_at: the values are not UTF-8"); return 1 };
+            $crate::native::bind_at(id, text, Some(at_ms))
         }
 
         /// Render one frame: 1 = wants another, 0 = done, 2 = failed.

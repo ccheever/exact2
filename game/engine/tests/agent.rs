@@ -1,6 +1,7 @@
 use exact_game::*;
 struct Scene;
 impl Game for Scene {
+    const ID: &'static str = "Scene";
     fn setup(w: &mut World, _: &Args) -> Result<(), String> {
         let child = w.spawn_named("child", Transform::at(0.0, 1.0, 0.0));
         let root = w.spawn_named("root", Transform::at(2.0, 0.0, 0.0));
@@ -15,7 +16,7 @@ fn hierarchy_preorder_under_and_cap() {
     let mut s = Sim::<Scene>::new(&[]).unwrap();
     assert_eq!(
         s.agent(r#"{"op":"tree","under":"root"}"#),
-        r#"{"tick":0,"entities":[{"id":1,"name":"root","parent":null,"depth":0,"components":["Transform"]},{"id":0,"name":"child","parent":1,"depth":1,"components":["Parent","Transform"]}],"truncated":false}"#
+        r#"{"tick":0,"entities":[{"id":1,"name":"root","parent":null,"depth":0,"components":["Transform"],"tags":[]},{"id":0,"name":"child","parent":1,"depth":1,"components":["Parent","Transform"],"tags":[]}],"truncated":false}"#
     );
     assert!(s
         .agent(r#"{"op":"layout","entity":"child"}"#)
@@ -40,7 +41,7 @@ fn pick_uses_oriented_boxes_and_exact_spheres_and_capsules() {
         .spawn_named("shape", (Transform::default(), Mesh::Sphere));
     s.world_mut().propagate();
     let pick = |s: &mut Sim<Scene>, x: f32, y: f32| {
-        s.agent(&format!("{{\"op\":\"pick\",\"x\":{x},\"y\":{y}}}"))
+        s.agent(&format!("{{\"op\":\"layout\",\"x\":{x},\"y\":{y}}}"))
     };
     assert!(pick(&mut s, 400.0, 300.0).contains("\"distance\":9"));
     // This ray intersects the sphere's box near its corner, but misses the sphere.
@@ -78,7 +79,7 @@ fn projection_refusals_and_four_decimal_rounding_are_read_only() {
         .agent(r#"{"op":"state","entity":"child"}"#)
         .contains("0.1235"));
     assert!(s
-        .agent(r#"{"op":"pick","x":0,"y":0}"#)
+        .agent(r#"{"op":"layout","x":0,"y":0}"#)
         .contains("needs an active camera and viewport"));
     for request in [
         r#"{"op":"tree","width":0,"height":600}"#,
@@ -117,6 +118,6 @@ fn capsule_pick_from_inside_ignores_internal_cap_surfaces() {
         ),
     );
     s.world_mut().propagate();
-    let reply = s.agent(r#"{"op":"pick","x":400,"y":300}"#);
+    let reply = s.agent(r#"{"op":"layout","x":400,"y":300}"#);
     assert!(reply.contains("\"distance\":1.5"), "{reply}");
 }

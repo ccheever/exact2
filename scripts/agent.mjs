@@ -608,6 +608,7 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
       pointer = { ask: (req) => io.ask(req), child };
       return pointer;
     };
+    let canvasContact = false;
     const phaseSim = async (kind, id, opts) => {
       const p = await helper();
       const unsupported = (reason) => ({ phase: kind, delivery: 'unsupported', reason });
@@ -667,7 +668,17 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
       ask,
       async input(id, kind, opts) {
         const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
-        if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) return phaseSim(kind, id, opts);
+        if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) {
+          if (kind === 'down' || canvasContact) {
+            const r = await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms });
+            if (r.error) throw new Error(r.error);
+            if (r.delivery !== 'unsupported' || canvasContact) {
+              canvasContact = !['up', 'cancel'].includes(kind);
+              return r;
+            }
+          }
+          return phaseSim(kind, id, opts);
+        }
         const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
@@ -740,7 +751,7 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
     /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. With a target, `node` explains that one node (LLP 1035.002 D1): every row it sets or inherits with where the value came from, its box in each coordinate space the host has, the scroll and clip chains above it, whether it is hidden, inert, in the viewport or clipped away, and what the host mounted for it — observations of the runner's memory and the host's view tree, never a second model. */
     async layout(target, at) {
       const req = { op: 'layout', ...(target != null ? await s.target(target) : {}) };
-      if (at) return s.op({ ...req, op: 'pick', world: true, x: at[0], y: at[1] });
+      if (at) return s.op({ ...req, world: true, x: at[0], y: at[1] });
       if (req.entity !== undefined) return s.op(req);
       const [l, t] = await Promise.all([s.op(req), s.tree()]);
       const by = new Map(t.nodes.map((n) => [n.id, n]));
@@ -786,7 +797,7 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
         const b = entity?.screen;
         if (!b || ![b.x, b.y, b.w, b.h].every(Number.isFinite)) throw new Error(`${target} has no screen box`);
         const x = b.x + b.w / 2, y = b.y + b.h / 2;
-        const { hit } = await s.op({ op: 'pick', id: node.id, world: true, x, y });
+        const { hit } = await s.op({ op: 'layout', id: node.id, world: true, x, y });
         if (!hit) throw new Error(`${target} is not hit at ${x},${y}`);
         if (hit.id !== entity.id) throw new Error(`${target} is behind ${hit.name ?? hit.id} at ${x},${y}`);
         if (s.contact) throw new Error('a contact is already down; up or cancel it first');

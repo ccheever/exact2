@@ -1,4 +1,6 @@
 //! Host-independent f32 transcendentals. Game code uses these, never f32::sin.
+//! glam as configured (scalar-math + libm, fixed operation order and correctly
+//! rounded sqrt) is part of the deterministic set; std's float methods are not.
 /// Sine in radians.
 pub fn sin(x: f32) -> f32 {
     libm::sinf(x)

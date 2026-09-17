@@ -75,6 +75,10 @@ pub trait Surface {
     /// The canvas's inputs from the plan, as typed values; before the
     /// first render and whenever they change. A refusal names the input.
     fn bind(&mut self, inputs: &[Value]) -> Result<(), SurfaceError>;
+    /// Bind at the host's optional commit clock, without requiring a frame.
+    fn bind_at(&mut self, inputs: &[Value], _at_ms: Option<f64>) -> Result<(), SurfaceError> {
+        self.bind(inputs)
+    }
     /// One frame into `target` (of `format`). Returns whether another
     /// frame is wanted without new inputs.
     fn render(
@@ -634,11 +638,11 @@ impl Module {
 
     /// New inputs for a canvas; a refusal is reported and the surface keeps
     /// its last accepted inputs.
-    pub fn bind(&mut self, id: u32, inputs: &[Value]) -> bool {
+    pub fn bind(&mut self, id: u32, inputs: &[Value], at_ms: Option<f64>) -> bool {
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail::<()>("no such canvas").is_some();
         };
-        match inst.surface.bind(inputs) {
+        match inst.surface.bind_at(inputs, at_ms) {
             Ok(()) => {
                 inst.bound = true;
                 inst.dirty = true;

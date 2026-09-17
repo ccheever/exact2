@@ -2,8 +2,8 @@
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 use exact_game::{
-    Actions, Args, Camera, Component, DirectionalLight, Game, Input, Material, Mesh, Spring, Stick,
-    Transform, Vec3, World,
+    Actions, Arg, Args, Camera, Component, DirectionalLight, Game, Input, Material, Mesh, Spring,
+    Stick, Transform, Vec3, World,
 };
 
 /// Horizontal acceleration and a ballistic hop, in meters and seconds.
@@ -23,7 +23,13 @@ pub struct Beacon {
 /// Logic behind `canvas surface=world(seed, paused)`.
 pub struct Greybox;
 impl Game for Greybox {
-    const ARGS: &'static [&'static str] = &["seed", "paused"];
+    const ID: &'static str = "greybox";
+    const ARGS: &'static [Arg] = &[Arg::setup("seed"), Arg::live("paused")];
+    fn check(args: &Args) -> Result<(), String> {
+        args.integer("seed")?;
+        args.flag("paused")?;
+        Ok(())
+    }
     fn actions() -> Actions {
         Actions::new()
             .button("act", &["KeyE", "Enter"])
@@ -39,8 +45,7 @@ impl Game for Greybox {
             )
     }
     fn setup(world: &mut World, args: &Args) -> Result<(), String> {
-        world.reseed(args.integer(0, "seed")?);
-        args.flag(1, "paused")?;
+        world.reseed(args.integer("seed")?);
         world.spawn_named(
             "ground",
             (
@@ -95,7 +100,7 @@ impl Game for Greybox {
         Ok(())
     }
     fn paused(args: &Args) -> bool {
-        args.flag(1, "paused").unwrap_or(false)
+        args.flag("paused").unwrap()
     }
     fn tick(world: &mut World, input: &Input) {
         let dt = world.dt();
@@ -136,7 +141,10 @@ impl Game for Greybox {
             .query::<(&mut Beacon, &Transform, &mut Material)>()
             .iter()
         {
-            if !beacon.lit && input.pressed("act") && position.distance(pose.position) <= 1.5 {
+            if !beacon.lit
+                && input.pressed("act")
+                && position.distance_squared(pose.position) <= 1.5 * 1.5
+            {
                 beacon.lit = true;
                 beacon.glow.set_target(now, 1.0);
                 world.publish("beacons", 1);

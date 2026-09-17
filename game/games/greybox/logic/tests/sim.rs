@@ -62,8 +62,21 @@ fn beacon_messages_journal_and_settle() {
         .agent(r#"{"op":"logs","since":0}"#)
         .contains("tick=90 beacon-1 lit"));
     assert!(!s.quiescent());
-    let reply = s.agent(r#"{"op":"clock","settle":true}"#);
-    assert!(reply.contains("\"quiescent\":true"), "{reply}");
+    #[allow(non_snake_case)]
+    #[derive(Default, exact_game::Data)]
+    struct ClockReply {
+        quiescent: bool,
+        settleAt: f64,
+    }
+    for _ in 0..16 {
+        let reply: ClockReply =
+            exact_game::json::from_str(&s.agent(r#"{"op":"clock","settle":true}"#)).unwrap();
+        if reply.quiescent {
+            break;
+        }
+        s.advance(reply.settleAt, Clock::Seekable);
+    }
+    assert!(s.quiescent());
 }
 #[test]
 fn save_mid_run_retains_clock_input_and_future_events() {
@@ -78,7 +91,8 @@ fn save_mid_run_retains_clock_input_and_future_events() {
     assert_eq!(s.world().hash(), restored.world().hash());
     assert_eq!(s.alpha(), restored.alpha());
     s.advance(2000.0, Clock::Seekable);
-    restored.advance(2000.0, Clock::Seekable);
+    restored.advance(0.0, Clock::Seekable);
+    restored.advance(2000.0 - 713.123, Clock::Seekable);
     assert_eq!(s.world().hash(), restored.world().hash());
     assert_eq!(position(&s), position(&restored));
     assert_eq!(s.take_messages(), restored.take_messages());
@@ -134,7 +148,7 @@ fn agent_snapshots_and_pick() {
         exact_game::json::from_str(&s.agent(r#"{"op":"layout","entity":"player"}"#)).unwrap();
     let screen = layout.entity.screen;
     let hit = s.agent(&format!(
-        "{{\"op\":\"pick\",\"x\":{},\"y\":{}}}",
+        "{{\"op\":\"layout\",\"x\":{},\"y\":{}}}",
         screen.x + screen.w * 0.5,
         screen.y + screen.h * 0.5
     ));

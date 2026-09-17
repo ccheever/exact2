@@ -222,6 +222,7 @@ impl<C> Drop for Storage<C> {
 pub(crate) trait Erased {
     fn has(&self, index: usize) -> bool;
     fn moving(&self, now: crate::Now) -> bool;
+    fn settle_tick(&self, now: crate::Now) -> Option<u64>;
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool;
     fn any(&self) -> &dyn Any;
     fn any_mut(&mut self) -> &mut dyn Any;
@@ -258,6 +259,20 @@ impl<C: Data> Erased for Storage<C> {
             }
             false
         })
+    }
+    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
+        let _lease = self.lease(false, 0);
+        let mut at = now.tick;
+        for (word, &bits) in self.mask.iter().enumerate() {
+            let mut bits = bits;
+            while bits != 0 {
+                let i = word * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                // SAFETY: presence proves initialization; the shared lease excludes writers.
+                at = at.max(unsafe { &*self.ptr(i) }.settle_tick(now)?);
+            }
+        }
+        Some(at)
     }
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
         if let Some(c) = self.get(index) {

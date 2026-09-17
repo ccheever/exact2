@@ -29,7 +29,7 @@ fn a_byte_count_that_overflows_is_refused_by_name() {
 #[test]
 fn module_errors_are_consumed_in_sequence() {
     let mut m = Module::new(&EMPTY);
-    assert!(!m.bind(10, &[]));
+    assert!(!m.bind(10, &[], None));
     assert_eq!(m.take_error(), "no such canvas");
     assert_eq!(m.take_error(), "", "error A was consumed");
     m.destroy(10); // a successful no-op does not revive the consumed error
@@ -157,10 +157,15 @@ mod seams {
     use exact_gpu::{wgpu, Frame, InputEvent, Registry, Surface, SurfaceError, Value};
     use std::cell::RefCell;
     thread_local! { static FRAMES: RefCell<Vec<Frame>> = const { RefCell::new(Vec::new()) }; }
+    thread_local! { static BINDS: RefCell<Vec<Option<f64>>> = const { RefCell::new(Vec::new()) }; }
     struct Probe(Vec<String>);
     impl Surface for Probe {
         fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
             Ok(())
+        }
+        fn bind_at(&mut self, inputs: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
+            BINDS.with(|b| b.borrow_mut().push(at_ms));
+            self.bind(inputs)
         }
         fn wants_input(&self) -> bool {
             true
@@ -224,6 +229,8 @@ mod seams {
         assert_ne!(id, 0, "{}", exact_gpu::native::error());
         assert_eq!(gpu_wants_input(id), 1);
         assert_eq!(exact_gpu::native::bind(id, "[]"), 0);
+        assert_eq!(unsafe { gpu_bind_at(id, b"[]".as_ptr(), 2, 500.0) }, 0);
+        BINDS.with(|b| assert_eq!(*b.borrow(), [None, Some(500.0)]));
         gpu_seekable(true);
         let event = br#"{"t":"blur","at":12.5}"#;
         assert_eq!(unsafe { gpu_input(id, event.as_ptr(), event.len()) }, 0);
