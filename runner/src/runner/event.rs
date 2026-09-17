@@ -8,6 +8,13 @@ use std::fmt::Write as _;
 /// A host event aimed at a view.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
+    /// Certified physical drop or explicitly synthesized List reorder request.
+    ReorderDrop {
+        /// Exact source string key (including the empty string).
+        item: String,
+        /// Exact insertion-before key; None denotes the actual logical end.
+        before: Option<String>,
+    },
     /// A press on the view.
     Press,
     /// A text input changed to `value`.
@@ -182,6 +189,7 @@ impl<D: DataSource> Runner<D> {
         let mut what = format!(
             "{} view {view}",
             match &event {
+                Event::ReorderDrop { .. } => "reorderdrop",
                 Event::Press => "press",
                 Event::Change(_) => "change",
                 Event::Hover(true) => "hover in",
@@ -223,6 +231,7 @@ impl<D: DataSource> Runner<D> {
             .and_then(|t| t.find(view))
             .ok_or(RunnerError::UnknownView(view))?;
         let (kind, payload, name) = match &event {
+            Event::ReorderDrop { .. } => (EventKind::Reorderdrop, None, "reorderdrop"),
             Event::Press => (EventKind::Press, None, "press"),
             Event::Change(text) => (EventKind::Change, Some(Value::str(text)), "change"),
             Event::Hover(over) => (EventKind::Hover, Some(Value::Bool(*over)), "hover"),
@@ -267,6 +276,10 @@ impl<D: DataSource> Runner<D> {
             }
         }
         match event {
+            Event::ReorderDrop { item, before } => {
+                args.push(Value::str(&item));
+                args.push(before.map_or(Value::NONE, |s| Value::some(Value::str(&s))));
+            }
             Event::Scroll(left, top) => args.extend([Value::Number(left), Value::Number(top)]),
             Event::HeightRelease { height, velocity } => {
                 args.extend([Value::Number(height), Value::Number(velocity)]);

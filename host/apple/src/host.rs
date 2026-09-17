@@ -901,6 +901,7 @@ impl<D: DataSource> Host<D> {
                 EventKind::Heightrelease => "heightrelease",
                 EventKind::Transformgeometry => "transformgeometry",
                 EventKind::Transformrelease => "transformrelease",
+                EventKind::Reorderdrop => "reorderdrop",
             })
             .collect();
         if handlers.contains(&"heightrelease") {

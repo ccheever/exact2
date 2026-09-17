@@ -1,5 +1,35 @@
 use super::*;
 
+#[test]
+fn reorder_gap_requires_current_measured_neighbors_and_right_biases_zero_ties() {
+    let mut i = index(&[20., 0., 0., 30., 10.]);
+    assert_eq!(i.certified_gap(19.).unwrap(), Some(3));
+    assert_eq!(i.certified_gap(20.).unwrap(), Some(3));
+    assert_eq!(i.certified_gap(60.).unwrap(), Some(5));
+    i.invalidate_row("k1").unwrap();
+    assert_eq!(i.certified_gap(20.).unwrap(), None);
+    i.invalidate_all().unwrap();
+    assert_eq!(i.certified_gap(60.).unwrap(), None);
+}
+
+#[test]
+fn reorder_twenty_five_thousand_zero_ties_do_not_scan_rows() {
+    let mut heights = vec![0.; 25_000];
+    heights[0] = 20.;
+    heights[24_999] = 20.;
+    let mut i = index(&heights);
+    i.tree.visits.set(0);
+    assert_eq!(i.certified_gap(20.).unwrap(), Some(24_999));
+    assert!(i.tree.visits.get() < 200);
+    i.tree.visits.set(0);
+    assert_eq!(i.certified_gap_excluding(5., 0).unwrap(), Some(24_999));
+    assert!(i.tree.visits.get() < 200);
+    i.invalidate_row("k12000").unwrap();
+    i.tree.visits.set(0);
+    assert_eq!(i.certified_gap(20.).unwrap(), None);
+    assert!(i.tree.visits.get() < 200);
+}
+
 fn keys(count: usize) -> Vec<String> {
     (0..count).map(|i| format!("k{i}")).collect()
 }
@@ -623,4 +653,14 @@ fn twenty_25k_traversals_with_zero_samples_keep_selection_and_metadata_bounded()
     assert_eq!(index.next_generation, generations);
     assert_eq!(index.rows.len(), 25_000);
     assert_eq!(index.positions.len(), 25_000);
+}
+
+#[test]
+fn source_excluded_gap_certifies_zero_run_even_for_upper_half_of_source() {
+    let mut i = index(&[20., 20., 0., 20.]);
+    assert_eq!(i.certified_gap_excluding(25., 1).unwrap(), Some(3));
+    assert_eq!(i.certified_gap_excluding(35., 1).unwrap(), Some(3));
+    i.invalidate_row("k2").unwrap();
+    assert_eq!(i.certified_gap_excluding(25., 1).unwrap(), None);
+    assert_eq!(i.certified_gap_excluding(35., 1).unwrap(), None);
 }

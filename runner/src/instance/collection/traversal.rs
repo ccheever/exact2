@@ -315,3 +315,62 @@ pub(in crate::instance) fn invalidate_typography(
     }
     Ok(())
 }
+
+impl Tree {
+    pub(crate) fn reorder_collection(&self, view: ViewId) -> Option<&Collection> {
+        find_collection(&self.children, view)
+    }
+    pub(crate) fn edit_reorder<T>(
+        &mut self,
+        view: ViewId,
+        u: &mut Update<'_>,
+        mut edit: impl FnMut(&mut Collection, &mut Update<'_>, &[Frame]) -> Result<T, InstanceError>,
+    ) -> Result<Option<T>, InstanceError> {
+        edit_walk(&mut self.children, view, u, &[], &mut edit)
+    }
+}
+fn edit_walk<T>(
+    children: &mut [Child],
+    view: ViewId,
+    u: &mut Update<'_>,
+    frames: &[Frame],
+    edit: &mut impl FnMut(&mut Collection, &mut Update<'_>, &[Frame]) -> Result<T, InstanceError>,
+) -> Result<Option<T>, InstanceError> {
+    for child in children {
+        let found = match child {
+            Child::Node(n) => {
+                if let Some(c) = &mut n.collection {
+                    if c.view == view {
+                        return edit(c, u, frames).map(Some);
+                    }
+                    // Enabled nested virtual collections are forbidden. Ordinary
+                    // row descendants cannot own another private collection.
+                }
+                edit_walk(&mut n.children, view, u, frames, edit)?
+            }
+            Child::Region(r) => match &mut r.active {
+                Active::Arm { roots, frame, .. } => {
+                    let mut inner = frames.to_vec();
+                    inner.push(frame.clone());
+                    edit_walk(roots, view, u, &inner, edit)?
+                }
+                Active::Rows { rows } => {
+                    let mut found = None;
+                    for row in rows {
+                        let mut inner = frames.to_vec();
+                        inner.push(row.frame.clone());
+                        found = edit_walk(&mut row.roots, view, u, &inner, edit)?;
+                        if found.is_some() {
+                            break;
+                        }
+                    }
+                    found
+                }
+            },
+        };
+        if found.is_some() {
+            return Ok(found);
+        }
+    }
+    Ok(None)
+}

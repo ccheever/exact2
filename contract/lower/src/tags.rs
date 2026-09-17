@@ -199,6 +199,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "heightrelease" => AttrTarget::Handler("heightrelease"),
         "transformgeometry" => AttrTarget::Handler("transformgeometry"),
         "transformrelease" => AttrTarget::Handler("transformrelease"),
+        "reorderdrop" => AttrTarget::Handler("reorderdrop"),
+        "reorderFor" => AttrTarget::Prop(p("reorderFor")),
         "transformDragFor" => AttrTarget::Prop(p("transformDragFor")),
         "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
         // the canvas's surface (LLP 1009 D3)

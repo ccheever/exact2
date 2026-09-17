@@ -1,7 +1,11 @@
 //! Wrapper/spacer views use the same kernel operations and styles as authored UI.
 use super::*;
 use exact_kernel::{PropValue, StyleId};
-fn style(u: &mut Update<'_>, view: ViewId, rows: &[(&str, Value)]) -> Result<(), InstanceError> {
+pub(super) fn style(
+    u: &mut Update<'_>,
+    view: ViewId,
+    rows: &[(&str, Value)],
+) -> Result<(), InstanceError> {
     let mut patch = StyleProps::default();
     for (name, value) in rows {
         let id = StyleId::from_name(name).unwrap_or_else(|| panic!("unknown kernel style: {name}"));

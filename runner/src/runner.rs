@@ -8,6 +8,8 @@
 
 mod admission;
 mod event;
+mod reorder;
+mod reorder_codec;
 pub use event::Event;
 mod carry;
 mod collection;
@@ -199,6 +201,8 @@ pub struct Runner<D: DataSource> {
     resources: Vec<Option<ResourceState>>,
     resource_values: Vec<Option<Value>>,
     tree: Option<Tree>,
+    reorder_owner: Option<exact_kernel::NodeKey>,
+    reorder_ops: Vec<exact_kernel::Op>,
     ids: Ids,
     now_ms: f64,
     timers: Vec<Timer>,
@@ -428,6 +432,8 @@ impl<D: DataSource> Runner<D> {
             resources: Vec::new(),
             resource_values: Vec::new(),
             tree: None,
+            reorder_owner: None,
+            reorder_ops: Vec::new(),
             ids: Ids::default(),
             now_ms: 0.0,
             timers: Vec::new(),
@@ -1117,10 +1123,28 @@ impl<D: DataSource> Runner<D> {
         self.poisoned
     }
 
-    fn apply(&mut self, ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
+    fn apply(&mut self, mut ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
+        if !self.reorder_ops.is_empty() {
+            let mut prefix = std::mem::take(&mut self.reorder_ops);
+            prefix.append(&mut ops);
+            ops = prefix;
+        }
         let change = self.router_change()?;
         self.batch += 1;
-        let receipt = self.kernel.apply(0, self.batch, &ops)?;
+        let mut receipt = self.kernel.apply(0, self.batch, &ops)?;
+        let cleanup = self.reconcile_reorder()?;
+        if !cleanup.is_empty() {
+            self.batch += 1;
+            let tail = self.kernel.apply(0, self.batch, &cleanup)?;
+            receipt.batch = tail.batch;
+            receipt.epoch = tail.epoch;
+            for key in tail.touched {
+                if !receipt.created.contains(&key) && !receipt.touched.contains(&key) {
+                    receipt.touched.push(key);
+                }
+            }
+            receipt.layout_invalidated |= tail.layout_invalidated;
+        }
         self.commit_router(change);
         Ok(receipt)
     }

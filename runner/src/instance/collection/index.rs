@@ -18,6 +18,7 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::rc::Rc;
+mod gaps;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum IndexError {
@@ -105,7 +106,7 @@ impl HeightIndex {
             rows: Vec::new(),
             tree: SumTree::new(&[])?,
             estimate,
-            epoch: 0,
+            epoch: 1,
             next_generation: 0,
             #[cfg(test)]
             rebuilds: 0,
@@ -208,6 +209,7 @@ impl HeightIndex {
         self.next_generation = generation;
         self.rows[i].generation = generation;
         self.rows[i].measured_epoch = None;
+        self.tree.set_epoch(i, 0);
         Ok(MeasurementToken {
             epoch: self.epoch,
             generation,
@@ -230,6 +232,7 @@ impl HeightIndex {
         self.tree.set(i, height)?;
         self.rows[i].height = height;
         self.rows[i].measured_epoch = Some(self.epoch);
+        self.tree.set_epoch(i, self.epoch);
         Ok(true)
     }
 
@@ -371,6 +374,7 @@ fn valid_geometry(value: f64) -> Result<(), IndexError> {
 #[derive(Debug)]
 struct SumTree {
     sums: Vec<f64>,
+    measured: Vec<u64>,
     base: usize,
     len: usize,
     zeros: usize,
@@ -387,19 +391,23 @@ impl SumTree {
             .ok_or(IndexError::CapacityOverflow)?;
         let capacity = base.checked_mul(2).ok_or(IndexError::CapacityOverflow)?;
         let mut sums = vec![0.0; capacity];
+        let mut measured = vec![u64::MAX; capacity];
         let mut zeros = 0;
         for (i, row) in rows.iter().enumerate() {
             sums[base + i] = row.height;
+            measured[base + i] = row.measured_epoch.unwrap_or(0);
             zeros += usize::from(row.height == 0.0);
         }
         for node in (1..base).rev() {
             sums[node] = sums[node * 2] + sums[node * 2 + 1];
+            measured[node] = measured[node * 2].min(measured[node * 2 + 1]);
         }
         if !sums[1].is_finite() {
             return Err(IndexError::ExtentOverflow);
         }
         Ok(Self {
             sums,
+            measured,
             base,
             len: rows.len(),
             zeros,

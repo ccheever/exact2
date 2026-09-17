@@ -280,6 +280,61 @@ sample to zero, retaining its timing and later rebound. These Rust host and DOM
 regressions alone do not establish native frame performance. The authored handle
 and real-input results are recorded separately in LLP 1041 §8.12.
 
+**D8 — One collection-owned Arrange preview.** Tuft / Leibniz, 2026-09-17.
+The dedicated non-button grip authors `reorderFor="list-id"`; its strict ancestor
+virtual List authors `reorderdrop(item: string, before: option<string>)`. Runner
+joins that IDREF and handler to a current positive measured private wrapper and
+string each key. Matching ancestor IDs must be unique, including ineligible
+matches; the handle-to-root path must be attached, displayed, enabled and
+non-inert. Height/Photo props cannot also claim the grip. Other path transforms
+remain identity except the Runner-owned wrapper Translate; hosts separately
+validate actual presentation, mapping and runtime incarnation. The resolver costs
+O(depth + mounted tree), never a scan/export of all logical keys per move.
+
+Hosts first acquire the existing interaction pin, then begin one opaque
+process-unique token. No destination pin or second items graph exists. Gap hits
+use unpreviewed logical boxes and current measured local boundaries, not moved
+presentation boxes or a far pinned island. True end is logical end inside the
+actual scrollport. Unknown geometry returns NeedsMeasurement, preserving displayed targets but
+invalidating terminal eligibility until a new accepted final sample. After excluding the source, zero-height
+runs choose the rightmost coincident boundary; a minimum-measurement-epoch sum-tree
+summary proves it without scanning the run (512KiB additional numeric storage at
+25k entries). The ordinary items Rc, source order, placeholders and extent stay
+unchanged during preview. Mounted wrappers receive absolute Translate targets
+with `translate spring(300,30,1)`; newly mounted rows derive from the same single
+descriptor. A bounded current-output scalar avoids repeated equal style writes;
+there is no per-row preview history. Active preview suppresses follow-end.
+
+A terminal drop checks the exact latest scroll facts, live binding/token and
+certified gap before consuming action eligibility. It changes Active to Terminal
+in the same descriptor, resets preview targets, and dispatches exact private keys
+once while the source pin and host hold remain live. Own structural reconciliation
+keeps the source row pinned by its retained key if it survives, including
+replacement of the authored grip before a second reconciliation. Ordinary app refusal is a successful
+current-state result, not a poisoning data error. The gallery's synchronous
+terminal action supplies its current checked revision; arbitrary asynchronous
+reorder completion is not certified by this slice.
+
+The host samples O(W) current viewport presentations before dispatch, applies the
+receipt/layout/bounded feedback, and rebases surviving generational wrappers from
+old viewport position minus the new untransformed base (including actual anchor
+scroll). Release the source with its observed parent-space velocity; temporarily
+catch/release surviving neighbors with zero velocity. This is C0 position
+continuity, not C1 velocity preservation, and adds no Engine API. Common
+`reorder_frame(token)` exposes only surviving wrapper/root NodeKeys and logical
+tops/targets, never keys or claimed presentation samples. Elevation, clipping,
+actual input and before-paint lowering remain separate host obligations.
+
+`finish_reorder(token)` retires the terminal descriptor and releases only its
+still-owned interaction pin. Defer finish through source return settling when
+needed, or explicitly clean the old owner before rapid regrab. No new begin is
+admitted while that descriptor remains. Cancel, body/width/typography/structural
+invalidation, and accepted pin transfer retire action eligibility without an
+action; stale feedback is inert. Pin transfer marks the old owner unowned, so
+late finish cannot clear a successor, even if it uses the same handle. Deletion
+requires no source to survive. These common tests do not claim a physical drag,
+Linux elevation, host C0 implementation or frame performance.
+
 ## 3. The frame
 
 The host owns the clock (LLP 1001 §3 stands). An ordinary compositor frame on a native host:

@@ -760,6 +760,7 @@ impl<D: DataSource> Host<D> {
                 EventKind::Heightrelease => "heightrelease",
                 EventKind::Transformgeometry => "transformgeometry",
                 EventKind::Transformrelease => "transformrelease",
+                EventKind::Reorderdrop => "reorderdrop",
             })
             .collect();
         let pairs: Vec<(&str, String)> =

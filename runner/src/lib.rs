@@ -44,7 +44,8 @@ pub use delivery::Delivery;
 pub use exact_plan::Value;
 pub use instance::collection::{
     AnchorCorrection, CollectionFeedback, CollectionRow, CollectionSnapshot, FeedbackError,
-    RowMeasurement,
+    ReorderBinding, ReorderFrame, ReorderGeometry, ReorderProgress, ReorderStart, ReorderToken,
+    ReorderWrapper, RowMeasurement,
 };
 pub use instance::SurfaceUpdate;
 pub use request::{Answer, FailureKind, HttpScheduling, Outcome, Request, RequestOut, Response};

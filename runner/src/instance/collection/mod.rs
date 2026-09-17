@@ -3,6 +3,8 @@
 mod api;
 mod index;
 mod memo;
+mod reorder;
+mod reorder_api;
 #[cfg(test)]
 mod tests;
 mod traversal;
@@ -12,6 +14,7 @@ pub use api::*;
 use exact_kernel::PropId;
 use index::{HeightIndex, MeasurementToken};
 use memo::KeyMemo;
+pub use reorder_api::*;
 pub(super) use traversal::invalidate_typography;
 
 const BOOTSTRAP_ROWS: usize = 16;
@@ -23,15 +26,18 @@ struct Mounted {
     wrapper: ViewId,
     epoch: u64,
     token: MeasurementToken,
+    preview_target: Option<f64>,
     row: Row,
 }
 #[derive(Debug)]
-pub(super) struct Collection {
+pub(crate) struct Collection {
+    preview: Option<reorder::Preview>,
     view: ViewId,
     region: RegionsId,
     index: HeightIndex,
     items: Rc<Vec<Value>>,
     keys: Vec<Value>,
+    string_keys: bool,
     mounted: Vec<Mounted>,
     spacers: Vec<(ViewId, f64)>,
     children: Vec<ViewId>,
@@ -80,6 +86,7 @@ impl Collection {
         u: &mut Update<'_>,
         frames: &[Frame],
     ) -> Result<(), InstanceError> {
+        self.end_preview(u)?;
         let anchor = self.anchor()?;
         self.invalidate_height_estimates()?;
         self.restore(anchor)?;
@@ -131,11 +138,13 @@ impl Collection {
         }
         traversal::validate_no_nested(plan, region)?;
         let mut this = Box::new(Self {
+            preview: None,
             view,
             region,
             index: HeightIndex::new(ESTIMATED_HEIGHT).map_err(index_error)?,
             items: Rc::new(Vec::new()),
             keys: Vec::new(),
+            string_keys: true,
             mounted: Vec::new(),
             spacers: Vec::new(),
             children: Vec::new(),
@@ -168,6 +177,7 @@ impl Collection {
             u.work.regions_skipped += 1;
             return Ok(());
         }
+        self.end_preview(u)?;
         let anchor = self.anchor()?;
         if data_changed {
             let descriptor = u.env.plan.region(self.region);
@@ -198,6 +208,7 @@ impl Collection {
             }
             self.index.replace_keys(text_keys).map_err(index_error)?;
             self.items = items;
+            self.string_keys = keys.iter().all(|key| key.as_str().is_some());
             self.keys = keys;
         }
         // O(1): old heights remain estimates; stale measurements cannot confirm them.
@@ -218,7 +229,11 @@ impl Collection {
             .as_ref()
             .map(|g| {
                 self.index
-                    .capture_anchor(g.scroll_top, g.port_height, self.follow_end)
+                    .capture_anchor(
+                        g.scroll_top,
+                        g.port_height,
+                        self.follow_end && self.preview.is_none(),
+                    )
                     .map_err(index_error)
             })
             .transpose()
@@ -241,6 +256,15 @@ impl Collection {
     }
     fn pin(&self, view: Option<ViewId>) -> Option<String> {
         let view = view?;
+        if let Some(p) = self
+            .preview
+            .as_ref()
+            .filter(|p| p.pin_owned && p.handle == view)
+        {
+            if self.index.position(&p.source).is_some() {
+                return Some(p.source.clone());
+            }
+        }
         self.mounted
             .iter()
             .find(|row| {
@@ -260,7 +284,12 @@ impl Collection {
     ) -> Result<(), InstanceError> {
         let ranges = if let Some(g) = &self.geometry {
             let focus = self.pin(g.focus_view);
-            let interaction = self.pin(g.interaction_view);
+            let interaction = self
+                .preview
+                .as_ref()
+                .filter(|p| p.pin_owned)
+                .map(|p| p.source.clone())
+                .or_else(|| self.pin(g.interaction_view));
             self.index
                 .window(
                     g.scroll_top,
@@ -301,6 +330,7 @@ impl Collection {
                         wrapper,
                         epoch: advance(&mut self.next_epoch)?,
                         token,
+                        preview_target: None,
                         row,
                     }
                 }
@@ -317,6 +347,7 @@ impl Collection {
             u.ops.push(Op::DestroyView { id: gone.wrapper });
         }
         self.emit_children(u)?;
+        self.emit_preview(u)?;
         Ok(())
     }
     fn create_row(
@@ -427,6 +458,16 @@ impl Collection {
             .geometry
             .as_ref()
             .is_none_or(|g| g.row_width != feedback.row_width);
+        if changed_width {
+            self.end_preview(u)?;
+        }
+        if self
+            .geometry
+            .as_ref()
+            .is_some_and(|g| g.interaction_view != feedback.interaction_view)
+        {
+            self.lose_preview_pin(u)?;
+        }
         let previous = self.snapshot();
         let anchor_height = self
             .geometry
@@ -434,7 +475,11 @@ impl Collection {
             .map_or(feedback.port_height, |g| g.port_height);
         let anchor = Some(
             self.index
-                .capture_anchor(feedback.scroll_top, anchor_height, self.follow_end)
+                .capture_anchor(
+                    feedback.scroll_top,
+                    anchor_height,
+                    self.follow_end && self.preview.is_none(),
+                )
                 .map_err(index_error)?,
         );
         self.geometry = Some(CollectionFeedback {
@@ -461,6 +506,7 @@ impl Collection {
                 }
             }
         }
+        self.check_preview_height(u)?;
         self.restore(anchor)?;
         self.realize_window(u, frames, false)?;
         let mut now = self.snapshot();
@@ -479,6 +525,9 @@ impl Collection {
         frames: &[Frame],
         categories: [bool; 2],
     ) -> Result<bool, InstanceError> {
+        if categories[1] {
+            self.lose_preview_pin(u)?;
+        }
         let Some(g) = &mut self.geometry else {
             return Ok(false);
         };

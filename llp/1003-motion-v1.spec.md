@@ -181,6 +181,30 @@ Generic synthesized events do not prove token, geometry or incarnation liveness.
 Physical hosts validate the whole pair and three keys before clock/action, act
 while both are held, and end only surviving original tokens (LLP 1002 D4).
 
+Arrange (Tuft / Leibniz, 2026-09-17; LLP 1002 D8) appends string prop
+`ReorderFor`/`reorderFor` (77) and plan `Reorderdrop` (17); host synthesized kind18
+is adapter-owned. Contract requires exactly `string, option<string>` after
+curried arguments. `Event::ReorderDrop { item: String, before: Option<String> }`
+preserves empty, Unicode and punctuation keys; None alone means logical end.
+`reorder_drop_bytes` / `reorder_drop_payload` use u32LE version1, a u32LE UTF-8
+byte length and item bytes, u8 Option tag0/1, then optional length/before bytes.
+Lengths obey the existing plan byte-reader bound; malformed UTF-8, tags,
+truncation and trailing bytes refuse. No CSV or new parsing dependency.
+
+Runner owns `reorder_binding`, `reorder_geometry`, `begin_reorder`,
+`preview_reorder`, `has_reorder`, `drop_reorder`, `cancel_reorder`,
+`reorder_frame` and `finish_reorder`. One collection descriptor holds the private
+source/destination identity, measured source extent, opaque token and phase.
+Geometry wire is fixed68-byte numeric LE v1: u32 version/index/generation,
+u64 collection revision/scroll sequence, f64 scroll-top/port-width/port-height/
+row-width/total-extent. Node generations and u64 counters stay lossless.
+Full current facts, source epoch and measured gap certification are required;
+revision/sequence alone cannot certify a drop. Stale checks precede live numeric
+sample validation and every common method is clock-free. Hosts validate their
+mapping/incarnation before advancing time. Terminal phase and owner-qualified
+finish preserve the pin across action, layout, host rebase/end and optional
+return settling, with no extra pin or lifetime registry (D8).
+
 Only the Translate row additionally accepts CSS text through `set_dynamic`:
 one/two ASCII-whitespace-separated px lengths or unitless zeros; one sets y=0.
 Decimal/exponent numbers must be finite and within f32 range. Other units,

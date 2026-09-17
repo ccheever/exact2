@@ -1253,7 +1253,7 @@ impl<'a> Lowerer<'a> {
                     4
                 } else if event == "transformrelease" {
                     6
-                } else if matches!(event, "scroll" | "heightrelease") {
+                } else if matches!(event, "scroll" | "heightrelease" | "reorderdrop") {
                     2
                 } else {
                     usize::from(matches!(
@@ -1284,6 +1284,16 @@ impl<'a> Lowerer<'a> {
                                 _ => "",
                             }
                         ),
+                        a.span,
+                    );
+                }
+                if event == "reorderdrop"
+                    && self.types.components[0].actions[ai][args.len()..]
+                        != [Ty::String, Ty::Option(Box::new(Ty::String))]
+                {
+                    return err(
+                        "lower-handler-type",
+                        "`reorderdrop` supplies string and option<string>",
                         a.span,
                     );
                 }
@@ -1322,6 +1332,7 @@ impl<'a> Lowerer<'a> {
                     "heightrelease" => EventKind::Heightrelease,
                     "transformgeometry" => EventKind::Transformgeometry,
                     "transformrelease" => EventKind::Transformrelease,
+                    "reorderdrop" => EventKind::Reorderdrop,
                     _ => unreachable!("tag table admitted an unknown handler"),
                 };
                 handlers.push((kind, self.actions[ai], codes));
