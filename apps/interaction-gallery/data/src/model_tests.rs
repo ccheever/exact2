@@ -49,14 +49,14 @@ fn preview_and_cancel_never_mutate_order_and_duplicate_commit_is_inert() {
     g.before(token, Some(Id(0))).unwrap();
     assert_eq!(g.ids(), order);
     g.cancel(token);
-    g.commit(token);
+    g.commit(token).unwrap();
     assert_eq!(g.ids(), order);
     let token = g.lift(Id(2)).unwrap();
     g.before(token, Some(Id(0))).unwrap();
-    g.commit(token);
+    g.commit(token).unwrap();
     assert_eq!(&g.ids()[..4], &[Id(2), Id(0), Id(1), Id(3)]);
     let once = g.clone();
-    g.commit(token);
+    g.commit(token).unwrap();
     assert_eq!(g, once);
 }
 
@@ -68,7 +68,7 @@ fn stale_interaction_cannot_commit_a_new_lift_or_close_a_new_photo() {
     let new = g.lift(Id(1)).unwrap();
     g.nudge(new, true).unwrap();
     let before = g.clone();
-    g.commit(old);
+    g.commit(old).unwrap();
     g.cancel(old);
     assert_eq!(g, before);
     g.open(Id(0)).unwrap();
@@ -86,14 +86,14 @@ fn concurrent_insert_rebases_preview_by_identity_and_removed_target_cancels() {
     let t = g.lift(Id(1)).unwrap();
     g.before(t, Some(Id(3))).unwrap();
     g.insert_first().unwrap();
-    g.commit(t);
+    g.commit(t).unwrap();
     let position = g.position(Id(1)).unwrap();
     assert_eq!(g.ids()[position + 1], Id(3));
     let t = g.lift(Id(1)).unwrap();
     g.before(t, Some(Id(4))).unwrap();
     g.remove(Id(4)).unwrap();
     let order = g.ids().to_vec();
-    g.commit(t);
+    g.commit(t).unwrap();
     assert_eq!(g.ids(), order);
     assert!(g.moving.is_none());
 }
@@ -103,7 +103,7 @@ fn removed_dragged_record_does_not_reappear_on_late_drop() {
     let mut g = Gallery::default();
     let token = g.lift(Id(3)).unwrap();
     g.remove(Id(3)).unwrap();
-    g.commit(token);
+    g.commit(token).unwrap();
     assert!(!g.ids().contains(&Id(3)));
     g.insert_first().unwrap();
     assert_eq!(g.ids()[0], Id(100));
@@ -122,7 +122,7 @@ fn photo_returns_to_current_identity_after_page_change_and_reorder() {
     g.close(token);
     assert_eq!(g, lifted, "old viewer close cannot finish the new move");
     g.before(movement, Some(Id(25))).unwrap();
-    g.commit(movement);
+    g.commit(movement).unwrap();
     g.open(Id(80)).unwrap();
     let current = g.viewer_token;
     assert_ne!(current, token);
@@ -202,7 +202,7 @@ fn reset_and_navigation_cancel_interactions_without_reusing_tokens() {
     g.load(1000).unwrap();
     let current = g.lift(Id(3)).unwrap();
     assert!(current > old);
-    g.commit(old);
+    g.commit(old).unwrap();
     assert!(g.moving.is_some());
 }
 
@@ -223,4 +223,156 @@ fn empty_collections_and_bounds_are_defined() {
     let before = g.clone();
     assert!(g.insert_first().is_err());
     assert_eq!(g, before);
+}
+
+#[test]
+fn structural_revision_exhaustion_refuses_every_order_mutation_atomically() {
+    for op in ["load", "insert", "remove", "place"] {
+        let mut g = Gallery::default();
+        g.open(Id(2)).unwrap();
+        let token = if op == "place" {
+            let token = g.lift(Id(2)).unwrap();
+            g.before(token, Some(Id(0))).unwrap();
+            token
+        } else {
+            0
+        };
+        g.revision = u32::MAX;
+        let before = g.clone();
+        match op {
+            "load" => {
+                let _ = g.load(1000);
+            }
+            "insert" => {
+                let _ = g.insert_first();
+            }
+            "remove" => {
+                let _ = g.remove(Id(2));
+            }
+            "place" => {
+                let _ = g.commit(token);
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            g, before,
+            "{op} must reserve revision before changing any field"
+        );
+    }
+}
+
+#[test]
+fn last_structural_revision_is_used_once_and_never_saturates_or_wraps() {
+    let mut g = Gallery {
+        revision: u32::MAX - 1,
+        ..Gallery::default()
+    };
+    g.insert_first().unwrap();
+    assert_eq!(g.revision, u32::MAX);
+    let before = g.clone();
+    assert!(g.remove(Id(0)).is_err());
+    assert_eq!(g, before);
+    assert!(g.load(100).is_err());
+    assert_eq!(
+        g, before,
+        "failed reset must not consume an interaction token"
+    );
+}
+
+#[test]
+fn load_token_exhaustion_preserves_structural_revision_and_complete_state() {
+    let mut g = Gallery::default();
+    g.open(Id(3)).unwrap();
+    g.page_to(2);
+    g.epoch = u32::MAX;
+    let before = g.clone();
+    assert!(g.load(1000).is_err());
+    assert_eq!(g, before);
+}
+
+#[test]
+fn atomic_reorder_checks_revision_and_both_keys_before_changing_any_field() {
+    let mut g = Gallery::default();
+    g.open(Id(7)).unwrap();
+    g.page_to(2);
+    let before = g.clone();
+    for (item, target, revision, reason) in [
+        (Id(2), Some(Id(0)), 1, ReorderRefusal::StaleRevision),
+        (Id(99999), Some(Id(0)), 0, ReorderRefusal::MissingItem),
+        (Id(2), Some(Id(99999)), 0, ReorderRefusal::MissingBefore),
+    ] {
+        assert_eq!(
+            g.reorder(item, target, revision),
+            ReorderResult::Refused(reason)
+        );
+        assert_eq!(g, before);
+    }
+    assert_eq!(g.reorder(Id(2), Some(Id(0)), 0), ReorderResult::Moved);
+    assert_eq!(&g.ids()[..4], [Id(2), Id(0), Id(1), Id(3)]);
+    assert_eq!(g.revision, 1);
+    assert_eq!(g.page, before.page);
+    assert_eq!(g.selected, before.selected);
+    assert_eq!(g.viewer_token, before.viewer_token);
+    assert_eq!(g.viewer, before.viewer);
+    let moved = g.clone();
+    assert_eq!(
+        g.reorder(Id(2), Some(Id(0)), 0),
+        ReorderResult::Refused(ReorderRefusal::StaleRevision)
+    );
+    assert_eq!(g, moved);
+}
+
+#[test]
+fn atomic_reorder_normalizes_noops_at_max_but_refuses_real_change() {
+    let mut g = Gallery {
+        revision: u32::MAX,
+        ..Gallery::default()
+    };
+    let before = g.clone();
+    for (item, target) in [(Id(2), Some(Id(2))), (Id(2), Some(Id(3))), (Id(99), None)] {
+        assert_eq!(g.reorder(item, target, u32::MAX), ReorderResult::Unchanged);
+        assert_eq!(g, before);
+    }
+    assert_eq!(
+        g.reorder(Id(2), Some(Id(0)), u32::MAX),
+        ReorderResult::Refused(ReorderRefusal::RevisionExhausted)
+    );
+    assert_eq!(g, before);
+}
+
+#[test]
+fn unchanged_manual_place_can_finish_at_max_without_changing_order() {
+    let mut g = Gallery::default();
+    let token = g.lift(Id(2)).unwrap();
+    g.revision = u32::MAX;
+    let ids = g.ids().to_vec();
+    g.commit(token).unwrap();
+    assert_eq!(g.ids(), ids);
+    assert_eq!(g.revision, u32::MAX);
+    assert!(g.moving.is_none());
+}
+
+#[test]
+fn atomic_reorder_refuses_manual_move_and_uses_current_order_after_changes() {
+    let mut g = Gallery::default();
+    let token = g.lift(Id(3)).unwrap();
+    g.before(token, Some(Id(7))).unwrap();
+    let manual = g.clone();
+    assert_eq!(
+        g.reorder(Id(4), None, 0),
+        ReorderResult::Refused(ReorderRefusal::ManualMove)
+    );
+    assert_eq!(g, manual);
+    g.cancel(token);
+    g.insert_first().unwrap();
+    g.remove(Id(1)).unwrap();
+    let revision = g.revision;
+    assert_eq!(
+        g.reorder(Id(7), Some(Id(3)), revision),
+        ReorderResult::Moved
+    );
+    let position = g.position(Id(7)).unwrap();
+    assert_eq!(g.ids()[position + 1], Id(3));
+    assert_eq!(g.ids()[0], Id(100));
+    assert!(!g.ids().contains(&Id(1)));
 }

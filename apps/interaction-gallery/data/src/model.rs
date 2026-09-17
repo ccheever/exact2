@@ -143,6 +143,35 @@ pub enum Return {
     Removed,
 }
 
+/// Ordinary terminal refusals are data, not a failed Runner transaction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReorderRefusal {
+    StaleRevision,
+    MissingItem,
+    MissingBefore,
+    ManualMove,
+    RevisionExhausted,
+}
+
+impl ReorderRefusal {
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::StaleRevision => "collection revision changed; try the move again",
+            Self::MissingItem => "source identity is invalid or no longer exists",
+            Self::MissingBefore => "destination identity is invalid or no longer exists",
+            Self::ManualMove => "finish or cancel the manual move first",
+            Self::RevisionExhausted => "structural revision exhausted; reopen this app",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReorderResult {
+    Moved,
+    Unchanged,
+    Refused(ReorderRefusal),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Gallery {
     order: Vec<Id>,
@@ -211,8 +240,10 @@ impl Gallery {
             .ok_or("interaction token exhausted; reopen this app")?;
         Ok(self.epoch)
     }
-    fn changed(&mut self) {
-        self.revision = self.revision.saturating_add(1);
+    fn next_revision(&self) -> Result<u32, &'static str> {
+        self.revision
+            .checked_add(1)
+            .ok_or(ReorderRefusal::RevisionExhausted.message())
     }
 
     /// Loading a count deliberately resets this fixture. Identities always
@@ -221,8 +252,8 @@ impl Gallery {
         if !COUNTS.contains(&count) {
             return Err("choose 100, 1000 or 25000 records");
         }
+        let revision = self.next_revision()?;
         let token = self.token()?;
-        let revision = self.revision.saturating_add(1);
         let mode = self.mode;
         *self = Self {
             order: (0..count as u32).map(Id).collect(),
@@ -381,31 +412,86 @@ impl Gallery {
     }
 
     /// Consume one current interaction. Stale or duplicate callbacks are no-ops.
-    pub fn commit(&mut self, token: u32) {
+    pub fn commit(&mut self, token: u32) -> Result<(), &'static str> {
         let Some(moving) = self.moving.filter(|m| m.token == token) else {
-            return;
+            return Ok(());
         };
-        self.moving = None;
         let Some(source) = self.position(moving.item) else {
-            return;
+            self.moving = None;
+            return Ok(());
         };
         if moving.before.is_some_and(|id| self.position(id).is_none()) {
+            self.moving = None;
             self.notice = "Destination removed. Move cancelled.".into();
-            return;
+            return Ok(());
         }
-        self.order.remove(source);
-        let target = moving
+        let gap = moving
             .before
             .and_then(|id| self.position(id))
             .unwrap_or(self.order.len());
-        self.order.insert(target, moving.item);
+        let target = gap - usize::from(gap > source);
+        let revision = if target == source {
+            self.revision
+        } else {
+            self.next_revision()?
+        };
+        // A refused revision leaves the current manual interaction intact.
+        self.moving = None;
+        if target != source {
+            self.order.remove(source);
+            self.order.insert(target, moving.item);
+            self.revision = revision;
+        }
         self.page = target / PAGE_SIZE;
-        self.changed();
         self.notice = format!("Placed {} at position {}.", moving.item.key(), target + 1);
+        Ok(())
+    }
+
+    /// One synchronous physical terminal. Preview never calls this method.
+    /// Identity and revision are checked against the current order; no index
+    /// fallback, manual-move composition or remembered terminal history exists.
+    pub fn reorder(
+        &mut self,
+        item: Id,
+        before: Option<Id>,
+        expected_revision: u32,
+    ) -> ReorderResult {
+        use ReorderRefusal as Refusal;
+        if expected_revision != self.revision {
+            return ReorderResult::Refused(Refusal::StaleRevision);
+        }
+        if self.moving.is_some() {
+            return ReorderResult::Refused(Refusal::ManualMove);
+        }
+        let Some(source) = self.position(item) else {
+            return ReorderResult::Refused(Refusal::MissingItem);
+        };
+        let gap = match before {
+            Some(id) => match self.position(id) {
+                Some(position) => position,
+                None => return ReorderResult::Refused(Refusal::MissingBefore),
+            },
+            None => self.order.len(),
+        };
+        let target = gap - usize::from(gap > source);
+        if target == source {
+            return ReorderResult::Unchanged;
+        }
+        let Ok(revision) = self.next_revision() else {
+            return ReorderResult::Refused(Refusal::RevisionExhausted);
+        };
+        // remove+insert reuse this Vec's existing capacity; all refusals precede
+        // the first mutation. Photo/manual/page state is orthogonal to this move.
+        self.order.remove(source);
+        self.order.insert(target, item);
+        self.revision = revision;
+        self.notice = format!("Placed {} at position {}.", item.key(), target + 1);
+        ReorderResult::Moved
     }
 
     pub fn remove(&mut self, id: Id) -> Result<(), &'static str> {
         let index = self.position(id).ok_or("this record no longer exists")?;
+        let revision = self.next_revision()?;
         self.order.remove(index);
         if self
             .moving
@@ -424,7 +510,7 @@ impl Gallery {
             }
         }
         self.page = self.page.min(self.pages() - 1);
-        self.changed();
+        self.revision = revision;
         self.notice = format!("Removed {}. Any move involving it is cancelled.", id.key());
         Ok(())
     }
@@ -439,13 +525,14 @@ impl Gallery {
         if !self.can_insert() {
             return Err("record bound reached; delete a record or reset");
         }
+        let revision = self.next_revision()?;
         let id = Id(self.next_serial);
         self.next_serial += 1;
         self.order.insert(0, id);
         if self.selected.is_none() {
             self.selected = Some(id);
         }
-        self.changed();
+        self.revision = revision;
         self.notice = format!("Inserted {}. Existing identities are unchanged.", id.key());
         Ok(())
     }

@@ -19,9 +19,13 @@ and sheet/inner-scroll ownership transfer remain separate work.
   On Web, AppKit and Linux, drag that surface to pan, including while its spring is running.
   Changing Fit/2× during a drag updates the destination used on release.
 - **Arrange:** pick up, preview earlier/later or before another card, Place, and
-  Cancel. Preview never changes order. Place consumes an interaction token once;
-  stale callbacks are inert. Concurrent insertion preserves the destination ID;
-  removing the dragged record or its destination cancels the pending move.
+  Cancel. Manual preview never changes order. Place consumes an interaction token
+  once; stale callbacks are inert. Concurrent insertion preserves the destination
+  ID; removing the dragged record or its destination cancels the pending move.
+  Windowed rows also author a separate non-button grip with
+  `reorderFor="arrange-list"` and `touch-action="none"`. The grip is disabled
+  during a manual move and absent in Manual/Eager modes. Continuous physical
+  delivery and preview remain shared adapter work, not an app-test claim.
 - **Read:** 180 / 360 / 640px authored border-box heights and a real inner
   scrollport, using the same selected image and records. A dedicated non-button
   header handle targets the panel's authored `id="reading-sheet"` through
@@ -46,6 +50,28 @@ and the selected record. Insert/delete/reset/committed reorder invalidate the
 rows; generating and validating the changed full list still costs O(N). Ordinary
 identity searches and earlier/later model actions can also scan the ID order.
 There is no per-pointer-sample app action in this slice.
+
+The windowed List owns `reorderdrop(item: string, before: option<string>)`.
+Its synchronous action calls `galleryReorder(item, before, gallery.revision)`;
+`none` means the end, while `some("")` is an invalid identity, not an end alias.
+This single terminal operation validates the current revision, manual-move gate,
+source and destination before changing order. Common physical delivery must also
+certify that its preview still belongs to this collection and source; synthesized
+app events alone do not establish stale-pointer or incarnation safety.
+
+An accepted move advances a checked structural revision once. Reset, insertion,
+deletion and changed manual Place also reserve that revision before consuming
+interaction/record tokens or mutating order. Revision exhaustion refuses; it never
+saturates or wraps. Self, adjacent and already-at-end placements are unchanged,
+including at the maximum revision. An unchanged manual Place may still finish
+its manual interaction without changing the order or revision.
+
+Ordinary atomic refusals return the existing 26-field metadata with a transient
+`Move refused: …` notice. They do not alter the model or either cached row
+allocation, and do not poison the Runner. Malformed argument types remain a data
+error. Accepted and unchanged snapshots retain the eight-field Photo wire; there
+is no extra result slot, preview order, or per-pointer data query. Terminal
+identity lookup and rebuilding changed rows remain O(N).
 
 One Contract-local `sheetPx`, initially 360, is the authoritative authored target
 for the panel and its selected button. `chooseSheet` synchronously selects one of
@@ -154,7 +180,7 @@ Rendering: `render-windowed`, `render-manual`, `render-eager`, `supplied-count`.
 Viewer: `close-viewer`, `previous-photo`, `next-photo`, `delete-photo`,
 `viewer-zoom-fit`, `viewer-zoom-detail`, `viewer-reset`, `viewer-clip`,
 `viewer-transform`, `viewer-handle`.
-Arrange: `reorder-scroll`, `lift-photo-00000`, `earlier`, `later`,
+Arrange: `reorder-scroll`, `arrange-grip-photo-00000`, `lift-photo-00000`, `earlier`, `later`,
 `before-photo-00015` (when mounted, or manual page 2),
 `place`, `cancel`, `delete-photo-00000`. Read: `sheet-peek`, `sheet-read`,
 `sheet-full`, `sheet-handle`, `sheet-scroll`, `note-photo-00000`.
@@ -192,13 +218,17 @@ recognition are preserved in `target/photo-apple-validation/final/`. The viewer
 was outside a collection, so this drive exercises no active collection pin.
 UIKit remains uncompiled; a supplemental runtime probe was compiled but not run.
 None of these runs proves physical FPS.
-Continuous reorder still needs shared host hooks. Its existing `galleryAction`
-endpoints provide preview and token-checked commit/cancel; they must receive
-logical outcomes from the shared adapters.
+Continuous reorder still needs shared host hooks. Its `galleryAction` preview
+and token-checked Place/Cancel endpoints remain the manual controls. Physical
+preview belongs to the common collection mechanism; only its final logical
+outcome reaches the synchronous `galleryReorder` terminal. The adapter must not
+compose manual before/Place calls or send per-pointer app data.
 
 1. Continuous begin/update/end/cancel delivery, with one current interaction token,
    cancellation on navigation/deletion, and no per-sample durable order commits.
-   A takeover must sample current presentation position **and velocity**.
+   A takeover must sample the current presentation. The initial reorder terminal
+   policy permits positional continuity with a zero-velocity neighbor restart;
+   it does not claim continuous neighbor velocity.
 2. Stable-ID geometry lookup for photo return after reflow, scrolling, recycling or
    mutation; defined absent-source behavior. Pin or snapshot only the needed visual
    with explicit release and byte accounting. A logical page return here supplies
@@ -245,6 +275,23 @@ maps deterministically onto this fixed pool. Assets are distinct; the larger
 record counts intentionally repeat them to bound the bundle.
 
 ## Validation status
+
+The Arrange app slice passes **60 scoped Rust tests** against the frozen common
+reorder overlay: 26 model/resource, eleven reorder, seven retained photo, eight
+retained runtime and eight retained collection tests. Nineteen tests are new.
+The data baseline failed two revision tests and seven terminal tests; the old
+app declaration with new common code then failed all three added app tests
+(absent authored List ID and handler). Tests cover synchronous terminal delivery,
+current-order moves and revisions, refused/unchanged row identity, maximum
+revision behavior, manual exclusion, grip mode/disabled declarations, 25,000
+records and unrelated draft/sheet state. Ordinary refusal leaves Runner usable.
+Strict data-crate all-target Clippy, scoped formatting/diff and source caps pass.
+One test-only compile correction and one two-test Clippy initializer correction
+are preserved with the raw logs in `target/gallery-arrange-validation/` in the
+private `exact2-gallery-arrange` tree. These tests synthesize typed terminals;
+physical recognition, final geometry certification, preview/pin lifetime, edge
+scrolling and C0 presentation rebasing still require common/host evidence.
+No physical reorder, native run, frame or timing result is claimed here.
 
 The photo app slice passes **41 scoped Rust tests** against the frozen common
 binding/parser overlay: 18 model/resource, seven photo, eight retained runtime

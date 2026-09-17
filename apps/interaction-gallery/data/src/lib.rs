@@ -5,7 +5,7 @@ pub mod model;
 
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource};
-use model::{Id, Mode, Photo, Return};
+use model::{Id, Mode, Photo, ReorderRefusal, ReorderResult, Return};
 
 /// One logical owner. Hosts will own transient gesture geometry, not this order.
 #[derive(Default)]
@@ -45,6 +45,10 @@ fn integer(value: &Value) -> Result<u32, DataError> {
 
 impl Gallery {
     fn snapshot(&self) -> Value {
+        self.snapshot_notice(None)
+    }
+
+    fn snapshot_notice(&self, notice: Option<&str>) -> Value {
         let m = &self.model;
         let selected = m.selected_photo();
         let position = m.selected.and_then(|id| m.position(id));
@@ -100,7 +104,7 @@ impl Gallery {
                 ),
                 None => format!("{} → end of collection", model::photo(v.item, 0).title),
             })),
-            Value::str(&m.notice),
+            Value::str(notice.unwrap_or(&m.notice)),
             Value::str(return_kind),
             Value::str(&return_id),
             Value::Bool(m.can_insert()),
@@ -188,7 +192,7 @@ impl Gallery {
                     Some(Id::parse(id)?)
                 },
             )?,
-            "place" => m.commit(n),
+            "place" => m.commit(n)?,
             "cancel" => m.cancel(n),
             "delete" => m.remove(Id::parse(id)?)?,
             "insert" => {
@@ -201,6 +205,25 @@ impl Gallery {
             self.page_rows = None;
         }
         Ok(())
+    }
+
+    fn reorder(&mut self, item: &str, before: Option<&str>, expected_revision: u32) -> Value {
+        let revision = self.model.revision;
+        let result = match (Id::parse(item), before.map(Id::parse).transpose()) {
+            (Ok(item), Ok(before)) => self.model.reorder(item, before, expected_revision),
+            (Err(_), _) => ReorderResult::Refused(ReorderRefusal::MissingItem),
+            (_, Err(_)) => ReorderResult::Refused(ReorderRefusal::MissingBefore),
+        };
+        if self.model.revision != revision {
+            self.full_rows = None;
+            self.page_rows = None;
+        }
+        match result {
+            ReorderResult::Moved | ReorderResult::Unchanged => self.snapshot(),
+            ReorderResult::Refused(reason) => {
+                self.snapshot_notice(Some(&format!("Move refused: {}.", reason.message())))
+            }
+        }
     }
 }
 
@@ -237,8 +260,13 @@ impl DataSource for Gallery {
                     .map_err(|e| DataError::BadArguments(e.into()))?;
                 Ok(self.snapshot())
             }
-            ("gallery" | "galleryRows" | "theme" | "galleryAction", _) => Err(DataError::BadArguments(
-                "gallery(), galleryRows(revision, page, full), theme(), or galleryAction(op, id, n)".into(),
+            ("galleryReorder", [Value::Str(item), Value::Option(before), revision]) => {
+                let revision = integer(revision)?;
+                let before = before.as_ref().map(|v| v.as_str().ok_or_else(|| DataError::BadArguments("reorder destination must be option<string>".into()))).transpose()?;
+                Ok(self.reorder(item, before, revision))
+            }
+            ("gallery" | "galleryRows" | "theme" | "galleryAction" | "galleryReorder", _) => Err(DataError::BadArguments(
+                "gallery(), galleryRows(revision, page, full), theme(), galleryAction(op, id, n), or galleryReorder(item, before, expectedRevision)".into(),
             )),
             _ => Err(DataError::UnknownSource(source.into())),
         }
@@ -286,6 +314,51 @@ mod tests {
         let next = list(source.rows(source.model.revision, 0, true).unwrap());
         assert!(!Rc::ptr_eq(&full, &next));
         assert_eq!(next.len(), full.len() + 1);
+    }
+
+    #[test]
+    fn exhausted_reorder_returns_notice_and_keeps_both_row_caches_and_model() {
+        let mut source = Gallery::default();
+        source.model.revision = u32::MAX;
+        let before = source.model.clone();
+        let full = list(source.rows(u32::MAX, 0, true).unwrap());
+        let page = list(source.rows(u32::MAX, 0, false).unwrap());
+        let args = [
+            Value::str("photo-00003"),
+            Value::Option(None),
+            number(u32::MAX as usize),
+        ];
+        let answer = source.query("galleryReorder", &args).unwrap();
+        assert!(fields(&answer)[19]
+            .as_str()
+            .unwrap()
+            .contains("revision exhausted"));
+        assert_eq!(source.model, before);
+        for (index, expected) in fields(&source.snapshot()).iter().enumerate() {
+            if index != 19 {
+                assert_eq!(&fields(&answer)[index], expected);
+            }
+        }
+        assert!(Rc::ptr_eq(
+            &full,
+            &list(source.rows(u32::MAX, 0, true).unwrap())
+        ));
+        assert!(Rc::ptr_eq(
+            &page,
+            &list(source.rows(u32::MAX, 0, false).unwrap())
+        ));
+        let noop = source
+            .query(
+                "galleryReorder",
+                &[
+                    Value::str("photo-00099"),
+                    Value::Option(None),
+                    number(u32::MAX as usize),
+                ],
+            )
+            .unwrap();
+        assert_eq!(noop, source.snapshot());
+        assert_eq!(source.model, before);
     }
 
     #[test]

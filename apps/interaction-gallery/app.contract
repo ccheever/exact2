@@ -96,6 +96,9 @@ component InteractionGallery
         focus(`lift-${gallery.selected.id}`)
     if op == "delete"
       focus(`mode-${gallery.mode}`)
+  action dropArrange(item: string, before: option<string>) writes changed
+    send changed = galleryReorder(item, before, gallery.revision)
+
   action edit(value) writes draft
     if length(value) <= 512
       draft = value
@@ -155,15 +158,15 @@ component InteractionGallery
                   ActionButton(id="place", label="Place", op="place", target="", n=gallery.dragToken, shortcut="Meta+p Control+p", command=command)
                   ActionButton(id="cancel", label="Cancel", op="cancel", target="", n=gallery.dragToken, shortcut="Escape", command=command)
             when rendering == "windowed"
-              list virtualized=true scrollFollowEnd=true testId="reorder-scroll" flex=1 min-height=0 width="100%" overflow-x="hidden"
+              list id="arrange-list" reorderdrop=dropArrange virtualized=true scrollFollowEnd=true testId="reorder-scroll" flex=1 min-height=0 width="100%" overflow-x="hidden"
                 each photo in rows key=photo.id
                   column width="100%" box-sizing="border-box" padding-left=20 padding-right=20 padding-bottom=10 testId=`arrange-row-${photo.id}`
-                    ArrangeCard(photo=photo, gallery=gallery, command=command)
+                    ArrangeCard(photo=photo, gallery=gallery, windowed=true, command=command)
             else
               scroll testId="reorder-scroll" flex=1 min-height=0 overflow-x="hidden"
                 column padding=20 padding-top=0 gap=10
                   each photo in rows key=photo.id
-                    ArrangeCard(photo=photo, gallery=gallery, command=command)
+                    ArrangeCard(photo=photo, gallery=gallery, windowed=false, command=command)
         when gallery.mode == "sheet"
           column flex=1 min-height=0 position="relative" overflow="hidden" testId="sheet-stage"
             when gallery.hasSelection
@@ -322,6 +325,7 @@ component ArrangeCard
   props
     photo: Photo
     gallery: GalleryState
+    windowed: bool
     command: action
   view
     row testId=`card-${photo.id}` gap=14 padding=12 border-width=1 border-style="solid" border-color=(gallery.liftedId == photo.id ? theme.accent : theme.edge) border-radius=10 background-color=theme.card align-items="flex-start" flex-wrap="wrap"
@@ -331,6 +335,9 @@ component ArrangeCard
         text photo.notes font-size=13 line-height=1.4 color=theme.muted
         text photo.subtitle font-size=10 color=theme.muted
       column gap=6
+        when windowed
+          box reorderFor="arrange-list" disabled=gallery.reordering touch-action="none" testId=`arrange-grip-${photo.id}` aria-label=`Drag ${photo.title} to reorder` padding=8 border-radius=6 background-color=theme.page
+            text "⋮⋮" font-size=16 color=theme.muted
         when gallery.reordering and gallery.liftedId != photo.id
           ActionButton(id=`before-${photo.id}`, label="Preview here", op="before", target=photo.id, n=gallery.dragToken, shortcut="", command=command)
         else
