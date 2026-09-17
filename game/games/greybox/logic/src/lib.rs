@@ -39,21 +39,14 @@ impl Game for Greybox {
             )
     }
     fn setup(world: &mut World, args: &Args) -> Result<(), String> {
-        let seed = args.number(0, "seed")?;
-        if seed < 0.0 || seed.fract() != 0.0 || seed > 9_007_199_254_740_991.0 {
-            return Err("argument `seed` must be a nonnegative safe integer".into());
-        }
+        world.reseed(args.integer(0, "seed")?);
         args.flag(1, "paused")?;
-        world.reseed(seed as u64);
         world.spawn_named(
             "ground",
             (
                 Transform::default(),
                 Mesh::Plane { size: 40.0 },
-                Material {
-                    color: [0.25, 0.27, 0.3, 1.0],
-                    ..Material::default()
-                },
+                Material::rgb(0.25, 0.27, 0.3),
             ),
         );
         world.spawn_named(
@@ -64,10 +57,7 @@ impl Game for Greybox {
                     radius: 0.4,
                     height: 1.0,
                 },
-                Material {
-                    color: [0.8, 0.45, 0.15, 1.0],
-                    ..Material::default()
-                },
+                Material::rgb(0.8, 0.45, 0.15),
                 Player::default(),
             ),
         );
@@ -83,13 +73,13 @@ impl Game for Greybox {
             ),
         );
         for i in 1..=3 {
-            // Draw positions before spawning: the RNG lease must end before a
-            // structural edit. Ordinary query borrows never escape a tick either.
-            let x = world.rng().range(3.0..12.0);
-            let z = world.rng().range(-12.0..8.0);
             world.spawn_named(
-                &format!("crate-{i}"),
-                (Transform::at(x, 0.5, z), Mesh::Cube, Material::default()),
+                format!("crate-{i}"),
+                (
+                    Transform::at(world.rand(3.0..12.0), 0.5, world.rand(-12.0..8.0)),
+                    Mesh::Cube,
+                    Material::default(),
+                ),
             );
         }
         world.spawn_named(
@@ -97,19 +87,11 @@ impl Game for Greybox {
             (
                 Transform::at(0.0, 0.75, -6.5).with_scale(0.5),
                 Mesh::Sphere,
-                Material {
-                    color: [0.15, 0.6, 0.8, 1.0],
-                    ..Material::default()
-                },
+                Material::rgb(0.15, 0.6, 0.8),
                 Beacon::default(),
             ),
         );
         world.publish("beacons", 0);
-        Ok(())
-    }
-    fn bind(_world: &mut World, args: &Args) -> Result<(), String> {
-        args.number(0, "seed")?;
-        args.flag(1, "paused")?;
         Ok(())
     }
     fn paused(args: &Args) -> bool {
@@ -122,7 +104,7 @@ impl Game for Greybox {
         let desired = Vec3::new(direction.x, 0.0, -direction.y) * 4.0;
         let mut position = Vec3::ZERO;
         let mut moving = false;
-        for (_, (player, pose)) in world.query::<(&mut Player, &mut Transform)>().iter() {
+        if let Some((_, (player, pose))) = world.query::<(&mut Player, &mut Transform)>().one() {
             // A fixed first-order response makes release and acceleration gradual;
             // snapping below this threshold makes clock settle have a finite end.
             player.velocity.x += (desired.x - player.velocity.x) * 0.2;
@@ -145,7 +127,7 @@ impl Game for Greybox {
                 }
             }
             position = pose.position;
-            moving |= player.velocity != Vec3::ZERO;
+            moving = player.velocity != Vec3::ZERO;
         }
         if moving {
             world.busy("player moving");
@@ -167,9 +149,5 @@ impl Game for Greybox {
     }
 }
 fn camera(player: Vec3) -> Transform {
-    Transform {
-        position: player + Vec3::new(0.0, 5.0, 8.0),
-        ..Transform::default()
-    }
-    .looking_at(player, Vec3::Y)
+    Transform::at(player.x, player.y + 5.0, player.z + 8.0).looking_at(player, Vec3::Y)
 }

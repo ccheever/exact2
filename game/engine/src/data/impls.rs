@@ -10,6 +10,12 @@ impl Data for bool {
         Ok(())
     }
 }
+// i128 holds every supported integer exactly, including u64::MAX. Comparing
+// after conversion avoids the rounded f64 upper bound at i64::MAX/u64::MAX.
+fn integral(n: f64) -> Option<i128> {
+    (n.is_finite() && n.fract() == 0.0 && n >= i64::MIN as f64 && n < 18_446_744_073_709_551_616.0)
+        .then_some(n as i128)
+}
 macro_rules! integer {
     ($kind:ident, $($ty:ty),+) => {$(impl Data for $ty {
         fn write(&self, w: &mut dyn Writer) { w.number(Number::$kind((*self).into())); }
@@ -17,7 +23,8 @@ macro_rules! integer {
             *self = match r.number()? {
                 Number::Unsigned(n) => Self::try_from(n).ok(),
                 Number::Signed(n) => Self::try_from(n).ok(),
-                _ => None,
+                Number::F32(n) => integral(n as f64).and_then(|n| Self::try_from(n).ok()),
+                Number::F64(n) => integral(n).and_then(|n| Self::try_from(n).ok()),
             }.ok_or_else(|| DataError::new(concat!("expected an integer in ", stringify!($ty), " range")))?;
             Ok(())
         }
@@ -81,14 +88,7 @@ impl<T: Data> Data for Vec<T> {
         w.end_seq();
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        r.begin_seq()?;
-        self.clear();
-        while r.item()? {
-            let mut v = T::default();
-            v.read(r).map_err(|e| e.at(self.len()))?;
-            self.push(v);
-        }
-        Ok(())
+        super::limits::read_vec(r, self, super::MAX_LOAD_BYTES)
     }
 }
 impl<T: Data> Data for Option<T> {
@@ -104,7 +104,9 @@ impl<T: Data> Data for Option<T> {
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         if r.option()? {
-            self.get_or_insert_with(T::default).read(r)?;
+            let mut value = T::default();
+            value.read(r)?;
+            *self = Some(value);
         } else {
             *self = None;
         }
@@ -128,6 +130,7 @@ where
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_seq()?;
+        *self = Self::default();
         let mut i = 0;
         while r.item()? {
             if let Some(v) = self.get_mut(i) {
@@ -148,6 +151,7 @@ impl<T: Data> Data for Box<T> {
         (**self).write(w);
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+        r.claim(std::mem::size_of::<T>())?;
         (**self).read(r)
     }
 }
@@ -165,11 +169,12 @@ impl<T: Data> Data for BTreeMap<String, T> {
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_struct()?;
+        self.clear();
         while let Some(k) = r.field()? {
-            self.entry(k.clone())
-                .or_default()
-                .read(r)
-                .map_err(|e| e.at(k))?;
+            r.claim(64 + std::mem::size_of::<T>())?;
+            let mut value = T::default();
+            value.read(r).map_err(|e| e.at(&k))?;
+            self.insert(k, value);
         }
         Ok(())
     }
@@ -182,7 +187,7 @@ macro_rules! tuple {
                 w.begin_seq($n); $(w.item(); self.$i.write(w);)* w.end_seq();
             }
             fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-                r.begin_seq()?; let mut i = 0;
+                r.begin_seq()?; *self = Self::default(); let mut i = 0;
                 while r.item()? {
                     match i { $($i => self.$i.read(r).map_err(|e| e.at(i))?,)* _ => r.skip()?, }
                     i += 1;

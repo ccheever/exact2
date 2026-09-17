@@ -33,8 +33,7 @@ impl World {
     }
     pub(crate) fn begin_tick(&mut self) {
         self.state.busy.clear();
-        self.previous.clone_from(&self.globals);
-        self.propagated_tick = Some(self.tick());
+        self.fresh.clear();
     }
     /// The next journal cursor. Draining a host never erases an agent's history.
     pub fn journal_next(&self) -> u64 {

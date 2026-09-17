@@ -1,5 +1,4 @@
 use crate::{Affine3A, Component, Entity, Quat, Vec3, World};
-use std::collections::{BTreeMap, BTreeSet};
 
 /// Local pose; identity is an unmodified object, with forward along negative Z.
 /// Upload layout: ten contiguous f32s (position xyz, rotation xyzw, scale xyz).
@@ -75,7 +74,7 @@ impl IntoScale for [f32; 3] {
     }
 }
 
-/// Hierarchy edge. Despawning a parent also despawns its descendants.
+/// Hierarchy edge. Descendants of a dead parent leave at the end of the tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Component)]
 pub struct Parent(pub Entity);
 
@@ -156,6 +155,36 @@ impl Default for Material {
     }
 }
 
+impl Material {
+    /// Opaque linear RGB with the default surface properties.
+    pub fn rgb(r: f32, g: f32, b: f32) -> Self {
+        Self {
+            color: [r, g, b, 1.0],
+            ..Self::default()
+        }
+    }
+    /// Set linear RGB emitted light.
+    pub fn emissive(mut self, r: f32, g: f32, b: f32) -> Self {
+        self.emissive = [r, g, b];
+        self
+    }
+    /// Set the metal fraction.
+    pub fn metallic(mut self, m: f32) -> Self {
+        self.metallic = m;
+        self
+    }
+    /// Set surface roughness.
+    pub fn rough(mut self, r: f32) -> Self {
+        self.roughness = r;
+        self
+    }
+    /// Set opacity.
+    pub fn alpha(mut self, a: f32) -> Self {
+        self.color[3] = a;
+        self
+    }
+}
+
 /// Parallel light rays along the entity's negative Z axis.
 #[derive(Clone, Copy, Debug, PartialEq, Component)]
 pub struct DirectionalLight {
@@ -214,100 +243,192 @@ impl World {
             .register::<PointLight>()
             .register::<Visible>()
     }
-    /// Rebuild global poses, following arbitrary-depth parent chains iteratively.
-    /// A stale parent is a root; a parent without Transform contributes identity.
-    /// Cycles panic with the offending index instead of hanging or overflowing.
+    /// Resolve only parented entities, reusing indexed scratch and chain stamps.
+    /// Stale parents act as roots; parents without Transform contribute identity.
+    /// Runtime cycles lose the highest-index edge, with one journal line per cycle.
     pub fn propagate(&mut self) {
-        let local: BTreeMap<_, _> = self
-            .query::<&Transform>()
-            .iter()
-            .map(|(e, t)| (e, t.affine()))
-            .collect();
-        let parents: BTreeMap<_, _> = self
-            .query::<&Parent>()
-            .iter()
-            .map(|(e, p)| (e, p.0))
-            .collect();
-        let mut computed = BTreeMap::new();
-        for &start in local.keys() {
-            if computed.contains_key(&start) {
+        self.resolve_hierarchy(false)
+            .expect("runtime cycles are repaired");
+    }
+    pub(crate) fn validate_hierarchy(
+        &mut self,
+        r: &mut dyn crate::Reader,
+    ) -> Result<(), crate::DataError> {
+        let count = self.storage::<Parent>().map_or(0, |s| s.len());
+        if count != 0 {
+            let slots = self.alive_mask.len() * 64;
+            crate::data::limits::reserve(r, &mut self.hierarchy.nodes, slots)?;
+            crate::data::limits::reserve(r, &mut self.hierarchy.entities, count)?;
+            crate::data::limits::reserve(r, &mut self.hierarchy.path, count)?;
+            crate::data::limits::reserve(r, &mut self.hierarchy.broken, count)?;
+        }
+        self.resolve_hierarchy(true)
+    }
+    fn resolve_hierarchy(&mut self, reject: bool) -> Result<(), crate::DataError> {
+        if self.storage::<Parent>().is_none_or(|s| s.is_empty()) {
+            return Ok(());
+        }
+        let mut h = std::mem::take(&mut self.hierarchy);
+        let result = h.resolve(self, reject);
+        for &e in &h.broken {
+            self.remove::<Parent>(e);
+            self.log(format_args!(
+                "transform hierarchy cycle: #{} treated as root",
+                e.index()
+            ));
+        }
+        self.hierarchy = h;
+        result
+    }
+    /// World pose: a root reads its local Transform directly, without propagation.
+    /// Parented poses reflect the last propagate call.
+    pub fn global(&self, e: Entity) -> Option<Affine3A> {
+        let local = self.get::<Transform>(e)?;
+        if !self.has::<Parent>(e) {
+            return Some(local.affine());
+        }
+        self.hierarchy
+            .nodes
+            .get(e.index() as usize)
+            .filter(|n| n.entity == e && n.done == self.hierarchy.stamp)
+            .map(|n| n.global)
+    }
+    /// Set a local pose, refresh parented globals and mark this entity fresh.
+    pub fn teleport(&mut self, e: Entity, transform: Transform) {
+        if self.insert(e, transform) {
+            self.fresh.push(e);
+            self.propagate();
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct Hierarchy {
+    nodes: Vec<Node>,
+    entities: Vec<Entity>,
+    path: Vec<Entity>,
+    broken: Vec<Entity>,
+    stamp: u64,
+}
+#[derive(Default)]
+struct Node {
+    entity: Entity,
+    parent: Option<Entity>,
+    present: u64,
+    visiting: u64,
+    done: u64,
+    global: Affine3A,
+}
+impl Hierarchy {
+    fn resolve(&mut self, w: &World, reject: bool) -> Result<(), crate::DataError> {
+        self.stamp = self.stamp.wrapping_add(1);
+        if self.stamp == 0 {
+            self.nodes.clear();
+            self.stamp = 1;
+        }
+        let stamp = self.stamp;
+        self.entities.clear();
+        self.broken.clear();
+        for (e, p) in w.query::<&Parent>().iter() {
+            let i = e.index() as usize;
+            if i >= self.nodes.len() {
+                self.nodes.resize_with(i + 1, Node::default);
+            }
+            let n = &mut self.nodes[i];
+            n.entity = e;
+            n.parent = w.contains(p.0).then_some(p.0);
+            n.present = stamp;
+            self.entities.push(e);
+        }
+        for i in 0..self.entities.len() {
+            let start = self.entities[i];
+            if self.nodes[start.index() as usize].done == stamp {
                 continue;
             }
-            let mut path = Vec::new();
-            let mut visiting = BTreeSet::new();
+            self.path.clear();
             let mut e = start;
             let mut base = loop {
-                if let Some(&g) = computed.get(&e) {
-                    break g;
+                let local = || {
+                    w.get::<Transform>(e)
+                        .map_or(Affine3A::IDENTITY, |t| t.affine())
+                };
+                let Some(n) = self
+                    .nodes
+                    .get_mut(e.index() as usize)
+                    .filter(|n| n.present == stamp)
+                else {
+                    break local();
+                };
+                if n.done == stamp {
+                    break n.global;
                 }
-                assert!(
-                    visiting.insert(e),
-                    "transform hierarchy cycle at #{}",
-                    e.index()
-                );
-                path.push(e);
-                if let Some(&parent) = parents.get(&e).filter(|&&p| self.contains(p)) {
+                if n.visiting == stamp {
+                    let begin = self.path.iter().position(|&p| p == e).unwrap();
+                    let root = *self.path[begin..].iter().max_by_key(|e| e.index()).unwrap();
+                    if reject {
+                        return Err(crate::DataError::new(format!(
+                            "Parent cycle at #{}",
+                            root.index()
+                        )));
+                    }
+                    self.nodes[root.index() as usize].parent = None;
+                    self.broken.push(root);
+                    for e in self.path.drain(..) {
+                        self.nodes[e.index() as usize].visiting = 0;
+                    }
+                    e = start;
+                    continue;
+                }
+                n.visiting = stamp;
+                self.path.push(e);
+                if let Some(parent) = n.parent {
                     e = parent;
                 } else {
                     break Affine3A::IDENTITY;
                 }
             };
-            while let Some(e) = path.pop() {
-                base *= local.get(&e).copied().unwrap_or(Affine3A::IDENTITY);
-                computed.insert(e, base);
+            while let Some(e) = self.path.pop() {
+                base *= w
+                    .get::<Transform>(e)
+                    .map_or(Affine3A::IDENTITY, |t| t.affine());
+                let n = &mut self.nodes[e.index() as usize];
+                n.global = base;
+                n.done = stamp;
             }
         }
-        computed.retain(|e, _| local.contains_key(e));
-        if self.propagated_tick != Some(self.tick()) {
-            self.previous = std::mem::take(&mut self.globals);
-            self.propagated_tick = Some(self.tick());
-        }
-        for (&e, &g) in &computed {
-            self.previous.entry(e).or_insert(g);
-        }
-        self.previous.retain(|e, _| computed.contains_key(e));
-        self.globals = computed;
+        Ok(())
     }
-    /// Cached world-space pose after propagate.
-    pub fn global(&self, e: Entity) -> Option<Affine3A> {
-        self.globals.get(&e).copied()
-    }
-    /// Interpolate affine columns between ticks, retaining shear and zero scales.
-    /// Alpha is clamped; endpoints return the original matrices bit-for-bit.
-    pub fn global_lerp(&self, e: Entity, alpha: f32) -> Option<Affine3A> {
-        let now = self.global(e)?;
-        let old = self.previous.get(&e).copied().unwrap_or(now);
-        if alpha <= 0.0 {
-            return Some(old);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn parent_scratch_is_reused_and_flat_worlds_allocate_none() {
+        let mut w = World::new(60, 0);
+        let entities: Vec<_> = (0..10_000)
+            .map(|_| w.spawn(Transform::at(1.0, 0.0, 0.0)))
+            .collect();
+        w.propagate();
+        assert_eq!(w.hierarchy.nodes.capacity(), 0);
+        assert_eq!(w.hierarchy.entities.capacity(), 0);
+        for i in 1..6 {
+            w.insert(entities[i], Parent(entities[i - 1]));
         }
-        if alpha >= 1.0 {
-            return Some(now);
+        w.propagate();
+        let buffers = |h: &Hierarchy| {
+            (
+                h.nodes.as_ptr(),
+                h.entities.as_ptr(),
+                h.path.as_ptr(),
+                h.broken.as_ptr(),
+            )
+        };
+        let first = buffers(&w.hierarchy);
+        for _ in 0..10 {
+            w.propagate();
         }
-        Some(Affine3A {
-            matrix3: old.matrix3 * (1.0 - alpha) + now.matrix3 * alpha,
-            translation: old.translation * (1.0 - alpha) + now.translation * alpha,
-        })
-    }
-    /// Set a local pose and snap both cached ticks for it and its descendants.
-    pub fn teleport(&mut self, e: Entity, transform: Transform) {
-        self.insert(e, transform);
-        self.propagate();
-        let mut edges: BTreeMap<Entity, Vec<Entity>> = BTreeMap::new();
-        for (child, p) in self.query::<&Parent>().iter() {
-            edges.entry(p.0).or_default().push(child);
-        }
-        let mut stack = vec![e];
-        let mut seen = BTreeSet::new();
-        while let Some(e) = stack.pop() {
-            if !seen.insert(e) {
-                continue;
-            }
-            if let Some(g) = self.global(e) {
-                self.previous.insert(e, g);
-            }
-            if let Some(children) = edges.get(&e) {
-                stack.extend(children);
-            }
-        }
+        assert_eq!(buffers(&w.hierarchy), first);
+        assert_eq!(w.global(entities[5]).unwrap().translation.x, 6.0);
     }
 }

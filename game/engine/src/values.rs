@@ -34,10 +34,24 @@ impl Data for Value {
             Stored::Unit => Self::Unit,
             Stored::Number(n) => Self::Number(n),
             Stored::Bool(b) => Self::Bool(b),
-            Stored::Str(s) => Self::str(&s),
-            Stored::Option(v) => Self::Option(v.map(|v| Rc::new(*v))),
-            Stored::List(v) => Self::list(v),
-            Stored::Record(v) => Self::record(v),
+            Stored::Str(s) => {
+                r.claim(s.len() + 2 * std::mem::size_of::<usize>())?;
+                Self::str(&s)
+            }
+            Stored::Option(v) => {
+                if v.is_some() {
+                    r.claim(std::mem::size_of::<Value>() + 2 * std::mem::size_of::<usize>())?;
+                }
+                Self::Option(v.map(|v| Rc::new(*v)))
+            }
+            Stored::List(v) => {
+                r.claim(std::mem::size_of::<Vec<Value>>() + 2 * std::mem::size_of::<usize>())?;
+                Self::list(v)
+            }
+            Stored::Record(v) => {
+                r.claim(std::mem::size_of::<Vec<Value>>() + 2 * std::mem::size_of::<usize>())?;
+                Self::record(v)
+            }
         };
         Ok(())
     }

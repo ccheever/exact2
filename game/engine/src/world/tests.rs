@@ -42,7 +42,7 @@ fn replay_equivalence() {
     assert_eq!(straight.save(), restored.save());
 }
 #[test]
-fn hierarchy_and_previous_tick() {
+fn hierarchy_and_fresh_tick() {
     let mut w = World::new(60, 0);
     let child = w.spawn((Transform::at(1.0, 0.0, 0.0),));
     let middle = w.spawn((Transform::at(0.0, 2.0, 0.0),));
@@ -58,14 +58,18 @@ fn hierarchy_and_previous_tick() {
     w.step_clock();
     w.get_mut::<Transform>(root).unwrap().position.x = 10.0;
     w.propagate();
-    let new = w.global(child).unwrap();
-    assert_eq!(w.global_lerp(child, 0.0), Some(old));
-    assert_eq!(w.global_lerp(child, 1.0), Some(new));
+    assert_eq!(w.global(child).unwrap().translation.x, 11.0);
     w.propagate();
-    assert_eq!(w.global_lerp(child, 0.0), Some(old));
+    assert_eq!(w.global(child).unwrap().translation.x, 11.0);
+    w.begin_tick();
+    assert!(w.fresh().is_empty());
     w.teleport(root, Transform::at(100.0, 0.0, 0.0));
-    assert_eq!(w.global_lerp(child, 0.0), w.global_lerp(child, 1.0));
+    assert_eq!(w.fresh(), [root]);
+    w.propagate();
+    assert_eq!(w.global(child).unwrap().translation.x, 101.0);
     assert!(w.despawn(root));
+    assert_eq!(w.len(), 2);
+    w.reap_orphans();
     assert!(w.is_empty());
 }
 
@@ -105,4 +109,23 @@ fn changed_tracks_leases_structure_and_load_but_is_not_saved() {
     assert_eq!(w.tick(), 2);
     assert_eq!(w.changed::<Transform>(), 2);
     assert_eq!(w.save(), bytes);
+}
+
+#[test]
+fn save_entity_limit_is_checked_before_reserving_slots() {
+    let mut out = bin::Encoder::default();
+    out.begin_struct();
+    out.field("state");
+    out.begin_struct();
+    out.field("slots");
+    out.begin_seq(crate::data::MAX_LOAD_ENTITIES + 1);
+    let mut bytes = MAGIC.to_vec();
+    bytes.extend(out.finish());
+    // Enough input to satisfy the codec's minimum byte count, without constructing entities.
+    bytes.resize(bytes.len() + crate::data::MAX_LOAD_ENTITIES + 1, 0);
+    let mut w = World::new(60, 0);
+    let before = w.save();
+    let err = w.load(&bytes).unwrap_err().to_string();
+    assert!(err.contains("slots") && err.contains("limit"), "{err}");
+    assert_eq!(w.save(), before);
 }

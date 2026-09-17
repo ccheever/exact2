@@ -5,9 +5,13 @@ use std::fmt;
 pub mod bin;
 pub mod hash;
 mod impls;
+pub(crate) mod limits;
+pub use limits::{MAX_LOAD_BYTES, MAX_LOAD_ENTITIES, MAX_LOAD_STRING};
 pub mod json;
 
 /// State that can survive a save, level load, or code reload.
+///
+/// Records keep fields the input lacks; sequences, maps and options are replaced whole.
 ///
 /// Array implementations require the array itself to implement Default. Rust
 /// currently supplies that only through length 32; Vec supports arbitrary lengths.
@@ -36,6 +40,30 @@ pub mod json;
 /// #[derive(Default, Data)]
 /// struct Unordered { entries: std::collections::HashMap<String, u32> }
 /// ```
+/// ```compile_fail
+/// use exact_game::Data;
+/// #[derive(Default, Data)]
+/// #[data(skip)]
+/// struct TypeAttribute { score: u32 }
+/// ```
+///
+/// ```compile_fail
+/// use exact_game::Data;
+/// #[derive(Default, Data)]
+/// enum VariantAttribute { #[default] #[data(skip)] A }
+/// ```
+///
+/// ```compile_fail
+/// use exact_game::Data;
+/// #[derive(Default, Data)]
+/// struct UnknownAttribute { #[data(typo)] score: u32 }
+/// ```
+///
+/// ```compile_fail
+/// use exact_game::Data;
+/// #[derive(Default, Data)]
+/// enum Discriminants { #[default] A = 1, B = 2 }
+/// ```
 pub trait Data: Sized + Default + 'static {
     /// Whether any nested spring is still moving. Derives walk non-transient fields.
     fn moving(&self, _now: crate::Now) -> bool {
@@ -43,7 +71,7 @@ pub trait Data: Sized + Default + 'static {
     }
     /// Write fields in declaration order, omitting transient fields.
     fn write(&self, w: &mut dyn Writer);
-    /// Overwrite present fields; missing fields retain their current values.
+    /// Read according to the record-patch and container-replacement rule above.
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError>;
 }
 
@@ -133,6 +161,14 @@ pub trait Writer {
 
 /// An object-safe cursor. End markers are consumed by `item` and `field`.
 pub trait Reader {
+    /// Account decoded allocations before reserving input-controlled storage.
+    fn claim(&mut self, _bytes: usize) -> Result<(), DataError> {
+        Ok(())
+    }
+    /// Remaining sequence count, if the format declares it in advance.
+    fn sequence_len(&self) -> Option<usize> {
+        None
+    }
     /// Read a boolean.
     fn boolean(&mut self) -> Result<bool, DataError>;
     /// Read a number without losing integer precision.

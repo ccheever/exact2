@@ -1,7 +1,7 @@
 use crate::storage::{self, Erased, Storage};
 use crate::{
-    bin, hash, Affine3A, Data, DataError, Now, Pages, Parent, Query, QueryBorrow, Reader, Ref,
-    RefMut, Rng, Value, Writer,
+    bin, hash, Data, DataError, Now, Pages, Parent, Query, QueryBorrow, Reader, Ref, RefMut, Rng,
+    Value, Writer,
 };
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -37,9 +37,16 @@ pub trait Component: Data {
     /// Stable save-file and agent spelling.
     const NAME: &'static str;
 }
-/// World-owned singleton data; the Component derive supplies its name and data.
-pub trait Resource: Component {}
-impl<C: Component> Resource for C {}
+/// World-owned singleton data, named by the Resource derive.
+///
+/// ```compile_fail
+/// use exact_game::{World, Transform};
+/// World::new(60, 0).resource::<Transform>();
+/// ```
+pub trait Resource: Data {
+    /// Stable save-file and agent spelling.
+    const NAME: &'static str;
+}
 
 /// One component or a tuple of components supplied to spawn.
 pub trait Bundle {
@@ -76,19 +83,19 @@ struct Slot {
     alive: bool,
     name: Option<String>,
 }
-#[derive(Default, Data)]
+#[derive(Default)]
 struct State {
     tick: u64,
     hz: u32,
     seed: u64,
     slots: Vec<Slot>,
-    free: Vec<u32>,
+    free: Free,
     busy: Vec<String>,
 }
 #[derive(Clone, Copy)]
 struct Registration {
     id: TypeId,
-    make: fn() -> Box<dyn Erased>,
+    make: fn(&'static str) -> Box<dyn Erased>,
 }
 
 /// One journal event. Reads never generate per-tick samples.
@@ -116,9 +123,9 @@ pub struct World {
     journal_next: std::cell::Cell<u64>,
     pub(crate) messages_pending: std::cell::Cell<bool>,
     published: RefCell<BTreeMap<String, Value>>,
-    pub(crate) globals: BTreeMap<Entity, Affine3A>,
-    pub(crate) previous: BTreeMap<Entity, Affine3A>,
-    pub(crate) propagated_tick: Option<u64>,
+    pub(crate) hierarchy: crate::scene::Hierarchy,
+    pub(crate) fresh: Vec<Entity>,
+    orphans: Vec<Entity>,
 }
 const SINGLETON: Entity = Entity {
     index: 0,
@@ -147,19 +154,26 @@ impl World {
             journal_next: std::cell::Cell::new(0),
             messages_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),
-            globals: BTreeMap::new(),
-            previous: BTreeMap::new(),
-            propagated_tick: None,
+            hierarchy: crate::scene::Hierarchy::default(),
+            fresh: vec![],
+            orphans: vec![],
         }
     }
-    /// Register a component or resource before loading. Registration itself is not state.
+    /// Register a component before loading. Registration itself is not state.
     pub fn register<C: Component>(&mut self) -> &mut Self {
+        self.register_data::<C>(C::NAME)
+    }
+    /// Register singleton data before loading a save.
+    pub fn register_resource<R: Resource>(&mut self) -> &mut Self {
+        self.register_data::<R>(R::NAME)
+    }
+    fn register_data<C: Data>(&mut self, name: &'static str) -> &mut Self {
         let id = TypeId::of::<C>();
-        if let Some(old) = self.registry.get(C::NAME) {
-            assert_eq!(old.id, id, "duplicate component name {}", C::NAME);
+        if let Some(old) = self.registry.get(name) {
+            assert_eq!(old.id, id, "duplicate component name {}", name);
         } else {
             self.registry.insert(
-                C::NAME,
+                name,
                 Registration {
                     id,
                     make: storage::make::<C>,
@@ -176,17 +190,17 @@ impl World {
         self.spawn_inner(None, bundle)
     }
     /// Spawn with an agent-visible name. Repeated names resolve lowest-index first.
-    pub fn spawn_named(&mut self, name: &str, bundle: impl Bundle) -> Entity {
-        self.spawn_inner(Some(name.into()), bundle)
+    pub fn spawn_named(&mut self, name: impl AsRef<str>, bundle: impl Bundle) -> Entity {
+        self.spawn_inner(Some(name.as_ref().into()), bundle)
     }
     fn spawn_inner(&mut self, name: Option<String>, bundle: impl Bundle) -> Entity {
-        let index = if self.state.free.is_empty() {
+        let index = if self.state.free.0.is_empty() {
             let i = u32::try_from(self.state.slots.len()).expect("entity slots exhausted");
             assert_ne!(i, u32::MAX, "entity slots exhausted");
             self.state.slots.push(Slot::default());
             i
         } else {
-            self.state.free.remove(0)
+            self.state.free.0.pop_first().unwrap()
         };
         let slot = &mut self.state.slots[index as usize];
         slot.alive = true;
@@ -200,51 +214,57 @@ impl World {
             self.alive_mask.push(0);
         }
         self.alive_mask[word] |= 1 << (index % 64);
+        self.fresh.push(e);
         bundle.insert(self, e);
         self.log(format_args!("spawn #{}", e.index));
         e
     }
-    /// Remove an entity and all descendants, even if a malformed hierarchy cycles.
+    /// Remove this entity only; descendants leave at the end of the tick.
+    /// A panicking component destructor leaves the slot alive until a later retry.
     pub fn despawn(&mut self, e: Entity) -> bool {
         if !self.contains(e) {
             return false;
         }
-        let mut edges: BTreeMap<Entity, Vec<Entity>> = BTreeMap::new();
-        for (child, parent) in self.query::<&Parent>().iter() {
-            edges.entry(parent.0).or_default().push(child);
+        let generation = self.state.slots[e.index as usize]
+            .generation
+            .checked_add(1)
+            .expect("entity generation exhausted");
+        for s in self.components.values_mut() {
+            s.remove(e.index as usize, self.state.tick);
         }
-        let mut stack = vec![e];
-        let mut removed = BTreeSet::new();
-        while let Some(e) = stack.pop() {
-            if !removed.insert(e) {
-                continue;
-            }
-            if let Some(children) = edges.get(&e) {
-                stack.extend(children);
-            }
-        }
-        for e in removed {
-            if !self.contains(e) {
-                continue;
-            }
-            let slot = &mut self.state.slots[e.index as usize];
-            slot.generation = slot
-                .generation
-                .checked_add(1)
-                .expect("entity generation exhausted");
-            slot.alive = false;
-            self.alive_mask[e.index as usize / 64] &= !(1 << (e.index % 64));
-            slot.name = None;
-            let p = self.state.free.partition_point(|&i| i < e.index);
-            self.state.free.insert(p, e.index);
-            for s in self.components.values_mut() {
-                s.remove(e.index as usize, self.state.tick);
-            }
-            self.globals.remove(&e);
-            self.previous.remove(&e);
-            self.log(format_args!("despawn #{}", e.index));
-        }
+        let slot = &mut self.state.slots[e.index as usize];
+        slot.generation = generation;
+        slot.alive = false;
+        slot.name = None;
+        self.alive_mask[e.index as usize / 64] &= !(1 << (e.index % 64));
+        self.state.free.0.insert(e.index);
+        self.log(format_args!("despawn #{}", e.index));
         true
+    }
+    /// Reap dead-parent children in entity order, repeating for orphaned chains.
+    /// Sim calls this once after Game::tick and before propagate.
+    pub fn reap_orphans(&mut self) {
+        let mut orphans = std::mem::take(&mut self.orphans);
+        loop {
+            orphans.clear();
+            for (e, p) in self.query::<&Parent>().iter() {
+                if !self.contains(p.0) {
+                    orphans.push(e);
+                }
+            }
+            if orphans.is_empty() {
+                break;
+            }
+            for &e in &orphans {
+                self.despawn(e);
+            }
+        }
+        self.orphans = orphans;
+    }
+    /// Entities spawned or teleported since this tick began; Sim clears each tick.
+    /// Entries retain their incarnation, so consumers can ignore entities now dead.
+    pub fn fresh(&self) -> &[Entity] {
+        &self.fresh
     }
     /// Whether this exact incarnation is alive.
     pub fn contains(&self, e: Entity) -> bool {
@@ -255,7 +275,7 @@ impl World {
     }
     /// Number of living entities.
     pub fn len(&self) -> usize {
-        self.state.slots.len() - self.state.free.len()
+        self.state.slots.len() - self.state.free.0.len()
     }
     /// Whether no entities are alive.
     pub fn is_empty(&self) -> bool {
@@ -304,22 +324,20 @@ impl World {
             self.named(target)
         }
     }
-    /// Insert or replace a component; stale entities are a programmer error.
-    pub fn insert<C: Component>(&mut self, e: Entity, c: C) {
-        assert!(
-            self.contains(e),
-            "cannot insert {} into stale entity {:?}",
-            C::NAME,
-            e
-        );
+    /// Insert or replace a component, returning false if the entity is gone.
+    pub fn insert<C: Component>(&mut self, e: Entity, c: C) -> bool {
+        if !self.contains(e) {
+            return false;
+        }
         self.register::<C>();
         self.components
             .entry(C::NAME)
-            .or_insert_with(storage::make::<C>)
+            .or_insert_with(|| storage::make::<C>(C::NAME))
             .any_mut()
             .downcast_mut::<Storage<C>>()
             .unwrap()
             .insert(e.index as usize, c, self.state.tick);
+        true
     }
     /// Remove a component, returning its last value.
     pub fn remove<C: Component>(&mut self, e: Entity) -> Option<C> {
@@ -343,7 +361,8 @@ impl World {
         }
         self.storage::<C>()?.get(e.index as usize)
     }
-    /// Borrow one component exclusively; conflicts panic with its name.
+    /// Borrow one component exclusively, locking the whole column.
+    /// A nested get::<C> of another entity also panics; use a query for multiple rows.
     pub fn get_mut<C: Component>(&self, e: Entity) -> Option<RefMut<'_, C>> {
         if !self.contains(e) {
             return None;
@@ -365,7 +384,8 @@ impl World {
     pub fn changed<C: Component>(&self) -> u64 {
         self.storage::<C>().map_or(0, Storage::changed)
     }
-    /// Direct children in entity order.
+    /// Scan for direct children in entity order, for tools;
+    /// a tick that needs children keeps them in a component.
     pub fn children(&self, e: Entity) -> Vec<Entity> {
         if !self.contains(e) {
             return vec![];
@@ -378,10 +398,10 @@ impl World {
     }
     /// Insert or replace named singleton state.
     pub fn insert_resource<R: Resource>(&mut self, r: R) {
-        self.register::<R>();
+        self.register_resource::<R>();
         self.resources
             .entry(R::NAME)
-            .or_insert_with(storage::make::<R>)
+            .or_insert_with(|| storage::make::<R>(R::NAME))
             .any_mut()
             .downcast_mut::<Storage<R>>()
             .unwrap()
@@ -422,6 +442,18 @@ impl World {
     /// The world's only source of simulation randomness.
     pub fn rng(&self) -> RefMut<'_, Rng> {
         self.rng.get_mut(0, self.tick()).unwrap()
+    }
+    /// Draw one value and release the random column before returning.
+    pub fn rand<T: crate::RangeValue>(&self, range: std::ops::Range<T>) -> T {
+        self.rng().range(range)
+    }
+    /// One Bernoulli trial, with probability in [0, 1].
+    pub fn chance(&self, p: f32) -> bool {
+        self.rng().chance(p)
+    }
+    /// Choose a slice element, releasing the random column before returning.
+    pub fn pick<'a, T>(&self, items: &'a [T]) -> Option<&'a T> {
+        self.rng().pick(items)
     }
     /// Append an event to the bounded 4,096-line journal.
     pub fn log(&self, line: impl std::fmt::Display) {
@@ -509,6 +541,9 @@ impl World {
     /// Atomically replace simulation state. Registered types survive the replacement;
     /// caches, publications and events do not. The entity table precedes storages.
     pub fn load(&mut self, bytes: &[u8]) -> Result<(), DataError> {
+        if bytes.len() > crate::data::MAX_LOAD_BYTES {
+            return Err(DataError::new("save exceeds load size limit"));
+        }
         if !bytes.starts_with(MAGIC) {
             return Err(DataError::new("invalid game save magic or version"));
         }
@@ -517,6 +552,7 @@ impl World {
         let mut r = bin::Decoder::new(&bytes[MAGIC.len()..]);
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;
+        next.validate_hierarchy(&mut r)?;
         *self = next;
         Ok(())
     }
@@ -524,15 +560,14 @@ impl World {
         if self.hz() == 0 {
             return Err(DataError::new("hz must be positive"));
         }
-        let free: Vec<_> = self
+        let free = self
             .state
             .slots
             .iter()
             .enumerate()
             .filter(|(_, s)| !s.alive)
-            .map(|(i, _)| i as u32)
-            .collect();
-        if free != self.state.free {
+            .map(|(i, _)| i as u32);
+        if !free.eq(self.state.free.0.iter().copied()) {
             return Err(DataError::new("free list disagrees with entity table"));
         }
         if self
@@ -547,16 +582,22 @@ impl World {
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_struct()?;
-        let mut seen = BTreeSet::new();
+        let mut seen = 0u8;
         while let Some(field) = r.field()? {
-            if !seen.insert(field.clone()) {
-                return Err(DataError::new("duplicate world field").at(field));
-            }
+            seen |= match field.as_str() {
+                "state" => 1,
+                "rng" => 2,
+                "components" => 4,
+                "resources" => 8,
+                _ => 0,
+            };
             match field.as_str() {
                 "state" => {
                     self.state.read(r)?;
                     self.validate_state()?;
-                    self.alive_mask = vec![0; self.state.slots.len().div_ceil(64)];
+                    let words = self.state.slots.len().div_ceil(64);
+                    crate::data::limits::reserve(r, &mut self.alive_mask, words)?;
+                    self.alive_mask.resize(words, 0);
                     for (index, slot) in self.state.slots.iter().enumerate() {
                         if slot.alive {
                             self.alive_mask[index / 64] |= 1 << (index % 64);
@@ -565,7 +606,7 @@ impl World {
                 }
                 "rng" => self.rng().read(r)?,
                 "components" | "resources" => {
-                    if !seen.contains("state") {
+                    if seen & 1 == 0 {
                         return Err(DataError::new("entity table must precede storage"));
                     }
                     r.begin_struct()?;
@@ -574,7 +615,7 @@ impl World {
                             self.registry.get_key_value(name.as_str()).ok_or_else(|| {
                                 DataError::new("unregistered component or resource").at(&name)
                             })?;
-                        let mut s = (reg.make)();
+                        let mut s = (reg.make)(key);
                         let resource = field == "resources";
                         s.read(
                             r,
@@ -604,10 +645,7 @@ impl World {
                 _ => r.skip()?,
             }
         }
-        if ["state", "rng", "components", "resources"]
-            .iter()
-            .any(|k| !seen.contains(*k))
-        {
+        if seen != 15 {
             return Err(DataError::new("incomplete world save"));
         }
         Ok(())
@@ -618,3 +656,6 @@ impl World {
 mod tests;
 
 mod inspect;
+
+mod save;
+use save::Free;

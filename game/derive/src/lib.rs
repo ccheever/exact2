@@ -3,18 +3,24 @@
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
-use proc_macro::{Delimiter, TokenStream, TokenTree};
+use proc_macro::{Delimiter, Spacing, TokenStream, TokenTree};
 
 /// Implement the streaming data contract for a nongeneric struct or enum.
 #[proc_macro_derive(Data, attributes(data))]
 pub fn data(input: TokenStream) -> TokenStream {
-    derive(input, false)
+    derive(input, None)
 }
 
-/// Implement data and use the type's spelling as its component/resource name.
+/// Implement data and use the type's spelling as its component name.
 #[proc_macro_derive(Component, attributes(data))]
 pub fn component(input: TokenStream) -> TokenStream {
-    derive(input, true)
+    derive(input, Some("Component"))
+}
+
+/// Implement data and use the type's spelling as its resource name.
+#[proc_macro_derive(Resource, attributes(data))]
+pub fn resource(input: TokenStream) -> TokenStream {
+    derive(input, Some("Resource"))
 }
 
 struct Field {
@@ -36,25 +42,32 @@ struct Arm {
     body: Body,
 }
 
-fn derive(input: TokenStream, component: bool) -> TokenStream {
-    match expand(input, component) {
+fn derive(input: TokenStream, marker: Option<&str>) -> TokenStream {
+    match expand(input, marker) {
         Ok(s) => s.parse().expect("derive emitted Rust"),
-        Err(e) => format!("compile_error!({e:?});").parse().unwrap(),
+        Err(e) => format!("::core::compile_error!({e:?});").parse().unwrap(),
     }
 }
 fn punct(t: &TokenTree, c: char) -> bool {
     matches!(t, TokenTree::Punct(p) if p.as_char() == c)
 }
-fn strip(tokens: &[TokenTree]) -> (&[TokenTree], bool) {
+fn strip(tokens: &[TokenTree], field: bool) -> Result<(&[TokenTree], bool), String> {
     let mut i = 0;
     let mut skip = false;
     while i + 1 < tokens.len() && punct(&tokens[i], '#') {
         if let TokenTree::Group(g) = &tokens[i + 1] {
             let a: Vec<_> = g.stream().into_iter().collect();
             if a.first().is_some_and(|t| t.to_string() == "data") {
-                skip |= a.get(1).is_some_and(
-                    |t| matches!(t, TokenTree::Group(g) if g.stream().to_string() == "skip"),
-                );
+                if !field {
+                    return Err("data attribute is only meaningful on a field".into());
+                }
+                if a.len() != 2
+                    || !matches!(&a[1], TokenTree::Group(g)
+                    if g.delimiter() == Delimiter::Parenthesis && g.stream().to_string() == "skip")
+                {
+                    return Err("unknown data attribute; expected data(skip)".into());
+                }
+                skip = true;
             }
         }
         i += 2;
@@ -66,31 +79,42 @@ fn strip(tokens: &[TokenTree]) -> (&[TokenTree], bool) {
             i += 1;
         }
     }
-    (&tokens[i..], skip)
+    Ok((&tokens[i..], skip))
 }
-fn split(stream: TokenStream) -> Vec<Vec<TokenTree>> {
+fn split(stream: TokenStream) -> Result<Vec<Vec<TokenTree>>, String> {
+    let tokens: Vec<_> = stream.into_iter().collect();
     let mut out = Vec::new();
-    let mut field = Vec::new();
-    let mut depth = 0;
-    for t in stream {
-        if punct(&t, '<') {
+    let mut start = 0;
+    let mut i = 0;
+    let mut depth = 0usize;
+    // Groups contain const expressions; at this level types have no comparisons.
+    // Each > in >> closes one level, but a joint -> closes none.
+    while i < tokens.len() {
+        if matches!(&tokens[i], TokenTree::Punct(p) if p.as_char() == '-' && p.spacing() == Spacing::Joint)
+            && tokens.get(i + 1).is_some_and(|t| punct(t, '>'))
+        {
+            i += 2;
+            continue;
+        }
+        if punct(&tokens[i], '<') {
             depth += 1;
-        }
-        if punct(&t, '>') {
-            depth -= 1;
-        }
-        if punct(&t, ',') && depth == 0 {
-            if !field.is_empty() {
-                out.push(std::mem::take(&mut field));
+        } else if punct(&tokens[i], '>') {
+            depth = depth.checked_sub(1).ok_or("unbalanced generic depth")?;
+        } else if punct(&tokens[i], ',') && depth == 0 {
+            if start != i {
+                out.push(tokens[start..i].to_vec());
             }
-        } else {
-            field.push(t);
+            start = i + 1;
         }
+        i += 1;
     }
-    if !field.is_empty() {
-        out.push(field);
+    if depth != 0 {
+        return Err("unbalanced generic depth".into());
     }
-    out
+    if start != tokens.len() {
+        out.push(tokens[start..].to_vec());
+    }
+    Ok(out)
 }
 fn body(group: Option<&TokenTree>) -> Result<Body, String> {
     let Some(TokenTree::Group(g)) = group else {
@@ -105,8 +129,8 @@ fn body(group: Option<&TokenTree>) -> Result<Body, String> {
         Shape::Tuple
     };
     let mut fields = Vec::new();
-    for (i, f) in split(g.stream()).iter().enumerate() {
-        let (f, skip) = strip(f);
+    for (i, f) in split(g.stream())?.iter().enumerate() {
+        let (f, skip) = strip(f, true)?;
         let name = if shape == Shape::Named {
             if !matches!(f.first(), Some(TokenTree::Ident(_)))
                 || !f.get(1).is_some_and(|t| punct(t, ':'))
@@ -121,13 +145,21 @@ fn body(group: Option<&TokenTree>) -> Result<Body, String> {
     }
     Ok(Body { fields, shape })
 }
-fn expand(input: TokenStream, component: bool) -> Result<String, String> {
+fn expand(input: TokenStream, marker: Option<&str>) -> Result<String, String> {
     let tokens: Vec<_> = input.into_iter().collect();
-    let (tokens, _) = strip(&tokens);
+    let name = tokens
+        .windows(2)
+        .find(|w| matches!(w[0].to_string().as_str(), "struct" | "enum"))
+        .map(|w| w[1].to_string())
+        .unwrap_or_default();
+    expand_type(&tokens, marker).map_err(|e| format!("{name}: {e}"))
+}
+fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, String> {
+    let (tokens, _) = strip(tokens, false)?;
     let kind = tokens.first().map(ToString::to_string).unwrap_or_default();
     let name = tokens.get(1).map(ToString::to_string).unwrap_or_default();
     if kind != "struct" && kind != "enum" {
-        return Err(format!("{name}: Data requires a struct or enum"));
+        return Err("Data requires a struct or enum".into());
     }
     if tokens
         .get(2)
@@ -135,9 +167,7 @@ fn expand(input: TokenStream, component: bool) -> Result<String, String> {
         || tokens.iter().any(|t| t.to_string() == "where")
         || has_lifetime(tokens)
     {
-        return Err(format!(
-            "{name}: Data does not support generics or lifetimes"
-        ));
+        return Err("Data does not support generics or lifetimes".into());
     }
     let (write, read, moving) = if kind == "struct" {
         let b = body(tokens.get(2))?;
@@ -153,11 +183,17 @@ fn expand(input: TokenStream, component: bool) -> Result<String, String> {
         )
     } else {
         let Some(TokenTree::Group(g)) = tokens.get(2) else {
-            return Err(format!("{name}: expected enum body"));
+            return Err("expected enum body".into());
         };
         let mut arms = Vec::new();
-        for a in split(g.stream()) {
-            let (a, _) = strip(&a);
+        for a in split(g.stream())? {
+            let (a, _) = strip(&a, false)?;
+            if a.iter().any(|t| punct(t, '=')) {
+                return Err(
+                    "explicit enum discriminants are unsupported; hashes use declaration order"
+                        .into(),
+                );
+            }
             let arm = a.first().ok_or("empty enum arm")?.to_string();
             arms.push(Arm {
                 name: arm,
@@ -192,21 +228,21 @@ fn expand(input: TokenStream, component: bool) -> Result<String, String> {
                 format!("if let {pat} = self {{ {} }}", read_body(b, &refs))
             };
             read += &format!(
-                "{:?} => {{ if !matches!(self, {}) {{ *self = {}; }} {bind} }},",
+                "{:?} => {{ if !::core::matches!(self, {}) {{ *self = {}; }} {bind} }},",
                 clean(&arm.name),
                 pattern(&arm.name, b, &wildcards),
                 pattern(&arm.name, b, &defaults)
             );
         }
         write += "}";
-        read += "_ => return Err(::exact_game::DataError::new(format!(\"unknown variant {}\", arm))), } r.end_variant()?;";
+        read += "_ => return ::core::result::Result::Err(::exact_game::DataError::new(::std::format!(\"unknown variant {}\", arm))), } r.end_variant()?;";
         moving += "}";
         (write, read, moving)
     };
-    let mut out = format!("impl ::exact_game::Data for {name} {{ fn moving(&self, now: ::exact_game::Now) -> bool {{ let _ = now; {moving} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> Result<(), ::exact_game::DataError> {{ {read} Ok(()) }} }}");
-    if component {
+    let mut out = format!("impl ::exact_game::Data for {name} {{ fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    if let Some(marker) = marker {
         out += &format!(
-            "impl ::exact_game::Component for {name} {{ const NAME: &'static str = {:?}; }}",
+            "impl ::exact_game::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?}; }}",
             clean(&name)
         );
     }
@@ -265,11 +301,16 @@ fn write_body(b: &Body, access: &[String]) -> String {
 fn read_body(b: &Body, access: &[String]) -> String {
     let named = b.shape != Shape::Tuple;
     let mut s = String::new();
-    for (_, a) in b.fields.iter().zip(access).filter(|(f, _)| f.skip) {
+    for (_, a) in b
+        .fields
+        .iter()
+        .zip(access)
+        .filter(|(f, _)| f.skip || !named)
+    {
         s += &format!("{a} = ::core::default::Default::default();");
     }
     s += if named {
-        "r.begin_struct()?; while let Some(field) = r.field()? { match field.as_str() {"
+        "r.begin_struct()?; while let ::core::option::Option::Some(field) = r.field()? { match field.as_str() {"
     } else {
         "r.begin_seq()?; let mut index = 0usize; while r.item()? { match index {"
     };

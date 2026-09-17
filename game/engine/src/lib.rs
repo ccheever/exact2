@@ -19,7 +19,7 @@ mod values;
 mod world;
 
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
-pub use exact_game_derive::{Component, Data};
+pub use exact_game_derive::{Component, Data, Resource};
 pub use exact_motion::spring::SpringConfig;
 pub use exact_plan::Value;
 pub use glam::{Affine3A, Quat, Vec2, Vec3, Vec4};

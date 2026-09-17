@@ -1,6 +1,8 @@
 //! Human-readable streaming JSON. Records are objects, tuples/vectors are arrays,
 //! enums are one-key objects, and options are zero/one-element arrays.
+use super::limits::{allocation, Budget, MAX_LOAD_BYTES, MAX_LOAD_STRING};
 use super::{Data, DataError, Number, Reader, Writer};
+use std::collections::BTreeSet;
 use std::fmt::Write;
 
 /// Encode a value; JSON refuses infinities and NaNs.
@@ -15,8 +17,11 @@ pub fn from_str<T: Data>(text: &str) -> Result<T, DataError> {
     read_into(text, &mut value)?;
     Ok(value)
 }
-/// Read present fields over an existing value.
+/// Read into an existing value using Data's patch/replacement rules.
 pub fn read_into<T: Data>(text: &str, value: &mut T) -> Result<(), DataError> {
+    if text.len() > MAX_LOAD_BYTES {
+        return Err(DataError::new("input exceeds load size limit"));
+    }
     let mut r = Decoder::new(text);
     value
         .read(&mut r)
@@ -169,7 +174,13 @@ impl Writer for Encoder {
 pub struct Decoder<'a> {
     text: &'a str,
     pos: usize,
-    frames: Vec<(u8, bool)>,
+    frames: Vec<ReadFrame>,
+    budget: Budget,
+}
+struct ReadFrame {
+    end: u8,
+    first: bool,
+    names: BTreeSet<String>,
 }
 impl<'a> Decoder<'a> {
     /// Start at the first JSON value.
@@ -178,6 +189,7 @@ impl<'a> Decoder<'a> {
             text,
             pos: 0,
             frames: vec![],
+            budget: Budget::default(),
         }
     }
     /// Reject trailing input or an unfinished container.
@@ -223,15 +235,21 @@ impl<'a> Decoder<'a> {
         if self.frames.len() >= 256 {
             return Err(self.err("nesting exceeds 256"));
         }
-        self.frames.push((end, true));
+        self.budget.reserve(&mut self.frames)?;
+        self.frames.push(ReadFrame {
+            end,
+            first: true,
+            names: BTreeSet::new(),
+        });
         Ok(())
     }
     fn next(&mut self, end: u8) -> Result<bool, DataError> {
         self.ws();
-        let (want, first) = *self
+        let frame = self
             .frames
             .last()
             .ok_or_else(|| self.err("not inside a container"))?;
+        let (want, first) = (frame.end, frame.first);
         if want != end {
             return Err(self.err("wrong container"));
         }
@@ -243,7 +261,7 @@ impl<'a> Decoder<'a> {
         if !first {
             self.eat(b',')?;
         }
-        self.frames.last_mut().unwrap().1 = false;
+        self.frames.last_mut().unwrap().first = false;
         self.ws();
         if self.peek() == Some(end) {
             return Err(self.err("trailing comma"));
@@ -268,6 +286,9 @@ impl<'a> Decoder<'a> {
     }
 }
 impl Reader for Decoder<'_> {
+    fn claim(&mut self, bytes: usize) -> Result<(), DataError> {
+        self.budget.claim(bytes)
+    }
     fn boolean(&mut self) -> Result<bool, DataError> {
         if self.word("true") {
             Ok(true)
@@ -341,9 +362,23 @@ impl Reader for Decoder<'_> {
         self.eat(b'"')?;
         let mut out = String::new();
         loop {
+            if self.peek() != Some(b'"') {
+                if out.len() >= MAX_LOAD_STRING {
+                    return Err(self.err("string exceeds load limit"));
+                }
+                if out.capacity() - out.len() < 4 {
+                    let capacity = (out.capacity() * 2).clamp(8, MAX_LOAD_STRING + 4);
+                    self.budget.claim(capacity - out.capacity())?;
+                    out.try_reserve_exact(capacity - out.len())
+                        .map_err(allocation)?;
+                }
+            }
             match self.peek() {
                 Some(b'"') => {
                     self.pos += 1;
+                    if out.len() > MAX_LOAD_STRING {
+                        return Err(self.err("string exceeds load limit"));
+                    }
                     return Ok(out);
                 }
                 Some(b'\\') => {
@@ -403,6 +438,12 @@ impl Reader for Decoder<'_> {
         }
         let name = self.string()?;
         self.eat(b':')?;
+        let seen = &mut self.frames.last_mut().unwrap().names;
+        if seen.contains(&name) {
+            return Err(DataError::new("duplicate field").at(name));
+        }
+        self.budget.claim(64)?;
+        seen.insert(self.budget.text(&name)?);
         Ok(Some(name))
     }
     fn variant(&mut self) -> Result<String, DataError> {

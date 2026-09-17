@@ -1,9 +1,9 @@
-use crate::Component;
+use crate::Resource;
 use std::ops::Range;
 
 /// PCG-XSH-RR 64/32, with a fixed odd stream increment and saved 64-bit state.
 /// Constants and output permutation are from O'Neill's PCG reference generator.
-#[derive(Clone, Debug, Component)]
+#[derive(Clone, Debug, Resource)]
 pub struct Rng {
     state: u64,
 }

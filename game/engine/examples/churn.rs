@@ -1,5 +1,5 @@
 //! Run with cargo run --release -p exact-game --example churn.
-use exact_game::{Component, Quat, Rng, Transform, Vec3, World};
+use exact_game::{Component, Parent, Quat, Rng, Transform, Vec3, World};
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -100,6 +100,65 @@ fn rare() {
         start.elapsed().as_secs_f64() * 1e6 / QUERIES as f64
     );
 }
+fn half_churn() {
+    let mut w = world(100_000);
+    let entities: Vec<_> = w.entities().step_by(2).collect();
+    let start = Instant::now();
+    for &e in entities.iter().rev() {
+        w.despawn(e);
+    }
+    for _ in &entities {
+        w.spawn((Transform::default(), spin()));
+    }
+    println!(
+        "despawn + respawn 50,000 / 100,000: {:.3} ms",
+        start.elapsed().as_secs_f64() * 1e3
+    );
+    black_box(w.hash());
+}
+fn propagation() {
+    let mut w = World::new(120, 42);
+    let entities: Vec<_> = (0..500_000)
+        .map(|_| w.spawn(Transform::at(1.0, 0.0, 0.0)))
+        .collect();
+    fn measure(w: &mut World, description: &str) {
+        for _ in 0..10 {
+            w.propagate();
+        }
+        let start = Instant::now();
+        for _ in 0..100 {
+            black_box(&mut *w).propagate();
+        }
+        println!(
+            "propagate {description}: {:.3} us/call",
+            start.elapsed().as_secs_f64() * 1e6 / 100.0
+        );
+    }
+    measure(&mut w, "500,000 roots");
+    // 10,000 independent chains, each with five parented entities and one root.
+    for chain in 0..10_000 {
+        let base = chain * 50;
+        for depth in 1..=5 {
+            w.insert(entities[base + depth], Parent(entities[base + depth - 1]));
+        }
+    }
+    measure(&mut w, "500,000 entities / 50,000 parented, chains of 5");
+    assert_eq!(w.global(entities[5]).unwrap().translation.x, 6.0);
+    let start = Instant::now();
+    for &e in entities.iter().step_by(50).take(1000) {
+        w.despawn(e);
+    }
+    println!(
+        "despawn 1,000 among 50,000 parented: {:.3} ms",
+        start.elapsed().as_secs_f64() * 1e3
+    );
+    let start = Instant::now();
+    w.reap_orphans();
+    println!(
+        "reap 5,000 orphaned descendants: {:.3} ms",
+        start.elapsed().as_secs_f64() * 1e3
+    );
+}
 fn main() {
     println!(
         "{} / {}; release={}",
@@ -110,5 +169,7 @@ fn main() {
     rotations(100_000);
     rotations(500_000);
     churn();
+    half_churn();
     rare();
+    propagation();
 }

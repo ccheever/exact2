@@ -3,7 +3,7 @@ use crate::{
     json, spatial, Clock, Data, DataError, Entity, Game, Mesh, Parent, Reader, Sim, Vec2, Vec3,
     Visible, World,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 #[derive(Default)]
 struct Request {
@@ -23,12 +23,8 @@ impl Request {
     fn parse(text: &str) -> Result<Self, DataError> {
         let mut r = json::Decoder::new(text);
         let mut q = Self::default();
-        let mut seen = BTreeSet::new();
         r.begin_struct()?;
         while let Some(f) = r.field()? {
-            if !seen.insert(f.clone()) {
-                return Err(DataError::new("duplicate request field").at(f));
-            }
             match f.as_str() {
                 "op" => q.op.read(&mut r)?,
                 "entity" => q.entity = Some(r.string()?),
@@ -118,6 +114,7 @@ fn hierarchy(w: &World) -> Result<Vec<(Entity, Option<Entity>, u32)>, String> {
 }
 impl<G: Game> Sim<G> {
     /// Answer the engine half of an agent request as JSON, always tagged with tick.
+    /// Component/resource Data uses [] for None and [value] for Some(value).
     pub fn agent(&mut self, request: &str) -> String {
         match Request::parse(request)
             .map_err(|e| e.to_string())

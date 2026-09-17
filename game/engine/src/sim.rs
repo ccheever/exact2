@@ -46,6 +46,33 @@ impl Args {
             .filter(|n| n.is_finite())
             .ok_or_else(|| self.expected(i, name, "a finite number"))
     }
+    /// Read a non-negative safe integer (at most 2^53 - 1), refusing by name.
+    pub fn integer(&self, i: usize, name: &str) -> Result<u64, String> {
+        let n = self.number(i, name)?;
+        if !(0.0..=9_007_199_254_740_991.0).contains(&n) || n.fract() != 0.0 {
+            return Err(self.expected(i, name, "a non-negative safe integer"));
+        }
+        Ok(n as u64)
+    }
+    fn arity(&self, game: &str, names: &[&str]) -> Result<(), String> {
+        if self.len() < names.len() {
+            Err(format!(
+                "missing argument `{}` at position {}",
+                names[self.len()],
+                self.len()
+            ))
+        } else if self.len() > names.len() {
+            Err(format!(
+                "{} expects {} arguments ({}), got {}",
+                game,
+                names.len(),
+                names.join(", "),
+                self.len()
+            ))
+        } else {
+            Ok(())
+        }
+    }
     /// Read a boolean, refusing missing values or a different type.
     pub fn flag(&self, i: usize, name: &str) -> Result<bool, String> {
         self.0
@@ -82,8 +109,8 @@ pub trait Game: 'static {
     /// Construct the world. Refusals name the invalid argument.
     fn setup(world: &mut World, args: &Args) -> Result<(), String>;
     /// Respond to changed canvas arguments.
-    fn bind(_world: &mut World, _args: &Args) -> Result<(), String> {
-        Ok(())
+    fn bind(_world: &mut World, args: &Args) -> Result<(), String> {
+        args.arity(Self::NAME, Self::ARGS)
     }
     /// Stop world time while continuing to serve reads.
     fn paused(_args: &Args) -> bool {
@@ -137,24 +164,9 @@ pub(crate) fn micros(ms: f64) -> i64 {
 }
 impl<G: Game> Sim<G> {
     fn args(values: &[Value]) -> Result<Args, String> {
-        if values.len() != G::ARGS.len() {
-            return Err(if values.len() < G::ARGS.len() {
-                format!(
-                    "missing argument `{}` at position {}",
-                    G::ARGS[values.len()],
-                    values.len()
-                )
-            } else {
-                format!(
-                    "{} expects {} arguments ({}), got {}",
-                    G::NAME,
-                    G::ARGS.len(),
-                    G::ARGS.join(", "),
-                    values.len()
-                )
-            });
-        }
-        Ok(Args(values.to_vec()))
+        let args = Args(values.to_vec());
+        args.arity(G::NAME, G::ARGS)?;
+        Ok(args)
     }
     /// Build at tick zero with seed zero; setup may reseed from a named argument.
     pub fn new(args: &[Value]) -> Result<Self, String> {
@@ -250,6 +262,7 @@ impl<G: Game> Sim<G> {
                 self.input.apply(self.queue.remove(0).event);
             }
             G::tick(&mut self.world, &self.input);
+            self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
         }

@@ -20,7 +20,7 @@ pub trait Query: sealed::Sealed {
     type State<'w>: for<'a> Fetch<Item<'a> = Self::Item<'a>>;
     /// Acquire leases and reject duplicate component types.
     #[doc(hidden)]
-    fn prepare<'w>(world: &'w World, seen: &mut Vec<TypeId>) -> Self::State<'w>;
+    fn prepare<'w>(world: &'w World, seen: &mut [Option<TypeId>; 8]) -> Self::State<'w>;
 }
 
 /// Internal query operations, exposed only as an associated bound.
@@ -41,10 +41,18 @@ pub struct ComponentBorrow<'w, C, const MUT: bool, const OPTIONAL: bool> {
     _lease: Option<Lease<'w>>,
 }
 impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O> {
-    fn new(world: &'w World, seen: &mut Vec<TypeId>) -> Self {
+    fn new(world: &'w World, seen: &mut [Option<TypeId>; 8]) -> Self {
         let id = TypeId::of::<C>();
-        assert!(!seen.contains(&id), "{} occurs twice in one query", C::NAME);
-        seen.push(id);
+        assert!(
+            !seen.contains(&Some(id)),
+            "{} occurs twice in one query",
+            C::NAME
+        );
+        let slot = seen
+            .iter_mut()
+            .find(|s| s.is_none())
+            .unwrap_or_else(|| panic!("query exceeds 8 terms at {}", C::NAME));
+        *slot = Some(id);
         let storage = world.storage::<C>();
         Self {
             storage,
@@ -80,7 +88,7 @@ macro_rules! reference {
         impl<'q, C: Component> Query for $form {
             type Item<'a> = $item;
             type State<'w> = ComponentBorrow<'w, C, $m, $o>;
-            fn prepare<'w>(w: &'w World, seen: &mut Vec<TypeId>) -> Self::State<'w> {
+            fn prepare<'w>(w: &'w World, seen: &mut [Option<TypeId>; 8]) -> Self::State<'w> {
                 ComponentBorrow::new(w, seen)
             }
         }
@@ -128,7 +136,7 @@ macro_rules! tuples {
         impl<$($T: Query),+> Query for ($($T,)+) {
             type Item<'a> = ($($T::Item<'a>,)+);
             type State<'w> = ($($T::State<'w>,)+);
-            fn prepare<'w>(w: &'w World, seen: &mut Vec<TypeId>) -> Self::State<'w> {
+            fn prepare<'w>(w: &'w World, seen: &mut [Option<TypeId>; 8]) -> Self::State<'w> {
                 ($($T::prepare(w, seen),)+)
             }
         }
@@ -178,17 +186,19 @@ tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7);
 pub struct QueryBorrow<'w, Q: Query> {
     world: &'w World,
     state: Q::State<'w>,
-    filters: Vec<(&'w [u64], bool)>,
+    filters: [(&'w [u64], bool); 4],
+    filter_count: usize,
     words: usize,
 }
 impl<'w, Q: Query> QueryBorrow<'w, Q> {
     pub(crate) fn new(world: &'w World) -> Self {
-        let state = Q::prepare(world, &mut vec![]);
+        let state = Q::prepare(world, &mut [None; 8]);
         let words = state.words().min(world.alive_mask.len());
         Self {
             world,
             state,
-            filters: vec![],
+            filters: [(&[], false); 4],
+            filter_count: 0,
             words,
         }
     }
@@ -196,14 +206,35 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     pub fn with<C: Component>(mut self) -> Self {
         let mask = self.world.storage::<C>().map_or(&[][..], |s| &s.mask);
         self.words = self.words.min(mask.len());
-        self.filters.push((mask, true));
+        self.filter::<C>(mask, true);
         self
     }
     /// Keep entities without C, without borrowing its values.
     pub fn without<C: Component>(mut self) -> Self {
         let mask = self.world.storage::<C>().map_or(&[][..], |s| &s.mask);
-        self.filters.push((mask, false));
+        self.filter::<C>(mask, false);
         self
+    }
+    fn filter<C: Component>(&mut self, mask: &'w [u64], with: bool) {
+        assert!(
+            self.filter_count < 4,
+            "query exceeds 4 filters at {}",
+            C::NAME
+        );
+        self.filters[self.filter_count] = (mask, with);
+        self.filter_count += 1;
+    }
+    /// The first row, or None; debug builds refuse a second row, naming the query.
+    /// This lives on the query so its column leases outlive the returned references.
+    pub fn one(&mut self) -> Option<(Entity, Q::Item<'_>)> {
+        let mut rows = self.iter();
+        let first = rows.next();
+        debug_assert!(
+            rows.next().is_none(),
+            "query {} expected one entity, found two",
+            std::any::type_name::<Q>()
+        );
+        first
     }
     /// Visit each matching entity once, yielding plain references.
     pub fn iter(&mut self) -> QueryIter<'_, 'w, Q> {
@@ -239,7 +270,7 @@ impl<'a, Q: Query> Iterator for QueryIter<'a, '_, Q> {
             let word = self.word;
             self.word += 1;
             let mut bits = self.query.world.alive_mask[word] & self.query.state.word(word);
-            for &(mask, with) in &self.query.filters {
+            for &(mask, with) in &self.query.filters[..self.query.filter_count] {
                 let filter = mask.get(word).copied().unwrap_or(0);
                 bits &= if with { filter } else { !filter };
             }

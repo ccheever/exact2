@@ -1,15 +1,17 @@
-use exact_game::{Component, Data, Transform, World};
+use exact_game::{Component, Data, Resource, Transform, World};
 
 #[derive(Default, Component)]
 struct Health {
     hp: u32,
 }
-#[derive(Default, Component)]
+#[derive(Default, Resource)]
 struct Score(u64);
 #[test]
 fn round_trip_preserves_ids_names_rng_resources_and_registration_order() {
     let mut w = World::new(144, 8123);
-    w.register::<Health>().register_scene().register::<Score>();
+    w.register::<Health>()
+        .register_scene()
+        .register_resource::<Score>();
     let e = w.spawn_named("fox", (Transform::at(1.0, 2.0, 3.0), Health { hp: 15 }));
     let dead = w.spawn_named("dead", (Health { hp: 4 },));
     w.despawn(dead);
@@ -20,7 +22,7 @@ fn round_trip_preserves_ids_names_rng_resources_and_registration_order() {
     let hash = w.hash();
     let mut loaded = World::new(30, 1);
     loaded
-        .register::<Score>()
+        .register_resource::<Score>()
         .register_scene()
         .register::<Health>();
     loaded.load(&bytes).unwrap();
@@ -29,7 +31,10 @@ fn round_trip_preserves_ids_names_rng_resources_and_registration_order() {
     assert_eq!(loaded.named("fox"), Some(e));
     assert_eq!(loaded.name(e), Some("fox"));
     assert_eq!(loaded.resource::<Score>().0, 79);
-    assert!(loaded.global(e).is_none());
+    assert_eq!(
+        loaded.global(e).unwrap().translation,
+        exact_game::Vec3::new(1.0, 2.0, 3.0).into()
+    );
     for _ in 0..20 {
         assert_eq!(w.rng().next_u32(), loaded.rng().next_u32());
     }

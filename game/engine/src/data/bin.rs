@@ -1,7 +1,8 @@
 //! Tagged little-endian values, unsigned/zigzag varints, and an incremental
 //! name table. Unknown fields must still be walked to intern their names.
+use super::limits::{Budget, MAX_LOAD_BYTES, MAX_LOAD_STRING};
 use super::{f32_bits, f64_bits, Data, DataError, Number, Reader, Writer};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Encode one value, canonicalizing all NaNs while preserving negative zero.
 pub fn to_vec<T: Data>(value: &T) -> Vec<u8> {
@@ -15,7 +16,7 @@ pub fn from_slice<T: Data>(bytes: &[u8]) -> Result<T, DataError> {
     read_into(bytes, &mut v)?;
     Ok(v)
 }
-/// Read one value over existing fields; absent fields keep their values.
+/// Read into an existing value using Data's patch/replacement rules.
 pub fn read_into<T: Data>(bytes: &[u8], value: &mut T) -> Result<(), DataError> {
     let mut r = Decoder::new(bytes);
     value
@@ -118,10 +119,11 @@ pub struct Decoder<'a> {
     pos: usize,
     names: Vec<String>,
     frames: Vec<Frame>,
+    budget: Budget,
 }
 enum Frame {
     Seq(u64),
-    Struct,
+    Struct(BTreeSet<String>),
     Variant,
     Option,
 }
@@ -133,6 +135,7 @@ impl<'a> Decoder<'a> {
             pos: 0,
             names: vec![],
             frames: vec![],
+            budget: Budget::default(),
         }
     }
     /// Check that the caller consumed the entire stream.
@@ -147,6 +150,9 @@ impl<'a> Decoder<'a> {
         DataError::new(format!("{s} at byte {}", self.pos))
     }
     fn take(&mut self, n: usize) -> Result<&'a [u8], DataError> {
+        if self.bytes.len() > MAX_LOAD_BYTES {
+            return Err(self.err("input exceeds load size limit"));
+        }
         let end = self
             .pos
             .checked_add(n)
@@ -184,31 +190,48 @@ impl<'a> Decoder<'a> {
     }
     fn text(&mut self) -> Result<String, DataError> {
         let len = usize::try_from(self.var()?).map_err(|_| self.err("length overflow"))?;
+        if len > MAX_LOAD_STRING {
+            return Err(self.err("string exceeds load limit"));
+        }
         let b = self.take(len)?;
-        String::from_utf8(b.to_vec()).map_err(|_| self.err("invalid UTF-8"))
+        let s = std::str::from_utf8(b).map_err(|_| self.err("invalid UTF-8"))?;
+        self.budget.text(s)
     }
     fn name(&mut self) -> Result<String, DataError> {
         let n = self.var()?;
         if n == 0 {
             let s = self.text()?;
-            self.names.push(s.clone());
+            let interned = self.budget.text(&s)?;
+            self.budget.reserve(&mut self.names)?;
+            self.names.push(interned);
             Ok(s)
         } else {
-            self.names
+            let s = self
+                .names
                 .get(usize::try_from(n - 1).map_err(|_| self.err("name overflow"))?)
-                .cloned()
-                .ok_or_else(|| self.err("unknown name index"))
+                .ok_or_else(|| self.err("unknown name index"))?;
+            self.budget.text(s)
         }
     }
     fn push(&mut self, f: Frame) -> Result<(), DataError> {
         if self.frames.len() >= 256 {
             return Err(self.err("nesting exceeds 256"));
         }
+        self.budget.reserve(&mut self.frames)?;
         self.frames.push(f);
         Ok(())
     }
 }
 impl Reader for Decoder<'_> {
+    fn claim(&mut self, bytes: usize) -> Result<(), DataError> {
+        self.budget.claim(bytes)
+    }
+    fn sequence_len(&self) -> Option<usize> {
+        match self.frames.last() {
+            Some(Frame::Seq(n)) => usize::try_from(*n).ok(),
+            _ => None,
+        }
+    }
     fn boolean(&mut self) -> Result<bool, DataError> {
         match self.byte()? {
             0 => Ok(false),
@@ -241,6 +264,9 @@ impl Reader for Decoder<'_> {
     fn begin_seq(&mut self) -> Result<(), DataError> {
         self.tag(7, "expected a sequence")?;
         let n = self.var()?;
+        if n > MAX_LOAD_BYTES as u64 || n > (self.bytes.len() - self.pos) as u64 {
+            return Err(self.err("sequence count exceeds load limit or remaining input"));
+        }
         self.push(Frame::Seq(n))
     }
     fn item(&mut self) -> Result<bool, DataError> {
@@ -258,10 +284,10 @@ impl Reader for Decoder<'_> {
     }
     fn begin_struct(&mut self) -> Result<(), DataError> {
         self.tag(8, "expected a record")?;
-        self.push(Frame::Struct)
+        self.push(Frame::Struct(BTreeSet::new()))
     }
     fn field(&mut self) -> Result<Option<String>, DataError> {
-        if !matches!(self.frames.last(), Some(Frame::Struct)) {
+        if !matches!(self.frames.last(), Some(Frame::Struct(_))) {
             return Err(self.err("not inside a record"));
         }
         match self.byte()? {
@@ -269,7 +295,18 @@ impl Reader for Decoder<'_> {
                 self.frames.pop();
                 Ok(None)
             }
-            1 => Ok(Some(self.name()?)),
+            1 => {
+                let name = self.name()?;
+                let Some(Frame::Struct(seen)) = self.frames.last_mut() else {
+                    unreachable!()
+                };
+                if seen.contains(&name) {
+                    return Err(DataError::new("duplicate field").at(name));
+                }
+                self.budget.claim(64)?;
+                seen.insert(self.budget.text(&name)?);
+                Ok(Some(name))
+            }
             _ => Err(self.err("expected a field")),
         }
     }

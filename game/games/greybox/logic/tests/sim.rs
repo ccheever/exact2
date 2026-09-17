@@ -166,3 +166,31 @@ fn headless_throughput() {
     assert_eq!(s.world().tick(), 3600);
     // Timing is a diagnostic, not a flaky scheduling-dependent gate.
 }
+
+#[test]
+fn a21_shorter_setup_preserves_materials_names_and_random_draws() {
+    use exact_game::{Material, Rng};
+    let s = sim();
+    let w = s.world();
+    let player = w.named("player").unwrap();
+    assert_eq!(
+        *w.get::<Material>(player).unwrap(),
+        Material::rgb(0.8, 0.45, 0.15)
+    );
+    let mut rng = Rng::new(7);
+    for i in 1..=3 {
+        let e = w.named(&format!("crate-{i}")).unwrap();
+        assert_eq!(
+            w.get::<Transform>(e).unwrap().position,
+            Vec3::new(rng.range(3.0..12.0), 0.5, rng.range(-12.0..8.0))
+        );
+    }
+    for seed in [-1.0, 1.5, 9_007_199_254_740_992.0] {
+        assert!(
+            Sim::<Greybox>::new(&[Value::Number(seed), Value::Bool(false)])
+                .err()
+                .unwrap()
+                .contains("seed")
+        );
+    }
+}

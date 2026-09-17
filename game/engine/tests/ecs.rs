@@ -1,4 +1,4 @@
-use exact_game::{Component, Entity, Parent, Rng, Value, World};
+use exact_game::{Component, Entity, Parent, Resource, Rng, Value, World};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 #[derive(Default, Component)]
@@ -152,14 +152,16 @@ fn borrows_name_conflicts_and_survive_iterator_drop() {
 }
 #[test]
 fn resource_and_non_state_outputs() {
+    #[derive(Default, Resource)]
+    struct Score(u32);
     let mut w = World::new(120, 37);
     assert!(panic_text(|| {
-        w.resource::<A>();
+        w.resource::<Score>();
     })
-    .contains("A is absent"));
-    w.insert_resource(A(7));
-    w.resource_mut::<A>().0 += 1;
-    assert_eq!(w.resource::<A>().0, 8);
+    .contains("Score is absent"));
+    w.insert_resource(Score(7));
+    w.resource_mut::<Score>().0 += 1;
+    assert_eq!(w.resource::<Score>().0, 8);
     let before = w.hash();
     w.log("an event");
     w.publish("score", Value::Number(4.0));
@@ -185,6 +187,8 @@ fn hierarchy_despawn_and_live_generations() {
     w.insert(child, Parent(root));
     assert_eq!(w.children(root), [child]);
     assert!(w.despawn(root));
+    assert!(w.contains(leaf));
+    w.reap_orphans();
     assert!(!w.contains(leaf));
     assert!(w.is_empty());
     assert!(!w.contains(Entity::default()));

@@ -1,6 +1,6 @@
 //! The only unsafe boundary. Presence bits own initialized slots, and storage
 //! leases exclude aliasing. Structural edits require an exclusive world borrow.
-use crate::{Component, Data, DataError, Entity, Reader, Writer};
+use crate::{Data, DataError, Entity, Reader, Writer};
 use std::any::Any;
 use std::cell::{Cell, UnsafeCell};
 use std::marker::PhantomData;
@@ -44,7 +44,8 @@ impl<C> Deref for Ref<'_, C> {
         unsafe { &*self.ptr }
     }
 }
-/// An exclusive component/resource borrow.
+/// An exclusive component/resource borrow locking the whole column.
+/// Nested get::<C> calls for other entities also conflict; use a query instead.
 pub struct RefMut<'a, C> {
     ptr: *mut C,
     _lease: Lease<'a>,
@@ -65,6 +66,7 @@ impl<C> DerefMut for RefMut<'_, C> {
 }
 
 pub(crate) struct Storage<C> {
+    name: &'static str,
     pages: Vec<Option<Box<Slots<C>>>>,
     counts: Vec<usize>,
     mask: Vec<u64>,
@@ -75,6 +77,7 @@ pub(crate) struct Storage<C> {
 impl<C> Default for Storage<C> {
     fn default() -> Self {
         Self {
+            name: crate::data::type_name::<C>(),
             pages: vec![],
             counts: vec![],
             mask: vec![],
@@ -85,6 +88,12 @@ impl<C> Default for Storage<C> {
     }
 }
 impl<C> Storage<C> {
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len == 0
+    }
     #[inline]
     fn ptr(&self, index: usize) -> *mut C {
         self.pages[index / PAGE]
@@ -104,14 +113,14 @@ impl<C> Storage<C> {
         self.changed.get()
     }
 }
-impl<C: Component> Storage<C> {
+impl<C: Data> Storage<C> {
     fn lease(&self, mutable: bool, tick: u64) -> Lease<'_> {
         let n = self.borrowed.get();
-        assert!(n >= 0, "{} is already borrowed mutably", C::NAME);
+        assert!(n >= 0, "{} is already borrowed mutably", self.name);
         assert!(
             !mutable || n == 0,
             "{} is already borrowed immutably",
-            C::NAME
+            self.name
         );
         self.borrowed.set(if mutable {
             -1
@@ -226,10 +235,12 @@ pub(crate) trait Erased {
         tick: u64,
     ) -> Result<(), DataError>;
 }
-pub(crate) fn make<C: Component>() -> Box<dyn Erased> {
-    Box::new(Storage::<C>::default())
+pub(crate) fn make<C: Data>(name: &'static str) -> Box<dyn Erased> {
+    let mut storage = Box::new(Storage::<C>::default());
+    storage.name = name;
+    storage
 }
-impl<C: Component> Erased for Storage<C> {
+impl<C: Data> Erased for Storage<C> {
     fn has(&self, index: usize) -> bool {
         self.has(index)
     }
@@ -318,6 +329,18 @@ impl<C: Component> Erased for Storage<C> {
                 return Err(DataError::new("entities are not strictly ordered"));
             }
             last = Some(e.index());
+            let page = e.index() as usize / PAGE;
+            if page >= self.pages.len() {
+                let pages = page + 1 - self.pages.len();
+                let counts = page + 1 - self.counts.len();
+                let words = (page + 1) * WORDS - self.mask.len();
+                crate::data::limits::reserve(r, &mut self.pages, pages)?;
+                crate::data::limits::reserve(r, &mut self.counts, counts)?;
+                crate::data::limits::reserve(r, &mut self.mask, words)?;
+            }
+            if self.pages.get(page).is_none_or(Option::is_none) {
+                r.claim(std::mem::size_of::<Slots<C>>())?;
+            }
             self.insert(e.index() as usize, c, tick);
         }
         self.changed.set(tick);

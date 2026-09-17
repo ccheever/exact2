@@ -1,6 +1,6 @@
 use exact_game::*;
 
-#[derive(Default, Component)]
+#[derive(Default, Resource)]
 struct Counts {
     held: u32,
     pressed: u32,
@@ -59,7 +59,7 @@ fn key(s: &mut Sim<Counter>, code: &str, down: bool, at_ms: f64) {
     });
 }
 #[test]
-fn integer_seek_partitions_and_interpolation() {
+fn integer_seek_partitions_and_fraction() {
     let mut a = sim();
     let mut b = sim();
     let mut c = sim();
@@ -82,8 +82,7 @@ fn integer_seek_partitions_and_interpolation() {
     a.advance(1008.333, Clock::Seekable);
     assert!((a.alpha() - 0.49998).abs() < 1e-5);
     let e = a.world().named("counter").unwrap();
-    assert_eq!(a.world().global_lerp(e, 0.0).unwrap().translation.x, 59.0);
-    assert_eq!(a.world().global_lerp(e, 1.0).unwrap().translation.x, 60.0);
+    assert_eq!(a.world().global(e).unwrap().translation.x, 60.0);
 }
 #[test]
 fn exact_event_boundary_tap_repeat_alias_and_blur() {
