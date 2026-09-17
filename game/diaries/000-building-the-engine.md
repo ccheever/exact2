@@ -61,6 +61,31 @@ field, by hand, and one missed the crate rotations at first) and a 240–265 lin
 harness to drive itself. Those two things are what this engine gives away; whether it
 is *smaller* for the game itself is the open question the third diary answers.
 
+**The first score was 19 of 30, and it was fair.** A fresh builder made Task 001 here
+in 8.5 minutes; two blind judges then put this engine behind three.js (29) and Godot
+(26) — identical numbers from both. It won only Repeatable. What decided it was not
+the engine's core but everything around it: one integer took five Contract lines, a
+TypeScript validator and a JS engine to reach the HUD; a logic edit took 63 s to
+reach the page; the game needed four crates; a save could not be taken through the
+agent; `busy` was declared by hand; `Mesh`'s docs lied about a radius. None of that
+showed up in any unit test, a benchmark, or a review of the engine's code. It showed
+up the first time someone *used* it and someone else compared. The diaries are the
+most valuable instrument in this lane.
+
+**`exactSurface("world")`.** The HUD boundary became a third runner-owned source
+beside `exactViewport()` and `exactDelivery()`: the world's published record, decoded
+against the reader's declared shape (missing → default, extra → ignored, wrong kind →
+refused by field name), all-defaults before the lazily loaded module speaks, so first
+paint has no loading state. Both games lost their `app.ts` and their JS engine; the
+app wasm shrank 15%. The brief asked for a Contract feature; what it uncovered was a
+build bug in the core — a build script that watched its own receipt, and an explicit
+dep-info path that defeated cargo's cache — which is why *every* edit re-linked the
+app wasm under fat LTO. A logic edit now rebuilds in under a second. The review of
+that change found seven more things (a record delivered inside a batch being
+applied, two canvases sharing a name, an idle frame that still allocated for
+`messages`, a typechecker rule the new source collided with): the pattern holds —
+the builder finds the design's gaps, the reviewers find the builder's.
+
 **Harness lessons.** A sandboxed builder cannot see the GPU or launch a window, so GPU
 and browser work runs unsandboxed and path-scoped, and every GPU test a sandboxed run
 wrote gets run by the orchestrator afterwards (one had never executed and aborted on
