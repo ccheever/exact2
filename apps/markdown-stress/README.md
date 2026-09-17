@@ -34,13 +34,15 @@ Also drag the real window edge, scroll partway through the document and type in
 the persistent input. The echo is bound to Contract state and capped at 512
 Unicode characters. Neither width changes nor typing depend on the document
 resource arguments. Paging reuses the parsed fixture; changing profile, size or
-revision reparses it. In the ordinary control, **Parse again** performs one full synchronous reparse;
-the timed control requests 20 reparses at 1 Hz, capped at revision 1,000 until
-Reset. Pause cannot interrupt a synchronous operation already in flight.
+revision reparses it. **Parse again** requests one full reparse; the timed control
+requests 20 reparses at 1 Hz, capped at revision 1,000 until Reset. Pause cannot
+interrupt work already running.
 
 Manual and eager modes remain stress controls beside the windowed path. This
-fixture does not establish 120 FPS. Its ordinary cross-platform synthetic source
-parses synchronously; the explicit Linux trial below uses a native continuation.
+fixture does not establish 120 FPS. Web and ordinary Linux retain the synchronous
+synthetic source. The Apple runtime and explicit Linux trial use the native
+continuation; converting returned values and ordinary layout still run on the UI
+owner. Bake retains the original synchronous source.
 The production Markdown reader already reads and parses native files on its continuation worker. Do not present
 its parse latency as a regression in that reader's existing file-open worker.
 
@@ -99,6 +101,33 @@ LLP1041 §8.22 records the exact partial evidence and failures. The display loop
 watches completion readiness; the stdio agent only pumps on commands. Neither
 the worker queues nor their source/index limits imply a total-memory or 120Hz claim.
 
+### Explicit AppKit cold-paragraph trial
+
+```sh
+EXACT_CONTENT_REGION=1048576 bun host/apple/build.mjs markdown-stress-apple --run
+EXACT_CONTENT_REGION=4194304 bun host/apple/build.mjs markdown-stress-apple --run
+```
+
+Only those two values are accepted; the region trial refuses iOS. Apple runtime
+generation/parsing already uses the native continuation without this flag. The
+flag additionally selects the contained paragraph before first layout and sends
+CoreText preparation and viewport raster work to one bounded serial worker.
+Contract, shell layout, source capture and publication remain on the UI owner.
+
+Pixels and hit metadata publish together. A changed viewport phase can hide the
+old image until replacement pixels arrive; this is not a promise to retain the
+old picture through every resize. Effective appearance is fixed for a region
+registration: changing it refuses the trial until restart. Source/font capture,
+value copies, metadata and opaque CoreText allocations remain outside any total
+memory or latency bound. Selection and copy are limited to the accepted paragraph.
+
+Earlier 1MiB/4MiB AppKit binaries passed functional input, resize and plain-wheel
+checks. They predate the current publication, appearance and selection fixes;
+focused native fixtures cover those repairs. WindowServer capture was refused,
+and synthetic phased-wheel/real-trackpad behavior remains unresolved. There is
+no current full-host, autonomous-progress, physical-frame or 120Hz acceptance
+claim. Exact revision-qualified evidence is recorded in LLP1041 §8.23.
+
 ## Reproduce
 
 ```sh
@@ -119,7 +148,7 @@ bun apps/markdown-stress/smoke.mjs web --mode windowed --profile blocks --bytes 
 bun apps/markdown-stress/smoke.mjs macos --mode windowed --profile blocks --bytes 1048576
 bun apps/markdown-stress/smoke.mjs linux --mode windowed --profile blocks --bytes 1048576
 
-# Input behind synchronous reparsing, and real native resize followed by input.
+# Native reparse/input and real resize probes; record the selected runtime source.
 bun apps/markdown-stress/native-sample.mjs macos --samples 12
 bun apps/markdown-stress/native-sample.mjs linux --samples 12 --out /tmp/markdown-native-samples
 ```

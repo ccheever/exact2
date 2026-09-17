@@ -107,6 +107,11 @@ typedef struct ExactMetrics {
     float baseline;        /* top to first alphabetic baseline; < 0 = unknown */
 } ExactMetrics;
 
+/* Region completion takes one retained native artifact on every return path. */
+typedef void (*ExactRegionReleaseFn)(void *owner);
+uint32_t exact_region_request(ExactRuntime rt, uint64_t request, uint64_t known_source);
+uint32_t exact_region_complete(ExactRuntime rt, uint64_t request, ExactMetrics metrics, void *owner, ExactRegionReleaseFn release);
+
 typedef ExactMetrics (*ExactMeasureFn)(void *ctx, const ExactMeasureRequest *request);
 
 /* The plan's declared faces, synchronously before first layout. The strings

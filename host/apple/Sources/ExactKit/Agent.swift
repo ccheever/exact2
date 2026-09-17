@@ -131,6 +131,9 @@ public final class Agent {
             var raster = session.rasters.diagnostics
             raster["encodedResolverBytes"] = session.app.resolver.encodedCacheBytes
             nativeSections["raster"] = raster
+            #if os(macOS)
+            nativeSections["contentRegion"] = session.regions.diagnostics
+            #endif
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
                let sections = try? JSONSerialization.data(withJSONObject: nativeSections) {
                 reply.removeLast()

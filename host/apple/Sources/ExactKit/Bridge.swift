@@ -159,6 +159,21 @@ final class Runtime {
     func intrinsic(_ view: UInt32, width: CGFloat, height: CGFloat) -> Batch { read(exact_intrinsic(rt, view, Float(width), Float(height))) }
     /// Refresh the runner's delivery facts after an app-level event (LLP 1030 D7).
     func deliverySync() -> Batch { read(exact_delivery_sync(rt)) }
+    /// The returned JSON is copied before the runtime output buffer is reused.
+    func regionRequest(_ id: UInt64, knownSource: UInt64) -> [String: Any]? {
+        let length = exact_region_request(rt, id, knownSource)
+        let data = Data(bytes: exact_out(rt), count: Int(length))
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+    func regionComplete(_ artifact: RegionArtifact) -> Batch {
+        let p = artifact.metadata
+        let retained = Unmanaged.passRetained(artifact).toOpaque()
+        return read(exact_region_complete(rt, artifact.id,
+            ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline)),
+            retained, { pointer in
+                if let pointer { Unmanaged<RegionArtifact>.fromOpaque(pointer).release() }
+            }))
+    }
     /// The agent API (LLP 1012): a request in, its reply out — JSON, not a batch.
     func agent(_ request: String) -> String {
         let n = write(request)

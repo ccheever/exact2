@@ -780,6 +780,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the colours assigned outside a draw are re-applied. @ref LLP 1034 D2
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
         guard hasSchemeColor || textChildren.contains(where: { $0.hasSchemeColor }) else { return }
         paragraphOwner.invalidateText()
         paragraphOwner.needsDisplay = true
@@ -1119,7 +1120,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             ctx.restoreGState()
         }
         let textDirty = Capture.capturing || canvasAbove != nil ? rect : rect.intersection(presenter?.textVisibleRect(self) ?? visibleRect)
-        if isParagraph, !textDirty.isEmpty {
+        if isParagraph, !textDirty.isEmpty, presenter?.session?.regions.owns(self) != true {
             // The same paragraph the kernel measured at this width, painted.
             let spec = paragraphSpec()
             if let ctx = NSGraphicsContext.current?.cgContext, let paragraph = paragraphLayout() {

@@ -327,6 +327,9 @@ public final class ExactSession {
 
     let runtime: Runtime
     let rasters = RasterLoader()
+    #if os(macOS)
+    lazy var regions = RegionController(self)
+    #endif
     var text: TextEngine
     let presenter: Presenter
     let canvases: Canvases
@@ -568,6 +571,9 @@ public final class ExactSession {
         let outermost = !applying
         applying = true
         for op in batch.ops where op["op"] as? String == "router" { routerOp = op }
+        #if os(macOS)
+        regions.prepare(batch)
+        #endif
         presenter.apply(batch)
         frames.motion = batch.motion
         // The GPU module: after the first painted frame, only when a canvas exists.
@@ -588,6 +594,9 @@ public final class ExactSession {
             transformInputHold?.cancelIfInputIneligible()
             presenter.transformGeometry.changed()
             applying = false
+            #if os(macOS)
+            regions.flush()
+            #endif
             let queued = pendingCommands
             pendingCommands = []
             for (name, args) in queued {

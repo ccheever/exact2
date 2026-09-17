@@ -28,6 +28,7 @@ final class TextSelection {
         var result: [NodeView] = []
         func walk(_ view: NSView) {
             if view.isHidden { return }
+            if let node = view as? NodeView, presenter.session?.regions.owns(node) == true { return }
             if let node = view as? NodeView, node.isParagraph { result.append(node); return }
             for child in view.subviews { walk(child) }
         }

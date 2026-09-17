@@ -138,6 +138,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        session?.regions.reset()
         session?.rasters.reset()
         mouseSwipe.cancel()
         mouseHeightDrag.cancel()

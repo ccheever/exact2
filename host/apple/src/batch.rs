@@ -66,6 +66,9 @@ fn id_list(ids: &[u32], out: &mut String) {
 }
 
 impl Batch {
+    pub(crate) fn region(&mut self, json: &str) {
+        self.ops.push(json.into());
+    }
     pub(crate) fn transform_drag(
         &mut self,
         view: u32,

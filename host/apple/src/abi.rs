@@ -62,6 +62,7 @@ impl Hooks {
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
+    region: Option<crate::content_region::ContentRegionRegistration>,
     prepared: Option<PreparedHost<D>>,
     painted: bool,
     executor: Option<crate::executor::Executor>,
@@ -95,6 +96,7 @@ impl<D: DataSource> Bridge<D> {
     pub const fn new() -> Bridge<D> {
         Bridge {
             host: None,
+            region: None,
             prepared: None,
             painted: false,
             executor: None,
@@ -124,6 +126,14 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// Explicit authored region, used by every subsequent fresh/candidate boot.
+    pub fn set_content_region(
+        &mut self,
+        region: Option<crate::content_region::ContentRegionRegistration>,
+    ) {
+        self.region = region;
+    }
+
     /// Resize the input buffer and return its address.
     pub fn input(&mut self, len: usize) -> *mut u8 {
         self.input.clear();
@@ -137,6 +147,43 @@ impl<D: DataSource> Bridge<D> {
         self.input.clear();
         self.input.extend_from_slice(bytes);
         self.input.len()
+    }
+
+    /// Copy one current immutable region request; stale IDs return an error object.
+    pub fn region_request(&mut self, id: u64, known_source: u64) -> u32 {
+        let answer = self
+            .host
+            .as_ref()
+            .ok_or_else(|| "not booted".into())
+            .and_then(|h| h.region_request_json_known(id, known_source));
+        let text = answer.unwrap_or_else(|why| format!("{{\"error\":\"{}\"}}", escape(&why)));
+        self.output = text.into_bytes();
+        self.output.len() as u32
+    }
+    /// Deliver one native retained artifact; even stale/not-booted takes ownership.
+    pub fn region_complete(
+        &mut self,
+        id: u64,
+        metrics: crate::measure::CMetrics,
+        owner: Rc<dyn std::any::Any>,
+    ) -> u32 {
+        let text = self
+            .host
+            .as_mut()
+            .map(|h| {
+                h.complete_region_text(
+                    id,
+                    exact_kernel::TextMetrics {
+                        width: metrics.width,
+                        height: metrics.height,
+                        first_baseline: (metrics.baseline >= 0. || !metrics.baseline.is_finite())
+                            .then_some(metrics.baseline),
+                    },
+                    owner,
+                )
+            })
+            .unwrap_or_else(not_booted);
+        self.emit(text)
     }
 
     /// The output buffer's address.
@@ -341,6 +388,7 @@ impl<D: DataSource> Bridge<D> {
             self.delivery,
             None,
             self.launch.as_deref().unwrap_or("/"),
+            self.region,
             move |decoded| {
                 if let Some(callback) = fonts {
                     install_fonts(decoded, callback, fonts_ctx);
@@ -571,6 +619,7 @@ impl<D: DataSource> Bridge<D> {
             self.delivery,
             delivery,
             self.launch.as_deref().unwrap_or("/"),
+            self.region,
             move |decoded| {
                 if let Some(callback) = fonts {
                     install_fonts(decoded, callback, fonts_ctx);
@@ -1075,6 +1124,9 @@ macro_rules! host {
         $crate::host!($data, $plan, $compat, $delivery, $api, || <$data as ::std::default::Default>::default());
     };
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr) => {
+        $crate::host!($data, $plan, $compat, $delivery, $api, $new, None);
+    };
+    ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr) => {
         $crate::raster_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
@@ -1085,7 +1137,9 @@ macro_rules! host {
         /// `exact_set_fonts` before its first boot.
         #[no_mangle]
         pub extern "C" fn exact_create() -> u32 {
-            EXACT_RUNTIMES.with(|r| r.borrow_mut().create())
+            let id = EXACT_RUNTIMES.with(|r| r.borrow_mut().create());
+            $crate::abi::with_entry(&EXACT_RUNTIMES, id, |e| e.bridge.set_content_region($region));
+            id
         }
 
         /// The text measurer for a runtime (LLP 1008 §3); `None` is the
@@ -1257,6 +1311,19 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_dispatch(rt: u32, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.dispatch(view, kind, len, now_ms), |n| n)
+        }
+
+        /// Copy current region source/paint metadata. No returned bytes outlive exact_out.
+        #[no_mangle]
+        pub extern "C" fn exact_region_request(rt: u32, id: u64, known_source: u64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.region_request(id, known_source), |n| n)
+        }
+        /// Takes one native retain on every path, including destroyed/busy runtimes.
+        #[no_mangle]
+        pub extern "C" fn exact_region_complete(rt: u32, id: u64, metrics: $crate::measure::CMetrics,
+            owner: *mut ::std::ffi::c_void, release: $crate::content_region::RegionRelease) -> u32 {
+            let retained = ::std::rc::Rc::new($crate::content_region::NativeRegionOwner::new(owner, release));
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.region_complete(id, metrics, retained), |n| n)
         }
 
         /// Process one frozen paired transform packet from exact_in.

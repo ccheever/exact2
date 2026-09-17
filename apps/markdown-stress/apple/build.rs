@@ -39,10 +39,15 @@ fn main() {
     std::fs::write(
         out_dir.join("entry.rs"),
         format!(
-            "{}\n{host}::host!(AppData, PLAN, COMPAT);\n",
+            "{}\nfn region_launch() -> Option<exact_apple::content_region::ContentRegionRegistration> {{
+    let value = match std::env::var(\"EXACT_CONTENT_REGION\") {{ Ok(v) => v, Err(std::env::VarError::NotPresent) => return None, Err(_) => panic!(\"invalid content-region launch value\") }};
+    if cfg!(target_os = \"ios\") {{ panic!(\"content-region AppKit trial is unavailable on iOS\"); }}
+    let activate = match value.as_str() {{ \"1048576\" => \"launchParagraph1MiB\", \"4194304\" => \"launchParagraph4MiB\", _ => panic!(\"EXACT_CONTENT_REGION requires 1048576 or 4194304\") }};
+    Some(exact_apple::content_region::ContentRegionRegistration {{ activate: Some(activate), owner: \"markdown-region-owner\", content: \"markdown-region-content\", pending: \"markdown-region-pending\" }})
+}}\n{host}::host!(AppData, PLAN, COMPAT, None, ::std::ptr::null(), AppData::default, region_launch());\n",
             contract::rust_entry(
-                "markdown_stress_data::MarkdownStress",
-                "markdown_stress_data::MarkdownStress::default()",
+                "markdown_stress_data::NativeMarkdownStress",
+                "markdown_stress_data::NativeMarkdownStress::default()",
                 compat.inputs["rustMode"].as_str().unwrap()
             )
             .unwrap()

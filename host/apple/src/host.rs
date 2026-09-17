@@ -20,6 +20,8 @@ use exact_kernel::{
 };
 use exact_motion::{Change, Engine, HoldToken, Property};
 
+#[path = "content_region/host.rs"]
+mod content_region_host;
 #[path = "height.rs"]
 mod height;
 #[path = "height_drag.rs"]
@@ -85,6 +87,7 @@ pub struct Host<D: DataSource> {
     height_auto_owned: bool,
     height_drag: Option<HeightDrag>,
     transform_drags: TransformDrags,
+    content_region: Option<crate::content_region::RegionState>,
     height_projection: Option<(NodeKey, f32)>,
     #[cfg(test)]
     layout_calls: usize,
@@ -174,6 +177,7 @@ impl<D: DataSource> Host<D> {
             None,
             None,
             "/",
+            None,
             |_| {},
         )?;
         host.commit_boot();
@@ -197,6 +201,7 @@ impl<D: DataSource> Host<D> {
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
         launch: &str,
+        region: Option<crate::content_region::ContentRegionRegistration>,
         prepare: impl FnOnce(&Plan),
     ) -> Result<(Host<D>, String), HostError> {
         if let Some(json) = compat {
@@ -219,7 +224,7 @@ impl<D: DataSource> Host<D> {
             }
             facts
         });
-        let runner = Runner::boot_with_delivery(
+        let mut runner = Runner::boot_with_delivery(
             plan,
             data,
             kernel,
@@ -233,6 +238,13 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        if let Some(action) = region.and_then(|r| r.activate) {
+            runner.act(action, Vec::new()).map_err(HostError::Runner)?;
+        }
+        let content_region = region
+            .map(|r| crate::content_region::RegionState::new(runner.kernel_mut(), r))
+            .transpose()
+            .map_err(HostError::Layout)?;
         // The candidate catalog is installed before first text measurement.
         // Platform registration is deferred until the app accepts it.
         prepare(runner.plan());
@@ -249,6 +261,7 @@ impl<D: DataSource> Host<D> {
             height_auto_owned: false,
             height_drag: None,
             transform_drags: TransformDrags::new()?,
+            content_region,
             height_projection: None,
             #[cfg(test)]
             layout_calls: 0,
@@ -776,10 +789,14 @@ impl<D: DataSource> Host<D> {
         let projection = self.presented_height(sample);
         let (w, h) = self.viewport;
         for root in self.runner.roots() {
-            self.runner
-                .kernel_mut()
-                .compute_layout_presented(root, Offer::definite(w, h), projection)
-                .map_err(|e| format!("layout: {e:?}"))?;
+            if self.content_region.is_some() {
+                self.region_layout(root, Offer::definite(w, h), batch)?;
+            } else {
+                self.runner
+                    .kernel_mut()
+                    .compute_layout_presented(root, Offer::definite(w, h), projection)
+                    .map_err(|e| format!("layout: {e:?}"))?;
+            }
         }
         self.height_projection = sample;
         for id in self.preorder() {

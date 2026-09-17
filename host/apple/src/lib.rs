@@ -35,6 +35,7 @@
 
 pub mod abi;
 pub mod batch;
+pub mod content_region;
 pub mod delivery;
 pub mod executor;
 pub mod host;

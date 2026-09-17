@@ -2010,3 +2010,65 @@ Exact sources and paired binaries are in
 candidate evidence, both failures and cleanup receipts are retained in
 `target/linux-content-region-native-runtime-v2/` (manifest
 `662a2b82c9755a2bf5a209d0f35728b1fca8d4b3f9a89a5ca8582cbe70ab3445`).
+
+### 8.23 AppKit contained paragraph and publication repairs, 2026-09-17
+
+Darwin implements the opt-in AppKit consumer; Zeno independently reviews its
+source and two repair deltas. `EXACT_CONTENT_REGION=1048576` or `4194304` selects
+the full paragraph before first layout. Other values and region use on iOS
+refuse. The generated Apple runtime uses NativeMarkdownStress even without the
+flag; bake retains MarkdownStress. The flag controls contained layout and paint,
+not whether source parsing uses the native continuation. Ordinary layout and
+Value construction remain on the UI owner.
+
+One serial CoreText service prepares immutable text, width layout, numeric hit
+metadata and profiled viewport pixels. Reset retires epochs without releasing
+an occupied worker early or joining it on the UI thread. Main-thread adoption
+checks request, generation, publication and actual native phase before exposing
+pixels and matching metadata. Source/font capture still performs UI work, and
+source strings, CoreText/font heaps and other opaque storage prevent a strict
+total-memory claim. Per-paragraph selection/copy is not general Markdown parity.
+
+Review found and fixed accepted-A → pending-B → latest-A supersession: a cache
+hit now retires B's desired state, and delivery rechecks the actual viewport,
+selection and background even before another display pass. Cleanup is serial
+qualified so reentrant successor C survives B's completion. Effective appearance
+is fixed per registration; change terminally refuses pixels, hits and pending
+answers until reset, rather than pairing an old foreground with a new background.
+
+Selection-aware pixel invalidation initially cleared its own drag anchor. The
+second repair retains only the exact generation/publication/artifact and
+geometry/palette-qualified interaction while highlight pixels are pending.
+Fresh hits remain blocked on hidden pixels. Mouseup, reset, refusal, source or
+phase changes retire that anchor. Production NSEvent handlers and select methods
+exercise begin → drag → selected-raster acceptance → further drag, including
+begin over an existing selection and a blocked highlight worker.
+
+Recorded Rust coverage is 144 passing tests, also passing on the integrated tree.
+Combined-tree ExactKit typecheck, strict host/consumer all-targets Clippy, consumer
+check and scoped formatting pass. Consumer Clippy first found a redundant factory
+closure in the generated entry; replacing it with the same default function fixes
+that lint, and the original failure is retained. Revision1 retains meaningful
+62-assertion/16-failure and successor 69/1 failures, then 69/0 controller checks
+and 65/0 native-surface checks. Revision2 retains selection RED 107/10 and GREEN
+125/0, plus the unchanged 20,821-assertion strict Swift6 actual-engine suite and
+complete ExactKit Swift5 typecheck. The native fixtures use real NSWindow,
+RegionSurface and CoreText work with documented runtime/presenter composition
+doubles; they are not full-package XCTest or physical-input acceptance.
+
+Earlier optimized native binaries exercised full 1MiB/4MiB source identity,
+functional typing, resize and plain wheel. They predate the final hit delta and
+both publication repairs. No later full-host run is implied by the focused
+fixtures. External WindowServer capture was refused; cached bitmap equality
+does not replace that missing live-pixel comparison. Phased synthetic wheel and
+real trackpad behavior, autonomous full-host progress, continuous-resize latency,
+UIKit and physical 120Hz remain unproved. Viewport mismatch may hide the old
+image while preparing replacement pixels.
+
+The immutable original and two revisions are under
+`target/apple-content-region-validation/darwin-{final,revision1,revision2}-20260917/`.
+Revision2's complete 29-file patch is
+`131e0183ae867b87321768d66249d92ed8e8c5a9c005d909f82e1b83848c5e50`;
+integration preserves MAIN's Arrange event mapping and removes one trailing blank
+line, plus the equivalent generated factory correction. Combined-tree validation is recorded separately in
+`target/apple-content-region-integration/`.
