@@ -2379,11 +2379,15 @@ complete; their recorded SIGTERM exits are intended cleanup, not hidden crashes.
 References exit0, all owned groups are absent, and no cell is retried. These are
 single instrumented functional cells, labeled nonquiet by the retained harness,
 not latency distributions, continuous-reflow or physical120Hz evidence.
-The first outer coordinator stops between pairs when its4MiB port preflight
-encounters5937 in TIME_WAIT after1MiB. That failure is preserved;4MiB starts
-separately once the port is free, without repeating the completed native cells.
+The first outer coordinator stops between pairs because its supplemental
+preflight checks both ports, including the just-used1MiB port5937 in TIME_WAIT.
+That failure is preserved. The narrow outer continuation checks only the
+upcoming, unchanged4MiB port5938; no receiver edit, port substitution, socket
+option change or completed native-cell rerun is used.
 Build and runtime evidence is retained under
 `target/shared-width-native-execution-ef12f06-v1/`; the candidate binary is
 `5bc095b6098ab068468f9e4ad17864a913d3a5119c8865225a094ff2afcd6a4d`.
 The runtime archive contains80 verified entries/29,048,549 bytes, manifest
 `ce4e93f29b5c1c76d1c5516dfaf8ef7d8b080d2fe9790c7976066c49419ba082`.
+The final build/runtime/report archive has126 entries/92,334,840 bytes, manifest
+`ed06f46dfb571aad55b7aa4b2c7f43ef986ef4a5e14ae1c2946392ae7dc3ac22`.
