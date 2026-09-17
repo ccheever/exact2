@@ -57,6 +57,12 @@ bursts, and large-history costs on existing hosts. Take: broad new benchmark
 apps and a generic job scheduler stay behind these two; no sixth blocking
 check, additional worker pool, or parallel layout is admitted by these examples.
 
+**Expanded (Charlie, 2026-09-16, Astra xhigh campaign):** add gigantic Markdown
+and continuous native resize to LLP 1041's stress consumers; evolve bounded
+native scheduling and viewport collections against these workloads. Take: more
+showcase apps and speculative general job pools wait behind measured improvements
+to these three. Existing ordered-effect and capability boundaries still apply.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with

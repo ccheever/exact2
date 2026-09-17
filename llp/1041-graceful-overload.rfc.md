@@ -285,3 +285,84 @@ the lean Hermes producer needed by unrelated TypeScript apps is not provisioned.
 Whole-workspace formatting also reports changes in the sibling Snapback checkout;
 those sources were not reformatted. Focused example checks and caps/boot are
 recorded separately; no blanket workspace-green claim is made.
+
+## 8. Implementation campaign: three workloads and live resize
+
+Charlie authorized this campaign on 2026-09-16 and requested Astra xhigh.
+Tuft owns integration; Astra xhigh workers implement disjoint changes. Add a
+third, gigantic Markdown consumer using the existing parser/presenter, rather
+than a substitute renderer. Evolve scheduling and variable-height viewport
+collections together. The existing eager cases remain available as controls.
+
+The target is responsive visible interaction at a 120 Hz frame interval under
+explicitly recorded workload profiles on macOS and actual Linux, with web
+measured separately. Background completion need not occur within one frame;
+correctness, bounded admission/retention, ordered effects, and eventual progress
+are mandatory. No universal workload or physical-display result is implied.
+
+Initial work streams:
+
+1. Gigantic Markdown: deterministic large documents, long paragraphs, fenced
+   code, tables and many blocks; exercise opening, scrolling, typing, heading
+   navigation and width changes against the existing Markdown semantics.
+2. Native scheduling: remove independent HTTP head-of-line blocking only with
+   explicit bounded admission and without reordering storage or module effects.
+   Then bound completion pumping and retain one committed UI state owner.
+3. Viewport work: variable-height rows/blocks, stable identity and scroll
+   anchors, bounded visible/overscan work, width-sensitive measurement invalidation.
+   Preserve document selection and search semantics; paging is not virtualization.
+4. Measurement: separate queue wait, computation, settlement, layout/paint and
+   presentation where instrumented. Exercise continuous actual window resizing,
+   not only fixed-size launches. Record repeated idle/load runs, raw samples,
+   percentiles, workload sizes, memory/queue bounds and recovery after load stops.
+
+Use 8.33 ms as the target frame interval, not an allowance for every individual
+stage. Report misses and the worst indivisible operation. Input acknowledgment,
+CPU frame construction, GPU completion and display presentation remain separate
+metrics. macOS display capability and a graphical Linux 120 Hz setup must be
+verified before claiming physical 120 fps. The current Linux VM can establish
+Linux correctness and CPU-path costs, not compositor/display performance.
+
+Each implementation increment must retain the pathological controls, document
+any quality/throughput sacrifice, pass relevant correctness checks, and include
+before/after evidence. A missing display does not prevent software progress;
+it does prevent calling physical presentation verified. Remaining bottlenecks
+and the next discriminating experiment must be recorded explicitly.
+
+### 8.1 First runner experiment: skip unchanged keyed content
+
+On 2026-09-16, the instance evaluator gained conservative dependency memos for
+outer keyed regions. Unrelated global changes skip region keying and bindings;
+a changed list still validates every key but unchanged row values can retain
+their subtree when its referenced globals did not change. Dynamic row-owned
+state and contextual expressions fall back to the existing path. Resource
+settlement, action execution, atomic kernel application and event identity are
+unchanged. Deterministic `last_instance_work()` counters distinguish visited
+nodes, evaluated row keys, retained row subtrees and skipped regions.
+
+The first release-build experiment uses the opt-in test
+`cargo test --release -p messages-stress-data --test interaction -- --ignored --nocapture`.
+It exercises the actual Messages Contract and runner with a monospace measurer:
+**no host layout, paint, native input or physical presentation is timed**. On the
+Apple M4, three alternating before/after runs of 40 inputs per phase compared
+commit `024ace7` with the working dependency-memo change:
+
+| Eager rows / operation | Baseline p95 range | With memo p95 range |
+| --- | --- | --- |
+| 1,000 / typing | 2.17–4.99 ms | 0.053–0.135 ms |
+| 1,000 / revise 32 tail rows | 2.43–5.77 ms | 0.746–1.77 ms |
+| 10,000 / typing | 22.96–25.61 ms | 0.326–0.486 ms |
+| 10,000 / revise 32 tail rows | 40.48–73.11 ms | 7.16–18.70 ms |
+
+Raw samples and executable SHA-256 identities are in the local diagnostic
+`/tmp/exact2-instance-memo-comparison-final.json`. Concurrent builds mean these are
+exploratory measurements, not a controlled machine-wide performance guarantee.
+The deterministic work assertions establish that typing keys zero rows rather
+than 1,000, while changed global bindings, clock/pending values, row-owned state,
+and inactive branch dependencies remain live. All 159 compiler/runner tests passed before the final signed-zero case; the
+seven targeted memo tests also pass. Review caught that ordinary numeric
+equality erases signed-zero changes; cache equivalence now preserves numeric
+bits recursively. This final run still exceeds 8.33 ms for some streaming
+samples; it is not evidence that the complete frame budget has been met. This is not virtualization: retained
+views are still O(N), changed lists still key O(N) records, and native layout and
+painting may dominate after this improvement. Those are the next measurements.

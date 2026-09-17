@@ -12,6 +12,8 @@
 //! away. There is no tree diff: a keyed row keeps its views across reorders
 //! because its key, not its position, is its identity.
 
+mod dependencies;
+
 use crate::bridge;
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
 use exact_kernel::{NodeType, Op, StyleProps, ViewId};
@@ -67,6 +69,8 @@ enum Child {
 pub struct RegionInst {
     region: RegionsId,
     active: Active,
+    memo: Option<dependencies::Memo>,
+    body_memo: Option<dependencies::Memo>,
 }
 
 #[derive(Debug)]
@@ -142,6 +146,19 @@ pub struct SurfaceUpdate {
 
 /// What one update needs: the environment and the id allocator, plus the op
 /// batch under construction and the surface inputs that changed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct InstanceWork {
+    /// Created or revisited node instances (not native views).
+    pub nodes_visited: usize,
+    /// Rows whose key expression ran in this update.
+    pub rows_keyed: usize,
+    /// Rows retained without revisiting their unchanged subtree.
+    pub rows_reused: usize,
+    /// Outer keyed regions bypassed because their inputs were unchanged.
+    pub regions_skipped: usize,
+}
+
+/// Per-commit evaluation context and deterministic work counters.
 pub struct Update<'a> {
     /// The environment every expression sees.
     pub env: Env<'a>,
@@ -151,6 +168,8 @@ pub struct Update<'a> {
     pub ops: Vec<Op>,
     /// Surface inputs that changed, in tree order.
     pub surfaces: Vec<SurfaceUpdate>,
+    /// Work performed during instance evaluation.
+    pub work: InstanceWork,
 }
 
 impl<'a> Update<'a> {
@@ -251,6 +270,7 @@ impl NodeInst {
         node: NodesId,
         frames: &[Frame],
     ) -> Result<NodeInst, InstanceError> {
+        u.work.nodes_visited += 1;
         let plan = u.env.plan;
         let row = plan.node(node);
         let node_type = NodeType::from_wire(row.node_type)
@@ -340,6 +360,7 @@ impl NodeInst {
     }
 
     fn update(&mut self, u: &mut Update<'_>, frames: &[Frame]) -> Result<(), InstanceError> {
+        u.work.nodes_visited += 1;
         self.emit_bindings(u, frames)?;
         update_all(u, &mut self.children, frames)?;
         self.emit_children(u);
@@ -383,6 +404,16 @@ impl RegionInst {
     ) -> Result<RegionInst, InstanceError> {
         let mut inst = RegionInst {
             region,
+            memo: if frames.is_empty() && u.env.plan.region(region).kind == RegionKind::Each {
+                dependencies::Memo::for_region(u.env.plan, region, false)
+            } else {
+                None
+            },
+            body_memo: if frames.is_empty() && u.env.plan.region(region).kind == RegionKind::Each {
+                dependencies::Memo::for_region(u.env.plan, region, true)
+            } else {
+                None
+            },
             active: match u.env.plan.region(region).kind {
                 RegionKind::Each => Active::Rows { rows: Vec::new() },
                 _ => Active::Arm {
@@ -397,10 +428,22 @@ impl RegionInst {
     }
 
     fn update(&mut self, u: &mut Update<'_>, frames: &[Frame]) -> Result<(), InstanceError> {
+        if self
+            .memo
+            .as_ref()
+            .is_some_and(|memo| memo.unchanged(&u.env))
+        {
+            u.work.regions_skipped += 1;
+            return Ok(());
+        }
+        let body_unchanged = self
+            .body_memo
+            .as_ref()
+            .is_some_and(|memo| memo.unchanged(&u.env));
         let plan = u.env.plan;
         let row = plan.region(self.region);
         let subject = u.eval(row.subject, frames)?;
-        match (&row.kind, &mut self.active) {
+        let result = match (&row.kind, &mut self.active) {
             (RegionKind::When, Active::Arm { arm, frame, roots }) => {
                 let want = match subject {
                     Value::Bool(true) => Some(0),
@@ -459,6 +502,7 @@ impl RegionInst {
                 let mut keyed: Vec<(String, Value, Frame)> = Vec::with_capacity(items.len());
                 let mut seen: BTreeMap<String, ()> = BTreeMap::new();
                 for item in items.iter() {
+                    u.work.rows_keyed += 1;
                     let frame = Frame {
                         item: Some(item.clone()),
                         bound: None,
@@ -499,11 +543,17 @@ impl RegionInst {
                     frame.region = Some(self.region.0);
                     match existing {
                         Some(mut r) => {
+                            let unchanged = body_unchanged
+                                && dependencies::same_item(&r.frame.item, &frame.item);
                             frame.row = Some(r.slots.clone());
                             r.frame = frame.clone();
                             let mut inner = frames.to_vec();
                             inner.push(frame);
-                            update_all(u, &mut r.roots, &inner)?;
+                            if unchanged {
+                                u.work.rows_reused += 1;
+                            } else {
+                                update_all(u, &mut r.roots, &inner)?;
+                            }
                             next.push(r);
                         }
                         None => {
@@ -541,7 +591,16 @@ impl RegionInst {
                 Ok(())
             }
             _ => Ok(()),
+        };
+        if result.is_ok() {
+            if let Some(memo) = &mut self.memo {
+                memo.remember(&u.env);
+            }
+            if let Some(memo) = &mut self.body_memo {
+                memo.remember(&u.env);
+            }
         }
+        result
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -649,6 +708,8 @@ fn key_text(v: &Value) -> Option<String> {
 pub struct Tree {
     children: Vec<Child>,
     last_roots: Vec<ViewId>,
+    /// Work performed by the last instance update.
+    pub last_work: InstanceWork,
 }
 
 impl Tree {
@@ -658,6 +719,7 @@ impl Tree {
         let mut tree = Tree {
             children,
             last_roots: Vec::new(),
+            last_work: u.work,
         };
         tree.emit_roots(u);
         Ok(tree)
@@ -676,6 +738,7 @@ impl Tree {
             .partition(|op| !matches!(op, Op::DestroyView { .. }));
         live.extend(gone);
         u.ops = live;
+        self.last_work = u.work;
         Ok(())
     }
 

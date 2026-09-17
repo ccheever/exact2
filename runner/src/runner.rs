@@ -563,6 +563,7 @@ impl<D: DataSource> Runner<D> {
                 ids: &mut ids,
                 ops: Vec::new(),
                 surfaces: Vec::new(),
+                work: Default::default(),
             };
             let tree = Tree::create(&mut u)?;
             (tree, u.ops, u.surfaces)
@@ -1194,6 +1195,7 @@ impl<D: DataSource> Runner<D> {
                 ids: &mut ids,
                 ops: Vec::new(),
                 surfaces: Vec::new(),
+                work: Default::default(),
             };
             tree.update(&mut u).map(|_| (u.ops, u.surfaces))
         };
@@ -1224,6 +1226,14 @@ impl<D: DataSource> Runner<D> {
         self.requests.clear();
         self.pending.clear();
         self.sync_pending_flags();
+    }
+
+    /// Deterministic instance work counters, separate from layout and host costs.
+    pub fn last_instance_work(&self) -> crate::instance::InstanceWork {
+        self.tree
+            .as_ref()
+            .map(|tree| tree.last_work)
+            .unwrap_or_default()
     }
 
     /// Whether an update failed after the tree began to change (see
