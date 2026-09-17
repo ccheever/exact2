@@ -89,11 +89,23 @@ fn shadow_image_statistics_sun_camera_matrix() {
         // A tall readback magnifies vertical ground resolution without changing
         // projection or cascade fits: the grazing view otherwise cannot resolve 3 cm.
         let contact_positions = ground(&f, 256, 8192);
-        for elevation in [12f32, 30.0, 55.0, 80.0] {
+        for elevation in [1f32, 2.0, 3.0, 12.0, 30.0, 55.0, 80.0] {
             for azimuth in [35f32, 145.0] {
                 let (se, ce) = elevation.to_radians().sin_cos();
                 let (sa, ca) = azimuth.to_radians().sin_cos();
                 f.sun.as_mut().unwrap().direction = Vec3::new(ce * ca, -se, ce * sa);
+                // Low suns cast beyond the old 7 m exclusion. Keep the lit ROI
+                // outside the projected shadow, including its PCF edge.
+                let mask: Vec<_> = mask
+                    .iter()
+                    .zip(&positions)
+                    .map(|(&valid, p)| {
+                        valid
+                            && p.is_some_and(|p| {
+                                p.x * ca + p.z * sa < -2.0 || (p.x * sa - p.z * ca).abs() > 2.0
+                            })
+                    })
+                    .collect();
                 f.sun.as_mut().unwrap().shadows = Some(Shadows::default());
                 let shadow = render(&gpu, &mut r, &texture, &f);
                 let name = format!("quality-h{height}-e{elevation}-a{azimuth}");
@@ -211,7 +223,10 @@ fn shadow_image_statistics_sun_camera_matrix() {
                 if gap > 0.03 {
                     failures.push(format!("{name}: contact gap bound {gap:.5} m"));
                 }
-                if interior_error > 2.0 / 255.0 || ratio > 0.65 || interior_pixels < 4 {
+                if interior_error > 2.0 / 255.0
+                    || ratio > expected_ratio + 0.02
+                    || interior_pixels < 4
+                {
                     failures.push(format!(
                         "{name}: interior ratio {ratio:.4}, expected {expected_ratio:.4}"
                     ));
@@ -386,4 +401,159 @@ fn far_cascade_fade_is_clean() {
             assert!(mad < 0.001 && max_error < 0.02);
         }
     }
+}
+
+#[test]
+fn fog_camera_crosses_exponent_clamp() {
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    let (v, i) = shapes::plane();
+    let plane = r.add_mesh(&v, &i);
+    r.write_materials(0, &material([0.0; 3], 0.02)).unwrap();
+    let texture = target(&gpu, (65, 65), wgpu::TextureFormat::Rgba8Unorm);
+    let mut failures = Vec::new();
+    for (start, end, density) in [
+        (450f32, 0f32, 0.02f32),
+        (-10.0, 450.0, 0.02),
+        (-450.0, 0.0, 0.02 * (-40f32).exp()),
+    ] {
+        let mut f = frame();
+        f.camera_position = Vec3::Y * start;
+        f.view = view::look_at_mat4(f.camera_position, Vec3::Y * end, Vec3::Z);
+        f.proj = directx::orthographic(-1.0, 1.0, -1.0, 1.0, 0.1, 1000.0);
+        let rotation = if start < end {
+            Quat::from_rotation_x(std::f32::consts::PI)
+        } else {
+            Quat::IDENTITY
+        };
+        r.write_transforms_both(0, &transform(Vec3::Y * end, rotation, Vec3::splat(10.0)))
+            .unwrap();
+        r.set_batches(&[Batch::new(plane, 0..1)], &[0]).unwrap();
+        f.environment.fog = Some(Fog {
+            density,
+            height_falloff: 0.1,
+            color: Some([0.5; 3]),
+        });
+        let a = (-0.1 * f64::from(start)).clamp(-40.0, 40.0).exp();
+        let b = (-0.1 * f64::from(end)).clamp(-40.0, 40.0).exp();
+        let average = (b - a) / (-0.1 * f64::from(end - start));
+        let transmission = (-f64::from(density) * f64::from((end - start).abs()) * average).exp();
+        let expected = tone(0.5 + (0.02 - 0.5) * transmission as f32);
+        let pixels = render(&gpu, &mut r, &texture, &f);
+        let actual = pixels.at(32, 32)[0];
+        eprintln!("fog {start} -> {end}: transmission={transmission:.6}, pixel={actual}, expected={expected}");
+        if actual.abs_diff(expected) > 2 {
+            failures.push(format!("fog {start}->{end}: {actual} vs {expected}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn grazing_receivers_remain_occluded() {
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    let (v, i) = shapes::plane();
+    let plane = r.add_mesh(&v, &i);
+    let (v, i) = shapes::sphere(256);
+    let sphere = r.add_mesh(&v, &i);
+    let (v, i) = shapes::cube();
+    let cube = r.add_mesh(&v, &i);
+    let texture = target(&gpu, (1024, 1024), wgpu::TextureFormat::Rgba8Unorm);
+    let mut failures = Vec::new();
+    for curved in [false, true] {
+        for cosine in [0.003f32, 0.02, 0.05] {
+            let mut f = frame();
+            f.camera_position = Vec3::new(3.0, -0.5, 0.0);
+            f.view = view::look_at_mat4(f.camera_position, Vec3::ZERO, Vec3::Y);
+            f.proj = directx::orthographic(-0.65, 0.65, -0.65, 0.65, 0.1, 20.0);
+            f.sun = Some(Sun {
+                direction: -Vec3::new(cosine, 1.0, 0.0).normalize(),
+                color: Vec3::ONE,
+                illuminance: 100.0,
+                shadows: Some(Shadows {
+                    distance: 10.0,
+                    ..Default::default()
+                }),
+            });
+            r.write_transforms_both(
+                0,
+                &transform(
+                    Vec3::ZERO,
+                    if curved {
+                        Quat::IDENTITY
+                    } else {
+                        Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2)
+                    },
+                    Vec3::splat(2.0),
+                ),
+            )
+            .unwrap();
+            r.write_transforms_both(
+                1,
+                &transform(
+                    Vec3::new(0.0, 0.2, 0.0),
+                    Quat::IDENTITY,
+                    Vec3::new(4.0, 0.05, 4.0),
+                ),
+            )
+            .unwrap();
+            let mut surface = material([0.7; 3], 0.01);
+            surface[4] = if curved { 1.0 } else { 0.0 };
+            surface[5] = 0.18;
+            r.write_materials(0, &surface).unwrap();
+            r.write_materials(1, &material([0.5; 3], 0.0)).unwrap();
+            let mut batches = [
+                Batch::new(if curved { sphere } else { plane }, 0..1),
+                Batch::new(cube, 1..2),
+            ];
+            r.set_batches(&batches, &[0, 1]).unwrap();
+            let dark = render(&gpu, &mut r, &texture, &f);
+            dark.save(&format!("grazing-occluded-{curved}-{cosine}"));
+            batches[1].casts_shadows = false;
+            r.set_batches(&batches, &[0, 1]).unwrap();
+            let control = render(&gpu, &mut r, &texture, &f);
+            f.sun.as_mut().unwrap().shadows = None;
+            let lit = render(&gpu, &mut r, &texture, &f);
+            f.sun.as_mut().unwrap().illuminance = 0.0;
+            let ambient = render(&gpu, &mut r, &texture, &f);
+            let mut leak = 0u8;
+            let mut signal = 0u8;
+            let mut control_signal = 0u8;
+            for y in [0.0f32, 0.002, 0.005, 0.01, 0.02, 0.04] {
+                for z in [-0.1f32, 0.0, 0.1] {
+                    let p = Vec3::new(
+                        if curved {
+                            (1.0 - y * y - z * z).sqrt()
+                        } else {
+                            0.0
+                        },
+                        y,
+                        z,
+                    );
+                    let a = at_world(&ambient, &f, p);
+                    leak = leak.max(at_world(&dark, &f, p).saturating_sub(a));
+                    signal = signal.max(at_world(&lit, &f, p).saturating_sub(a));
+                    control_signal =
+                        control_signal.max(at_world(&control, &f, p).saturating_sub(a));
+                }
+            }
+            eprintln!("grazing curved={curved} cosine={cosine}: occluded leak={leak}/255, unshadowed signal={signal}, no-overhang signal={control_signal}");
+            assert!(signal > 20, "fixture must expose direct light");
+            if cosine >= 0.02 {
+                assert!(
+                    control_signal > 20,
+                    "removing overhang must restore direct light"
+                );
+            }
+            if leak > 3 {
+                failures.push(format!("curved={curved}, cosine={cosine}: leak={leak}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

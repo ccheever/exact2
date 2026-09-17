@@ -35,11 +35,13 @@ fn finite_hdr(c: vec3<f32>) -> vec3<f32> {
 // Shared by surfaces and sky; the near-horizontal limit avoids cancellation.
 fn height_fog(color: vec3<f32>, end: vec3<f32>) -> vec3<f32> {
     let falloff = frame.height_bloom.x;
-    let a = clamp(-falloff * frame.camera_alpha.y, -40.0, 40.0);
+    let a = -falloff * frame.camera_alpha.y;
     let difference = -falloff * (end.y - frame.camera_alpha.y);
-    let b = clamp(a + difference, -40.0, 40.0);
-    var average = exp(a);
-    if abs(difference) > 0.001 { average = (exp(b) - exp(a)) / difference; }
+    let b = -falloff * end.y;
+    let start_density = exp(clamp(a, -40.0, 40.0));
+    let end_density = exp(clamp(b, -40.0, 40.0));
+    var average = start_density;
+    if abs(difference) > 0.001 { average = (end_density - start_density) / difference; }
     let transmission = exp(-frame.fog_color_density.w * distance(end, frame.camera_alpha.xyz) * average);
     return mix(frame.fog_color_density.xyz, color, transmission);
 }

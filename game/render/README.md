@@ -37,13 +37,23 @@ Base alpha is reserved; geometry is opaque. Capsule height is tip-to-tip.
   (Y is the sign axis; continuous near vertical, hemisphere seam at the horizon), comparison-sampled 3×3 PCF of radius 1.5 texels.
   The final 10% of each slice cross-fades; the last fades to unshadowed. Casters
   up to one shadow distance towards the sun beyond the slice are included.
-- Receiver bias uses each cascade's **world metres per texel**: normal offset
-  `0.5 × texel × sin(angle to light)`, plus slope-scaled comparison depth bias
-  converted through that cascade's light-space depth scale. Each PCF tap compares
-  against the receiver plane at that tap, so the remaining slope bias covers only
-  the bilinear comparison footprint, independent of PCF radius. A 1e-6 depth floor
-  covers floating-point roundoff; raster depth bias is zero. The nine-tap grid
-  needs no per-pixel rotation after this correction (18 taps during cross-fade).
+- Receiver bias uses each cascade's **world metres per texel**. Normal offset is
+  `0.5 × texel × sin(theta) × cos(theta)`, where theta is the normal/light angle;
+  its projection onto the receiver moves the shadow by at most half a world texel.
+  PCF offsets are projected from the receiver plane into the light map, preventing
+  a `1 / N·L` stretch of the filter on grazing ground. Each tap uses its exact
+  local receiver-plane depth slope. The separate conservative bilinear-footprint
+  bias is capped at **two texels of world depth**, converted through the cascade's
+  depth scale, plus 1e-6 normalized depth for roundoff. Above that footprint budget,
+  four explicit depth loads compare each bilinear texel against its own plane
+  depth and interpolate visibility; no large comparison bias is needed.
+  This uses nine hardware comparisons or up to 36 explicit loads per cascade
+  (twice during cross-fade). Raster depth bias is zero.
+  With shadows enabled, direct sun fades to zero over **N·L = 0.01 down to 0.005**;
+  at/below 0.005 no singular plane slope is evaluated. The fade also applies across
+  cascade blends and beyond shadow distance, so unsupported angles never turn lit.
+  A 1° sun on level ground remains fully supported. Shadow-disabled rendering
+  retains the unfaded direct BRDF; ambient, emissive and point lights are unaffected.
   Back faces remain culled: global front-face culling erases open sheets, and the
   renderer has no closed-mesh classification. The thin-sheet fixture casts.
   CPU fitting overlaps exactly the preceding slice's final 10%, matching sampling.
@@ -63,6 +73,9 @@ Base alpha is reserved; geometry is opaque. Capsule height is tip-to-tip.
   uses the horizon. Density defaults to 0.02/m, height falloff to 0.1/m. Geometry
   and sky share the integral; sky integrates 10 km along the view ray. The height
   difference remains unclamped so upward rays retain the correct finite extinction.
+  Camera and endpoint exponents are computed independently; only the inputs to
+  `exp` are clamped to [-40, 40]. Equal-height and near-horizontal rays retain the
+  stable constant-density limit.
 
 All pipeline variants compile in `Renderer::new`, including fog-free and
 shadow-free forward entry points and bloom-free tonemapping. Setting an effect
@@ -446,3 +459,79 @@ as part of R3.
 Final validation: **49 tests passed**, four diagnostics ignored by the ordinary
 run; all three GPU timing diagnostics were run separately. Scoped clippy with
 `-D warnings`, scoped rustfmt, and the staged repository caps check pass.
+
+
+## R3b review fixes — 2026-09-17, Apple M5 Max / Metal
+
+Compared with 8b80740, using the same new fixtures before and after:
+
+| Probe | Before | After |
+|---|---:|---:|
+| Fog, eye Y=450 to ground Y=0, output byte | 206 | 104 (analytic 104) |
+| Fog, eye Y=-10 to Y=450, output byte | 156 | 156 (analytic 156) |
+| Fog, eye Y=-450 to Y=0, scaled density, output byte | 104 | 104 (analytic 104) |
+| 2° contact, high / low camera | no 75%-occluded pixel within 8 cm | ≤6.65 / ≤24.07 mm |
+| 2° interior/lit ratio, azimuth 35°, high camera | 0.8933 | 0.7867 (ambient reference 0.7867) |
+| 2° interior/lit ratio, azimuth 35°, low camera | 0.8625 | 0.7284 (ambient reference 0.7284) |
+| Wall under nearby overhang, N·L≈0.003, excess output byte | 50 | 0 |
+| Glossy metal sphere terminator under overhang, same sun, excess byte | 12 | 0 |
+
+The high-altitude fog transmission is 0.818731, rather than approximately
+1.29e-13 from the shifted endpoint exponent. Below-base upward transmission is
+0.580621 for the -10→450 m probe. The -450 m probe scales density by exp(-40) to
+keep the clamped-density result measurable rather than saturating the image.
+
+The contact matrix now includes **1°, 2°, 3°**, both camera heights and both
+azimuths. All twelve dusk cases meet the same 3 cm contact bound and have at least
+four near-base shadow pixels within 2/255 of ambient. The ratio assertion now
+uses the ambient reference: a fixed ratio below 0.65 cannot describe a dim dusk
+sun above unchanged ambient. Low-sun lit-ground masks exclude the entire long
+shadow. MAD is **0.000034–0.000250**, equal to the clean references; sampled lit
+cascade-boundary error is zero. The old 12/30/55/80° cases still pass.
+
+The overhang is 17.5 cm above the wall probe's origin. Wall and sphere fixtures
+also test sun X/Y ratios 0.02 and 0.05: all occluded probes have zero excess bytes;
+removing the overhang's casting restores **187/221** bytes on the wall and
+**61/67** on the sphere. At 0.003 the wall's direct term intentionally fades out
+with or without an overhang; the sphere probes span its changing normals and
+still recover 57 bytes without the overhang. This names the supported-angle
+tradeoff rather than claiming exact illumination at the singular terminator.
+
+Both high- and low-camera 2° PNG pairs and the high-camera contact crops were
+visually inspected. Before, the long shadow fades into a lighter region next to
+the cube, giving a detached appearance. After, the dark shadow meets the base
+continuously; its near edge is firmer and the surrounding ground stays smooth.
+Files: `target/r3b-before` and `target/r3b-after`, including
+`quality-h9-e2-a35.png`, `quality-h1.5-e2-a35.png`, and `contact-2deg.png`.
+
+All three review diagnoses reproduce. The additional contributor was the
+isotropic light-map PCF footprint stretching on the receiver at dusk; bounding
+normal offset alone did not restore the contact's darkness. The bias fix therefore
+also projects the PCF grid and handles steep bilinear footprints explicitly.
+
+Timing: three sequential before/after pairs of saved release binaries, reversing
+order for pair 2; 600 frames per 200k fast-path mode. Medians of run summaries:
+
+| Diagnostic, ms | Before | After |
+|---|---:|---:|
+| 200k `Some`, CPU encode | 0.2636 | 0.1975 |
+| 200k `Some`, tick copy/upload | 1.6081 | 1.3801 |
+| 200k `Some`, completed frame | 3.1029 | 2.5200 |
+| 200k `All`, CPU encode | 0.2586 | 0.2429 |
+| 200k `All`, tick upload | 1.6211 | 1.4430 |
+| 200k `All`, completed frame | 3.2152 | 2.8317 |
+| Beacons shadowed GPU frame | 0.4993 | 0.5214 |
+| Beacons CPU encode | 0.2564 | 0.2570 |
+| 300 objects, effects off, CPU encode | 0.1818 | 0.1581 |
+| 300 objects, effects off, GPU envelope | 0.4054 | 0.5609 |
+
+No regression in the 200k fast-path medians; shadowed Beacons costs 22.1 µs more
+GPU time. Shared-machine variance is substantial: the 300-object effects-off GPU
+envelope rises despite the unchanged fog/shadow-free shader path, with individual
+before/after envelopes spanning 0.2980–0.6287 ms. These are observations, not a
+speedup claim or a tight confidence bound. Logs are `target/r3b-pair-*.log`.
+
+Validation: **51 tests pass**, four diagnostics ignored by the ordinary test run;
+all three GPU timing diagnostics pass separately. Scoped clippy with `-D warnings`
+and rustfmt pass; the staged repository caps check passes. Native launches worked
+locally; no Linux fallback was needed.
