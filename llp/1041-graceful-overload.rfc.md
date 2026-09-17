@@ -1553,7 +1553,7 @@ publish independently. This is a kernel foundation, not a native worker or
 paint implementation, and ordinary text measurement remains synchronous.
 
 The UI owner discovers exact text offers and exposes one missing request with
-owned immutable source, paragraph stamp, font catalog and an opaque candidate
+owned immutable source, paragraph stamp, font catalog identity and an opaque candidate
 ticket. Completing an obsolete request cannot publish. Ready metrics retain an
 artifact from that exact source and offer; final paint widths are included in
 offer discovery. Internal missing-measurement probes never become published
