@@ -99,12 +99,19 @@ content pixels, continued typing and wheel scrolling 0→40px. An overlapping
 that comparison. UI giant shape/index counters remain zero. This instrumented
 CPU/VKMS run is functional evidence, not physical-display or latency evidence.
 
-The same 4MiB candidate reaches one correct full worker layout but aborts before
-publication: an 11,264-byte allocation fails at the unchanged 2.5GiB address-space
-cap. Sampled RSS/HWM is 1,735,924KiB. Its fresh synchronous reference passes;
-that does not establish worker/display success. No cap increase or smaller source
-was used. Exact allocation-site attribution, 4MiB completion, continuous resize
-and latency remain outstanding. LLP1041 §8.27 records this result and identities.
+The earlier d6 4MiB candidate aborts before publication at the 2.5GiB address-space
+cap; that failure remains recorded in LLP1041 §8.27. With shared width layouts
+on captured ef12f06 sources, both 1MiB and 4MiB trials now complete under the same
+cap. Two distinct measurement requests reuse one worker layout and ink index.
+The complete 4,194,149-byte paragraph publishes without another input, accepts
+further typing and scrolls 40px. Accepted content pixels match the fresh
+independent reference; the overlapping scroll strip matches exactly too.
+
+The 4MiB run samples VmPeak at 2,303,612KiB and RSS/HWM at 1,384,404KiB.
+These are observations from this fixture, not a general memory bound or an
+isolated allocation-site measurement. The source, fonts and cap were not reduced.
+Continuous resize, repeated latency measurements and physical120Hz remain
+outstanding. LLP1041 §8.29 records the native sharing replay and its limits.
 
 Earlier failed scroll-metadata and prelaunch port cells remain unchanged in §8.22.
 The scroll repair keeps limits tied to the successfully painted document; the old

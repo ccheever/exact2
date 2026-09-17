@@ -2336,6 +2336,54 @@ edits or retries. Evidence is under `target/shared-width-validation/`, source
 manifest `947af46afa2dfc94ef319091ac1689be73785c9986bbbe21623b8b5cfd74f460`.
 
 The approximately610MiB duplicate layout/index payload observed in the earlier
-4MiB fixture motivates this repair; its removal is not yet a measured native
-peak-memory saving or proof that the complete display workload fits the cap.
-Actual Linux replay, repeated resizing and physical120Hz remain unproved.
+4MiB fixture motivated this repair. The source tests alone did not establish
+native peak-memory savings or complete display admission; the subsequent native
+replay is recorded below. Repeated resizing and physical120Hz remain unproved.
+
+### 8.29 Actual Linux shared-layout publication within the retained cap, 2026-09-17
+
+The ef12f06 replay runs fresh synchronous references and display candidates for
+both nominal1MiB and4MiB paragraphs. All four cells pass under the unchanged
+2.5GiB address-space cap,60s process guard,1024x768 viewport,CPU painter and
+fixed scale1. The font fixture remains39 faces from13 sources/107,296,644 bytes.
+The4MiB candidate previously aborted before publication on d6 (§8.27); that
+negative result and its exact sources remain intact.
+
+Each candidate prepares and adopts two distinct private jobs with different
+height offers. One immutable layout and numeric ink index serve both jobs;
+there is one cache hit, one actual shape, one layout and one index construction.
+Private job, full request, source, catalog and final publication identities remain
+checked independently of the shared backing. Cumulative giant UI shape and ink
+index construction counters stay zero.
+
+The full raw sources are1,048,531 and4,194,181 bytes; their unsplit paragraphs
+are1,048,499 and4,194,149 bytes. Each final proof matches the fresh independent
+reference's full-source, glyph, ordered coverage, geometry and font oracles.
+The larger paragraph contains55,923 lines and3,914,539 glyphs. Publication
+occurs without intervening input after the recorded idle frame. Continued
+typing is then visible, followed by actual wheel scrolling0→40px.
+The1,228,800-byte accepted RGB content crop matches its reference exactly.
+A472,320-byte overlapping strip shifts by exactly40px in each candidate;
+newly exposed pixels and whole-window presentation are outside that comparison.
+
+Sampled VmPeak/RSS-HWM are1,148,028/449,028KiB for1MiB and
+2,303,612/1,384,404KiB for4MiB. The4MiB VmPeak is317,828KiB below this run's
+address-space cap. Accessible K/shape/line/baseline/index capacity checkpoints
+deduplicate backing identities; they are not RSS, complete allocations or a
+general peak-memory bound. In-progress work, font storage and allocator overhead
+remain outside that ledger. The earlier failed process and this successful one
+are not a matched peak-allocation experiment at an identical completion stage.
+
+Successful display processes are deliberately stopped only after the observations
+complete; their recorded SIGTERM exits are intended cleanup, not hidden crashes.
+References exit0, all owned groups are absent, and no cell is retried. These are
+single instrumented functional cells, labeled nonquiet by the retained harness,
+not latency distributions, continuous-reflow or physical120Hz evidence.
+The first outer coordinator stops between pairs when its4MiB port preflight
+encounters5937 in TIME_WAIT after1MiB. That failure is preserved;4MiB starts
+separately once the port is free, without repeating the completed native cells.
+Build and runtime evidence is retained under
+`target/shared-width-native-execution-ef12f06-v1/`; the candidate binary is
+`5bc095b6098ab068468f9e4ad17864a913d3a5119c8865225a094ff2afcd6a4d`.
+The runtime archive contains80 verified entries/29,048,549 bytes, manifest
+`ce4e93f29b5c1c76d1c5516dfaf8ef7d8b080d2fe9790c7976066c49419ba082`.
