@@ -267,14 +267,18 @@ impl LayoutTree {
                     .unwrap_or_else(|| from_available(space.height));
                 // Direction and alignment inherit (a paragraph inside a
                 // centred column centres, as in CSS); the rest are its own.
-                let metrics = measurer.measure(&TextMeasureRequest {
+                let request = TextMeasureRequest {
                     runs: &runs,
                     paragraph: Paragraph::from_style(
                         &arena.computed_style(slot, StyleMask::INHERITED),
                     ),
                     width,
                     height,
-                });
+                };
+                let metrics = match arena.paragraph_stamp(slot) {
+                    Some(stamp) => measurer.measure_identified(&stamp, &request),
+                    None => measurer.measure(&request),
+                };
                 if !metrics.is_valid() {
                     invalid_metrics.get_or_insert_with(|| arena.local_id(slot));
                     return MeasureOutput::ZERO;

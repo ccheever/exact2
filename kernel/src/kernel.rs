@@ -74,6 +74,13 @@ pub struct NodeRef<'a> {
 }
 
 impl<'a> NodeRef<'a> {
+    /// Current input identity for an independent Text/TextInput paragraph.
+    /// Inline children return None; use the owner's runs and stamp together.
+    /// This is not a layout-offer, catalog, attachment or publication proof.
+    pub fn paragraph_stamp(&self) -> Option<crate::text::ParagraphStamp> {
+        self.arena.paragraph_stamp(self.slot)
+    }
+
     /// The node whose own row supplies `id` here: this node when it sets the
     /// row; for a row the schema marks inherited, the nearest logical ancestor
     /// that does; `None` when the initial value applies (LLP 1035.000 D1).
@@ -540,6 +547,8 @@ impl Kernel {
     /// and indexes are reconstructed, never copied. Used by the result-equality
     /// gate: a rehydrated kernel must lay out bit-identically to the original.
     pub fn rehydrate(&self, measurer: Box<dyn TextMeasurer>) -> Kernel {
+        // Public arena cloning itself creates a fresh paragraph namespace;
+        // rehydration is not the only way callers can fork authored state.
         let mut arena = self.arena.clone();
         let layout = LayoutTree::rebuild(&mut arena);
         let mut selectors = SelectorIndex::new();
@@ -636,5 +645,35 @@ mod presented_height_tests {
         );
         k.compute_layout(1, offer).unwrap();
         assert_eq!(k.node(1).unwrap().frame.height, 400.0);
+    }
+}
+
+#[cfg(test)]
+mod paragraph_domain_tests {
+    use super::*;
+    #[test]
+    fn derived_layout_fault_rebuild_keeps_authored_paragraph_stamp() {
+        let mut k = Kernel::with_monospace();
+        k.apply(
+            0,
+            0,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::Text,
+                },
+                Op::SetProp {
+                    id: 1,
+                    prop: crate::PropId::Text,
+                    value: "preserve identity".into(),
+                },
+                Op::AttachRoot { id: 1 },
+            ],
+        )
+        .unwrap();
+        let before = k.node(1).unwrap().paragraph_stamp().unwrap();
+        k.arena.set_taffy(before.owner().index, None);
+        k.compute_layout(1, Offer::definite(300.0, 200.0)).unwrap();
+        assert_eq!(before, k.node(1).unwrap().paragraph_stamp().unwrap());
     }
 }

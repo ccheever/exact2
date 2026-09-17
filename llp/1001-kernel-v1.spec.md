@@ -470,6 +470,35 @@ terminal-break behavior. `kernel/tests/review_fixes.rs` covers repeated Returns,
 shortening and unchanged values. `MonospaceMeasurer` is the deterministic reference measurer for
 tests and headless hosts.
 
+**Paragraph input identity (Tuft / Carson, 2026-09-17).** Independent Text and
+TextInput measurement owners expose `NodeRef::paragraph_stamp()`. Inline Text
+returns `None`: its own run subset must not share an identified key with its
+owner's full paragraph. `ParagraphStamp` is an opaque retained, payload-free
+namespace plus the owner's generational key and current metric/paint-source
+revisions. Full equality compares both revisions; `same_metrics` excludes
+paint/source. The namespace uses allocation identity, not value equality or a
+serialized address. Stamps retain neither the arena nor text.
+
+Layout calls `TextMeasurer::measure_identified(stamp, request)` with the same
+owner stamp exposed by reads. Its default calls the existing synchronous
+`measure`; requests and canonical run construction are unchanged. Offers,
+font-catalog identity, host appearance/resolved paint, attachment eligibility
+and accepted publication remain separate inputs. This is an input proof, not
+an asynchronous result or a promise that equal stamps produce equal pixels.
+
+Each arena slot stores two current revisions; storage follows arena high-water,
+not edit history. Source/topology invalidation updates old/new paragraph owners
+and affected inherited inputs; temporary work is bounded by the traversed
+subtree and distinct owners. Free clears revisions. New, reset, cloned and
+rehydrated arenas get fresh namespaces; derived Taffy rebuilds preserve them.
+Counter exhaustion rotates the namespace inside a validated successful apply,
+without a fallible partially applied edit. Rejected batches and exact no-ops
+preserve identity. Revisions may conservatively change for masked inputs.
+Alignment/overflow invalidation and textarea semantic-tag measurement belong to
+this proof; their schema changes require rebaked plans. Public-arena fork,
+rollover, topology, lifetime and callback/read agreement regressions live in
+`kernel/tests/paragraph_stamp.rs` and the arena unit tests.
+
 ## 7. EXNODE export (WS-C)
 
 One crossing per sync. `Kernel::rows` is the typed in-process projection; `Kernel::

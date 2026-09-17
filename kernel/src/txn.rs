@@ -386,6 +386,9 @@ pub fn apply(
             Op::DestroyView { id } => {
                 let slot = live_slot(arena, op_index, *id)?;
                 if let Some(parent) = arena.parent(slot) {
+                    if arena.node_type(parent) == NodeType::Text {
+                        invalidate_text(arena, layout, parent);
+                    }
                     arena.children_mut(parent).retain(|c| *c != slot);
                     sync_children(arena, layout, parent);
                     arena.flags_mut(parent).insert(NodeFlags::CHILDREN_DIRTY);
@@ -418,6 +421,11 @@ pub fn apply(
                 if prop.affects_measure() {
                     invalidate_text(arena, layout, slot);
                     receipt.layout_invalidated = true;
+                } else {
+                    arena.revise_text(slot, false);
+                    if *prop == PropId::Href {
+                        invalidate_text_sources(arena, slot);
+                    }
                 }
                 touched.insert(slot);
             }
@@ -431,6 +439,11 @@ pub fn apply(
                     if prop.affects_measure() {
                         invalidate_text(arena, layout, slot);
                         receipt.layout_invalidated = true;
+                    } else {
+                        arena.revise_text(slot, false);
+                        if *prop == PropId::Href {
+                            invalidate_text_sources(arena, slot);
+                        }
                     }
                     touched.insert(slot);
                 }
@@ -472,6 +485,12 @@ pub fn apply(
                 }
                 let old: Vec<u32> = arena.children(slot).to_vec();
                 let retained: HashSet<u32> = new.iter().copied().collect();
+                let detached: Vec<_> = old
+                    .iter()
+                    .copied()
+                    .filter(|o| !retained.contains(o))
+                    .map(|o| (o, arena.computed_style(o, StyleMask::INHERITED)))
+                    .collect();
                 for o in &old {
                     if !retained.contains(o) {
                         arena.set_parent(*o, None);
@@ -496,6 +515,9 @@ pub fn apply(
                 for n in &new {
                     if let Some(p) = arena.parent(*n) {
                         if p != slot {
+                            if arena.node_type(p) == NodeType::Text {
+                                invalidate_text(arena, layout, p);
+                            }
                             arena.children_mut(p).retain(|c| c != n);
                             sync_children(arena, layout, p);
                             arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
@@ -512,26 +534,18 @@ pub fn apply(
                 }
                 touched.insert(slot);
                 receipt.layout_invalidated = true;
+                for (orphan, before) in detached {
+                    inherited_after_move(
+                        arena,
+                        layout,
+                        orphan,
+                        Some(before),
+                        &mut touched,
+                        &mut receipt,
+                    );
+                }
                 for (m, before) in moved {
-                    let changed = match before {
-                        Some(before) => {
-                            let after = arena.computed_style(m, StyleMask::INHERITED);
-                            let mut changed = StyleMask::EMPTY;
-                            for id in StyleMask::INHERITED.iter() {
-                                if before.get(id) != after.get(id) {
-                                    changed.set(id);
-                                }
-                            }
-                            changed
-                        }
-                        None => StyleMask::INHERITED.minus(arena.style(m).mask),
-                    };
-                    if changed.is_empty() {
-                        continue;
-                    }
-                    inherited_changed(arena, layout, m, changed, &mut receipt);
-                    touched.insert(m);
-                    propagate_inherited(arena, layout, m, changed, &mut touched, &mut receipt);
+                    inherited_after_move(arena, layout, m, before, &mut touched, &mut receipt);
                 }
             }
             Op::AttachRoot { id } => {
@@ -584,9 +598,58 @@ fn sync_children(arena: &NodeArena, layout: &mut LayoutTree, parent: u32) {
 
 fn invalidate_text(arena: &mut NodeArena, layout: &mut LayoutTree, slot: u32) {
     let owner = arena.measure_owner(slot);
+    arena.revise_text(owner, true);
     arena.flags_mut(owner).insert(NodeFlags::TEXT_DIRTY);
     if let Some(node) = arena.taffy(owner) {
         layout.mark_dirty(node);
+    }
+}
+
+/// A changed logical ancestry can change run-origin navigation/paint metadata
+/// without changing metrics. Scratch is bounded by this subtree's live owners.
+fn invalidate_text_sources(arena: &mut NodeArena, slot: u32) {
+    let owners: BTreeSet<_> = arena
+        .subtree(slot)
+        .into_iter()
+        .filter(|s| matches!(arena.node_type(*s), NodeType::Text | NodeType::TextInput))
+        .map(|s| arena.measure_owner(s))
+        .collect();
+    for owner in owners {
+        arena.revise_text(owner, false);
+    }
+}
+
+fn inherited_after_move(
+    arena: &mut NodeArena,
+    layout: &mut LayoutTree,
+    slot: u32,
+    before: Option<StyleProps>,
+    touched: &mut BTreeSet<u32>,
+    receipt: &mut CommitReceipt,
+) {
+    // A formerly inline node may now expose its own paragraph. Its old local
+    // revision did not track edits consumed by its former owner.
+    if matches!(arena.node_type(slot), NodeType::Text | NodeType::TextInput) {
+        invalidate_text(arena, layout, slot);
+    }
+    invalidate_text_sources(arena, slot);
+    let changed = match before {
+        Some(before) => {
+            let after = arena.computed_style(slot, StyleMask::INHERITED);
+            let mut changed = StyleMask::EMPTY;
+            for id in StyleMask::INHERITED.iter() {
+                if before.get(id) != after.get(id) {
+                    changed.set(id);
+                }
+            }
+            changed
+        }
+        None => StyleMask::INHERITED.minus(arena.style(slot).mask),
+    };
+    if !changed.is_empty() {
+        inherited_changed(arena, layout, slot, changed, receipt);
+        touched.insert(slot);
+        propagate_inherited(arena, layout, slot, changed, touched, receipt);
     }
 }
 
@@ -610,6 +673,9 @@ fn style_changed(
     }
     if !mask.minus(StyleMask::LAYOUT).is_empty() {
         arena.flags_mut(slot).insert(NodeFlags::PAINT_DIRTY);
+        if !mask.intersects(StyleMask::TEXT) {
+            arena.revise_text(slot, false);
+        }
     }
 }
 
@@ -661,5 +727,8 @@ fn inherited_changed(
     }
     if !rows.minus(StyleMask::TEXT).is_empty() {
         arena.flags_mut(slot).insert(NodeFlags::PAINT_DIRTY);
+        if !rows.intersects(StyleMask::TEXT) {
+            arena.revise_text(slot, false);
+        }
     }
 }

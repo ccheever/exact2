@@ -224,7 +224,8 @@
     {
       "id": 33,
       "name": "semanticTag",
-      "kind": "str"
+      "kind": "str",
+      "measure": true
     },
     {
       "id": 34,
@@ -1161,7 +1162,8 @@
       "bit": 71,
       "field": "text_align",
       "codec": "enum:TextAlign",
-      "inherited": true
+      "inherited": true,
+      "text": true
     },
     {
       "bit": 72,
@@ -1206,7 +1208,8 @@
     {
       "bit": 77,
       "field": "text_overflow",
-      "codec": "enum:TextOverflow"
+      "codec": "enum:TextOverflow",
+      "text": true
     },
     {
       "bit": 78,

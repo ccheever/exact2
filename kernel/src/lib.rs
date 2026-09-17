@@ -58,7 +58,8 @@ pub use style::{
     GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
 };
 pub use text::{
-    MonospaceMeasurer, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle,
+    MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun,
+    TextStyle,
 };
 pub use txn::CommitReceipt;
 pub use wire::{FrameBuilder, Op};
