@@ -29,6 +29,8 @@ import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
 import { installProblems } from './install-page.mjs';
 
+export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
+
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
 /** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
@@ -394,6 +396,7 @@ export const appleCargoClaims = (app, target, units) => [...new Set(units.map(un
 export function buildBake(app, platform, target, options = {}) {
   const kind=platform==='macos'||platform==='ios'?'apple':platform;
   const env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
+  env.EXACT_ASSET_ROOTS=['assets','deck','gpu/shaders'].filter(root=>existsSync(resolve(app.dir,root))).join(',');
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
   const rustBundle=prepareRustBundle(app,platform,target,env);
@@ -466,7 +469,7 @@ export function classifyArtifacts(candidate, cohort, signingKey = null) {
   }
   const changed=candidate.binary.sha256!==cohort.binary || (candidate.pendingInputs?.length ?? 0)>0;
   const warnings=[];
-  if(changed&&!candidate.graph.artifacts.some(a=>a.name==='rust/app.module.json')&&canonicalBuild(candidate.compat.inputs.dataCrate)!==canonicalBuild(have.dataCrate)&&Object.keys(candidate.graph.sources).some(n=>n!=='exactDelivery'&&cohort.sources[n])) warnings.push(`same name, same shape, new native code: cohort ${cohort.compat.id} will run the old code`);
+  if(changed&&!candidate.graph.artifacts.some(a=>a.name==='rust/app.module.json')&&canonicalBuild(candidate.compat.inputs.dataCrate)!==canonicalBuild(have.dataCrate)&&Object.keys(candidate.graph.sources).some(n=>!runnerOwnedSource(n)&&cohort.sources[n])) warnings.push(`same name, same shape, new native code: cohort ${cohort.compat.id} will run the old code`);
   if(changed&&Object.keys(candidate.graph.surfaceCalls??{}).length) warnings.push(`same surface name and arity: cohort ${cohort.compat.id} retains its old GPU implementation`);
   return {binary:changed,bundle:missing.length===0&&have.store?.L!=='0',missing:have.store?.L==='0'?['store.L=0: this binary has no bundle carrier']:missing,warnings};
 }

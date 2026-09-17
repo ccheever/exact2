@@ -172,6 +172,9 @@ impl Reader<'_> {
                 loop {
                     let key = self.string()?;
                     self.expect(b':')?;
+                    if fields.contains_key(&key) {
+                        return Err(self.error(&format!("duplicate key `{key}`")));
+                    }
                     fields.insert(key, self.value(depth + 1)?);
                     self.space();
                     if self.eat(b'}') {

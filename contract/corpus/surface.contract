@@ -1,8 +1,14 @@
 // A lazy surface publishes state; the first painted HUD uses typed defaults.
 shape Hud
   beacons: number
+shape Status
+  ready: bool
 component App
   resource hud = exactSurface("world") as shape Hud
+  resource status = exactSurface("status") as shape Status
+  resource same = exactSurface("world") as shape Status
   view
-    canvas surface=world() width=100 height=100
-      text `Beacons ${hud.beacons} / 3` testId="hud"
+    column
+      canvas surface=status() width=100 height=100
+      canvas surface=world() width=100 height=100
+        text `Beacons ${hud.beacons} / 3` testId="hud"

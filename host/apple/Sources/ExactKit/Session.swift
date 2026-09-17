@@ -351,6 +351,7 @@ public final class ExactSession {
     /// Commands from the batch being applied, delivered after it (D2).
     private var pendingCommands: [(String, [Any])] = []
     private var applying = false
+    private var pendingSurfaceRecords: [(String, String?)] = []
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
@@ -551,6 +552,12 @@ public final class ExactSession {
     /// @ref LLP 1038 D7/D11 — observation only; Swift never interprets slots.
     private(set) var routerOp: [String: Any]?
 
+    func surfaceRecord(_ name: String, _ json: String?) {
+        guard state != .destroyed else { return }
+        if applying { pendingSurfaceRecords.append((name, json)); return }
+        apply(runtime.surfaceRecord(name, json))
+    }
+
     func apply(_ batch: Batch) {
         guard state != .destroyed else { return }
         let outermost = !applying
@@ -568,6 +575,10 @@ public final class ExactSession {
             }
         }
         if outermost {
+            while !pendingSurfaceRecords.isEmpty {
+                let (name, json) = pendingSurfaceRecords.removeFirst()
+                apply(runtime.surfaceRecord(name, json))
+            }
             applying = false
             let queued = pendingCommands
             pendingCommands = []

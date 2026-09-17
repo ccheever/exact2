@@ -62,7 +62,7 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
     out.push_str("\nexport interface SourceMap {\n");
     for row in &plan.sources {
         let name = plan.str(row.name);
-        if matches!(name, "exactDelivery" | "exactViewport" | "exactSurface") {
+        if exact_plan::runner_owned_source(name) {
             continue;
         }
         write!(out, "  {}: {{ args: [", quoted(name)).unwrap();

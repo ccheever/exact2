@@ -318,8 +318,9 @@ pub fn published(id: u32) -> Option<String> {
 }
 
 /// Drain posted messages as a JSON array.
-pub fn messages(id: u32) -> String {
-    json::strings(&with(|m| m.take_messages(id)).unwrap_or_default())
+pub fn messages(id: u32) -> Option<String> {
+    let messages = with(|m| m.take_messages(id)).unwrap_or_default();
+    (!messages.is_empty()).then(|| json::strings(&messages))
 }
 
 /// Ask the surface; an empty string means no answer.
@@ -551,11 +552,13 @@ macro_rules! module {
             }
         }
 
-        /// Drain messages into the shared output buffer; returns its byte length.
+        /// Drain messages into the output buffer; u32::MAX means no messages.
         #[no_mangle]
         pub extern "C" fn gpu_messages(id: u32) -> u32 {
-            let text = $crate::native::messages(id);
-            EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 })
+            match $crate::native::messages(id) {
+                Some(text) => EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 }),
+                None => u32::MAX,
+            }
         }
 
         /// Ask the surface; returns the output byte length, zero for no answer.

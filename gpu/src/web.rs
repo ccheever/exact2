@@ -172,8 +172,9 @@ pub fn published(id: u32) -> Option<String> {
 }
 
 /// Drain posted messages as a JSON array.
-pub fn messages(id: u32) -> String {
-    json::strings(&with(|m| m.take_messages(id)).unwrap_or_default())
+pub fn messages(id: u32) -> Option<String> {
+    let messages = with(|m| m.take_messages(id)).unwrap_or_default();
+    (!messages.is_empty()).then(|| json::strings(&messages))
 }
 
 /// Ask the surface; an empty string means no answer.
@@ -288,7 +289,7 @@ macro_rules! module {
 
         /// Drain messages as a JSON array.
         #[::wasm_bindgen::prelude::wasm_bindgen]
-        pub fn gpu_messages(id: u32) -> String {
+        pub fn gpu_messages(id: u32) -> Option<String> {
             $crate::web::messages(id)
         }
 

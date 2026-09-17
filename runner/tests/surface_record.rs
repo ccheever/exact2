@@ -128,7 +128,11 @@ fn wrong_kind_names_resource_and_nested_field_and_recovers() {
 #[test]
 fn json_unicode_numbers_duplicates_and_null_option() {
     let mut r = runner();
-    r.set_surface_record("world",Some(r#"{"beacons":"ignored duplicate","beacons":1e3,"text":"雪\uD83D\uDE80\u0000\b\f\n\r\t\/\\\"","maybe":null}"#)).unwrap();
+    r.set_surface_record(
+        "world",
+        Some(r#"{"beacons":1e3,"text":"雪\uD83D\uDE80\u0000\b\f\n\r\t\/\\\"","maybe":null}"#),
+    )
+    .unwrap();
     let Value::Record(v) = r.resource("hud").unwrap() else {
         panic!()
     };
@@ -206,4 +210,87 @@ fn reload_does_not_carry_surface_records() {
     )
     .unwrap();
     assert_eq!(next.resource("hud"), Some(&defaults()));
+}
+
+#[test]
+fn duplicate_keys_refuse_by_name_and_preserve_the_record() {
+    let mut r = runner();
+    r.set_surface_record("world", Some(r#"{"beacons":2}"#))
+        .unwrap();
+    for json in [
+        r#"{"beacons":1,"beacons":3}"#,
+        r#"{"extra":{"x":1,"\u0078":2}}"#,
+    ] {
+        let error = format!(
+            "{:?}",
+            r.set_surface_record("world", Some(json)).unwrap_err()
+        );
+        assert!(error.contains("duplicate key"), "{error}");
+        assert!(error.contains(if json.contains("beacons") {
+            "beacons"
+        } else {
+            "x"
+        }));
+    }
+    assert!(r
+        .set_surface_record("world", Some(r#"{"beacons":2}"#))
+        .unwrap()
+        .is_none());
+}
+
+// Count only allocations on this test's thread, including reallocations.
+struct Counting;
+thread_local! { static ALLOCATED: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) }; }
+unsafe impl std::alloc::GlobalAlloc for Counting {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        ALLOCATED.with(|n| {
+            if let Some(bytes) = n.get() {
+                n.set(Some(bytes + layout.size()));
+            }
+        });
+        unsafe { std::alloc::System.alloc(layout) }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        unsafe { std::alloc::System.dealloc(ptr, layout) }
+    }
+    unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, size: usize) -> *mut u8 {
+        ALLOCATED.with(|n| {
+            if let Some(bytes) = n.get() {
+                n.set(Some(bytes + size));
+            }
+        });
+        unsafe { std::alloc::System.realloc(ptr, layout, size) }
+    }
+}
+#[global_allocator]
+static ALLOCATOR: Counting = Counting;
+fn allocated(f: impl FnOnce()) -> usize {
+    ALLOCATED.with(|n| n.set(Some(0)));
+    f();
+    ALLOCATED.with(|n| n.replace(None).unwrap())
+}
+
+#[test]
+fn unread_records_are_not_stored() {
+    let mut r = runner();
+    let large = "x".repeat(128 * 1024);
+    assert_eq!(
+        allocated(|| {
+            assert!(r
+                .set_surface_record("unread", Some(&large))
+                .unwrap()
+                .is_none());
+        }),
+        0
+    );
+}
+#[test]
+fn oversize_refuses_before_copying() {
+    let mut r = runner();
+    let large = "x".repeat(128 * 1024);
+    let bytes = allocated(|| {
+        assert!(r.set_surface_record("world", Some(&large)).is_err());
+    });
+    assert!(bytes < 1024, "oversized record allocated {bytes} bytes");
+    assert_eq!(r.resource("hud"), Some(&defaults()));
 }

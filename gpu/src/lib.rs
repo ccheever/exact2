@@ -105,6 +105,7 @@ pub trait Surface {
     }
     /// The surface's public record — one JSON object — when it changed since last
     /// asked. The host offers it to the app as `exactSurface("<name>")`.
+    /// The first live instance owns a surface name; other instances cannot publish or clear its record.
     fn published(&mut self) -> Option<String> {
         None
     }

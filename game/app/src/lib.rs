@@ -22,7 +22,8 @@ pub fn bake(platform: &str) {
         platform
     };
     let app = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("..");
-    for path in ["app.contract", "app.json", "assets"] {
+    println!("cargo:rerun-if-env-changed=EXACT_ASSET_ROOTS");
+    for path in ["app.contract", "app.json", "assets", "deck", "gpu/shaders"] {
         let path = app.join(path);
         // A nonexistent watch path makes Cargo rebuild every invocation.
         if path.exists() {

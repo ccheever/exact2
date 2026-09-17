@@ -513,6 +513,18 @@ fn surface_record_abi_distinguishes_an_invalid_empty_record_from_disposal() {
         bridge.host.as_ref().unwrap().runner().resource("hud"),
         Some(&Value::record(vec![Value::Number(2.)]))
     );
+    for bytes in [
+        b"world\0{\"beacons\":9,\"extra\":\"\xff\"}".as_slice(),
+        b"wor\xffld",
+    ] {
+        let n = bridge.input_write(bytes);
+        let n = bridge.surface_record(n);
+        assert!(String::from_utf8_lossy(bridge.output_bytes(n as usize)).contains("UTF-8"));
+        assert_eq!(
+            bridge.host.as_ref().unwrap().runner().resource("hud"),
+            Some(&Value::record(vec![Value::Number(2.)]))
+        );
+    }
     let n = bridge.input_write(b"world\0");
     let n = bridge.surface_record(n);
     let error = String::from_utf8_lossy(bridge.output_bytes(n as usize));

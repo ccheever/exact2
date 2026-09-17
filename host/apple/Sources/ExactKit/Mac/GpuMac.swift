@@ -72,6 +72,7 @@ final class Canvases {
         init(view: NodeView, name: String, values: [Any]) { self.view = view; self.name = name; self.values = values }
     }
     var entries: [UInt32: Entry] = [:]
+    var publishers: [String: Entry] = [:]
     var module: GpuModule?
     var failed: String?
     var loadRequested = false
@@ -118,6 +119,7 @@ final class Canvases {
         } else {
             let e = Entry(view: view, name: name, values: values)
             entries[view.id] = e
+            claimPublisher(e)
             if let m = module { create(m, e) }
         }
     }
@@ -126,7 +128,7 @@ final class Canvases {
         if let e = entries.removeValue(forKey: view) {
             e.view.canvasInput = nil
             if e.id != 0 { module?.destroy(e.id) }
-            surfaceRecord(e.name, nil)
+            releasePublisher(e)
         }
     }
 

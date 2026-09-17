@@ -23,20 +23,32 @@ extension Canvases {
         return true
     }
 
+    func claimPublisher(_ e: Entry) {
+        if publishers[e.name] == nil { publishers[e.name] = e }
+        else { fputs("exact gpu: surface \(e.name): duplicate live publisher ignored\n", stderr) }
+    }
+
+    func releasePublisher(_ e: Entry) {
+        guard publishers[e.name] === e else { return }
+        publishers.removeValue(forKey: e.name)
+        surfaceRecord(e.name, nil)
+    }
+
     func surfaceRecord(_ name: String, _ json: String?) {
         guard let s = session else { return }
-        s.apply(s.runtime.surfaceRecord(name, json))
+        s.surfaceRecord(name, json)
     }
 
     func messages(_ e: Entry) {
-        if live(e.view.id) === e, let m = module, let take = m.published {
+        if live(e.view.id) === e, publishers[e.name] === e, let m = module, let take = m.published {
             let length = take(e.id)
             if length != UInt32.max, let data = length == 0 ? Data() : m.output(length) {
                 surfaceRecord(e.name, String(decoding: data, as: UTF8.self))
             }
         }
-        guard live(e.view.id) === e, let m = module, let take = m.messages,
-              let data = m.output(take(e.id)) else { return }
+        guard live(e.view.id) === e, let m = module, let take = m.messages else { return }
+        let length = take(e.id)
+        guard length != UInt32.max, let data = m.output(length) else { return }
         guard let texts = try? JSONSerialization.jsonObject(with: data) as? [String] else {
             fputs("exact gpu: view \(e.view.id): messages must be an array of strings\n", stderr)
             return

@@ -269,10 +269,10 @@ mod seams {
         let event = br#"{"t":"blur","at":12.5}"#;
         assert_eq!(unsafe { gpu_input(id, event.as_ptr(), event.len()) }, 0);
         assert_eq!(
-            exact_gpu::native::messages(id),
-            r#"["Blur { at_ms: 12.5 }"]"#
+            exact_gpu::native::messages(id).as_deref(),
+            Some(r#"["Blur { at_ms: 12.5 }"]"#)
         );
-        assert_eq!(exact_gpu::native::messages(id), "[]");
+        assert_eq!(exact_gpu::native::messages(id).as_deref(), None);
         assert!(exact_gpu::native::published(id).is_some());
         assert_eq!(gpu_published(id), u32::MAX);
         let request = br#"{"op":"state","now":12.5}"#;
@@ -281,7 +281,10 @@ mod seams {
             unsafe { std::slice::from_raw_parts(gpu_out_ptr(), len as usize) },
             request
         );
-        assert_eq!(exact_gpu::native::messages(id), r#"["agent"]"#);
+        assert_eq!(
+            exact_gpu::native::messages(id).as_deref(),
+            Some(r#"["agent"]"#)
+        );
         let n = gpu_published(id);
         assert_ne!(n, u32::MAX);
         assert_eq!(
@@ -291,21 +294,27 @@ mod seams {
         assert_eq!(gpu_published(id), u32::MAX);
         assert_eq!(unsafe { gpu_agent(id, b"{}".as_ptr(), 2) }, 0);
         assert_eq!(gpu_messages(id), 9);
-        assert_eq!(gpu_messages(id), 2);
+        assert_eq!(gpu_messages(id), u32::MAX);
         let mut pixels = [0; 64];
         assert_eq!(
             exact_gpu::native::readback(id, 4.0, 4.0, 1.0, 12.5, &mut pixels),
             0
         );
-        assert_eq!(exact_gpu::native::messages(id), r#"["render"]"#);
-        assert_eq!(exact_gpu::native::messages(id), "[]");
+        assert_eq!(
+            exact_gpu::native::messages(id).as_deref(),
+            Some(r#"["render"]"#)
+        );
+        assert_eq!(exact_gpu::native::messages(id).as_deref(), None);
         assert!(exact_gpu::native::published(id).is_some());
         assert_eq!(gpu_published(id), u32::MAX);
         FRAMES.with(|f| assert!(f.borrow().last().unwrap().seekable));
         gpu_seekable(false);
         let result = gpu_render(id, 4.0, 4.0, 1.0, 13.0);
         assert_eq!(result, 0, "{}", exact_gpu::native::error());
-        assert_eq!(exact_gpu::native::messages(id), r#"["render"]"#);
+        assert_eq!(
+            exact_gpu::native::messages(id).as_deref(),
+            Some(r#"["render"]"#)
+        );
         FRAMES.with(|f| assert!(!f.borrow().last().unwrap().seekable));
         assert_eq!(gpu_dirty(id), 0);
         assert_eq!(unsafe { gpu_agent(id, b"null".as_ptr(), 4) }, 0);

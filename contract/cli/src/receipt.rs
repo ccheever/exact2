@@ -24,6 +24,7 @@ pub(crate) fn emit(
         "EXACT_BAKE_OUTPUT",
         "EXACT_BAKE_ANALYSIS",
         "EXACT_RUST_BUNDLE",
+        "EXACT_ASSET_ROOTS",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
     }
@@ -353,9 +354,10 @@ fn artifact_graph(
     // branches not mounted during bake. Installed cohorts retain their own
     // implementations of matching names/shapes (1030 D3's stated caveat).
     requires.insert("sources".into(), Value::Object(sources.clone()));
-    if sources.keys().any(|name| {
-        name != exact_runner::delivery::SOURCE && name != exact_runner::viewport::SOURCE
-    }) {
+    if sources
+        .keys()
+        .any(|name| !exact_plan::runner_owned_source(name))
+    {
         requires.insert("executors".into(), inputs["executors"].clone());
         requires.insert("grantCeiling".into(), inputs["grantCeiling"].clone());
     }
@@ -515,6 +517,33 @@ mod tests {
         std::fs::write(root.join("input/app.module.wasm"), module).unwrap();
         std::fs::write(root.join("input/app.module.json"), receipt.to_string()).unwrap();
         (root, inputs, receipt)
+    }
+
+    #[test]
+    fn runner_sources_do_not_require_executors_or_grants() {
+        for name in ["exactSurface", "exactViewport", "exactDelivery", "appData"] {
+            let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+            let ty = b.record("Facts", &[]);
+            b.source(name, &[], ty);
+            let graph = artifact_graph(
+                &b.finish().unwrap(),
+                &json!({"executors":["native"], "grantCeiling":"network"}),
+                &[],
+                "test",
+            )
+            .unwrap();
+            let requires = &graph["artifacts"][0]["requires"];
+            assert_eq!(
+                requires.get("executors").is_some(),
+                name == "appData",
+                "{name}"
+            );
+            assert_eq!(
+                requires.get("grantCeiling").is_some(),
+                name == "appData",
+                "{name}"
+            );
+        }
     }
 
     #[test]

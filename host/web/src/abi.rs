@@ -336,10 +336,12 @@ impl<D: DataSource> Bridge<D> {
 
     /// A name alone clears a surface; name NUL JSON publishes it, even if empty.
     pub fn surface_record(&mut self, len: usize) -> u32 {
-        let text = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
+            return self.emit(exact_runner::agent::error("surface record: invalid UTF-8"));
+        };
         let (name, json) = text
             .split_once('\0')
-            .map_or((text.as_ref(), None), |(name, json)| (name, Some(json)));
+            .map_or((text, None), |(name, json)| (name, Some(json)));
         let out = self.host.as_mut().map_or_else(
             || exact_runner::agent::error("surface record: not booted"),
             |host| host.surface_record(name, json),
@@ -526,10 +528,16 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().fulfill(ticket, kind, status, hlen as usize, blen as usize, now_ms))
         }
 
-        /// The layout viewport changed; returns the batch's length (LLP 1039).
+        /// Publish or clear a named surface record; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_surface_record(len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().surface_record(len as usize))
+            EXACT_BRIDGE.with(|b| {
+                let Ok(mut bridge) = b.try_borrow_mut() else {
+                    eprintln!("exact_surface_record refused: nested bridge export");
+                    return 0;
+                };
+                bridge.surface_record(len as usize)
+            })
         }
 
         /// The viewport changed; returns the batch length.

@@ -26,6 +26,22 @@ fn bake_defaults_are_the_first_frame_and_never_kept_or_typescript() {
         r.resource("hud"),
         Some(&Value::record(vec![Value::Number(1.)]))
     );
+    r.set_surface_record("status", Some(r#"{"ready":true}"#))
+        .unwrap();
+    assert_eq!(
+        r.resource("status"),
+        Some(&Value::record(vec![Value::Bool(true)]))
+    );
+    assert_eq!(
+        r.resource("same"),
+        Some(&Value::record(vec![Value::Bool(false)]))
+    );
+    r.set_surface_record("world", Some(r#"{"beacons":2,"ready":true}"#))
+        .unwrap();
+    assert_eq!(
+        r.resource("same"),
+        Some(&Value::record(vec![Value::Bool(true)]))
+    );
     assert!(r.take_store_writes().is_empty());
 }
 #[test]
@@ -69,5 +85,21 @@ fn lint_refuses_arity_nonliteral_nonrecord_and_unknown_surface_by_name() {
             "{error:?}"
         );
         assert!(error.to_string().contains("hud"));
+    }
+}
+
+#[test]
+fn viewport_and_delivery_readers_choose_subsets_without_source_unification() {
+    for (source, fields) in [
+        ("exactViewport", ["width: number", "height: number"]),
+        (
+            "exactDelivery",
+            ["stream: string", "compatibilityId: string"],
+        ),
+    ] {
+        let text = format!("shape A\n  {}\nshape B\n  {}\ncomponent App\n  resource a = {source}() as shape A\n  resource b = {source}() as shape B\n  view\n    text \"facts\"\n", fields[0], fields[1]);
+        let p = contract::compile(&text).unwrap();
+        assert!(p.sources.is_empty());
+        contract::bake(p, NoData).unwrap();
     }
 }

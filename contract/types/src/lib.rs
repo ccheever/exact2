@@ -325,6 +325,9 @@ pub(crate) fn record_source(
     result: Ty,
     span: Span,
 ) -> Result<(), TypeError> {
+    if exact_plan::runner_owned_source(source) {
+        return Ok(());
+    }
     let Some((have_params, have_result)) = ct.sources.get(source) else {
         ct.sources.insert(source.to_string(), (params, result));
         return Ok(());

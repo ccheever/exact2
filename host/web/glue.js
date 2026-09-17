@@ -630,9 +630,7 @@ function viewFor(op, id) {
 }
 
 function apply(batch) {
-  // The runner has already removed these views. A preceding children op can
-  // detach a focused descendant (and synchronously blur it) before its destroy
-  // op arrives. Retire dispatch first, while keeping the DOM lookup for cleanup.
+  // Retire dispatch before children ops can synchronously blur removed views.
   for (const op of batch.ops ?? []) {
     if (op.op === "destroy") {
       const el = views.get(op.id);
@@ -873,6 +871,7 @@ function apply(batch) {
 // nothing plays between two operations. The clock lands where the runner
 // says (`batch.clock`: an advance a timer refused stops early).
 function applyBatch(batch) {
+  globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {
   const timers = apply(batch);
   if (agentMode) {
     // What the ops since the last marker started belongs to that marker's
@@ -882,6 +881,7 @@ function applyBatch(batch) {
     seek(agentClock);
   }
   return { timers, batch };
+  } finally { if (--globalThis.exact.applyDepth === 0) globalThis.exact.gpu?.drainRecords(); }
 }
 
 function send(len) {

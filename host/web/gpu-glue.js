@@ -6,6 +6,9 @@
 import init, * as gpu from "./gpu.js";
 
 const exact = globalThis.exact;
+const publishers = new Map(); // name -> first live entry
+const pendingRecords = [];
+let drainingRecords = false;
 const surfaces = new Map(); // view id -> surface, input listeners and journal cursor
 const inputStyle = document.createElement("style");
 inputStyle.textContent = "[data-gpu-input]:focus{outline:none}";
@@ -79,12 +82,25 @@ function live(view) {
   return entry?.id && exact.views.get(view) === entry.host && entry.el.isConnected ? entry : null;
 }
 function surfaceRecord(name, json) {
-  exact.send(exact.wasm.exact_surface_record(exact.writeIn(json == null ? name : `${name}\0${json}`)));
+  pendingRecords.push([name, json]);
+  drainRecords();
+}
+function drainRecords() {
+  if (exact.applyDepth || drainingRecords) return;
+  drainingRecords = true;
+  try {
+    while (pendingRecords.length) {
+      const [name, json] = pendingRecords.shift();
+      exact.send(exact.wasm.exact_surface_record(exact.writeIn(json == null ? name : `${name}\0${json}`)));
+    }
+  } finally { drainingRecords = false; }
 }
 function messages(entry) {
   const record = gpu.gpu_published(entry.id);
-  if (record !== undefined && live(entry.view) === entry) surfaceRecord(entry.name, record);
-  for (const text of JSON.parse(gpu.gpu_messages(entry.id))) {
+  if (record !== undefined && live(entry.view) === entry && publishers.get(entry.name) === entry) surfaceRecord(entry.name, record);
+  const texts = gpu.gpu_messages(entry.id);
+  if (texts === undefined) return;
+  for (const text of JSON.parse(texts)) {
     if (live(entry.view) !== entry) break;
     exact.message(entry.host, text);
   }
@@ -169,6 +185,7 @@ function worlds(request) {
 }
 
 exact.gpu = {
+  drainRecords,
   agent,
   settled: () => ready,
   wantsInput: (view) => live(view)?.wantsInput === true,
@@ -230,7 +247,10 @@ exact.gpu = {
     let entry = surfaces.get(view);
     if (entry && entry.el !== el) { this.destroy(view); entry = null; } // a reload reuses ids
     if (entry && entry.name !== name) { this.destroy(view); entry = null; } // one id cannot retain another plan's surface
-    if (!entry) { entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0 }; surfaces.set(view, entry); ensure(entry); return; }
+    if (!entry) { entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0 }; surfaces.set(view, entry);
+      if (!publishers.has(name)) publishers.set(name, entry);
+      else console.error(`exact gpu: surface ${name}: duplicate live publisher ignored`);
+      ensure(entry); return; }
     entry.values = values;
     if (entry.id) { if (!gpu.gpu_bind_at(entry.id, JSON.stringify(values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error()); messages(entry); schedule(); }
   },
@@ -242,7 +262,7 @@ exact.gpu = {
     // is the first thing to navigate away from a canvas and back).
     if (entry) { entry.observer?.disconnect(); entry.unlisten?.(); entry.id = 0; }
     surfaces.delete(view);
-    if (entry) surfaceRecord(entry.name, null);
+    if (entry && publishers.get(entry.name) === entry) { publishers.delete(entry.name); surfaceRecord(entry.name, null); }
   },
   /// A restart: every surface goes with its element.
   reset() { for (const view of [...surfaces.keys()]) this.destroy(view); },

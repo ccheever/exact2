@@ -684,10 +684,12 @@ impl<D: DataSource> Bridge<D> {
 
     /// A name alone clears a surface; name NUL JSON publishes it, even if empty.
     pub fn surface_record(&mut self, len: usize) -> u32 {
-        let text = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
+            return self.emit(exact_runner::agent::error("surface record: invalid UTF-8"));
+        };
         let (name, json) = text
             .split_once('\0')
-            .map_or((text.as_ref(), None), |(name, json)| (name, Some(json)));
+            .map_or((text, None), |(name, json)| (name, Some(json)));
         let out = self.host.as_mut().map_or_else(
             || exact_runner::agent::error("surface record: not booted"),
             |host| host.surface_record(name, json),
@@ -1136,7 +1138,7 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms), |n| n)
         }
 
-        /// The viewport changed; returns the batch's length.
+        /// Publish or clear a named surface record; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_surface_record(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.surface_record(len), |n| n)

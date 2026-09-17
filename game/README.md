@@ -85,6 +85,7 @@ Pixels are held to a band; simulation state is held exactly.
 it with `resource hud = exactSurface("world") as shape Hud`; absent fields default
 and extra keys are ignored. It needs no app data module. `Sim::take_published`
 drains changed state; a rebuilt or restored simulation publishes again.
+The first live canvas owns its surface name: other instances cannot publish or clear its record and produce one diagnostic naming the surface.
 `World::emit("won")` separately queues a string for the canvas's `message=` handler.
 Undelivered events are saved in order. An empty queue adds no world save bytes.
 

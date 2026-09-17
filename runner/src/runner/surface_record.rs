@@ -1,6 +1,6 @@
 //! Host-owned surface facts; never baked or carried device data.
 use super::{DataError, DataSource, Runner, RunnerError};
-use crate::surface_record::{decode, surface_name, SOURCE};
+use crate::surface_record::{decode, surface_name, MAX_BYTES, SOURCE};
 use exact_kernel::CommitReceipt;
 use exact_plan::Value;
 
@@ -15,13 +15,7 @@ impl<D: DataSource> Runner<D> {
         if self.surface_records.get(name).map(String::as_str) == json {
             return Ok(None);
         }
-        let previous = match json {
-            Some(text) => self
-                .surface_records
-                .insert(name.to_owned(), text.to_owned()),
-            None => self.surface_records.remove(name),
-        };
-        let which = self
+        let which: Vec<_> = self
             .plan
             .resources
             .iter()
@@ -31,6 +25,21 @@ impl<D: DataSource> Runner<D> {
                     .then_some(i)
             })
             .collect();
+        if which.is_empty() {
+            return Ok(None);
+        }
+        if json.is_some_and(|text| text.len() > MAX_BYTES) {
+            return Err(RunnerError::Data {
+                resource: self.plan.str(self.plan.resources[which[0]].name).into(),
+                error: DataError::Unavailable("record exceeds 64 KiB".into()),
+            });
+        }
+        let previous = match json {
+            Some(text) => self
+                .surface_records
+                .insert(name.to_owned(), text.to_owned()),
+            None => self.surface_records.remove(name),
+        };
         let result = self.recommit(which, &format!("surface {name}"));
         if result.is_err() {
             match previous {
