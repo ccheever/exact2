@@ -1688,3 +1688,31 @@ under `target/normal-clock-resize-v3-native/`; the isolated treatment and cleanu
 proof are under `target/normal-clock-resize-v3-treatment-native/`. Focused RED/GREEN
 tests, exact final sources and independent raw-chain reconstruction are under
 `target/session-clock-validation/`.
+
+### 8.17 Linux font and shaped-text transfer foundation, 2026-09-17
+
+Leibniz implements and Zeno reviews worker-owned font generation and immutable
+text transfer. The UI snapshots catalog metadata and source references. A worker
+captures font bytes once per backing, preserves constructor-stage face identities
+through the final database, and constructs separate shaping and raster systems.
+The raster system moves to the UI; adoption wraps it without a UI constructor,
+reshaping or shared mutable FontSystem. This creates a new catalog generation;
+accepted paragraphs keep their old catalog rather than freezing old lazy files
+retrospectively. Missing, changed or nonregular font inputs refuse publication.
+
+Jobs retain exact source/stamp, private job/catalog identity and both offer axes.
+Widths share immutable shape data and retain independent layout arrays. Intrinsic
+probes release their layout arrays; stale adoption refuses before mutation. The
+controller still owns final kernel liveness, request/completion limits and atomic
+paint/source publication; these transfer helpers do not enable asynchronous UI
+behavior by themselves.
+
+All 243 integrated Linux-package tests pass on Darwin, with one existing native
+GPU ignore, including 17 transfer tests using real threads and exact glyph,
+baseline and CPU-pixel comparisons. Strict all-target Clippy and scoped formatting
+pass. The system-font fixture captures 811,618,692 bytes (about 774MiB): shared
+owned font content, not RSS, a peak bound or a claim that the new generation fits
+the previous 4MiB process cap. Ordinary TextEngine startup does not eagerly perform
+this capture. Actual-Linux transfer/controller acceptance remains separate.
+Exact seven-file sources, behavioral failures, independent review and integration
+logs are retained in `target/text-transfer-validation/`.

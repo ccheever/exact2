@@ -5,6 +5,7 @@ pub(super) type Lease = Rc<RefCell<Catalog>>;
 
 pub(super) struct Catalog {
     pub(super) fonts: FontSystem,
+    pub(super) constructor_db: fontdb::Database,
     pub(super) swash: SwashCache,
     pub(super) ink_catalog: Rc<()>,
     glyphs: HashMap<(CacheKey, u32), Option<Rc<Glyph>>>,
@@ -12,13 +13,14 @@ pub(super) struct Catalog {
     font_data: HashMap<(fontdb::ID, u16), Option<PenikoFont>>,
     weights: HashMap<(u16, u16, bool), u16>,
     pub(super) families: Vec<FamilyChoice>,
-    declared_faces: HashMap<(u16, u16, bool), fontdb::ID>,
+    pub(super) declared_faces: HashMap<(u16, u16, bool), fontdb::ID>,
     pub(super) sans: String,
 }
 
 impl Catalog {
     pub(super) fn new() -> Self {
-        let mut fonts = FontSystem::new();
+        let mut catalog = Self::with_fonts(FontSystem::new());
+        let fonts = &mut catalog.fonts;
         if let Ok(dir) = std::env::var("EXACT_FONTS") {
             fonts.db_mut().load_fonts_dir(dir);
         }
@@ -32,8 +34,16 @@ impl Catalog {
         if let Some(name) = monospace_family(fonts.db()) {
             fonts.db_mut().set_monospace_family(name);
         }
+        catalog.sans = sans.unwrap_or_default();
+        catalog
+    }
+    pub(super) fn with_fonts(fonts: FontSystem) -> Self {
         Self {
-            sans: sans.unwrap_or_default(),
+            sans: fonts
+                .db()
+                .family_name(&fontdb::Family::SansSerif)
+                .to_owned(),
+            constructor_db: fonts.db().clone(),
             fonts,
             swash: SwashCache::new(),
             ink_catalog: Rc::new(()),

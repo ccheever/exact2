@@ -15,16 +15,20 @@ struct Line {
     align: Option<Align>,
 }
 pub(super) struct ShapedSource {
-    pub(super) spec: Rc<Spec>,
+    pub(super) spec: Arc<Spec>,
     pub(super) catalog: catalog::Lease,
+    pub(super) data: Arc<ShapeData>,
+    pub(super) accessible_capacity_bytes: usize,
+}
+// Only immutable arrays/scalars cross the thread boundary, never the UI lease.
+pub(super) struct ShapeData {
     lines: Vec<Line>,
     metrics: Metrics,
     strut: (f32, f32),
     run_metrics: Vec<FontMetrics>,
-    pub(super) accessible_capacity_bytes: usize,
 }
 impl ShapedSource {
-    pub(super) fn new(lease: catalog::Lease, spec: Rc<Spec>) -> Self {
+    pub(super) fn new(lease: catalog::Lease, spec: Arc<Spec>) -> Self {
         let mut catalog = lease.borrow_mut();
         let minimum = catalog.line_height(&spec.strut);
         let (ascent, descent, leading) = catalog.font_metrics(&spec.strut);
@@ -110,21 +114,36 @@ impl ShapedSource {
         let mut source = Self {
             spec,
             catalog: lease,
-            lines,
-            metrics,
-            strut,
-            run_metrics,
+            data: Arc::new(ShapeData {
+                lines,
+                metrics,
+                strut,
+                run_metrics,
+            }),
             accessible_capacity_bytes: 0,
         };
         source.accessible_capacity_bytes = source.capacities();
         source
     }
+    pub(super) fn attach(
+        catalog: catalog::Lease,
+        spec: Arc<Spec>,
+        data: Arc<ShapeData>,
+        bytes: usize,
+    ) -> Self {
+        Self {
+            spec,
+            catalog,
+            data,
+            accessible_capacity_bytes: bytes,
+        }
+    }
     fn capacities(&self) -> usize {
         fn vec<T>(v: &Vec<T>) -> usize {
             v.capacity() * std::mem::size_of::<T>()
         }
-        let mut bytes = vec(&self.lines) + vec(&self.run_metrics);
-        for line in &self.lines {
+        let mut bytes = vec(&self.data.lines) + vec(&self.data.run_metrics);
+        for line in &self.data.lines {
             bytes += line.text.capacity() + vec(&line.shape.spans);
             for span in &line.shape.spans {
                 bytes += vec(&span.words) + vec(&span.decoration_spans);
@@ -151,13 +170,14 @@ impl ShapedSource {
         };
         let layouts = {
             let mut scratch = ShapeBuffer::default();
-            self.lines
+            self.data
+                .lines
                 .iter()
                 .map(|line| {
                     let mut output = Vec::new();
                     line.shape.layout_to_buffer(
                         &mut scratch,
-                        self.metrics.font_size,
+                        self.data.metrics.font_size,
                         width.map(|w| w.max(0.)),
                         wrap,
                         ellipsize,
@@ -173,6 +193,8 @@ impl ShapedSource {
         let mut paragraph = Paragraph {
             source: self.clone(),
             layouts,
+            #[cfg(test)]
+            layout_lifetime: Arc::new(()),
             width: 0.,
             height: 0.,
             first_baseline: 0.,
@@ -182,8 +204,8 @@ impl ShapedSource {
             private_text_bytes_estimate: 0,
         };
         let mut catalog = self.catalog.borrow_mut();
-        let strut = self.strut;
-        let run_metrics = &self.run_metrics;
+        let strut = self.data.strut;
+        let run_metrics = &self.data.run_metrics;
         let mut w = 0.0f32;
         let mut h = 0.0f32;
         let mut baselines = Vec::new();
@@ -259,12 +281,12 @@ impl<'a> Runs<'a> {
 impl<'a> Iterator for Runs<'a> {
     type Item = LayoutRun<'a>;
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(line) = self.source.lines.get(self.line) {
+        while let Some(line) = self.source.data.lines.get(self.line) {
             while let Some(layout) = self.layouts[self.line].get(self.wrapped) {
                 self.wrapped += 1;
                 let line_height = layout
                     .line_height_opt
-                    .unwrap_or(self.source.metrics.line_height);
+                    .unwrap_or(self.source.data.metrics.line_height);
                 let line_top = self.top;
                 let centering = (line_height - (layout.max_ascent + layout.max_descent)) / 2.;
                 let line_y = line_top + centering + layout.max_ascent;

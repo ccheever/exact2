@@ -24,6 +24,7 @@ use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 
 pub(super) const COLD_BYTES: usize = 64 * 1024 * 1024;
 pub(super) const COLD_IDENTITIES: usize = 256;
@@ -121,7 +122,7 @@ impl Snapshot {
 }
 struct Identity {
     id: u64,
-    spec: Rc<Spec>,
+    spec: Arc<Spec>,
     source: Option<Rc<ShapedSource>>,
     widths: HashMap<Width, Snapshot>,
     intrinsic: [Option<TextMetrics>; 2],
@@ -178,7 +179,7 @@ impl Default for Cache {
 }
 impl Cache {
     /// The catalog owns these specs; shortcut handles never retain them.
-    pub fn spec(&self, key: (u64, u64)) -> Option<Rc<Spec>> {
+    pub fn spec(&self, key: (u64, u64)) -> Option<Arc<Spec>> {
         self.identities
             .get(&key.0)?
             .iter()
@@ -264,7 +265,7 @@ impl Cache {
             if unique.insert(Rc::as_ptr(&h.paragraph)) {
                 result.paragraphs += 1;
                 result.owned_capacity_bytes += h.paragraph.layout_capacity_bytes();
-                if sources.insert(Rc::as_ptr(&h.paragraph.source)) {
+                if sources.insert(Arc::as_ptr(&h.paragraph.source.data)) {
                     result.owned_capacity_bytes += h.paragraph.source.accessible_capacity_bytes;
                 }
                 result.private_text_bytes_estimate += h.paragraph.private_text_bytes_estimate;
@@ -290,7 +291,7 @@ impl Cache {
         self.serial += 1;
         self.identities.entry(hash).or_default().push(Identity {
             id: self.serial,
-            spec: Rc::new(spec.clone()),
+            spec: Arc::new(spec.clone()),
             source: None,
             widths: HashMap::new(),
             intrinsic: [None; 2],
@@ -421,7 +422,7 @@ impl Cache {
             if seen.insert(pointer) {
                 result.paragraphs += 1;
                 result.owned_capacity_bytes += paragraph.layout_capacity_bytes();
-                if sources.insert(Rc::as_ptr(&paragraph.source)) {
+                if sources.insert(Arc::as_ptr(&paragraph.source.data)) {
                     result.owned_capacity_bytes += paragraph.source.accessible_capacity_bytes;
                 }
                 result.private_text_bytes_estimate += paragraph.private_text_bytes_estimate;

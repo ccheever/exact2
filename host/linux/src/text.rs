@@ -15,7 +15,12 @@
 
 mod cache;
 mod catalog;
+mod catalog_recipe;
 mod shaping;
+#[allow(dead_code)] // Private transfer proof; controller integration is a separate increment.
+pub(crate) mod transfer;
+#[cfg(test)]
+mod transfer_tests;
 use shaping::ShapedSource;
 mod ink;
 pub use cache::{HandoffResidency, Residency, RetiringResidency};
@@ -137,6 +142,8 @@ pub struct Paragraph {
     /// Width-independent canonical text, shape and catalog.
     source: Rc<ShapedSource>,
     layouts: Vec<Vec<cosmic_text::LayoutLine>>,
+    #[cfg(test)]
+    layout_lifetime: Arc<()>,
     /// Points, rounded up.
     pub width: f32,
     /// Points, rounded up.
@@ -493,7 +500,7 @@ impl TextEngine {
         &mut self,
         stamp: &ParagraphStamp,
         build: impl FnOnce() -> Spec,
-    ) -> ((u64, u64), Rc<Spec>) {
+    ) -> ((u64, u64), Arc<Spec>) {
         if let Some(key) = self.paragraphs.identified(stamp) {
             return (key, self.paragraphs.spec(key).expect("checked identity"));
         }
@@ -553,7 +560,7 @@ impl TextEngine {
         source
     }
 
-    fn build_source(&mut self, spec: Rc<Spec>) -> Rc<ShapedSource> {
+    fn build_source(&mut self, spec: Arc<Spec>) -> Rc<ShapedSource> {
         self.shape_calls += 1;
         #[cfg(test)]
         identified_tests::shaped(&spec);
@@ -576,7 +583,7 @@ impl TextEngine {
 
     #[cfg(test)]
     fn layout(&mut self, spec: &Spec, width: Option<f32>) -> Paragraph {
-        let source = self.build_source(Rc::new(spec.clone()));
+        let source = self.build_source(Arc::new(spec.clone()));
         self.layout_source(&source, width, None)
     }
 
