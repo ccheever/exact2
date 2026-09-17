@@ -146,8 +146,8 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
         })
         .map(|(h, _)| crate::state::raw(h))
         .collect();
-    let push_filter = |h: ColliderHandle, _: &rapier3d::prelude::Collider| {
-        allowed.contains(&crate::state::raw(h))
+    let push_filter = |h: ColliderHandle, co: &rapier3d::prelude::Collider| {
+        predicate(h, co) && allowed.contains(&crate::state::raw(h))
     };
     let r = &mut scene.rapier;
     let mut q = QueryPipelineMut {
@@ -155,10 +155,7 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
         bvh: &scene.bvh,
         bodies: &mut r.bodies,
         colliders: &mut r.colliders,
-        filter: QueryFilter::default()
-            .exclude_sensors()
-            .exclude_collider(own)
-            .predicate(&push_filter),
+        filter: filter.predicate(&push_filter),
     };
     controller.solve_character_collision_impulses(world.dt(), &mut q, &*shape, c.mass, &collisions);
     for (h, co) in r.colliders.iter() {

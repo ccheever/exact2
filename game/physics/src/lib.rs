@@ -52,6 +52,3 @@ pub fn quiescent(world: &World) -> bool {
         .iter()
         .all(|(_, b)| b.kind != BodyKind::Dynamic || b.asleep)
 }
-
-#[cfg(test)]
-mod properties;

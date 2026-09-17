@@ -25,6 +25,64 @@ fn drive(w: &mut World, e: Entity, v: Vec3, ticks: usize) {
     }
 }
 #[test]
+fn push_respects_character_mask() {
+    for layer in [1, 2] {
+        for wall in [false, true] {
+            let mut w = World::new(60, 0);
+            physics::register(&mut w);
+            let e = w.spawn((
+                Transform::at(0.0, 1.0, 0.0),
+                Character::default(),
+                Collider {
+                    mask: 1,
+                    ..Collider::default()
+                },
+            ));
+            let b = box_at(
+                &mut w,
+                "crate",
+                Vec3::new(1.0, 1.0, 0.0),
+                Vec3::splat(0.5),
+                true,
+            );
+            w.get_mut::<Body>(b).unwrap().mass = 10.0;
+            w.get_mut::<Collider>(b).unwrap().layer = layer;
+            if wall {
+                // An included wall triggers the impulse routine's proximity query
+                // even when the overlapping crate is excluded from movement.
+                box_at(
+                    &mut w,
+                    "wall",
+                    Vec3::new(1.0, 1.0, 0.0),
+                    Vec3::splat(0.5),
+                    false,
+                );
+            }
+            physics::move_character(&mut w, e, Vec3::X * 120.0);
+            let body = w.get::<Body>(b).unwrap();
+            let x = w.get::<Transform>(e).unwrap().position.x;
+            if layer == 1 {
+                assert!(x < 0.21, "included box must obstruct: {x}");
+                assert!(body.velocity.x > 0.0, "included box must be pushed");
+            } else {
+                assert_eq!(
+                    body.velocity,
+                    Vec3::ZERO,
+                    "excluded box was pushed (wall={wall})"
+                );
+                assert_eq!(body.spin, Vec3::ZERO);
+                assert_eq!(
+                    w.get::<Transform>(b).unwrap().position,
+                    Vec3::new(1.0, 1.0, 0.0)
+                );
+                if !wall {
+                    assert!((x - 2.0).abs() < 1e-6, "excluded box obstructed: {x}");
+                }
+            }
+        }
+    }
+}
+#[test]
 fn steps_below_and_above_limit() {
     for height in [0.25, 0.5] {
         let (mut w, e) = world();

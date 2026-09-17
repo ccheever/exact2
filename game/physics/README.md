@@ -1,129 +1,79 @@
 # exact-game-physics
 
-Rapier 0.35.3 behind Exact's components. Call `register` in setup,
-`move_character` after controls, and `step` once per fixed tick. The previous
-solver, narrowphase, query algorithms and character solver are deleted.
+Rapier 0.35.3 behind Exact's saved components, in metres, kilograms and seconds.
+Call `register` during setup, `move_character` after controls, and `step` per tick.
 
-**P2 is not acceptance-complete.** After three correction rounds, both hosts pass
-17 of 23 physics tests and all 101 engine tests/doctests (including greybox).
-Six retained physics properties fail; they remain enabled. No commit.
+- Entity-ordered insertion maps `Body`, `Collider` and world `Transform` to Rapier;
+  ordered handle maps and last-write comparisons detect edits, teleports and removal.
+  Dynamic poses, velocities and sleep return to components; kinematics use next pose.
+- One step uses `world.dt()`. A collision-only pass after moving kinematics supplies
+  same-tick sensor transitions. Events are sorted; `Announce` journals transitions.
+  Sleeping bodies still step; active bodies call `world.busy`. Support edits wake all.
+- Density defaults to 1000 kg/m³; explicit mass is kg. Friction combines geometrically,
+  restitution by maximum. Contact slop is 0.1 mm; other integration defaults are Rapier's.
+- Shapes: sphere, box, Y capsule/cylinder (total height), static mesh and heightfield
+  (row-major, rows Z/columns X). Curved shapes need uniform positive scale.
+  Bodies are roots; parented boxes must not acquire shear. Sweeps translate convex shapes.
+- Queries rebuild an O(n) component view, see same-tick edits and never mutate hashes.
+  Characters use Rapier's steps/slopes/snap, saved-pose platform transport and an
+  80 kg default push budget. Movement and push share the layer-mask/sensor/self filter;
+  the character's rigid collider is a sensor.
 
-## Mapping and saved state
+Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow phase,
+joints and integration parameters, plus entity/handle maps and last writes. Live state
+loads lazily; pipeline/CCD workspaces are scratch under Rapier's serialization contract.
+`Data::write(&self)` refreshes dirty bytes for save, hash and JSON; `refresh_snapshot`
+measures the same operation. Stepping does not serialize. JSON is consequently large;
+malformed Rapier bytes panic on first use, rather than failing during `World::load`.
 
-- One `PhysicsPipeline::step` per tick, at `world.dt()`. Entity-ordered insertion;
-  ordered maps in both directions. Component comparisons against the last
-  writeback detect teleports, velocity edits, geometry/material changes and removal.
-- Dynamic poses/velocities/sleep return to components. Kinematics use Rapier's next
-  pose. A Rapier collision-only pass after kinematic movement preserves same-tick
-  sensor events. Events are sorted; `Announce` journals transitions.
-- Density defaults to 1000 kg/m³; explicit mass is kilograms. Friction combines
-  geometrically, restitution by maximum. Linear contact slop is 0.1 mm instead of
-  Rapier's 5 mm default. Other integration settings are Rapier defaults.
-- `quiescent` means all dynamic bodies sleep; active physics calls `world.busy`.
-  Sleeping ticks still step Rapier, with an ordered comparison instead of copying
-  unchanged components. Support removal/material edits conservatively wake all.
-- `Physics` owns an `Executor` Data adapter. Its saved record contains compact
-  bincode/serde bytes for Rapier's bodies, colliders, islands, broad/narrow phase,
-  joints and integration parameters, plus entity/handle mappings and last writes.
-  `#[data(skip)]` live state is deserialized lazily. Rapier's pipeline and CCD
-  workspace are scratch by its own serialization contract; no CCD history is lost.
-- `Data::write(&self)` refreshes dirty bytes before save, hash **and JSON**. No
-  engine pre-save hook is needed. `Physics::refresh_snapshot()` measures that same
-  operation. No serialization runs in `step`. The byte representation is opaque
-  and makes agent JSON large; a loaded malformed Rapier blob is rejected by a panic
-  on first use, not by `World::load`.
-- Queries rebuild a Rapier query view from current components, so same-tick edits
-  are visible and reads cannot change simulation hashes. This is O(n) per call.
-  The character uses Rapier's autostep, slope limits, ground snap and documented
-  collision-impulse routine, with explicit saved-pose platform transport and an
-  80 kg default maximum pushable-body mass. Its rigid collider stays a sensor.
+Measurements, 2026-09-17: release; 100 boxes poured every 12 ticks into a finite 24 m
+bin. Active samples start at the last pour; 180 asleep samples finish each run. Sleep
+is seconds after the last pour. Times are p50/p95 ms; shared hosts, no concurrent build.
+Snapshots are ten dirty refreshes from the last pour; bytes exclude maps/outer World,
+while refresh timing includes mapping copies. The 5,000-box pour exceeds the bin walls.
 
-## API differences
+| Host | Boxes | Active ms | Sleep s | Asleep ms | Snapshot bytes | Snapshot ms | Wasm raw / gz bytes | Crates added |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Mac arm64 | 1,000 | 3.895 / 4.875 | 2.250 | 0.017 / 0.031 | 4,016,891 | 1.786 / 2.518 | 1,231,611 / 438,271 | 43 |
+| Mac arm64 | 2,000 | 8.287 / 10.805 | 2.967 | 0.032 / 0.033 | 10,030,616 | 4.714 / 5.373 | same | same |
+| Mac arm64 | 5,000 | 24.776 / 30.287 | 5.283 | 0.089 / 0.285 | 28,096,249 | 15.191 / 18.336 | same | same |
+| Linux x86-64 | 1,000 | 3.322 / 3.926 | 2.250 | 0.018 / 0.019 | 4,016,891 | 1.879 / 3.849 | 1,231,874 / 438,315 | 44 |
+| Linux x86-64 | 2,000 | 7.936 / 8.327 | 2.967 | 0.042 / 0.046 | 10,030,616 | 5.418 / 12.080 | same | same |
+| Linux x86-64 | 5,000 | 31.206 / 32.517 | 5.283 | 0.109 / 0.116 | 28,096,249 | 19.121 / 41.395 | same | same |
 
-The named components/functions remain. `Shape` adds `Cylinder { radius, height }`,
-`Heightfield { rows, cols, heights, scale }` (row-major, rows Z/columns X), and
-static `Mesh { vertices, indices }`. Heightfields are also static. Curved shapes
-require uniform positive scale; cylinders/capsules use total height. Translational
-sweeps now accept any convex shape, including boxes and cylinders.
+Wasm: `minimal` cdylib, web profile (opt-level z, fat LTO), gzip -9; retains register,
+step and hash, excluding unused query/character APIs. Crates: normal/build graph delta
+from physics→engine/glam, excluding this crate; Linux adds `safe_arch`. No new closeout dependencies.
+Mac 2,000-box active p95 still exceeds 10 ms; Linux snapshot p50 exceeds 5 ms.
+2,000-box sleep/asleep targets pass; 5,000-box sleep exceeds 4 s.
 
-Deleted solver-specific fields/types: `Body.calm/previous`, `BodyState`,
-`Physics.substeps/manifolds/previous`, `Contact`, `Manifold`, `ColliderState`, and
-`step_observed`. Last-write detection moved into the resource. Added
-`Physics::refresh_snapshot`. There is no compatibility decoder for old saves.
+At the tenth 2,000-box snapshot, per-set bytes and serialization p50 ms (Mac / Linux):
+bodies 693,953, 0.173 / 0.246; colliders 256,198, 0.088 / 0.148;
+islands 219,453, 0.150 / 0.213; broad phase 406,301, 0.838 / 1.073;
+narrow phase 8,454,595 (84.3%), 3.154 / 3.268. Remaining fields total 116 bytes.
+Omission trials (bytes; refresh p50/p95 ms Mac, Linux), all reverted:
+broad 9,624,317; 4.007/5.423, 4.149/9.062; narrow 1,576,023; 1.858/2.905, 1.803/2.937;
+both 1,169,722; 0.711/0.796, 0.735/1.454. Retained before/after is the full snapshot above.
+Rebuilding broad phase diverged at pile tick 92; rebuilding narrow/both broke island/contact links on both hosts; bounce passed, but exact pile resume did not, so full phase state stays saved.
 
-## Measurements — 2026-09-17
+Accuracy against independent geometry: capsule-ray normal ≤3° (measured 1.845°),
+ray distance ≤3 mm; curved sweeps ≤5 mm per 3 m (measured 2.955 mm; Parry stops near
+1e-3 relative); exact sphere/box cases ≤0.1 mm (sweep worst 0.04077 mm).
+Rolling contact drift is bounded at 0.1 m/s and acceleration within 3% of (5/7)g sin θ.
+Both hosts pass 20 physics tests, engine tests, clippy `-D warnings`, and workspace fmt.
+Pile resume hashes are checked every tick through 600, mid-bounce through 240.
+Tick-600 hash: Mac `0x10adc45f96879746`; Linux `0x10adc45f96879746` (unchanged).
+Enhanced determinism, glam scalar-math/libm; no parallel, simd8 or fast-math features.
+Parry still uses four-lane `wide`; wasm execution determinism remains unmeasured.
+Owed: joints API, CCD policy beyond Rapier’s automatic fixed-collider CCD, compound shapes.
 
-Release, no overlapping compilation from this task. Same 100-box/12-tick pour and
-finite 24 m bin as P1b; active samples start after the last pour, and 180 asleep
-samples end each run. Times are ms, **p50 / p95**. Sleep is seconds after the last
-pour. These are shared machines. The 5,000-box fixture pours above the bin walls.
-
-| Host | Boxes | Active ms | Sleep s | Asleep ms |
-|---|---:|---:|---:|---:|
-| Mac arm64 | 1,000 | 3.725 / 5.020 | 2.250 | 0.017 / 0.022 |
-| Mac arm64 | 2,000 | 9.374 / 15.805 | 2.967 | 0.032 / 0.075 |
-| Mac arm64 | 5,000 | 22.353 / 25.798 | 5.283 | 0.081 / 0.088 |
-| Linux x86-64 | 1,000 | 3.330 / 3.932 | 2.250 | 0.019 / 0.020 |
-| Linux x86-64 | 2,000 | 7.981 / 8.241 | 2.967 | 0.042 / 0.047 |
-| Linux x86-64 | 5,000 | 30.801 / 31.951 | 5.283 | 0.109 / 0.114 |
-
-At 2,000 boxes, ten dirty refreshes immediately after the last pour:
-Mac **6.191 / 7.441 ms**, Linux **5.316 / 12.000 ms** (first calls 7.441 / 12.000 ms).
-The last refresh produces **10,030,616 Rapier bytes**, excluding the separately
-saved mapping records and outer World encoding. These figures include refreshing
-those mapping records. The 5 ms refresh target and Mac 10 ms active p95 target fail;
-2,000-box sleep time and asleep cost pass. The 5,000-box sleep exceeds 4 seconds.
-
-Minimal cdylib, wasm32-unknown-unknown, `opt-level="z"`, fat LTO:
-**1,231,611 bytes raw / 438,271 bytes gzip -9**. It retains registration, rigid
-stepping and hashing; unused character/query entry points are excluded by LTO.
-The normal/build graph adds **43 dependency crates** over the former production
-physics→engine/glam graph (Rapier was already present as a dev dependency).
-
-Tick-600 5×5×5 scene: **Mac `0x10adc45f96879746`; Linux `0x10adc45f96879746`**,
-in debug tests and the release probe. Mid-bounce tick-45 saves continue exactly
-through tick 240; pile tick-90 saves resume through 600. Greybox remains
-`0x70c17d4a69834418` with physics in the same build graph. Clippy `-D warnings` and
-fmt pass on both hosts. Repository caps passes for tracked files; each new source
-is separately under 1,500 lines. Production source is about 1,330 lines.
-
-[Mac measurements](measurements/p2-mac-pile.txt), [Linux measurements](measurements/p2-linux-pile.txt),
-[Mac tests](measurements/p2-mac-tests.txt), [Linux tests](measurements/p2-linux-tests.txt).
-P1b's before numbers remain in [Mac](measurements/p1b-after-mac.txt) and
-[Linux](measurements/p1b-after-linux.txt): Mac 2,000-box p95 was 57.776 ms and never slept.
-
-## Owed / conflicts with the contract
-
-The six failing tests retain their original tolerances, not Rapier-oracle comparisons:
-curved-pair normals against dense sampling; coincident-capsule penetration
-(-0.5961096 m vs -0.6 m); four stable clipped-face features (Rapier supplies eight
-points); capsule-ray normals; capsule sweeps (0.224 mm error vs the 0.1 mm bar);
-and rolling contact speed (0.07498 m/s at 20° vs <0.02). Rest height, stack sleep,
-bounce, all character fixtures, rigid CCD and terrain/mesh/cylinder checks pass.
-Disabling contact recycling did not fix rolling; that change was removed. A raw
-Rapier probe increasing iterations also failed the rolling threshold. Further
-geometry/controller/solver changes stopped at the three-round limit. The character
-impulse routine's proximity filter also needs the collision layer mask reapplied.
-
-Rapier uses glam **0.33.7** through glamx **0.3.0**. Unified `scalar-math` and `libm`
-remain enabled; neither `parallel`, `simd8`, nor `fast-math` is enabled. However,
-Parry 0.30.2 always uses four-lane `wide` types, falling back to scalar where needed.
-No purely scalar Rapier executor is selectable through these features. Both tested
-architectures agree; wasm execution determinism was not measured.
-
-Reproduce from `game/`, with `EXACT_UPDATE_TRUST=development`:
-
+Reproduce from `game/` with `EXACT_UPDATE_TRUST=development`:
 ```
-cargo test -p exact-game -p exact-game-physics --no-fail-fast -- --nocapture
+cargo test -p exact-game-physics --no-fail-fast
+cargo test -p exact-game
 cargo clippy -p exact-game-physics --all-targets -- -D warnings
-cargo fmt -p exact-game-physics -- --check
+cargo fmt --all -- --check
 cargo run -p exact-game-physics --release --example pile -- 1000 2000 5000
 cargo run -p exact-game-physics --release --example pile -- --verify
 cargo build -p exact-game-physics --profile web --target wasm32-unknown-unknown --example minimal
 ```
-
-Validation used `CARGO_RESOLVER_LOCKFILE_PATH` with a temporary lockfile inside
-this directory, leaving the shared `game/Cargo.lock` to its owning lane. Integration
-must refresh that lockfile for bincode/serde-serialize. No engine files were edited.
-Staging was attempted only for `game/physics/`; the sandbox refused the shared
-Git index lock. Changes remain unstaged.

@@ -110,7 +110,7 @@ fn main() {
             } else if poured == count {
                 active.push(ms);
             }
-            if count == 2000 && poured == count && snapshots.len() < 10 {
+            if poured == count && snapshots.len() < 10 {
                 let start = Instant::now();
                 let bytes = w.resource::<Physics>().refresh_snapshot();
                 snapshots.push(start.elapsed().as_secs_f64() * 1000.0);

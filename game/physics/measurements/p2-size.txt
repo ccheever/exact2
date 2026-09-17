@@ -1,2 +1,0 @@
-wasm32-unknown-unknown minimal cdylib, opt-level=z, LTO=fat
-raw_bytes=1231611 gzip_bytes=438271
