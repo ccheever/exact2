@@ -7,14 +7,18 @@ use interaction_gallery_data::Gallery;
 fn boot() -> Runner<Gallery> {
     let plan = contract::compile(include_str!("../../app.contract")).unwrap();
     let baked = contract::bake(plan, Gallery::default()).unwrap();
-    Runner::boot(
+    let mut runner = Runner::boot(
         baked,
         Gallery::default(),
         Kernel::with_monospace(),
         Default::default(),
         "/",
     )
-    .unwrap()
+    .unwrap();
+    runner
+        .act("chooseRendering", vec![Value::str("manual")])
+        .unwrap();
+    runner
 }
 
 fn press(r: &mut Runner<Gallery>, name: &str) {

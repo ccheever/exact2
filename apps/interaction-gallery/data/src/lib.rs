@@ -11,6 +11,8 @@ use model::{Id, Mode, Photo, Return, Sheet};
 #[derive(Default)]
 pub struct Gallery {
     model: model::Gallery,
+    full_rows: Option<(u32, Value)>,
+    page_rows: Option<(u32, usize, Value)>,
 }
 
 fn number(n: usize) -> Value {
@@ -56,7 +58,6 @@ impl Gallery {
         let fallback = model::photo(Id(0), 0);
         Value::record(vec![
             Value::str(m.mode.name()),
-            Value::list(m.rows().into_iter().map(record).collect()),
             number(m.ids().len()),
             number(m.requested),
             number(m.page),
@@ -98,7 +99,55 @@ impl Gallery {
         ])
     }
 
+    // Row values have their own resource. Metadata-only actions must neither
+    // return a full list through the mutation seam nor replace its allocation.
+    fn rows(&mut self, revision: u32, page: u32, full: bool) -> Result<Value, DataError> {
+        if revision != self.model.revision || page as usize > model::MAX_ITEMS {
+            return Err(DataError::BadArguments(
+                "rows require the current revision and a bounded page".into(),
+            ));
+        }
+        if full {
+            if let Some((cached, value)) = &self.full_rows {
+                if *cached == revision {
+                    return Ok(value.clone());
+                }
+            }
+            let value = Value::list(
+                self.model
+                    .ids()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, id)| record(model::photo(*id, i + 1)))
+                    .collect(),
+            );
+            self.full_rows = Some((revision, value.clone()));
+            Ok(value)
+        } else {
+            let page = (page as usize).min(self.model.pages() - 1);
+            if let Some((cached, cached_page, value)) = &self.page_rows {
+                if *cached == revision && *cached_page == page {
+                    return Ok(value.clone());
+                }
+            }
+            let first = page * model::PAGE_SIZE;
+            let value = Value::list(
+                self.model
+                    .ids()
+                    .iter()
+                    .enumerate()
+                    .skip(first)
+                    .take(model::PAGE_SIZE)
+                    .map(|(i, id)| record(model::photo(*id, i + 1)))
+                    .collect(),
+            );
+            self.page_rows = Some((revision, page, value.clone()));
+            Ok(value)
+        }
+    }
+
     fn action(&mut self, op: &str, id: &str, n: u32) -> Result<(), &'static str> {
+        let before = self.model.revision;
         let m = &mut self.model;
         match op {
             "load" => m.load(n as usize)?,
@@ -136,6 +185,10 @@ impl Gallery {
             "sheet" => m.sheet(Sheet::parse(id)?),
             _ => return Err("unknown gallery action"),
         }
+        if self.model.revision != before {
+            self.full_rows = None;
+            self.page_rows = None;
+        }
         Ok(())
     }
 }
@@ -148,6 +201,11 @@ impl DataSource for Gallery {
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         match (source, args) {
             ("gallery", []) => Ok(self.snapshot()),
+            ("galleryRows", [revision, page, Value::Bool(full)]) => {
+                let revision = integer(revision)?;
+                let page = integer(page)?;
+                self.rows(revision, page, *full)
+            }
             ("theme", []) => Ok(Value::record(
                 [
                     "light-dark(#f7f6f2, #151c1c)",
@@ -168,8 +226,8 @@ impl DataSource for Gallery {
                     .map_err(|e| DataError::BadArguments(e.into()))?;
                 Ok(self.snapshot())
             }
-            ("gallery" | "theme" | "galleryAction", _) => Err(DataError::BadArguments(
-                "gallery(), theme(), or galleryAction(op, id, n)".into(),
+            ("gallery" | "galleryRows" | "theme" | "galleryAction", _) => Err(DataError::BadArguments(
+                "gallery(), galleryRows(revision, page, full), theme(), or galleryAction(op, id, n)".into(),
             )),
             _ => Err(DataError::UnknownSource(source.into())),
         }
@@ -179,6 +237,70 @@ impl DataSource for Gallery {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::rc::Rc;
+
+    fn list(value: Value) -> Rc<Vec<Value>> {
+        let Value::List(rows) = value else {
+            panic!("row list")
+        };
+        rows
+    }
+
+    #[test]
+    fn rows_cache_tracks_structural_revision_and_manual_page_only() {
+        let mut source = Gallery::default();
+        let revision = source.model.revision;
+        let full = list(source.rows(revision, 0, true).unwrap());
+        let page = list(source.rows(revision, 0, false).unwrap());
+        for (op, id, n) in [
+            ("mode", "sheet", 0),
+            ("select", "photo-00002", 0),
+            ("sheet", "full", 0),
+            ("page", "", 1),
+        ] {
+            source.action(op, id, n).unwrap();
+            assert!(Rc::ptr_eq(
+                &full,
+                &list(source.rows(revision, 0, true).unwrap())
+            ));
+            assert!(Rc::ptr_eq(
+                &page,
+                &list(source.rows(revision, 0, false).unwrap())
+            ));
+        }
+        let second = list(source.rows(revision, 1, false).unwrap());
+        assert!(!Rc::ptr_eq(&page, &second));
+        assert_eq!(second.len(), model::PAGE_SIZE);
+        source.action("insert", "", 0).unwrap();
+        assert!(source.rows(revision, 0, true).is_err());
+        let next = list(source.rows(source.model.revision, 0, true).unwrap());
+        assert!(!Rc::ptr_eq(&full, &next));
+        assert_eq!(next.len(), full.len() + 1);
+    }
+
+    #[test]
+    fn row_arguments_refuse_non_integer_and_stale_requests_without_mutation() {
+        let mut source = Gallery::default();
+        let before = source.model.clone();
+        for bad in [f64::NAN, f64::INFINITY, -1.0, 0.5, u32::MAX as f64 + 1.0] {
+            for args in [
+                vec![Value::Number(bad), number(0), Value::Bool(true)],
+                vec![
+                    number(before.revision as usize),
+                    Value::Number(bad),
+                    Value::Bool(false),
+                ],
+            ] {
+                assert!(source.query("galleryRows", &args).is_err());
+                assert_eq!(source.model, before);
+            }
+        }
+        assert!(source.rows(before.revision + 1, 0, true).is_err());
+        assert!(source
+            .rows(before.revision, model::MAX_ITEMS as u32 + 1, false)
+            .is_err());
+        assert_eq!(source.model, before);
+    }
 
     #[test]
     fn malformed_arguments_never_mutate_the_model() {

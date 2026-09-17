@@ -1,4 +1,4 @@
-// LLP 1041 §8.5: shared visual/data foundation; continuous gestures pending.
+// LLP 1041 §8.5: shared viewport collections; continuous gestures pending.
 shape Theme
   page: string
   card: string
@@ -20,7 +20,6 @@ shape Photo
 
 shape GalleryState
   mode: string
-  rows: list<Photo>
   total: number
   requested: number
   page: number
@@ -54,6 +53,13 @@ component InteractionGallery
   mutation changed as shape GalleryState
   derive gallery = match changed { case some(value) => value, case none => initial }
   state draft = ""
+  state rendering = "windowed"
+  derive fullCollection = gallery.mode != "photos" and rendering != "manual"
+  resource rows = galleryRows(gallery.revision, (fullCollection ? 0 : gallery.page), fullCollection) as shape list<Photo>
+
+  action chooseRendering(value: string) writes rendering
+    if value == "windowed" or value == "manual" or value == "eager"
+      rendering = value
 
   action command(op: string, id: string, n: number) writes changed
     send changed = galleryAction(op, id, n)
@@ -66,7 +72,10 @@ component InteractionGallery
     if op == "lift"
       focus("place")
     if op == "place" or op == "cancel"
-      focus(`lift-${gallery.selected.id}`)
+      if rendering == "windowed"
+        focus("mode-reorder")
+      else
+        focus(`lift-${gallery.selected.id}`)
     if op == "delete"
       focus(`mode-${gallery.mode}`)
   action edit(value) writes draft
@@ -94,6 +103,12 @@ component InteractionGallery
               text "+ Add study" font-size=12 color=theme.ink
             button press=command("reset", "", 0) testId="reset" aria-label="Reset this collection and its edits" padding=7 background-color=theme.card border-width=0 border-radius=6
               text "Reset" font-size=12 color=theme.muted
+        when gallery.mode != "photos"
+          row gap=8 padding-left=20 padding-right=20 padding-bottom=8 flex-shrink=0 align-items="center" flex-wrap="wrap"
+            RenderButton(name="windowed", label="Windowed", selected=rendering, choose=chooseRendering)
+            RenderButton(name="manual", label="Manual 12", selected=rendering, choose=chooseRendering)
+            RenderButton(name="eager", label="Eager all", selected=rendering, choose=chooseRendering)
+            text `${length(rows)} supplied · ${gallery.total} logical · ${rendering == "windowed" ? "viewport rows mounted" : rendering == "eager" ? "all supplied rows mounted" : "manual page"}` testId="supplied-count" font-size=11 color=theme.muted
         when gallery.mode == "photos"
           when gallery.viewerOpen
             Viewer(gallery=gallery, command=command)
@@ -104,7 +119,7 @@ component InteractionGallery
                   text "Places to pause." font-size=32 font-weight=600 color=theme.ink
                   text "Six studies in light, texture and distance. Open a photograph to look a little closer." font-size=14 color=theme.muted
                 row flex-wrap="wrap" gap=18 align-items="flex-start"
-                  each photo in gallery.rows key=photo.id
+                  each photo in rows key=photo.id
                     PhotoCard(photo=photo, returned=(gallery.returnId == photo.id), command=command)
                 when gallery.total == 0
                   text "A clean slate. Add a study or reset your collection." font-size=18 color=theme.muted
@@ -120,10 +135,16 @@ component InteractionGallery
                   ActionButton(id="later", label="Later", op="later", target="", n=gallery.dragToken, shortcut="Meta+. Control+.", command=command)
                   ActionButton(id="place", label="Place", op="place", target="", n=gallery.dragToken, shortcut="Meta+p Control+p", command=command)
                   ActionButton(id="cancel", label="Cancel", op="cancel", target="", n=gallery.dragToken, shortcut="Escape", command=command)
-            scroll testId="reorder-scroll" flex=1 min-height=0 overflow-x="hidden"
-              column padding=20 padding-top=0 gap=10
-                each photo in gallery.rows key=photo.id
-                  ArrangeCard(photo=photo, gallery=gallery, command=command)
+            when rendering == "windowed"
+              list virtualized=true scrollFollowEnd=true testId="reorder-scroll" flex=1 min-height=0 width="100%" overflow-x="hidden"
+                each photo in rows key=photo.id
+                  column width="100%" box-sizing="border-box" padding-left=20 padding-right=20 padding-bottom=10 testId=`arrange-row-${photo.id}`
+                    ArrangeCard(photo=photo, gallery=gallery, command=command)
+            else
+              scroll testId="reorder-scroll" flex=1 min-height=0 overflow-x="hidden"
+                column padding=20 padding-top=0 gap=10
+                  each photo in rows key=photo.id
+                    ArrangeCard(photo=photo, gallery=gallery, command=command)
         when gallery.mode == "sheet"
           column flex=1 min-height=0 position="relative" overflow="hidden" testId="sheet-stage"
             when gallery.hasSelection
@@ -138,23 +159,25 @@ component InteractionGallery
                 SheetButton(name="peek", label="Peek", gallery=gallery, command=command)
                 SheetButton(name="read", label="Read", gallery=gallery, command=command)
                 SheetButton(name="full", label="Full", gallery=gallery, command=command)
-              scroll flex=1 min-height=0 testId="sheet-scroll" overscroll-behavior="contain" overflow-x="hidden"
-                column gap=12
-                  each photo in gallery.rows key=photo.id
-                    button press=command("select", photo.id, 0) testId=`note-${photo.id}` aria-label=`Read ${photo.title}, study ${photo.id}` display="flex" flex-direction="row" gap=14 padding=12 border-width=0 border-radius=10 background-color=(gallery.selected.id == photo.id ? theme.wash : theme.page) align-items="flex-start"
-                      image photo.asset aria-label=photo.alt width=72 height=88 object-fit="cover" border-radius=6 flex-shrink=0
-                      column flex=1 min-width=0 gap=5
-                        text photo.title font-size=17 font-weight=600 color=theme.ink
-                        text photo.subtitle font-size=11 color=theme.muted
-                        text photo.notes font-size=14 line-height=1.45 color=theme.ink
+              when rendering == "windowed"
+                list virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="sheet-scroll" overscroll-behavior="contain" overflow-x="hidden"
+                  each photo in rows key=photo.id
+                    column width="100%" box-sizing="border-box" padding-bottom=12 testId=`read-row-${photo.id}`
+                      NoteCard(photo=photo, selected=gallery.selected.id, command=command)
+              else
+                scroll flex=1 min-height=0 testId="sheet-scroll" overscroll-behavior="contain" overflow-x="hidden"
+                  column gap=12
+                    each photo in rows key=photo.id
+                      NoteCard(photo=photo, selected=gallery.selected.id, command=command)
         column flex-shrink=0 padding=12 gap=8 border-top-width=1 border-color=theme.edge background-color=theme.card
-          row gap=8 align-items="center" flex-wrap="wrap"
-            button press=command("previousPage", "", 0) testId="previous-page" disabled=(not gallery.canPagePrevious) aria-label="Previous page" padding=7 border-width=0 background-color=theme.page border-radius=6
-              text "Previous 12" font-size=12 color=theme.ink
-            text `${gallery.first}–${gallery.end} of ${gallery.total} · Page ${gallery.page + 1}/${gallery.pages}` testId="page-range" font-size=12 color=theme.muted
-            button press=command("nextPage", "", 0) testId="next-page" disabled=(not gallery.canPageNext) aria-label="Next page" padding=7 border-width=0 background-color=theme.page border-radius=6
-              text "Next 12" font-size=12 color=theme.ink
-            text "Browse your collection" font-size=11 color=theme.muted flex=1
+          when not fullCollection
+            row gap=8 align-items="center" flex-wrap="wrap"
+              button press=command("previousPage", "", 0) testId="previous-page" disabled=(not gallery.canPagePrevious) aria-label="Previous page" padding=7 border-width=0 background-color=theme.page border-radius=6
+                text "Previous 12" font-size=12 color=theme.ink
+              text `${gallery.first}–${gallery.end} of ${gallery.total} · Page ${gallery.page + 1}/${gallery.pages}` testId="page-range" font-size=12 color=theme.muted
+              button press=command("nextPage", "", 0) testId="next-page" disabled=(not gallery.canPageNext) aria-label="Next page" padding=7 border-width=0 background-color=theme.page border-radius=6
+                text "Next 12" font-size=12 color=theme.ink
+              text "Browse your collection" font-size=11 color=theme.muted flex=1
           text gallery.notice testId="status" font-size=11 color=theme.accent
           input value=draft change=edit testId="gallery-input" aria-label="Write a note while browsing and resizing" placeholder="Write a note while browsing or resizing…" padding=8 border-width=1 border-style="solid" border-color=theme.edge border-radius=6 background-color=theme.page color=theme.ink font-size=13
           text "Six imagined places · Generated photographic illustrations · Available offline" testId="readiness" font-size=10 color=theme.muted
@@ -270,3 +293,30 @@ component ActionButton
   view
     button press=command(op, target, n) id=id testId=id aria-keyshortcuts=shortcut padding=8 border-width=0 border-radius=6 background-color=theme.wash
       text label font-size=12 color=theme.accent
+
+component RenderButton
+  inject
+    theme: Theme
+  props
+    name: string
+    label: string
+    selected: string
+    choose: action
+  view
+    button press=choose(name) testId=`render-${name}` aria-label=`${label}${selected == name ? ", selected" : ""}` padding=7 border-width=0 border-radius=6 background-color=(selected == name ? theme.wash : theme.card)
+      text label font-size=12 color=theme.ink
+
+component NoteCard
+  inject
+    theme: Theme
+  props
+    photo: Photo
+    selected: string
+    command: action
+  view
+    button press=command("select", photo.id, 0) testId=`note-${photo.id}` aria-label=`Read ${photo.title}, study ${photo.id}` display="flex" flex-direction="row" gap=14 padding=12 border-width=0 border-radius=10 background-color=(selected == photo.id ? theme.wash : theme.page) align-items="flex-start"
+      image photo.asset aria-label=photo.alt width=72 height=88 object-fit="cover" border-radius=6 flex-shrink=0
+      column flex=1 min-width=0 gap=5
+        text photo.title font-size=17 font-weight=600 color=theme.ink
+        text photo.subtitle font-size=11 color=theme.muted
+        text photo.notes font-size=14 line-height=1.45 color=theme.ink

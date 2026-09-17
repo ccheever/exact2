@@ -2,11 +2,12 @@
 
 The Photos, Arrange and Read consumers for [LLP 1041 §8.5](../../llp/1041-graceful-overload.rfc.md).
 One Contract shell, one logical data owner, six local photographic illustrations.
-This is the visual and logical foundation for the three interactions. Continuous
+Arrange and Read now use the shared viewport collection over complete records.
+Photos retains explicit manual pages. Continuous
 zoom/drag, animated reorder with edge scrolling, and sheet/inner-scroll transfer
 are **not connected**. The UI currently exposes the discrete actions described below.
 
-## What works in the foundation
+## What works
 
 - **Photos:** a wrapping grid, full-image reading surface, previous/next, deletion,
   and return to the current page of the selected stable identity. A moved or
@@ -19,15 +20,30 @@ are **not connected**. The UI currently exposes the discrete actions described b
 - **Read:** three discrete reading heights and a real inner scrollport, using the
   same selected image and records. Buttons select heights; they are keyboard
   alternatives and layout fixtures, not simulated direct manipulation.
-- **All modes:** 100 / 1,000 / 25,000 records, explicit 12-record manual pages,
+- **All modes:** 100 / 1,000 / 25,000 records,
   distinct bounded insertion, deletion, reset, stable IDs, a 512-character scratch
   input, and responsive wrapping. Count/reset intentionally discard fixture edits.
+- **Rendering controls:** Arrange and Read default to **Windowed**, supplying
+  all logical records to the shared collection. **Manual 12** supplies one page;
+  **Eager all** supplies and mounts the entire collection for diagnosis. The UI
+  displays supplied and logical counts separately. Photos always supplies twelve
+  or fewer records; its responsive grid is not claimed to be virtualized.
 
-Ordering holds at most 25,000 compact IDs. A snapshot returns at most twelve row
-records and one selected record. Page changes do not regenerate image files.
-This bounds the supplied UI records; it is **not viewport virtualization** and
-does not establish a flat host decoded-image memory bound. No eager 25,000-view
-mode is provided by this foundation. The shared collection integration comes next.
+Ordering holds at most 25,000 compact IDs. A separate `galleryRows(revision, page,
+full)` resource caches row values by structural revision and projection. Draft,
+selection, preview, sheet-height and other metadata changes neither regenerate
+those values nor key all records again. A mutation returns only small metadata
+and the selected record. Insert/delete/reset/committed reorder invalidate the
+rows; generating and validating the changed full list still costs O(N). Ordinary
+identity searches and earlier/later model actions can also scan the ID order.
+There is no per-pointer-sample app action in this slice.
+
+Each windowed row owns its spacing; the shared list receives the actual nested
+scrollport and measured row heights. The sheet changes that port's height.
+End-follow is explicit. Mounted views are bounded by viewport/overscan/pins;
+the full source records and key metadata remain O(N). The eager diagnostic is
+deliberately O(N) in views too. None of these choices establishes a flat process
+or decoded-image memory bound.
 
 Keyboard alternatives use semantic buttons. macOS/web declare Command/Control
 1/2/3 for Photos/Arrange/Read; Escape closes the viewer or cancels a move;
@@ -35,6 +51,9 @@ Command/Control `[` / `]` switch photos; `,` / `.` move a preview earlier/later;
 `P` places it. Pickup, deletion, page controls and sheet stops are ordinary
 focusable buttons. Linux's current host lacks full button traversal/modifier
 shortcut routing; app declarations alone do not fix or verify that host gap.
+Windowed Place/Cancel focuses the persistent Arrange mode control. Manual/eager
+actions retain the picked-up item's focus behavior. Seeking and focusing an
+unmounted identity is not implemented; no proxy or extra row pin conceals that gap.
 
 ## Build integration
 
@@ -71,23 +90,23 @@ rustc --edition 2021 --test apps/interaction-gallery/data/src/model.rs \
 Agent IDs: `count-100`, `count-1000`, `count-25000`, `mode-photos`,
 `mode-reorder`, `mode-sheet`, `previous-page`, `next-page`, `insert`, `reset`,
 `gallery-input`; initially `open-photo-00000` through `open-photo-00011`.
+Rendering: `render-windowed`, `render-manual`, `render-eager`, `supplied-count`.
 Viewer: `close-viewer`, `previous-photo`, `next-photo`, `delete-photo`.
-Arrange: `lift-photo-00000`, `earlier`, `later`, `before-photo-00015` (page 2),
+Arrange: `reorder-scroll`, `lift-photo-00000`, `earlier`, `later`,
+`before-photo-00015` (when mounted, or manual page 2),
 `place`, `cancel`, `delete-photo-00000`. Read: `sheet-peek`, `sheet-read`,
 `sheet-full`, `sheet-scroll`, `note-photo-00000`.
 
 ## Shared hooks needed next
 
-The motion engine already has `Engine::hold`, release velocity on `observe`,
-interruption from current presentation, and `VelocityTracker`. Apple's horizontal
-swipe bridge and the web's `swiperight` handler provide narrower existing paths;
-they do not establish these three interactions. LLP 1013 explicitly defers
-interactive/scrubbed transitions.
+Shared hold adapters are being implemented separately. This app integration
+does not bind continuous reorder, photo zoom or sheet gestures yet. The existing
+`galleryAction` model endpoints provide preview, token-checked commit/cancel and
+sheet selection; they must receive logical outcomes from the shared adapters.
 
 1. Continuous begin/update/end/cancel delivery, with one current interaction token,
    cancellation on navigation/deletion, and no per-sample durable order commits.
-   A takeover must sample current presentation position **and velocity**; Apple's
-   existing `drag_x` currently starts holds from the authored target plus delta.
+   A takeover must sample current presentation position **and velocity**.
 2. Stable-ID geometry lookup for photo return after reflow, scrolling, recycling or
    mutation; defined absent-source behavior. Pin or snapshot only the needed visual
    with explicit release and byte accounting. A logical page return here supplies
@@ -133,6 +152,63 @@ maps deterministically onto this fixed pool. Assets are distinct; the larger
 record counts intentionally repeat them to bound the bundle.
 
 ## Validation status
+
+The collection increment passes **24 scoped Rust tests**: twelve model/resource
+tests, six retained manual/focus regressions, and six new real-Contract collection
+tests. The new tests failed against the manual foundation first. They cover
+25,000 supplied records, the final identity, width/variable-height measurement,
+the sheet's actual nested port, insertion anchor/offset preservation, unchanged
+row allocation and zero record keying for metadata actions, commit/cancel, and
+manual/eager controls. Scoped four-package Clippy with `-D warnings`, Rust
+formatting and diff checks pass. No framework source or root manifest changes
+belong to this app slice.
+
+Optimized browser, actual AppKit and **actual Ubuntu 24.04.4 ARM64** software
+presenter drives pass. Each reaches the last of 25,000 records, previews and
+commits moving the first identity before the last without changing order during
+preview, preserves typing, changes the nested sheet height, and retains manual
+and eager controls. Eager was driven at 100 records, not 25,000. Browser runs
+use 1180×860 and 420×860; AppKit and Linux resize during the drive from the former
+to the latter. AppKit reports `NSWindow.setContentSize`; Linux reports actual
+`Presenter.resize + frame`. No focus refusal or browser exception was recorded.
+
+Artifacts are under
+[`target/interaction-gallery-windowed/`](../../target/interaction-gallery-windowed/):
+
+- `web-1180/report.json`, `web-420/report.json`: optimized headless Chromium.
+- `macos-1180/report.json`: AppKit, including raw resize verification.
+- `linux-actual/exact2-gallery-windowed-linux/evidence/report.json`: actual Ubuntu
+  CPU painting with `/usr/share/fonts`, DejaVu Sans; copied executable beside it.
+- Each report has raw command times, geometry and PNGs beside it. Captured
+  windowed phases mounted 2–16 wrappers and 69–147 live nodes while supplying
+  25,000 records. These are sampled functional observations, not a memory bound.
+
+At 420 pixels wide, the actual nested Read port grows from Peek to Full:
+browser 74.39→393.11 points, AppKit 74.10→392.18, Linux 76.30→396.94.
+Inspected browser/Linux screenshots show readable rows and local photos at the
+true end. Fast AppKit captures can precede asynchronous image decoding; retained
+follow-ups allow 2.5 seconds and show the photos. This is a readiness observation,
+not measured image-load latency. An initial temporary-driver coverage assertion
+used view-ID order instead of screen Y order; its failure artifacts remain
+preserved as `driver-unsorted-layout-failure.*`. Sorting observed boxes fixed the
+driver; no app/framework change was needed.
+
+Exact driven artifact SHA-256 values:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Optimized `app.wasm` | `fe9a0ad2843abf1ef64ce7104674c7868f9a4b6a9f529ead5a83d4ef4921a27c` |
+| AppKit `ExactMac` | `74497fa433bf8b1367c89cb16040cab2a2cd2f8ab171936ee462ce3f2199a93a` |
+| Ubuntu `interaction-gallery-linux` | `4acdf510023aef945adb1573c5062927661531a576ada59c49adb39cc93612b2` |
+
+These builds use the current shared checkout, including other workers' host
+changes, not an isolated release snapshot. Raw command round-trip time includes
+driver queries/frames; it is not input-to-presentation latency. The Mac's JetKVM
+display is 60 Hz. Linux here is headless software presentation, not the later
+VKMS display drive. No physical 120 Hz, gesture-completion, flat-memory or
+performance A/B claim is made.
+
+### Earlier foundation evidence
 
 Before root workspace integration, an isolated temporary Cargo manifest compiled
 this data crate against the checkout's real compiler, runner and kernel.
@@ -204,8 +280,9 @@ hidden by the functional smoke result. The isolated presenter captures above wai
 up to five seconds for local decoding.
 
 `evidence.json` records executable and source digests; workspace test/build/lint
-logs are retained beside the screenshots. This is not an AppKit or actual-Linux
-sweep. Those native app builds, native keyboard/focus behavior, continuous gestures and performance
-evidence remain separate validation work. Framework sources were still being
+logs are retained beside the screenshots. That earlier check was not an AppKit
+or actual-Linux sweep; the collection increment's native results are recorded
+above. Full native keyboard behavior, continuous gestures and performance
+evidence remain separate work. Framework sources were still being
 edited during this isolated check; it is not a release binary or performance baseline.
 No physical FPS, 120 Hz presentation, touch arbitration, or performance A/B claim.
