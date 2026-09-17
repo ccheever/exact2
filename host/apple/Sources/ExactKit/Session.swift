@@ -574,7 +574,7 @@ public final class ExactSession {
         if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) } }
         frames.run(batch.motion || canvases.wantsFrames)
         if batch.timers, clockTimer == nil, !ExactEnv.agentMode {
-            clockTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            clockTimer = SessionClockTimer.schedule { [weak self] _ in
                 guard let self else { return }
                 apply(runtime.advance(now: now()))
             }
@@ -730,6 +730,16 @@ public final class ExactSession {
         rasters.shutdown()
         runtime.destroy()
         app.forget(self)
+    }
+}
+
+/// The coarse resource clock keeps advancing during native event tracking.
+enum SessionClockTimer {
+    static func schedule(_ fire: @escaping @Sendable (Timer) -> Void) -> Timer {
+        precondition(Thread.isMainThread)
+        let timer = Timer(timeInterval: 0.25, repeats: true, block: fire)
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
     }
 }
 

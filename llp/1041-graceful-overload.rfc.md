@@ -1621,3 +1621,47 @@ accepted plus working widths still require separate output arrays. It establishe
 neither actual-Linux speed/RSS improvement nor 4MiB completion under the existing
 address-space guard. Worker transfer and native asynchronous publication remain
 separate work.
+
+### 8.16 Apple resource clock during native tracking, 2026-09-17
+
+Tuft implements the timer correction; Newton owns the native comparison and
+Darwin reviews the source. The existing repeating 250ms session resource timer
+now registers in the main run loop's common modes. Its callback, weak session
+capture, agent-mode gate and destruction invalidation are unchanged. Contract
+actions, Runner commits and layout remain serial on the UI owner; no worker,
+second clock, timer-frequency change or completion-pump policy is added.
+
+The actual Foundation regression first passed default-mode delivery and failed
+both tracking-delivery cases. Common-mode registration passes all three methods,
+including invalidation. A fourth original-versus-new timer test confirms the
+initial 250ms deadline on Darwin. These actual methods compile with an assertion
+shim under optimized strict-concurrency/warnings-as-errors Swift; they are not
+a full XCTest/package run. The optimized native Messages treatment also builds.
+
+Frozen normal-clock V3 baselines use `7a6fde2` plus a diagnostic-only observer,
+real AppKit callbacks and externally posted Quartz window-edge input (synthetic
+OS input). With 10,000 supplied Messages rows, windowing and batch32, the baseline
+has zero
+ordinary timer callbacks inside an 1850.332ms edge. The separate Storm128
+baseline also has zero timer callbacks, while 129 coalesced completion-pump
+chains and the echo handler run during its edge; these are not 129 requests.
+
+Rebuilding that Messages source with only the timer delta produces seven
+complete timer/advance/apply chains inside a 1794.829ms edge with 18 live changes.
+The first echo enters the native queue 843.809ms after the edge starts; its handler
+and ACK both arrive during the edge. The observation-window revision delta11 is
+not a callback count. Three timer chains complete in the first command-free 750ms.
+Source, driver, oracle and poster identities are retained. The passive
+mode quota omits 321 records in the treatment, so its predeclared mode endpoint
+remains NOTESTABLISHED despite positive retained tracking-mode samples; the
+primary callback trace has no omissions. No endpoint or oracle was relaxed.
+
+The saved starting window sizes differ (baseline 960x932, treatment 876x884), so
+this is not a matched layout-cost comparison. This is one instrumented, nonquiet
+native correctness comparison, not a latency,
+all-frame, UIKit or physical 120Hz result. Storm was not rerun with the treatment.
+The full baselines, failures, compiler-only correction and original archives stay
+under `target/normal-clock-resize-v3-native/`; the isolated treatment and cleanup
+proof are under `target/normal-clock-resize-v3-treatment-native/`. Focused RED/GREEN
+tests, exact final sources and independent raw-chain reconstruction are under
+`target/session-clock-validation/`.
