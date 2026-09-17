@@ -249,6 +249,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var symbolKey: String?
     var symbolRefusal: String?
     var image: UIImage?
+    var raster: NativeRasterLease?
     var imageSource: String?
     var loadGeneration = 0
     /// The native swipe cell supplies the row surface while this view is mounted in it.
@@ -265,7 +266,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         return false
     }
     /// Images loaded since launch (smoke reporting).
-    nonisolated(unsafe) static var imagesLoaded: [(String, CGSize)] = []
     /// The session's text engine (LLP 1031 D12: the catalog is the session's).
     var text: TextEngine? { presenter?.session?.text }
     var canvases: Canvases? { presenter?.session?.canvases }
@@ -350,58 +350,26 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         return app?.resolveAsset(source)
     }
 
-    /// Decode an image completely, off the main thread: the bitmap and its
-    /// pixel size, or nil when the data is not an image (or has no pixels).
-    static func decode(_ data: Data) -> (CGImage, CGSize)? {
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-              let cg = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary),
-              cg.width > 0, cg.height > 0
-        else { return nil }
-        return (cg, CGSize(width: cg.width, height: cg.height))
+    /// One bounded, session-owned pipeline. Replacement keeps the old raster
+    /// and original intrinsic geometry until a matching new backing is accepted.
+    func loadImage(_ source: String) {
+        let previousSource = imageSource, previousGeneration = loadGeneration
+        imageSource = source
+        loadGeneration += 1
+        if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
+        clearSymbol(); image = nil
+        guard let session = presenter?.session else { return }
+        if !session.rasters.load(self, source: source, resolver: session.app.resolver) {
+            imageSource = previousSource; loadGeneration = previousGeneration
+        }
     }
 
-    /// Load the image off the main thread; on the main thread — if this is
-    /// still the current load of a live view — keep it, tell the kernel its
-    /// size, and repaint.
-    func loadImage(_ source: String) {
-        imageSource = source
-        if source.hasPrefix("symbol:") { updateSymbol(); return }
-        clearSymbol()
-        // The old picture (and its size in the kernel) stay until the new
-        // one has loaded, as a browser keeps showing the old `src`.
-        loadGeneration += 1
-        let generation = loadGeneration
-        guard let url = NodeView.resolveSource(source, app: presenter?.session?.app) else {
-            image = nil
-            FileHandle.standardError.write(Data("exact: image \(source) is not a loadable source\n".utf8))
-            presenter?.intrinsic(id, nil)
-            return
-        }
-        let id = self.id
-        let pinned = presenter?.session?.app.resolver.isComplete == true && url.isFileURL
-            ? presenter?.session?.app.assetBytes(source) : nil
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let loaded = (pinned ?? (try? Data(contentsOf: url))).flatMap(NodeView.decode)
-            DispatchQueue.main.async {
-                guard let self, self.loadGeneration == generation, let presenter = self.presenter, presenter.views[id] === self else { return }
-                if let (cg, size) = loaded {
-                    self.image = UIImage(cgImage: cg)
-                    NodeView.imagesLoaded.append((source, size))
-                    presenter.intrinsic(id, size)
-                } else {
-                    self.image = nil
-                    FileHandle.standardError.write(Data("exact: image \(source) did not load\n".utf8))
-                    presenter.intrinsic(id, nil)
-                }
-                // Only now, with the picture in hand. A picture arriving is a
-                // repaint under a canvas (LLP 1014 D4 b) that `draw(_:)`
-                // cannot report — the overlay is at alpha 0 — and a box of
-                // fixed size gives the kernel no relayout to capture after.
-                // Ask the canvas for this turn's capture directly.
-                self.setNeedsDisplay()
-                if let c = self.canvasAbove { c.needsCapture = true; self.canvases?.scheduleCapture() }
-            }
-        }
+    func acceptRaster(_ lease: NativeRasterLease, generation: Int) {
+        guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return }
+        raster = lease
+        presenter.intrinsic(id, lease.image.naturalSize)
+        self.setNeedsDisplay()
+        if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
     }
 
     // A symbol's box is Exact's; UIKit renders its glyph, including pixel alignment.
@@ -462,6 +430,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         textChildren.removeAll()
         invalidateText()
         loadGeneration += 1
+        presenter?.session?.rasters.cancel(id)
+        raster = nil
         imageSource = nil
         clearSymbol()
         image = nil
@@ -980,7 +950,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             else { accessibilityTraits.remove(.selected) }
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
-        if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
+        if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
         if kind == "iframe" { presenter?.session?.webviews.update(self) }
         setNeedsDisplay()
     }
@@ -1061,6 +1031,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func layoutSubviews() {
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layoutSubviews()
+        if kind == "image" { presenter?.session?.rasters.resized(self) }
         presenter?.collections.changed(id)
         if field != nil { field?.frame = contentBox() }
         layoutTextArea()
@@ -1135,7 +1106,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 ctx.fill(r)
             }
         }
-        if kind == "image", symbolView == nil, let img = image {
+        if kind == "image", symbolView == nil, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the
@@ -1147,25 +1118,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 top: number("border_width_top", uniform) + number("padding_top"),
                 right: number("border_width_right", uniform) + number("padding_right"),
                 bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
-            let natural = img.size
-            var size = content.size
-            if natural.width > 0 && natural.height > 0 {
-                let sx = content.width / natural.width, sy = content.height / natural.height
-                let s: CGFloat?
-                switch fit {
-                case "contain": s = min(sx, sy)
-                case "cover": s = max(sx, sy)
-                case "none": s = 1
-                case "scale-down": s = min(1, min(sx, sy))
-                default: s = nil // fill
-                }
-                if let s { size = CGSize(width: natural.width * s, height: natural.height * s) }
-            }
-            let origin = CGPoint(x: content.minX + (content.width - size.width) / 2, y: content.minY + (content.height - size.height) / 2)
+            let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
             ctx.saveGState()
             path.addClip()
             UIBezierPath(rect: content).addClip()
-            img.draw(in: CGRect(origin: origin, size: size))
+            ctx.translateBy(x: rect.minX, y: rect.maxY)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(bitmap.image, in: CGRect(origin: .zero, size: rect.size))
             ctx.restoreGState()
         }
         if isParagraph {

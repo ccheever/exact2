@@ -127,8 +127,12 @@ public final class Agent {
             forward.removeValue(forKey: "session")
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
             var reply = session.agent(json)
+            var nativeSections = stateSections()
+            var raster = session.rasters.diagnostics
+            raster["encodedResolverBytes"] = session.app.resolver.encodedCacheBytes
+            nativeSections["raster"] = raster
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
-               let sections = try? JSONSerialization.data(withJSONObject: stateSections()) {
+               let sections = try? JSONSerialization.data(withJSONObject: nativeSections) {
                 reply.removeLast()
                 let tail = String(decoding: sections, as: UTF8.self)
                 reply += "," + tail.dropFirst()

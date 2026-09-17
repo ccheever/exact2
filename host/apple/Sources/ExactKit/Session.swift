@@ -326,6 +326,7 @@ public final class ExactSession {
     private var updateToken: UInt64 = 0
 
     let runtime: Runtime
+    let rasters = RasterLoader()
     var text: TextEngine
     let presenter: Presenter
     let canvases: Canvases
@@ -721,6 +722,7 @@ public final class ExactSession {
         frames.run(false)
         presenter.reset()
         ExactSession.live.removeValue(forKey: runtime.rt)
+        rasters.shutdown()
         runtime.destroy()
         app.forget(self)
     }

@@ -65,6 +65,7 @@ public final class ExactView: UIView {
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
+        session.rasters.setPaused(window == nil)
         if window == nil {
             session.presenter.menus.unmounted()
             session.presenter.modals.unmounted()

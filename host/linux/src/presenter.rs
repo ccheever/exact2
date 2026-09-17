@@ -32,6 +32,7 @@ use std::time::Duration;
 use tiny_skia::Pixmap;
 
 mod collection;
+mod images;
 mod swipe;
 
 #[cfg(test)]
@@ -275,25 +276,20 @@ impl<D: DataSource> Presenter<D> {
             if let Some(error) = error {
                 return Err(HostError::Layout(error));
             }
-            let mut reports = images.sync(host.kernel(), &host.preorder());
-            reports.extend(images.wait(Duration::from_secs(1)));
-            let mut layout_error = None;
-            for (view, size) in reports {
-                layout_error = layout_error.or(host.set_intrinsic(view, size));
-            }
+            let metadata_ready =
+                images.prepare_metadata(host.kernel(), &host.preorder(), Duration::from_secs(1));
             if let Some(reason) = assets.take_refusal() {
                 return Err(HostError::Asset(reason));
             }
-            if images.pending() {
+            if !metadata_ready {
                 return Err(HostError::Layout(
-                    "selected images did not finish preparing".into(),
+                    "selected image metadata did not finish preparing".into(),
                 ));
             }
-            if let Some(error) = layout_error {
-                return Err(HostError::Layout(error));
-            }
         }
-        // Initial selected layout, assets and intrinsic sizes accepted.
+        images.enable_decode();
+        // Initial selected layout and asset metadata/integrity accepted.
+        // Decoded pixels and their natural dimensions arrive together later.
         // Only now may the app's queued requests reach its executor.
         let executor = crate::executor::Executor::start(&host.grants());
         if let Some(note) = executor.note() {
@@ -522,7 +518,7 @@ impl<D: DataSource> Presenter<D> {
             &mut carried,
             &delivery,
         )?;
-        let (mut host, error) = Host::boot_with(
+        let (host, error) = Host::boot_with(
             &candidate.plan,
             data,
             Box::new(Measurer(text.clone())),
@@ -534,18 +530,11 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = error {
             return Err(HostError::Layout(error));
         }
-        let mut images = Images::with_assets(assets.clone());
-        let mut reports = images.sync(host.kernel(), &host.preorder());
-        reports.extend(images.wait(Duration::from_secs(1)));
-        if images.pending() {
+        let mut images = self.images.candidate(assets.clone());
+        if !images.prepare_metadata(host.kernel(), &host.preorder(), Duration::from_secs(1)) {
             return Err(HostError::Layout(
-                "selected images did not finish preparing".into(),
+                "selected image metadata did not finish preparing".into(),
             ));
-        }
-        for (view, size) in reports {
-            if let Some(error) = host.set_intrinsic(view, size) {
-                return Err(HostError::Layout(error));
-            }
         }
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
@@ -562,6 +551,7 @@ impl<D: DataSource> Presenter<D> {
         self.text = text.clone();
         self.brush.text = text;
         self.assets = assets;
+        images.enable_decode();
         self.images = images;
         self.executor = crate::executor::Executor::start(&self.host.grants());
         self.scroll.clear();
@@ -779,12 +769,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.commands.extend(self.host.take_commands());
-        let live = self.host.preorder();
-        let reports = self.images.sync(self.host.kernel(), &live);
-        let mut error = None;
-        for (view, size) in reports {
-            error = error.or(self.host.set_intrinsic(view, size));
-        }
+        let mut error = self.sync_images();
         if !self.booting {
             error = error.or_else(|| {
                 self.assets
@@ -919,6 +904,9 @@ impl<D: DataSource> Presenter<D> {
         };
         self.boxes = boxes;
         self.dirty = self.collection.pending();
+        if let Some(error) = self.sync_images() {
+            self.host.log(error);
+        }
         pixmap
     }
 
@@ -1315,6 +1303,11 @@ impl<D: DataSource> Presenter<D> {
     /// The executor's wake: readable when a reply is queued (for `poll`).
     pub fn executor_fd(&self) -> std::os::unix::io::RawFd {
         self.executor.fd()
+    }
+
+    /// Metadata, decode completion or changed budget demand wakes an idle display.
+    pub fn image_fd(&self) -> std::os::unix::io::RawFd {
+        self.images.wake_fd()
     }
 
     /// Whether a request is in flight.

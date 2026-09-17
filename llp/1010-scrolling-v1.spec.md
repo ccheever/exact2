@@ -435,6 +435,58 @@ visible 8 MiB request. An external owner that prevents actual reclamation stays
 charged without making the gate spin. This verifies core policy and ownership;
 native codec, provider, GPU and whole-document traversal acceptance remains open.
 
+**Linux adapter verified 2026-09-17:** PNG 0.18.1 decodes rows, including Adam7,
+directly into the admitted reduced raster. Original dimensions remain the layout
+and object-fit input. The two persistent workers alternate metadata and decode
+turns; source identity follows retained native backings through replacement.
+Pixel demand uses 128-pixel buckets and a 2,048-pixel maximum axis, with observable
+budget waiting and reduced-resolution retry. A selected resolver callback or
+blocking filesystem read is not forcibly preemptible. Candidate activation waits
+at most one second for metadata preparation; it does not wait for every pixel.
+
+Four instrumented decoder cases record allocation capacity:
+4,000×2,000 reduced to 100×50, a wide row, a tall column and Adam7. Observed
+allocation-capacity peaks are 456,984 / 1,134,600 / 126,476 / 37,200 bytes against
+admitted totals of 1,580,608 / 11,289,008 / 1,049,136 / 1,051,180 bytes. These are
+specific decoder allocation measurements, not RSS or a proof for every PNG.
+The GPU adapter uploads borrowed charged pixels and registers an empty-blob
+texture override. This removes the extra CPU pixel copy and Vello's retained
+CPU backing without rebuilding the renderer. A real Metal test releases two
+8 MiB cache-only rasters at the next frame and checks odd-stride premultiplied
+pixels; GPU textures, atlas and driver staging remain outside the CPU ledger.
+
+The frozen Ubuntu ARM64 snapshot `8d498d5546ce28a562dedfa46e83280a536a332d863bd76e6535bf469ae4f4d7`
+passes 111 native tests and strict all-targets Clippy. The GPU-dependent test is
+explicitly skipped there and separately passes on Metal. Its gallery executable
+is SHA-256 `078fe5dd25f96ba6f67857e524c5dc1a6881604f4d9914c0a7b1a5588f651dbe`.
+The 480-source replacement test is an ownership test, not twenty full collection
+traversals. Whole-document native traversal/RSS acceptance is still pending.
+
+**Apple adapter verified 2026-09-17:** three Rust ownership/FFI tests and strict
+Clippy pass. The real ExactKit/AppKit/CoreGraphics implementation passes 14
+XCTest-style methods and 2,347 assertions through a standalone assertion harness;
+this machine's Command Line Tools lack XCTest. The debug library and optimized
+gallery compile. UIKit source has not been compiled or driven here.
+
+Tests cover original natural dimensions after downsampling, first-frame decoding
+and orientation, independently retained CGImage providers, coherent replacement,
+240 distinct source replacements, pinned source reuse, reduced-resolution retry
+and metadata/decode fairness. Two deliberately stalled loopback HTTP inspections
+release the process workers on cancel/reset/pause/shutdown, allowing another
+session's local metadata inspection without main-runloop progress. Resolver
+replacement cannot reuse old pixels just because its address matches an old key.
+
+An actual AppKit gallery drive displays all six fixture photos and visits top,
+interior and end of 25,000-row Arrange and Read collections. It observes 8–13
+mounted rows, exact input echo, zero raster refusals and a 24.31 MiB peak managed
+ledger. The drive exposed two additional regressions: creation can request an
+image before its view is registered, and floating-point rounding could change
+an already admitted decode size. Both have failing-before/passing-after tests.
+Preserved executable SHA-256 is
+`9116f766e9feadb2a8617b5347e1988b708c463ed60900afa5cdf374b2c710b2`;
+source identities, logs and screenshots are in `target/apple-raster/`.
+Endpoint visits do not prove twenty whole-document traversals or a frame rate.
+
 ### 6.4 Acceptance and landing
 
 At a fixed viewport and row shape, 1,000 and 25,000 records have the same

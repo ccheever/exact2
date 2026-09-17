@@ -1003,6 +1003,7 @@ macro_rules! host {
         $crate::host!($data, $plan, $compat, $delivery, $api, || <$data as ::std::default::Default>::default());
     };
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr) => {
+        $crate::raster_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }

@@ -12,19 +12,18 @@
 
 #![allow(unsafe_code)]
 
+use crate::image::Bitmap;
 use crate::paint::{Backend, Rect4, Shape, POINTER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
-use std::collections::HashMap;
+mod images;
+use images::ImageCache;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 use tiny_skia::{IntSize, Pixmap, Transform};
 use vello::kurbo::{Affine, BezPath, Rect, RoundedRect, RoundedRectRadii, Stroke};
-use vello::peniko::{
-    Blob, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality, Mix,
-};
+use vello::peniko::{Color, Fill, ImageBrush, Mix};
 use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions};
 
 struct Target {
@@ -41,6 +40,7 @@ pub struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     renderer: Renderer,
+    image_refused: bool,
     scene: vello::Scene,
     scale: f32,
     width: f32,
@@ -48,7 +48,7 @@ pub struct Gpu {
     target: Option<Target>,
     /// Image brushes by the picture's address, each entry holding the
     /// picture so the address cannot be reused while the brush is cached.
-    images: HashMap<usize, (Rc<Pixmap>, ImageBrush)>,
+    images: ImageCache,
     /// The adapter's name.
     pub adapter: String,
     /// The wgpu backend's name (`Vulkan`, `Metal`, …).
@@ -164,7 +164,7 @@ impl Gpu {
         )
         .map_err(|e| format!("vello: {e}"))?;
         let shaders_ms = t1.elapsed().as_secs_f64() * 1000.0;
-        if let (Some(cache), Some(path)) = (cache, path) {
+        if let (Some(cache), Some(path)) = (cache.as_ref(), path) {
             if let Some(bytes) = cache.get_data() {
                 if data.as_deref() != Some(bytes.as_slice()) {
                     // Whole or absent, never truncated: written beside and
@@ -185,12 +185,13 @@ impl Gpu {
             device,
             queue,
             renderer,
+            image_refused: false,
             scene: vello::Scene::new(),
             scale: 1.0,
             width: 1.0,
             height: 1.0,
             target: None,
-            images: HashMap::new(),
+            images: ImageCache::default(),
             adapter: info.name.clone(),
             api: format!("{:?}", info.backend),
             device_ms,
@@ -254,26 +255,48 @@ impl Gpu {
         self.target.as_ref().expect("just made")
     }
 
-    fn brush(&mut self, image: &Rc<Pixmap>) -> ImageBrush {
-        let key = Rc::as_ptr(image) as usize;
-        if self.images.len() > 64 {
-            self.images.clear();
-        }
-        self.images
-            .entry(key)
-            .or_insert_with(|| {
-                let brush = ImageBrush::new(ImageData {
-                    data: Blob::new(Arc::new(image.data().to_vec())),
-                    format: ImageFormat::Rgba8,
-                    alpha_type: ImageAlphaType::AlphaPremultiplied,
-                    width: image.width(),
-                    height: image.height(),
-                })
-                .with_quality(ImageQuality::Medium);
-                (image.clone(), brush)
-            })
-            .1
-            .clone()
+    fn brush(&mut self, image: &Arc<Bitmap>) -> Option<ImageBrush> {
+        let renderer = &mut self.renderer;
+        let device = &self.device;
+        let queue = &self.queue;
+        self.images.brush(image, |data, pixels| {
+            let size = wgpu::Extent3d {
+                width: pixels.width(),
+                height: pixels.height(),
+                depth_or_array_layers: 1,
+            };
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("exact raster"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            // Borrow charged pixels directly. No Exact-owned staging Vec or
+            // Blob copy; GPU texture/atlas and wgpu internal staging are separate.
+            queue.write_texture(
+                texture.as_image_copy(),
+                pixels.as_ref(),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(pixels.width() * 4),
+                    rows_per_image: Some(pixels.height()),
+                },
+                size,
+            );
+            renderer.override_image(
+                data,
+                Some(wgpu::TexelCopyTextureInfoBase {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                }),
+            );
+        })
     }
 }
 
@@ -305,8 +328,10 @@ impl Backend for Gpu {
         self.width = width;
         self.height = height;
         self.scene.reset();
-        // A picture nobody but the cache holds is gone from the app.
-        self.images.retain(|_, (rc, _)| Rc::strong_count(rc) > 1);
+        let renderer = &mut self.renderer;
+        self.images
+            .begin(|image| renderer.unregister_texture(image));
+        self.image_refused = false;
     }
 
     fn fill(&mut self, s: &Shape, c: [u8; 4], ts: Transform) {
@@ -326,16 +351,19 @@ impl Backend for Gpu {
             .stroke(&Stroke::new(width as f64), a, color(c), None, &shape(s));
     }
 
-    fn image(&mut self, image: &Rc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
+    fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
         let (nw, nh) = (image.width() as f64, image.height() as f64);
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;
         }
+        let Some(brush) = self.brush(image) else {
+            self.image_refused = true;
+            return;
+        };
         let a = self.affine(ts);
         for c in clips {
             self.scene.push_clip_layer(Fill::NonZero, a, &shape(c));
         }
-        let brush = self.brush(image);
         let place = a
             * Affine::translate((dst.0 as f64, dst.1 as f64))
             * Affine::scale_non_uniform(dst.2 as f64 / nw, dst.3 as f64 / nh);
@@ -432,6 +460,9 @@ impl Backend for Gpu {
         let width = ((self.width * self.scale).round() as u32).max(1);
         let height = ((self.height * self.scale).round() as u32).max(1);
         let t0 = Instant::now();
+        if self.image_refused {
+            return Err("GPU image descriptor capacity exceeded".into());
+        }
         let scene = std::mem::take(&mut self.scene);
         let (device, queue) = (self.device.clone(), self.queue.clone());
         let result = {

@@ -127,11 +127,13 @@ final class Presenter {
     /// it again — the old picture stays until the new one is decoded, as a
     /// browser keeps the old `src`.
     func assetChanged(_ name: String) {
+        session?.rasters.invalidate(name)
         for v in views.values where v.kind == "image" && v.imageSource == name { v.loadImage(name) }
     }
 
     /// A restart: every view goes.
     func reset() {
+        session?.rasters.reset()
         mouseSwipe.cancel()
         collections.reset()
         resetting = true
@@ -145,7 +147,6 @@ final class Presenter {
         views.removeAll()
         selection.structureChanged()
         visibleText.removeAll()
-        NodeView.imagesLoaded.removeAll()
     }
 
     /// Size the document to its roots, never smaller than the viewport.

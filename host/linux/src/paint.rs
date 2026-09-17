@@ -19,13 +19,14 @@
 //! the main one) and [`crate::raster`] (tiny-skia on the CPU — the fallback
 //! where there is no adapter, and the deterministic oracle for pixels).
 
+use crate::image::Bitmap;
 use crate::text::{Paragraph, Run, RunPaint, Shared, Spec, TextEngine};
 use exact_kernel::{
     Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
     StyleProps, ViewId,
 };
 use std::collections::BTreeMap;
-use std::rc::Rc;
+use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 
 /// A node's presentation values: what the motion engine says to paint.
@@ -153,7 +154,7 @@ pub struct Scene<'a> {
     /// The page's scroll offset: the window is a viewport over a document.
     pub page: (f32, f32),
     /// Decoded images by node.
-    pub images: &'a BTreeMap<ViewId, Rc<Pixmap>>,
+    pub images: &'a BTreeMap<ViewId, Arc<Bitmap>>,
     /// The focused input, if any (its caret is painted).
     pub focus: Option<ViewId>,
     /// The pointer, in viewport points, when the host draws one.
@@ -180,7 +181,7 @@ pub trait Backend {
     /// Stroke a shape's outline, centred on it.
     fn stroke(&mut self, shape: &Shape, width: f32, color: [u8; 4], ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
-    fn image(&mut self, image: &Rc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform);
+    fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform);
     /// Paint a paragraph with its top-left at `origin`.
     fn text(
         &mut self,
@@ -410,7 +411,7 @@ impl Painter {
         match node.node_type {
             NodeType::Image => {
                 if let Some(img) = walk.scene.images.get(&node.id) {
-                    if let Some(dst) = object_fit(img, s.object_fit, content) {
+                    if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
                         self.backend
                             .image(img, dst, &[Shape::rect(content), outer], ts);
                     }
@@ -536,8 +537,8 @@ impl Painter {
 /// Where a picture goes under CSS `object-fit`, centred in the content box:
 /// `fill` stretches, `contain`/`cover` keep the ratio, `none` is the natural
 /// size, `scale-down` the smaller of none and contain (LLP 1011 §4).
-pub fn object_fit(img: &Pixmap, fit: ObjectFit, content: Rect4) -> Option<Rect4> {
-    let (nw, nh) = (img.width() as f32, img.height() as f32);
+pub fn object_fit(natural: (u32, u32), fit: ObjectFit, content: Rect4) -> Option<Rect4> {
+    let (nw, nh) = (natural.0 as f32, natural.1 as f32);
     if nw <= 0.0 || nh <= 0.0 || content.2 <= 0.0 || content.3 <= 0.0 {
         return None;
     }
@@ -694,6 +695,7 @@ mod paragraph_tests {
     use super::*;
     use crate::presenter::{PainterChoice, Presenter};
     use exact_runner::{DataError, DataSource, Value};
+    use std::rc::Rc;
 
     #[derive(Default)]
     struct NoData;

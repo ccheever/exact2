@@ -295,7 +295,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         } else if p.host().has_timers() {
             timeout = (last_tick + 250.0 - now).max(0.0) as i32;
         }
-        if p.images().pending() || config.dev_plan.is_some() || config.dev_url.is_some() {
+        if config.dev_plan.is_some() || config.dev_url.is_some() {
             timeout = if timeout < 0 { 100 } else { timeout.min(100) };
         }
         if p.module_pending() {
@@ -315,6 +315,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         // A reply from the executor wakes the loop like a key would; a
         // finished update check the same.
         fds.push(p.executor_fd());
+        fds.push(p.image_fd());
         if let Some(fd) = p.update_fd() {
             fds.push(fd);
         }

@@ -121,6 +121,7 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let mut s = p.host().agent(line);
             if s.ends_with('}') && !s.starts_with("{\"error\"") {
                 s.pop();
+                s.push_str(&format!(",\"raster\":{}", p.images().diagnostics()));
                 s.push_str(",\"focus\":{\"unavailable\":true},\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}");
             }
             s

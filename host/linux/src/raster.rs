@@ -4,9 +4,11 @@
 //!
 //! @ref LLP 1015 §2
 
+use crate::image::Bitmap;
 use crate::paint::{Backend, Rect4, Shape, POINTER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
 use std::rc::Rc;
+use std::sync::Arc;
 use tiny_skia::{
     Color, FillRule, FilterQuality, Mask, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Rect,
     Stroke, Transform,
@@ -168,7 +170,7 @@ impl Backend for Raster {
         }
     }
 
-    fn image(&mut self, image: &Rc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
+    fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
         let (nw, nh) = (image.width() as f32, image.height() as f32);
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;
@@ -182,7 +184,7 @@ impl Backend for Raster {
             ..PixmapPaint::default()
         };
         if let Some(t) = self.target.as_mut() {
-            t.draw_pixmap(0, 0, image.as_ref().as_ref(), &paint, dev, mask.as_ref());
+            t.draw_pixmap(0, 0, image.pixels(), &paint, dev, mask.as_ref());
         }
     }
 
