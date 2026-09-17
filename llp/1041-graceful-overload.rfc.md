@@ -2221,3 +2221,51 @@ integration files are under `target/arrange-linux-validation/`. Tests ran on
 macOS ARM64 with the native Rust Presenter and CPU painter. Actual Linux
 display/stdio input, GPU order, full 25k traversal, timing and physical 120Hz remain
 separate validation; no current native display claim is inferred from these tests.
+
+### 8.27 Actual Linux scroll repair and remaining 4MiB allocation failure, 2026-09-17
+
+Carson captures merged d6b3431 with the unchanged fourteen-path diagnostic
+observer, current vendored cosmic-text and the same 39 faces from thirteen font
+files. Each fresh reference/candidate keeps the 2,684,354,560-byte address-space
+cap and 60s deadline. This is instrumented, nonquiet CPU/VKMS plus RFB functional
+validation; no physical input, frame-cadence or comparative speed claim follows.
+
+The full 1MiB display cell passes. Pending frame5 and accepted frame15 both carry
+input18, with no intervening input: the display loop delivers the worker result
+autonomously. Continued typing reaches frame18/input21; wheel reaches frame20/
+input25 and scroll0→40. The complete canonical paragraph is 1,048,499 bytes,
+978,599 glyphs and 13,981 lines. All26 available final proof fields match the fresh
+reference, and the accepted 1,228,800-byte RGB content crop matches exactly. The
+scrolled strip [16,259,480,328] equals the previous [16,299,480,328] strip across
+472,320 bytes and differs from the unshifted strip. This proves overlapping visible
+content movement, not newly exposed bottom pixels. UI giant shape/index counters
+remain zero; worker shape1/index2 and completed layouts2 are recorded. Observed
+running, pending and completed occupancy peaks are each one.
+
+The 4MiB synchronous reference passes, but the display candidate **fails before
+publication**. Its one completed worker layout has all24 available fields equal
+to the reference: 4,194,149 canonical bytes, 3,914,539 glyphs and 55,923 lines.
+Further worker work then aborts with `memory allocation of 11264 bytes failed`.
+Exit is SIGABRT/−6 without a cleanup signal; every frame remains non-current and
+published ticket remains null. Sampled VmPeak/VmSize reaches exactly 2,621,440KiB,
+the retained address-space cap; sampled RSS/HWM is 1,735,924KiB. The 1MiB candidate
+peaks at VmPeak1,282,884KiB and RSS/HWM589,348KiB. These samples and the failed
+allocation identify a capacity limit, not its exact allocation site or all live
+memory categories. Correct pending input and one worker answer are not complete
+4MiB success. No cell was retried or workload reduced.
+
+Candidate ELF is `4486525afcff99e96029641b9d2b343624747d4d314abc74b7fb7503fa5e9ea5`;
+reference ELF is `e89a3f53307e89eef4282571a97c0d225992bd2766469fec78567a6f962b4f0a`.
+The archive at `target/linux-region-scroll-native-execution-d6b3431-v1/` has
+1,497 verified entries/120,309,593 bytes, manifest
+`d98d5cd5d97894d16ef31b2f220642185f4479da2e9988235d54844f5148f89c`.
+Raw events, exact images, memory samples, source/link identities and owned-group
+cleanup are retained. The first oracle build stopped at the disk guard; a recorded
+downloaded-OS-package-cache cleanup preceded its one successful build retry, with
+candidate bytes unchanged. Original setup failures and §8.22's failed cells keep
+their original verdicts. Independent review recomputes the proofs and pixel crops.
+
+The remaining work is 4MiB allocation ownership, repeated same-source reflow and
+UI publication cost, followed by actual continuous-resize/input measurements.
+This single 1MiB run's roughly1.95s cold-publication envelope is not an 8.33ms
+frame result or a robust latency distribution.

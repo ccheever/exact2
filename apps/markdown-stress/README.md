@@ -92,20 +92,25 @@ unsupported transforms refuses the trial. Read-only source/link metadata is
 retained, but general selection and link activation are not implemented here.
 
 Mac-hosted Rust tests exercise full 1MiB/4MiB cold publication with zero giant UI
-measurement calls. An actual Linux 1MiB run on the captured ac86627 sources
-published without another input, matched the independent reference pixels and
-accepted continued typing, but the complete cell failed because reported scroll
-stayed zero after wheel input. A later CPU regression proves replayed scroll
-metadata could stay stale even while state and pixels moved; that old trace alone
-does not establish immobile pixels. The repair also keeps interaction limits tied
-to the successfully painted document until replacement painting succeeds. Four
-behavioral regressions and all 283 Linux-package tests pass on macOS (one existing
-GPU ignore); the fixed native Linux replay remains separate. The earlier 4MiB
-candidate refused port setup before launch. Full display
-acceptance, 4MiB worker memory, continuous resize and latency remain unproved;
-LLP1041 §8.22 records the exact partial evidence and failures. The display loop
-watches completion readiness; the stdio agent only pumps on commands. Neither
-the worker queues nor their source/index limits imply a total-memory or 120Hz claim.
+measurement calls. The fixed actual Linux 1MiB trial on captured d6b3431 sources
+passes: autonomous publication without another input, exact independent-reference
+content pixels, continued typing and wheel scrolling 0→40px. An overlapping
+472,320-byte RGB strip moves by exactly 40px; newly exposed content is outside
+that comparison. UI giant shape/index counters remain zero. This instrumented
+CPU/VKMS run is functional evidence, not physical-display or latency evidence.
+
+The same 4MiB candidate reaches one correct full worker layout but aborts before
+publication: an 11,264-byte allocation fails at the unchanged 2.5GiB address-space
+cap. Sampled RSS/HWM is 1,735,924KiB. Its fresh synchronous reference passes;
+that does not establish worker/display success. No cap increase or smaller source
+was used. Exact allocation-site attribution, 4MiB completion, continuous resize
+and latency remain outstanding. LLP1041 §8.27 records this result and identities.
+
+Earlier failed scroll-metadata and prelaunch port cells remain unchanged in §8.22.
+The scroll repair keeps limits tied to the successfully painted document; the old
+zero metadata did not prove immobile pixels. The display loop watches completion
+readiness; the stdio agent only pumps on commands. Neither worker queue bounds nor
+source/index limits imply a total-memory or 120Hz claim.
 
 ### Explicit AppKit cold-paragraph trial
 
