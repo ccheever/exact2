@@ -12,6 +12,7 @@
 
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use taffy::tree::MeasureOutput;
+use taffy::TraversePartialTree;
 
 use crate::arena::NodeArena;
 use crate::error::LayoutError;
@@ -176,6 +177,19 @@ impl LayoutTree {
             self.write_style(node, style);
         }
         self.presented_height = next;
+    }
+
+    /// A content region trial does not compose with a height projection yet.
+    pub(crate) fn has_presented_height(&self) -> bool {
+        self.presented_height.is_some()
+    }
+
+    /// Keep a registered region's content out of shell sizing. No-op when
+    /// already cut, so unchanged shell layout continues to use its own cache.
+    pub(crate) fn cut_children(&mut self, node: NodeId) {
+        if self.taffy.child_count(node) > 0 {
+            self.set_children(node, &[]);
+        }
     }
 
     /// Replace a node's ordered children.

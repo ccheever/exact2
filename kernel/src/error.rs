@@ -235,6 +235,8 @@ pub enum ApplyError {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LayoutError {
+    /// Explicit region registration/publication refused; no fake ready metrics.
+    ContentRegion(&'static str),
     /// A definite available-space offer is infinite or NaN.
     InvalidOffer,
     /// The id is not live.

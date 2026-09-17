@@ -176,6 +176,7 @@ pub struct Kernel {
     epoch: u64,
     incarnation: u64,
     receipts: VecDeque<CommitReceipt>,
+    region: Option<crate::region::RegionState>,
 }
 
 impl Kernel {
@@ -189,6 +190,7 @@ impl Kernel {
             epoch: 0,
             incarnation: 1,
             receipts: VecDeque::new(),
+            region: None,
         }
     }
 
@@ -259,8 +261,110 @@ impl Kernel {
         if self.receipts.len() == RECEIPT_RING {
             self.receipts.pop_front();
         }
+        if self
+            .region
+            .as_mut()
+            .is_some_and(|r| !r.observe(&self.arena, &receipt))
+        {
+            self.region = None;
+        }
         self.receipts.push_back(receipt.clone());
         Ok(receipt)
+    }
+
+    /// Register one explicitly sized content region. No schema/authoring change.
+    /// Ordinary layout is refused while registered so hosts cannot bypass the
+    /// selected publication and accidentally measure/paint pending live source.
+    pub fn set_content_region(
+        &mut self,
+        binding: Option<crate::ContentRegion>,
+    ) -> Result<bool, KernelError> {
+        if binding.is_some() && self.layout.has_presented_height() {
+            return Err(LayoutError::ContentRegion(
+                "clear the presented height before region registration",
+            )
+            .into());
+        }
+        if self.region.as_ref().map(|r| r.binding) == binding {
+            return Ok(false);
+        }
+        let replacing = self.region.is_some();
+        let next = binding
+            .map(|b| crate::region::RegionState::new(&self.arena, b))
+            .transpose()?;
+        self.region = next;
+        // The previous region cut its owner's ordinary child edge. Restore
+        // current authored topology when replacing or removing it, only AFTER
+        // the new binding passed preflight. Invalid replacement leaves it intact.
+        if replacing || binding.is_none() {
+            self.layout = LayoutTree::rebuild(&mut self.arena);
+        }
+        Ok(true)
+    }
+
+    /// Publish the shell and attempt one UI-owned content layout. A miss returns
+    /// a usable shell plus an explicit selected branch, never fake final metrics.
+    pub fn compute_region_layout(
+        &mut self,
+        root: ViewId,
+        offer: Offer,
+        inputs: crate::RegionInputs,
+    ) -> Result<crate::RegionLayoutReceipt, KernelError> {
+        if !offer.is_finite() {
+            return Err(LayoutError::InvalidOffer.into());
+        }
+        let slot = self
+            .arena
+            .slot_of(root)
+            .ok_or(LayoutError::UnknownView(root))?;
+        if !self.arena.is_root(slot) {
+            return Err(LayoutError::NotARoot(root).into());
+        }
+        let region = self
+            .region
+            .as_mut()
+            .ok_or(LayoutError::ContentRegion("no registered region"))?;
+        let result = region.compute(
+            &mut self.arena,
+            &mut self.layout,
+            self.measurer.as_mut(),
+            (slot, offer),
+            inputs,
+            self.epoch,
+        );
+        if result.is_err() {
+            // A numeric callback error can have cached its containment zero in
+            // the shell too. No failed derived cache is reused on recovery.
+            self.layout = LayoutTree::rebuild(&mut self.arena);
+        }
+        Ok(result?)
+    }
+
+    /// Bounded kernel-owned source/offer retention, separately from native heap.
+    pub fn region_retention(&self) -> crate::region::RegionRetention {
+        self.region
+            .as_ref()
+            .map_or_else(Default::default, |r| r.retention())
+    }
+
+    /// At most one immutable first-missing request. Copying shares its snapshot.
+    pub fn region_text_request(&self) -> Option<&crate::RegionTextRequest> {
+        self.region.as_ref()?.pending.as_ref()
+    }
+
+    /// Deliver an exact final answer and its retained source/shape owner.
+    /// Stale/duplicate delivery returns false before metric validation. The host
+    /// must budget opaque allocations; this API bounds their number, not heap.
+    pub fn resolve_region_text(
+        &mut self,
+        request: &crate::RegionTextRequest,
+        metrics: crate::TextMetrics,
+        artifact: std::rc::Rc<dyn std::any::Any>,
+    ) -> Result<bool, KernelError> {
+        match &mut self.region {
+            Some(r) => Ok(r.resolve(request, metrics, artifact)?),
+            None => Ok(false),
+        }
     }
 
     /// Lay out one root under an offer and publish frames. The receipt names
@@ -294,6 +398,11 @@ impl Kernel {
         offer: Offer,
         presented: Option<PresentedHeight>,
     ) -> Result<LayoutReceipt, KernelError> {
+        if self.region.is_some() {
+            return Err(
+                LayoutError::ContentRegion("use compute_region_layout while registered").into(),
+            );
+        }
         if !offer.is_finite() {
             return Err(LayoutError::InvalidOffer.into());
         }
@@ -410,6 +519,9 @@ impl Kernel {
             return Ok(());
         }
         self.arena.set_intrinsic(slot, size);
+        if let Some(r) = &mut self.region {
+            r.intrinsic(slot);
+        }
         if let Some(node) = self.arena.taffy(slot) {
             self.layout.set_style(node, taffy_style(&self.arena, slot));
             self.layout.mark_dirty(node);
@@ -436,6 +548,9 @@ impl Kernel {
             return Ok(false);
         }
         self.arena.set_env(env);
+        if let Some(r) = &mut self.region {
+            r.invalidate();
+        }
         let users: Vec<u32> = self
             .arena
             .iter_live()
@@ -535,6 +650,7 @@ impl Kernel {
 
     /// Destroy every node and bump the incarnation. Keys minted before never resolve again.
     pub fn reset(&mut self) {
+        self.region = None;
         self.arena.reset();
         self.layout = LayoutTree::new();
         self.selectors.clear();
@@ -565,6 +681,7 @@ impl Kernel {
             epoch: self.epoch,
             incarnation: self.incarnation,
             receipts: VecDeque::new(),
+            region: None,
         }
     }
 }

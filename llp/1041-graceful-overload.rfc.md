@@ -1542,3 +1542,46 @@ and both gallery attempts are preserved in `target/photo-apple-validation/final/
 The accepted executable SHA-256 is
 `c67a15c2a631495bc609156bf4a7da23d9735570a88cddf1b983b63724670449`.
 No physical pinch, shared-element return, latency or 120Hz claim is made.
+
+### 8.14 Pending content-region kernel foundation, 2026-09-17
+
+Tuft and Epicurus implement, with Zeno reviewing, one explicitly registered
+content region inside an independently sized, clipped owner. Its first cold
+publication uses a real authored placeholder; subsequent pending work retains
+the last accepted geometry and exact text artifacts. The surrounding shell can
+publish independently. This is a kernel foundation, not a native worker or
+paint implementation, and ordinary text measurement remains synchronous.
+
+The UI owner discovers exact text offers and exposes one missing request with
+owned immutable source, paragraph stamp, font catalog and an opaque candidate
+ticket. Completing an obsolete request cannot publish. Ready metrics retain an
+artifact from that exact source and offer; final paint widths are included in
+offer discovery. Internal missing-measurement probes never become published
+ready geometry. Errors preserve the previous publication. Switching registered
+owners restores current authored topology, and catalog changes invalidate shell
+text caches before layout. Effective baseline participation under Flex or Grid
+is conservatively refused because cutting descendants could alter the shell.
+
+Collection provenance remains separate from paragraph identity. Retained old
+geometry supplies no current row measurement; a new consumer revision must
+publish with its own row epochs before collection feedback can accept it.
+Contract actions, collection state and Taffy remain serial. The trial bounds
+each branch to 4,096 mounted nodes and each candidate/publication to 64 exact
+offers and 16MiB captured UTF-8. Source allocations are shared across widths;
+opaque native artifacts, host-retained publications, spare capacities and font
+storage are separate costs, not a process-memory ceiling.
+
+The final private revision passes 225 kernel tests, including 28 region tests.
+Integrated kernel/runner tests, strict all-target Clippy across the kernel,
+runner and three hosts, native build, Wasm checks and scoped formatting pass.
+Meaningful failures cover owner replacement, catalog invalidation and both Flex
+and Grid baseline dependence. Two parsed 1MiB Markdown kernel fixtures passed
+revision 2; they were not rerun for revision 3's Grid-only eligibility fix.
+Exact sources, all revisions, failures and review are retained in
+`target/cold-region-validation/`.
+
+Native integration must still capture paint, links and selection metadata at
+the same full source stamp, isolate font/shaping ownership, and make the painter
+consume only the accepted publication. No host cold-shaping fallback, worker
+latency, autonomous background reflow or physical 120Hz result is established
+by these kernel tests.

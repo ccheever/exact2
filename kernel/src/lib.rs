@@ -38,6 +38,7 @@ pub mod layout;
 pub mod motion;
 pub mod node;
 pub mod props;
+pub mod region;
 pub mod selector;
 pub mod style;
 pub mod text;
@@ -65,3 +66,8 @@ pub use text::{
 pub use transform::TransformDragBinding;
 pub use txn::CommitReceipt;
 pub use wire::{FrameBuilder, Op};
+
+pub use region::{
+    ContentRegion, RegionArtifact, RegionFrame, RegionInputs, RegionLayoutReceipt,
+    RegionPublication, RegionSelection, RegionTextRequest, RegionTextSource, RegionTicket,
+};
