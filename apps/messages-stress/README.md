@@ -112,8 +112,8 @@ endpoint round trips from 10,000 supplied records, exact typing, a streaming
 step and actual browser pointer swipe commit/cancel. A single end jump reaches
 the last logical message. The first refinement mounts 34 rows; later top/end
 observations mount 7–8. These are functional checks, not twenty full traversals
-or frame timings. Gesture takeover and release-spring continuity still require
-dedicated motion work and validation. The separate paired runner diagnostic in
+or frame timings. That drive predates the dedicated gesture-takeover validation
+below. The separate paired runner diagnostic in
 [LLP 1010 §6.6](../../llp/1010-scrolling-v1.spec.md#66-paired-runner-evidence-2026-09-16)
 covers twenty complete traversals, retained state and CPU work through 25,000 rows.
 
@@ -159,8 +159,8 @@ typing samples, held-contact retention/release, Reply/Cancel and three actual
 window widths. One jump reaches the last row; appending follows the tail while
 an older reader keeps its key and offset. Final executable SHA-256:
 `427baeb90112edaf611067203b6dd7c02256f29dfeb0b72f707e360500ef3024`.
-AppKit currently lacks the swipe recognizer: held mouse contact and Reply buttons
-do not establish native swipe continuity. Twelve standalone Swift assertion
+At that checkpoint AppKit lacked the swipe recognizer: held mouse contact and
+Reply buttons did not establish native swipe continuity. Twelve standalone Swift assertion
 bodies pass; full XCTest is unavailable with this machine's Command Line Tools.
 iOS adapter source has not been compiled against its SDK or driven on a device.
 
@@ -178,3 +178,28 @@ The source manifest and Noto CJK/emoji font identities are retained there.
 Earlier failed captures remain: an origin/range fix corrected real adapter
 errors, then a package-scoped runner rebuild removed a stale cached artifact
 without further source changes. Those failed binaries are not final acceptance.
+
+## Interruptible swipe, 2026-09-17
+
+The shared token-hold implementation now drives browser, AppKit and Linux swipe
+input. Grab a returning row, move left immediately, reverse and release; typing
+or target/transition commits preserve the held presentation. Final actions run
+once while ownership is live. Disabled or inactive retained views cancel, and
+stale callbacks cannot act on replacement views. The browser still executes
+springs through WAAPI; native hosts use the same seekable motion engine.
+
+AppKit's 10k native-event drive and linked lifetime/reentry/eligibility probes are
+in `target/messages-stress-native/holds/`, with exact source and executable
+identities. Browser checks include actual compiled Wasm plus DOM pointer/WAAPI
+takeover, style commits, delayed release, deletion and retained-route cancellation.
+Logs are `/tmp/exact-web-motion-*`. These cover functional behavior; UIKit source
+has not been compiled or driven against its SDK here.
+
+`target/messages-stress-native/linux-holds-vkms/report.md` records the actual
+Ubuntu DRM/KMS display-loop drive, using CPU rendering and a virtual 60 Hz
+connector. Existing VNC pointer and ASCII key input exercises 10k rows, typing
+while held, release/catch/reverse, autonomous settling and contact-disconnect
+cleanup. Raw framebuffer checks verify position changes; source/binary identities
+and the earlier control are retained. It does not measure a physical screen,
+physical input latency, a desktop compositor or 120 fps. The separate headless
+Unicode and viewport-resize results above remain distinct evidence.

@@ -4,12 +4,12 @@
 //! browser would for the same CSS.
 
 use exact_kernel::{
-    motion_node, wire, ApplyError, DecodeError, Kernel, KernelError, NodeType, Op, StyleId,
-    StyleProps, Transitions, Vec2,
+    motion_node, wire, ApplyError, DecodeError, Kernel, KernelError, NodeType, Op, PropId,
+    PropValue, StyleId, StyleProps, Transitions, Vec2,
 };
 use exact_motion::{
-    Easing, Engine, LinearStop, Property, SpringConfig, StepPosition, TimingFunction, Transition,
-    TransitionError, TransitionProperty, Value,
+    Easing, Engine, HoldEnd, LinearStop, Property, SpringConfig, StepPosition, TimingFunction,
+    Transition, TransitionError, TransitionProperty, Value,
 };
 
 fn style(f: impl FnOnce(&mut StyleProps)) -> Box<StyleProps> {
@@ -400,4 +400,380 @@ fn reset_slot_reuse_cannot_inherit_retained_motion_state() {
         engine.value(new_node, Property::Opacity),
         Some(Value::scalar(0.25))
     );
+}
+
+fn translate(x: f32, y: f32) -> Box<StyleProps> {
+    style(|s| {
+        s.translate = Vec2 { x, y };
+        s.mask.set(StyleId::Translate);
+    })
+}
+
+fn spring_translate() -> Transition {
+    Transition::new(
+        TransitionProperty::Property(Property::Translate),
+        0.0,
+        TimingFunction::Spring(SpringConfig::default()),
+    )
+}
+
+fn commit(kernel: &mut Kernel, engine: &mut Engine, sequence: u64, ops: &[Op]) {
+    let receipt = kernel.apply(0, sequence, ops).unwrap();
+    kernel.motion_sync(&receipt).apply(engine).unwrap();
+}
+
+#[test]
+fn a_caught_spring_stays_held_through_an_unrelated_kernel_prop_commit() {
+    // Native takes the engine sample; Web supplies the actual DOM presentation.
+    for supplied in [None, Some(Value::new(42.0, -7.0))] {
+        let (mut kernel, mut engine, node) = boot(spring_translate());
+        commit(
+            &mut kernel,
+            &mut engine,
+            2,
+            &[Op::SetStyle {
+                id: 1,
+                patch: translate(100.0, 20.0),
+            }],
+        );
+        engine.advance(0.1).unwrap();
+        let sampled = engine.value(node, Property::Translate).unwrap();
+        assert_ne!(sampled, Value::new(100.0, 20.0));
+        let hold = engine
+            .begin_hold(node, Property::Translate, 0.1, supplied)
+            .unwrap()
+            .unwrap();
+        assert_eq!(hold.value, supplied.unwrap_or(sampled));
+        assert!(engine.update_hold(hold.token, 0.125, hold.value).unwrap());
+        assert_eq!(engine.value(node, Property::Translate), Some(hold.value));
+        assert_eq!(
+            engine.target(node, Property::Translate),
+            Some(Value::new(100.0, 20.0))
+        );
+        engine.frame();
+
+        let receipt = kernel
+            .apply(
+                0,
+                3,
+                &[
+                    Op::SetProp {
+                        id: 1,
+                        prop: PropId::TestId,
+                        value: PropValue::Str("held-row".into()),
+                    },
+                    Op::SetStyle {
+                        id: 1,
+                        patch: opacity(0.25),
+                    },
+                ],
+            )
+            .unwrap();
+        let sync = kernel.motion_sync(&receipt);
+        assert!(
+            sync.changes.iter().any(|change| {
+                change.node == node
+                    && change.property == Property::Translate
+                    && change.value == Value::new(100.0, 20.0)
+            }),
+            "unrelated commit must exercise the restated authored target"
+        );
+        sync.apply(&mut engine).unwrap();
+        assert_eq!(engine.value(node, Property::Translate), Some(hold.value));
+        assert_eq!(
+            engine.value(node, Property::Opacity),
+            Some(Value::scalar(0.25))
+        );
+        assert_eq!(
+            kernel.node(1).unwrap().style.translate,
+            Vec2 { x: 100.0, y: 20.0 }
+        );
+        assert!(engine.quiescent());
+        assert_eq!(engine.settle_time(), None);
+        assert_eq!(engine.spring_frames(node, Property::Translate), None);
+        engine.frame();
+        engine.advance(1.0).unwrap();
+        assert!(
+            engine.frame().is_empty(),
+            "a held property must not schedule idle frames"
+        );
+        assert_eq!(engine.value(node, Property::Translate), Some(hold.value));
+    }
+}
+
+#[test]
+fn release_uses_latest_kernel_target_and_transition_even_when_target_is_unchanged_at_end() {
+    let (mut kernel, mut engine, node) = boot(linear_all(4.0));
+    let hold = engine
+        .begin_hold(node, Property::Translate, 0.0, None)
+        .unwrap()
+        .unwrap();
+    let held = Value::new(80.0, -20.0);
+    assert!(engine.update_hold(hold.token, 0.125, held).unwrap());
+    commit(
+        &mut kernel,
+        &mut engine,
+        2,
+        &[Op::SetStyle {
+            id: 1,
+            patch: translate(20.0, 10.0),
+        }],
+    );
+    commit(
+        &mut kernel,
+        &mut engine,
+        3,
+        &[Op::SetStyle {
+            id: 1,
+            patch: translate(120.0, 40.0),
+        }],
+    );
+    // A declaration-only commit still restates every authored property.
+    commit(
+        &mut kernel,
+        &mut engine,
+        4,
+        &[Op::SetStyle {
+            id: 1,
+            patch: transition(linear_all(2.0)),
+        }],
+    );
+    assert_eq!(engine.value(node, Property::Translate), Some(held));
+    assert_eq!(
+        engine.target(node, Property::Translate),
+        Some(Value::new(120.0, 40.0))
+    );
+    assert!(engine.quiescent());
+
+    assert!(engine
+        .end_hold(
+            hold.token,
+            0.25,
+            HoldEnd::Release {
+                velocity: Value::ZERO
+            }
+        )
+        .unwrap());
+    assert_eq!(engine.value(node, Property::Translate), Some(held));
+    assert_eq!(engine.settle_time(), Some(2.25));
+    // An unrelated commit during release must not restart the curve either.
+    commit(
+        &mut kernel,
+        &mut engine,
+        5,
+        &[Op::SetProp {
+            id: 1,
+            prop: PropId::TestId,
+            value: PropValue::Str("released-row".into()),
+        }],
+    );
+    engine.advance(1.25).unwrap();
+    assert_eq!(
+        engine.value(node, Property::Translate),
+        Some(Value::new(100.0, 10.0))
+    );
+    assert!(!engine.end_hold(hold.token, 1.5, HoldEnd::Cancel).unwrap());
+    assert_eq!(engine.now(), 1.25, "a consumed token cannot move the clock");
+    engine.advance(2.25).unwrap();
+    assert_eq!(
+        engine.value(node, Property::Translate),
+        Some(Value::new(120.0, 40.0))
+    );
+    assert!(engine.quiescent());
+}
+
+#[test]
+fn clearing_or_zeroing_the_kernel_transition_during_hold_snaps_on_end() {
+    for clear in [false, true] {
+        for cancel in [false, true] {
+            let (mut kernel, mut engine, node) = boot(spring_translate());
+            let hold = engine
+                .begin_hold(node, Property::Translate, 0.0, None)
+                .unwrap()
+                .unwrap();
+            assert!(engine
+                .update_hold(hold.token, 0.1, Value::new(80.0, -20.0))
+                .unwrap());
+            let declaration = if clear {
+                let mut mask = exact_kernel::StyleMask::EMPTY;
+                mask.set(StyleId::Transition);
+                Op::ClearStyle { id: 1, mask }
+            } else {
+                Op::SetStyle {
+                    id: 1,
+                    patch: transition(linear_all(0.0)),
+                }
+            };
+            commit(
+                &mut kernel,
+                &mut engine,
+                2,
+                &[
+                    Op::SetStyle {
+                        id: 1,
+                        patch: translate(12.0, 4.0),
+                    },
+                    declaration,
+                ],
+            );
+            assert_eq!(
+                engine.value(node, Property::Translate),
+                Some(Value::new(80.0, -20.0))
+            );
+            let end = if cancel {
+                HoldEnd::Cancel
+            } else {
+                HoldEnd::Release {
+                    velocity: Value::new(500.0, -100.0),
+                }
+            };
+            assert!(engine.end_hold(hold.token, 0.2, end).unwrap());
+            assert_eq!(
+                engine.value(node, Property::Translate),
+                Some(Value::new(12.0, 4.0))
+            );
+            assert_eq!(
+                engine.target(node, Property::Translate),
+                Some(Value::new(12.0, 4.0))
+            );
+            assert!(engine.quiescent());
+            assert_eq!(engine.settle_time(), None);
+        }
+    }
+}
+
+#[test]
+fn kernel_spring_release_at_the_authored_target_still_inherits_velocity() {
+    let (mut kernel, mut engine, node) = boot(linear_all(1.0));
+    let hold = engine
+        .begin_hold(node, Property::Translate, 0.0, None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(hold.value, Value::ZERO);
+    // The transition chosen at release is this new spring, not the old easing.
+    commit(
+        &mut kernel,
+        &mut engine,
+        2,
+        &[Op::SetStyle {
+            id: 1,
+            patch: transition(spring_translate()),
+        }],
+    );
+    assert!(engine
+        .end_hold(
+            hold.token,
+            0.1,
+            HoldEnd::Release {
+                velocity: Value::new(500.0, -100.0)
+            }
+        )
+        .unwrap());
+    assert!(!engine.quiescent());
+    let frames = engine.spring_frames(node, Property::Translate).unwrap();
+    assert_eq!(frames.values.first(), Some(&Value::ZERO));
+    assert_eq!(frames.values.last(), Some(&Value::ZERO));
+    assert!(frames
+        .values
+        .iter()
+        .any(|value| value.x > 0.0 && value.y < 0.0));
+    engine.advance(0.12).unwrap();
+    let moving = engine.value(node, Property::Translate).unwrap();
+    assert!(moving.x > 0.0 && moving.y < 0.0);
+    engine.advance(engine.settle_time().unwrap()).unwrap();
+    assert_eq!(engine.value(node, Property::Translate), Some(Value::ZERO));
+    assert!(engine.quiescent());
+}
+
+#[test]
+fn destroyed_kernel_hold_tokens_cannot_touch_a_reused_node_slot_or_its_new_hold() {
+    let (mut kernel, mut engine, node) = boot(linear_all(1.0));
+    let old_key = kernel.node(1).unwrap().key;
+    let old = engine
+        .begin_hold(node, Property::Translate, 0.0, None)
+        .unwrap()
+        .unwrap();
+    assert!(engine
+        .update_hold(old.token, 0.25, Value::new(50.0, 10.0))
+        .unwrap());
+    commit(&mut kernel, &mut engine, 2, &[Op::DestroyView { id: 1 }]);
+    assert_eq!(engine.value(node, Property::Translate), None);
+    assert!(engine.quiescent());
+    commit(
+        &mut kernel,
+        &mut engine,
+        3,
+        &[
+            Op::CreateView {
+                id: 9,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 9,
+                patch: translate(7.0, -3.0),
+            },
+            Op::AttachRoot { id: 9 },
+        ],
+    );
+    let new_key = kernel.node(9).unwrap().key;
+    assert_eq!(
+        new_key.index, old_key.index,
+        "fixture must reuse the arena slot"
+    );
+    assert_ne!(new_key.generation, old_key.generation);
+    let new_node = motion_node(new_key);
+    let current = engine
+        .begin_hold(new_node, Property::Translate, 0.5, None)
+        .unwrap()
+        .unwrap();
+    assert!(engine
+        .update_hold(current.token, 0.75, Value::new(9.0, -4.0))
+        .unwrap());
+    engine.frame();
+
+    // Stale identity wins over malformed data and backwards/nonfinite clocks.
+    assert!(!engine
+        .update_hold(old.token, f64::NAN, Value::new(f64::INFINITY, 0.0))
+        .unwrap());
+    assert!(!engine
+        .end_hold(
+            old.token,
+            0.1,
+            HoldEnd::Release {
+                velocity: Value::new(f64::NAN, 0.0)
+            }
+        )
+        .unwrap());
+    assert!(engine
+        .begin_hold(
+            node,
+            Property::Translate,
+            f64::NAN,
+            Some(Value::new(f64::NAN, 0.0))
+        )
+        .unwrap()
+        .is_none());
+    assert_eq!(engine.now(), 0.75);
+    assert!(engine.frame().is_empty());
+    assert_eq!(
+        engine.value(node, Property::Translate),
+        None,
+        "no ghost slot"
+    );
+    assert_eq!(
+        engine.value(new_node, Property::Translate),
+        Some(Value::new(9.0, -4.0))
+    );
+    assert_eq!(
+        engine.target(new_node, Property::Translate),
+        Some(Value::new(7.0, -3.0))
+    );
+    assert!(engine
+        .end_hold(current.token, 1.0, HoldEnd::Cancel)
+        .unwrap());
+    assert_eq!(
+        engine.value(new_node, Property::Translate),
+        Some(Value::new(7.0, -3.0))
+    );
+    assert!(engine.quiescent());
 }

@@ -19,6 +19,9 @@ use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
 
+#[path = "holds.rs"]
+mod holds;
+
 /// Why the host refused to boot.
 #[allow(missing_docs)]
 #[derive(Debug)]
@@ -518,7 +521,11 @@ impl<D: DataSource> Host<D> {
         // born at that timer's due time — one seek and sixty give the same
         // bits (LLP 1002 D3; LLP 1012 §2).
         for t in receipts {
-            let seek = self.engine.advance(t.at_ms / 1000.0);
+            // A pointer sample may advance presentation past an overdue timer.
+            // Keep runner due-time order, but never replay the engine backwards.
+            let seek = self
+                .engine
+                .advance((t.at_ms / 1000.0).max(self.engine.now()));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
             let applied = self
                 .runner

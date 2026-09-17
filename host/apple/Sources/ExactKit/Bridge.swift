@@ -93,7 +93,18 @@ final class Runtime {
     func focus(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 4, 0, now)) }
     func blur(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 5, 0, now)) }
     func contextmenu(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 10, 0, now)) }
-    func dragX(_ view: UInt32, delta: Double, velocity: Double, release: Bool, now: Double) -> Batch { read(exact_drag_x(rt, view, delta, velocity, release ? 1 : 0, now)) }
+    func holdBegin(_ view: UInt32, property: UInt32, now: Double) -> (NativeHold?, Batch) {
+        let batch = read(exact_hold_begin(rt, view, property, now))
+        let start = batch.ops.first { $0["op"] as? String == "hold" }.flatMap(NativeHold.init)
+        return (start, batch)
+    }
+    func hasHold(_ token: UInt64) -> Bool { !destroyed && exact_has_hold(rt, token) != 0 }
+    func holdUpdate(_ token: UInt64, x: Double, y: Double, now: Double) -> Batch {
+        read(exact_hold_update(rt, token, x, y, now))
+    }
+    func holdEnd(_ token: UInt64, cancel: Bool, vx: Double = 0, vy: Double = 0, now: Double) -> Batch {
+        read(exact_hold_end(rt, token, cancel ? 1 : 0, vx, vy, now))
+    }
     func swiperight(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 12, 0, now)) }
     func scroll(_ view: UInt32, left: Double, top: Double, now: Double) -> Batch {
         let n = write("\(left),\(top)")

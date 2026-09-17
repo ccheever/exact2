@@ -32,10 +32,15 @@ use std::time::Duration;
 use tiny_skia::Pixmap;
 
 mod collection;
+mod swipe;
 
 #[cfg(test)]
 #[path = "presenter/collection_tests.rs"]
 mod collection_tests;
+
+#[cfg(test)]
+#[path = "presenter/swipe_tests.rs"]
+mod swipe_tests;
 
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
@@ -74,6 +79,7 @@ pub struct Presenter<D: DataSource> {
     executor: crate::executor::Executor,
     refusal_turn: bool,
     collection: collection::State,
+    contact: Option<swipe::Contact>,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
     /// The commands the last commits' actions asked for, for the loop that
@@ -298,6 +304,7 @@ impl<D: DataSource> Presenter<D> {
             executor,
             refusal_turn: false,
             collection: collection::State::default(),
+            contact: None,
             brush: Painter::new(text.clone(), scale, backend),
             text,
             viewport,
@@ -559,6 +566,7 @@ impl<D: DataSource> Presenter<D> {
         self.executor = crate::executor::Executor::start(&self.host.grants());
         self.scroll.clear();
         self.collection = collection::State::default();
+        self.contact = None;
         self.page = (0.0, 0.0);
         self.focus = None;
         self.pointer = None;
@@ -672,6 +680,7 @@ impl<D: DataSource> Presenter<D> {
         self.executor = crate::executor::Executor::start(&self.host.grants());
         self.scroll.clear();
         self.collection = collection::State::default();
+        self.contact = None;
         self.page = (0.0, 0.0);
         self.images.reset();
         self.focus = None;
@@ -789,6 +798,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.clamp_scroll();
+        self.retire_pointer();
         error
     }
 
@@ -1090,6 +1100,9 @@ impl<D: DataSource> Presenter<D> {
     pub fn wheel_at(&mut self, x: f32, y: f32, dx: f32, dy: f32) {
         if dx == 0.0 && dy == 0.0 {
             return;
+        }
+        if let Err(error) = self.pointer_cancel(self.pointer_now()) {
+            self.host.log(error);
         }
         let mut at = self.hit(x, y);
         let collection_limits = self.collection_scroll_limits();

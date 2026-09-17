@@ -87,19 +87,59 @@ to `Element.animate` with `linear` easing; interior frames are bit-identical to
 the native sample and midpoints are within ω²·A/(8·240²) — sub-pixel. The
 evaluator runs on the web once per release as a compiler, never per frame.
 
-**D3 — The clock is a seek.** `Engine::advance(t)` is the only clock
-operation; every value is a closed-form function of `t`, so one call and sixty
+**D3 — The clock is a seek.** `Engine::advance(t)` samples the clock;
+accepted hold inputs seek it before changing presentation. Every running
+curve is a closed-form function of `t`, so one call and sixty
 give the same bits (`the_clock_is_a_seek`). `Engine::settle_time()` is what an
 agent's `clock` operation advances to. On the web the same operation is
 `Animation.currentTime`. No virtual-clock type, no tick-phase enum, no timer.
+Engine time is seconds; host bridges convert milliseconds. If a gesture has
+advanced presentation past an overdue timer, receipts retain Runner due-time
+order while motion samples at `max(receipt_time, engine.now())`. The final
+requested presentation seek remains monotonic; timer dispatch is not reordered.
 
 **D4 — Gestures: the platform recognizes; the engine follows.** Recognition,
 hit-testing, and scroll-vs-pan arbitration belong to `touch-action`/pointer
-events on the web and `UIGestureRecognizer`/`UIScrollView` on Apple. The engine
-offers two verbs: `hold(node, property, value)` — write through with no
-transition, what a drag does under `transition: none` — and `observe` with a
-`velocity`, which a spring inherits on release. `VelocityTracker` estimates
-pointer velocity for hosts the platform does not tell. Scroll always wins.
+events on the web and the native platform's recognizers and scroll views.
+Scroll always wins. Follow/release uses temporary ownership of an existing
+node/property's presentation; its authored style remains the target:
+
+- `begin_hold(node, property, now_s, presented)` returns an optional
+  `HoldStart { token, value }`. Native hosts pass `None` to capture the current
+  curve; the browser supplies computed presentation at recognition, before
+  cancelling playback. This value is the displacement origin, including on
+  rebegin; it is not the authored target or a pointer-down sample.
+- `update_hold(token, now_s, value)` writes absolute presentation. Commits
+  during the hold update the latest target and transition without repainting
+  the held property. A hold alone is quiescent; other properties keep moving.
+- `end_hold(token, now_s, HoldEnd::Release { velocity })` returns to the newest
+  target under the newest transition. Velocity is in property units/second
+  after drag resistance; `VelocityTracker` can estimate it from presentation
+  samples. `Cancel` uses zero velocity. Easings ignore velocity; an absent or
+  non-starting transition snaps. A spring with zero displacement still inherits
+  nonzero velocity. Apply the final sample and any authored action while held,
+  then end once; an action that destroys the row makes that end stale.
+
+`HoldToken` is opaque and contains node, property and a checked, non-wrapping
+u64 serial. Serials are unique across Engines sharing the process's linked
+evaluator, not across independent Wasm instances or process reloads. Bridges
+carry all 64 bits and check their runtime incarnation and live view identity.
+Rebegin, release and removal invalidate old tokens; only live holds are retained,
+with no history cache. `has_hold` lets hosts reject stale callbacks before their
+own clock or batch mutations; `is_held` informs lowering. Stale updates/ends are
+inert before time/value validation. Invalid live inputs leave ownership and time
+unchanged; values and velocities must be finite, with `y = 0` for scalar rows.
+
+D2 remains unchanged. Native hosts drain Engine presentation; browser hosts
+preserve a held-property overlay across style commits, cancel only its playback
+at takeover, and restore the latest authored declaration on release, including
+`transition: none` authored while held. Release drains lowering even without a
+kernel receipt, including other properties dirtied by the seek. Delays preserve
+the release presentation. The web compares `spring_descriptor` (start, origin,
+target, velocity, parameters) before compiling keyframes; unchanged curves do
+not rebuild on pointer moves. CSS/WAAPI still execute motion without a per-frame
+Wasm evaluator. These semantics and regressions do not establish physical 120 Hz
+presentation.
 
 **D5 — Deleted.** The gesture arena, claims, compound claims, leases,
 arbitration receipts, recognizer state machines, compositions, interaction-state

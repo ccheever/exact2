@@ -112,6 +112,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     var swipeRecognizer: UIPanGestureRecognizer?
     var swipeArmed = false
+    var swipeHold: SwipeHold?
+    var swipeOrigin = 0.0
     lazy var swipeFeedback = UISelectionFeedbackGenerator()
     func allowsTouchPan(_ velocity: CGPoint) -> Bool {
         let action = style["touch_action"] as? String ?? "auto"
@@ -130,6 +132,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             addGestureRecognizer(gesture)
             swipeRecognizer = gesture
         } else if !handlers.contains("swiperight"), let gesture = swipeRecognizer {
+            let prior = swipeHold; swipeHold = nil
+            DispatchQueue.main.async { prior?.cancel() }
             removeGestureRecognizer(gesture)
             swipeRecognizer = nil
         }
@@ -138,25 +142,27 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if gesture === swipeRecognizer, let pan = gesture as? UIPanGestureRecognizer {
             let velocity = pan.velocity(in: window)
             let start = pan.location(in: window).x - pan.translation(in: window).x
-            return !disabled && start >= 20 && velocity.x > abs(velocity.y) && !allowsTouchPan(velocity)
+            return !disabled && start >= 20 && SwipeRecognition.accepts(x: Double(velocity.x), y: Double(velocity.y), presentedX: Double(translate.x)) && !allowsTouchPan(velocity)
         }
         return super.gestureRecognizerShouldBegin(gesture)
     }
     @objc func swiping(_ gesture: UIPanGestureRecognizer) {
-        guard let presenter else { return }
-        let distance = max(0, gesture.translation(in: window).x)
-        let offset = min(distance, 64) + max(0, distance - 64) * 0.2
+        let translation = Double(gesture.translation(in: window).x)
         switch gesture.state {
-        case .began, .changed:
-            if gesture.state == .began { presenter.collections.pointer(id) }
-            let armed = distance >= 64
+        case .began:
+            swipeHold?.cancel()
+            swipeOrigin = translation
+            swipeHold = SwipeHold(self)
+        case .changed:
+            guard let hold = swipeHold else { return }
+            let delta = translation - swipeOrigin
+            guard hold.move(delta) else { hold.cancel(); swipeHold = nil; return }
+            let armed = hold.mapping.value(delta) >= 64
             if armed != swipeArmed { swipeFeedback.selectionChanged(); swipeArmed = armed }
-            presenter.dragX(self, delta: Double(offset), velocity: 0, release: false)
         case .ended, .cancelled, .failed:
-            let commit = gesture.state == .ended && distance >= 64
-            swipeArmed = false
-            presenter.dragX(self, delta: 0, velocity: Double(gesture.velocity(in: window).x), release: true, commit: commit)
-            presenter.collections.releaseInteractionLater()
+            let hold = swipeHold; swipeHold = nil; swipeArmed = false
+            hold?.finish(displacement: translation - swipeOrigin,
+                fingerVelocity: Double(gesture.velocity(in: window).x), cancel: gesture.state != .ended)
         default: break
         }
     }
@@ -449,6 +455,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        let prior = swipeHold; swipeHold = nil
+        DispatchQueue.main.async { prior?.cancel() }
         textParent?.textChildren.removeAll { $0 === self }
         textParent = nil
         textChildren.removeAll()

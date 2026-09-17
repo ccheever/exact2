@@ -13,7 +13,7 @@ use crate::batch::Batch;
 use crate::css;
 use crate::motion::{Lowered, Springs};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeRef, NodeType, PropId, PropValue, ViewId};
-use exact_motion::Property;
+use exact_motion::{EngineError, HoldEnd, HoldStart, Property, Value as MotionValue};
 use exact_plan::{EventKind, Plan, StackMemberKind, StacksId};
 use exact_runner::{
     Carried, DataSource, Event, FailureKind, Outcome, Response, Runner, RunnerError, Timed,
@@ -455,6 +455,112 @@ impl<D: DataSource> Host<D> {
         }
         let timers = self.runner.has_timers();
         batch.finish(timers, self.runner.now_ms(), error)
+    }
+
+    /// Capture a live browser presentation. Reply includes cancellation and
+    /// any other properties advanced by the same engine clock.
+    pub fn begin_hold(
+        &mut self,
+        view: ViewId,
+        property: Property,
+        presented: MotionValue,
+        now_ms: f64,
+    ) -> Result<Option<(HoldStart, String)>, EngineError> {
+        let Some(start) = self.springs.begin_hold(
+            self.runner.kernel(),
+            view,
+            property,
+            presented,
+            now_ms / 1000.0,
+        )?
+        else {
+            return Ok(None);
+        };
+        self.now_ms = now_ms;
+        let mut batch = Batch::new();
+        self.emit_springs(&mut batch, &[], now_ms / 1000.0);
+        batch.animate(
+            view,
+            property.name(),
+            0.0,
+            0.0,
+            &[],
+            property == Property::Translate,
+        );
+        Ok(Some((
+            start,
+            batch.finish(self.runner.has_timers(), self.runner.now_ms(), None),
+        )))
+    }
+
+    /// Check before any action, clock change, or presentation mutation.
+    pub fn has_hold(&self, serial: u64) -> bool {
+        self.springs.token(serial).is_some_and(|token| {
+            self.runner
+                .kernel()
+                .node_by_key(NodeKey {
+                    index: token.node() as u32,
+                    generation: (token.node() >> 32) as u32,
+                })
+                .is_some()
+        })
+    }
+
+    /// Apply an input sample and drain common lowering once; no timer advance.
+    pub fn update_hold(
+        &mut self,
+        serial: u64,
+        value: MotionValue,
+        now_ms: f64,
+    ) -> Result<Option<String>, EngineError> {
+        if !self.has_hold(serial) || !self.springs.update_hold(serial, value, now_ms / 1000.0)? {
+            return Ok(None);
+        }
+        Ok(Some(self.hold_batch(now_ms)))
+    }
+
+    /// Return to the latest authored target, even without a kernel receipt.
+    pub fn end_hold(
+        &mut self,
+        serial: u64,
+        end: HoldEnd,
+        now_ms: f64,
+    ) -> Result<Option<String>, EngineError> {
+        if !self.has_hold(serial) || !self.springs.end_hold(serial, end, now_ms / 1000.0)? {
+            return Ok(None);
+        }
+        Ok(Some(self.hold_batch(now_ms)))
+    }
+
+    fn hold_batch(&mut self, now_ms: f64) -> String {
+        self.now_ms = now_ms;
+        let mut batch = Batch::new();
+        self.emit_springs(&mut batch, &[], now_ms / 1000.0);
+        batch.finish(self.runner.has_timers(), self.runner.now_ms(), None)
+    }
+
+    /// Complete the authored swipe while its translate hold still owns the
+    /// live node. An action may destroy that node; its later end is then stale.
+    pub fn dispatch_held(&mut self, serial: u64, now_ms: f64) -> Option<String> {
+        if !self.has_hold(serial)
+            || !now_ms.is_finite()
+            || now_ms / 1000.0 < self.springs.engine().now()
+        {
+            return None;
+        }
+        let token = self.springs.token(serial)?;
+        if token.property() != Property::Translate {
+            return None;
+        }
+        let view = self
+            .runner
+            .kernel()
+            .node_by_key(NodeKey {
+                index: token.node() as u32,
+                generation: (token.node() >> 32) as u32,
+            })?
+            .id;
+        Some(self.dispatch_at(view, Event::Swiperight, now_ms))
     }
 
     /// The page brought back request `ticket`'s outcome (LLP 1016 D2):

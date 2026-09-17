@@ -23,7 +23,7 @@ private final class CollectionContact: UIGestureRecognizer {
         if let contact, touches.contains(contact) { collections?.releaseInteractionLater(); self.contact = nil; state = .failed }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
-        collections?.pointer(nil); contact = nil; state = .cancelled
+        collections?.releaseInteractionLater(); contact = nil; state = .cancelled
     }
     override func reset() { super.reset(); contact = nil }
 }
@@ -86,7 +86,7 @@ extension CollectionHost {
         recognizer.delaysTouchesEnded = false
         viewport.addGestureRecognizer(recognizer)
         let observer = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
-            object: nil, queue: .main) { [weak self] _ in self?.pointer(nil) }
+            object: nil, queue: .main) { [weak self] _ in self?.releaseInteractionLater() }
         stopTracking = { [weak viewport] in
             viewport?.removeGestureRecognizer(recognizer)
             NotificationCenter.default.removeObserver(observer)

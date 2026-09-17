@@ -158,6 +158,41 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertTrue(accepted.values.allSatisfy { $0.0 == 0 && $0.1 == 0 })
     }
 
+    func testNativeUpCannotReleasePinBeforeDeferredGestureCompletion() {
+        let (p, _) = fixture()
+        defer { p.collections.reset() }
+        let lease = p.collections.holdPointer(3)
+        p.collections.releaseInteractionLater()
+        let done = expectation(description: "gesture completion owns release")
+        DispatchQueue.main.async {
+            XCTAssertEqual(p.collections.interaction, 3)
+            p.collections.releaseInteractionLater(ifCurrent: lease)
+            DispatchQueue.main.async {
+                XCTAssertNil(p.collections.interaction)
+                done.fulfill()
+            }
+        }
+        wait(for: [done], timeout: 1)
+    }
+
+    func testStaleGestureCompletionCannotClearAlreadyReplacedPin() {
+        let (p, _) = fixture()
+        defer { p.collections.reset() }
+        let old = p.collections.holdPointer(3)
+        let current = p.collections.holdPointer(2)
+        p.collections.releaseInteractionLater(ifCurrent: old)
+        let done = expectation(description: "old completion after pin transfer")
+        DispatchQueue.main.async {
+            XCTAssertEqual(p.collections.interaction, 2)
+            p.collections.releaseInteractionLater(ifCurrent: current)
+            DispatchQueue.main.async {
+                XCTAssertNil(p.collections.interaction)
+                done.fulfill()
+            }
+        }
+        wait(for: [done], timeout: 1)
+    }
+
     func testOldReleaseDoesNotClearNewContactOnSameRow() {
         let (p, _) = fixture()
         defer { p.collections.reset() }

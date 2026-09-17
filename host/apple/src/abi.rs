@@ -690,18 +690,47 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Feed a recognized horizontal drag to the motion engine.
-    pub fn drag_x(
-        &mut self,
-        view: u32,
-        delta: f64,
-        velocity: f64,
-        release: bool,
-        now_ms: f64,
-    ) -> u32 {
+    /// Start a generic property hold (0 translate, 1 scale, 2 rotate, 3 opacity).
+    pub fn hold_begin(&mut self, view: u32, property: u32, now_ms: f64) -> u32 {
+        let out = match exact_motion::Property::ALL.get(property as usize) {
+            Some(property) => self
+                .host
+                .as_mut()
+                .map_or_else(not_booted, |h| h.hold_begin(view, *property, now_ms)),
+            None => self
+                .host
+                .as_ref()
+                .map_or_else(not_booted, |h| h.hold_refusal("unknown motion property")),
+        };
+        self.emit(out)
+    }
+
+    /// Liveness before an authored completion; never advances a clock.
+    pub fn has_hold(&self, token: u64) -> bool {
+        self.host.as_ref().is_some_and(|h| h.has_hold(token))
+    }
+
+    /// Update presentation using a runtime-owned opaque handle.
+    pub fn hold_update(&mut self, token: u64, x: f64, y: f64, now_ms: f64) -> u32 {
         let out = self.host.as_mut().map_or_else(not_booted, |h| {
-            h.drag_x(view, delta, velocity, release, now_ms)
+            h.hold_update(token, exact_motion::Value::new(x, y), now_ms)
         });
+        self.emit(out)
+    }
+
+    /// Release (or cancel) a live hold after its authored action.
+    pub fn hold_end(&mut self, token: u64, cancel: bool, vx: f64, vy: f64, now_ms: f64) -> u32 {
+        let end = if cancel {
+            exact_motion::HoldEnd::Cancel
+        } else {
+            exact_motion::HoldEnd::Release {
+                velocity: exact_motion::Value::new(vx, vy),
+            }
+        };
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.hold_end(token, end, now_ms));
         self.emit(out)
     }
 
@@ -1157,10 +1186,25 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.dispatch(view, kind, len, now_ms), |n| n)
         }
 
-        /// A platform drag: hold or release the authored translate target.
+        /// Capture one property's native presentation.
         #[no_mangle]
-        pub extern "C" fn exact_drag_x(rt: u32, view: u32, delta: f64, velocity: f64, release: u32, now_ms: f64) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.drag_x(view, delta, velocity, release != 0, now_ms), |n| n)
+        pub extern "C" fn exact_hold_begin(rt: u32, view: u32, property: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.hold_begin(view, property, now_ms), |n| n)
+        }
+        /// Check before dispatching an authored completion.
+        #[no_mangle]
+        pub extern "C" fn exact_has_hold(rt: u32, token: u64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| u32::from(b.has_hold(token)), |_| 0)
+        }
+        /// Change a held property's presentation.
+        #[no_mangle]
+        pub extern "C" fn exact_hold_update(rt: u32, token: u64, x: f64, y: f64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.hold_update(token, x, y, now_ms), |n| n)
+        }
+        /// End ownership once, with velocity in displayed units/second.
+        #[no_mangle]
+        pub extern "C" fn exact_hold_end(rt: u32, token: u64, cancel: u32, vx: f64, vy: f64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.hold_end(token, cancel != 0, vx, vy, now_ms), |n| n)
         }
 
         /// Move the clock; returns the batch's length.

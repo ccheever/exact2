@@ -16,7 +16,7 @@
 #![allow(unsafe_code)]
 
 use crate::app::Config;
-use crate::input::{Input, InputEvent, Key};
+use crate::input::Input;
 use crate::vnc::Vnc;
 use drm::buffer::{Buffer as _, DrmFourcc};
 use drm::control::{
@@ -31,6 +31,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use tiny_skia::Pixmap;
+
+mod pointer;
 
 struct Card(File);
 
@@ -248,7 +250,6 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     };
     let mut pointer = (viewport.0 / 2.0, viewport.1 / 2.0);
     p.set_pointer(Some(pointer));
-    let mut down: Option<u32> = None;
     let mut last_tick = 0.0f64;
     let mut plan_seen = config.dev_plan.as_deref().and_then(mtime);
     // First pixel is the first frame presented (LLP 1026 D11); the update
@@ -332,50 +333,13 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             events.extend(v.take_events());
         }
         for ev in events {
-            // Navigation/reload can retire or hide a held target between input
-            // events. Do not deliver its eventual release to a new view.
-            if down.is_some() && down != p.collection_interaction() {
-                down = None;
-                p.set_collection_interaction(None);
-            }
-            match ev {
-                InputEvent::Motion(dx, dy) => {
-                    pointer.0 = (pointer.0 + dx / config.scale).clamp(0.0, viewport.0 - 1.0);
-                    pointer.1 = (pointer.1 + dy / config.scale).clamp(0.0, viewport.1 - 1.0);
-                    p.set_pointer(Some(pointer));
-                }
-                InputEvent::Absolute(fx, fy) => {
-                    if let Some(fx) = fx {
-                        pointer.0 = (fx * viewport.0).clamp(0.0, viewport.0 - 1.0);
-                    }
-                    if let Some(fy) = fy {
-                        pointer.1 = (fy * viewport.1).clamp(0.0, viewport.1 - 1.0);
-                    }
-                    p.set_pointer(Some(pointer));
-                }
-                InputEvent::Button(true) => {
-                    down = p.hit(pointer.0, pointer.1);
-                    p.set_collection_interaction(down);
-                }
-                InputEvent::Button(false) => {
-                    let was = down.take();
-                    let at = p.hit(pointer.0, pointer.1);
-                    if was.is_some() && was == at {
-                        p.press_at(pointer.0, pointer.1, wall());
-                    }
-                    p.set_collection_interaction(None);
-                }
-                InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
-                InputEvent::Key(Key::Char(c)) => p.key(Some(c), false, wall()),
-                InputEvent::Key(Key::Backspace) => p.key(None, true, wall()),
-                InputEvent::Key(Key::Escape) => {
-                    down = None;
-                    p.set_collection_interaction(None);
-                    p.blur();
-                }
-                InputEvent::Key(Key::Enter) => p.key(Some('\n'), false, wall()),
+            if let Err(e) =
+                pointer::dispatch(&mut p, &mut pointer, viewport, config.scale, ev, wall())
+            {
+                eprintln!("exact: {e}");
             }
         }
+
         let now = wall();
         if p.host().has_timers() && now - last_tick >= 250.0 {
             last_tick = now;

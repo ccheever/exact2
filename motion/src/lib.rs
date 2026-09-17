@@ -40,7 +40,10 @@ pub mod transition;
 pub mod velocity;
 
 pub use easing::{Easing, EasingError, LinearStop, StepPosition};
-pub use engine::{Change, Engine, EngineError, Presentation, SpringFrames};
+pub use engine::{
+    Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, Presentation, SpringDescriptor,
+    SpringFrames,
+};
 pub use parse::ParseError;
 pub use property::{Property, Value};
 pub use spring::{Keyframe, SpringConfig, SpringError, SpringSample};

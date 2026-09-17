@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Cdp } from '../../scripts/agent.mjs';
-import { collectionBytes } from './navigation.js';
+import { collectionBytes, motionBytes } from './navigation.js';
 
 let server, child, cdp, evaluate, dir;
 beforeAll(async () => {
@@ -29,7 +29,7 @@ beforeAll(async () => {
     return result.result.value;
   };
   await call('Page.navigate', { url: `http://127.0.0.1:${server.port}` });
-  await evaluate(`import('/navigation.js').then(module => { globalThis.createController = module.collectionController; })`);
+  await evaluate(`import('/navigation.js').then(module => { globalThis.createController = module.collectionController; globalThis.createMotion = module.motionController; })`);
   await evaluate(`(${setup})()`);
 });
 afterAll(async () => {
@@ -94,7 +94,7 @@ test('rejected duplicate facts and feedback-caused revisions cannot spin an unbo
   expect(result.pending).toBe(0);
 });
 test('ResizeObserver updates real row heights and width, then becomes idle', async () => {
-  const result = await evaluate(`(async () => { const f=fixture(); f.controller.commit([f.snapshot()]); f.flush(); await new Promise(r=>setTimeout(r,50)); f.flush(); f.views.get(2).style.height='97px'; f.port.style.width='400px'; await new Promise(r=>setTimeout(r,50)); f.flush(); const last=f.reports.at(-1), n=f.reports.length; await new Promise(r=>setTimeout(r,50)); f.flush(); return {last,inner:f.port.clientWidth,idle:f.reports.length===n}; })()`);
+  const result = await evaluate(`(async () => { const f=fixture(); f.controller.commit([f.snapshot()]); f.flush(); await new Promise(r=>setTimeout(r,50)); f.flush(); f.views.get(2).style.height='97px'; f.port.style.width='400px'; for(let i=0;i<40;i++){ await new Promise(r=>setTimeout(r,25)); f.flush(); if(f.reports.at(-1)?.rows[0].height===97 && f.reports.at(-1)?.rowWidth===f.port.clientWidth-24) break; } const last=f.reports.at(-1), n=f.reports.length; await new Promise(r=>setTimeout(r,50)); f.flush(); return {last,inner:f.port.clientWidth,idle:f.reports.length===n}; })()`);
   expect(result.last.rowWidth).toBe(result.inner - 24);
   expect(result.last.rows[0].height).toBe(97);
   expect(result.idle).toBe(true);
@@ -147,35 +147,127 @@ test('hidden old owner releases using prior geometry; rejected release never gra
   expect(result.idle).toBe(0);
 });
 
-test('destroy cancels owned WAAPI springs, remount and reset retain no prior animation', async () => {
-  const source = readFileSync(new URL('./glue.js', import.meta.url), 'utf8');
-  const animate = source.slice(source.indexOf('case "animate":'), source.indexOf('case "surface":'));
-  const destroy = source.slice(source.indexOf('case "destroy":'), source.indexOf('case "roots":'));
-  const reset = source.slice(source.indexOf('for (const a of animations.values()) a.cancel();'), source.indexOf('animations.clear();') + 'animations.clear();'.length);
-  const result = await evaluate(`(async () => {
-    const f=fixture(), views=f.views, animations=new Map(), retiredViews=new WeakSet(), messageFrames=new Set();
-    const viewFor=(_,id)=>views.get(id), followScroll=()=>{};
-    globalThis.exact={gpu:{destroy(){}}};
-    const apply=op=>{switch(op.op){${animate}${destroy}}};
-    const start=id=>apply({op:'animate',id,property:'scale',values:[1,1.5],delay:0,duration:60000});
-    let released=true, peak=0;
-    start(5);
-    const survivor=animations.get('5/scale');
-    for(let i=0;i<16;i++) {
-      start(3); const old=animations.get('3/scale');
-      apply({op:'destroy',id:3});
-      released &&= old.playState==='idle' && !animations.has('3/scale');
-      const replacement=document.createElement('input'); replacement.dataset.view='3';
-      f.views.get(2).append(replacement); views.set(3,replacement); start(3);
-      const next=animations.get('3/scale'); await Promise.resolve();
-      released &&= animations.get('3/scale')===next && animations.get('5/scale')===survivor;
-      peak=Math.max(peak,animations.size);
-      apply({op:'destroy',id:3});
-      views.set(3,replacement); f.views.get(2).append(replacement);
-    }
-    start(3); const last=[...animations.values()]; ${reset}
-    await Promise.resolve();
-    return {released,peak,remaining:animations.size,resetIdle:last.every(a=>a.playState==='idle')};
-  })()`);
-  expect(result).toEqual({released:true,peak:2,remaining:0,resetIdle:true});
+
+function motionFixture() {
+  const f=fixture(), node=f.views.get(2); f.motion?.reset();
+  let serial=9007199254740993n, time=100, epoch=1;
+  const held=new Map(), calls=[];
+  const apply=batch=>{ for(const op of batch?.ops??[]) if(op.op==='animate') motion.animate(op); };
+  const request=r=>{
+    calls.push(r);
+    if(r.op==='begin') { const token=String(serial++); held.set(token,r); return {token,value:[r.x,r.y],batch:{ops:[]}}; }
+    const old=held.get(r.token); if(!old) return {accepted:false};
+    if(r.op==='live') return {accepted:true};
+    if(r.op==='move') { old.x=r.x; old.y=r.y; return {accepted:true,batch:{ops:[]}}; }
+    if(r.op==='action') { f.onAction?.(); return {accepted:true}; }
+    held.delete(r.token);
+    return {accepted:true,batch:{ops:f.releaseOps??[]}};
+  };
+  const motion=createMotion({views:f.views,now:()=>time,generation:()=>epoch,request,applyBatch:apply,inert:el=>el.closest('[inert]'),releaseInteraction:pointer=>f.controller.releaseInteraction(pointer)});
+  Object.assign(f,{motion,node,held,calls,advance:ms=>time+=ms,reload:()=>{epoch++;motion.reset();}});
+  return f;
+}
+test('WAAPI catch at crossing/overshoot preserves only its property across latest style commits', async () => {
+  const result=await evaluate(`(() => { const f=(${motionFixture})(); const m=f.motion,n=f.node;
+    m.style(2,'translate:0px;opacity:1;transition:opacity 1s linear');
+    const opacity=n.animate([{opacity:1},{opacity:0.2}],{duration:10000});
+    m.animate({id:2,property:'translate',values:[[0,0],[100,0],[0,0]],delay:0,duration:1000});
+    const animation=n.getAnimations().find(a=>a.effect.getKeyframes().some(k=>k.translate)); animation.pause(); animation.currentTime=500;
+    const before=getComputedStyle(n).translate, h=m.begin(2,'translate');
+    const caught=getComputedStyle(n).translate;
+    m.style(2,'translate:24px;opacity:0.4;background-color:blue;transition:none');
+    const held=getComputedStyle(n).translate, color=getComputedStyle(n).backgroundColor;
+    m.end(h,[0,0],true);
+    return {before,caught,held,color,end:getComputedStyle(n).translate,old:animation.playState,other:opacity.playState,token:h.token}; })()`);
+  expect(result.before).toBe('100px'); expect(result.caught).toBe(result.before); expect(result.held).toBe(result.before);
+  expect(result.color).toBe('rgb(0, 0, 255)'); expect(result.end).toBe('24px'); expect(result.old).toBe('idle'); expect(result.other).not.toBe('idle'); expect(result.token).toBe('9007199254740993');
+});
+test('same-clock rebegin rejects stale completion and delayed release holds its first frame', async () => {
+  const result=await evaluate(`(() => { const f=(${motionFixture})(); const m=f.motion,n=f.node;
+    m.style(2,'translate:0px;transition:none'); const old=m.begin(2,'translate'); m.move(old,[84,0]); const h=m.begin(2,'translate');
+    const stale=m.finish(old,[85,0],[0,0],true); const actions=f.calls.filter(c=>c.op==='action').length;
+    f.releaseOps=[{op:'animate',id:2,property:'translate',values:[[84,0],[0,0]],delay:100,duration:200}]; m.end(h,[0,0]);
+    const animation=n.getAnimations().find(a=>a.effect.getKeyframes().some(k=>k.translate)); animation.pause(); animation.currentTime=0;
+    const delay=getComputedStyle(n).translate; f.reload(); const late=m.move(h,[90,0]);
+    return {stale,actions,delay,fill:animation.effect.getTiming().fill,late,animations:n.getAnimations().length}; })()`);
+  expect(result).toEqual({stale:false,actions:0,delay:'84px',fill:'backwards',late:false,animations:0});
+});
+
+test('motion destroy/remount/reset cancel only owned animations', async()=>{
+  const result=await evaluate(`(() => {const f=(${motionFixture})();const m=f.motion,n=f.node; m.animate({id:2,property:'scale',values:[1,2],delay:0,duration:10000}); const old=n.getAnimations()[0];m.destroy(2);m.animate({id:2,property:'scale',values:[1,2],delay:0,duration:10000});const next=n.getAnimations()[0];m.reset();return {old:old.playState,next:next.playState,remaining:n.getAnimations().length};})()`);
+  expect(result).toEqual({old:'idle',next:'idle',remaining:0});
+});
+
+test('target-crossing catches cancel playback even at the authored target',async()=>{
+  const result=await evaluate(`(() => {const f=(${motionFixture})();const m=f.motion,n=f.node;m.style(2,'translate:80px');m.animate({id:2,property:'translate',values:[[0,0],[80,0],[120,0],[80,0]],delay:0,duration:900});const a=n.getAnimations()[0];a.pause();a.currentTime=300;const before=getComputedStyle(n).translate,h=m.begin(2,'translate');return {before,after:getComputedStyle(n).translate,old:a.playState,value:h.value};})()`);
+  expect(result).toEqual({before:'80px',after:'80px',old:'idle',value:[80,0]});
+});
+test('swipe recognition catches current overshoot unchanged then reverses in displayed units',async()=>{
+  const result=await evaluate(`(() => {const f=(${motionFixture})();const m=f.motion,n=f.node;const events={};n.setPointerCapture=()=>{};n.hasPointerCapture=()=>false;
+    m.style(2,'translate:0px');m.animate({id:2,property:'translate',values:[[0,0],[100,0],[0,0]],delay:0,duration:1000});const a=n.getAnimations()[0];a.pause();a.currentTime=250;
+    m.attachSwipe(n,2,(name,fn)=>events[name]=fn);
+    const event=(type,x)=>({type,isPrimary:true,button:0,pointerId:7,clientX:x,clientY:0,target:n,preventDefault(){},stopPropagation(){}});
+    events.pointerdown(event('pointerdown',0));a.currentTime=500;events.pointermove(event('pointermove',10));const caught=getComputedStyle(n).translate;
+    f.advance(20);events.pointermove(event('pointermove',30));const forward=getComputedStyle(n).translate;f.advance(20);events.pointermove(event('pointermove',20));const reverse=getComputedStyle(n).translate;
+    f.advance(20);events.pointerup(event('pointerup',20));const release=f.calls.findLast(c=>c.op==='release');
+    return {caught,forward,reverse,velocity:release.x,actions:f.calls.filter(c=>c.op==='action').length};})()`);
+  expect(result.caught).toBe('100px'); expect(result.forward).toBe('104px'); expect(result.reverse).toBe('102px'); expect(result.actions).toBe(1);
+  expect(result.velocity).toBeLessThan(0); expect(Math.abs(result.velocity)).toBeLessThan(250);
+});
+test('accepted final sample precedes action and deletion makes end harmless',async()=>{
+  const result=await evaluate(`(() => {const f=(${motionFixture})();const m=f.motion,h=m.begin(2,'translate');f.onAction=()=>{m.destroy(2);f.node.remove();f.views.delete(2);f.held.delete(h.token);};const accepted=m.finish(h,[70,0],[20,0],true);return {accepted,ops:f.calls.map(c=>c.op),late:m.end(h,[0,0])};})()`);
+  expect(result).toEqual({accepted:true,ops:['begin','live','move','action'],late:false});
+});
+
+test('CSS easing takeover samples browser presentation and releases toward newest easing target',async()=>{
+  const result=await evaluate(`(() => {const f=(${motionFixture})();const m=f.motion,n=f.node;
+    m.style(2,'translate:0px;transition:translate 1s linear');n.getBoundingClientRect();m.style(2,'translate:100px;transition:translate 1s linear');
+    const old=n.getAnimations().find(a=>a.transitionProperty==='translate');old.pause();old.currentTime=500;const h=m.begin(2,'translate');
+    m.style(2,'translate:200px;transition:translate 1s linear');const held=getComputedStyle(n).translate;m.end(h,[0,0],true);
+    const next=n.getAnimations().find(a=>a.transitionProperty==='translate');next.pause();next.currentTime=500;return {held,old:old.playState,mid:getComputedStyle(n).translate};})()`);
+  expect(result).toEqual({held:'50px',old:'idle',mid:'125px'});
+});
+
+test('immediate left catch uses displayed release threshold and cancellation never commits',async()=>{
+  const result=await evaluate(`(() => {const run=(end,type='pointerup')=>{const f=(${motionFixture})();const m=f.motion,n=f.node,events={};n.setPointerCapture=()=>{};n.hasPointerCapture=()=>false;
+    m.style(2,'translate:0px');m.animate({id:2,property:'translate',values:[[0,0],[100,0],[0,0]],delay:0,duration:1000});const a=n.getAnimations()[0];a.pause();a.currentTime=250;
+    m.attachSwipe(n,2,(name,fn)=>events[name]=fn);const event=(type,x)=>({type,isPrimary:true,button:0,pointerId:7,clientX:x,clientY:0,target:n,preventDefault(){},stopPropagation(){}});
+    events.pointerdown(event('pointerdown',0));a.currentTime=500;events.pointermove(event('pointermove',-10));const caught=getComputedStyle(n).translate;
+    f.advance(20);events.pointermove(event('pointermove',end));const final=getComputedStyle(n).translate;events[type](event(type,end));
+    return {caught,final,actions:f.calls.filter(c=>c.op==='action').length,cancels:f.calls.filter(c=>c.op==='cancel').length};};return [run(-10),run(-220),run(-10,'pointercancel')];})()`);
+  expect(result).toEqual([{caught:'100px',final:'100px',actions:1,cancels:0},{caught:'100px',final:'34px',actions:0,cancels:0},{caught:'100px',final:'100px',actions:0,cancels:1}]);
+});
+
+test('motion wire keeps the complete u64 serial and millisecond clock',()=>{
+  const bytes=motionBytes({op:'release',token:'18446744073709551615',x:17,y:-4,now:1234.5}),d=new DataView(bytes.buffer);
+  expect(bytes.length).toBe(48);expect(d.getBigUint64(16,true)).toBe(18446744073709551615n);
+  expect(d.getFloat64(24,true)).toBe(17);expect(d.getFloat64(40,true)).toBe(1234.5);
+  expect(()=>motionBytes({op:'live',token:Number.MAX_SAFE_INTEGER+1})).toThrow();
+});
+
+test('completed batches cancel ineligible held rows and pins before any late pointerup',async()=>{
+  const result=await evaluate(`(() => {const run=kind=>{const f=(${motionFixture})();const m=f.motion,n=f.node,events={};n.setPointerCapture=()=>{};n.hasPointerCapture=()=>false;
+    f.controller.commit([f.snapshot()]);m.attachSwipe(n,2,(name,fn)=>events[name]=fn);const event=(type,x)=>({type,isPrimary:true,button:0,pointerId:7,clientX:x,clientY:0,target:n,preventDefault(){},stopPropagation(){}});
+    n.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7}));events.pointerdown(event('pointerdown',0));events.pointermove(event('pointermove',10));events.pointermove(event('pointermove',100));f.flush();const pinned=f.reports.at(-1).interaction;
+    if(kind==='disabled')n.setAttribute('disabled','');else if(kind==='inert')f.views.get(1).inert=true;else f.views.get(1).style.display='none';
+    m.commit();f.flush();const held=f.held.size,pin=f.reports.at(-1).interaction;
+    n.removeAttribute('disabled');f.views.get(1).inert=false;f.views.get(1).style.display='';events.pointerup(event('pointerup',100));
+    let clickSuppressed=false;events.click({preventDefault(){clickSuppressed=true;},stopPropagation(){}});
+    return {kind,pinned,held,pin,clickSuppressed,actions:f.calls.filter(c=>c.op==='action').length,cancels:f.calls.filter(c=>c.op==='cancel').length};};return ['disabled','inert','hidden'].map(run);})()`);
+  expect(result).toEqual(['disabled','inert','hidden'].map(kind=>({kind,pinned:2,held:0,pin:0,clickSuppressed:true,actions:0,cancels:1})));
+});
+
+test('signed swipe resistance and caught indicators stay continuous across both boundaries',async()=>{
+  const result=await evaluate(`(() => {const run=(base,indicator,offsets)=>{const f=(${motionFixture})();const m=f.motion,n=f.node,events={};n.setPointerCapture=()=>{};n.hasPointerCapture=()=>false;
+    const companion=document.createElement('div');companion.dataset.view='6';companion.setAttribute('swipeIndicator','true');n.append(companion);f.views.set(6,companion);
+    m.style(2,'translate:'+base+'px');m.style(6,'height:10px;width:10px;opacity:'+indicator+';scale:'+indicator);
+    m.attachSwipe(n,2,(name,fn)=>events[name]=fn);const event=(type,x)=>({type,isPrimary:true,button:0,pointerId:7,clientX:x,clientY:0,target:n,preventDefault(){},stopPropagation(){}});
+    events.pointerdown(event('pointerdown',0));events.pointermove(event('pointermove',10));
+    const samples=offsets.map(offset=>{f.advance(20);events.pointermove(event('pointermove',10+offset));return f.calls.filter(c=>c.op==='move').slice(-3).map(c=>c.x);});
+    events.pointercancel(event('pointercancel',10));return samples;};
+    return {positive:run(100,1,[0,-180,-212,-244,-308,-318,-308]),negative:run(-100,0.5,[0,20,180,244]),middle:run(32,0.6,[0,-16,-32,16,32]),zero:run(0,0.5,[0,32,64])};})()`);
+  expect(result.positive).toEqual([[100,1,1],[64,1,1],[32,0.5,0.5],[0,0,0],[-64,0,0],[-66,0,0],[-64,0,0]]);
+  expect(result.negative).toEqual([[-100,0.5,0.5],[-96,0.5,0.5],[-64,0.5,0.5],[0,0.5,0.5]]);
+  expect(result.middle).toEqual([[32,0.6,0.6],[16,0.3,0.3],[0,0,0],[48,0.8,0.8],[64,1,1]]);
+  expect(result.zero).toEqual([[0,0.5,0.5],[32,0.75,0.75],[64,1,1]]);
 });

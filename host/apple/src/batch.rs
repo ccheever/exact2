@@ -66,6 +66,13 @@ fn id_list(ids: &[u32], out: &mut String) {
 }
 
 impl Batch {
+    /// A new native presentation hold. Its serial is a decimal string, never a JSON float.
+    pub fn hold(&mut self, token: u64, x: f64, y: f64) {
+        self.ops.push(format!(
+            "{{\"op\":\"hold\",\"token\":\"{token}\",\"x\":{x},\"y\":{y}}}"
+        ));
+    }
+
     /// Empty.
     pub fn new() -> Batch {
         Batch::default()

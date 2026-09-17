@@ -61,6 +61,7 @@ final class Presenter {
     var views: [UInt32: NodeView] = [:]
     lazy var collections = CollectionHost(self)
     lazy var selection = TextSelection(self)
+    lazy var mouseSwipe = MouseSwipe(self)
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
     /// The native menu arm (LLP 1021 D3).
@@ -131,6 +132,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        mouseSwipe.cancel()
         collections.reset()
         resetting = true
         defer { resetting = false }
@@ -312,6 +314,7 @@ final class Presenter {
             case "command":
                 onCommand?(op["name"] as? String ?? "", op["args"] as? [Any] ?? [])
             case "destroy":
+                mouseSwipe.retire(id)
                 session?.canvases.destroy(view: id)
                 views[id]?.forget()
                 // Out of the map before out of the window: the editing-ended

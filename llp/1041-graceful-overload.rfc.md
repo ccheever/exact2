@@ -559,15 +559,69 @@ web/AppKit/Ubuntu drives exercise the real collection adapters and rich text;
 their app READMEs distinguish endpoint, anchor and functional input checks from
 physical presentation.
 
-The next implementation slice is interruptible presentation ownership. Keep the
-latest authored target while a token holds a sampled presentation; commits may
-retarget without pulling the held object away. Release explicitly starts from
-that held value with displayed velocity and the current transition declaration.
-Tokens bind generation and interaction lifetime; stale callbacks neither move
-the clock nor resurrect a view. The engine remains idle when only holds exist.
-Web continues lowering springs to browser animations, sampling computed style
-at takeover and preserving held properties across commits. Native hosts retain
-the same begin value across gesture samples. Tuft owns integration, Zeno the
-engine, Newton kernel regressions, and the existing web/Apple/Linux owners their
-adapters, starting 2026-09-16. This is implementation in progress, not a claim
-that any of §8.5's continuous interactions is complete.
+Interruptible presentation ownership is now implemented in LLP 1002 D3–D4 and
+1003. The latest authored target survives while a token holds sampled
+presentation; release uses the newest declaration and displayed velocity.
+Generation/interaction checks reject stale callbacks before clock mutation.
+Holding alone schedules no frames. Web retains CSS/WAAPI execution and samples
+computed presentation at recognition; native hosts sample the shared engine.
+Tuft integrates, Zeno owns the engine, Newton kernel regressions, and the
+web/Apple/Linux owners their adapters, starting 2026-09-16. This completes a
+shared primitive and the first Messages interaction slice, not all of §8.5.
+
+### 8.7 Interrupted gestures: implementation evidence, 2026-09-17
+
+Messages now supports catching a right-displaced returning row by moving
+immediately left, reversing through its origin, and releasing or cancelling.
+Inverse resistance preserves the caught position even beyond the resistance
+threshold. Final input precedes the authored action; token release and collection
+pin retirement follow it. Commits while held may change the target or transition
+without moving the held row. Deletion, replacement, inactive routes, disabled
+ancestors and carrier loss retire ownership without a late semantic action.
+Native recognizer cancellation during a presentation batch is deferred beyond
+that batch, with identity checked again on delivery. Overdue timer receipts
+keep Runner order while presentation time remains monotonic.
+
+Review exposed work that output-only tests had missed: Web regenerated the
+entire keyframe array before checking whether a spring was already playing.
+An allocation-free curve descriptor now precedes lowering. With 64 unrelated
+springs and 100 hold moves, the instrumented regression falls from 6,528 curve
+compilations to 64; subsequent releases correctly add one each. This is a work
+count, not an elapsed-time or physical-frame result. Original failing logs and
+passing browser checks remain under `/tmp/exact-web-motion-*`; shared checks
+are in `target/motion-integration-final/`. The aggregate run passes 304 Rust
+tests plus 13 kernel motion tests, with three opt-in browser tests separately
+driven by the web owner. Scoped strict Clippy passes. Full workspace build/test/
+lint still require the unrelated lean Hermes producer; external formatting
+failures remain separately recorded rather than rewritten in this increment.
+The final native Linux source independently passes 91 tests and strict all-target
+Clippy on Ubuntu ARM64, including real TCP disconnect and evdev report grouping
+that the macOS-hosted Linux package run cannot exercise.
+
+AppKit drives use real native event dispatch over a 10,000-record virtualized
+transcript; linked native probes cover batch reentry and loss of input eligibility.
+Evidence and binary/source identities are in
+`target/messages-stress-native/holds/`. UIKit source is migrated but has no
+SDK/device validation on this machine; standalone Swift assertions are not
+XCTest or a touch-device result.
+
+The actual Ubuntu VM now also runs the normal DRM/KMS display loop using the
+kernel's VKMS virtual 1024×768/60 Hz connector and CPU renderer. Existing VNC
+input drives the 10,000-record transcript, typing while held, spring release,
+immediate-left catch and reversal, without headless observation requests to
+advance the host. Captured bubble edges are x=12 at rest/recognition, x=84 while
+held and after typing, x=67 at catch, x=47 after reversal and x=12 after settling.
+Disconnecting a held VNC contact also releases it. Exact captures, integer-pixel
+checks, source identity and executable are in
+`target/messages-stress-native/linux-holds-vkms/`. Its report distinguishes the
+captured binary from the subsequent removal of the unused legacy hold API.
+This is virtual display-loop and remote-input evidence, not a physical display,
+desktop-compositor comparison, input-latency measurement or a 120 Hz claim.
+
+The remaining campaign includes sustained loaded/resize interaction measurements,
+the three gallery gestures, image admission and reduced-resolution decoding,
+and indivisible giant Markdown layout. The gallery's separate collection slice
+supplies all 25,000 Arrange/Read records while preserving manual/eager controls;
+metadata-only actions reuse row values and do no record keying. Photos remains
+manually paged. Discrete buttons, static screenshots and bounded mounted rows
+do not establish the continuous interactions or decoded-image budget.

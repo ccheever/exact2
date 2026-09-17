@@ -351,6 +351,11 @@ public final class ExactSession {
     /// Commands from the batch being applied, delivered after it (D2).
     private var pendingCommands: [(String, [Any])] = []
     private var applying = false
+    var isApplyingPresentation: Bool { applying }
+    // Weak live gesture ownership only; no historical tokens or row registry.
+    private let inputHolds = NSHashTable<SwipeHold>.weakObjects()
+    func trackInputHold(_ hold: SwipeHold) { inputHolds.add(hold) }
+    func retireInputHold(_ hold: SwipeHold) { inputHolds.remove(hold) }
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
@@ -460,9 +465,9 @@ public final class ExactSession {
             // the baked plan) starts the views over; the library already
             // replaced its host.
             routerOp = nil
+            generation += 1
             if booted { presenter.reset() }
             booted = true
-            generation += 1
             text.commitFonts()
         }
         apply(batch)
@@ -573,6 +578,9 @@ public final class ExactSession {
         }
         if outermost {
             presenter.collections.flush()
+            // Route projection and all structural/style changes are now final.
+            // Ineligible recognizers may never receive another mouse/touch event.
+            for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
             applying = false
             let queued = pendingCommands
             pendingCommands = []

@@ -380,16 +380,6 @@ final class Presenter {
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
-    /// Removing a route cancels its recognizers before every child has been
-    /// forgotten. Motion follows the same post-batch lifetime rule as events;
-    /// a retired view cannot release into a successor with the same numeric id.
-    func dragX(_ view: NodeView, delta: Double, velocity: Double, release: Bool, commit: Bool = false) {
-        send(view.id) { [weak self, weak view] in
-            guard let self, let view, views[view.id] === view, let session else { return }
-            session.apply(session.runtime.dragX(view.id, delta: delta, velocity: velocity, release: release, now: session.now()))
-            if commit { swiperight(view.id) }
-        }
-    }
     func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }

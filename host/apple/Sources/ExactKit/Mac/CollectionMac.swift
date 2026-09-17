@@ -76,7 +76,7 @@ extension CollectionHost {
                 // handler. Captured generation is checked by the weak helper.
                 releaseInteractionLater()
             case .keyDown:
-                if event.keyCode == 53 { pointer(nil) }
+                if event.keyCode == 53 { releaseInteractionLater() }
             default: break
             }
             return event
@@ -85,7 +85,7 @@ extension CollectionHost {
             object: nil, queue: .main) { [weak self] notification in
                 guard let self, let window = notification.object as? NSWindow,
                       window === presenter?.viewport.window else { return }
-                pointer(nil)
+                releaseInteractionLater()
             }
         stopTracking = {
             if let monitor { NSEvent.removeMonitor(monitor) }

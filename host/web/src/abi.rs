@@ -359,6 +359,68 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Fixed 48-byte LE motion request: version/op/view/property u32,
+    /// opaque serial u64, then x/y/clock-ms f64. Serials never cross as f64.
+    pub fn motion(&mut self, len: usize) -> u32 {
+        use exact_motion::{HoldEnd, Property, Value};
+        let decoded = (|| -> Result<_, exact_plan::PlanError> {
+            let mut r = exact_plan::bytes::Reader::new(
+                self.input
+                    .get(..len)
+                    .filter(|_| len == 48)
+                    .ok_or(exact_plan::PlanError::BadCount(len as u32))?,
+            );
+            if r.u32()? != 1 {
+                return Err(exact_plan::PlanError::BadCount(0));
+            }
+            Ok((
+                r.u32()?,
+                r.u32()?,
+                r.u32()?,
+                r.u64()?,
+                Value::new(r.f64()?, r.f64()?),
+                r.f64()?,
+            ))
+        })();
+        let out = (|| -> Result<String, String> {
+            let (op, view, property, serial, value, now) =
+                decoded.map_err(|_| "malformed motion input".to_string())?;
+            let host = self.host.as_mut().ok_or("not booted")?;
+            if op == 0 {
+                let property = *Property::ALL
+                    .get(property as usize)
+                    .ok_or("invalid motion property")?;
+                return match host
+                    .begin_hold(view, property, value, now)
+                    .map_err(|e| format!("{e:?}"))?
+                {
+                    Some((start, batch)) => Ok(format!(
+                        "{{\"token\":\"{}\",\"value\":[{},{}],\"batch\":{batch}}}",
+                        start.token.serial(),
+                        start.value.x,
+                        start.value.y
+                    )),
+                    None => Ok("{\"accepted\":false}".into()),
+                };
+            }
+            let batch = match op {
+                1 => host.update_hold(serial, value, now),
+                2 => host.end_hold(serial, HoldEnd::Release { velocity: value }, now),
+                3 => host.end_hold(serial, HoldEnd::Cancel, now),
+                4 => return Ok(format!("{{\"accepted\":{}}}", host.has_hold(serial))),
+                5 => Ok(host.dispatch_held(serial, now)),
+                _ => return Err("invalid motion operation".into()),
+            }
+            .map_err(|e| format!("{e:?}"))?;
+            Ok(match batch {
+                Some(batch) => format!("{{\"accepted\":true,\"batch\":{batch}}}"),
+                None => "{\"accepted\":false}".into(),
+            })
+        })()
+        .unwrap_or_else(|error| exact_runner::agent::error(&error));
+        self.emit(out)
+    }
+
     /// Move the clock.
     pub fn advance(&mut self, now_ms: f64) -> u32 {
         let out = match self.host.as_mut() {
@@ -538,6 +600,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_collection_feedback(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().collection_feedback(len as usize))
+        }
+
+        /// Input-driven presentation ownership, with exact u64 token bytes.
+        #[no_mangle]
+        pub extern "C" fn exact_motion(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().motion(len as usize))
         }
 
         /// Move the clock; returns the batch's length.

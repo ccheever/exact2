@@ -130,6 +130,7 @@ final class CollectionHost {
     private var queued = false
     private var generation = 0
     private var contactSequence: UInt64 = 0
+    private var gestureContact: UInt64?
     private var lastVisited: UInt32 = 0
     private var refreshPins = false
     // Platform hooks remove event monitors/recognizers when the adapter resets.
@@ -138,6 +139,7 @@ final class CollectionHost {
     deinit { stopTracking?() }
 
     func reset() {
+        gestureContact = nil
         generation += 1; queued = false; batchDepth = 0; correcting = false
         stopTracking?(); stopTracking = nil
         entries.removeAll(); dirty.removeAll(); interaction = nil; contactEvent = nil
@@ -217,11 +219,21 @@ final class CollectionHost {
         if batchDepth == 0 { flush() }
     }
     func pointer(_ view: UInt32?) {
+        gestureContact = nil
         contactSequence &+= 1
         interaction = view
         pinsChanged()
     }
-    func releaseInteractionLater() {
+    func holdPointer(_ view: UInt32) -> UInt64 {
+        pointer(view)
+        gestureContact = contactSequence
+        return contactSequence
+    }
+    func releaseInteractionLater(ifCurrent expected: UInt64? = nil) {
+        if let expected {
+            guard contactSequence == expected else { return }
+            gestureContact = nil
+        } else if gestureContact == contactSequence { return }
         let captured = generation
         let prior = contactSequence
         DispatchQueue.main.async { [weak self] in

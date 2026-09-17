@@ -89,8 +89,12 @@ CSS Transitions §3 as the engine runs it, per `(node, property)`:
   velocity (or the change's `velocity`, when a gesture supplied one).
 - **Delay** holds the start value; a negative delay starts partway.
 
-`Engine::hold` writes through with no transition (a drag under
-`transition: none`). `Engine::advance(now)` is monotonic and samples every
+`Engine::begin_hold` captures presentation and returns a token;
+`update_hold` changes only its presentation, while commits retain the newest
+authored target and transition. `end_hold` releases with velocity or cancels
+with zero velocity. Stale tokens are inert before clock mutation; rebegin and
+removal invalidate them. LLP 1002 D3–D4 specify time, lifetime and host lowering.
+`Engine::advance(now)` is monotonic and samples every
 running transition at `now` — a seek. `Engine::frame()` drains the changed
 `(node, property)` set in key order. `settle_time()` is the last running end
 time (a spring's from `settle_time` on the grid). `remove(node)` forgets a node.

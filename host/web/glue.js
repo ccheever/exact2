@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { navigation, collectionController, scrollFollowers } from "./navigation.js";
+import { navigation, collectionController, scrollFollowers, motionController, motionBytes } from "./navigation.js";
 // Native independent HTTP carries a response ceiling; enforce it during browser reads too.
 async function boundedHttpBody(response, limit) {
   if (limit == null) return new Uint8Array(await response.arrayBuffer());
@@ -23,7 +23,15 @@ const collections = collectionController({ root, views, report(bytes) {
   applyBatch(batch); return !batch.error;
 } });
 const retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
-const animations = new Map(); // "view/property" -> Animation (a spring in flight)
+const motion = motionController({views, now:()=>now(), generation:()=>incarnation, inert:inertAncestor, applyBatch,
+  releaseInteraction:pointer=>collections.releaseInteraction(pointer),
+  request(facts) {
+    if (!wasm) return {accepted:false};
+    const bytes=motionBytes(facts), ptr=wasm.exact_in(bytes.length);
+    new Uint8Array(memory.buffer,ptr,bytes.length).set(bytes);
+    return JSON.parse(readOut(wasm.exact_motion(bytes.length)));
+  }
+});
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
 const messageFrames = new Set(); // iframes whose node handles `message`
@@ -476,62 +484,7 @@ function attach(el, id, handlers) {
     } else if (kind === "scroll") {
       on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop}`); send(wasm.exact_dispatch(id, 13, n, now())); });
     } else if (kind === "swiperight") {
-      let drag = null, suppressClick = false;
-      on("pointerdown", (e) => {
-        if (!e.isPrimary || e.button !== 0 || el.matches(":disabled") || inertAncestor(el)) return;
-        if (e.target.closest("input,textarea,[contenteditable]")) return;
-        // The CSS touch-action decides which touch directions the browser
-        // keeps for scrolling. A scrolling pointer cancels this observation.
-        e.preventDefault(); e.stopPropagation();
-        const translate = getComputedStyle(el).translate;
-        const parts = translate === "none" ? ["0px", "0px"] : translate.match(/calc\([^)]*\)|\S+/g);
-        drag = { pointer: e.pointerId, x: e.clientX, y: e.clientY, distance: 0, active: false,
-          translate: el.style.translate, transition: el.style.transition, base: parts,
-          indicators: [...el.children].filter(n => n.getAttribute("swipeIndicator") === "true").map(node => {
-            // Start from authored targets even if a preceding return is in flight.
-            const scale = (node.style.scale || "1").split(" ").map(Number);
-            return { node, opacity: node.style.opacity, scale: node.style.scale, transition: node.style.transition,
-              baseOpacity: Number(node.style.opacity || "1"), baseScale: [scale[0], scale[1] ?? scale[0]] };
-          }) };
-        el.setPointerCapture(e.pointerId);
-      });
-      on("pointermove", (e) => {
-        if (!drag || drag.pointer !== e.pointerId) return;
-        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-        if (!drag.active) {
-          if (Math.abs(dy) > 8 && Math.abs(dy) >= Math.abs(dx) || dx < -8) { drag = null; return; }
-          if (dx < 8 || dx <= Math.abs(dy)) return;
-          drag.active = true;
-          el.style.transition = "none";
-          for (const { node } of drag.indicators) node.style.transition = "none";
-        }
-        drag.distance = Math.max(0, dx);
-        const offset = Math.min(drag.distance, 64) + Math.max(0, drag.distance - 64) * 0.2;
-        el.style.translate = `calc(${drag.base[0]} + ${offset}px) ${drag.base[1] || "0px"}`;
-        const progress = Math.min(offset / 64, 1);
-        for (const indicator of drag.indicators) {
-          indicator.node.style.opacity = indicator.baseOpacity + (1 - indicator.baseOpacity) * progress;
-          indicator.node.style.scale = indicator.baseScale.map(v => v + (1 - v) * progress).join(" ");
-        }
-        e.stopPropagation();
-      });
-      const finish = (e) => {
-        if (!drag || drag.pointer !== e.pointerId) return;
-        const ended = drag; drag = null;
-        if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-        if (!ended.active) return;
-        suppressClick = true;
-        // Commit the held value before restoring the authored CSS transition.
-        el.getBoundingClientRect();
-        el.style.transition = ended.transition;
-        el.style.translate = ended.translate;
-        for (const { node, opacity, scale, transition } of ended.indicators) {
-          node.style.transition = transition; node.style.opacity = opacity; node.style.scale = scale;
-        }
-        if (e.type === "pointerup" && ended.distance >= 64) send(wasm.exact_dispatch(id, 12, 0, now()));
-      };
-      on("pointerup", finish); on("pointercancel", finish); on("lostpointercapture", finish);
-      on("click", (e) => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopPropagation(); } });
+      motion.attachSwipe(el, id, on);
     } else if (kind === "contextmenu" || kind === "dblclick") {
       on(kind, (e) => {
         if (el.matches(":disabled") || inertAncestor(el)) return;
@@ -650,7 +603,7 @@ function apply(batch) {
       }
       case "style": {
         const el = viewFor("style", op.id);
-        if (el) el.style.cssText = op.css;
+        if (el) motion.style(op.id, op.css);
         break;
       }
       case "children": {
@@ -672,21 +625,7 @@ function apply(batch) {
         while (cursor) { const next = skip(cursor.nextElementSibling); cursor.remove(); cursor = next; }
         break;
       }
-      case "animate": {
-        // A spring: frames from the engine, played by the browser with linear
-        // interpolation (LLP 1002 D2). Replaces the spring on that property.
-        const key = op.id + "/" + op.property;
-        animations.get(key)?.cancel();
-        animations.delete(key);
-        if (!op.values.length) break;
-        const el = viewFor("animate", op.id);
-        if (!el) break;
-        const css = (v) => op.property === "translate" ? `${v[0]}px ${v[1]}px` : op.property === "rotate" ? `${v}deg` : String(v);
-        const anim = el.animate(op.values.map((v) => ({ [op.property]: css(v) })), { delay: op.delay, duration: op.duration, easing: "linear" });
-        animations.set(key, anim);
-        anim.finished.then(() => { if (animations.get(key) === anim) animations.delete(key); }, () => {});
-        break;
-      }
+      case "animate": { motion.animate(op); break; }
       case "surface": {
         // A canvas's inputs (LLP 1009 D2): to the GPU module when it is
         // loaded, queued until then. The module itself is fetched only
@@ -794,9 +733,7 @@ function apply(batch) {
         break;
       }
       case "destroy": {
-        for (const property of ["translate", "scale", "rotate", "opacity"]) {
-          const key = op.id + "/" + property; animations.get(key)?.cancel(); animations.delete(key);
-        }
+        motion.destroy(op.id);
         const el = views.get(op.id); if (el) { retiredViews.add(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
         views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
@@ -861,6 +798,7 @@ function apply(batch) {
 // says (`batch.clock`: an advance a timer refused stops early).
 function applyBatch(batch) {
   const timers = apply(batch);
+  motion.commit();
   if (agentMode) {
     // What the ops since the last marker started belongs to that marker's
     // time — register before the clock moves on to where the batch landed.
@@ -1345,8 +1283,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   globalThis.exact.pendingSurfaces = [];
   if (ticker) clearInterval(ticker);
   ticker = null;
-  for (const a of animations.values()) a.cancel();
-  animations.clear();
+  motion.reset();
   globalThis.exact?.gpu?.reset();
   for (const el of followedScrolls.keys()) followScroll(el, false);
   pendingScrolls.clear();

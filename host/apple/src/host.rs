@@ -19,7 +19,10 @@ use exact_kernel::{
     Env, Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue,
     TextMeasurer, ViewId,
 };
-use exact_motion::{Change, Engine, Property};
+use exact_motion::{Change, Engine, HoldToken, Property};
+
+#[path = "holds.rs"]
+mod holds;
 use exact_plan::{EventKind, Plan};
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use ibex2::host::Secrets;
@@ -59,6 +62,7 @@ pub struct Host<D: DataSource> {
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
     engine: Engine,
+    holds: BTreeMap<u64, HoldToken>,
     viewport: (f32, f32),
     now_ms: f64,
     /// Where the app's kept secrets go after a commit (LLP 1018 D6); `None`
@@ -214,6 +218,7 @@ impl<D: DataSource> Host<D> {
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: Engine::new(),
+            holds: BTreeMap::new(),
             viewport: (width, height),
             now_ms: 0.0,
             data_activated: false,
@@ -602,84 +607,6 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
-    /// A horizontal platform drag holds translate; release returns to its
-    /// authored target under the authored transition, carrying velocity.
-    pub fn drag_x(
-        &mut self,
-        view: ViewId,
-        delta: f64,
-        velocity: f64,
-        release: bool,
-        now_ms: f64,
-    ) -> String {
-        let mut batch = Batch::new();
-        if ![delta, velocity, now_ms].iter().all(|v| v.is_finite()) {
-            return self.finish(batch, Some("drag requires finite values".into()));
-        }
-        let Some(node) = self.runner.kernel().node(view) else {
-            return self.finish(batch, Some("drag target is gone".into()));
-        };
-        let key = motion_node(node.key);
-        let target = targets(node.style)
-            .into_iter()
-            .find(|(p, _)| *p == Property::Translate)
-            .unwrap()
-            .1;
-        // The app authors the indicator as a direct child. The gesture holds
-        // its existing style rows; it owns no additional visual/state graph.
-        let indicators: Vec<_> = node
-            .children()
-            .into_iter()
-            .filter_map(|id| {
-                let child = self.runner.kernel().node(id)?;
-                (child.props.bool(PropId::SwipeIndicator) == Some(true))
-                    .then(|| (motion_node(child.key), targets(child.style)))
-            })
-            .collect();
-        self.now_ms = now_ms.max(self.now_ms);
-        let result = self.engine.advance(self.now_ms / 1000.0).and_then(|()| {
-            if release {
-                self.engine.observe(Change {
-                    node: key,
-                    property: Property::Translate,
-                    value: target,
-                    velocity: Some(exact_motion::Value::new(velocity, 0.0)),
-                })
-            } else {
-                self.engine.hold(
-                    key,
-                    Property::Translate,
-                    exact_motion::Value::new(target.x + delta, target.y),
-                )
-            }?;
-            let progress = (delta / 64.0).clamp(0.0, 1.0);
-            for (indicator, values) in &indicators {
-                for &(property, value) in values {
-                    if !matches!(property, Property::Opacity | Property::Scale) {
-                        continue;
-                    }
-                    if release {
-                        self.engine.observe(Change {
-                            node: *indicator,
-                            property,
-                            value,
-                            velocity: None,
-                        })?;
-                    } else {
-                        self.engine.hold(
-                            *indicator,
-                            property,
-                            exact_motion::Value::scalar(value.x + (1.0 - value.x) * progress),
-                        )?;
-                    }
-                }
-            }
-            Ok(())
-        });
-        self.present(&mut batch, false);
-        self.finish(batch, result.err().map(|e| format!("drag: {e:?}")))
-    }
-
     /// A motion frame: seek the engine to `now_ms` and report every
     /// presentation value that changed. Nothing else moves.
     pub fn tick(&mut self, now_ms: f64) -> String {
@@ -757,12 +684,14 @@ impl<D: DataSource> Host<D> {
             batch.command(&c.name, &c.args);
         }
         self.persist();
-        // Motion last, each commit at its own time: targets are in place
-        // before the engine hears them, and a transition a timer started is
-        // born at that timer's due time — so one seek and sixty give the same
-        // bits (LLP 1002 D3; LLP 1012).
+        // Runner receipts retain due-time order. Unobserved motion starts at
+        // that due time; a late receipt cannot rewind an already presented
+        // frame/hold. Match Web's floor at the engine's current presentation
+        // time, not this batch's final time. No timer work enters pointer moves.
         for t in receipts {
-            let seek = self.engine.advance(t.at_ms / 1000.0);
+            let seek = self
+                .engine
+                .advance((t.at_ms / 1000.0).max(self.engine.now()));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
             let applied = self
                 .runner
@@ -839,6 +768,7 @@ impl<D: DataSource> Host<D> {
     /// starts every view at identity, and the four motion rows are never in
     /// the style dictionary.
     fn present(&mut self, batch: &mut Batch, boot: bool) {
+        self.holds.retain(|_, token| self.engine.has_hold(*token));
         for p in self.engine.frame() {
             if boot && p.value == p.property.identity() {
                 continue;

@@ -495,3 +495,95 @@ fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
     );
     assert_eq!(bridge.host.as_ref().unwrap().runner().pending(), pending);
 }
+
+#[test]
+fn holds_do_not_cross_bridge_incarnations_or_runtime_boundaries() {
+    fn boot() -> Bridge<StorageModule> {
+        let mut bridge = Bridge::new();
+        let n = bridge.boot(
+            &plan(None),
+            StorageModule::default(),
+            Hooks::none(),
+            400.,
+            600.,
+        );
+        assert!(std::str::from_utf8(bridge.output_bytes(n as usize))
+            .unwrap()
+            .contains("\"error\":null"));
+        bridge
+    }
+    let mut bridge = boot();
+    let view = bridge.host.as_ref().unwrap().runner().roots()[0];
+    let len = bridge.hold_begin(view, 0, 0.);
+    let json = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+    let token: u64 = json
+        .split("\"token\":\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(bridge.has_hold(token));
+    assert!(!boot().has_hold(token));
+    bridge.input_write(&plan(None));
+    bridge.prepare_plan(
+        plan(None).len(),
+        StorageModule::default(),
+        Hooks::none(),
+        400.,
+        600.,
+    );
+    bridge.commit_plan();
+    assert!(!bridge.has_hold(token));
+    let n = bridge.hold_update(token, f64::NAN, f64::NAN, f64::NAN);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("\"error\":null"), "{out}");
+}
+
+#[test]
+fn invalid_hold_property_preserves_status_and_other_presentations() {
+    let bytes = contract::compile(
+        r#"component App
+  state count = 0
+  action tick writes count
+    count = count + 1
+  task clock mount
+    every(100, tick)
+  view
+    box transition="opacity 180ms linear"
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 600.);
+    let host = bridge.host.as_mut().unwrap();
+    let row = host.runner().roots()[0];
+    let serial = |s: String| -> u64 {
+        s.split("\"token\":\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let held = serial(host.hold_begin(row, exact_motion::Property::Translate, 0.));
+    host.hold_update(held, exact_motion::Value::new(91., 0.), 0.);
+    let other = serial(host.hold_begin(row, exact_motion::Property::Opacity, 0.));
+    host.hold_update(other, exact_motion::Value::scalar(0.2), 0.);
+    host.hold_end(other, exact_motion::HoldEnd::Cancel, 0.);
+    let len = bridge.hold_begin(row, 99, f64::NAN);
+    let out = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+    assert!(out.contains("unknown motion property"), "{out}");
+    assert!(out.contains("\"motion\":true"), "{out}");
+    assert!(out.contains("\"timers\":true"), "{out}");
+    assert!(out.contains("\"ops\":[]"), "{out}");
+    assert!(bridge.has_hold(held));
+    let len = bridge.hold_begin(row, 0, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+    assert!(out.contains("\"x\":91"), "{out}");
+}

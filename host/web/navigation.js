@@ -392,8 +392,9 @@ export function collectionController({ root, views, report,
   root.addEventListener('focusin', focusChanged, true);
   root.addEventListener('focusout', focusChanged, true);
   root.addEventListener('pointerdown', pointerDown, true);
-  for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) doc.addEventListener(name, pointerUp, true);
+  for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) doc.addEventListener(name, pointerUp);
   return {
+    releaseInteraction(pointer) { pointerUp({pointerId:pointer}); },
     // A full O(W) snapshot list, after all ordinary extent/children ops. No DOM
     // mutation is deferred with feedback; corrections happen before this paint.
     commit(snapshots) {
@@ -459,7 +460,7 @@ export function collectionController({ root, views, report,
       root.removeEventListener('focusin', focusChanged, true);
       root.removeEventListener('focusout', focusChanged, true);
       root.removeEventListener('pointerdown', pointerDown, true);
-      for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) doc.removeEventListener(name, pointerUp, true);
+      for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) doc.removeEventListener(name, pointerUp);
     },
   };
 }
@@ -504,4 +505,201 @@ function followScroll(el, enabled) {
   followedScrolls.set(el, s);
 }
   return { followedScrolls, followScroll, settleFollow, rememberScroll };
+}
+
+// Presentation ownership is a host projection. The shared Engine owns hold
+// validity and authored targets; this controller owns actual browser sampling.
+export function motionBytes({op,view=0,property='translate',token=0,x=0,y=0,now=0}) {
+  const operations=['begin','move','release','cancel','live','action'];
+  const properties=['translate','scale','rotate','opacity'];
+  const code=operations.indexOf(op), prop=properties.indexOf(property);
+  if(code<0||prop<0) throw Error('invalid motion operation');
+  const bytes=new Uint8Array(48), d=new DataView(bytes.buffer), serial=BigInt(token);
+  if(serial<0n||serial>0xffffffffffffffffn || typeof token==='number'&&!Number.isSafeInteger(token)) throw Error('invalid hold serial');
+  d.setUint32(0,1,true); d.setUint32(4,code,true); d.setUint32(8,view,true); d.setUint32(12,prop,true);
+  d.setBigUint64(16,serial,true); d.setFloat64(24,x,true); d.setFloat64(32,y,true); d.setFloat64(40,now,true);
+  return bytes;
+}
+export function motionController({views,now,generation,request,applyBatch,inert,releaseInteraction=()=>{}}) {
+  const properties=['translate','scale','rotate','opacity'];
+  const animations=new Map(), held=new Map(), authored=new Map(), drags=new Map();
+  const active=new Map(); let reconciling=false;
+  const key=(id,property)=>`${id}/${property}`;
+  const css=(property,value)=>property==='translate'?`${value[0]}px ${value[1]}px`:property==='rotate'?`${value[0]}deg`:String(value[0]);
+  const call=(op,h,value=[0,0])=>request({op,view:h.view,property:h.property,token:h.token??0,x:value[0],y:value[1],now:now()});
+  const local=h=>h && h.generation===generation() && views.get(h.view)===h.el && h.el.isConnected && held.get(key(h.view,h.property))===h;
+  const eligible=el=>el?.isConnected&&!el.closest('[disabled]')&&!el.matches(':disabled')&&!inert(el)&&el.getClientRects().length>0&&getComputedStyle(el).visibility==='visible';
+  const live=h=>local(h)&&call('live',h).accepted===true;
+  function cancelProperty(id,property,el=views.get(id)) {
+    const k=key(id,property); animations.get(k)?.cancel(); animations.delete(k);
+    // Browser easing is a CSSTransition; other properties continue undisturbed.
+    for(const animation of el?.getAnimations()??[]) {
+      if(animation.effect?.target===el && animation.transitionProperty===property) animation.cancel();
+    }
+  }
+  function overlay(id) {
+    const el=views.get(id); if(!el) return;
+    const active=properties.map(p=>held.get(key(id,p))).filter(local);
+    if(!active.length) return;
+    const transition=el.style.transition;
+    el.style.transition=[...(transition && transition!=='none'?[transition]:[]), ...active.map(h=>`${h.property} 0s linear 0s`)].join(',');
+    for(const h of active) { el.style.setProperty(h.property,css(h.property,h.value)); cancelProperty(id,h.property,el); }
+  }
+  function restore(id) {
+    const el=views.get(id); if(!el) return;
+    if(authored.has(id)) el.style.cssText=authored.get(id);
+    overlay(id);
+    if(!properties.some(p=>held.has(key(id,p)))) authored.delete(id);
+  }
+  function sample(el,property) {
+    const text=getComputedStyle(el).getPropertyValue(property), numbers=text.trim().split(/\s+/);
+    if(property==='translate') {
+      if(text==='none') return [0,0];
+      const box=el.getBoundingClientRect();
+      return [0,1].map(i=>numbers[i]?.endsWith('%')?parseFloat(numbers[i])*[box.width,box.height][i]/100:parseFloat(numbers[i]??'0'));
+    }
+    if(property==='scale' && numbers.length>1 && Number(numbers[0])!==Number(numbers[1])) return null;
+    return [text==='none'?(property==='scale'?1:0):parseFloat(text),0];
+  }
+  const api={
+    begin(view,property) {
+      const el=views.get(view); if(!eligible(el)) return null;
+      const value=sample(el,property); if(!value?.every(Number.isFinite)) return null;
+      const reply=call('begin',{view,property},value); if(!reply.token) return null;
+      if(!authored.has(view)) authored.set(view,el.style.cssText);
+      const h={view,property,el,token:reply.token,generation:generation(),value:reply.value};
+      held.set(key(view,property),h); // rebegin replaces, never retains history
+      cancelProperty(view,property,el); restore(view);
+      if(reply.batch) applyBatch(reply.batch);
+      return h;
+    },
+    move(h,value) {
+      if(!local(h)) return false;
+      const reply=call('move',h,value); if(reply.accepted!==true) return false;
+      h.value=value; h.el.style.setProperty(h.property,css(h.property,value));
+      if(reply.batch) applyBatch(reply.batch);
+      return true;
+    },
+    end(h,velocity=[0,0],cancel=false) {
+      if(!local(h)) return false;
+      const reply=call(cancel?'cancel':'release',h,velocity);
+      if(reply.accepted!==true) return false;
+      // Flush held presentation before restoring the latest easing/target.
+      // A spring batch below installs its first frame before this turn paints.
+      h.el.getBoundingClientRect(); held.delete(key(h.view,h.property)); restore(h.view);
+      if(reply.batch) applyBatch(reply.batch);
+      return true;
+    },
+    finish(h,value,velocity,commit=false,cancel=false) {
+      if(local(h)&&!eligible(h.el)) { api.end(h,[0,0],true); return false; }
+      if(!live(h)||!api.move(h,value)) return false;
+      if(commit) { const reply=call('action',h); if(reply.batch) applyBatch(reply.batch); }
+      // The action may delete the held node. That makes this a harmless no-op.
+      api.end(h,velocity,cancel); return true;
+    },
+    // Only live gestures/holds are visited, never all mounted swipe handlers.
+    // Cancel may synchronously apply another batch; retire once before reentry.
+    commit() {
+      if(reconciling) return;
+      reconciling=true;
+      try {
+        for(const [id,stop] of [...active]) if(!eligible(views.get(id))) stop();
+        for(const h of [...held.values()]) if(local(h)&&!eligible(h.el)) api.end(h,[0,0],true);
+      } finally { reconciling=false; }
+    },
+    style(id,text) {
+      const el=views.get(id); if(!el) return;
+      if(authored.has(id)) authored.set(id,text);
+      el.style.cssText=text; overlay(id);
+    },
+    animate(op) {
+      const {id,property}=op, k=key(id,property);
+      cancelProperty(id,property);
+      if(!op.values.length || held.has(k)) return;
+      const el=views.get(id); if(!el) return;
+      const animation=el.animate(op.values.map(value=>({[property]:css(property,property==='translate'?value:[value,0])})),
+        {delay:op.delay,duration:op.duration,easing:'linear',fill:'backwards'});
+      animations.set(k,animation);
+      animation.finished.then(()=>{if(animations.get(k)===animation) animations.delete(k);},()=>{});
+    },
+    destroy(id) {
+      drags.get(id)?.(); drags.delete(id);
+      for(const property of properties) { cancelProperty(id,property); held.delete(key(id,property)); }
+      authored.delete(id);
+    },
+    reset() {
+      for(const stop of drags.values()) stop(); drags.clear();
+      for(const animation of animations.values()) animation.cancel(); animations.clear();
+      const ids=[...authored.keys()]; held.clear(); for(const id of ids) restore(id); authored.clear();
+    },
+    attachSwipe(el,id,on) {
+      let drag=null,suppressClick=false;
+      const rubber=x=>Math.abs(x)<=64?x:Math.sign(x)*(64+(Math.abs(x)-64)*0.2);
+      const inverse=x=>Math.abs(x)<=64?x:Math.sign(x)*(64+(Math.abs(x)-64)/0.2);
+      const progressOf=x=>Math.max(0,Math.min(1,x/64));
+      const velocity=h=>{const last=h.samples.at(-1);let i=h.samples.length-2;while(i>0&&h.samples[i][1]===last[1]&&h.samples[i][2]===last[2])i--;const first=h.samples[Math.max(0,i)],dt=last[0]-first[0];return dt>0?[(last[1]-first[1])*1000/dt,(last[2]-first[2])*1000/dt]:[0,0];};
+      function track(h,value) {
+        const t=now(); h.samples.push([t,...value]);
+        while(h.samples.length>2&&(h.samples.length>8||t-h.samples[0][0]>80))h.samples.shift();
+        return api.move(h,value);
+      }
+      function stop() {
+        const ended=drag; drag=null; active.delete(id);
+        if(ended) {
+          if(ended.holds) suppressClick=true;
+          for(const h of ended.holds??[]) api.end(h,[0,0],true);
+          if(el.hasPointerCapture(ended.pointer)) el.releasePointerCapture(ended.pointer);
+          releaseInteraction(ended.pointer);
+        }
+      }
+      drags.set(id,stop);
+      on('pointerdown',e=>{
+        if(!e.isPrimary||e.button!==0||!eligible(el)||e.target.closest('input,textarea,[contenteditable]'))return;
+        stop(); drag={pointer:e.pointerId,x:e.clientX,y:e.clientY}; active.set(id,stop);
+      });
+      const move=e=>{
+        if(!drag||e.pointerId!==drag.pointer)return false;
+        if(!eligible(el)){stop();return false;}
+        const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+        if(!drag.holds) {
+          if(Math.abs(dy)>8&&Math.abs(dy)>=Math.abs(dx)){stop();return false;}
+          if(Math.abs(dx)<8||Math.abs(dx)<=Math.abs(dy))return false;
+          if(dx<0 && !(sample(el,'translate')?.[0]>0)){stop();return false;}
+          const h=api.begin(id,'translate'); if(!h){stop();return false;}
+          drag.holds=[h]; drag.origin=e.clientX; drag.base=[...h.value]; drag.raw=inverse(h.value[0]);
+          // One authored companion, at most two additional property holds.
+          const indicator=[...el.children].find(n=>n.getAttribute('swipeIndicator')==='true');
+          if(indicator) for(const property of ['opacity','scale']) {
+            const h=api.begin(Number(indicator.dataset.view),property); if(h)drag.holds.push(h);
+          }
+          for(const h of drag.holds) { h.base=[...h.value]; h.samples=[[now(),...h.value]]; }
+          el.setPointerCapture(e.pointerId);
+        }
+        const h=drag.holds[0], displacement=e.clientX-drag.origin;
+        const x=displacement===0?drag.base[0]:rubber(drag.raw+displacement);
+        if(!track(h,[x,drag.base[1]])){stop();return false;}
+        const progress=progressOf(x), caught=progressOf(drag.base[0]);
+        for(const companion of drag.holds.slice(1)) {
+          const base=companion.base[0];
+          const value=progress===caught?base:progress<caught?base*progress/caught:base+(1-base)*(progress-caught)/(1-caught);
+          track(companion,[value,0]);
+        }
+        e.preventDefault(); if(e.type==='pointermove') e.stopPropagation(); return true;
+      };
+      on('pointermove',move);
+      const finish=e=>{
+        if(!drag||drag.pointer!==e.pointerId)return;
+        if(!drag.holds){stop();return;}
+        if(e.type==='pointerup'&&!move(e))return;
+        const ended=drag; drag=null; active.delete(id); suppressClick=true;
+        const [h,...companions]=ended.holds, cancel=e.type!=='pointerup';
+        api.finish(h,h.value,velocity(h),!cancel&&h.value[0]>=64,cancel);
+        for(const companion of companions) api.end(companion,velocity(companion),cancel);
+        if(el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      };
+      on('pointerup',finish); on('pointercancel',finish); on('lostpointercapture',finish);
+      on('click',e=>{if(suppressClick){suppressClick=false;e.preventDefault();e.stopPropagation();}});
+    },
+  };
+  return api;
 }
