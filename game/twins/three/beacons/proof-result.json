@@ -1,0 +1,299 @@
+{
+  "pass": true,
+  "started": "2026-09-17T15:58:24.215Z",
+  "finished": "2026-09-17T15:58:42.189Z",
+  "seconds": 17.974,
+  "checks": [
+    {
+      "name": "A: real three.js r186 and WebGL draw calls",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "A: title and accessible Play button",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "A: W for exactly 1.5 s, position within 1 mm",
+      "pass": true,
+      "detail": {
+        "expected": [
+          0,
+          0,
+          -5.616435329305953
+        ],
+        "actual": [
+          0,
+          0,
+          -5.616435329305949
+        ]
+      }
+    },
+    {
+      "name": "A: walked within interaction radius (8, 0)",
+      "pass": true,
+      "detail": {
+        "x": 8.105175977469047,
+        "z": -0.06029121584332585
+      }
+    },
+    {
+      "name": "A: beacon count, DOM HUD and eased material at 0.1 s",
+      "pass": true,
+      "detail": {
+        "glow": 0.10400000000000002
+      }
+    },
+    {
+      "name": "A: pause freezes every saved field through 2 s",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "A: mid-run save is airborne, moving, easing and holding input",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "A: airborne Space does not double jump",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "A: glow fully up 1 s after E",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "A: walked within interaction radius (-6, 7)",
+      "pass": true,
+      "detail": {
+        "x": -6.331158706209277,
+        "z": 7.010764773832488
+      }
+    },
+    {
+      "name": "A: walked within interaction radius (3, -9)",
+      "pass": true,
+      "detail": {
+        "x": 3.002438661786752,
+        "z": -9.288518019104567
+      }
+    },
+    {
+      "name": "A: all three beacons produce accessible win UI",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "A: Play again resets the world and repeats seeded crates",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "A: hop reaches 1.2 m and lands without repeating held Space",
+      "pass": true,
+      "detail": {
+        "peak": 1.199953415699774
+      }
+    },
+    {
+      "name": "A: arrow movement matches W",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "A: no browser runtime exceptions",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "name": "B: real three.js r186 and WebGL draw calls",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "B: title and accessible Play button",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "B: W for exactly 1.5 s, position within 1 mm",
+      "pass": true,
+      "detail": {
+        "expected": [
+          0,
+          0,
+          -5.616435329305953
+        ],
+        "actual": [
+          0,
+          0,
+          -5.616435329305949
+        ]
+      }
+    },
+    {
+      "name": "B: walked within interaction radius (8, 0)",
+      "pass": true,
+      "detail": {
+        "x": 8.105175977469047,
+        "z": -0.06029121584332585
+      }
+    },
+    {
+      "name": "B: beacon count, DOM HUD and eased material at 0.1 s",
+      "pass": true,
+      "detail": {
+        "glow": 0.10400000000000002
+      }
+    },
+    {
+      "name": "B: pause freezes every saved field through 2 s",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "B: mid-run save is airborne, moving, easing and holding input",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "B: airborne Space does not double jump",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "B: glow fully up 1 s after E",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "A/B: identical states after W, at save, and at continuation end",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "B: no browser runtime exceptions",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "name": "C fresh restore: real three.js r186 and WebGL draw calls",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "C: disk save restores every field exactly in fresh Chrome process",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "C fresh restore: airborne Space does not double jump",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "C fresh restore: glow fully up 1 s after E",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "A/C: restored continuation is byte-identical to original",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "C: no browser runtime exceptions",
+      "pass": true,
+      "detail": []
+    }
+  ],
+  "endState": {
+    "state": {
+      "version": 1,
+      "seed": 20260917,
+      "rng": 1157747457,
+      "crates": [
+        {
+          "x": -3.0839308500289917,
+          "z": 7.556030623614788
+        },
+        {
+          "x": -6.572052463889122,
+          "z": -10.073279909789562
+        },
+        {
+          "x": 13.312332659959793,
+          "z": -1.9250052943825722
+        },
+        {
+          "x": 12.116542980074883,
+          "z": 8.258084274828434
+        },
+        {
+          "x": 3.2817339301109314,
+          "z": 7.724193029105663
+        },
+        {
+          "x": -0.044052764773368835,
+          "z": -7.374109260737896
+        }
+      ],
+      "mode": "playing",
+      "paused": false,
+      "tick": 804,
+      "player": {
+        "x": 11.705170269402473,
+        "y": 0,
+        "z": -0.060303038032702656,
+        "vx": 0.0022120645105065027,
+        "vy": 0,
+        "vz": -3.0957490589556194e-12,
+        "grounded": true
+      },
+      "camera": {
+        "x": 21.66988354022899,
+        "y": 12.013689733180133,
+        "z": 15.939697215441159,
+        "tx": 11.669883540228996,
+        "ty": 0.7136897331801308,
+        "tz": -0.06030278455883719
+      },
+      "beacons": [
+        {
+          "x": 8,
+          "z": 0,
+          "lit": true,
+          "age": 60,
+          "glow": 1
+        },
+        {
+          "x": -6,
+          "z": 7,
+          "lit": false,
+          "age": 0,
+          "glow": 0
+        },
+        {
+          "x": 3,
+          "z": -9,
+          "lit": false,
+          "age": 0,
+          "glow": 0
+        }
+      ],
+      "keys": [],
+      "jump": false,
+      "interact": false
+    },
+    "accumulator": 0
+  },
+  "screenshot": "playing.png",
+  "browserPids": [
+    46493,
+    48138,
+    48794
+  ]
+}
