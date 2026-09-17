@@ -127,6 +127,16 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         }
         Some("layout") => p.layout_json(id()),
         Some("tap") => {
+            // LLP 1041 §8: optional input variant, never a ninth operation.
+            // Parse this bounded pair strictly; the legacy wheel pair reader
+            // intentionally accepts a smaller flat-request vocabulary.
+            let request: serde_json::Value = match serde_json::from_str(line) {
+                Ok(request) => request,
+                Err(_) => return error("unreadable tap request"),
+            };
+            if request.get("resize").is_some() {
+                return resize(p, &request);
+            }
             // A held contact (LLP 1035.003 D1) rides evdev when that carrier
             // lands (LLP 1015's lane); until then it is unsupported, said so.
             if field_str(line, "phase").is_some() {
@@ -157,6 +167,49 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         },
         _ => p.host().agent(line),
     }
+}
+
+/// Actual presenter resize and CPU/GPU frame construction before replying.
+/// No DRM mode switch, desktop compositor or physical display is involved.
+fn resize<D: DataSource>(p: &mut Presenter<D>, request: &serde_json::Value) -> String {
+    let invalid = || {
+        error("tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields")
+    };
+    let Some(object) = request.as_object() else {
+        return invalid();
+    };
+    if object
+        .keys()
+        .any(|k| !matches!(k.as_str(), "op" | "session" | "resize"))
+    {
+        return invalid();
+    }
+    let Some(pair) = request["resize"].as_array().filter(|p| p.len() == 2) else {
+        return invalid();
+    };
+    let Some(w) = pair[0].as_f64() else {
+        return invalid();
+    };
+    let Some(h) = pair[1].as_f64() else {
+        return invalid();
+    };
+    if [w, h]
+        .iter()
+        .any(|v| !v.is_finite() || v.fract() != 0.0 || !(64.0..=4096.0).contains(v))
+        || w * h > 8_388_608.0
+    {
+        return invalid();
+    }
+    if let Some(e) = p.resize(w as f32, h as f32) {
+        return error(&e);
+    }
+    let pixels = p.frame();
+    serde_json::json!({
+        "resized": [w, h], "viewport": [p.viewport().0, p.viewport().1],
+        "painted": [pixels.width(), pixels.height()], "delivery": "presenter",
+        "native": "Presenter.resize + frame", "paint": "headless frame; presentation unobserved"
+    })
+    .to_string()
 }
 
 /// Linux carries an iframe's box but has no web engine (LLP 1020 D5).
@@ -252,4 +305,65 @@ fn field_pair(json: &str, key: &str) -> Option<(f64, f64)> {
     let a = parts.next()??;
     let b = parts.next()??;
     Some((a, b))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::presenter::PainterChoice;
+    use exact_runner::{DataError, Value};
+
+    #[derive(Default)]
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+    }
+
+    #[test]
+    fn resize_input_uses_presenter_and_paints_before_ack() {
+        let plan = contract::compile("component App\n  view\n    view width=\"100%\" height=\"100%\" background-color=\"#f00\"\n").unwrap();
+        let (mut p, boot_error) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (390.0, 844.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(boot_error.is_none(), "{boot_error:?}");
+        let reply: serde_json::Value =
+            serde_json::from_str(&handle(&mut p, r#"{"op":"tap","resize":[640,480]}"#)).unwrap();
+        assert_eq!(reply["resized"], serde_json::json!([640.0, 480.0]));
+        assert_eq!(p.viewport(), (640.0, 480.0));
+        assert!(!p.dirty(), "a resize must paint before acknowledgment");
+        assert_eq!(reply["painted"], serde_json::json!([640, 480]));
+        let layout: serde_json::Value =
+            serde_json::from_str(&handle(&mut p, r#"{"op":"layout"}"#)).unwrap();
+        assert_eq!(layout["viewport"]["w"], 640);
+        assert_eq!(layout["viewport"]["h"], 480);
+        for request in [
+            r#"{"op":"tap","resize":[0,480]}"#,
+            r#"{"op":"tap","resize":[-1,480]}"#,
+            r#"{"op":"tap","resize":[true,480]}"#,
+            r#"{"op":"tap","resize":["640",480]}"#,
+            r#"{"op":"tap","resize":[null,480]}"#,
+            r#"{"op":"tap","resize":[NaN,480]}"#,
+            r#"{"op":"tap","resize":[1e300,480]}"#,
+            r#"{"op":"tap","resize":[4096,4096]}"#,
+            r#"{"op":"tap","resize":[640.5,480]}"#,
+            r#"{"op":"tap","resize":[640,480,1]}"#,
+            r#"{"op":"tap","resize":[640,480],"wheel":[0,1]}"#,
+        ] {
+            let reply = handle(&mut p, request);
+            assert!(reply.starts_with("{\"error\""), "{request}: {reply}");
+            assert_eq!(
+                p.viewport(),
+                (640.0, 480.0),
+                "invalid input mutated size: {request}"
+            );
+        }
+    }
 }

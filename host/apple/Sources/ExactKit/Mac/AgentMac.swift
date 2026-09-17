@@ -24,6 +24,31 @@ extension Agent {
     /// AppKit animates nothing here that a seek does not move.
     func nativeInFlight() -> Bool { false }
 
+    /// Diagnostic tap {resize:[w,h]} (LLP 1041 §8). Resize the containing
+    /// NSWindow, allowing ExactView's ordinary fit/inset path to follow.
+    /// Never assign the viewport frame or subtract titlebar/toolbar heights:
+    /// AppKit owns that geometry. This is repeated programmatic window resize,
+    /// not a simulated titlebar drag or a physical frame-presentation receipt.
+    func resizeWindow(_ size: CGSize) -> [String: Any] {
+        guard contact == nil else { return ["error": "release the held contact before resizing"] }
+        guard let window = presenter.viewport.window, let content = window.contentView else {
+            return ["error": "no window to resize"]
+        }
+        window.setContentSize(size)
+        content.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        let actual = window.contentRect(forFrameRect: window.frame).size
+        let viewport = presenter.viewport.contentView.bounds.size
+        let dimensions = { (s: CGSize) -> [Double] in [Agent.r2(s.width), Agent.r2(s.height)] }
+        return ["resized": dimensions(actual), "viewport": dimensions(viewport),
+                "contentView": dimensions(content.bounds.size),
+                "contentLayout": dimensions(window.contentLayoutRect.size),
+                "windowFrame": dimensions(window.frame.size),
+                "backingScale": window.backingScaleFactor,
+                "toolbar": window.toolbar != nil, "delivery": "platform-window",
+                "native": "NSWindow.setContentSize", "paint": "displayIfNeeded; presentation unobserved"]
+    }
+
     /// What AppKit knows for `state` (LLP 1035.002 D2): the node holding
     /// the focus (a field through its field editor), no software keyboard,
     /// and the routes as the props declare them — macOS projects nothing

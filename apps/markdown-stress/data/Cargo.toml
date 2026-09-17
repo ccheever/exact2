@@ -1,0 +1,16 @@
+[package]
+name = "markdown-stress-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+
+markdown-parse = { path = "../../markdown/parse" }
+
+[dev-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-kernel = { path = "../../../kernel" }

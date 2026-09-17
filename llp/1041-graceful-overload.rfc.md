@@ -1,7 +1,7 @@
 # LLP 1041: Graceful overload, proved by interactive workloads
 
 **Type:** RFC
-**Status:** Draft design; first stress examples implemented and driven on web, macOS and Linux. This does not claim a new scheduler, worker placement, virtualization, or 120 Hz support has shipped.
+**Status:** Draft design; three stress examples and native resize diagnostics implemented. Host evidence and the first runner optimization are recorded below. This does not claim a new scheduler, worker placement, virtualization, or 120 Hz support has shipped.
 **Systems:** Data execution, runner settlement, host completion pumps, presentation, workload diagnostics
 **Author:** Tuft / Codex for Charlie Cheever
 **Implementer:** Tuft / Codex with Astra workers; first examples start 2026-09-16. Runtime changes follow measured examples and the accepted worker-placement design.
@@ -366,3 +366,38 @@ bits recursively. This final run still exceeds 8.33 ms for some streaming
 samples; it is not evidence that the complete frame budget has been met. This is not virtualization: retained
 views are still O(N), changed lists still key O(N) records, and native layout and
 painting may dominate after this improvement. Those are the next measurements.
+
+### 8.2 Markdown and native resize baselines
+
+`apps/markdown-stress` uses the shipped Markdown parser, value conversion and
+reader components. Its five deterministic fixtures range from 16 KiB to 4 MiB:
+mixed prose, one huge paragraph, one huge code block, a table and many blocks.
+Manual 40-block paging and eager mounting remain explicit controls. Paging does
+not split a giant block or avoid parsing the full source. The native production
+reader already parses files in a continuation; this synthetic baseline exposes
+synchronous parsing separately. The app README records exact workloads, host
+drives and raw-sample locations.
+
+The initial M4 parser diagnostic measured a 4 MiB paragraph at 21.27–24.23 s
+over three samples, versus a 1.15 ms median for a 4 MiB fenced code block.
+Repeated suffix validation during bare-URL probing is the next parser experiment.
+Moving this work off-thread would not itself remove that throughput cost.
+
+`scripts/native-resize-metrics.mjs` queues bounded cohorts of resize, typing and
+wheel input, optionally preceded by a workload clock advance, for all three apps.
+It verifies geometry, exact echo, scroll movement and completion recovery;
+records raw command-send-to-ack samples, binary SHA-256 and hardware identity;
+and refuses invalid dimensions without changing geometry. The existing `tap`
+operation carries the resize input, keeping eight agent operations.
+
+AppKit changes the actual window content size through `NSWindow.setContentSize`.
+Linux changes the presenter viewport and constructs a headless frame. Neither
+is an OS window-border drag or a physical presentation measurement. Cohorts are
+backpressured, not a claimed fixed-rate input stream. The M4's attached JetKVM v1
+display is configured at 1920×1080 @ 60 Hz, independently observed through
+`system_profiler`; physical 120 Hz cannot be certified on this display.
+
+Native resize baselines include an older captured Rust archive on macOS while
+the Swift diagnostic was being added. Source checkout identity alone does not
+identify all build inputs. These reports expose resize cost but are not a
+before/after measurement of §8.1; a complete rebuild is required for that comparison.
