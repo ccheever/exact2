@@ -223,6 +223,8 @@ pub struct Painter {
     /// app's `setScheme` last said; `light` until it says otherwise.
     pub dark: bool,
     backend: Box<dyn Backend>,
+    // One generational source, lifted only inside its existing List clip.
+    pub(crate) arrange_lift: Option<(exact_kernel::NodeKey, exact_kernel::NodeKey)>,
     // One lease per actually accepted owner, not one global width per string.
     // Retained while a subsequent backend frame fails.
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
@@ -252,6 +254,7 @@ impl Painter {
             dark: false,
             backend,
             accepted_text: BTreeMap::new(),
+            arrange_lift: None,
             region_picture: None,
             region_frame: None,
         }
@@ -701,7 +704,16 @@ impl Painter {
         } else {
             offset
         };
-        for child in node.children() {
+        let lift = self
+            .arrange_lift
+            .filter(|(list, _)| *list == node.key)
+            .and_then(|(_, key)| walk.scene.kernel.node_by_key(key))
+            .filter(|source| source.parent == Some(node.id))
+            .map(|source| source.id);
+        for child in node.children().into_iter().filter(|id| Some(*id) != lift) {
+            self.node(walk, child, ts, child_offset, child_rect);
+        }
+        if let Some(child) = lift {
             self.node(walk, child, ts, child_offset, child_rect);
         }
         if scrolls {

@@ -2173,3 +2173,51 @@ Frozen v4/v5 sources, dependencies, raw evidence and independent reviews are und
 This is bounded browser functional evidence, not native Arrange parity, complete
 25k traversals, quiet latency or physical 120Hz presentation. Public preview
 serving remains unchanged.
+
+### 8.26 Linux Arrange contact and owned edge feedback, 2026-09-17
+
+Leibniz implements the Linux adapter using the existing primary contact owner,
+common collection preview and single interaction pin. Recognition samples the
+current source Translate; movement uses parent coordinates and actual clamped
+List scroll. Runtime, generational binding, preview/hold tokens and current
+geometry are checked before clock or terminal action. Unproved final geometry
+cancels. Unsupported transforms, mapping reflow and content-region picture
+replay are refused rather than borrowing stale collection facts.
+
+The final typed action runs while the source remains held. Surviving mounted
+wrappers rebase from their sampled viewport positions after synchronous layout;
+source velocity is retained and neighbours restart with zero velocity. This is
+positional continuity, not velocity continuity. The source paints last within
+its own List clip, and reverse painted-box hit testing follows that same order.
+The existing pin survives return settlement, a removed grip and same-row
+replacement admission. No additional pin, portal, executor or timer is added.
+
+Edge scrolling uses the existing display pump, at most 50ms elapsed time per
+step and 300px/second, and compensates from actual clamped movement. Review found
+that an ordinary List scroll handler could cancel the first owned step: native
+offset/sequence had advanced, but contact retirement still saw old Runner facts.
+The repaired owned path dispatches the handler normally, then prioritizes that
+List in the existing two-pass feedback budget before retirement. External scroll
+keeps its stale-first order. A harmless counter handler preserves the hold and
+stationary viewport position through one terminal drop; deletion and width
+reflow still retire before malformed late delivery. No guard-suppression flag or
+unbounded refinement was introduced.
+
+Private revision2 records 297 passing tests and one existing native-GPU ignore,
+including eighteen new Arrange tests. The integrated tree also preserves §8.24's
+four painted-scroll regressions and passes **301 tests, one GPU ignore**, strict
+all-targets Clippy, scoped formatting, caps and boot. CPU tests cover paint/hit
+priority, clipping, held typing, C0 samples, edge compensation, stale facts, pin
+transfer and idle shutdown. The initial integrated build missed the shared
+`effective_overflow` import after combining the two independently frozen changes;
+that compile failure is retained, and restoring the import requires no behavior
+change. The harmless-handler behavioral RED and the intermediate test's unproved
+edge-gap refusal are also preserved.
+
+Frozen eleven-file revision2 source identity is
+`c4f7fbf6a0bdc38043e07b513386846f569e0bb7c42923f74adfe6d4c463dd82`.
+Exact source snapshots, raw checks, independent reviews and the two composite
+integration files are under `target/arrange-linux-validation/`. Tests ran on
+macOS ARM64 with the native Rust Presenter and CPU painter. Actual Linux
+display/stdio input, GPU order, full 25k traversal, timing and physical 120Hz remain
+separate validation; no current native display claim is inferred from these tests.

@@ -161,6 +161,35 @@ fn pin_owner(
 }
 
 impl<D: DataSource> Presenter<D> {
+    /// A Runner witness is usable only after feedback for the actual native
+    /// scroll/layout has landed. Pending feedback never certifies the old port.
+    pub(super) fn reorder_facts_current(&self, facts: &exact_runner::ReorderGeometry) -> bool {
+        let Some(node) = self.host.kernel().node_by_key(facts.list) else {
+            return false;
+        };
+        let snapshots = self.host.collections();
+        let Some(snapshot) = snapshots.iter().find(|s| s.view == node.id) else {
+            return false;
+        };
+        let Some(g) = geometry(self.host.kernel(), snapshot, self.viewport.0 as f64) else {
+            return false;
+        };
+        // Nonzero vertical inset authoring is outside the measured-row policy.
+        // Do not admit a handbuilt plan that bypassed the compiler's rejection.
+        let basis = containing_width(self.host.kernel(), node.id, self.viewport.0 as f64);
+        g.padding_top == 0.
+            && length(self.host.kernel(), node.style.padding_bottom, basis) == 0.
+            && self
+                .collection
+                .cursors
+                .get(&node.id)
+                .is_some_and(|c| c.sequence == facts.scroll_sequence)
+            && facts.scroll_top == self.scroll_of(node.id).1 as f64
+            && facts.port_width == g.width
+            && facts.port_height == g.height
+            && facts.row_width == g.row_width
+    }
+
     pub(super) fn collection_scroll_limits(&self) -> BTreeMap<ViewId, f32> {
         self.host
             .collections()
@@ -173,8 +202,10 @@ impl<D: DataSource> Presenter<D> {
     }
 
     pub(super) fn queue_collections(&mut self) {
+        let retained = self.arrange_pin().map(|p| p.0);
         if self.collection.interaction.is_some_and(|id| {
-            self.host.kernel().node(id).is_none() || self.host.route_visibility(id).1
+            Some(id) != retained
+                && (self.host.kernel().node(id).is_none() || self.host.route_visibility(id).1)
         }) {
             self.collection.interaction = None;
         }
@@ -193,6 +224,7 @@ impl<D: DataSource> Presenter<D> {
             self.host.kernel().node(*id).is_some() && !self.host.route_visibility(*id).1
         });
         if self.collection.interaction != view {
+            self.arrange_pin_transfer(view);
             self.collection.interaction = view;
             self.queue_collections();
             self.dirty = true;
@@ -202,32 +234,63 @@ impl<D: DataSource> Presenter<D> {
     /// Current live interaction target. Carriers discard held pointer state when
     /// navigation or runner replacement invalidates its pin.
     pub fn collection_interaction(&self) -> Option<ViewId> {
+        let retained = self.arrange_pin().map(|p| p.0);
         self.collection.interaction.filter(|id| {
-            self.host.kernel().node(*id).is_some() && !self.host.route_visibility(*id).1
+            Some(*id) == retained
+                || (self.host.kernel().node(*id).is_some() && !self.host.route_visibility(*id).1)
         })
     }
 
     pub(super) fn collection_scrolled(&mut self, view: ViewId) {
+        self.collection_scroll_turn(view, false);
+    }
+
+    // Only Arrange's prevalidated, adapter-owned edge step uses this order.
+    // External scroll still retires stale contact before accepting new facts.
+    pub(super) fn collection_scrolled_by_arrange(&mut self, view: ViewId) {
+        self.collection_scroll_turn(view, true);
+    }
+
+    fn collection_scroll_turn(&mut self, view: ViewId, owned_edge: bool) {
         if let Some(cursor) = self.collection.cursors.get_mut(&view) {
             cursor.advance();
         }
         // Collection observation supplements the ordinary authored handler.
-        let error = if self
+        let authored = self
             .host
             .runner()
             .handlers_of(view)
-            .contains(&EventKind::Scroll)
-        {
+            .contains(&EventKind::Scroll);
+        let mut error = if authored {
             let (x, y) = self.scroll_of(view);
-            let error =
-                self.host
-                    .dispatch_at(view, Event::Scroll(x as f64, y as f64), self.host.now());
-            let after = self.after_commit();
-            error.or(after)
+            self.host
+                .dispatch_at(view, Event::Scroll(x as f64, y as f64), self.host.now())
+        } else {
+            None
+        };
+        if owned_edge {
+            // The accepted receipt has already synchronized current targets and
+            // layout. Feed THIS port's new offset/sequence before sync_commit's
+            // contact check, not an unrelated queued List first. No guard is
+            // bypassed: deletion/reflow still fails during that feedback turn.
+            self.queue_collections();
+            if let Some(index) = self.collection.queue.iter().position(|id| *id == view) {
+                self.collection.queue.remove(index);
+                self.collection.queue.push_front(view);
+            }
+            error = error.or(self.refine_collections());
+        }
+        error = error.or(if owned_edge {
+            // Finish ordinary receipt effects/retirement without scheduling a
+            // second collection pass in this same edge step.
+            let after = self.sync_commit();
+            after.or(self.refresh_transform_geometry())
+        } else if authored {
+            self.after_commit()
         } else {
             self.queue_collections();
             self.refine_collections()
-        };
+        });
         if let Some(error) = error {
             self.host.log(error);
         }
@@ -244,6 +307,7 @@ impl<D: DataSource> Presenter<D> {
                 self.collection.cursors.remove(&view);
                 continue;
             };
+            let retained_pin = self.arrange_pin();
             let cursor = self.collection.cursors.get_mut(&view).unwrap();
             cursor.queued = false;
             if self.host.route_visibility(view).0 {
@@ -292,7 +356,12 @@ impl<D: DataSource> Presenter<D> {
                     pin_owner(self.host.kernel(), &snapshots, self.focus) == Some(view)
                 }),
                 interaction_view: self.collection.interaction.filter(|_| {
-                    pin_owner(self.host.kernel(), &snapshots, self.collection.interaction)
+                    retained_pin
+                        .filter(|(pin, _)| Some(*pin) == self.collection.interaction)
+                        .map(|p| p.1)
+                        .or_else(|| {
+                            pin_owner(self.host.kernel(), &snapshots, self.collection.interaction)
+                        })
                         == Some(view)
                 }),
             };

@@ -5,12 +5,14 @@ use exact_motion::{HoldEnd, HoldStart, Value, VelocityTracker};
 
 #[derive(Clone, Copy)]
 pub(super) enum Candidate {
+    Arrange(exact_runner::ReorderBinding),
     Swipe(NodeKey),
     Transform(TransformDragBinding),
     Height { handle: NodeKey, target: NodeKey },
 }
 #[derive(Clone, Copy)]
 pub(super) enum HeldKind {
+    Arrange(exact_runner::ReorderToken),
     Transform {
         binding: TransformDragBinding,
         pair: exact_motion::TransformHold,
@@ -62,6 +64,7 @@ impl<D: DataSource> Presenter<D> {
             Some(held) => {
                 self.host.has_hold(held.primary.token)
                     && match held.kind {
+                        HeldKind::Arrange(token) => self.arrange_live(token),
                         HeldKind::Transform {
                             binding,
                             pair,
@@ -125,10 +128,14 @@ impl<D: DataSource> Presenter<D> {
             return Ok(false);
         }
         let candidate = self
-            .transform_candidate(hit)
+            .arrange_candidate(hit)
+            .or_else(|| self.transform_candidate(hit))
             .or_else(|| self.height_candidate(hit))
             .or_else(|| self.swipe_candidate(hit).map(Candidate::Swipe));
-        let view = self.host.kernel().node_by_key(hit).unwrap().id;
+        self.prepare_arrange_down(candidate)?;
+        let Some(view) = self.host.kernel().node_by_key(hit).map(|n| n.id) else {
+            return Ok(false);
+        };
         self.contact = Some(Contact {
             hit,
             candidate,
@@ -158,6 +165,9 @@ impl<D: DataSource> Presenter<D> {
                 return Ok(false);
             }
             let begin = match contact.candidate {
+                Some(Candidate::Arrange(binding)) if dy.abs() > dx.abs() => {
+                    self.begin_arrange(binding, now_ms)
+                }
                 Some(Candidate::Transform(binding)) => self.begin_transform_drag(binding, now_ms),
                 Some(Candidate::Height { handle, target }) if dy.abs() > dx.abs() => {
                     self.begin_height_drag(handle, target, now_ms)
@@ -195,6 +205,9 @@ impl<D: DataSource> Presenter<D> {
         }
         let held = contact.hold.as_mut().unwrap();
         let result = match held.kind {
+            HeldKind::Arrange(_) => {
+                self.move_arrange(held, y as f64 - contact.origin.1 as f64, (x, y), now_ms)
+            }
             HeldKind::Transform { .. } => self.move_transform_drag(
                 held,
                 Value {
@@ -214,7 +227,9 @@ impl<D: DataSource> Presenter<D> {
             self.contact = Some(contact);
         } else {
             let _ = self.end_contact(contact.hold.as_ref().unwrap(), HoldEnd::Cancel, now_ms);
-            self.set_collection_interaction(None);
+            if !matches!(contact.hold.as_ref().unwrap().kind, HeldKind::Arrange(_)) {
+                self.set_collection_interaction(None);
+            }
         }
         result
     }
@@ -234,12 +249,17 @@ impl<D: DataSource> Presenter<D> {
         let Some(contact) = self.contact.take() else {
             return Ok(false);
         };
+        let arranged = contact
+            .hold
+            .as_ref()
+            .is_some_and(|h| matches!(h.kind, HeldKind::Arrange(_)));
         let result = if let Some(held) = contact.hold {
             if !accepted {
                 self.end_contact(&held, HoldEnd::Cancel, now_ms)
                     .map(|_| false)
             } else {
                 match held.kind {
+                    HeldKind::Arrange(_) => self.end_arrange(&held, true, now_ms),
                     HeldKind::Height { .. } => self.finish_height_drag(&held, now_ms),
                     HeldKind::Transform { .. } => self.finish_transform_drag(&held, now_ms),
                     HeldKind::Swipe { .. } => {
@@ -269,11 +289,14 @@ impl<D: DataSource> Presenter<D> {
             }
             Ok(false)
         };
-        self.set_collection_interaction(None);
+        if !arranged {
+            self.set_collection_interaction(None);
+        }
         result
     }
     fn end_contact(&mut self, held: &Hold, end: HoldEnd, now_ms: f64) -> Result<(), String> {
         match held.kind {
+            HeldKind::Arrange(_) => self.end_arrange(held, false, now_ms).map(|_| ()),
             HeldKind::Transform { pair, .. } => self.end_transform_drag(pair, None, now_ms),
             HeldKind::Height { .. } => self.height_end(held.primary.token, end, now_ms).map(|_| ()),
             HeldKind::Swipe { .. } => self.end_swipe(held, end, now_ms),
@@ -289,7 +312,13 @@ impl<D: DataSource> Presenter<D> {
         let result = contact.hold.as_ref().map_or(Ok(()), |held| {
             self.end_contact(held, HoldEnd::Cancel, now_ms)
         });
-        self.set_collection_interaction(None);
+        if !contact
+            .hold
+            .as_ref()
+            .is_some_and(|h| matches!(h.kind, HeldKind::Arrange(_)))
+        {
+            self.set_collection_interaction(None);
+        }
         result
     }
 }

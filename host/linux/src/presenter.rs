@@ -16,7 +16,9 @@ use crate::gpu::Gpu;
 use crate::host::{Host, HostError};
 use crate::image::AssetResolver;
 use crate::image::{Assets, Images};
-use crate::paint::{content_size, Backend, Frame, PaintedBox, Painter, Rect4, Scene};
+use crate::paint::{
+    content_size, effective_overflow, Backend, Frame, PaintedBox, Painter, Rect4, Scene,
+};
 use crate::raster::Raster;
 use crate::text::{Measurer, Shared, TextEngine};
 use exact_kernel::{NodeType, Overflow, PropId, ViewId};
@@ -29,6 +31,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tiny_skia::Pixmap;
 
+mod arrange;
+mod arrange_geometry;
 mod collection;
 mod contact;
 #[path = "content_region/presenter.rs"]
@@ -91,6 +95,7 @@ pub struct Presenter<D: DataSource> {
     refusal_turn: bool,
     collection: collection::State,
     contact: Option<contact::Contact>,
+    arrange: Option<arrange::State>,
     transform_geometry: transform_geometry::State,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
@@ -330,6 +335,7 @@ impl<D: DataSource> Presenter<D> {
             collection: collection::State::default(),
             contact: None,
             transform_geometry: Default::default(),
+            arrange: None,
             brush: Painter::new(text.clone(), scale, backend),
             text,
             viewport,
@@ -595,6 +601,8 @@ impl<D: DataSource> Presenter<D> {
         self.collection = collection::State::default();
         self.contact = None;
         self.transform_geometry = Default::default();
+        self.arrange = None;
+        self.brush.arrange_lift = None;
         self.page = (0.0, 0.0);
         self.focus = None;
         self.pointer = None;
@@ -718,6 +726,8 @@ impl<D: DataSource> Presenter<D> {
         self.collection = collection::State::default();
         self.contact = None;
         self.transform_geometry = Default::default();
+        self.arrange = None;
+        self.brush.arrange_lift = None;
         self.page = (0.0, 0.0);
         self.images.reset();
         self.focus = None;
@@ -832,6 +842,7 @@ impl<D: DataSource> Presenter<D> {
         }
         self.clamp_scroll();
         self.retire_pointer();
+        self.arrange_settled();
         error
     }
 
@@ -1359,6 +1370,7 @@ impl<D: DataSource> Presenter<D> {
                 self.host.log(error);
             }
         }
+        self.tick_arrange(self.host.now());
         self.dirty = true;
     }
 

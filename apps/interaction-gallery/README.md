@@ -220,7 +220,8 @@ UIKit remains uncompiled; a supplemental runtime probe was compiled but not run.
 None of these runs proves physical FPS.
 The Web adapter now provides primary-pointer reorder, spring-aside preview,
 edge scrolling and interrupted return/regrab through the shared collection
-mechanism. Native adapters remain separate follow-up work. The `galleryAction`
+mechanism. The Linux adapter has matching Presenter/CPU coverage; its actual
+Linux display drive and the Apple adapter remain follow-up work. The `galleryAction`
 preview and token-checked Place/Cancel endpoints remain the manual controls;
 only the final logical pointer outcome reaches synchronous `galleryReorder`.
 There are no per-pointer app-data requests. Shared obligations and remaining
@@ -307,6 +308,17 @@ aborted contact no longer prematurely unmounts it. Native parity, complete 25k
 edge traversals, physical-frame timing and 120Hz remain unproved. Exact sources,
 raw behavioral failures, historical broader drives and final narrow replays are
 under `target/arrange-web-validation/`; LLP1041 §8.25 records their boundaries.
+
+The integrated Linux adapter passes **301 package tests** on macOS, with one
+existing native-GPU ignore, plus strict all-targets Clippy. Eighteen Arrange
+tests exercise real Contract/Runner/Engine/Presenter behavior, CPU paint and hit
+ordering, source pin retention, positional rebasing, edge compensation and
+stale delivery. A harmless authored scroll handler now preserves an owned edge
+drag; deletion and width reflow still cancel it. The four merged painted-region
+scroll regressions remain green. These results do not establish actual Linux
+display/stdio delivery, GPU ordering, physical input or frame performance.
+Sources, meaningful failures and integration checks are under
+`target/arrange-linux-validation/`; LLP1041 §8.26 records the scope.
 
 The photo app slice passes **41 scoped Rust tests** against the frozen common
 binding/parser overlay: 18 model/resource, seven photo, eight retained runtime

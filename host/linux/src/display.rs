@@ -290,7 +290,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         }
         let now = wall();
         let mut timeout: i32 = -1;
-        if p.host().motion() {
+        if p.needs_animation_frame() {
             timeout = 0;
         } else if p.host().has_timers() {
             timeout = (last_tick + 250.0 - now).max(0.0) as i32;
@@ -351,7 +351,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                 eprintln!("exact: {e}");
             }
         }
-        if p.host().motion() {
+        if p.needs_animation_frame() {
             p.tick(now);
         }
         p.poll_images();

@@ -19,6 +19,8 @@ use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
 
+#[path = "arrange.rs"]
+mod arrange;
 #[path = "content_region/host.rs"]
 mod content;
 #[path = "height.rs"]
