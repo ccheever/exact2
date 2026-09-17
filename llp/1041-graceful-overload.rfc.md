@@ -1033,10 +1033,43 @@ catalog restoration and bitmap geometry; it is not full XCTest. NodeText's
 accepted paragraph and paint/source/selection ownership are unchanged.
 
 Frozen source, meaningful RED/green logs, independent review and main integration
-checks are in `target/apple-identified-measure-validation/`. This callback-count
-proof is not an AppKit latency measurement. The controlled native comparison is
-prepared separately; cold/new-width shaping remains synchronous, and no new
-RSS, input-latency or physical-frame result is claimed by this increment.
+checks are in `target/apple-identified-measure-validation/`.
+
+The subsequent controlled AppKit comparison uses baseline `8f3eec6` versus only
+the six memo files, with identical bounded diagnostics in both optimized builds.
+Three alternating fresh-process pairs pass on the same M4/macOS machine. Each
+retains the full 4,194,181-byte, two-block document and verifies exact Unicode
+echoes, source digest, viewport and block rectangles. Accepted giant-paragraph
+identity and geometry remain unchanged during warm input/height samples; both
+arms produce the same new geometry at the fresh width.
+
+After priming heights 820 and 821 at window width 980, the nine return-to-820
+ACKs per arm fall from median 394.635 to 2.349 ms (p95 398.069 to 2.661 ms).
+Their giant foreign callbacks fall from 18, supplying 75,494,682 bytes, to zero.
+The other nine height samples were already fast: medians 1.431 to 1.363 ms.
+Across 36 warm input ACKs per arm, medians are 3.167 to 3.151 ms; neither arm
+calls the giant foreign measurer for those inputs. This is a height-offer reuse
+result, not evidence that ordinary typing previously copied the giant source.
+
+Cold document-load medians remain 284.611 to 264.943 ms, including generation
+and parsing. The three fresh-width controls remain slow: 671.474 to 485.585 ms,
+followed by first-input ACK medians 591.302 to 547.257 ms. The latter interval
+has no giant foreign callback; native paragraph acceptance can occur after the
+resize reply. These observations do not attribute all remaining time to shaping
+or establish faster continuous live resize. Cold reflow and paint publication
+still require separate work.
+
+Raw six-cell evidence is in
+`target/apple-identified-measure-validation/native-comparison-preparation/paired-20260917-064910/`.
+The after executable SHA-256 is
+`40704293cbcd9c5f681d2b5a47a2dcdd6e4068552ab23d80f8cb881d5cc7d5b2`.
+The initial six aborted cells are preserved separately: a driver looked for
+test IDs in layout replies instead of joining their numeric IDs to the tree;
+correcting only that oracle enabled the unchanged workload. Timings include
+instrumentation and agent IPC under a seekable clock; programmatic NSWindow
+resize is not physical tracking. Tree/layout reads and screenshots are outside
+input ACK timing. No RSS bound, autonomous background progress, UIKit or
+physical 120-Hz result is claimed.
 
 ### 8.12 Numeric sheet-height presentation trial, 2026-09-17
 
