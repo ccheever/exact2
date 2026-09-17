@@ -13,12 +13,14 @@
 
 use crate::paint::Presented;
 use exact_kernel::motion::{motion_node, targets, MotionSync};
-use exact_kernel::{Kernel, NodeKey, Offer, TextMeasurer, ViewId};
+use exact_kernel::{Kernel, NodeKey, TextMeasurer, ViewId};
 use exact_motion::{Change, Engine, Property};
 use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
 
+#[path = "height.rs"]
+mod height;
 #[path = "holds.rs"]
 mod holds;
 
@@ -48,6 +50,11 @@ pub struct Host<D: DataSource> {
     presented: BTreeMap<ViewId, Presented>,
     viewport: (f32, f32),
     now_ms: f64,
+    height_owner: Option<NodeKey>,
+    height_projection: Option<exact_kernel::PresentedHeight>,
+    height_layout_valid: bool,
+    #[cfg(test)]
+    layout_calls: usize,
     data_activated: bool,
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
@@ -116,6 +123,11 @@ impl<D: DataSource> Host<D> {
             presented: BTreeMap::new(),
             viewport: (width, height),
             now_ms: 0.0,
+            height_owner: None,
+            height_projection: None,
+            height_layout_valid: false,
+            #[cfg(test)]
+            layout_calls: 0,
             data_activated: false,
             router_op: None,
             navigation: Default::default(),
@@ -488,13 +500,21 @@ impl<D: DataSource> Host<D> {
         self.layout().err()
     }
 
-    /// A motion frame: seek the engine to `now_ms`; presentation values
-    /// follow. Nothing else moves.
-    pub fn tick(&mut self, now_ms: f64) {
+    /// Seek presentation. Returns whether the registered Height changed layout;
+    /// paint-only properties never trigger layout or text measurement.
+    pub fn tick(&mut self, now_ms: f64) -> bool {
         self.now_ms = now_ms.max(self.now_ms);
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        let changed = match self.layout_motion() {
+            Ok(changed) => changed,
+            Err(error) => {
+                self.log(error);
+                false
+            }
+        };
         self.present();
+        changed
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> Option<String> {
@@ -511,12 +531,8 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
-        let layout_error = if receipts.is_empty() {
-            None
-        } else {
-            self.layout().err()
-        };
-        // Motion last, each commit at its own time: targets are in place
+        self.project_navigation();
+        // Motion observes each commit before projected layout: targets are in place
         // before the engine hears them, and a transition a timer started is
         // born at that timer's due time — one seek and sixty give the same
         // bits (LLP 1002 D3; LLP 1012 §2).
@@ -533,10 +549,17 @@ impl<D: DataSource> Host<D> {
                 .motion_sync(&t.receipt)
                 .apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            if let Err(error) = self.sync_height_owner() {
+                self.log(error);
+            }
         }
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        self.project_navigation();
+        let layout_error = if receipts.is_empty() {
+            self.layout_motion().err()
+        } else {
+            self.layout().err()
+        };
         self.present();
         error.or(layout_error)
     }
@@ -563,17 +586,6 @@ impl<D: DataSource> Host<D> {
         self.navigation.visibility(self.runner.kernel(), id)
     }
 
-    fn layout(&mut self) -> Result<(), String> {
-        let (w, h) = self.viewport;
-        for root in self.runner.roots() {
-            self.runner
-                .kernel_mut()
-                .compute_layout(root, Offer::definite(w, h))
-                .map_err(|e| format!("layout: {e:?}"))?;
-        }
-        Ok(())
-    }
-
     /// Every presentation value the engine changed, kept by node.
     fn present(&mut self) {
         for p in self.engine.frame() {
@@ -584,6 +596,9 @@ impl<D: DataSource> Host<D> {
             let Some(view) = self.keys.get(&key).copied() else {
                 continue;
             };
+            if p.property == Property::Height {
+                continue;
+            }
             let base = self.presented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
@@ -591,6 +606,7 @@ impl<D: DataSource> Host<D> {
                 Property::Scale => entry.scale = p.value.x as f32,
                 Property::Rotate => entry.rotate = p.value.x as f32,
                 Property::Opacity => entry.opacity = p.value.x as f32,
+                Property::Height => unreachable!("height is projected through layout"),
             }
         }
     }

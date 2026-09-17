@@ -146,9 +146,26 @@ impl Engine {
         self.transitions.remove(&node);
         // Removing a list must not scan every other node once per row.
         for property in Property::ALL {
-            self.slots.remove(&(node, property));
-            self.dirty.remove(&(node, property));
+            self.remove_property(node, property);
         }
+    }
+
+    /// Forget only this property's target, curve, hold and pending frame.
+    /// Returns whether it existed. Other properties and the node's transition
+    /// declaration survive; readoption takes a new value without transitioning.
+    /// No clock change occurs, and old hold tokens immediately become stale.
+    pub fn remove_property(&mut self, node: u64, property: Property) -> bool {
+        self.dirty.remove(&(node, property));
+        self.slots.remove(&(node, property)).is_some()
+    }
+
+    /// Whether this property is held or has a running curve, including delay.
+    /// Equality with its target does not imply rest: a spring may carry velocity
+    /// at zero displacement. Holds are active here but remain clock-quiescent.
+    pub fn is_active(&self, node: u64, property: Property) -> bool {
+        self.slots
+            .get(&(node, property))
+            .is_some_and(|slot| slot.hold.is_some() || slot.running.is_some())
     }
 
     /// A committed change to one animatable row. This is CSS Transitions §3:

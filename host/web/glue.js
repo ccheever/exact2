@@ -626,6 +626,7 @@ function apply(batch) {
         break;
       }
       case "animate": { motion.animate(op); break; }
+      case "retire-motion": { motion.retire(op.id, op.property); break; }
       case "surface": {
         // A canvas's inputs (LLP 1009 D2): to the GPU module when it is
         // loaded, queued until then. The module itself is fetched only

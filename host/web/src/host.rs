@@ -278,6 +278,22 @@ impl<D: DataSource> Host<D> {
         &self.springs
     }
 
+    /// Register the one numeric-height trial owner (or clear it). Registration
+    /// adopts the current authored target without animating from an invented
+    /// zero height. Invalid replacement preserves the previous hold and clock.
+    /// The returned batch retires old DOM ownership before lowering new work.
+    pub fn set_height_owner(&mut self, view: Option<ViewId>) -> Result<String, &'static str> {
+        let retired = self.springs.set_height_owner(self.runner.kernel(), view)?;
+        let mut batch = Batch::new();
+        for item in retired {
+            if let Lowered::Retire { view, property } = item {
+                batch.retire_motion(view, property.name());
+            }
+        }
+        self.emit_springs(&mut batch, &[], self.now_ms / 1000.0);
+        Ok(batch.finish(self.runner.has_timers(), self.runner.now_ms(), None))
+    }
+
     /// The page's line for the runner's journal (LLP 1012 §3): a refused
     /// intent and its reason.
     pub fn log(&mut self, line: &str) {
@@ -459,6 +475,8 @@ impl<D: DataSource> Host<D> {
 
     /// Capture a live browser presentation. Reply includes cancellation and
     /// any other properties advanced by the same engine clock.
+    /// At this boundary `InvalidValueShape` also refuses Height positions
+    /// outside the native layout range 0..=f32::MAX, before clock mutation.
     pub fn begin_hold(
         &mut self,
         view: ViewId,
@@ -507,6 +525,8 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Apply an input sample and drain common lowering once; no timer advance.
+    /// Height position outside 0..=f32::MAX is `InvalidValueShape`; stale tokens
+    /// are refused before that validation. Release velocity remains signed.
     pub fn update_hold(
         &mut self,
         serial: u64,
@@ -611,6 +631,9 @@ impl<D: DataSource> Host<D> {
                 }
                 Lowered::Cancel { view, property } => {
                     batch.animate(view, property.name(), 0.0, 0.0, &[], false);
+                }
+                Lowered::Retire { view, property } => {
+                    batch.retire_motion(view, property.name());
                 }
             }
         }

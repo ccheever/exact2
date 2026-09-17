@@ -175,8 +175,11 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   permanent bug annuity LLP 0559 F1 describes. Scroll always wins.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
-- **Layout transitions.** Gated on a demonstrated incremental-relayout number.
-  There isn't one.
+- **General layout transitions.** LLP 1041 §8.12's measured projection admits
+  one explicitly registered numeric-height sheet (Charlie’s four-interaction
+  campaign, 2026-09-17). Take: other animated layout properties and decorative
+  effects wait behind that sheet and its nested collection. This is not a
+  general layout-animation system or evidence of physical 120 Hz.
 - **Decay, sequence, and repeat drivers; `@keyframes`.** A spring carries release
   velocity; nothing else needs a driver.
 - **Reduced-motion policy in the engine.** The producer emits `transition: none`

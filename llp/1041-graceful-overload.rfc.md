@@ -981,3 +981,46 @@ and top-of-list expansion. It admits the next narrow motion/adapter experiment;
 it does not establish native text/paint cost, continuous gestures or physical
 120Hz. Max-height takeover must still sample displayed CSS height, and switching
 to auto/%/env must retire Height alone while other properties continue.
+
+**Programmatic motion/host increment, Tuft, Zeno, Darwin and Leibniz,
+2026-09-17:** the shared engine appends Height without assigning `auto` a numeric
+identity. One explicit host registration synchronizes its latest numeric target
+and declaration; ordinary boot/receipt targets remain the four compositor
+properties. A retirement tombstone clears only Height, including host projection
+or DOM overlay/playback. Native adapters require one root and an explicit
+border-box owner. Catch uses published constrained geometry, while each layout
+entry revalidates the owner and carries a fresh projection epoch through actual
+collection feedback. Cached successful samples keep unchanged held Height from
+relayout on unrelated Translate ticks; a failed layout preserves published frames
+and forces the next attempt to retry. Repeated live registration is idempotent
+while hidden/unsupported, and destroyed keys cannot regain ownership.
+
+External held positions use finite nonnegative f32 layout range with scalar y=0;
+stale callbacks return before validation or clocks. Internal negative spring
+samples and signed release velocity remain raw in the engine. Native projection
+and the DOM formatter clamp only the displayed length to zero, preserving every
+keyframe, delayed start and rebound. CSS/WAAPI still execute web animation.
+
+Before integration the core passes 57 motion and 167 kernel tests; Apple passes
+91 Rust tests including 14 Height cases, Linux passes 124 scoped tests including
+21 new Height cases (one existing GPU test ignored), and web passes 72 Rust
+tests plus 26 real-DOM tests/76 assertions. Three existing web browser-carrier
+tests remain ignored; the DOM tests use a mock bridge, while separate Rust tests
+exercise Host/Engine and the actual binary bridge. Independent review reproduced
+and fixed extra Linux layout calls under held Height and non-idempotent hidden
+registration. Evidence and exact frozen source hashes are in
+`target/height-{motion,apple,linux,web}-validation/`; coherent main validation is
+recorded in `target/height-integration-validation/`. The combined main tree
+passes all 538 tests across motion, kernel and the three host crates, with four
+existing GPU/browser-carrier tests ignored. Strict all-targets Clippy for those
+five crates, wasm32 checks for motion/kernel/web, scoped formatting, caps and
+boot pass using an isolated Cargo target. Existing whole-workspace Hermes and
+sibling-format limitations remain; these are scoped integration results.
+
+These are programmatic adapter tests. Linux-crate validation here executes on
+macOS, and Apple has no Swift registration/vertical recognizer in this increment.
+No physical sheet drive, asynchronous layout or frame-rate result is claimed.
+The next consumer slice is an explicit authored header handle referencing its
+panel ID, a typed height/velocity release event, and a synchronous snap action
+before the token ends. It will deliberately replace the gallery's percentage
+stops with numeric pixel stops; inner-list boundary arbitration remains separate.

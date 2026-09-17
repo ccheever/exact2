@@ -5,11 +5,10 @@
 //!
 //! After every commit the host walks the receipt (destroy, create, props,
 //! style, children — the web host's rule: the view tree mirrors the kernel
-//! tree), lays the roots out with the kernel's layout under the viewport,
-//! emits every parent-relative frame that changed and every scroll
-//! container's content size that changed, then feeds the motion engine the
-//! commit (LLP 1003 §4), seeks it to the app's clock, and emits each
-//! presentation value that changed. The kernel is the single source of
+//! tree), feeds the motion engine the commit (LLP 1003 §4), and seeks it to
+//! the app's clock before laying out the roots under the viewport. Layout
+//! projects the explicitly registered Height, then emits changed frames and
+//! scroll content sizes; other presentation values follow. The kernel is the single source of
 //! truth; the mirror is a memo of what the presenter has been told.
 
 use crate::batch::Batch;
@@ -21,10 +20,16 @@ use exact_kernel::{
 };
 use exact_motion::{Change, Engine, HoldToken, Property};
 
+#[path = "height.rs"]
+mod height;
+#[cfg(test)]
+#[path = "height_tests.rs"]
+mod height_tests;
 #[path = "holds.rs"]
 mod holds;
 use exact_plan::{EventKind, Plan};
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
+pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
 use ibex2::host::Secrets;
 use std::collections::BTreeMap;
 
@@ -63,6 +68,10 @@ pub struct Host<D: DataSource> {
     collections_json: String,
     engine: Engine,
     holds: BTreeMap<u64, HoldToken>,
+    height_owner: Option<NodeKey>,
+    height_projection: Option<(NodeKey, f32)>,
+    #[cfg(test)]
+    layout_calls: usize,
     viewport: (f32, f32),
     now_ms: f64,
     /// Where the app's kept secrets go after a commit (LLP 1018 D6); `None`
@@ -219,6 +228,10 @@ impl<D: DataSource> Host<D> {
             collections_json: "[]".into(),
             engine: Engine::new(),
             holds: BTreeMap::new(),
+            height_owner: None,
+            height_projection: None,
+            #[cfg(test)]
+            layout_calls: 0,
             viewport: (width, height),
             now_ms: 0.0,
             data_activated: false,
@@ -614,8 +627,9 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        let error = self.height_layout_if_needed(&mut batch).err();
         self.present(&mut batch, false);
-        self.finish(batch, None)
+        self.finish(batch, error)
     }
 
     fn finish(&self, batch: Batch, error: Option<String>) -> String {
@@ -667,23 +681,6 @@ impl<D: DataSource> Host<D> {
             self.roots = roots.clone();
             batch.roots(&roots);
         }
-        let layout_error = if receipts.is_empty() {
-            None
-        } else {
-            self.layout(&mut batch).err()
-        };
-        for s in self.runner.take_surface_updates() {
-            batch.surface(s.view, &s.name, &s.values);
-        }
-        // The capabilities the actions called, after their commits, in order.
-        // @ref LLP 1038 D7 — drain once, after all commits in this batch.
-        if let Some(change) = self.runner.take_router_change() {
-            batch.router(&change);
-        }
-        for c in self.runner.take_commands() {
-            batch.command(&c.name, &c.args);
-        }
-        self.persist();
         // Runner receipts retain due-time order. Unobserved motion starts at
         // that due time; a late receipt cannot rewind an already presented
         // frame/hold. Match Web's floor at the engine's current presentation
@@ -699,9 +696,28 @@ impl<D: DataSource> Host<D> {
                 .motion_sync(&t.receipt)
                 .apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            let synced = self.sync_height_owner();
+            debug_assert!(synced.is_ok(), "validated height sync");
         }
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        let layout_error = if receipts.is_empty() {
+            self.height_layout_if_needed(&mut batch).err()
+        } else {
+            self.layout(&mut batch).err()
+        };
+        for s in self.runner.take_surface_updates() {
+            batch.surface(s.view, &s.name, &s.values);
+        }
+        // The capabilities the actions called, after their commits, in order.
+        // @ref LLP 1038 D7 — drain once, after all commits in this batch.
+        if let Some(change) = self.runner.take_router_change() {
+            batch.router(&change);
+        }
+        for c in self.runner.take_commands() {
+            batch.command(&c.name, &c.args);
+        }
+        self.persist();
         self.present(&mut batch, false);
         self.finish(batch, error.or(layout_error))
     }
@@ -709,13 +725,21 @@ impl<D: DataSource> Host<D> {
     /// Lay every root out under the viewport and emit the parent-relative
     /// frames and scroll content sizes that changed.
     fn layout(&mut self, batch: &mut Batch) -> Result<(), String> {
+        #[cfg(test)]
+        {
+            self.layout_calls += 1;
+        }
+        self.sync_height_owner()?;
+        let sample = self.height_sample()?;
+        let projection = self.presented_height(sample);
         let (w, h) = self.viewport;
         for root in self.runner.roots() {
             self.runner
                 .kernel_mut()
-                .compute_layout(root, Offer::definite(w, h))
+                .compute_layout_presented(root, Offer::definite(w, h), projection)
                 .map_err(|e| format!("layout: {e:?}"))?;
         }
+        self.height_projection = sample;
         for id in self.preorder() {
             let kernel = self.runner.kernel();
             let Some(node) = kernel.node(id) else {
@@ -770,7 +794,10 @@ impl<D: DataSource> Host<D> {
     fn present(&mut self, batch: &mut Batch, boot: bool) {
         self.holds.retain(|_, token| self.engine.has_hold(*token));
         for p in self.engine.frame() {
-            if boot && p.value == p.property.identity() {
+            if p.property == Property::Height {
+                continue;
+            }
+            if boot && p.property.identity() == Some(p.value) {
                 continue;
             }
             let key = NodeKey {

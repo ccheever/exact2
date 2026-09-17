@@ -386,6 +386,13 @@ impl<D: DataSource> Bridge<D> {
             let (op, view, property, serial, value, now) =
                 decoded.map_err(|_| "malformed motion input".to_string())?;
             let host = self.host.as_mut().ok_or("not booted")?;
+            if op == 6 || op == 7 {
+                if property != Property::Height as u32 {
+                    return Err("height registration requires the height property".into());
+                }
+                let batch = host.set_height_owner((op == 6).then_some(view))?;
+                return Ok(format!("{{\"accepted\":true,\"batch\":{batch}}}"));
+            }
             if op == 0 {
                 let property = *Property::ALL
                     .get(property as usize)

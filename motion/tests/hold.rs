@@ -274,7 +274,7 @@ fn removed_transition_snaps_to_latest_target_on_release_for_every_property() {
         e.observe(Change {
             node: NODE,
             property,
-            value: property.identity(),
+            value: property.identity().unwrap_or(Value::scalar(180.0)),
             velocity: None,
         })
         .unwrap();
@@ -382,7 +382,7 @@ fn scalar_shape_errors_cannot_replace_a_hold_or_move_the_clock() {
         e.observe(Change {
             node: NODE,
             property,
-            value: property.identity(),
+            value: property.identity().unwrap_or(Value::scalar(180.0)),
             velocity: None,
         })
         .unwrap();
@@ -428,8 +428,14 @@ fn scalar_shape_errors_cannot_replace_a_hold_or_move_the_clock() {
         assert!(e.has_hold(held.token));
         assert!(e.is_held(NODE, property));
         assert_eq!(e.now(), 0.1);
-        assert_eq!(e.value(NODE, property), Some(property.identity()));
-        assert_eq!(e.target(NODE, property), Some(property.identity()));
+        assert_eq!(
+            e.value(NODE, property),
+            Some(property.identity().unwrap_or(Value::scalar(180.0)))
+        );
+        assert_eq!(
+            e.target(NODE, property),
+            Some(property.identity().unwrap_or(Value::scalar(180.0)))
+        );
         assert!(e.frame().is_empty());
     }
 }

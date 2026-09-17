@@ -32,6 +32,7 @@ use std::time::Duration;
 use tiny_skia::Pixmap;
 
 mod collection;
+mod height;
 mod images;
 mod swipe;
 
@@ -1343,7 +1344,10 @@ impl<D: DataSource> Presenter<D> {
 
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) {
-        self.host.tick(now_ms);
+        if self.host.tick(now_ms) {
+            self.clamp_scroll();
+            self.queue_collections();
+        }
         self.dirty = true;
     }
 

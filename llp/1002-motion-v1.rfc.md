@@ -5,6 +5,7 @@
 **Systems:** Motion, Kernel, Wire, Web, Apple, Linux, Agent API
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-28
+**Numeric-height trial:** Tuft / Zeno (Astra), implementing 2026-09-17; LLP 1041 §8.12.
 **Related:** LLP 1003 (the spec of what this built), LLP 1001 (kernel v1 — the rows motion targets), RFC 0492 (the exact1 motion program this supersedes as authority; research), RFC 0099 (exact1's motion substrate; research), LLP 0486 (one layout language, two engines — the pattern this applies to motion), LLP 0559 F1 (the Flutter warning this heeds), `rules/NOT-DOING.md` §Motion
 
 ## Summary
@@ -105,7 +106,7 @@ Scroll always wins. Follow/release uses temporary ownership of an existing
 node/property's presentation; its authored style remains the target:
 
 - `begin_hold(node, property, now_s, presented)` returns an optional
-  `HoldStart { token, value }`. Native hosts pass `None` to capture the current
+  `HoldStart { token, value }`. Native compositor hosts pass `None` to capture the current
   curve; the browser supplies computed presentation at recognition, before
   cancelling playback. This value is the displacement origin, including on
   rebegin; it is not the authored target or a pointer-down sample.
@@ -155,9 +156,58 @@ the gesture arena and interactive-navigation model (platform-owned), a second
 value graph, layout transitions, decay/sequence/repeat, and reduced-motion
 actions in the engine.
 
+**D7 — One numeric-height owner, measured trial (2026-09-17).** LLP 1041 §8.12
+prices the kernel projection plus collection feedback at 4.542–4.875 µs p50
+and 6.583–7.542 µs p95 for 25k logical records, against authored updates at
+45.25–50.833 µs p50. These are same-binary Monospace CPU measurements, not
+native fonts, paint, gesture delivery or 120 Hz presentation. They admit the
+sheet trial, not general layout animation or a second application graph.
+
+`Property::Height` is scalar logical pixels (discriminant 4); its CSS initial
+`auto` has no numeric identity: `identity()` returns `None`. Ordinary
+`targets(style)` and `motion_sync(receipt)` keep their four compositor rows.
+The host explicitly registers one live `NodeKey`; at registration/boot and
+every commit or layout entry, `height_motion_sync(owner)` checks that owner
+in O(depth), even if the receipt did not touch it. `height_target(owner)`
+accepts only finite nonnegative `Dimension::Points` on a non-inline box under
+an attached root with no `display:none` ancestor. Unsupported, detached or
+removed input retires Height only; percentages, env and auto are never resolved
+into invented numeric targets. Replacing the registered owner retires its
+previous Height first. There is no automatic adoption of all numeric heights.
+
+`remove_property(node, property)` removes its value, curve, dirty frame and
+hold without changing time, other properties or the node's declaration.
+`is_active` means held or running, including delay and a zero-distance spring
+with velocity; `quiescent` still ignores held-only state. D3–D4 retain their
+target, delay, release velocity and stale-token rules. Hosts also retire their
+owned projection, held overlay and playback; a missing engine frame is not
+a browser cancellation command.
+
+Native adapters must use `PresentedHeight` for the registered owner and feed
+the resulting actual scrollport to the collection protocol. CSS box sizing,
+min/max constraints and the existing root-lowering exception still apply.
+Takeover supplies the displayed CSS-height value, not an unconstrained engine
+target or a content-box node's outer rectangle. The web keeps CSS easings and
+WAAPI spring playback, using actual DOM geometry for collection feedback; no
+per-frame Rust evaluator is added. Programmatic Apple/Linux host adapters and
+the web hold/lowering path now implement this seam. Native trial registration
+requires a single root and explicit border-box owner; content-box capture is
+refused until resolved padding/border conversion is implemented. Repeating a
+live registration is idempotent even while hidden/unsupported; a destroyed key
+cannot re-adopt. An unchanged held Height does not add layout work to unrelated
+compositor ticks. Mandatory commits, resize and feedback still refresh layout.
+
+External Height positions must be finite in `[0, f32::MAX]`, with scalar y=0.
+Unknown/unadopted/stale callbacks return before validation; malformed live
+positions refuse before clock or hold mutation. Signed release velocities and
+internal curve values remain unchanged. Only displayed Height clamps a negative
+sample to zero, retaining its timing and later rebound. These Rust host and DOM
+regressions do not establish physical vertical recognition or native frame
+performance; the authored handle and real-input slice remains next.
+
 ## 3. The frame
 
-The host owns the clock (LLP 1001 §3 stands). One frame on a native host:
+The host owns the clock (LLP 1001 §3 stands). An ordinary compositor frame on a native host:
 input → ops → `Kernel::apply` → `Kernel::compute_layout` → `Kernel::motion_sync
 (&receipt).apply(&mut engine)` → `engine.advance(now)` → `engine.frame()` → the
 host applies geometry and presentation values → present. On the web the motion
@@ -166,6 +216,11 @@ exactly two things a browser reads from computed style: each created or touched
 node's `transition` row and its four animatable targets, plus destroyed nodes to
 forget. Nodes are keyed by the generation-checked `NodeKey` packed to `u64`, so a
 reused slot never inherits motion (`a_destroyed_node_is_forgotten_and_its_slot_never_inherits`).
+
+For the D7 trial, the native adapter reconciles its Height owner and seeks
+motion before `compute_layout_presented`, then reports actual collection
+geometry before presentation. Every subsequent layout entry retains that
+validated sample until retirement; an ordinary layout call would clear it.
 
 ## 4. Not decided here
 
@@ -176,8 +231,9 @@ reused slot never inherits motion (`a_destroyed_node_is_forgotten_and_its_slot_n
 - **`prefers-reduced-motion`.** CSS handles it in the author's stylesheet with a
   media query; here the producer does the same — emits `transition: none` (or a
   shorter row) when the host reports the preference. The engine has no opinion.
-- **Layout-affecting transitions** (`width`, `height`, insets). Not in v1; gated,
-  as before, on an incremental-relayout number that has not been demonstrated.
+- **General layout-affecting transitions** (`width`, insets, arbitrary heights).
+  Only the explicitly registered numeric-height trial in D7 is admitted; broader
+  ownership and layout policies remain gated on their own measured consumers.
 - **The producer's authoring surface** for `transition` in Contract. This RFC
   fixes the row; the compiler that emits it is the Contract lane's.
 

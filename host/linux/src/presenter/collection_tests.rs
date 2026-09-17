@@ -301,3 +301,84 @@ fn interaction_release_cancel_and_navigation_clear_the_pin() {
         "cleared pin must permit row retirement"
     );
 }
+
+#[test]
+fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing() {
+    use exact_motion::HoldEnd;
+    let source = r#"component App
+  resource rows = rows() as shape list<number>
+  state draft = ""
+  state target = 180
+  action edit(value) writes draft
+    draft = value
+  action grow writes target
+    target = 420
+  view
+    box width="100%" height="100%"
+      input value=draft change=edit testId="input"
+      button press=grow testId="grow"
+        text "grow"
+      column position="absolute" bottom=0 width="100%" height=target max-height="100%" padding=8 border-width=2 border-style="solid" box-sizing="border-box" transition="height spring(300,30,1)" testId="panel"
+        list virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="port"
+          each x in rows key=x
+            text `row ${x}` height=24
+"#;
+    let mut p = boot_source(source);
+    settle(&mut p);
+    let view = |p: &Presenter<Rows>, name| {
+        p.host
+            .kernel()
+            .node_by_key(p.host.kernel().find_by_test_id(name)[0])
+            .unwrap()
+            .id
+    };
+    let panel = view(&p, "panel");
+    let input = view(&p, "input");
+    p.set_height_owner(Some(panel)).unwrap();
+    let held = p.height_begin(0.).unwrap().unwrap();
+    let port = view(&p, "port");
+    p.wheel(port, 0., 10_000_000.).unwrap();
+    settle(&mut p);
+    for (i, px) in [256., 105., 420., 180.].into_iter().enumerate() {
+        assert!(p.height_update(held.token, px, i as f64).unwrap());
+        p.type_text(input, &format!("typed {i}")).unwrap();
+        // Inspect the publication before any eventual settle/screenshot hides a gap.
+        let snapshot = p.host.collections().pop().unwrap();
+        let port_height = p.host.kernel().node(port).unwrap().frame.height;
+        assert_eq!(p.host.kernel().node(panel).unwrap().frame.height, px as f32);
+        assert_eq!(port_height, px as f32 - 20.);
+        assert!(snapshot.rows.len() < 64);
+        assert!(p.node_count() < 200);
+        let offset = p.scroll_of(port).1 as f64;
+        assert!(snapshot.rows.first().unwrap().top <= offset + 0.5);
+        let last = snapshot.rows.last().unwrap();
+        assert!(
+            last.top + last.height
+                >= (offset + port_height as f64).min(snapshot.total_extent) - 0.5
+        );
+        assert_eq!(last.index, 24_999);
+        assert_eq!(
+            p.host.kernel().node(panel).unwrap().style.height,
+            exact_kernel::Dimension::Points(180.)
+        );
+    }
+    p.tap(view(&p, "grow")).unwrap();
+    assert_eq!(p.host.kernel().node(panel).unwrap().frame.height, 180.);
+    p.height_end(held.token, HoldEnd::Cancel, 3.).unwrap();
+    p.tick(80.);
+    let _ = p.frame();
+    assert!(p.host.kernel().node(panel).unwrap().frame.height > 180.);
+    assert!(p.resize(400., 200.).is_none());
+    p.tick(10_000.);
+    let _ = p.frame();
+    assert_eq!(p.host.kernel().node(panel).unwrap().frame.height, 200.);
+    assert_eq!(p.host.kernel().node(port).unwrap().frame.height, 180.);
+    settle(&mut p);
+    assert!(!p.dirty());
+    let old = p.height_begin(10_000.).unwrap().unwrap();
+    p.reload(&contract::compile(source).unwrap().encode(), Rows)
+        .unwrap();
+    assert!(p.host.height_owner().is_none());
+    assert!(!p.height_update(old.token, f64::NAN, f64::NAN).unwrap());
+    assert!(!p.height_end(old.token, HoldEnd::Cancel, f64::NAN).unwrap());
+}

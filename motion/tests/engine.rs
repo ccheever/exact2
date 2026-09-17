@@ -390,7 +390,7 @@ fn removing_a_node_forgets_it() {
                 .observe(Change {
                     node,
                     property,
-                    value: property.identity(),
+                    value: property.identity().unwrap_or(Value::scalar(180.0)),
                     velocity: None,
                 })
                 .unwrap();
@@ -399,7 +399,10 @@ fn removing_a_node_forgets_it() {
     engine.remove(NODE);
     for property in Property::ALL {
         assert_eq!(engine.value(NODE, property), None);
-        assert_eq!(engine.value(NODE + 1, property), Some(property.identity()));
+        assert_eq!(
+            engine.value(NODE + 1, property),
+            Some(property.identity().unwrap_or(Value::scalar(180.0)))
+        );
     }
     let frame = engine.frame();
     assert_eq!(frame.len(), Property::ALL.len());

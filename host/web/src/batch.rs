@@ -193,6 +193,14 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// End a property's ownership, including a held presentation override.
+    pub fn retire_motion(&mut self, id: u32, property: &str) {
+        let mut s = format!("{{\"op\":\"retire-motion\",\"id\":{id},\"property\":");
+        quote(property, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
     /// `{"op":"surface","id":…,"name":…,"values":[…]}` — a canvas's inputs
     /// (LLP 1009 D2): plan values as JSON — numbers, strings, booleans,
     /// `null` for unit and `none`, lists, records as positional lists.

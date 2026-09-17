@@ -13,15 +13,23 @@ impl<D: DataSource> Host<D> {
         let Some(node) = self.runner.kernel().node(view) else {
             return self.finish(batch, None);
         };
-        let result = self
-            .engine
-            .begin_hold(motion_node(node.key), property, now_ms / 1000., None);
+        let presented = if property == Property::Height {
+            let Some(value) = self.height_catch(node.key) else {
+                return self.finish(batch, None);
+            };
+            Some(value)
+        } else {
+            None
+        };
+        let result =
+            self.engine
+                .begin_hold(motion_node(node.key), property, now_ms / 1000., presented);
         let error = match result {
             Ok(Some(start)) => {
                 self.now_ms = now_ms;
                 self.holds.insert(start.token.serial(), start.token);
                 batch.hold(start.token.serial(), start.value.x, start.value.y);
-                None
+                self.height_layout_if_needed(&mut batch).err()
             }
             Ok(None) => None,
             Err(e) => Some(format!("hold: {e:?}")),
@@ -48,12 +56,26 @@ impl<D: DataSource> Host<D> {
         else {
             return self.finish(batch, None);
         };
-        let result = self.engine.update_hold(token, now_ms / 1000., value);
-        if matches!(result, Ok(true)) {
-            self.now_ms = now_ms;
+        if token.property() == Property::Height
+            && (!value.x.is_finite() || value.x < 0. || value.x > f32::MAX as f64)
+        {
+            return self.hold_refusal("height hold outside finite nonnegative layout range");
         }
+        let result = self.engine.update_hold(token, now_ms / 1000., value);
+        let layout_error = if matches!(result, Ok(true)) {
+            self.now_ms = now_ms;
+            self.height_layout_if_needed(&mut batch).err()
+        } else {
+            None
+        };
         self.present(&mut batch, false);
-        self.finish(batch, result.err().map(|e| format!("hold: {e:?}")))
+        self.finish(
+            batch,
+            result
+                .err()
+                .map(|e| format!("hold: {e:?}"))
+                .or(layout_error),
+        )
     }
 
     /// Consume ownership once, after the final sample and any authored action.
@@ -68,11 +90,20 @@ impl<D: DataSource> Host<D> {
             return self.finish(batch, None);
         };
         let result = self.engine.end_hold(token, now_ms / 1000., end);
-        if matches!(result, Ok(true)) {
+        let layout_error = if matches!(result, Ok(true)) {
             self.now_ms = now_ms;
             self.holds.remove(&handle);
-        }
+            self.height_layout_if_needed(&mut batch).err()
+        } else {
+            None
+        };
         self.present(&mut batch, false);
-        self.finish(batch, result.err().map(|e| format!("hold: {e:?}")))
+        self.finish(
+            batch,
+            result
+                .err()
+                .map(|e| format!("hold: {e:?}"))
+                .or(layout_error),
+        )
     }
 }

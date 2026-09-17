@@ -6,13 +6,14 @@
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-28
 **Implementer:** Claude (Fable 5), landing 2026-08-28 (this document transcribes the landing)
+**Numeric-height trial implementer:** Tuft / Zeno (Astra), 2026-09-17; LLP 1041 §8.12.
 **Related:** LLP 1002 (the decision), LLP 1001 (kernel v1), CSS Transitions Level 1, CSS Easing Functions Level 1/2
 
 ## Summary
 
 `motion/` is LLP 1002 built: CSS `transition` semantics over the four
-compositor properties, one spring, and a seekable clock, in 1,461 lines with
-`libm` as the only dependency. The kernel depends on it for the `transition`
+compositor properties and an explicit numeric-height trial, one spring, and a
+seekable clock, with `libm` as the only dependency. The kernel depends on it for the `transition`
 row's type; it depends on nothing. Where this document and the code disagree,
 the code and its tests are the authority and this document is stale.
 
@@ -22,7 +23,7 @@ Codec `transitions`; type `exact_motion::Transitions` (re-exported as
 `exact_kernel::Transitions`); no default (empty = CSS's initial value, which
 starts nothing). Wire grammar (`kernel/src/wire/codec.rs`): count u8 (≤ 8),
 then per declaration property u8 (0 `all`, 1 `translate`, 2 `scale`, 3
-`rotate`, 4 `opacity`), duration f32 seconds, delay f32 seconds, easing u8:
+`rotate`, 4 `opacity`, 5 `height`), duration f32 seconds, delay f32 seconds, easing u8:
 0 `linear`, 1 `ease`, 2 `ease-in`, 3 `ease-out`, 4 `ease-in-out`,
 5 `cubic-bezier` + 4×f32, 6 `steps` + u16 count + u8 position (0 `jump-start`,
 1 `jump-end`, 2 `jump-none`, 3 `jump-both`), 7 `spring` + f32 stiffness,
@@ -39,8 +40,11 @@ the schema digest moved with them.
 
 ## 2. Properties and values (`property.rs`)
 
-`Property::{Translate, Scale, Rotate, Opacity}` with CSS names, wire order,
-component counts (2, 1, 1, 1), and CSS initial values (`0 0`, `1`, `0`, `1`).
+`Property::{Translate, Scale, Rotate, Opacity, Height}` with CSS names and
+discriminants 0–4. Component counts are (2, 1, 1, 1, 1). `identity()` returns
+`Option<Value>`: `Some` of the CSS initial values (`0 0`, `1`, `0`, `1`) for
+the compositor rows, `None` for Height's `auto`. Height values are logical
+pixels; numeric eligibility and constraints belong to the kernel/host trial.
 `Value { x, y }` is every value; scalars use `x`. Interpolation is componentwise
 linear (CSS "by computed value"). Comparison is exact.
 
@@ -98,18 +102,42 @@ removal invalidate them. LLP 1002 D3–D4 specify time, lifetime and host loweri
 running transition at `now` — a seek. `Engine::frame()` drains the changed
 `(node, property)` set in key order. `settle_time()` is the last running end
 time (a spring's from `settle_time` on the grid). `remove(node)` forgets a node.
+`remove_property(node, property) -> bool` forgets only that property, including
+its queued frame and token, while retaining the node's transition declaration.
+`is_active(node, property)` reports held or running (including delay); it cannot
+be replaced by comparing value with target or querying only spring descriptors.
 
 ## 6. The seam (`kernel/src/motion.rs`)
 
-`Kernel::motion_sync(&receipt) -> MotionSync { removed, transitions, changes }`
+`Kernel::motion_sync(&receipt) -> MotionSync { removed, retired, transitions, changes }`
 restates a commit: destroyed keys to forget; for every created or touched node,
 its `transition` row and its four targets (`motion::targets`). `MotionSync::
-apply(&mut engine)` feeds them in that order — row before targets, so a commit
-that changes both animates under the after-change row, as CSS does. Nodes are
+apply(&mut engine)` feeds them in that order — whole nodes, individual properties,
+then row before targets, so a commit that changes both animates under the
+after-change row, as CSS does. Nodes are
 `motion_node(key) = generation << 32 | index`. The engine deduplicates unchanged
 targets, so syncing every touched node's four rows costs nothing when they did
 not move. The kernel's own targets never change under animation; only the
 engine's presentation does (`a_style_change_transitions_under_the_row_and_the_clock_seeks`).
+
+The numeric-height trial does not expand that ordinary seam or its boot
+targets. Hosts explicitly register one `NodeKey` and separately call
+`Kernel::height_motion_sync(owner)` at boot/registration and after every commit
+or layout entry. `height_target(owner) -> Option<Value>` checks finite,
+nonnegative pixel authoring, independent box, attached root and no hidden
+ancestor in O(depth). An eligible sync supplies its latest declaration and one
+Height change; an ineligible sync supplies `retired = [(motion_node(owner),
+Property::Height)]`. No kernel owner registry or scan of all mounted nodes is
+added. The host retires the old property when registration changes and consumes
+retirement for its own projection/overlay/playback as well as the Engine.
+Ancestor-only hide/detach commits require reconciliation even when the owner
+does not appear in `receipt.touched`.
+
+LLP 1002 D7 names the measured admission and adapter obligations: one native
+`PresentedHeight`, actual collection geometry, constrained-height takeover, and
+CSS/WAAPI execution on web. The kernel retains ordinary box sizing, min/max
+and its documented auto-width root exception. This core seam alone does not
+implement physical vertical recognition or establish native frame performance.
 
 ## 7. Determinism (`math.rs`)
 
@@ -129,7 +157,8 @@ own `DecodeError`/`ApplyError` without translation.
 
 ## 9. Not in v1 (and where each is declared)
 
-Layout-affecting transitions; `@keyframes`/`animation`; gesture recognition,
+General layout-affecting transitions beyond the explicit single-owner numeric
+height trial; `@keyframes`/`animation`; gesture recognition,
 hit-testing, and arbitration (the platform's — LLP 1002 D4); a Core Animation
 executor (LLP 1002 §4); reduced-motion policy in the engine (producer emits
 `transition: none` — LLP 1002 §4). The browser-driven parity harness owed

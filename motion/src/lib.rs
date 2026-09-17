@@ -13,7 +13,7 @@
 //! executor — the host emits the row as CSS and the compositor interpolates.
 //! Everywhere the platform has no such engine, this crate is the executor:
 //!
-//! - [`property`] — the four animatable properties and their values.
+//! - [`property`] — compositor properties and the explicit numeric-height trial.
 //! - [`easing`] — CSS easing functions, held to the browser's outputs.
 //! - [`spring`] — the one timing function CSS lacks, and its lowering to
 //!   keyframes so the web plays the same curve.

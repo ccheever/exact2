@@ -44,6 +44,14 @@ pub enum Lowered {
         /// The property.
         property: Property,
     },
+    /// Eligibility or explicit ownership ended. Remove held DOM overrides as
+    /// well as playback, even when removing the Engine slot emitted no frame.
+    Retire {
+        /// The node's last live view id.
+        view: ViewId,
+        /// Only this property is retired.
+        property: Property,
+    },
 }
 
 /// The web host's spring evaluator: one engine, sampled at commits.
@@ -55,6 +63,9 @@ pub struct Springs {
     frame_compilations: usize,
     /// Compare fixed-size curve identity before compiling browser keyframes.
     playing: BTreeMap<(u64, Property), SpringDescriptor>,
+    /// One explicit trial owner, bound to its arena generation. Unsupported
+    /// styles retire its slot; a later eligible style can adopt it again.
+    height_owner: Option<(NodeKey, ViewId)>,
 }
 
 impl Springs {
@@ -71,6 +82,66 @@ impl Springs {
     /// Number of property springs retained for the current mounted tree.
     pub fn playing_count(&self) -> usize {
         self.playing.len()
+    }
+
+    pub(crate) fn set_height_owner(
+        &mut self,
+        kernel: &Kernel,
+        view: Option<ViewId>,
+    ) -> Result<Vec<Lowered>, &'static str> {
+        // Refuse before retiring the old owner or touching its clock/hold.
+        let next = view
+            .map(|view| {
+                let node = kernel.node(view).ok_or("unknown height owner")?;
+                // Registration is generational intent across temporary hidden
+                // or unsupported styles; repeating it is still idempotent.
+                if self.height_owner == Some((node.key, view)) {
+                    return Ok((node.key, view));
+                }
+                kernel
+                    .height_target(node.key)
+                    .ok_or("height owner is not an attached numeric box")?;
+                Ok((node.key, view))
+            })
+            .transpose()?;
+        if self.height_owner == next {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::new();
+        if let Some((key, view)) = self.height_owner.take() {
+            self.retire_height(key, view, &mut out);
+        }
+        self.height_owner = next;
+        self.reconcile_height(kernel, &mut out);
+        self.holds.retain(|_, token| self.engine.has_hold(*token));
+        Ok(out)
+    }
+
+    fn retire_height(&mut self, key: NodeKey, view: ViewId, out: &mut Vec<Lowered>) {
+        let node = motion_node(key);
+        let removed = self.engine.remove_property(node, Property::Height);
+        self.playing.remove(&(node, Property::Height));
+        if removed {
+            out.push(Lowered::Retire {
+                view,
+                property: Property::Height,
+            });
+        }
+    }
+
+    fn reconcile_height(&mut self, kernel: &Kernel, out: &mut Vec<Lowered>) {
+        let Some((key, view)) = self.height_owner else {
+            return;
+        };
+        let sync = kernel.height_motion_sync(key);
+        if !sync.retired.is_empty() {
+            self.retire_height(key, view, out);
+        }
+        let applied = sync.apply(&mut self.engine);
+        debug_assert!(applied.is_ok(), "height target is validated kernel input");
+        if kernel.node_by_key(key).is_none() {
+            self.height_owner = None;
+        }
     }
 
     pub(crate) fn token(&self, serial: u64) -> Option<HoldToken> {
@@ -91,6 +162,10 @@ impl Springs {
         let Some(node) = kernel.node(view) else {
             return Ok(None);
         };
+        if self.engine.value(motion_node(node.key), property).is_none() {
+            return Ok(None);
+        }
+        validate_height_position(property, presented)?;
         let Some(start) =
             self.engine
                 .begin_hold(motion_node(node.key), property, now, Some(presented))?
@@ -114,6 +189,7 @@ impl Springs {
         let Some(token) = self.token(serial) else {
             return Ok(false);
         };
+        validate_height_position(token.property(), value)?;
         self.engine.update_hold(token, now, value)
     }
 
@@ -183,8 +259,11 @@ impl Springs {
             let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
         }
-        self.holds.retain(|_, token| self.engine.has_hold(*token));
         let mut out = Vec::new();
+        // Ancestor hide/detach does not touch the owner's receipt key. This
+        // checks only its ancestor path, never all mounted numeric heights.
+        self.reconcile_height(kernel, &mut out);
+        self.holds.retain(|_, token| self.engine.has_hold(*token));
         for p in self.engine.frame() {
             let key = (p.node, p.property);
             let Some(view) = self.view_of(kernel, p.node) else {
@@ -242,6 +321,22 @@ impl Springs {
         };
         kernel.node_by_key(key).map(|n| n.id)
     }
+}
+
+// Native projection uses f32 CSS lengths. Reject malformed external positions
+// before advancing the clock; signed velocities/internal curve samples remain
+// unrestricted, and the DOM alone clamps a negative displayed height to zero.
+fn validate_height_position(property: Property, value: Value) -> Result<(), EngineError> {
+    if property != Property::Height {
+        return Ok(());
+    }
+    if !value.x.is_finite() || !value.y.is_finite() {
+        return Err(EngineError::NonFinite);
+    }
+    if value.y != 0.0 || value.x < 0.0 || value.x > f32::MAX as f64 {
+        return Err(EngineError::InvalidValueShape);
+    }
+    Ok(())
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

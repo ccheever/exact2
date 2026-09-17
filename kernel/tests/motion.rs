@@ -4,13 +4,394 @@
 //! browser would for the same CSS.
 
 use exact_kernel::{
-    motion_node, wire, ApplyError, DecodeError, Kernel, KernelError, NodeType, Op, PropId,
-    PropValue, StyleId, StyleProps, Transitions, Vec2,
+    motion_node, wire, ApplyError, DecodeError, Dimension, Display, Kernel, KernelError, NodeType,
+    Op, PropId, PropValue, StyleId, StyleProps, Transitions, Vec2,
 };
 use exact_motion::{
     Easing, Engine, HoldEnd, LinearStop, Property, SpringConfig, StepPosition, TimingFunction,
     Transition, TransitionError, TransitionProperty, Value,
 };
+
+fn height_patch(value: Dimension) -> Box<StyleProps> {
+    style(|s| {
+        s.height = value;
+        s.mask.set(StyleId::Height);
+    })
+}
+
+fn height_tree() -> (Kernel, Engine, exact_kernel::NodeKey) {
+    let mut k = Kernel::with_monospace();
+    let receipt = k
+        .apply(
+            0,
+            1,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::View,
+                },
+                Op::CreateView {
+                    id: 2,
+                    node_type: NodeType::View,
+                },
+                Op::CreateView {
+                    id: 3,
+                    node_type: NodeType::View,
+                },
+                Op::CreateView {
+                    id: 4,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 3,
+                    patch: height_patch(Dimension::Points(180.0)),
+                },
+                Op::SetStyle {
+                    id: 4,
+                    patch: height_patch(Dimension::Points(75.0)),
+                },
+                Op::SetStyle {
+                    id: 3,
+                    patch: transition(linear_all(1.0)),
+                },
+                Op::SetChildren {
+                    id: 2,
+                    children: vec![3],
+                },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2, 4],
+                },
+                Op::AttachRoot { id: 1 },
+            ],
+        )
+        .unwrap();
+    let owner = k.node(3).unwrap().key;
+    let mut e = Engine::new();
+    k.motion_sync(&receipt).apply(&mut e).unwrap();
+    (k, e, owner)
+}
+
+#[test]
+fn numeric_height_needs_explicit_owner_adoption_including_boot() {
+    let (k, mut e, owner) = height_tree();
+    let node = motion_node(owner);
+    assert_eq!(e.value(node, Property::Height), None);
+    assert_eq!(
+        e.value(motion_node(k.node(4).unwrap().key), Property::Height),
+        None
+    );
+    assert!(exact_kernel::motion::targets(k.node(3).unwrap().style)
+        .into_iter()
+        .all(|(p, _)| p != Property::Height));
+    assert_eq!(k.height_target(owner), Some(Value::scalar(180.0)));
+    let sync = k.height_motion_sync(owner);
+    assert!(sync.removed.is_empty());
+    assert!(sync.retired.is_empty());
+    assert_eq!(sync.changes.len(), 1);
+    sync.apply(&mut e).unwrap();
+    assert_eq!(e.value(node, Property::Height), Some(Value::scalar(180.0)));
+    assert!(!e.is_active(node, Property::Height));
+    assert_eq!(
+        e.value(motion_node(k.node(4).unwrap().key), Property::Height),
+        None
+    );
+}
+
+#[test]
+fn registered_height_tracks_latest_target_and_declaration_through_real_commits() {
+    let (mut k, mut e, owner) = height_tree();
+    let node = motion_node(owner);
+    k.height_motion_sync(owner).apply(&mut e).unwrap();
+    let held = e
+        .begin_hold(node, Property::Height, 0.0, Some(Value::scalar(120.0)))
+        .unwrap()
+        .unwrap();
+    e.frame();
+    let r = k
+        .apply(
+            0,
+            2,
+            &[
+                Op::SetStyle {
+                    id: 3,
+                    patch: height_patch(Dimension::Points(400.0)),
+                },
+                Op::SetStyle {
+                    id: 3,
+                    patch: transition(linear_all(2.0)),
+                },
+            ],
+        )
+        .unwrap();
+    k.motion_sync(&r).apply(&mut e).unwrap();
+    k.height_motion_sync(owner).apply(&mut e).unwrap();
+    assert_eq!(e.value(node, Property::Height), Some(Value::scalar(120.0)));
+    assert_eq!(e.target(node, Property::Height), Some(Value::scalar(400.0)));
+    assert!(e.frame().iter().all(|p| p.property != Property::Height));
+    e.end_hold(held.token, 0.0, HoldEnd::Cancel).unwrap();
+    e.advance(1.0).unwrap();
+    assert_eq!(e.value(node, Property::Height), Some(Value::scalar(260.0)));
+    e.advance(2.0).unwrap();
+    assert_eq!(e.value(node, Property::Height), Some(Value::scalar(400.0)));
+}
+
+#[test]
+fn registered_owner_reconciles_untouched_descendant_after_ancestor_hide_or_detach() {
+    for hide in [false, true] {
+        let (mut k, mut e, owner) = height_tree();
+        let node = motion_node(owner);
+        k.height_motion_sync(owner).apply(&mut e).unwrap();
+        let held = e
+            .begin_hold(node, Property::Height, 0.0, None)
+            .unwrap()
+            .unwrap();
+        e.observe(exact_motion::Change {
+            node,
+            property: Property::Translate,
+            value: Value::new(90.0, 0.0),
+            velocity: None,
+        })
+        .unwrap();
+        let change = if hide {
+            Op::SetStyle {
+                id: 2,
+                patch: style(|s| {
+                    s.display = Display::None;
+                    s.mask.set(StyleId::Display);
+                }),
+            }
+        } else {
+            Op::SetChildren {
+                id: 1,
+                children: vec![4],
+            }
+        };
+        let r = k.apply(0, 2, &[change]).unwrap();
+        assert!(
+            !r.touched.contains(&owner),
+            "target node is not in the receipt"
+        );
+        k.motion_sync(&r).apply(&mut e).unwrap();
+        assert_eq!(k.height_target(owner), None);
+        let retirement = k.height_motion_sync(owner);
+        assert_eq!(retirement.retired, vec![(node, Property::Height)]);
+        assert!(retirement.removed.is_empty());
+        retirement.apply(&mut e).unwrap();
+        assert!(!e.has_hold(held.token));
+        assert!(!e
+            .update_hold(held.token, f64::NAN, Value::new(f64::NAN, 1.0))
+            .unwrap());
+        assert_eq!(e.now(), 0.0);
+        assert!(e.is_active(node, Property::Translate));
+        assert_eq!(e.value(node, Property::Height), None);
+        let restore = if hide {
+            Op::SetStyle {
+                id: 2,
+                patch: style(|s| {
+                    s.display = Display::Block;
+                    s.mask.set(StyleId::Display);
+                }),
+            }
+        } else {
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 4],
+            }
+        };
+        let r = k.apply(0, 3, &[restore]).unwrap();
+        k.motion_sync(&r).apply(&mut e).unwrap();
+        k.height_motion_sync(owner).apply(&mut e).unwrap();
+        assert_eq!(e.value(node, Property::Height), Some(Value::scalar(180.0)));
+        assert!(
+            !e.is_active(node, Property::Height),
+            "readoption starts from current numeric authoring"
+        );
+    }
+}
+
+#[test]
+fn unsupported_height_retires_only_height_and_never_synthesizes_auto_zero() {
+    for value in [
+        Dimension::Auto,
+        Dimension::Percent(50.0),
+        Dimension::Points(-1.0),
+        Dimension::Env(exact_kernel::Edge::Top, 0.0),
+    ] {
+        let (mut k, mut e, owner) = height_tree();
+        let node = motion_node(owner);
+        k.height_motion_sync(owner).apply(&mut e).unwrap();
+        let held = e
+            .begin_hold(node, Property::Height, 0.0, None)
+            .unwrap()
+            .unwrap();
+        let r = k
+            .apply(
+                0,
+                2,
+                &[Op::SetStyle {
+                    id: 3,
+                    patch: height_patch(value),
+                }],
+            )
+            .unwrap();
+        k.motion_sync(&r).apply(&mut e).unwrap();
+        k.height_motion_sync(owner).apply(&mut e).unwrap();
+        assert_eq!(k.height_target(owner), None);
+        assert_eq!(e.value(node, Property::Height), None);
+        assert!(!e.has_hold(held.token));
+        assert_eq!(e.value(node, Property::Opacity), Some(Value::scalar(1.0)));
+        assert!(e
+            .begin_hold(node, Property::Height, f64::NAN, None)
+            .unwrap()
+            .is_none());
+    }
+}
+
+#[test]
+fn inline_detached_and_reused_keys_are_ineligible_but_numeric_roots_are_allowed() {
+    let (mut k, mut e, old) = height_tree();
+    let r = k
+        .apply(
+            0,
+            2,
+            &[
+                Op::DestroyView { id: 3 },
+                Op::CreateView {
+                    id: 3,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 3,
+                    patch: height_patch(Dimension::Points(90.0)),
+                },
+                Op::CreateView {
+                    id: 5,
+                    node_type: NodeType::Text,
+                },
+                Op::CreateView {
+                    id: 6,
+                    node_type: NodeType::Text,
+                },
+                Op::SetStyle {
+                    id: 6,
+                    patch: height_patch(Dimension::Points(90.0)),
+                },
+                Op::SetChildren {
+                    id: 5,
+                    children: vec![6],
+                },
+                Op::SetChildren {
+                    id: 2,
+                    children: vec![5],
+                },
+                Op::SetStyle {
+                    id: 1,
+                    patch: height_patch(Dimension::Points(600.0)),
+                },
+            ],
+        )
+        .unwrap();
+    k.motion_sync(&r).apply(&mut e).unwrap();
+    assert_eq!(k.height_target(old), None);
+    assert_eq!(
+        k.height_target(k.node(3).unwrap().key),
+        None,
+        "detached numeric node"
+    );
+    assert_eq!(
+        k.height_target(k.node(6).unwrap().key),
+        None,
+        "inline numeric text run"
+    );
+    assert_eq!(
+        k.height_target(k.node(1).unwrap().key),
+        Some(Value::scalar(600.0))
+    );
+    assert_eq!(
+        k.height_motion_sync(old).retired,
+        vec![(motion_node(old), Property::Height)]
+    );
+}
+
+#[test]
+fn height_transition_roundtrips_exwf_without_changing_previous_property_codes() {
+    for (code, property) in Property::ALL.into_iter().enumerate() {
+        assert_eq!(property as usize, code);
+        let rows = Transitions(vec![Transition::new(
+            TransitionProperty::Property(property),
+            1.0,
+            TimingFunction::Easing(Easing::Linear),
+        )]);
+        let ops = vec![
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: style(|s| {
+                    s.transition = rows.clone();
+                    s.mask.set(StyleId::Transition);
+                }),
+            },
+            Op::AttachRoot { id: 1 },
+        ];
+        let mut k = Kernel::with_monospace();
+        k.apply_frame(&wire::encode(0, 1, &ops)).unwrap();
+        assert_eq!(k.node(1).unwrap().style.transition, rows);
+    }
+}
+
+#[test]
+fn property_retirement_precedes_readoption_and_preserves_other_live_holds() {
+    let (mut k, mut e, owner) = height_tree();
+    let node = motion_node(owner);
+    k.height_motion_sync(owner).apply(&mut e).unwrap();
+    let height_hold = e
+        .begin_hold(node, Property::Height, 0.0, None)
+        .unwrap()
+        .unwrap();
+    let opacity_hold = e
+        .begin_hold(node, Property::Opacity, 0.0, None)
+        .unwrap()
+        .unwrap();
+    e.update_hold(height_hold.token, 0.0, Value::scalar(90.0))
+        .unwrap();
+    k.apply(
+        0,
+        2,
+        &[Op::SetStyle {
+            id: 3,
+            patch: height_patch(Dimension::Points(0.0)),
+        }],
+    )
+    .unwrap();
+    let mut sync = k.height_motion_sync(owner);
+    sync.retired.push((node, Property::Height));
+    sync.apply(&mut e).unwrap();
+    assert_eq!(
+        e.value(node, Property::Height),
+        Some(Value::ZERO),
+        "explicit numeric zero is eligible"
+    );
+    assert!(
+        !e.is_active(node, Property::Height),
+        "new adoption has no old curve"
+    );
+    assert!(!e.has_hold(height_hold.token));
+    assert!(e.has_hold(opacity_hold.token));
+    let mut mask = exact_kernel::StyleMask::EMPTY;
+    mask.set(StyleId::Height);
+    k.apply(0, 3, &[Op::ClearStyle { id: 3, mask }]).unwrap();
+    k.height_motion_sync(owner).apply(&mut e).unwrap();
+    assert_eq!(
+        e.value(node, Property::Height),
+        None,
+        "auto is distinct from explicit zero"
+    );
+    assert!(e.has_hold(opacity_hold.token));
+}
 
 fn style(f: impl FnOnce(&mut StyleProps)) -> Box<StyleProps> {
     let mut s = StyleProps::default();

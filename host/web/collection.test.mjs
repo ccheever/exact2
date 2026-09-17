@@ -20,8 +20,8 @@ beforeAll(async () => {
   child = spawn(chrome, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
   cdp = new Cdp(child.stdio[3], child.stdio[4]);
   child.on('exit', () => cdp.fail('Chrome closed'));
-  const { targetInfos } = await cdp.send('Target.getTargets');
-  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: targetInfos.find(t => t.type === 'page').targetId, flatten: true });
+  const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
   const call = (method, params) => cdp.send(method, params, sessionId);
   evaluate = async expression => {
     const result = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
@@ -288,4 +288,54 @@ test('signed swipe resistance and caught indicators stay continuous across both 
   expect(result.negative).toEqual([[-100,0.5,0.5],[-96,0.5,0.5],[-64,0.5,0.5],[0,0.5,0.5]]);
   expect(result.middle).toEqual([[32,0.6,0.6],[16,0.3,0.3],[0,0,0],[48,0.8,0.8],[64,1,1]]);
   expect(result.zero).toEqual([[0,0.5,0.5],[32,0.75,0.75],[64,1,1]]);
+});
+
+test('height wire preserves the appended discriminator and exact token', () => {
+  const bytes=motionBytes({op:'begin',view:2,property:'height',token:'9007199254740993',x:400,now:100});
+  const d=new DataView(bytes.buffer);
+  expect(d.getUint32(12,true)).toBe(4);
+  expect(d.getBigUint64(16,true)).toBe(9007199254740993n);
+  expect(d.getFloat64(24,true)).toBe(400);
+});
+test('height catch uses constrained CSS pixels and survives a latest-target commit',async()=>{
+  const result=await evaluate(`(() => {const f=(${motionFixture})();const m=f.motion,n=f.node;
+    const base='box-sizing:border-box;width:200px;padding:10px;border:2px solid;max-height:400px;';
+    m.style(2,base+'height:640px;opacity:1;transition:none');
+    const other=n.animate([{opacity:1},{opacity:.5}],{duration:10000});
+    m.animate({id:2,property:'height',values:[180,640],delay:0,duration:1000});
+    const a=n.getAnimations().find(a=>a.effect.getKeyframes().some(k=>k.height));a.pause();a.currentTime=600;
+    const before=getComputedStyle(n).height,h=m.begin(2,'height');m.move(h,h.value);
+    m.style(2,base+'height:240px;opacity:.8;transition:none');
+    const held=getComputedStyle(n).height;m.end(h,[0,0],true);
+    return {before,base:h.value[0],held,end:getComputedStyle(n).height,old:a.playState,other:other.playState};})()`);
+  expect(result.before).toBe('400px');expect(result.base).toBe(400);expect(result.held).toBe('400px');
+  expect(result.end).toBe('240px');expect(result.old).toBe('idle');expect(result.other).not.toBe('idle');
+});
+test('explicit height retirement clears held pixels and playback without cancelling translate',async()=>{
+  const result=await evaluate(`(() => {const f=(${motionFixture})();const m=f.motion,n=f.node;
+    n.innerHTML='<div style="height:70px"></div>';m.style(2,'height:200px;translate:0px;transition:none');
+    const h=m.begin(2,'height'),t=m.begin(2,'translate');m.move(h,[250,0]);m.move(t,[30,0]);
+    m.style(2,'height:auto;translate:80px;transition:none');m.retire(2,'height');
+    const before=f.calls.length,late=m.move(h,[300,0]),end=m.end(h,[10,0]);
+    const actual=getComputedStyle(n),height=actual.height,translate=actual.translate;
+    m.end(t,[0,0],true);
+    m.style(2,'height:200px;translate:80px;transition:none');m.animate({id:2,property:'height',values:[200,400],delay:0,duration:1000});
+    const running=n.getAnimations().find(a=>a.effect.getKeyframes().some(k=>k.height));
+    m.style(2,'height:auto;translate:80px;transition:none');m.retire(2,'height');
+    return {height,translate,late,end,lateCalls:f.calls.length-before-1,running:running.playState,final:getComputedStyle(n).height};})()`);
+  expect(result).toEqual({height:'70px',translate:'30px',late:false,end:false,lateCalls:0,running:'idle',final:'70px'});
+});
+
+test('height presentation clamps the negative spring lobe and hold without changing translate',async()=>{
+  const result=await evaluate(`(() => {const f=(${motionFixture})();const m=f.motion,n=f.node;
+    n.innerHTML='';m.style(2,'height:20px;min-height:0;padding:0;border:0;translate:0px;transition:none');
+    const h=m.begin(2,'height'),t=m.begin(2,'translate');m.move(h,[-49.7162387436,0]);m.move(t,[-40,0]);
+    const held=getComputedStyle(n).height,raw=h.value[0],caught=m.begin(2,'height');
+    const before=f.calls.length,stale=m.move(h,[80,0]),lateCalls=f.calls.length-before;
+    f.releaseOps=[{op:'animate',id:2,property:'height',values:[20,-49.7162387436,-20,20],delay:100,duration:300}];
+    m.end(caught,[-2000,0]);const a=n.getAnimations().find(a=>a.effect.getKeyframes().some(k=>k.height));a.pause();
+    const frames=a.effect.getKeyframes().map(k=>k.height);a.currentTime=250;
+    const lobe=getComputedStyle(n).height;a.currentTime=400;
+    return {held,raw,caught:caught.value[0],stale,lateCalls,frames,lobe,end:getComputedStyle(n).height,translate:getComputedStyle(n).translate};})()`);
+  expect(result).toEqual({held:'0px',raw:-49.7162387436,caught:0,stale:false,lateCalls:0,frames:['20px','0px','0px','20px'],lobe:'0px',end:'20px',translate:'-40px'});
 });

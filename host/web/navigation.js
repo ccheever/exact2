@@ -520,8 +520,8 @@ function followScroll(el, enabled) {
 // Presentation ownership is a host projection. The shared Engine owns hold
 // validity and authored targets; this controller owns actual browser sampling.
 export function motionBytes({op,view=0,property='translate',token=0,x=0,y=0,now=0}) {
-  const operations=['begin','move','release','cancel','live','action'];
-  const properties=['translate','scale','rotate','opacity'];
+  const operations=['begin','move','release','cancel','live','action','height-owner','clear-height-owner'];
+  const properties=['translate','scale','rotate','opacity','height'];
   const code=operations.indexOf(op), prop=properties.indexOf(property);
   if(code<0||prop<0) throw Error('invalid motion operation');
   const bytes=new Uint8Array(48), d=new DataView(bytes.buffer), serial=BigInt(token);
@@ -531,11 +531,13 @@ export function motionBytes({op,view=0,property='translate',token=0,x=0,y=0,now=
   return bytes;
 }
 export function motionController({views,now,generation,request,applyBatch,inert,releaseInteraction=()=>{}}) {
-  const properties=['translate','scale','rotate','opacity'];
+  const properties=['translate','scale','rotate','opacity','height'];
   const animations=new Map(), held=new Map(), authored=new Map(), drags=new Map();
   const active=new Map(); let reconciling=false;
   const key=(id,property)=>`${id}/${property}`;
-  const css=(property,value)=>property==='translate'?`${value[0]}px ${value[1]}px`:property==='rotate'?`${value[0]}deg`:String(value[0]);
+  // CSS height clamps negative interpolated lengths. Keep every spring sample
+  // and its timing; only its displayed length changes, not the engine curve.
+  const css=(property,value)=>property==='translate'?`${value[0]}px ${value[1]}px`:property==='rotate'?`${value[0]}deg`:property==='height'?`${Math.max(0,value[0])}px`:String(value[0]);
   const call=(op,h,value=[0,0])=>request({op,view:h.view,property:h.property,token:h.token??0,x:value[0],y:value[1],now:now()});
   const local=h=>h && h.generation===generation() && views.get(h.view)===h.el && h.el.isConnected && held.get(key(h.view,h.property))===h;
   const eligible=el=>el?.isConnected&&!el.closest('[disabled]')&&!el.matches(':disabled')&&!inert(el)&&el.getClientRects().length>0&&getComputedStyle(el).visibility==='visible';
@@ -572,6 +574,12 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     return [text==='none'?(property==='scale'?1:0):parseFloat(text),0];
   }
   const api={
+    setHeightOwner(view=null) {
+      const reply=request({op:view===null?'clear-height-owner':'height-owner',view:view??0,property:'height',now:now()});
+      if(reply.accepted!==true) return false;
+      if(reply.batch) applyBatch(reply.batch);
+      return true;
+    },
     begin(view,property) {
       const el=views.get(view); if(!eligible(el)) return null;
       const value=sample(el,property); if(!value?.every(Number.isFinite)) return null;
@@ -631,6 +639,13 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         {delay:op.delay,duration:op.duration,easing:'linear',fill:'backwards'});
       animations.set(k,animation);
       animation.finished.then(()=>{if(animations.get(k)===animation) animations.delete(k);},()=>{});
+    },
+    // Authored eligibility can disappear without a dirty Engine frame. Retire
+    // only this property, restoring current authoring and other held overlays.
+    retire(id,property) {
+      cancelProperty(id,property);
+      held.delete(key(id,property));
+      restore(id);
     },
     destroy(id) {
       drags.get(id)?.(); drags.delete(id);
