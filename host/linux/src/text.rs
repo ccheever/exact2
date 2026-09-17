@@ -15,8 +15,9 @@
 
 use crate::image::Assets;
 use cosmic_text::{
-    fontdb, Align, Attrs, Buffer, CacheKey, Ellipsize, EllipsizeHeightLimit, Family, FontSystem,
-    Metrics, PenikoFont, Shaping, Style, SwashCache, SwashContent, Weight, Wrap,
+    fontdb, Align, Attrs, Buffer, CacheKey, CacheKeyFlags, Ellipsize, EllipsizeHeightLimit, Family,
+    FontSystem, LayoutGlyph, Metrics, PenikoFont, Shaping, Style, SwashCache, SwashContent, Weight,
+    Wrap,
 };
 use exact_kernel::{AxisOffer, TextAlign, TextMeasureRequest, TextMeasurer, TextMetrics};
 use exact_plan::{Plan, StackMemberKind, StacksId};
@@ -142,6 +143,35 @@ pub struct Paragraph {
     pub baselines: Vec<f32>,
 }
 
+/// Paint-only data in canonical text-run order. Colors and source identity
+/// do not enter the shaping cache: identical text can be shared by nodes
+/// and repainted in another appearance without changing its metrics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunPaint {
+    /// The inherited color resolved for the current appearance.
+    pub color: [u8; 4],
+    /// The text leaf; its logical ancestors retain href/press metadata.
+    pub source: exact_kernel::ViewId,
+}
+
+impl Paragraph {
+    /// The shared CPU/GPU stream: every glyph keeps its canonical run index
+    /// and CSS baseline, and selects its paint data by that index.
+    pub fn paint_glyphs<'a>(
+        &'a self,
+        palette: &'a [RunPaint],
+    ) -> impl Iterator<Item = (&'a LayoutGlyph, f32, RunPaint)> + 'a {
+        self.buffer
+            .layout_runs()
+            .zip(&self.baselines)
+            .flat_map(move |(line, baseline)| {
+                line.glyphs
+                    .iter()
+                    .map(move |glyph| (glyph, *baseline, palette[glyph.metadata]))
+            })
+    }
+}
+
 struct Glyph {
     pixmap: Pixmap,
     left: i32,
@@ -175,6 +205,12 @@ pub struct GlyphRun {
     pub font: PenikoFont,
     /// Points.
     pub size: f32,
+    /// Canonical run index, retained across font fallback and wrapping.
+    pub run_index: usize,
+    /// Resolved ink and logical source identity.
+    pub paint: RunPaint,
+    /// Match cosmic-text's synthesized oblique outline when no italic face exists.
+    pub synthetic_italic: bool,
     /// (glyph id, x, y) — y is the baseline.
     pub glyphs: Vec<(u32, f32, f32)>,
 }
@@ -246,6 +282,38 @@ fn sans_family(db: &fontdb::Database) -> Option<String> {
         .map(|n| n.to_string())
 }
 
+/// Keep a configured generic when installed. Otherwise choose a real
+/// monospace family before cosmic-text's per-glyph fallback: an absent
+/// `Courier New` on a minimal Linux image can select an oblique face even
+/// for normal code. Font matching within the family then owns style/weight.
+fn monospace_family(db: &fontdb::Database) -> Option<String> {
+    let installed = |name: &str| {
+        db.faces()
+            .any(|f| f.monospaced && f.families.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)))
+    };
+    let current = db.family_name(&fontdb::Family::Monospace);
+    if installed(current) {
+        return Some(current.to_owned());
+    }
+    [
+        "Noto Sans Mono",
+        "DejaVu Sans Mono",
+        "Liberation Mono",
+        "Menlo",
+        "Monaco",
+        "Courier New",
+    ]
+    .into_iter()
+    .find(|name| installed(name))
+    .map(str::to_owned)
+    .or_else(|| {
+        db.faces()
+            .filter(|f| f.monospaced && f.style == fontdb::Style::Normal)
+            .flat_map(|f| f.families.iter().map(|(name, _)| name.clone()))
+            .min()
+    })
+}
+
 /// The engine shared between the measurer and the painter.
 pub type Shared = Rc<RefCell<TextEngine>>;
 
@@ -275,6 +343,9 @@ impl TextEngine {
         let sans = sans_family(fonts.db());
         if let Some(name) = &sans {
             fonts.db_mut().set_sans_serif_family(name.clone());
+        }
+        if let Some(name) = monospace_family(fonts.db()) {
+            fonts.db_mut().set_monospace_family(name);
         }
         TextEngine {
             sans: sans.unwrap_or_default(),
@@ -779,33 +850,27 @@ impl TextEngine {
         &mut self,
         target: &mut Pixmap,
         paragraph: &Paragraph,
-        color: [u8; 4],
+        palette: &[RunPaint],
         origin: (f32, f32),
         scale: f32,
         transform: Transform,
         mask: Option<&Mask>,
     ) {
-        if color[3] == 0 {
-            return;
-        }
         // Glyph positions carry the device scale; the transform's own scale
         // must not apply twice.
         let glyph_ts = transform.pre_scale(1.0 / scale, 1.0 / scale);
         let paint = PixmapPaint::default();
-        let mut placed = Vec::new();
-        for (run, baseline) in paragraph.buffer.layout_runs().zip(&paragraph.baselines) {
-            for g in run.glyphs {
-                let phys = g.physical(((origin.0) * scale, (origin.1 + baseline) * scale), scale);
-                placed.push((phys.cache_key, phys.x, phys.y));
+        for (g, baseline, ink) in paragraph.paint_glyphs(palette) {
+            if ink.color[3] == 0 {
+                continue;
             }
-        }
-        for (key, x, y) in placed {
-            let Some(glyph) = self.glyph(key, color) else {
+            let phys = g.physical((origin.0 * scale, (origin.1 + baseline) * scale), scale);
+            let Some(glyph) = self.glyph(phys.cache_key, ink.color) else {
                 continue;
             };
             target.draw_pixmap(
-                x + glyph.left,
-                y - glyph.top,
+                phys.x + glyph.left,
+                phys.y - glyph.top,
                 glyph.pixmap.as_ref(),
                 &paint,
                 glyph_ts,
@@ -827,33 +892,42 @@ impl TextEngine {
         f
     }
 
-    /// A paragraph as glyph runs grouped by font and size, positions in
+    /// A paragraph as glyph runs grouped by font, size and source run, positions in
     /// points from the paragraph's top-left, the same numbers the raster
     /// path snaps to pixels.
-    pub fn glyph_runs(&mut self, paragraph: &Paragraph) -> Vec<GlyphRun> {
-        type Key = (fontdb::ID, u16, u32);
+    pub fn glyph_runs(&mut self, paragraph: &Paragraph, palette: &[RunPaint]) -> Vec<GlyphRun> {
+        type Key = (fontdb::ID, u16, u32, usize, bool);
         type Runs = Vec<(Key, Vec<(u32, f32, f32)>)>;
         let mut runs: Runs = Vec::new();
-        for (run, baseline) in paragraph.buffer.layout_runs().zip(&paragraph.baselines) {
-            for g in run.glyphs {
-                let key = (g.font_id, g.font_weight.0, g.font_size.to_bits());
-                let x = g.x + g.x_offset * g.font_size;
-                let y = baseline + g.y - g.y_offset * g.font_size;
-                match runs.last_mut() {
-                    Some((k, glyphs)) if *k == key => glyphs.push((g.glyph_id as u32, x, y)),
-                    _ => runs.push((key, vec![(g.glyph_id as u32, x, y)])),
-                }
+        for (g, baseline, _) in paragraph.paint_glyphs(palette) {
+            let key = (
+                g.font_id,
+                g.font_weight.0,
+                g.font_size.to_bits(),
+                g.metadata,
+                g.cache_key_flags.contains(CacheKeyFlags::FAKE_ITALIC),
+            );
+            let x = g.x + g.x_offset * g.font_size;
+            let y = baseline + g.y - g.y_offset * g.font_size;
+            match runs.last_mut() {
+                Some((k, glyphs)) if *k == key => glyphs.push((g.glyph_id as u32, x, y)),
+                _ => runs.push((key, vec![(g.glyph_id as u32, x, y)])),
             }
         }
         runs.into_iter()
-            .filter_map(|((id, weight, size), glyphs)| {
-                let font = self.font_data(id, Weight(weight))?;
-                Some(GlyphRun {
-                    font,
-                    size: f32::from_bits(size),
-                    glyphs,
-                })
-            })
+            .filter_map(
+                |((id, weight, size, run_index, synthetic_italic), glyphs)| {
+                    let font = self.font_data(id, Weight(weight))?;
+                    Some(GlyphRun {
+                        font,
+                        size: f32::from_bits(size),
+                        run_index,
+                        paint: palette[run_index],
+                        synthetic_italic,
+                        glyphs,
+                    })
+                },
+            )
             .collect()
     }
 }
@@ -870,5 +944,40 @@ impl TextMeasurer for Measurer {
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         let spec = Spec::from_request(request);
         self.0.borrow_mut().measure(&spec, request.width)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn installed_normal_monospace_is_used_for_normal_code() {
+        let mut engine = TextEngine::new();
+        if !engine
+            .fonts
+            .db()
+            .faces()
+            .any(|f| f.monospaced && f.style == fontdb::Style::Normal && f.weight == Weight::NORMAL)
+        {
+            eprintln!("normal monospace face unavailable; installed-font regression not checked");
+            return;
+        }
+        let style = exact_kernel::StyleProps {
+            font_family: 5,
+            font_size: 16.0,
+            ..exact_kernel::StyleProps::default()
+        };
+        let spec = crate::paint::text_spec(&style, "let section = 0;");
+        let paragraph = engine.paragraph(&spec, Some(300.0));
+        let glyph = &paragraph.buffer.layout_runs().next().unwrap().glyphs[0];
+        let face = engine.fonts.db().face(glyph.font_id).unwrap();
+        assert!(face.monospaced, "code selected {:?}", face.families);
+        assert_eq!(
+            face.style,
+            fontdb::Style::Normal,
+            "code selected {:?}",
+            face.families
+        );
     }
 }

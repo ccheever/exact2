@@ -18,7 +18,7 @@ use crate::layout::{self, LayoutReceipt, LayoutTree};
 use crate::props::PropList;
 use crate::selector::SelectorIndex;
 use crate::style::{taffy_style, uses_env, ColorValue, Env, RowValue};
-use crate::text::{MonospaceMeasurer, TextMeasurer, TextStyle};
+use crate::text::{MonospaceMeasurer, TextMeasurer, TextRun, TextStyle};
 
 /// The initial value of every row: what a computed read returns when neither
 /// the node nor an ancestor sets an inherited row.
@@ -123,6 +123,15 @@ impl<'a> NodeRef<'a> {
     /// Whether this text node is an inline run owned by a Text parent.
     pub fn is_inline_run(&self) -> bool {
         self.arena.is_inline_run(self.slot)
+    }
+
+    /// The canonical ordered runs used to measure this paragraph. Inline
+    /// descendants have no independent boxes; painting uses the owner's
+    /// content width and these same inherited metric styles.
+    pub fn text_runs(&self) -> Vec<TextRun<'a>> {
+        let mut runs = Vec::new();
+        self.arena.text_runs(self.slot, &mut runs);
+        runs
     }
 
     /// Child wire ids, in order.

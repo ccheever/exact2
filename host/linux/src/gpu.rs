@@ -13,7 +13,7 @@
 #![allow(unsafe_code)]
 
 use crate::paint::{Backend, Rect4, Shape, POINTER};
-use crate::text::{Paragraph, TextEngine};
+use crate::text::{Paragraph, RunPaint, TextEngine};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -349,21 +349,24 @@ impl Backend for Gpu {
         &mut self,
         text: &mut TextEngine,
         paragraph: &Paragraph,
-        c: [u8; 4],
+        palette: &[RunPaint],
         origin: (f32, f32),
         ts: Transform,
     ) {
-        if c[3] == 0 {
-            return;
-        }
         let a = self.affine(ts) * Affine::translate((origin.0 as f64, origin.1 as f64));
-        let brush = color(c);
-        for run in text.glyph_runs(paragraph) {
+        for run in text.glyph_runs(paragraph, palette) {
+            if run.paint.color[3] == 0 {
+                continue;
+            }
             self.scene
                 .draw_glyphs(&run.font)
                 .font_size(run.size)
-                .brush(brush)
+                .brush(color(run.paint.color))
                 .transform(a)
+                .glyph_transform(
+                    run.synthetic_italic
+                        .then(|| Affine::skew(14_f64.to_radians().tan(), 0.0)),
+                )
                 .hint(true)
                 .draw(
                     Fill::NonZero,

@@ -5,7 +5,7 @@
 //! @ref LLP 1015 §2
 
 use crate::paint::{Backend, Rect4, Shape, POINTER};
-use crate::text::{Paragraph, TextEngine};
+use crate::text::{Paragraph, RunPaint, TextEngine};
 use std::rc::Rc;
 use tiny_skia::{
     Color, FillRule, FilterQuality, Mask, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Rect,
@@ -190,7 +190,7 @@ impl Backend for Raster {
         &mut self,
         text: &mut TextEngine,
         paragraph: &Paragraph,
-        color: [u8; 4],
+        palette: &[RunPaint],
         origin: (f32, f32),
         ts: Transform,
     ) {
@@ -198,7 +198,7 @@ impl Backend for Raster {
         let scale = self.scale;
         let mask = self.clips.last().cloned();
         if let Some(t) = self.target.as_mut() {
-            text.paint(t, paragraph, color, origin, scale, dev, mask.as_deref());
+            text.paint(t, paragraph, palette, origin, scale, dev, mask.as_deref());
         }
     }
 

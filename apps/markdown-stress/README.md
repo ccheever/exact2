@@ -164,12 +164,44 @@ All four app crates passed Clippy and formatting after fixing the Linux bake's
 borrowed-grants lifetime. The same smoke cases also passed on actual Ubuntu
 24.04 ARM64 in Lima/VZ (Linux 6.8.0-134, 4 vCPUs, 4 GiB RAM, CPU raster).
 
-Those are functional assertions, not visual parity: the Linux mixed-document
-screenshot exposes incorrectly positioned nested inline text, overlapping later
-blocks. The saved web and AppKit `mixed.png` artifacts were re-inspected:
-paragraph runs span the reading column and code/table blocks remain separate.
-Linux paragraph painting is a separate framework fix; the fixture retains it
-as a reproduction.
+The initial Linux capture exposed incorrectly positioned nested inline text,
+overlapping later blocks. That framework defect is now fixed: the painter draws
+the kernel's canonical runs once at the measured paragraph width, preserving
+inherited light/dark colors and font metrics across CPU/GPU painting. GPU batches
+retain synthesized italics and run/source identity; normal code now resolves to
+an installed monospace family instead of accidentally selecting an italic face.
+The app fixture was unchanged. Inspected follow-up screenshots show paragraphs
+wrapping across the reading column, separate code/table blocks and visible text
+after scrolling.
+
+Painter validation: 59 Mac host tests, strict Clippy,
+formatting and diff checks passed, including a real Apple M4/Metal pixel test.
+Six applicable CPU/batch/font regressions passed on Ubuntu; its GPU pixel test
+explicitly skipped because the VM has no adapter. A broader Linux library run
+had one unrelated HTTP test fail with a connection reset, then pass in isolation;
+both logs are retained, so this is not a clean full-Linux-gate claim. Final-binary
+app validation passed all five 16 KiB profiles, the 1 MiB Blocks smoke, 36 native
+input samples and 72 interleaved resize/type/scroll cohorts, with invalid-size,
+viewport, echo, scroll and recovery assertions.
+
+Final frozen Linux executable SHA-256:
+`a2f9a246e6ebff0ce8971a47428665e2a0b1e4a43540da1443656afc11372fc1`.
+Evidence is at the repository root in
+`target/native-resize/linux-richtext-final/NOTES.md`, with raw samples in
+`markdown-native-sample/report.json` and `markdown-resize/report.json` under that
+directory. Screenshots are in `markdown-smoke/`, `markdown-smoke-1m/`,
+`markdown-geometry/` and `markdown-resize/`; test logs are in `checks/`, alongside
+source observations and executable/source hashes at the evidence root. The guest
+copy is `/tmp/exact2-linux-richtext-final/bin/markdown-stress-linux`.
+
+The final eager 256 KiB profile still mounts 1,576 blocks / 8,801 kernel nodes:
+input-ACK p95 spans **165.25–178.49 ms** across three twelve-sample repetitions
+(resize ACK p95 **109.54–119.41 ms**). It remains well above the 8.33 ms target.
+The minimal DejaVu-only guest still lacks emoji/CJK coverage and shows missing
+glyphs; full font parity is not claimed. These timings include IPC and preceding
+queued work, not display presentation. Linux used headless CPU raster; the Mac's
+JetKVM display is 60 Hz. Parser, scheduler and collection work changed alongside
+this fix, so these captures are not a controlled performance A/B comparison.
 
 AppKit samples on the M4 above, optimized binary SHA-256
 `3abfe2fa3932c4a1222c795bfd8433089f75b43756aaaf38dfa01e14679f7e96`:
