@@ -21,5 +21,5 @@ pub use glam::{Affine3A, Quat, Vec2, Vec3, Vec4};
 pub use rng::{RangeValue, Rng};
 pub use scene::*;
 pub use spring::Spring;
-pub use storage::{Query, QueryIter, Ref, RefMut};
+pub use storage::{Page, Pages, Plain, Query, QueryBorrow, QueryIter, Ref, RefMut, PAGE};
 pub use world::{Bundle, Component, Entity, Event, Resource, World};

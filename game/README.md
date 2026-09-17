@@ -46,8 +46,9 @@ impl Game for Lanterns {
   exactly; there is no `delta`. Rendering interpolates between the last two ticks,
   so motion is smooth at any refresh rate and the simulation never knows.
 - **Names are first class.** `world.named("fox")` in code is `world:fox` to an agent.
-- **Iteration is in entity order, always** — storage is sorted, so a world loaded
-  from a save replays exactly as the one that wrote it.
+- **Iteration is in entity order, always** — storage scans presence bitmasks in
+  ascending index order, so a world loaded from a save replays exactly as the one
+  that wrote it.
 
 ## Determinism — the contract (LLP 1041.001 D5)
 

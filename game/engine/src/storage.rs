@@ -1,13 +1,21 @@
-//! The only unsafe boundary: a lease protects an entire dense allocation, and
-//! each query yields an entity at most once. Items own leases, so dropping the
-//! iterator before its items cannot unlock the storage.
-use crate::{Component, Data, DataError, Entity, Reader, World, Writer};
-use std::any::{Any, TypeId};
-use std::borrow::Cow;
+//! The only unsafe boundary. Presence bits own initialized slots, and storage
+//! leases exclude aliasing. Structural edits require an exclusive world borrow.
+use crate::{Component, Data, DataError, Entity, Reader, Writer};
+use std::any::Any;
 use std::cell::{Cell, UnsafeCell};
 use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
-use std::rc::Rc;
+
+mod pages;
+mod query;
+pub use pages::{Page, Pages, Plain};
+pub use query::{Query, QueryBorrow, QueryIter};
+
+/// Number of entity-indexed slots in each component page.
+pub const PAGE: usize = 1024;
+const WORDS: usize = PAGE / 64;
+type Slots<C> = UnsafeCell<[MaybeUninit<C>; PAGE]>;
 
 struct Lease<'a> {
     count: &'a Cell<isize>,
@@ -26,54 +34,78 @@ impl Drop for Lease<'_> {
 /// A shared component/resource borrow. Keeping it alive keeps its storage locked.
 pub struct Ref<'a, C> {
     ptr: *const C,
-    _lease: Rc<Lease<'a>>,
+    _lease: Lease<'a>,
     _life: PhantomData<&'a C>,
 }
 impl<C> Deref for Ref<'_, C> {
     type Target = C;
     fn deref(&self) -> &C {
-        // SAFETY: the shared lease excludes writers; the world borrow keeps the allocation alive.
+        // SAFETY: the lease excludes writers and the world borrow keeps the slot alive.
         unsafe { &*self.ptr }
     }
 }
-/// An exclusive component/resource borrow, independent of the iterator's lifetime.
+/// An exclusive component/resource borrow.
 pub struct RefMut<'a, C> {
     ptr: *mut C,
-    _lease: Rc<Lease<'a>>,
+    _lease: Lease<'a>,
     _life: PhantomData<&'a mut C>,
 }
 impl<C> Deref for RefMut<'_, C> {
     type Target = C;
     fn deref(&self) -> &C {
-        // SAFETY: an exclusive lease and one yield per entity guarantee this pointer's validity.
+        // SAFETY: this guard owns the storage's exclusive lease.
         unsafe { &*self.ptr }
     }
 }
 impl<C> DerefMut for RefMut<'_, C> {
     fn deref_mut(&mut self) -> &mut C {
-        // SAFETY: this noncloneable item is the only mutable reference to this row.
+        // SAFETY: this noncloneable guard is the only mutable reference to this slot.
         unsafe { &mut *self.ptr }
     }
 }
 
 pub(crate) struct Storage<C> {
-    sparse: Vec<u32>,
-    entities: Vec<Entity>,
-    values: UnsafeCell<Vec<C>>,
+    pages: Vec<Option<Box<Slots<C>>>>,
+    counts: Vec<usize>,
+    mask: Vec<u64>,
+    len: usize,
     borrowed: Cell<isize>,
+    changed: Cell<u64>,
 }
-impl<C: Component> Default for Storage<C> {
+impl<C> Default for Storage<C> {
     fn default() -> Self {
         Self {
-            sparse: vec![],
-            entities: vec![],
-            values: UnsafeCell::new(vec![]),
+            pages: vec![],
+            counts: vec![],
+            mask: vec![],
+            len: 0,
             borrowed: Cell::new(0),
+            changed: Cell::new(0),
         }
     }
 }
+impl<C> Storage<C> {
+    #[inline]
+    fn ptr(&self, index: usize) -> *mut C {
+        self.pages[index / PAGE]
+            .as_ref()
+            .unwrap()
+            .get()
+            .cast::<C>()
+            .wrapping_add(index % PAGE)
+    }
+    #[inline]
+    pub(crate) fn has(&self, index: usize) -> bool {
+        self.mask
+            .get(index / 64)
+            .is_some_and(|word| word & (1 << (index % 64)) != 0)
+    }
+    pub(crate) fn changed(&self) -> u64 {
+        self.changed.get()
+    }
+}
 impl<C: Component> Storage<C> {
-    fn lease(&self, mutable: bool) -> Rc<Lease<'_>> {
+    fn lease(&self, mutable: bool, tick: u64) -> Lease<'_> {
         let n = self.borrowed.get();
         assert!(n >= 0, "{} is already borrowed mutably", C::NAME);
         assert!(
@@ -86,88 +118,110 @@ impl<C: Component> Storage<C> {
         } else {
             n.checked_add(1).expect("too many borrows")
         });
-        Rc::new(Lease {
+        if mutable {
+            self.changed.set(tick);
+        }
+        Lease {
             count: &self.borrowed,
             mutable,
-        })
-    }
-    fn position(&self, e: Entity) -> Option<usize> {
-        let p = *self.sparse.get(e.index() as usize)? as usize;
-        (self.entities.get(p) == Some(&e)).then_some(p)
-    }
-    pub(crate) fn has(&self, e: Entity) -> bool {
-        self.position(e).is_some()
-    }
-    fn repair(&mut self, start: usize) {
-        for (p, e) in self.entities.iter().enumerate().skip(start) {
-            self.sparse[e.index() as usize] = p as u32;
         }
     }
-    pub(crate) fn insert(&mut self, e: Entity, c: C) {
-        if let Some(p) = self.position(e) {
-            self.values.get_mut()[p] = c;
+    pub(crate) fn insert(&mut self, index: usize, c: C, tick: u64) {
+        self.changed.set(tick);
+        if self.has(index) {
+            // SAFETY: the bit proves initialization; &mut self excludes all leases.
+            // Replace before dropping, so even a panicking destructor leaves a live slot.
+            drop(unsafe { self.ptr(index).replace(c) });
             return;
         }
-        assert!(
-            self.entities.len() < u32::MAX as usize,
-            "component storage exhausted"
-        );
-        let p = if self
-            .entities
-            .last()
-            .is_none_or(|last| last.index() < e.index())
-        {
-            self.entities.len()
-        } else {
-            self.entities.partition_point(|v| v.index() < e.index())
-        };
-        self.sparse
-            .resize(self.sparse.len().max(e.index() as usize + 1), u32::MAX);
-        self.entities.insert(p, e);
-        self.values.get_mut().insert(p, c);
-        self.repair(p);
+        let page = index / PAGE;
+        if page >= self.pages.len() {
+            self.pages.resize_with(page + 1, || None);
+            self.counts.resize(page + 1, 0);
+            self.mask.resize((page + 1) * WORDS, 0);
+        }
+        self.pages[page].get_or_insert_with(|| {
+            // MaybeUninit accepts zero bits for every C, including zero-sized types.
+            // Zero backing bytes also make absent Plain slots safe to upload.
+            // SAFETY: UnsafeCell<[MaybeUninit<C>; PAGE]> accepts all-zero backing.
+            unsafe { Box::<Slots<C>>::new_zeroed().assume_init() }
+        });
+        // SAFETY: the page exists, this slot is absent, and &mut self excludes readers.
+        unsafe { self.ptr(index).write(c) };
+        self.mask[index / 64] |= 1 << (index % 64);
+        self.counts[page] += 1;
+        self.len += 1;
     }
-    pub(crate) fn remove(&mut self, e: Entity) -> Option<C> {
-        let p = self.position(e)?;
-        self.sparse[e.index() as usize] = u32::MAX;
-        self.entities.remove(p);
-        let c = self.values.get_mut().remove(p);
-        self.repair(p);
+    pub(crate) fn remove(&mut self, index: usize, tick: u64) -> Option<C> {
+        if !self.has(index) {
+            return None;
+        }
+        self.changed.set(tick);
+        let ptr = self.ptr(index);
+        self.mask[index / 64] &= !(1 << (index % 64));
+        self.len -= 1;
+        self.counts[index / PAGE] -= 1;
+        // SAFETY: the slot was present and exclusively owned. Moving it out transfers
+        // ownership; zeroing its MaybeUninit backing keeps absent byte views initialized.
+        let c = unsafe {
+            let c = ptr.read();
+            ptr.write_bytes(0, 1);
+            c
+        };
+        if self.counts[index / PAGE] == 0 {
+            self.pages[index / PAGE] = None;
+        }
         Some(c)
     }
-    fn ptr(&self) -> *mut C {
-        // SAFETY: structural changes require &mut World. A caller acquires a lease
-        // before dereferencing; obtaining a Vec pointer does not borrow its elements.
-        unsafe { (*self.values.get()).as_mut_ptr() }
-    }
-    pub(crate) fn get(&self, e: Entity) -> Option<Ref<'_, C>> {
-        let p = self.position(e)?;
-        let lease = self.lease(false);
+    pub(crate) fn get(&self, index: usize) -> Option<Ref<'_, C>> {
+        if !self.has(index) {
+            return None;
+        }
         Some(Ref {
-            ptr: self.ptr().wrapping_add(p),
-            _lease: lease,
+            ptr: self.ptr(index),
+            _lease: self.lease(false, 0),
             _life: PhantomData,
         })
     }
-    pub(crate) fn get_mut(&self, e: Entity) -> Option<RefMut<'_, C>> {
-        let p = self.position(e)?;
-        let lease = self.lease(true);
+    pub(crate) fn get_mut(&self, index: usize, tick: u64) -> Option<RefMut<'_, C>> {
+        if !self.has(index) {
+            return None;
+        }
         Some(RefMut {
-            ptr: self.ptr().wrapping_add(p),
-            _lease: lease,
+            ptr: self.ptr(index),
+            _lease: self.lease(true, tick),
             _life: PhantomData,
         })
+    }
+}
+
+impl<C> Drop for Storage<C> {
+    fn drop(&mut self) {
+        for (word, &bits) in self.mask.iter().enumerate() {
+            let mut bits = bits;
+            while bits != 0 {
+                let index = word * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                // SAFETY: each presence bit owns exactly one initialized slot; no leases
+                // survive &mut self. Boxes subsequently free only MaybeUninit backing.
+                unsafe { self.ptr(index).drop_in_place() };
+            }
+        }
     }
 }
 
 pub(crate) trait Erased {
     fn any(&self) -> &dyn Any;
     fn any_mut(&mut self) -> &mut dyn Any;
-    fn entities(&self) -> &[Entity];
-    fn remove(&mut self, e: Entity);
-    fn write(&self, w: &mut dyn Writer);
-    fn read(&mut self, r: &mut dyn Reader, valid: &dyn Fn(Entity) -> bool)
-        -> Result<(), DataError>;
+    fn len(&self) -> usize;
+    fn remove(&mut self, index: usize, tick: u64);
+    fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity);
+    fn read(
+        &mut self,
+        r: &mut dyn Reader,
+        valid: &dyn Fn(Entity) -> bool,
+        tick: u64,
+    ) -> Result<(), DataError>;
 }
 pub(crate) fn make<C: Component>() -> Box<dyn Erased> {
     Box::new(Storage::<C>::default())
@@ -179,25 +233,29 @@ impl<C: Component> Erased for Storage<C> {
     fn any_mut(&mut self) -> &mut dyn Any {
         self
     }
-    fn entities(&self) -> &[Entity] {
-        &self.entities
+    fn len(&self) -> usize {
+        self.len
     }
-    fn remove(&mut self, e: Entity) {
-        self.remove(e);
+    fn remove(&mut self, index: usize, tick: u64) {
+        self.remove(index, tick);
     }
-    fn write(&self, w: &mut dyn Writer) {
-        let _lease = self.lease(false);
-        // SAFETY: the shared lease excludes mutable references for this entire walk.
-        let values = unsafe { &*self.values.get() };
-        w.begin_seq(self.entities.len());
-        for (e, c) in self.entities.iter().zip(values) {
-            w.item();
-            w.begin_seq(2);
-            w.item();
-            e.write(w);
-            w.item();
-            c.write(w);
-            w.end_seq();
+    fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
+        let _lease = self.lease(false, 0);
+        w.begin_seq(self.len);
+        for (word, &bits) in self.mask.iter().enumerate() {
+            let mut bits = bits;
+            while bits != 0 {
+                let index = word * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                w.item();
+                w.begin_seq(2);
+                w.item();
+                entity(index).write(w);
+                w.item();
+                // SAFETY: the bit proves initialization and the shared lease excludes writers.
+                unsafe { &*self.ptr(index) }.write(w);
+                w.end_seq();
+            }
         }
         w.end_seq();
     }
@@ -205,8 +263,10 @@ impl<C: Component> Erased for Storage<C> {
         &mut self,
         r: &mut dyn Reader,
         valid: &dyn Fn(Entity) -> bool,
+        tick: u64,
     ) -> Result<(), DataError> {
         r.begin_seq()?;
+        let mut last = None;
         while r.item()? {
             r.begin_seq()?;
             let mut e = Entity::default();
@@ -225,216 +285,13 @@ impl<C: Component> Erased for Storage<C> {
             if r.item()? {
                 return Err(DataError::new("extra component entry value"));
             }
-            if self
-                .entities
-                .last()
-                .is_some_and(|last| last.index() >= e.index())
-            {
+            if last.is_some_and(|last| last >= e.index()) {
                 return Err(DataError::new("entities are not strictly ordered"));
             }
-            self.insert(e, c);
+            last = Some(e.index());
+            self.insert(e.index() as usize, c, tick);
         }
+        self.changed.set(tick);
         Ok(())
-    }
-}
-
-mod sealed {
-    pub trait Sealed {}
-    impl<C: crate::Component> Sealed for &C {}
-    impl<C: crate::Component> Sealed for &mut C {}
-    impl<C: crate::Component> Sealed for Option<&C> {}
-    impl<C: crate::Component> Sealed for Option<&mut C> {}
-    pub(super) use Sealed as TupleSealed;
-}
-
-/// The built-in reference, optional-reference and tuple query forms.
-///
-/// The trait is sealed: an implementation must prove that its mutable references
-/// are disjoint. Duplicate components are refused even when both uses are shared.
-pub trait Query: sealed::Sealed {
-    /// One row, whose borrow guards can outlive the iterator.
-    type Item<'w>;
-    /// Storage leases acquired once at query construction.
-    #[doc(hidden)]
-    type State<'w>: Fetch<'w, Item = Self::Item<'w>>;
-    /// Acquire leases, checking duplicate types before iteration starts.
-    #[doc(hidden)]
-    fn prepare<'w>(world: &'w World, seen: &mut Vec<TypeId>) -> Self::State<'w>;
-}
-
-/// Internal query operation, exposed only because it is an associated bound.
-#[doc(hidden)]
-pub trait Fetch<'w> {
-    type Item;
-    fn candidates(&self) -> Option<&'w [Entity]>;
-    /// # Safety
-    /// Call at most once for each entity on this state, including through tuples.
-    unsafe fn fetch(&self, e: Entity) -> Option<Self::Item>;
-}
-
-/// One storage lease; the const parameters keep the four reference forms small.
-#[doc(hidden)]
-pub struct QueryBorrow<'w, C, const MUT: bool, const OPTIONAL: bool> {
-    storage: Option<&'w Storage<C>>,
-    lease: Option<Rc<Lease<'w>>>,
-    ptr: *mut C,
-}
-impl<'w, C: Component, const M: bool, const O: bool> QueryBorrow<'w, C, M, O> {
-    fn new(world: &'w World, seen: &mut Vec<TypeId>) -> Self {
-        let id = TypeId::of::<C>();
-        assert!(!seen.contains(&id), "{} occurs twice in one query", C::NAME);
-        seen.push(id);
-        let storage = world.storage::<C>();
-        let lease = storage.map(|s| s.lease(M));
-        let ptr = storage.map_or(std::ptr::null_mut(), Storage::ptr);
-        Self {
-            storage,
-            lease,
-            ptr,
-        }
-    }
-    fn candidate_slice(&self) -> Option<&'w [Entity]> {
-        if O {
-            None
-        } else {
-            Some(self.storage.map_or(&[], |s| &s.entities))
-        }
-    }
-    fn shared(&self, e: Entity) -> Option<Ref<'w, C>> {
-        let p = self.storage?.position(e)?;
-        Some(Ref {
-            ptr: self.ptr.wrapping_add(p),
-            _lease: self.lease.as_ref()?.clone(),
-            _life: PhantomData,
-        })
-    }
-    // Only called by unsafe fetch, after the iterator has selected a fresh entity.
-    fn exclusive(&self, e: Entity) -> Option<RefMut<'w, C>> {
-        let p = self.storage?.position(e)?;
-        Some(RefMut {
-            ptr: self.ptr.wrapping_add(p),
-            _lease: self.lease.as_ref()?.clone(),
-            _life: PhantomData,
-        })
-    }
-}
-macro_rules! reference {
-    ($form:ty, $m:literal, $o:literal, $item:ty, $fetch:expr) => {
-        impl<C: Component> Query for $form {
-            type Item<'w> = $item;
-            type State<'w> = QueryBorrow<'w, C, $m, $o>;
-            fn prepare<'w>(w: &'w World, seen: &mut Vec<TypeId>) -> Self::State<'w> {
-                QueryBorrow::new(w, seen)
-            }
-        }
-        impl<'w, C: Component> Fetch<'w> for QueryBorrow<'w, C, $m, $o> {
-            type Item = $item;
-            fn candidates(&self) -> Option<&'w [Entity]> {
-                self.candidate_slice()
-            }
-            unsafe fn fetch(&self, e: Entity) -> Option<Self::Item> {
-                ($fetch)(self, e)
-            }
-        }
-    };
-}
-reference!(&C, false, false, Ref<'w, C>, |s: &Self, e| s.shared(e));
-reference!(&mut C, true, false, RefMut<'w, C>, |s: &Self, e| s
-    .exclusive(e));
-reference!(
-    Option<&C>,
-    false,
-    true,
-    Option<Ref<'w, C>>,
-    |s: &Self, e| Some(s.shared(e))
-);
-reference!(
-    Option<&mut C>,
-    true,
-    true,
-    Option<RefMut<'w, C>>,
-    |s: &Self, e| Some(s.exclusive(e))
-);
-
-macro_rules! tuples {
-    ($($T:ident:$i:tt),+) => {
-        impl<$($T: Query),+> sealed::TupleSealed for ($($T,)+) {}
-        impl<$($T: Query),+> Query for ($($T,)+) {
-            type Item<'w> = ($($T::Item<'w>,)+);
-            type State<'w> = ($($T::State<'w>,)+);
-            fn prepare<'w>(w: &'w World, seen: &mut Vec<TypeId>) -> Self::State<'w> { ($($T::prepare(w, seen),)+) }
-        }
-        impl<'w, $($T: Fetch<'w>),+> Fetch<'w> for ($($T,)+) {
-            type Item = ($($T::Item,)+);
-            fn candidates(&self) -> Option<&'w [Entity]> {
-                [$(self.$i.candidates(),)+].into_iter().flatten().min_by_key(|s| s.len())
-            }
-            unsafe fn fetch(&self, e: Entity) -> Option<Self::Item> {
-                // SAFETY: query construction rejects duplicate components and the caller yields each entity once.
-                unsafe { Some(($(self.$i.fetch(e)?,)+)) }
-            }
-        }
-    };
-}
-tuples!(A:0);
-tuples!(A:0, B:1);
-tuples!(A:0, B:1, C:2);
-tuples!(A:0, B:1, C:2, D:3);
-tuples!(A:0, B:1, C:2, D:3, E:4);
-tuples!(A:0, B:1, C:2, D:3, E:4, F:5);
-tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6);
-tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7);
-
-type Filter<'w> = Box<dyn Fn(Entity) -> bool + 'w>;
-/// An entity-ordered join over the smallest required storage.
-pub struct QueryIter<'w, Q: Query> {
-    world: &'w World,
-    state: Q::State<'w>,
-    entities: Cow<'w, [Entity]>,
-    cursor: usize,
-    filters: Vec<Filter<'w>>,
-}
-impl<'w, Q: Query> QueryIter<'w, Q> {
-    pub(crate) fn new(world: &'w World) -> Self {
-        let state = Q::prepare(world, &mut vec![]);
-        let entities = state
-            .candidates()
-            .map_or_else(|| Cow::Owned(world.entities().collect()), Cow::Borrowed);
-        Self {
-            world,
-            state,
-            entities,
-            cursor: 0,
-            filters: vec![],
-        }
-    }
-    /// Keep entities carrying C, without borrowing its values.
-    pub fn with<C: Component>(mut self) -> Self {
-        let w = self.world;
-        self.filters.push(Box::new(move |e| w.has::<C>(e)));
-        self
-    }
-    /// Keep entities without C, without borrowing its values.
-    pub fn without<C: Component>(mut self) -> Self {
-        let w = self.world;
-        self.filters.push(Box::new(move |e| !w.has::<C>(e)));
-        self
-    }
-}
-impl<'w, Q: Query> Iterator for QueryIter<'w, Q> {
-    type Item = (Entity, Q::Item<'w>);
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some(&e) = self.entities.get(self.cursor) {
-            self.cursor += 1;
-            if !self.filters.iter().all(|f| f(e)) {
-                continue;
-            }
-            // SAFETY: sorted unique candidates are consumed exactly once; leases
-            // exclude other writers and duplicate query components were rejected.
-            if let Some(item) = unsafe { self.state.fetch(e) } {
-                return Some((e, item));
-            }
-        }
-        None
     }
 }

@@ -2,7 +2,9 @@ use crate::{Affine3A, Component, Entity, Quat, Vec3, World};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Local pose; identity is an unmodified object, with forward along negative Z.
+/// Upload layout: ten contiguous f32s (position xyz, rotation xyzw, scale xyz).
 #[derive(Clone, Copy, Debug, PartialEq, Component)]
+#[repr(C)]
 pub struct Transform {
     /// Local translation.
     pub position: Vec3,
@@ -126,8 +128,9 @@ pub enum Mesh {
     Asset(String),
 }
 
-/// Renderer-neutral surface properties.
+/// Renderer-neutral surface properties: ten contiguous f32s including the pad.
 #[derive(Clone, Copy, Debug, PartialEq, Component)]
+#[repr(C)]
 pub struct Material {
     /// Linear RGBA base color.
     pub color: [f32; 4],
@@ -137,6 +140,9 @@ pub struct Material {
     pub roughness: f32,
     /// Linear RGB emitted light.
     pub emissive: [f32; 3],
+    /// Explicit upload padding; transient and initialized to zero by default.
+    #[data(skip)]
+    pub pad: f32,
 }
 impl Default for Material {
     fn default() -> Self {
@@ -145,6 +151,7 @@ impl Default for Material {
             metallic: 0.0,
             roughness: 0.5,
             emissive: [0.0; 3],
+            pad: 0.0,
         }
     }
 }
@@ -213,9 +220,14 @@ impl World {
     pub fn propagate(&mut self) {
         let local: BTreeMap<_, _> = self
             .query::<&Transform>()
+            .iter()
             .map(|(e, t)| (e, t.affine()))
             .collect();
-        let parents: BTreeMap<_, _> = self.query::<&Parent>().map(|(e, p)| (e, p.0)).collect();
+        let parents: BTreeMap<_, _> = self
+            .query::<&Parent>()
+            .iter()
+            .map(|(e, p)| (e, p.0))
+            .collect();
         let mut computed = BTreeMap::new();
         for &start in local.keys() {
             if computed.contains_key(&start) {
@@ -281,7 +293,7 @@ impl World {
         self.insert(e, transform);
         self.propagate();
         let mut edges: BTreeMap<Entity, Vec<Entity>> = BTreeMap::new();
-        for (child, p) in self.query::<&Parent>() {
+        for (child, p) in self.query::<&Parent>().iter() {
             edges.entry(p.0).or_default().push(child);
         }
         let mut stack = vec![e];

@@ -1,7 +1,7 @@
 use crate::storage::{self, Erased, Storage};
 use crate::{
-    bin, hash, Affine3A, Data, DataError, Parent, Query, QueryIter, Reader, Ref, RefMut, Rng,
-    Value, Writer,
+    bin, hash, Affine3A, Data, DataError, Pages, Parent, Query, QueryBorrow, Reader, Ref, RefMut,
+    Rng, Value, Writer,
 };
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -99,6 +99,7 @@ pub struct Event {
 /// Ordered simulation state, with dynamic storage borrows and no host clock.
 pub struct World {
     state: State,
+    pub(crate) alive_mask: Vec<u64>,
     rng: Storage<Rng>,
     registry: BTreeMap<&'static str, Registration>,
     components: BTreeMap<&'static str, Box<dyn Erased>>,
@@ -120,13 +121,14 @@ impl World {
     pub fn new(hz: u32, seed: u64) -> Self {
         assert!(hz > 0, "world hz must be positive");
         let mut rng = Storage::default();
-        rng.insert(SINGLETON, Rng::new(seed));
+        rng.insert(0, Rng::new(seed), 0);
         Self {
             state: State {
                 hz,
                 seed,
                 ..State::default()
             },
+            alive_mask: vec![],
             rng,
             registry: BTreeMap::new(),
             components: BTreeMap::new(),
@@ -181,6 +183,11 @@ impl World {
             index,
             generation: slot.generation,
         };
+        let word = index as usize / 64;
+        if word >= self.alive_mask.len() {
+            self.alive_mask.push(0);
+        }
+        self.alive_mask[word] |= 1 << (index % 64);
         bundle.insert(self, e);
         self.log(format_args!("spawn #{}", e.index));
         e
@@ -191,7 +198,7 @@ impl World {
             return false;
         }
         let mut edges: BTreeMap<Entity, Vec<Entity>> = BTreeMap::new();
-        for (child, parent) in self.query::<&Parent>() {
+        for (child, parent) in self.query::<&Parent>().iter() {
             edges.entry(parent.0).or_default().push(child);
         }
         let mut stack = vec![e];
@@ -214,11 +221,12 @@ impl World {
                 .checked_add(1)
                 .expect("entity generation exhausted");
             slot.alive = false;
+            self.alive_mask[e.index as usize / 64] &= !(1 << (e.index % 64));
             slot.name = None;
             let p = self.state.free.partition_point(|&i| i < e.index);
             self.state.free.insert(p, e.index);
             for s in self.components.values_mut() {
-                s.remove(e);
+                s.remove(e.index as usize, self.state.tick);
             }
             self.globals.remove(&e);
             self.previous.remove(&e);
@@ -252,6 +260,12 @@ impl World {
                 index: i as u32,
                 generation: s.generation,
             })
+    }
+    pub(crate) fn entity_at(&self, index: usize) -> Entity {
+        Entity {
+            index: index as u32,
+            generation: self.state.slots[index].generation,
+        }
     }
     /// The lowest-index living entity bearing this name.
     pub fn named(&self, name: &str) -> Option<Entity> {
@@ -293,31 +307,51 @@ impl World {
             .any_mut()
             .downcast_mut::<Storage<C>>()
             .unwrap()
-            .insert(e, c);
+            .insert(e.index as usize, c, self.state.tick);
     }
     /// Remove a component, returning its last value.
     pub fn remove<C: Component>(&mut self, e: Entity) -> Option<C> {
+        if !self.contains(e) {
+            return None;
+        }
         self.components
             .get_mut(C::NAME)?
             .any_mut()
             .downcast_mut::<Storage<C>>()?
-            .remove(e)
+            .remove(e.index as usize, self.state.tick)
     }
     /// Test membership without borrowing the component's values.
     pub fn has<C: Component>(&self, e: Entity) -> bool {
-        self.storage::<C>().is_some_and(|s| s.has(e))
+        self.contains(e) && self.storage::<C>().is_some_and(|s| s.has(e.index as usize))
     }
     /// Borrow one component immutably; conflicts panic with its name.
     pub fn get<C: Component>(&self, e: Entity) -> Option<Ref<'_, C>> {
-        self.storage::<C>()?.get(e)
+        if !self.contains(e) {
+            return None;
+        }
+        self.storage::<C>()?.get(e.index as usize)
     }
     /// Borrow one component exclusively; conflicts panic with its name.
     pub fn get_mut<C: Component>(&self, e: Entity) -> Option<RefMut<'_, C>> {
-        self.storage::<C>()?.get_mut(e)
+        if !self.contains(e) {
+            return None;
+        }
+        self.storage::<C>()?.get_mut(e.index as usize, self.tick())
     }
     /// Construct an entity-ordered join and acquire its storage borrows now.
-    pub fn query<Q: Query>(&self) -> QueryIter<'_, Q> {
-        QueryIter::new(self)
+    pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
+        QueryBorrow::new(self)
+    }
+    /// Allocated component pages in entity-index order, under a shared lease.
+    /// Each view supplies its first index, presence words, and a raw pointer valid
+    /// for PAGE slots. Absent slots must not be read as C; only Plain has bytes().
+    pub fn pages<C: Component>(&self) -> Pages<'_, C> {
+        Pages::new(self.storage::<C>())
+    }
+    /// Last tick exclusively leased or structurally changed, or zero if absent.
+    /// A same-tick edit keeps the same stamp; this is not a mutation counter.
+    pub fn changed<C: Component>(&self) -> u64 {
+        self.storage::<C>().map_or(0, Storage::changed)
     }
     /// Direct children in entity order.
     pub fn children(&self, e: Entity) -> Vec<Entity> {
@@ -325,6 +359,7 @@ impl World {
             return vec![];
         }
         self.query::<&Parent>()
+            .iter()
             .filter(|(_, p)| p.0 == e)
             .map(|(e, _)| e)
             .collect()
@@ -338,7 +373,7 @@ impl World {
             .any_mut()
             .downcast_mut::<Storage<R>>()
             .unwrap()
-            .insert(SINGLETON, r);
+            .insert(0, r, self.state.tick);
     }
     fn resource_storage<R: Resource>(&self) -> &Storage<R> {
         self.resources
@@ -348,11 +383,13 @@ impl World {
     }
     /// Borrow a resource; absence panics with its name.
     pub fn resource<R: Resource>(&self) -> Ref<'_, R> {
-        self.resource_storage::<R>().get(SINGLETON).unwrap()
+        self.resource_storage::<R>().get(0).unwrap()
     }
     /// Borrow a resource exclusively; absence panics with its name.
     pub fn resource_mut<R: Resource>(&self) -> RefMut<'_, R> {
-        self.resource_storage::<R>().get_mut(SINGLETON).unwrap()
+        self.resource_storage::<R>()
+            .get_mut(0, self.tick())
+            .unwrap()
     }
     /// Current fixed-step tick.
     pub fn tick(&self) -> u64 {
@@ -372,7 +409,7 @@ impl World {
     }
     /// The world's only source of simulation randomness.
     pub fn rng(&self) -> RefMut<'_, Rng> {
-        self.rng.get_mut(SINGLETON).unwrap()
+        self.rng.get_mut(0, self.tick()).unwrap()
     }
     /// Append an event to the bounded 4,096-line journal.
     pub fn log(&self, line: impl std::fmt::Display) {
@@ -418,16 +455,22 @@ impl World {
         w.field("state");
         self.state.write(w);
         w.field("rng");
-        self.rng.get(SINGLETON).unwrap().write(w);
-        for (name, storages) in [
+        self.rng.get(0).unwrap().write(w);
+        for (kind, storages) in [
             ("components", &self.components),
             ("resources", &self.resources),
         ] {
-            w.field(name);
+            w.field(kind);
             w.begin_struct();
             for (name, s) in storages {
                 w.key(name);
-                s.write(w);
+                s.write(w, &|index| {
+                    if kind == "resources" {
+                        SINGLETON
+                    } else {
+                        self.entity_at(index)
+                    }
+                });
             }
             w.end_struct();
         }
@@ -497,6 +540,12 @@ impl World {
                 "state" => {
                     self.state.read(r)?;
                     self.validate_state()?;
+                    self.alive_mask = vec![0; self.state.slots.len().div_ceil(64)];
+                    for (index, slot) in self.state.slots.iter().enumerate() {
+                        if slot.alive {
+                            self.alive_mask[index / 64] |= 1 << (index % 64);
+                        }
+                    }
                 }
                 "rng" => self.rng().read(r)?,
                 "components" | "resources" => {
@@ -511,15 +560,19 @@ impl World {
                             })?;
                         let mut s = (reg.make)();
                         let resource = field == "resources";
-                        s.read(r, &|e| {
-                            if resource {
-                                e == SINGLETON
-                            } else {
-                                self.contains(e)
-                            }
-                        })
+                        s.read(
+                            r,
+                            &|e| {
+                                if resource {
+                                    e == SINGLETON
+                                } else {
+                                    self.contains(e)
+                                }
+                            },
+                            self.tick(),
+                        )
                         .map_err(|e| e.at(&name))?;
-                        if resource && s.entities().len() != 1 {
+                        if resource && s.len() != 1 {
                             return Err(DataError::new("resource must contain one value").at(name));
                         }
                         let dest = if resource {

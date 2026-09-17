@@ -13,7 +13,7 @@ fn churn(w: &mut World, ticks: u32) {
             );
         }
         let dt = w.dt();
-        for (_, (mut t, v)) in w.query::<(&mut Transform, &Velocity)>() {
+        for (_, (t, v)) in w.query::<(&mut Transform, &Velocity)>().iter() {
             t.position += v.0 * dt;
         }
         if w.rng().chance(0.3) {
@@ -67,4 +67,42 @@ fn hierarchy_and_previous_tick() {
     assert_eq!(w.global_lerp(child, 0.0), w.global_lerp(child, 1.0));
     assert!(w.despawn(root));
     assert!(w.is_empty());
+}
+
+#[test]
+fn changed_tracks_leases_structure_and_load_but_is_not_saved() {
+    let mut w = World::new(60, 0);
+    assert_eq!(w.changed::<Transform>(), 0);
+    w.step_clock();
+    let e = w.spawn((Transform::default(),));
+    assert_eq!(w.changed::<Transform>(), 1);
+    w.step_clock();
+    let bytes = w.save();
+    let hash = w.hash();
+    drop(w.get::<Transform>(e));
+    drop(w.query::<&Transform>());
+    drop(w.pages::<Transform>());
+    assert_eq!(w.changed::<Transform>(), 1);
+    drop(w.query::<Option<&mut Transform>>());
+    assert_eq!(w.changed::<Transform>(), 2);
+    assert_eq!(w.save(), bytes);
+    assert_eq!(w.hash(), hash);
+    w.step_clock();
+    drop(w.get_mut::<Transform>(e));
+    assert_eq!(w.changed::<Transform>(), 3);
+    w.step_clock();
+    w.insert(e, Transform::default());
+    assert_eq!(w.changed::<Transform>(), 4);
+    w.step_clock();
+    w.remove::<Transform>(e);
+    assert_eq!(w.changed::<Transform>(), 5);
+    w.step_clock();
+    w.insert(e, Transform::default());
+    w.step_clock();
+    w.despawn(e);
+    assert_eq!(w.changed::<Transform>(), 7);
+    w.load(&bytes).unwrap();
+    assert_eq!(w.tick(), 2);
+    assert_eq!(w.changed::<Transform>(), 2);
+    assert_eq!(w.save(), bytes);
 }

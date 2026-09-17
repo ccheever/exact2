@@ -42,7 +42,7 @@ fn generations_names_and_order_under_churn() {
         } else {
             entities.push(w.spawn((A(rng.next_u32()),)));
         }
-        let got: Vec<_> = w.query::<&A>().map(|(e, _)| e.index()).collect();
+        let got: Vec<_> = w.query::<&A>().iter().map(|(e, _)| e.index()).collect();
         assert!(got.windows(2).all(|p| p[0] < p[1]));
         let mut expected: Vec<_> = entities.iter().map(|e| e.index()).collect();
         expected.sort();
@@ -51,7 +51,12 @@ fn generations_names_and_order_under_churn() {
     let mut restored = World::new(1, 0);
     restored.register::<A>();
     restored.load(&w.save()).unwrap();
-    let rows = |w: &World| w.query::<&A>().map(|(e, a)| (e, a.0)).collect::<Vec<_>>();
+    let rows = |w: &World| {
+        w.query::<&A>()
+            .iter()
+            .map(|(e, a)| (e, a.0))
+            .collect::<Vec<_>>()
+    };
     assert_eq!(rows(&w), rows(&restored));
     assert_eq!(w.hash(), restored.hash());
 }
@@ -62,38 +67,43 @@ fn joins_option_filters_and_nested_reads() {
     let just_a = w.spawn((A(30),));
     let empty = w.spawn(());
     assert_eq!(
-        w.query::<(&A, &B)>().map(|(e, _)| e).collect::<Vec<_>>(),
+        w.query::<(&A, &B)>()
+            .iter()
+            .map(|(e, _)| e)
+            .collect::<Vec<_>>(),
         [both]
     );
     assert_eq!(
         w.query::<&A>()
             .without::<B>()
+            .iter()
             .map(|(e, _)| e)
             .collect::<Vec<_>>(),
         [just_a]
     );
-    assert_eq!(w.query::<&A>().with::<B>().count(), 1);
+    assert_eq!(w.query::<&A>().with::<B>().iter().count(), 1);
     assert_eq!(
         w.query::<Option<&A>>()
+            .iter()
             .map(|(e, a)| (e, a.is_some()))
             .collect::<Vec<_>>(),
         [(both, true), (just_a, true), (empty, false)]
     );
-    for (_, (mut a, b)) in w.query::<(&mut A, Option<&B>)>() {
+    for (_, (a, b)) in w.query::<(&mut A, Option<&B>)>().iter() {
         a.0 += b.map_or(0, |b| b.0);
-        assert_eq!(w.query::<&B>().count(), 1);
+        assert_eq!(w.query::<&B>().iter().count(), 1);
         assert_eq!(w.get::<B>(both).unwrap().0, 20);
         w.log("read inside query");
     }
     assert_eq!(w.get::<A>(both).unwrap().0, 30);
-    for (_, b) in w.query::<Option<&mut B>>() {
-        if let Some(mut b) = b {
+    for (_, b) in w.query::<Option<&mut B>>().iter() {
+        if let Some(b) = b {
             b.0 += 1;
         }
     }
     assert_eq!(w.get::<B>(both).unwrap().0, 21);
-    assert_eq!(w.query::<&C>().count(), 0);
-    assert_eq!(w.query::<(&A, Option<&C>)>().count(), 2);
+    assert_eq!(w.query::<&C>().iter().count(), 0);
+    assert_eq!(w.query::<(&A, Option<&C>)>().iter().count(), 2);
 }
 #[test]
 fn borrows_name_conflicts_and_survive_iterator_drop() {
@@ -128,14 +138,16 @@ fn borrows_name_conflicts_and_survive_iterator_drop() {
     })
     .contains("C occurs twice"));
     let mut q = w.query::<&mut A>();
-    let (_, mut kept) = q.next().unwrap();
-    drop(q);
+    let kept = {
+        let mut iter = q.iter();
+        iter.next().unwrap().1
+    };
     assert!(panic_text(|| {
         w.get::<A>(e);
     })
     .contains("A"));
     kept.0 = 40;
-    drop(kept);
+    drop(q);
     assert_eq!(w.get::<A>(e).unwrap().0, 40);
 }
 #[test]
@@ -193,9 +205,191 @@ fn eight_way_query_and_retained_mutable_rows() {
     for n in 0..10 {
         w.spawn((A(n), B(n), C, D, E, F, G, H));
     }
-    let mut rows: Vec<_> = w.query::<(&mut A, &B, &C, &D, &E, &F, &G, &H)>().collect();
+    let mut query = w.query::<(&mut A, &B, &C, &D, &E, &F, &G, &H)>();
+    let mut rows: Vec<_> = query.iter().collect();
     for (_, (a, b, ..)) in &mut rows {
         a.0 += b.0;
     }
     assert_eq!(rows[9].1 .0 .0, 18);
+}
+
+#[test]
+fn drops_exactly_present_slots_including_load_over_existing() {
+    use std::cell::RefCell;
+    thread_local! { static DROPS: RefCell<[u32; 8]> = const { RefCell::new([0; 8]) }; }
+    #[derive(Default, Component)]
+    struct Counted {
+        id: u32,
+        payload: String,
+    }
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            if self.id != 0 {
+                DROPS.with_borrow_mut(|counts| counts[self.id as usize] += 1);
+            }
+        }
+    }
+    let value = |id| Counted {
+        id,
+        payload: format!("owned {id}"),
+    };
+    let count = |id: usize| DROPS.with_borrow(|counts| counts[id]);
+    let mut w = World::new(60, 0);
+    let e = w.spawn((value(1),));
+    assert_eq!(count(1), 0);
+    w.insert(e, value(2));
+    assert_eq!(count(1), 1);
+    let removed = w.remove::<Counted>(e).unwrap();
+    assert_eq!(count(2), 0);
+    assert_eq!(w.pages::<Counted>().iter().count(), 0);
+    drop(removed);
+    assert_eq!(count(2), 1);
+    w.insert(e, value(3));
+    w.despawn(e);
+    assert_eq!(count(3), 1);
+    let first = w.spawn((value(4),));
+    for _ in 0..exact_game::PAGE {
+        w.spawn(());
+    }
+    let last = w.spawn((value(5),));
+    assert_eq!(w.pages::<Counted>().iter().count(), 2);
+    assert!(w.remove::<Counted>(e).is_none()); // stale incarnation cannot remove #4
+    assert!(w.get::<Counted>(e).is_none());
+    assert!(w.get_mut::<Counted>(e).is_none());
+    assert!(w.has::<Counted>(first));
+    let bytes = w.save();
+    let mut loaded = World::new(60, 0);
+    loaded.spawn((value(6),));
+    loaded.load(&bytes).unwrap();
+    assert_eq!(count(6), 1);
+    assert_eq!(loaded.get::<Counted>(last).unwrap().payload, "owned 5");
+    assert_eq!(loaded.save(), bytes);
+    drop(loaded);
+    assert_eq!(count(4), 1);
+    assert_eq!(count(5), 1);
+    drop(w);
+    assert_eq!(
+        DROPS.with_borrow(|counts| *counts),
+        [0, 1, 1, 1, 2, 2, 1, 0]
+    );
+}
+
+#[test]
+fn mask_joins_across_words_pages_and_optional_only_queries() {
+    let mut w = World::new(60, 0);
+    let entities: Vec<_> = (0..3 * exact_game::PAGE + 19)
+        .map(|_| w.spawn(()))
+        .collect();
+    for &e in &entities {
+        let i = e.index();
+        if i % 3 == 0 {
+            w.insert(e, A(i));
+        }
+        if i % 5 == 0 {
+            w.insert(e, B(i));
+        }
+        if i % 7 == 0 {
+            w.insert(e, C);
+        }
+    }
+    for &e in entities.iter().step_by(11) {
+        w.despawn(e);
+    }
+    let expected: Vec<_> = entities
+        .iter()
+        .copied()
+        .filter(|&e| {
+            w.contains(e) && e.index() % 3 == 0 && e.index() % 5 == 0 && e.index() % 7 != 0
+        })
+        .collect();
+    let got: Vec<_> = w
+        .query::<(&mut A, Option<&B>)>()
+        .with::<B>()
+        .without::<C>()
+        .iter()
+        .map(|(e, (a, b))| {
+            a.0 += b.unwrap().0;
+            e
+        })
+        .collect();
+    assert_eq!(got, expected);
+    assert_eq!(
+        w.query::<(&A, &B)>()
+            .without::<C>()
+            .iter()
+            .map(|(e, _)| e)
+            .collect::<Vec<_>>(),
+        expected
+    );
+    for (e, (a, b)) in &mut w.query::<(Option<&A>, Option<&B>)>() {
+        assert!(w.contains(e));
+        assert_eq!(a.is_some(), e.index() % 3 == 0);
+        assert_eq!(b.is_some(), e.index() % 5 == 0);
+    }
+    assert_eq!(w.query::<Option<&A>>().iter().count(), w.len());
+    assert_eq!(w.query::<&A>().with::<A>().without::<A>().iter().count(), 0);
+    let mut query = w.query::<&mut C>();
+    let rows: Vec<_> = query.iter().collect(); // simultaneous ZST mutable references
+    assert_eq!(
+        rows.len(),
+        entities
+            .iter()
+            .filter(|e| e.index() % 7 == 0 && e.index() % 11 != 0)
+            .count()
+    );
+    drop(rows);
+    assert_eq!(
+        query.iter().count(),
+        w.query::<Option<&A>>().with::<C>().iter().count()
+    );
+}
+
+#[test]
+fn large_churn_has_history_independent_order_hash_and_save() {
+    // Miri still crosses multiple pages; native runs the requested 100k world.
+    let n: usize = if cfg!(miri) { 2_100 } else { 100_000 };
+    let batch: usize = if cfg!(miri) { 32 } else { 2_000 };
+    let mut left = World::new(120, 42);
+    let mut right = World::new(120, 42);
+    let mut entities = Vec::new();
+    for i in 0..n {
+        entities.push(left.spawn((A(i as u32), B(i as u32))));
+        assert_eq!(right.spawn(()), entities[i]);
+    }
+    // Same state, opposite component insertion history.
+    for &e in entities.iter().rev() {
+        right.insert(e, B(e.index()));
+        right.insert(e, A(e.index()));
+    }
+    for tick in 0..4 {
+        let mut selected: Vec<_> = (0..batch).map(|i| (i * 47 + tick * 131) % n).collect();
+        selected.sort_unstable();
+        selected.dedup();
+        for &i in &selected {
+            left.despawn(entities[i]);
+        }
+        for &i in selected.iter().rev() {
+            right.despawn(entities[i]);
+        }
+        for &i in &selected {
+            let a = left.spawn(());
+            let b = right.spawn(());
+            assert_eq!(a, b);
+            assert_eq!(a.index() as usize, i); // lowest free index first
+            left.insert(a, A(a.index()));
+            left.insert(a, B(a.index()));
+            right.insert(b, B(b.index()));
+            right.insert(b, A(b.index()));
+            entities[i] = a;
+        }
+        let order: Vec<_> = left
+            .query::<(&A, &B)>()
+            .iter()
+            .map(|(e, _)| e.index())
+            .collect();
+        assert_eq!(order.len(), n);
+        assert!(order.windows(2).all(|w| w[0] < w[1]));
+    }
+    assert_eq!(left.hash(), right.hash());
+    assert_eq!(left.save(), right.save());
 }
