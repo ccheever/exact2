@@ -475,3 +475,66 @@ until the enclosing batch is applied. Five web request-path Rust tests and three
 JavaScript response/refusal tests pass, alongside scoped Clippy and formatting.
 The rebuilt 128-lane browser drive passes again in
 `target/scheduler-final-web-refusal/`; the native executor sources are unchanged.
+
+### 8.5 Continuously interactive collections: expanded campaign
+
+Charlie authorized all four demonstrations on 2026-09-16, including additional
+Astra xhigh agents, independent sessions and machines where useful. Tuft owns
+implementation and integration, starting now. This expands the active campaign;
+it does not replace Messages, Completion Storm, giant Markdown or their eager
+controls. First finish the common viewport and scheduler foundations, then use
+these interactions to drive the next measured changes. Shared primitives belong
+in Exact2; example-specific content and visual design belong in the consumers.
+
+1. **Live Messages.** Swipe a variable-height message toward reply, release its
+   spring, grab it while moving, reverse and cancel. Repeat during streaming
+   updates, history prepend, delayed attachment sizing and continuous resize.
+   Keep the manipulated logical message and reading anchor stable even as rows
+   mount/unmount. Finish the interaction once, including when its record is
+   deleted or navigation removes the collection.
+2. **Photo collection and interactive zoom.** Expand a thumbnail, immediately
+   drag the enlarged image, cancel or dismiss, and switch images before returning.
+   Reflow the grid and load distinct image assets during the interaction. Resolve
+   return geometry by stable item identity, including an unmounted, moved or
+   deleted source. Define those outcomes explicitly. Any temporary visual retained
+   above the collection has bounded lifetime and byte accounting; no indefinitely
+   pinned source view or decoded-image cache. LLP 1013 is a starting design, not
+   evidence that snapshot transitions already provide interactive takeover.
+3. **Reorder with edge scrolling.** Lift a card, move through a large virtualized
+   collection while nearby cards spring aside, auto-scroll in both directions,
+   then drop or cancel. Exercise concurrent insert/delete/reorder and resize.
+   The dragged identity stays attached to the pointer; preview geometry cannot
+   silently mutate durable ordering. A committed drop applies once to the current
+   data or is explicitly cancelled when its identity no longer exists.
+4. **Sheet and nested collection.** Drag among sheet heights, scroll the list
+   inside, reverse at its boundary and catch an unfinished settling spring.
+   Preserve position and appropriate velocity through each transfer of control.
+   The sheet's changing scrollport drives virtualization without repeated full
+   list construction. Test pointer/trackpad behavior on desktop and actual touch
+   recognition where available; synthesized deltas do not prove touch arbitration.
+
+For every scenario, test the ordinary interaction first, then combine it with
+completion pressure, changed row geometry, navigation and window resize. Keep
+input, committed application state and current presentation geometry distinct.
+One owner commits application state; a small host presentation state can follow
+input and animate independently. Stale worker results, measurements and animation
+callbacks must not overwrite a newer interaction. Sample current presentation
+when taking over a moving object, preserving position continuity and carrying
+velocity into release where appropriate. Hit testing must follow what is drawn.
+
+Acceptance includes interruption in both directions, cancellation, no duplicate
+actions, correct focus/selection, stable anchors and bounded retained rows,
+images and transition visuals after repeated traversals and navigation. Background
+work must recover and make progress during sustained interaction. Respect reduced
+motion and retain keyboard alternatives. Record visible placeholder/quality choices
+and throughput costs under overload rather than concealing missing content.
+
+Record input delivery, first matching presentation opportunity, frame intervals,
+collection work, retained memory and background throughput separately. Compare
+repeated normal and loaded runs with identical fixtures on named hardware; retain
+raw results and videos for visual review. Compare appropriate platform reference
+interactions on the same available hardware where possible. The aesthetic target
+is excellent direct manipulation; neither a subjective superlative nor a headless
+timing can establish superiority to every framework or physical 120 Hz. macOS and
+actual Linux remain required, web is a measured target, and touch-only claims need
+touch-device evidence. These demonstrations are not yet implemented or verified.

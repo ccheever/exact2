@@ -63,6 +63,15 @@ native scheduling and viewport collections against these workloads. Take: more
 showcase apps and speculative general job pools wait behind measured improvements
 to these three. Existing ordered-effect and capability boundaries still apply.
 
+**Expanded (Charlie, 2026-09-16: "Work through all four"):** continuously
+interactive Messages, photo zoom, virtualized reorder and a draggable sheet with
+a nested collection (LLP 1041 §8.5). Unblocks proving gesture takeover, collection
+lifetime and background scheduling together on the existing hosts. Take: other
+showcase apps and decorative effects wait behind these four and the original
+three workloads. Shared-element presentation and the bounded geometry/motion
+work those consumers need are admitted; a generic gesture arena, second
+application-state graph and speculative parallel layout remain out.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with
