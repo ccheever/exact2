@@ -1,9 +1,9 @@
-use exact_game::{Args, Clock, Environment, Game, Input, Material, Mesh, Sim, Transform, World};
+use exact_game::{Clock, Environment, Game, Input, Material, Mesh, Sim, Transform, World};
 
 #[test]
 fn renderer_revisions_see_same_tick_edits_without_entering_the_hash() {
     let mut w = World::new(60, 0);
-    let e = w.spawn((Transform::default(), Mesh::Cube));
+    let e = w.spawn((Transform::default(), Mesh::cube(1.0)));
     let hash = w.hash();
     let revision = w.revision::<Transform>();
     let membership = w.membership::<Transform>();
@@ -14,7 +14,7 @@ fn renderer_revisions_see_same_tick_edits_without_entering_the_hash() {
     assert_eq!(membership, w.membership::<Transform>());
     assert_eq!(hash, w.hash());
     w.despawn(e);
-    let replacement = w.spawn((Transform::default(), Mesh::Cube));
+    let replacement = w.spawn((Transform::default(), Mesh::cube(1.0)));
     assert_eq!(e.index(), replacement.index());
     assert_ne!(live, w.entities_revision());
     assert_ne!(membership, w.membership::<Transform>());
@@ -42,12 +42,12 @@ fn whole_page_float_views_match_bytes_and_environment_roundtrips() {
 }
 struct Moves;
 impl Game for Moves {
+    type Args = ();
     const ID: &'static str = "observer-test";
-    fn setup(w: &mut World, _: &Args) -> Result<(), String> {
+    fn setup(w: &mut World, _: &Self::Args) {
         w.spawn(Transform::default());
-        Ok(())
     }
-    fn tick(w: &mut World, _: &Input) {
+    fn tick(w: &mut World, _: &Input, _: &Self::Args) {
         for (_, t) in w.query::<&mut Transform>().iter() {
             t.position.x += 1.;
         }

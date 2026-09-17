@@ -20,7 +20,7 @@ component Beacons
   view
     main width="100%" height="100%" background-color="#202731" color="#ffffff"
       when playing
-        canvas surface=world(seed, paused, run) testId="world" width="100%" height="100%" position="relative" overflow="hidden"
+        canvas surface=world(seed, run, paused) testId="world" width="100%" height="100%" position="relative" overflow="hidden"
           text `Beacons ${hud.beacons} / 3` testId="hud-beacons" position="absolute" top=24 left=24 padding=12 border-radius=8 background-color="#202731" color="#ffffff" font-size=18 font-weight=600
           button press=togglePause testId="pause" position="absolute" top=24 right=24 padding=12 border-radius=8 background-color="#202731"
             text (paused ? "Resume" : "Pause") color="#ffffff" font-size=16 font-weight=600

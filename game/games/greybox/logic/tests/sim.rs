@@ -43,7 +43,7 @@ fn forward_parity_and_seek_invariance() {
         one.world().hash()
     );
     assert!((position(&one) - Vec3::new(0.0, 0.9, -5.733332)).length() < 1e-4);
-    assert_eq!(one.world().hash(), 0x70c17d4a69834418);
+    assert_eq!(one.world().hash(), 0xe361b9c0055bede6);
 }
 #[test]
 fn beacon_messages_journal_and_settle() {

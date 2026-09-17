@@ -110,13 +110,12 @@ impl View {
 }
 pub(crate) fn extent(mesh: Option<&Mesh>) -> Vec3 {
     match mesh {
-        Some(Mesh::Sphere) => Vec3::ONE,
-        Some(Mesh::Capsule { radius, height }) => {
-            Vec3::new(*radius, radius + height * 0.5, *radius)
-        }
-        Some(Mesh::Plane { size }) => Vec3::new(size * 0.5, 0.0, size * 0.5),
-        Some(Mesh::Cylinder) => Vec3::new(1.0, 0.5, 1.0),
-        Some(Mesh::Cube | Mesh::Asset(_)) => Vec3::splat(0.5),
+        Some(Mesh::Sphere { radius }) => Vec3::splat(*radius),
+        Some(Mesh::Capsule { radius, height }) => Vec3::new(*radius, height * 0.5, *radius),
+        Some(Mesh::Plane { width, depth }) => Vec3::new(width * 0.5, 0.0, depth * 0.5),
+        Some(Mesh::Cylinder { radius, height }) => Vec3::new(*radius, height * 0.5, *radius),
+        Some(Mesh::Box { size }) => *size * 0.5,
+        Some(Mesh::Asset(_)) => Vec3::splat(0.5),
         None => Vec3::ZERO,
     }
 }
@@ -196,7 +195,7 @@ fn capsule(o: Vec3, d: Vec3, radius: f32, height: f32) -> Option<f32> {
     }
     hit
 }
-fn cylinder(o: Vec3, d: Vec3) -> Option<f32> {
+fn cylinder(o: Vec3, d: Vec3, radius: f32, height: f32) -> Option<f32> {
     let mut hit: Option<f32> = None;
     let mut accept = |t: f32| {
         if t >= 0.0 && hit.is_none_or(|old| t < old) {
@@ -205,20 +204,20 @@ fn cylinder(o: Vec3, d: Vec3) -> Option<f32> {
     };
     let a = d.x * d.x + d.z * d.z;
     let b = o.x * d.x + o.z * d.z;
-    let c = o.x * o.x + o.z * o.z - 1.0;
+    let c = o.x * o.x + o.z * o.z - radius * radius;
     let disc = b * b - a * c;
     if a > 1e-12 && disc >= 0.0 {
         for t in [(-b - math::sqrt(disc)) / a, (-b + math::sqrt(disc)) / a] {
-            if (o.y + t * d.y).abs() <= 0.5 {
+            if (o.y + t * d.y).abs() <= height * 0.5 {
                 accept(t);
             }
         }
     }
     if d.y.abs() > 1e-8 {
-        for y in [-0.5, 0.5] {
+        for y in [-height * 0.5, height * 0.5] {
             let t = (y - o.y) / d.y;
             let p = o + d * t;
-            if p.x * p.x + p.z * p.z <= 1.0 {
+            if p.x * p.x + p.z * p.z <= radius * radius {
                 accept(t);
             }
         }
@@ -242,9 +241,9 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
         let o = inv.transform_point3(origin);
         let d = inv.transform_vector3(direction);
         let t = match mesh {
-            Mesh::Cylinder => cylinder(o, d),
-            Mesh::Sphere => sphere(o, d, Vec3::ZERO, 1.0),
-            Mesh::Capsule { radius, height } => capsule(o, d, *radius, *height),
+            Mesh::Cylinder { radius, height } => cylinder(o, d, *radius, *height),
+            Mesh::Sphere { radius } => sphere(o, d, Vec3::ZERO, *radius),
+            Mesh::Capsule { radius, height } => capsule(o, d, *radius, *height - 2.0 * radius),
             _ => slab(o, d, extent(Some(mesh))),
         };
         if let Some(t) = t {

@@ -761,7 +761,7 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
     /** Every live node in preorder; an iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */
     tree: async (target, under) => target == null ? s.op({ op: 'tree' }) : s.op({ op: 'tree', ...await s.target(target), world: true, ...(under != null ? { under } : {}) }),
     /** Every slot, derive, and resource by name, as typed JSON. */
-    state: async (target) => s.op({ op: 'state', ...(target != null ? await s.target(target) : {}) }),
+    state: async (target, under) => s.op({ op: 'state', ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs() {
       const r = await s.op({ op: 'logs', since: s.logCursor });
@@ -866,6 +866,15 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
       const node = await s.find(target);
       const options = typeof text === 'object' && text !== null ? text : { text };
       const key = options.key;
+      if (options.for !== undefined) {
+        if (key == null || options.phase != null || !Number.isFinite(options.for) || options.for < 0) throw new Error('type for: expected a key and a nonnegative finite duration, without phase');
+        const { for: duration, ...held } = options;
+        const steps = [];
+        steps.push({ op: 'type', args: [target, {...held, phase:'down'}], reply: await s.type(target, {...held, phase:'down'}) });
+        try { steps.push({ op: 'clock', args: [`+${duration}`], reply: await s.clock(`+${duration}`) }); }
+        finally { steps.push({ op: 'type', args: [target, {...held, phase:'up'}], reply: await s.type(target, {...held, phase:'up'}) }); }
+        return s.tagged({ typed:node.id, target, key:String(key), for:duration, delivery:steps[0].reply.delivery, steps });
+      }
       const r = key != null ? await carrier.input(node.id, 'key', { ...options, key: String(key) }) : await carrier.input(node.id, 'type', { ...options, text: String(options.text ?? '') });
       return s.tagged({ ...r, typed: node.id, target, delivery: r.delivery ?? s.input.delivery(key != null ? 'key' : 'type'), carrier: host, mode: timing });
     },
@@ -963,6 +972,9 @@ export function render(op, r) {
       return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
     case 'state':
       return q(r, null, 2);
+    case 'type':
+      if (r.steps) return r.steps.map(step => `${step.op} ${step.args.map(a => typeof a === 'string' ? a : q(a)).join(' ')}\n${render(step.op, step.reply)}`).join('\n');
+      return q(r);
     default:
       return q(r);
   }
@@ -1110,7 +1122,7 @@ async function main(argv) {
       let r;
       switch (op) {
         case 'tree': r = await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
-        case 'state': r = await s.state(args[0]); break;
+        case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined); break;
         case 'logs': r = await s.logs(); break;
         case 'layout': r = await s.layout(args[0], args[1] === 'at' ? [Number(args[2]), Number(args[3])] : undefined); break;
         case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[2] === 'save' ? args[1] : args[1] === 'window', args[2]); break;
@@ -1130,7 +1142,7 @@ async function main(argv) {
           else if (args[1]?.startsWith('{')) r = await s.tap(args[0], JSON.parse(args.slice(1).join(' ')));
           else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
           break;
-        case 'type': r = args[1] === 'key' && args[2] ? await s.type(args[0], { key: args[2], ...(args[3] != null ? { phase: args[3] } : {}) }) : await s.type(args[0], args.slice(1).join(' ')); break;
+        case 'type': r = args[2] === 'for' ? await s.type(args[0], {key:args[1], for:Number(args[3])}) : args[1] === 'key' && args[2] ? await s.type(args[0], { key: args[2], ...(args[3] != null ? { phase: args[3] } : {}) }) : await s.type(args[0], args.slice(1).join(' ')); break;
         case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
         default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock)`);
       }

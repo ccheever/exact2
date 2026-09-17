@@ -1,8 +1,8 @@
 //! Offscreen diagnostic, not vsync/FPS: cargo run --release -p exact-game-render
 //! --example cubes -- [N] [frames]. With no N, run 10k, 100k, 200k and 500k.
 use exact_game::{
-    math, Arg, Args, Camera, Clock, Component, DirectionalLight, Entity, Environment, Game, Input,
-    Material, Mesh, Quat, Resource, Sim, Transform, Vec3, World,
+    math, Camera, Clock, Component, DirectionalLight, Entity, Environment, Game, Input, Material,
+    Mesh, Quat, Resource, Sim, Transform, Vec3, World,
 };
 use exact_game_render::{Feed, Renderer};
 use exact_gpu::{fixture, wgpu, Value};
@@ -22,11 +22,16 @@ struct Cubes;
 struct Still {
     enabled: bool,
 }
+#[derive(Default, exact_game::Args)]
+struct CubesArgs {
+    /// Canvas setup argument.
+    pub n: u64,
+}
 impl Game for Cubes {
     const ID: &'static str = "cubes-bench";
-    const ARGS: &'static [Arg] = &[Arg::setup("n")];
-    fn setup(w: &mut World, a: &Args) -> Result<(), String> {
-        let n = a.integer("n")? as usize;
+    type Args = CubesArgs;
+    fn setup(w: &mut World, a: &Self::Args) {
+        let n = a.n as usize;
         let side = (n as f64).cbrt().ceil() as usize;
         for i in 0..n {
             let axis = Vec3::new(
@@ -48,7 +53,7 @@ impl Game for Cubes {
                     position,
                     ..Default::default()
                 },
-                Mesh::Cube,
+                Mesh::cube(1.0),
                 Material::rgb(color[0], color[1], color[2]),
                 Spin { step },
             ));
@@ -78,9 +83,8 @@ impl Game for Cubes {
             bloom: None,
             ..Default::default()
         });
-        Ok(())
     }
-    fn tick(w: &mut World, _: &Input) {
+    fn tick(w: &mut World, _: &Input, _: &Self::Args) {
         if !w.try_resource::<Still>().is_some_and(|s| s.enabled) {
             for (_, (spin, t)) in w.query::<(&Spin, &mut Transform)>().iter() {
                 t.rotation = (spin.step * t.rotation).normalize();
@@ -178,7 +182,7 @@ fn main() {
         if let Some(r) = &mut renderer {
             feed.feed(sim.world(), r).unwrap();
         }
-        sim.advance(0., Clock::Seekable);
+        sim.advance(0., Clock::Live);
         let mut ticks = Vec::with_capacity(frames);
         let mut feeds = Vec::with_capacity(frames);
         let mut encodes = Vec::with_capacity(frames);
@@ -187,7 +191,7 @@ fn main() {
             let start = Instant::now();
             let mut tick_ms = 0.;
             let mut feed_ms = 0.;
-            sim.advance_with(now, Clock::Seekable, |w, left| {
+            sim.advance_with(now, Clock::Live, |w, left| {
                 tick_ms = start.elapsed().as_secs_f64() * 1000.;
                 if left < 2 {
                     if let Some(r) = &mut renderer {

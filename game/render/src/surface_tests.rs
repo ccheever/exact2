@@ -1,18 +1,25 @@
 use super::*;
-use exact_game::{Arg, Args, Camera, Input, Mesh, Transform, Vec3};
+use exact_game::{Camera, Input, Mesh, Transform, Vec3};
 use exact_gpu::{fixture, Gpu};
 
 struct Move;
+#[derive(Default, exact_game::Args)]
+struct MoveArgs {
+    /// Canvas live argument.
+    #[live]
+    pub r#move: bool,
+    /// Canvas setup argument.
+    pub run: u32,
+}
 impl Game for Move {
     const ID: &'static str = "surface-regressions";
-    const ARGS: &'static [Arg] = &[Arg::live("move"), Arg::setup("run")];
-    fn setup(w: &mut World, _: &Args) -> Result<(), String> {
-        w.spawn((Transform::default(), Mesh::Cube));
+    type Args = MoveArgs;
+    fn setup(w: &mut World, _: &Self::Args) {
+        w.spawn((Transform::default(), Mesh::cube(1.0)));
         w.spawn((Transform::at(0., 0., 8.), Camera::default()));
-        Ok(())
     }
-    fn tick(w: &mut World, _: &Input) {
-        if w.args().flag("move").unwrap() {
+    fn tick(w: &mut World, _: &Input, args: &Self::Args) {
+        if args.r#move {
             for (_, (_, t)) in w.query::<(&Mesh, &mut Transform)>().iter() {
                 t.position.x += 1.;
             }
@@ -122,14 +129,19 @@ fn seekable_observers_make_no_clock_calls_and_long_advances_time_only_retained_t
 #[test]
 fn capacity_error_during_timed_bind_does_not_refuse_committed_values() {
     struct Grow;
+    #[derive(Default, exact_game::Args)]
+    struct GrowArgs {
+        /// Canvas live argument.
+        #[live]
+        pub paused: bool,
+    }
     impl Game for Grow {
         const ID: &'static str = "capacity-bind";
-        const ARGS: &'static [Arg] = &[Arg::live("paused")];
-        fn setup(w: &mut World, _: &Args) -> Result<(), String> {
+        type Args = GrowArgs;
+        fn setup(w: &mut World, _: &Self::Args) {
             w.spawn(Transform::default());
-            Ok(())
         }
-        fn tick(w: &mut World, _: &Input) {
+        fn tick(w: &mut World, _: &Input, _: &Self::Args) {
             for _ in 0..32 {
                 w.spawn(Transform::default());
             }
@@ -154,7 +166,7 @@ fn capacity_error_during_timed_bind_does_not_refuse_committed_values() {
     s.bind(&[Value::Bool(false)]).unwrap();
     fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
     assert_eq!(s.bind_at(&[Value::Bool(true)], Some(17.)), Ok(()));
-    assert!(s.sim().unwrap().world().args().flag("paused").unwrap());
+    assert!(s.sim().unwrap().args().paused);
     assert_eq!(s.sim().unwrap().world().tick(), 1);
     assert!(s.take_error().unwrap().0.contains("limit 16"));
     assert!(s.take_error().is_none());
@@ -170,22 +182,22 @@ fn teleported_parent_child_pixels_at_half_alpha_equal_only_the_new_pose() {
     use exact_game::{Material, Parent};
     struct Vehicle;
     impl Game for Vehicle {
+        type Args = ();
         const ID: &'static str = "teleport-pixels";
-        fn setup(w: &mut World, _: &Args) -> Result<(), String> {
+        fn setup(w: &mut World, _: &Self::Args) {
             let root = w.spawn_named("vehicle", Transform::at(-2., 0., 0.));
             w.spawn((
                 Transform::default(),
                 Parent(root),
-                Mesh::Cube,
+                Mesh::cube(1.0),
                 Material::rgb(1., 0.2, 0.05),
             ));
             w.spawn((
                 Transform::at(0., 0., 8.).looking_at(Vec3::ZERO, Vec3::Y),
                 Camera::default(),
             ));
-            Ok(())
         }
-        fn tick(w: &mut World, _: &Input) {
+        fn tick(w: &mut World, _: &Input, _: &Self::Args) {
             if w.tick() == 1 {
                 w.teleport(w.named("vehicle").unwrap(), Transform::at(2., 0., 0.));
             }
@@ -224,17 +236,8 @@ fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
     restored.restore(&saved).unwrap();
     assert_eq!(restored.sim().unwrap().world().tick(), 6);
     assert!(restored.sim().unwrap().generation() > generation);
-    assert!(!restored.sim().unwrap().world().args().flag("move").unwrap());
-    assert_eq!(
-        restored
-            .sim()
-            .unwrap()
-            .world()
-            .args()
-            .integer("run")
-            .unwrap(),
-        9
-    );
+    assert!(!restored.sim().unwrap().args().r#move);
+    assert_eq!(restored.sim().unwrap().args().run, 9);
     assert_eq!(restored.published().as_deref(), Some(r#"{"score":7}"#));
     assert!(restored
         .agent(r#"{"op":"state"}"#)

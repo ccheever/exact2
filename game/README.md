@@ -19,33 +19,67 @@ canvas children are the HUD, a placement is a sign in the world.
 |---|---|
 | `engine/` | `exact-game` — the simulation: world, data, ticks, input, scene, the agent's reads. **No GPU, no host.** |
 | `app/` | `exact-game-app` — the shared Rust-only bake for game UIs without data sources. |
-| `derive/` | `exact-game-derive` — `#[derive(Data)]`, `#[derive(Component)]`. No `syn`. |
+| `derive/` | `exact-game-derive` — `#[derive(Data)]`, `#[derive(Component)]`, `#[derive(Args)]`. No `syn`. |
 | `render/` | `exact-game-render` — the wgpu renderer and `WorldSurface`, the `exact_gpu::Surface` a canvas binds. |
 | `physics/`, `audio/`, `bake/` | as they land |
-| `games/` | consumers: `greybox` (LLP 1041.000 S0), `lanterns` |
+| `games/` | consumers: `greybox` (LLP 1041.000 S0), `beacons` |
 | `bench/`, `twins/` | the same scenes here, in Godot 4 and in three.js; numbers, never checks |
 | `diaries/` | what building with it was like, scored against the twins |
 
 ## The programming model
 
-```rust
-#[derive(Component, Default)]
-struct Lantern { lit: bool }
+The complete example below is compiled and run by `cargo test --doc -p exact-game`.
 
-impl Game for Lanterns {
-    const ID: &'static str = "lanterns";
-    const ARGS: &'static [Arg] = &[Arg::setup("seed"), Arg::setup("run"), Arg::live("paused")];
-    fn check(args: &Args) -> Result<(), String> {
-        args.integer("seed")?; args.integer("run")?; args.flag("paused")?;
-        Ok(())
+```rust
+use exact_game::*;
+
+#[derive(Default, Args)]
+struct Options {
+    seed: u64,
+    #[live]
+    paused: bool,
+}
+#[derive(Default, Component)]
+struct Beacon { glow: Spring }
+struct SmallGame;
+impl Game for SmallGame {
+    const ID: &'static str = "small-game";
+    type Args = Options;
+    fn actions() -> Actions {
+        Actions::new().stick("move", Stick::keys("KeyW", "KeyS", "KeyA", "KeyD"))
+            .button("light", &["KeyE"])
     }
-    fn setup(world: &mut World, args: &Args) -> Result<(), String> {
-        world.reseed(args.integer("seed")?);
-        // Spawn the level. Changing seed or run constructs a fresh world.
-        Ok(())
+    fn setup(w: &mut World, args: &Options) {
+        w.reseed(args.seed);
+        w.spawn((Transform::default(), Mesh::plane(40.0, 40.0), Material::default()));
+        w.spawn_named("player", (Transform::at(0.0, 0.9, 0.0), Mesh::capsule(0.4, 1.8), Material::rgb(0.8, 0.4, 0.1)));
+        w.spawn_named("camera", (Transform::default(), Camera::default(),
+            Follow::new("player").offset(0.0, 9.0, 13.0).lag(0.15)));
+        w.spawn((Transform::at(2.0, 0.5, 0.0), Mesh::sphere(0.5), Material::default(), Beacon::default()));
+        w.publish("lit", 0);
     }
-    fn paused(args: &Args) -> bool { args.flag("paused").unwrap() }
-    fn tick(world: &mut World, input: &Input) { /* live values: world.args().flag("paused") */ }
+    fn paused(args: &Options) -> bool { args.paused }
+    fn tick(w: &mut World, input: &Input, _: &Options) {
+        let movement = input.stick("move");
+        w.get_mut::<Transform>(w.named("player").unwrap()).unwrap().position +=
+            Vec3::new(movement.x, 0.0, -movement.y) * 4.0 * w.dt();
+        let mut count = 0;
+        for (_, (beacon, material)) in w.query::<(&mut Beacon, &mut Material)>().iter() {
+            if input.pressed("light") { beacon.glow.set_target(w.now(), 1.0); }
+            material.emissive = [beacon.glow.value(w.now()) * 3.0; 3];
+            count += u32::from(beacon.glow.target == 1.0);
+        }
+        w.publish("lit", count);
+        scene::follow(w);
+    }
+}
+fn main() {
+    let mut game = Sim::<SmallGame>::new(&[Value::Number(7.0), Value::Bool(false)]).unwrap();
+    game.advance(0.0, Clock::Seekable);
+    game.input(InputEvent::Key { code: "KeyE".into(), down: true, at_ms: 0.0 });
+    game.advance(1000.0, Clock::Seekable);
+    assert_eq!(game.world().published("lit"), Some(Value::Number(1.0)));
+    assert!(game.world().get::<Transform>(game.world().named("camera").unwrap()).unwrap().position.y > 9.0);
 }
 ```
 
@@ -54,7 +88,10 @@ impl Game for Lanterns {
 - **All state is in the `World`, and all of it is `Data`**: one derive gives the
   save game, the hash, the agent's JSON, the level file, and what a dev reload
   carries. A `Game` has no fields.
-- **Setup arguments construct; live arguments are read each tick.** A timed
+- **Arguments are a struct; field order is canvas order.** `#[derive(Args)]`
+  supports bool, u32/u64, i32/i64, f32/f64, and String (`()` for none).
+  Unmarked fields construct; `#[live]` fields are read each tick.
+  Integer bounds are checked before casting; 64-bit fields accept safe f64 integers. A timed
   `bind(values, Some(at_ms))` validates first, seeks under the old arguments, then
   swaps. A refused bind changes nothing. Saves carry the game's `ID` and
   `SAVE_VERSION`, world time and dynamic input; the first restored host clock
@@ -102,21 +139,35 @@ same forms. The capture replies with the byte count, world hash and tick; state
 reports `restored: true` until the next tick. Current app bindings win over saved
 arguments. The iOS path is implemented but has not been driven in this session.
 
-The inner loop needs no host at all:
+`state world:*` reads every entity's components in one reply (512 maximum,
+then `truncated: true`); `state world:* under world:player` narrows to a subtree.
+`s.type('world', {key: 'KeyW', for: 1500})` presses, advances the agent clock,
+then releases. The reply and transcript retain all three steps.
 
-```rust
-let mut sim = Sim::<Lanterns>::new(&args)?;
-sim.advance(0.0, Clock::Seekable); // establish the host epoch
-sim.input(InputEvent::Key { code: "KeyW".into(), down: true, at_ms: 0.0 });
-sim.advance(1500.0, Clock::Seekable);
-assert_eq!(sim.world().hash(), 0x…);
-```
+`game/proof.mjs` supplies `proof(import.meta, async ({open, check, equal}) => { … })`.
+`open()` builds this game's app only when its inputs change, opens a fresh session,
+and records every operation. `check(label, condition)` reports failures without
+stopping independent assertions; `equal(a, b)` compares JSON values. Every session
+is closed and recorded children are checked before exit. Artifacts are in the game's
+`artifacts/` directory; the first CLI argument selects web, macOS, or iOS.
 
 ## Working here
 
 `cargo test` in this directory is the engine's loop; `bun ../scripts/caps.mjs` still
 holds every file to 1,500 lines. A game is driven like any app, with
 `EXACT_APP_DIR=game/games/<name>`.
+
+A seekable world is still when the last tick changed no component of any entity
+without `Ambient`, no spring is moving, and nothing called `world.busy(reason)`.
+Resources do not count as visible changes. Sim samples only the last two ticks of a
+seek (or the starting state and final tick for one tick); live play does no sampling.
+`clock` lists up to eight changing component names. Springs supply their deadline;
+other work proposes 100 ms, doubling to 2 s until settled. `busy` borrows `&World`.
+
+`scene::follow(world)` steps saved `Follow` components where called. It snaps on its
+first tick and after `world.teleport` of the target, then uses `math::ease` with a lag
+in seconds. Scalar and Vec3 easing both arrive exactly within 1e-4. Primitive sizes
+live in `Mesh`; `exact_game_physics::Collider::of(&mesh)` matches every primitive.
 
 Small is a feature. When something here feels clunky, slow or bloated, the move is
 to delete it and try again, not to configure it.

@@ -79,3 +79,39 @@ pub fn wrap_angle(x: f32) -> f32 {
         y
     }
 }
+
+/// Values supported by the arriving exponential approach.
+pub trait Ease: Copy {
+    /// Approach using a computed fraction and snap within 0.1 mm (or 1e-4 scalar units).
+    fn approach(self, target: Self, fraction: f32) -> Self;
+}
+impl Ease for f32 {
+    fn approach(self, target: Self, fraction: f32) -> Self {
+        let next = self + (target - self) * fraction;
+        if (target - next).abs() <= 1e-4 {
+            target
+        } else {
+            next
+        }
+    }
+}
+impl Ease for crate::Vec3 {
+    fn approach(self, target: Self, fraction: f32) -> Self {
+        let next = self + (target - self) * fraction;
+        if (target - next).length_squared() <= 1e-8 {
+            target
+        } else {
+            next
+        }
+    }
+}
+/// Exponential approach with time constant `lag` seconds. Zero lag arrives now;
+/// otherwise snaps when the remaining distance is at most 1e-4. Uses portable libm.
+pub fn ease<T: Ease>(current: T, target: T, lag: f32, dt: f32) -> T {
+    assert!(lag.is_finite() && lag >= 0.0 && dt.is_finite() && dt >= 0.0);
+    if lag == 0.0 {
+        target
+    } else {
+        current.approach(target, -libm::expm1f(-dt / lag))
+    }
+}

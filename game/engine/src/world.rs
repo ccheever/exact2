@@ -90,7 +90,7 @@ struct State {
     seed: u64,
     slots: Vec<Slot>,
     free: Free,
-    busy: Vec<std::borrow::Cow<'static, str>>,
+    busy: RefCell<Vec<std::borrow::Cow<'static, str>>>,
 }
 #[derive(Clone, Copy)]
 struct Registration {
@@ -113,7 +113,8 @@ pub struct Event {
 
 /// Ordered simulation state, with dynamic storage borrows and no host clock.
 pub struct World {
-    pub(crate) args: crate::Args,
+    pub(crate) changing: Vec<String>,
+    pub(crate) still: bool,
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
     state: State,
@@ -146,7 +147,8 @@ impl World {
         let mut rng = Storage::default();
         rng.insert(0, Rng::new(seed), 0);
         Self {
-            args: crate::Args::default(),
+            changing: Vec::new(),
+            still: true,
             in_tick: false,
             state: State {
                 hz,
@@ -723,6 +725,7 @@ impl World {
 mod tests;
 
 mod inspect;
+pub(crate) use inspect::Observation;
 
 mod save;
 use save::Free;

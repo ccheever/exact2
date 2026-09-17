@@ -200,7 +200,7 @@ impl<G: Game> Surface for WorldSurface<G> {
         if let Some(start) = start {
             self.perf.encode.push(start.elapsed());
         }
-        let wants = !G::paused(sim.world().args()) || ticks != 0;
+        let wants = !G::paused(sim.args()) || ticks != 0;
         self.dirty = false;
         wants
     }

@@ -22,3 +22,20 @@
 - Saves are limited to 16 Mi entity slots, 64 MiB per string, and 2 GiB of input
   and accounted decoded allocations; violations return `DataError`. Custom `Data`
   readers must account their allocations through `Reader::claim` too.
+
+The [complete first game](../README.md#the-programming-model) is this crate's
+runnable doc-test. `Game::Args` is a struct with `#[derive(Args)]`: declaration order
+is positional order, `#[live]` avoids rebuilding, decoding refuses before mutation.
+Setup cannot fail. Setup, paused and tick receive typed arguments; Sim retains the
+bound values for saves and agent state.
+
+Seekable advances observe the final tick's component changes, excluding `Ambient`
+entities and resources. `changing` names up to eight components in storage order.
+One-tick advances compare before/after; zero ticks retain the previous answer.
+Live ticks do no observation. Springs and `busy(&self, reason)` also participate.
+`Follow` is saved data, stepped explicitly by `scene::follow`; `math::ease` uses a
+portable exponential and snaps within 1e-4 so settling is finite.
+
+Mesh dimensions are authored once; see `Mesh` for conventions and constructors.
+The renderer caches up to 4,096 distinct mesh values and still uploads transforms
+as unchanged pages. `Collider::of(&mesh)` supplies matching primitive geometry.

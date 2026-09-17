@@ -49,7 +49,7 @@ impl Data for State {
         w.field("free");
         self.free.write(w);
         w.field("busy");
-        self.busy.write(w);
+        self.busy.borrow().write(w);
         w.end_struct();
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
@@ -61,7 +61,7 @@ impl Data for State {
                 "seed" => self.seed.read(r),
                 "slots" => limits::read_vec(r, &mut self.slots, MAX_LOAD_ENTITIES),
                 "free" => self.free.read(r),
-                "busy" => self.busy.read(r),
+                "busy" => self.busy.get_mut().read(r),
                 _ => r.skip(),
             }
             .map_err(|e| e.at(field))?;

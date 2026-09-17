@@ -239,6 +239,7 @@ impl<C> Drop for Storage<C> {
 
 pub(crate) trait Erased {
     fn has(&self, index: usize) -> bool;
+    fn snapshot(&self, skip: Option<&Storage<crate::Ambient>>, out: &mut Vec<(usize, u64)>);
     fn moving(&self, now: crate::Now) -> bool;
     fn settle_tick(&self, now: crate::Now) -> Option<u64>;
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool;
@@ -260,6 +261,19 @@ pub(crate) fn make<C: Data>(name: &'static str) -> Box<dyn Erased> {
     storage
 }
 impl<C: Data> Erased for Storage<C> {
+    fn snapshot(&self, skip: Option<&Storage<crate::Ambient>>, out: &mut Vec<(usize, u64)>) {
+        let _lease = self.lease(false, 0);
+        for (word, &bits) in self.mask.iter().enumerate() {
+            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
+            while bits != 0 {
+                let i = word * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                // SAFETY: presence proves initialization; the shared lease excludes writers.
+                out.push((i, crate::hash::of(unsafe { &*self.ptr(i) })));
+            }
+        }
+    }
+
     fn has(&self, index: usize) -> bool {
         self.has(index)
     }

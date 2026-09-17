@@ -372,3 +372,73 @@ fn settle_body(b: &Body, access: &[String]) -> String {
         .collect::<String>();
     format!("::core::option::Option::Some(now.tick{maxes})")
 }
+
+/// Decode ordered, typed canvas arguments; fields are setup unless marked live.
+#[proc_macro_derive(Args, attributes(live))]
+pub fn args(input: TokenStream) -> TokenStream {
+    match expand_args(input) {
+        Ok(s) => s.parse().expect("Args derive emitted Rust"),
+        Err(e) => format!("::core::compile_error!({e:?});").parse().unwrap(),
+    }
+}
+fn expand_args(input: TokenStream) -> Result<String, String> {
+    let tokens: Vec<_> = input.into_iter().collect();
+    let (tokens, _) = strip(&tokens, false)?;
+    if tokens.first().is_none_or(|t| t.to_string() != "struct") {
+        return Err("Args requires a named struct".into());
+    }
+    let name = tokens[1].to_string();
+    let Some(TokenTree::Group(g)) = tokens.get(2) else {
+        return Err(format!("{name}: Args requires a nongeneric named struct"));
+    };
+    if g.delimiter() != Delimiter::Brace {
+        return Err(format!("{name}: Args requires named fields"));
+    }
+    let mut fields = Vec::new();
+    let mut decode = Vec::new();
+    let mut changed = vec!["false".to_owned()];
+    for (i, tokens) in split(g.stream())?.iter().enumerate() {
+        let live = tokens.windows(2).any(|w| {
+            punct(&w[0], '#')
+                && matches!(&w[1], TokenTree::Group(g) if g.stream().to_string() == "live")
+        });
+        let (f, _) = strip(tokens, true)?;
+        if f.len() != 3 || !punct(&f[1], ':') {
+            return Err(format!(
+                "{name}: expected a named field with a supported scalar type"
+            ));
+        }
+        let field = f[0].to_string();
+        let ty = f[2].to_string();
+        if !matches!(
+            ty.as_str(),
+            "bool" | "u32" | "u64" | "i32" | "i64" | "f32" | "f64" | "String"
+        ) {
+            return Err(format!("{name}.{field}: unsupported Args type {ty}"));
+        }
+        let kind = if live { "Live" } else { "Setup" };
+        fields.push(format!(
+            "({:?}, ::exact_game::ArgumentKind::{kind})",
+            clean(&field)
+        ));
+        decode.push(format!(
+            "{field}: ::exact_game::args::field::<{ty}>(values, {i}, {:?})?",
+            clean(&field)
+        ));
+        if !live {
+            changed.push(format!("self.{field} != next.{field}"));
+        }
+    }
+    Ok(format!(
+        "impl ::exact_game::Args for {name} {{
+        const FIELDS: &'static [(&'static str, ::exact_game::ArgumentKind)] = &[{}];
+        fn decode(values: &[::exact_game::Value]) -> Result<Self, String> {{
+            ::exact_game::args::arity(values, Self::FIELDS)?; Ok(Self {{ {} }})
+        }}
+        fn setup_changed(&self, next: &Self) -> bool {{ let _ = next; {} }}
+    }}",
+        fields.join(","),
+        decode.join(","),
+        changed.join(" || ")
+    ))
+}

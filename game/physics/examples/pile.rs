@@ -74,6 +74,7 @@ fn main() {
             box_at(&mut w, p, h, false);
         }
         let (mut poured, mut sleep_tick) = (0, 0);
+        let (mut previous, mut observed_tick) = (None, None);
         let mut active = Vec::new();
         let mut asleep = Vec::new();
         let mut snapshots = Vec::new();
@@ -102,6 +103,18 @@ fn main() {
             let start = Instant::now();
             physics::step(&mut w);
             let ms = start.elapsed().as_secs_f64() * 1000.0;
+            // Resources are deliberately excluded, exactly as in Sim's observation.
+            // Transform and Body are the only changing components in this fixture.
+            let components: Vec<_> = w
+                .query::<(&Transform, &Body)>()
+                .iter()
+                .map(|(e, (t, b))| (e, (*t, b.clone())))
+                .collect();
+            let hash = exact_game::hash::of(&components);
+            if poured == count && previous == Some(hash) && observed_tick.is_none() {
+                observed_tick = Some(tick);
+            }
+            previous = Some(hash);
             if sleeping {
                 if sleep_tick == 0 {
                     sleep_tick = tick;
@@ -120,6 +133,7 @@ fn main() {
                 break;
             }
         }
+        println!("observed_still_tick={observed_tick:?}");
         let a = percentiles(active);
         let s = percentiles(asleep);
         let sleep_seconds = if sleep_tick == 0 {

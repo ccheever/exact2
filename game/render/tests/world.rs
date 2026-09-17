@@ -1,7 +1,5 @@
 #![cfg(not(target_arch = "wasm32"))]
-use exact_game::{
-    Actions, Arg, Args, Camera, Data, Game, Input, Material, Mesh, Transform, Vec3, World,
-};
+use exact_game::{Actions, Camera, Data, Game, Input, Material, Mesh, Transform, Vec3, World};
 use exact_game_render::WorldSurface;
 use exact_gpu::{
     fixture::{self, Pixels},
@@ -155,18 +153,16 @@ fn greybox_surface_agent_pixels_and_beacon() {
 struct FixedCameraGreybox;
 impl Game for FixedCameraGreybox {
     const ID: &'static str = "fixed-camera-greybox";
-    const ARGS: &'static [Arg] = Greybox::ARGS;
-    fn setup(w: &mut World, a: &Args) -> Result<(), String> {
+    type Args = <Greybox as Game>::Args;
+    fn setup(w: &mut World, a: &Self::Args) {
         Greybox::setup(w, a)
     }
-    fn check(a: &Args) -> Result<(), String> {
-        Greybox::check(a)
-    }
+
     fn actions() -> Actions {
         Greybox::actions()
     }
-    fn tick(w: &mut World, i: &Input) {
-        Greybox::tick(w, i);
+    fn tick(w: &mut World, i: &Input, args: &Self::Args) {
+        Greybox::tick(w, i, args);
         let e = w.named("camera").unwrap();
         *w.get_mut::<Transform>(e).unwrap() =
             Transform::at(0., 5.9, 8.).looking_at(Vec3::new(0., 0.9, 0.), Vec3::Y);
@@ -189,17 +185,17 @@ fn holding_w_moves_capsule_pixels_up_screen() {
 }
 struct Stop;
 impl Game for Stop {
+    type Args = ();
     const ID: &'static str = "stop-pixel-proof";
-    fn setup(w: &mut World, _: &Args) -> Result<(), String> {
+    fn setup(w: &mut World, _: &Self::Args) {
         w.spawn((
             Transform::default(),
-            Mesh::Cube,
+            Mesh::cube(1.0),
             Material::rgb(0.8, 0.2, 0.1),
         ));
         w.spawn((Transform::at(0., 0., 8.), Camera::default()));
-        Ok(())
     }
-    fn tick(w: &mut World, _: &Input) {
+    fn tick(w: &mut World, _: &Input, _: &Self::Args) {
         if w.tick() == 0 {
             for (_, (_, t)) in w.query::<(&Mesh, &mut Transform)>().iter() {
                 t.position.x += 2.;

@@ -2,8 +2,8 @@
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 use exact_game::{
-    Actions, Arg, Args, Camera, Component, DirectionalLight, Game, Input, Material, Mesh, Spring,
-    Stick, Transform, Vec3, World,
+    math, scene, Actions, Camera, Component, DirectionalLight, Follow, Game, Input, Material, Mesh,
+    Spring, Stick, Transform, Vec3, World,
 };
 
 /// Horizontal acceleration and a ballistic hop, in meters and seconds.
@@ -22,14 +22,19 @@ pub struct Beacon {
 }
 /// Logic behind `canvas surface=world(seed, paused)`.
 pub struct Greybox;
+/// Typed canvas arguments in positional order.
+#[derive(Default, exact_game::Args)]
+pub struct GreyboxArgs {
+    /// Canvas setup argument.
+    pub seed: u64,
+    /// Canvas live argument.
+    #[live]
+    pub paused: bool,
+}
 impl Game for Greybox {
     const ID: &'static str = "greybox";
-    const ARGS: &'static [Arg] = &[Arg::setup("seed"), Arg::live("paused")];
-    fn check(args: &Args) -> Result<(), String> {
-        args.integer("seed")?;
-        args.flag("paused")?;
-        Ok(())
-    }
+    type Args = GreyboxArgs;
+
     fn actions() -> Actions {
         Actions::new()
             .button("act", &["KeyE", "Enter"])
@@ -44,13 +49,13 @@ impl Game for Greybox {
                 ),
             )
     }
-    fn setup(world: &mut World, args: &Args) -> Result<(), String> {
-        world.reseed(args.integer("seed")?);
+    fn setup(world: &mut World, args: &Self::Args) {
+        world.reseed(args.seed);
         world.spawn_named(
             "ground",
             (
                 Transform::default(),
-                Mesh::Plane { size: 40.0 },
+                Mesh::plane(40.0, 40.0),
                 Material::rgb(0.25, 0.27, 0.3),
             ),
         );
@@ -58,17 +63,18 @@ impl Game for Greybox {
             "player",
             (
                 Transform::at(0.0, 0.9, 0.0),
-                Mesh::Capsule {
-                    radius: 0.4,
-                    height: 1.0,
-                },
+                Mesh::capsule(0.4, 1.8),
                 Material::rgb(0.8, 0.45, 0.15),
                 Player::default(),
             ),
         );
         world.spawn_named(
             "camera",
-            (camera(Vec3::new(0.0, 0.9, 0.0)), Camera::default()),
+            (
+                Transform::at(0.0, 5.9, 8.0).looking_at(Vec3::new(0.0, 0.9, 0.0), Vec3::Y),
+                Camera::default(),
+                Follow::new("player").offset(0.0, 5.0, 8.0).lag(0.0),
+            ),
         );
         world.spawn_named(
             "sun",
@@ -82,7 +88,7 @@ impl Game for Greybox {
                 format!("crate-{i}"),
                 (
                     Transform::at(world.rand(3.0..12.0), 0.5, world.rand(-12.0..8.0)),
-                    Mesh::Cube,
+                    Mesh::cube(1.0),
                     Material::default(),
                 ),
             );
@@ -90,34 +96,26 @@ impl Game for Greybox {
         world.spawn_named(
             "beacon-1",
             (
-                Transform::at(0.0, 0.75, -6.5).with_scale(0.5),
-                Mesh::Sphere,
+                Transform::at(0.0, 0.75, -6.5),
+                Mesh::sphere(0.5),
                 Material::rgb(0.15, 0.6, 0.8),
                 Beacon::default(),
             ),
         );
         world.publish("beacons", 0);
-        Ok(())
     }
-    fn paused(args: &Args) -> bool {
-        args.flag("paused").unwrap()
+    fn paused(args: &Self::Args) -> bool {
+        args.paused
     }
-    fn tick(world: &mut World, input: &Input) {
+    fn tick(world: &mut World, input: &Input, _: &Self::Args) {
         let dt = world.dt();
         let now = world.now();
         let direction = input.stick("move");
         let desired = Vec3::new(direction.x, 0.0, -direction.y) * 4.0;
         let mut position = Vec3::ZERO;
-        let mut moving = false;
         if let Some((_, (player, pose))) = world.query::<(&mut Player, &mut Transform)>().one() {
-            // A fixed first-order response makes release and acceleration gradual;
-            // snapping below this threshold makes clock settle have a finite end.
-            player.velocity.x += (desired.x - player.velocity.x) * 0.2;
-            player.velocity.z += (desired.z - player.velocity.z) * 0.2;
-            if desired == Vec3::ZERO && player.velocity.x.abs() + player.velocity.z.abs() < 0.0001 {
-                player.velocity.x = 0.0;
-                player.velocity.z = 0.0;
-            }
+            player.velocity.x = math::ease(player.velocity.x, desired.x, 0.074690334, dt);
+            player.velocity.z = math::ease(player.velocity.z, desired.z, 0.074690334, dt);
             if input.pressed("jump") && pose.position.y <= 0.9 {
                 player.velocity.y = 5.0;
             }
@@ -132,10 +130,6 @@ impl Game for Greybox {
                 }
             }
             position = pose.position;
-            moving = player.velocity != Vec3::ZERO;
-        }
-        if moving {
-            world.busy("player moving");
         }
         for (_, (beacon, pose, material)) in world
             .query::<(&mut Beacon, &Transform, &mut Material)>()
@@ -152,10 +146,6 @@ impl Game for Greybox {
             }
             material.emissive = [beacon.glow.value(now) * 3.0; 3];
         }
-        let e = world.named("camera").unwrap();
-        *world.get_mut::<Transform>(e).unwrap() = camera(position);
+        scene::follow(world);
     }
-}
-fn camera(player: Vec3) -> Transform {
-    Transform::at(player.x, player.y + 5.0, player.z + 8.0).looking_at(player, Vec3::Y)
 }

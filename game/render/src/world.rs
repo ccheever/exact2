@@ -45,60 +45,45 @@ impl Writes for Renderer {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Shape {
-    Cube,
-    Sphere,
-    Cylinder,
-    Plane(u32),
+    Box([u32; 3]),
+    Sphere(u32),
+    Cylinder(u32, u32),
+    Plane(u32, u32),
     Capsule(u32, u32),
+    Asset(String),
 }
 impl Shape {
     fn of(mesh: &Mesh) -> Self {
         match mesh {
-            Mesh::Cube | Mesh::Asset(_) => Self::Cube,
-            Mesh::Sphere => Self::Sphere,
-            Mesh::Cylinder => Self::Cylinder,
-            Mesh::Plane { size } => Self::Plane(size.to_bits()),
+            Mesh::Box { size } => Self::Box(size.to_array().map(f32::to_bits)),
+            Mesh::Sphere { radius } => Self::Sphere(radius.to_bits()),
+            Mesh::Cylinder { radius, height } => Self::Cylinder(radius.to_bits(), height.to_bits()),
+            Mesh::Plane { width, depth } => Self::Plane(width.to_bits(), depth.to_bits()),
             Mesh::Capsule { radius, height } => Self::Capsule(radius.to_bits(), height.to_bits()),
+            Mesh::Asset(name) => Self::Asset(name.clone()),
         }
     }
-    fn geometry(self) -> (Vec<Vertex>, Vec<u32>) {
+    fn geometry(&self) -> (Vec<Vertex>, Vec<u32>) {
+        let f = |v: &u32| f32::from_bits(*v);
         let (mut vertices, indices) = match self {
-            Self::Cube => shapes::cube(),
-            Self::Sphere => shapes::sphere(24),
-            Self::Cylinder => shapes::cylinder(24),
-            Self::Plane(_) => shapes::plane(),
-            Self::Capsule(r, h) => {
-                let r = f32::from_bits(r);
-                let h = f32::from_bits(h);
-                // Invalid author geometry has a visible fallback, never a shape panic.
-                if r.is_finite()
-                    && r > 0.0
-                    && h.is_finite()
-                    && h >= 0.0
-                    && (h + 2.0 * r).is_finite()
-                {
-                    shapes::capsule(r, h + 2.0 * r, 24)
-                } else {
-                    shapes::cube()
-                }
-            }
+            Self::Box(_) | Self::Asset(_) => shapes::cube(),
+            Self::Sphere(_) => shapes::sphere(24),
+            Self::Cylinder(..) => shapes::cylinder(24),
+            Self::Plane(..) => shapes::plane(),
+            Self::Capsule(r, h) => shapes::capsule(f(r), f(h), 24),
+        };
+        let scale = match self {
+            Self::Box(size) => size.map(f32::from_bits),
+            Self::Sphere(r) => [2.0 * f(r); 3],
+            Self::Cylinder(r, h) => [2.0 * f(r), f(h), 2.0 * f(r)],
+            Self::Plane(w, d) => [f(w), 1.0, f(d)],
+            _ => [1.0; 3],
         };
         for v in &mut vertices {
-            match self {
-                Self::Sphere => v.position.iter_mut().for_each(|x| *x *= 2.0),
-                Self::Cylinder => {
-                    v.position[0] *= 2.0;
-                    v.position[2] *= 2.0;
-                }
-                Self::Plane(bits) => {
-                    let size = f32::from_bits(bits);
-                    let size = if size.is_finite() { size.abs() } else { 1.0 };
-                    v.position[0] *= size;
-                    v.position[2] *= size;
-                }
-                _ => {}
+            for (x, scale) in v.position.iter_mut().zip(scale) {
+                *x *= scale;
             }
         }
         (vertices, indices)
@@ -388,8 +373,17 @@ impl Feed {
                 if w.get::<Visible>(e).is_some_and(|v| !v.0) {
                     continue;
                 }
+                mesh.validate().map_err(RenderError::scene)?;
                 let shape = Shape::of(mesh);
-                let group = *self.shapes.entry(shape).or_insert_with(|| {
+                if !self.shapes.contains_key(&shape) && self.shapes.len() >= 4096 {
+                    return Err(RenderError::scene(format!(
+                        "Mesh cache exceeds 4096 at {}: {mesh:?}",
+                        w.name(e)
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("#{}", e.index()))
+                    )));
+                }
+                let group = *self.shapes.entry(shape.clone()).or_insert_with(|| {
                     let (v, i) = shape.geometry();
                     let index = self.groups.len();
                     self.groups.push(Group {
@@ -438,6 +432,7 @@ fn check_page(
         let slot = u64::from(first) + (word * 64 + 63 - bits.leading_zeros() as usize) as u64;
         if slot >= u64::from(limit) {
             return Err(RenderError {
+                detail: None,
                 arena,
                 slot,
                 limit: u64::from(limit),

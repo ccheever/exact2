@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use exact_game::{Args, Entity, Game, Input, Quat, Sim, Transform, Vec3, World};
+use exact_game::{Entity, Game, Input, Quat, Sim, Transform, Vec3, World};
 use exact_game_physics::{self as physics, Body, Collider, Shape};
 
 pub fn rotated(degrees: f32) -> Quat {
@@ -55,12 +55,18 @@ pub fn pile(w: &mut World, side: usize, layers: usize, drop: f32) {
     }
 }
 pub struct Scene;
+/// Typed canvas arguments in positional order.
+#[derive(Default, exact_game::Args)]
+pub struct SceneArgs {
+    /// Canvas setup argument.
+    pub scene: String,
+}
 impl Game for Scene {
     const ID: &'static str = "exact-physics-scenes";
-    const ARGS: &'static [exact_game::Arg] = &[exact_game::Arg::setup("scene")];
-    fn setup(w: &mut World, args: &Args) -> Result<(), String> {
+    type Args = SceneArgs;
+    fn setup(w: &mut World, args: &Self::Args) {
         physics::register(w);
-        match args.text("scene")? {
+        match args.scene.as_str() {
             "pile" => pile(w, 5, 5, 2.0),
             "stack" => pile(w, 1, 10, 0.0),
             "drop" => pile(w, 1, 1, 2.0),
@@ -79,11 +85,10 @@ impl Game for Scene {
                     ),
                 );
             }
-            _ => return Err("unknown scene".into()),
+            _ => panic!("unknown scene"),
         }
-        Ok(())
     }
-    fn tick(w: &mut World, _: &Input) {
+    fn tick(w: &mut World, _: &Input, _: &Self::Args) {
         physics::step(w);
     }
 }

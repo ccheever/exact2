@@ -225,8 +225,9 @@ only during feeds; incumbents get a 10% distance margin, with entity-order ties.
 Frames visit only the retained sixteen lights, never the entity storage.
 
 Missing materials use the default white material. Mesh keys include exact float
-bits; Asset uses Cube. Sphere/cylinder radii and capsule cylinder length are mapped
-to the engine's layout/pick dimensions (the core shapes have different conventions).
+bits, with one cached geometry and one draw group per distinct dimensioned value.
+The cache refuses the 4,097th value by entity name. Assets retain a cube placeholder.
+Primitive vertices use the dimensions authored in `Mesh`, matching layout and picks.
 
 The small engine additions are mutation/membership/live-set revisions (tick stamps
 cannot detect setup-to-first-tick edits or repeated same-tick edits), whole-page
@@ -248,7 +249,7 @@ wasm caches the Performance object. Only ticks retained in the 240-sample ring
 are timed; seekable renders, agent advances and timed binds make no perf clock
 calls. `Sim::ticks_due` determines whether the first tick's sample will survive.
 Samples are diagnostic and outside world hashes.
-No allocations occur in steady Sim/Feed/frame-input work (instrumented unit test).
+No allocations occur in steady live Sim/Feed/frame-input work (instrumented unit test).
 wgpu retains ownership of its command/staging allocations.
 
 Capacity errors are returned before Feed swaps history. `Surface::take_error`
@@ -535,3 +536,10 @@ Validation: **51 tests pass**, four diagnostics ignored by the ordinary test run
 all three GPU timing diagnostics pass separately. Scoped clippy with `-D warnings`
 and rustfmt pass; the staged repository caps check passes. Native launches worked
 locally; no Linux fallback was needed.
+
+
+G1's current dimensioned Mesh and Follow schema supersedes the historical pins
+above: Greybox setup is `0x6b4d864d2da4c316`, W1500 is `0xe361b9c0055bede6`.
+The full game workspace, including the formerly separate physics assertions,
+passes. The current [ergonomics report](../diaries/002-ergonomics.md) records
+macOS/Linux/Chrome parity, paired timing runs, stillness cost and both proofs.

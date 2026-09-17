@@ -512,6 +512,7 @@ impl Renderer {
         let limit = u64::from(self.max_slots());
         if end > limit {
             Err(RenderError {
+                detail: None,
                 arena,
                 slot: end - 1,
                 limit,

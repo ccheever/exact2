@@ -357,7 +357,6 @@ pub fn step(world: &mut World) {
             .contains(ColliderHandle::from_raw_parts(h[0], h[1]))
     });
     let mut updates = Vec::new();
-    let mut busy = false;
     for entry in live.entries.values_mut() {
         let Some(handle) = entry.bh() else {
             continue;
@@ -369,7 +368,6 @@ pub fn step(world: &mut World) {
         b.asleep = rb.is_sleeping();
         if b.kind == BodyKind::Dynamic {
             entry.pose = math::transform(rb.position(), entry.pose.scale);
-            busy |= !b.asleep;
         }
         updates.push((entry.entity, entry.pose, b.clone()));
     }
@@ -396,7 +394,4 @@ pub fn step(world: &mut World) {
         }
     }
     world.resource_mut::<Physics>().events = events;
-    if busy {
-        world.busy("physics");
-    }
 }

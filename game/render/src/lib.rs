@@ -44,8 +44,10 @@ pub enum Rewrite {
 }
 
 /// A refused arena capacity request. `limit` is an exclusive slot count.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderError {
+    /// Additional named scene refusal, if this is not an arena slot error.
+    pub detail: Option<String>,
     /// Arena whose requested slot exceeds capacity.
     pub arena: &'static str,
     /// Highest zero-based slot requested.
@@ -54,8 +56,21 @@ pub struct RenderError {
     pub limit: u64,
 }
 
+impl RenderError {
+    pub(crate) fn scene(detail: String) -> Self {
+        Self {
+            arena: "mesh",
+            slot: 0,
+            limit: 4096,
+            detail: Some(detail),
+        }
+    }
+}
 impl std::fmt::Display for RenderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(detail) = &self.detail {
+            return f.write_str(detail);
+        }
         write!(
             f,
             "{} arena: slot {} exceeds limit {}",
@@ -317,7 +332,8 @@ macro_rules! module {
         pub static REGISTRY: $crate::exact_gpu::Registry = $crate::exact_gpu::Registry {
             surfaces: &[(
                 <$game as $crate::exact_game::Game>::NAME,
-                <$game as $crate::exact_game::Game>::ARGS.len(),
+                <<$game as $crate::exact_game::Game>::Args as $crate::exact_game::Args>::FIELDS
+                    .len(),
                 || Box::new($crate::WorldSurface::<$game>::default()),
             )],
             shaders: &[],

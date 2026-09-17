@@ -1,15 +1,15 @@
 use exact_game::*;
 struct Scene;
 impl Game for Scene {
+    type Args = ();
     const ID: &'static str = "Scene";
-    fn setup(w: &mut World, _: &Args) -> Result<(), String> {
+    fn setup(w: &mut World, _: &Self::Args) {
         let child = w.spawn_named("child", Transform::at(0.0, 1.0, 0.0));
         let root = w.spawn_named("root", Transform::at(2.0, 0.0, 0.0));
         w.insert(child, Parent(root));
         w.spawn_named("camera", (Transform::at(0.0, 0.0, 10.0), Camera::default()));
-        Ok(())
     }
-    fn tick(_: &mut World, _: &Input) {}
+    fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
 }
 #[test]
 fn hierarchy_preorder_under_and_cap() {
@@ -38,7 +38,7 @@ fn pick_uses_oriented_boxes_and_exact_spheres_and_capsules() {
     s.viewport(800.0, 600.0);
     let e = s
         .world_mut()
-        .spawn_named("shape", (Transform::default(), Mesh::Sphere));
+        .spawn_named("shape", (Transform::default(), Mesh::sphere(1.0)));
     s.world_mut().propagate();
     let pick = |s: &mut Sim<Scene>, x: f32, y: f32| {
         s.agent(&format!("{{\"op\":\"layout\",\"x\":{x},\"y\":{y}}}"))
@@ -54,7 +54,7 @@ fn pick_uses_oriented_boxes_and_exact_spheres_and_capsules() {
         },
     );
     assert!(pick(&mut s, 400.0, 300.0).contains("\"distance\":9.6"));
-    s.world_mut().insert(e, Mesh::Cube);
+    s.world_mut().insert(e, Mesh::cube(1.0));
     s.world_mut().teleport(
         e,
         Transform {
@@ -116,7 +116,7 @@ fn capsule_pick_from_inside_ignores_internal_cap_surfaces() {
             Transform::default(),
             Mesh::Capsule {
                 radius: 1.0,
-                height: 1.0,
+                height: 3.0,
             },
         ),
     );

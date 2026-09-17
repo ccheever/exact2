@@ -20,7 +20,8 @@ or on drop at statement end. Pitch is playback rate, bounded to 0.01..16. The sa
 voice holds its definition, rate, lifetime and last known world position. Edits to
 a definition affect later plays; an attached one-shot survives despawning its
 entity. `at_point(Vec3)` is stationary; `ui()` bypasses spatialization. Games can
-set `Audio.master` each tick from `world.args().number("volume")`.
+declare `#[live] volume: f64` in the game's Args struct and set `Audio.master`
+from `args.volume` in tick.
 
 A setup voice begins at tick 0; a voice authored inside tick N begins at boundary
 N+1. A non-saved phase flag at the existing world tick hooks makes this distinction

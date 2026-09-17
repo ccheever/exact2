@@ -221,3 +221,67 @@ pub struct Hit {
     /// Outward target surface normal.
     pub normal: Vec3,
 }
+
+impl Collider {
+    /// Match a primitive's dimensions. A plane becomes a static 1 cm slab whose
+    /// top is at Y=0. Assets require an authored collision shape and are refused.
+    pub fn of(mesh: &exact_game::Mesh) -> Self {
+        use exact_game::Mesh;
+        mesh.validate().unwrap_or_else(|e| panic!("{e}"));
+        let shape = match mesh {
+            Mesh::Box { size } => Shape::Box { half: *size * 0.5 },
+            Mesh::Sphere { radius } => Shape::Sphere { radius: *radius },
+            Mesh::Capsule { radius, height } => Shape::Capsule {
+                radius: *radius,
+                height: *height,
+            },
+            Mesh::Cylinder { radius, height } => Shape::Cylinder {
+                radius: *radius,
+                height: *height,
+            },
+            Mesh::Plane { width, depth } => {
+                let vertices = (0..8)
+                    .map(|i| {
+                        Vec3::new(
+                            if i & 1 == 0 {
+                                -width * 0.5
+                            } else {
+                                width * 0.5
+                            },
+                            if i & 2 == 0 { -0.01 } else { 0.0 },
+                            if i & 4 == 0 {
+                                -depth * 0.5
+                            } else {
+                                depth * 0.5
+                            },
+                        )
+                    })
+                    .collect();
+                Shape::Mesh {
+                    vertices,
+                    indices: vec![
+                        [0, 1, 4],
+                        [1, 5, 4],
+                        [2, 6, 3],
+                        [3, 6, 7],
+                        [0, 2, 1],
+                        [1, 2, 3],
+                        [4, 5, 6],
+                        [5, 7, 6],
+                        [0, 4, 2],
+                        [2, 4, 6],
+                        [1, 3, 5],
+                        [3, 7, 5],
+                    ],
+                }
+            }
+            Mesh::Asset(name) => {
+                panic!("Collider::of: asset {name} needs an authored collision shape")
+            }
+        };
+        Self {
+            shape,
+            ..Self::default()
+        }
+    }
+}

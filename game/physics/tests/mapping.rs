@@ -106,3 +106,30 @@ fn fast_rigid_body_does_not_tunnel_and_queries_are_read_only() {
         e
     );
 }
+
+#[test]
+fn colliders_match_primitive_dimensions_and_plane_top() {
+    use exact_game::Mesh;
+    for (mesh, half_height) in [
+        (Mesh::cube(2.0), 1.0),
+        (Mesh::cuboid(Vec3::new(2.0, 3.0, 4.0)), 1.5),
+        (Mesh::sphere(0.6), 0.6),
+        (Mesh::capsule(0.4, 1.8), 0.9),
+        (Mesh::cylinder(0.5, 1.2), 0.6),
+        (Mesh::plane(40.0, 20.0), 0.0),
+    ] {
+        let mut w = World::new(60, 0);
+        physics::register(&mut w);
+        w.spawn((Transform::default(), Collider::of(&mesh)));
+        let hit = physics::raycast(&w, Vec3::new(0.0, 3.0, 0.0), -Vec3::Y, 5.0, u32::MAX).unwrap();
+        assert!(
+            (hit.point.y - half_height).abs() < 1e-5,
+            "{mesh:?}: {hit:?}"
+        );
+        if matches!(mesh, Mesh::Plane { .. }) {
+            let bottom =
+                physics::raycast(&w, Vec3::new(0.0, -1.0, 0.0), Vec3::Y, 2.0, u32::MAX).unwrap();
+            assert!((bottom.point.y + 0.01).abs() < 1e-5);
+        }
+    }
+}

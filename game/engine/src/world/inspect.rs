@@ -2,10 +2,6 @@ use super::*;
 use crate::values::{quote, value_json};
 
 impl World {
-    /// Current canvas arguments, resolved by their declared names.
-    pub fn args(&self) -> &crate::Args {
-        &self.args
-    }
     /// Current simulation instant, suitable for sampling or retargeting springs.
     pub fn now(&self) -> Now {
         Now {
@@ -23,12 +19,13 @@ impl World {
         self.rng.insert(0, Rng::new(seed), self.tick());
     }
     /// Keep clock settle running. Reasons expire at the start of the next tick.
-    pub fn busy(&mut self, reason: &'static str) {
-        self.state.busy.push(reason.into());
+    pub fn busy(&self, reason: &'static str) {
+        self.state.busy.borrow_mut().push(reason.into());
     }
-    /// Whether all component/resource springs rest and the game reported no work.
+    /// Whether the observed tick changed no countable component, springs rest and no work was reported.
     pub fn quiescent(&self) -> bool {
-        self.state.busy.is_empty()
+        self.still
+            && self.state.busy.borrow().is_empty()
             && !self
                 .components
                 .values()
@@ -36,7 +33,7 @@ impl World {
                 .any(|s| s.moving(self.now()))
     }
     pub(crate) fn settle_tick(&self) -> Option<u64> {
-        if !self.state.busy.is_empty() {
+        if !self.state.busy.borrow().is_empty() {
             return None;
         }
         self.components
@@ -48,7 +45,7 @@ impl World {
     }
     pub(crate) fn begin_tick(&mut self) {
         self.in_tick = true;
-        self.state.busy.clear();
+        self.state.busy.get_mut().clear();
         self.fresh.clear();
     }
     /// The next journal cursor. Draining a host never erases an agent's history.
@@ -101,5 +98,106 @@ impl World {
             }
         }
         Ok(format!("{{{}}}", fields.join(",")))
+    }
+}
+
+/// Component observations, ordered by storage name then entity index.
+#[derive(Default)]
+pub(crate) struct Observation {
+    entries: Vec<(&'static str, Entity, u64)>,
+    scratch: Vec<(usize, u64)>,
+}
+impl World {
+    pub(crate) fn observe(&self, out: &mut Observation) {
+        out.entries.clear();
+        let ambient = self.storage::<crate::Ambient>();
+        for (&name, storage) in &self.components {
+            out.scratch.clear();
+            storage.snapshot(ambient, &mut out.scratch);
+            out.entries.extend(out.scratch.iter().map(|&(i, hash)| {
+                (
+                    name,
+                    Entity {
+                        index: i as u32,
+                        generation: self.state.slots[i].generation,
+                    },
+                    hash,
+                )
+            }));
+        }
+    }
+    pub(crate) fn compare(&mut self, before: &Observation, after: &Observation) {
+        self.changing.clear();
+        self.still = before.entries == after.entries;
+        let (mut a, mut b) = (0, 0);
+        while (a < before.entries.len() || b < after.entries.len()) && self.changing.len() < 8 {
+            let old = before.entries.get(a);
+            let new = after.entries.get(b);
+            if old == new {
+                a += 1;
+                b += 1;
+                continue;
+            }
+            let key = |v: &(&'static str, Entity, u64)| (v.0, v.1);
+            let entry = match (old, new) {
+                (Some(old), Some(new)) => match key(old).cmp(&key(new)) {
+                    std::cmp::Ordering::Less => {
+                        a += 1;
+                        old
+                    }
+                    std::cmp::Ordering::Greater => {
+                        b += 1;
+                        new
+                    }
+                    std::cmp::Ordering::Equal => {
+                        a += 1;
+                        b += 1;
+                        new
+                    }
+                },
+                (Some(old), None) => {
+                    a += 1;
+                    old
+                }
+                (None, Some(new)) => {
+                    b += 1;
+                    new
+                }
+                _ => break,
+            };
+            let name = self
+                .name(entry.1)
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("#{}", entry.1.index()));
+            self.changing.push(format!("{name}.{}", entry.0));
+        }
+    }
+}
+
+#[cfg(test)]
+mod measurements {
+    use super::*;
+    #[test]
+    #[ignore = "release stillness cost diagnostic"]
+    fn stillness_hash_cost() {
+        for count in [1_000, 10_000, 200_000] {
+            let mut w = World::new(60, 0);
+            for i in 0..count {
+                w.spawn(crate::Transform::at(i as f32, 0.0, 0.0));
+            }
+            let mut snapshot = Observation::default();
+            w.observe(&mut snapshot);
+            let mut samples = Vec::new();
+            for _ in 0..100 {
+                let start = std::time::Instant::now();
+                std::hint::black_box(&w).observe(std::hint::black_box(&mut snapshot));
+                samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+            samples.sort_by(f64::total_cmp);
+            println!(
+                "stillness hash {count} Transform entities: {:.6} ms median, {:.6} ms p95",
+                samples[50], samples[95]
+            );
+        }
     }
 }

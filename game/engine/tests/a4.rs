@@ -12,47 +12,42 @@ struct Observed {
 #[derive(Default, Component)]
 struct Motion(Vec<Option<Box<Spring>>>);
 struct Probe;
+#[derive(Default, exact_game::Args)]
+struct ProbeArgs {
+    /// Canvas setup argument.
+    pub seed: u64,
+    /// Canvas setup argument.
+    pub run: u32,
+    /// Canvas live argument.
+    #[live]
+    pub paused: bool,
+    /// Canvas live argument.
+    #[live]
+    pub volume: f64,
+}
 impl Game for Probe {
     const ID: &'static str = "a4-probe";
-    const ARGS: &'static [Arg] = &[
-        Arg::setup("seed"),
-        Arg::setup("run"),
-        Arg::live("paused"),
-        Arg::live("volume"),
-    ];
-    fn check(args: &Args) -> Result<(), String> {
-        args.integer("seed")?;
-        args.integer("run")?;
-        args.flag("paused")?;
-        if args.number("volume")? < 0.0 {
-            return Err("volume must be nonnegative".into());
-        }
-        Ok(())
-    }
-    fn setup(w: &mut World, args: &Args) -> Result<(), String> {
-        w.reseed(args.integer("seed")?);
+    type Args = ProbeArgs;
+
+    fn setup(w: &mut World, args: &Self::Args) {
+        w.reseed(args.seed);
         w.insert_resource(Observed::default());
-        w.spawn_named("probe", Transform::default());
-        // Prove setup failure after mutation cannot touch the current world.
-        if args.integer("seed")? == 99 {
-            return Err("seed 99 refused".into());
-        }
-        Ok(())
+        w.spawn_named("probe", (Transform::default(), Ambient));
     }
-    fn paused(args: &Args) -> bool {
-        args.flag("paused").unwrap()
+    fn paused(args: &Self::Args) -> bool {
+        args.paused
     }
     fn actions() -> Actions {
         Actions::new().button("act", &["KeyE"])
     }
-    fn tick(w: &mut World, input: &Input) {
+    fn tick(w: &mut World, input: &Input, args: &Self::Args) {
         let mut r = w.resource_mut::<Observed>();
         r.held += u32::from(input.held("act"));
         r.pressed += u32::from(input.pressed("act"));
         r.released += u32::from(input.released("act"));
         r.wheel += input.wheel();
         r.pointer = input.pointer();
-        r.volume = w.args().number("volume").unwrap();
+        r.volume = args.volume;
         w.get_mut::<Transform>(w.named("probe").unwrap())
             .unwrap()
             .position
@@ -128,23 +123,26 @@ fn a4_1_host_loop_reaches_the_spring_deadline_without_the_world_running_ahead() 
 
     struct Busy;
     impl Game for Busy {
+        type Args = ();
         const ID: &'static str = "busy";
-        fn setup(w: &mut World, _: &Args) -> Result<(), String> {
+        fn setup(w: &mut World, _: &Self::Args) {
             w.busy("forever");
-            Ok(())
         }
-        fn tick(w: &mut World, _: &Input) {
+        fn tick(w: &mut World, _: &Input, _: &Self::Args) {
             w.busy("forever");
         }
     }
     let mut never = Sim::<Busy>::new(&[]).unwrap();
     never.advance(0.0, Clock::Seekable);
     let mut host = 0.0;
-    for _ in 0..16 {
+    for round in 0..16 {
         let reply: ClockReply =
             json::from_str(&never.agent(r#"{"op":"clock","settle":true}"#)).unwrap();
         assert!(!reply.quiescent);
-        assert_eq!(reply.settleAt, host + 250.0);
+        assert_eq!(
+            reply.settleAt,
+            host + (100u32.saturating_mul(1 << round)).min(2000) as f64
+        );
         assert!(never.world().seconds() * 1000.0 <= host);
         host = reply.settleAt;
         never.advance(host, Clock::Seekable);
@@ -263,7 +261,7 @@ fn a4_3_pause_at_500_inside_one_seek_matches_two_seeks_restart_and_refusals_are_
         "old args up to the bind"
     );
     let before = one.save();
-    for bad in [args(7.0, 0.0, false, -1.0), args(99.0, 0.0, false, 1.0)] {
+    for bad in [args(7.0, -1.0, false, 1.0), args(-1.0, 0.0, false, 1.0)] {
         assert!(one.bind(&bad, Some(2000.0)).is_err());
         assert_eq!(
             one.save(),
@@ -316,11 +314,10 @@ fn a4_4_save_resumes_at_zero_or_a_billion_ms_and_uses_this_games_identity_and_bi
     }
     struct Other;
     impl Game for Other {
+        type Args = ();
         const ID: &'static str = "other";
-        fn setup(_: &mut World, _: &Args) -> Result<(), String> {
-            Ok(())
-        }
-        fn tick(_: &mut World, _: &Input) {}
+        fn setup(_: &mut World, _: &Self::Args) {}
+        fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
     }
     let mut other = Sim::<Other>::new(&[]).unwrap();
     let error = other.restore(&save).unwrap_err().to_string();
@@ -328,15 +325,15 @@ fn a4_4_save_resumes_at_zero_or_a_billion_ms_and_uses_this_games_identity_and_bi
     struct Updated;
     impl Game for Updated {
         const ID: &'static str = Probe::ID;
-        const ARGS: &'static [Arg] = Probe::ARGS;
+        type Args = ProbeArgs;
         const SAVE_VERSION: u32 = 2;
-        fn setup(w: &mut World, a: &Args) -> Result<(), String> {
+        fn setup(w: &mut World, a: &Self::Args) {
             Probe::setup(w, a)
         }
         fn actions() -> Actions {
             Actions::new().button("new-action", &["KeyE"])
         }
-        fn tick(_: &mut World, _: &Input) {}
+        fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
         fn migrate(w: &mut World, from: u32) {
             w.resource_mut::<Observed>().volume = from as f64 + 100.0;
         }
@@ -362,7 +359,7 @@ fn a4_5_a_coordinate_question_is_layout_and_the_old_ninth_op_is_refused() {
     s.world_mut()
         .spawn((Transform::at(0.0, 0.0, 10.0), Camera::default()));
     let probe = s.world().named("probe").unwrap();
-    s.world_mut().insert(probe, Mesh::Cube);
+    s.world_mut().insert(probe, Mesh::cube(1.0));
     s.world_mut().propagate();
     let reply = s.agent(r#"{"op":"layout","x":400,"y":300,"width":800,"height":600}"#);
     assert!(
@@ -392,16 +389,12 @@ fn a4_6_names_schema_journal_and_cylinder_hits_follow_the_declared_contract() {
     assert!(s
         .agent(r#"{"op":"logs"}"#)
         .contains("t=1500 tick=90 test event"));
-    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        s.world().args().flag("typo")
-    }));
-    assert!(panic.is_err());
     let camera = s.world_mut().spawn((
         Transform::at(0.9, 10.0, 0.9).looking_at(Vec3::new(0.9, 0.0, 0.9), Vec3::Z),
         Camera::default(),
     ));
     s.world_mut()
-        .spawn_named("cylinder", (Transform::default(), Mesh::Cylinder));
+        .spawn_named("cylinder", (Transform::default(), Mesh::cylinder(1.0, 1.0)));
     s.world_mut().propagate();
     let request = r#"{"op":"layout","x":400,"y":300,"width":800,"height":600}"#;
     assert!(

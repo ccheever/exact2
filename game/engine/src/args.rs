@@ -1,118 +1,145 @@
 use crate::Value;
 
-/// A canvas argument that either constructs the world or is read live.
-#[derive(Clone, Copy, Debug)]
-pub struct Arg {
-    pub(crate) name: &'static str,
-    pub(crate) setup: bool,
+/// Whether changing a bound field constructs a new world.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArgumentKind {
+    /// Construct a new world when this value changes.
+    Setup,
+    /// Pass the new value to subsequent ticks.
+    Live,
 }
-impl Arg {
-    /// Changing this argument constructs a fresh world at tick zero.
-    pub const fn setup(name: &'static str) -> Self {
-        Self { name, setup: true }
+/// Typed canvas arguments. Derive this on a named struct; field order is wire order.
+pub trait Args: Sized + 'static {
+    /// Ordered field names and their binding behavior.
+    const FIELDS: &'static [(&'static str, ArgumentKind)];
+    /// Decode all values before any world or clock mutation.
+    fn decode(values: &[Value]) -> Result<Self, String>;
+    /// Whether any setup field differs.
+    fn setup_changed(&self, next: &Self) -> bool;
+}
+impl Args for () {
+    const FIELDS: &'static [(&'static str, ArgumentKind)] = &[];
+    fn decode(values: &[Value]) -> Result<Self, String> {
+        arity(values, &[])?;
+        Ok(())
     }
-    /// Changing this argument is visible to subsequent ticks without a restart.
-    pub const fn live(name: &'static str) -> Self {
-        Self { name, setup: false }
+    fn setup_changed(&self, _: &Self) -> bool {
+        false
     }
 }
-/// Named canvas arguments with refusals that name the author-facing argument.
-#[derive(Clone, Default)]
-pub struct Args {
-    pub(crate) values: Vec<Value>,
-    pub(crate) declarations: &'static [Arg],
-}
-impl Args {
-    fn index(&self, name: &str) -> usize {
-        self.declarations
-            .iter()
-            .position(|a| a.name == name)
-            .unwrap_or_else(|| panic!("unknown argument `{name}`"))
-    }
-    /// Number of supplied arguments.
-    pub fn len(&self) -> usize {
-        self.values.len()
-    }
-    /// Whether no arguments were supplied.
-    pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
-    }
-    fn expected(&self, i: usize, name: &str, kind: &str) -> String {
-        format!(
-            "argument `{name}` at position {i}: expected {kind}{}",
-            if i >= self.len() {
-                ", got no value"
-            } else {
-                ""
-            }
-        )
-    }
-    /// Read text, refusing missing values or a different type.
-    pub fn text(&self, name: &str) -> Result<&str, String> {
-        let i = self.index(name);
-        self.values
-            .get(i)
-            .and_then(Value::as_str)
-            .ok_or_else(|| self.expected(i, name, "text"))
-    }
-    /// Read a finite number, refusing missing values or a different type.
-    pub fn number(&self, name: &str) -> Result<f64, String> {
-        let i = self.index(name);
-        self.values
-            .get(i)
-            .and_then(Value::as_number)
-            .filter(|n| n.is_finite())
-            .ok_or_else(|| self.expected(i, name, "a finite number"))
-    }
-    /// Read a non-negative safe integer (at most 2^53 - 1), refusing by name.
-    pub fn integer(&self, name: &str) -> Result<u64, String> {
-        let i = self.index(name);
-        let n = self.number(name)?;
-        if !(0.0..=9_007_199_254_740_991.0).contains(&n) || n.fract() != 0.0 {
-            return Err(self.expected(i, name, "a non-negative safe integer"));
-        }
-        Ok(n as u64)
-    }
-    pub(crate) fn arity(&self, game: &str, names: &[Arg]) -> Result<(), String> {
-        if self.len() < names.len() {
-            Err(format!(
-                "missing argument `{}` at position {}",
-                names[self.len()].name,
-                self.len()
-            ))
-        } else if self.len() > names.len() {
-            Err(format!(
-                "{} expects {} arguments ({}), got {}",
-                game,
-                names.len(),
-                names.iter().map(|a| a.name).collect::<Vec<_>>().join(", "),
-                self.len()
-            ))
-        } else {
-            Ok(())
-        }
-    }
-    /// Read a boolean, refusing missing values or a different type.
-    pub fn flag(&self, name: &str) -> Result<bool, String> {
-        let i = self.index(name);
-        self.values
-            .get(i)
-            .and_then(Value::as_bool)
-            .ok_or_else(|| self.expected(i, name, "a boolean"))
-    }
-    pub(crate) fn json(&self) -> String {
-        format!(
-            "{{{}}}",
-            self.declarations
+/// Support for the Args derive; not a string lookup API.
+#[doc(hidden)]
+pub fn arity(values: &[Value], fields: &[(&str, ArgumentKind)]) -> Result<(), String> {
+    let count = fields.len();
+    if values.len() > count {
+        Err(format!(
+            "expected {count} arguments ({}), got {}",
+            fields
                 .iter()
-                .zip(&self.values)
-                .map(|(n, v)| format!(
-                    "{}:{}",
-                    crate::values::quote(n.name),
-                    crate::values::value_json(v, true)
-                ))
+                .map(|(name, _)| *name)
                 .collect::<Vec<_>>()
-                .join(",")
-        )
+                .join(", "),
+            values.len()
+        ))
+    } else {
+        Ok(())
     }
+}
+/// Supported scalar argument types, used by the derive.
+#[doc(hidden)]
+pub trait Argument: Sized {
+    const EXPECTED: &'static str;
+    fn value(value: &Value) -> Option<Self>;
+}
+/// Decode one positional field with an author-facing refusal.
+#[doc(hidden)]
+pub fn field<T: Argument>(values: &[Value], index: usize, name: &str) -> Result<T, String> {
+    values.get(index).and_then(T::value).ok_or_else(|| {
+        format!(
+            "{name}: expected {}, got {}",
+            T::EXPECTED,
+            values.get(index).map_or_else(
+                || "no value".into(),
+                |v| crate::values::value_json(v, false)
+            )
+        )
+    })
+}
+impl Argument for bool {
+    const EXPECTED: &'static str = "a boolean";
+    fn value(v: &Value) -> Option<Self> {
+        v.as_bool()
+    }
+}
+impl Argument for String {
+    const EXPECTED: &'static str = "text";
+    fn value(v: &Value) -> Option<Self> {
+        v.as_str().map(str::to_owned)
+    }
+}
+macro_rules! integer {
+    ($t:ty, $lo:expr, $hi:expr, $expected:literal) => {
+        impl Argument for $t {
+            const EXPECTED: &'static str = $expected;
+            fn value(v: &Value) -> Option<Self> {
+                v.as_number()
+                    .filter(|n| n.is_finite() && n.fract() == 0.0 && *n >= $lo && *n <= $hi)
+                    .map(|n| n as Self)
+            }
+        }
+    };
+}
+// Bound values are f64: 64-bit integer fields accept only exactly portable safe integers.
+integer!(
+    u32,
+    0.0,
+    u32::MAX as f64,
+    "a whole number ≥ 0 (at most 4294967295)"
+);
+integer!(
+    u64,
+    0.0,
+    9_007_199_254_740_991.0,
+    "a whole number ≥ 0 (at most 9007199254740991)"
+);
+integer!(
+    i32,
+    i32::MIN as f64,
+    i32::MAX as f64,
+    "a whole number in -2147483648..=2147483647"
+);
+integer!(
+    i64,
+    -9_007_199_254_740_991.0,
+    9_007_199_254_740_991.0,
+    "a whole number in -9007199254740991..=9007199254740991"
+);
+impl Argument for f64 {
+    const EXPECTED: &'static str = "a finite number";
+    fn value(v: &Value) -> Option<Self> {
+        v.as_number().filter(|n| n.is_finite())
+    }
+}
+impl Argument for f32 {
+    const EXPECTED: &'static str = "a finite f32 number";
+    fn value(v: &Value) -> Option<Self> {
+        v.as_number().map(|n| n as f32).filter(|n| n.is_finite())
+    }
+}
+pub(crate) fn json<A: Args>(values: &[Value]) -> String {
+    format!(
+        "{{{}}}",
+        A::FIELDS
+            .iter()
+            .zip(values)
+            .map(|((name, _), value)| {
+                format!(
+                    "{}:{}",
+                    crate::values::quote(name),
+                    crate::values::value_json(value, true)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }

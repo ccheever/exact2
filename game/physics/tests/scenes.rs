@@ -205,7 +205,7 @@ fn sensors_filter_events_and_journal() {
     assert!(physics::events(&w).is_empty());
 }
 #[test]
-fn busy_participates_in_settle() {
+fn observed_bodies_participate_in_settle() {
     let mut s = scene("drop");
     tick(&mut s, 1);
     assert!(!s.quiescent());

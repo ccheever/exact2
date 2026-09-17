@@ -1,7 +1,7 @@
 use beacons_logic::{Beacon, Beacons, Player};
 use exact_game::{Clock, InputEvent, Sim, Transform, Value, Vec3};
 fn sim(seed: f64) -> Sim<Beacons> {
-    let mut s = Sim::new(&[Value::Number(seed), Value::Bool(false), Value::Number(0.0)]).unwrap();
+    let mut s = Sim::new(&[Value::Number(seed), Value::Number(0.0), Value::Bool(false)]).unwrap();
     s.advance(0.0, Clock::Seekable);
     s
 }
@@ -43,6 +43,7 @@ fn movement_seed_and_seek_invariance() {
         .unwrap();
     assert!(player.velocity.length() <= 4.0);
     println!("W1500 hash=0x{:016x}", a.world().hash());
+    assert_eq!(a.world().hash(), 0xf1bdfbe68b382647);
 }
 #[test]
 fn jump_no_double_jump_and_camera_lags() {
@@ -86,7 +87,7 @@ fn beacon_range_glow_and_restart() {
     s.advance(2850.0, Clock::Seekable);
     assert_eq!(s.world().get::<Beacon>(e).unwrap().glow, 1.0);
     s.bind(
-        &[Value::Number(7.0), Value::Bool(true), Value::Number(0.0)],
+        &[Value::Number(7.0), Value::Number(0.0), Value::Bool(true)],
         Some(2850.0),
     )
     .unwrap();
@@ -94,7 +95,7 @@ fn beacon_range_glow_and_restart() {
     s.advance(4850.0, Clock::Seekable);
     assert_eq!(before, s.world().save());
     s.bind(
-        &[Value::Number(7.0), Value::Bool(false), Value::Number(1.0)],
+        &[Value::Number(7.0), Value::Number(1.0), Value::Bool(false)],
         Some(4850.0),
     )
     .unwrap();

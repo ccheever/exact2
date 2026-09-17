@@ -1,6 +1,6 @@
 use super::*;
 use exact_game::{
-    Args, Camera, Clock, DirectionalLight, Entity, Game, Input, PointLight, Quat, Sim, Vec3,
+    Camera, Clock, DirectionalLight, Entity, Game, Input, PointLight, Quat, Sim, Vec3,
 };
 
 #[derive(Debug, PartialEq)]
@@ -115,12 +115,12 @@ impl Writes for Recording {
 }
 struct Moving;
 impl Game for Moving {
+    type Args = ();
     const ID: &'static str = "feed-test";
-    fn setup(w: &mut World, _: &Args) -> Result<(), String> {
-        w.spawn((Transform::default(), Mesh::Cube, Material::default()));
-        Ok(())
+    fn setup(w: &mut World, _: &Self::Args) {
+        w.spawn((Transform::default(), Mesh::cube(1.0), Material::default()));
     }
-    fn tick(w: &mut World, _: &Input) {
+    fn tick(w: &mut World, _: &Input, _: &Self::Args) {
         for (_, t) in w.query::<&mut Transform>().iter() {
             t.position.x += 1.0;
         }
@@ -128,13 +128,14 @@ impl Game for Moving {
 }
 struct Stop;
 impl Game for Stop {
+    type Args = ();
     const ID: &'static str = "feed-stop";
-    fn setup(w: &mut World, a: &Args) -> Result<(), String> {
+    fn setup(w: &mut World, a: &Self::Args) {
         Moving::setup(w, a)
     }
-    fn tick(w: &mut World, i: &Input) {
+    fn tick(w: &mut World, i: &Input, args: &Self::Args) {
         if w.tick() == 0 {
-            Moving::tick(w, i);
+            Moving::tick(w, i, args);
         }
     }
 }
@@ -202,7 +203,7 @@ fn propagated_chain_overlays_page_and_fresh_teleport_writes_both() {
         ..Transform::at(2., 3., 4.).with_scale(2.)
     });
     let a = w.spawn((Transform::at(1., 0., 0.).with_scale(3.), Parent(root)));
-    let b = w.spawn((Transform::at(0., 2., 0.), Parent(a), Mesh::Cube));
+    let b = w.spawn((Transform::at(0., 2., 0.), Parent(a), Mesh::cube(1.0)));
     w.propagate();
     let mut f = Feed::default();
     let mut r = Recording::default();
@@ -217,15 +218,15 @@ fn propagated_chain_overlays_page_and_fresh_teleport_writes_both() {
     f.feed_to(&w, &mut r).unwrap();
     assert!(r.calls.contains(&Call::Previous(b.index(), 10)));
     assert_eq!(r.position(b, true), r.position(b, false));
-    let e = w.spawn((Transform::at(50., 0., 0.), Mesh::Cube));
+    let e = w.spawn((Transform::at(50., 0., 0.), Mesh::cube(1.0)));
     f.feed_to(&w, &mut r).unwrap();
     assert_eq!(r.position(e, true), Vec3::new(50., 0., 0.));
 }
 #[test]
 fn structure_and_visibility_rebuild_but_movement_does_not() {
     let mut w = World::new(60, 0);
-    let a = w.spawn((Transform::default(), Mesh::Cube));
-    let b = w.spawn((Transform::default(), Mesh::Sphere, Visible(false)));
+    let a = w.spawn((Transform::default(), Mesh::cube(1.0)));
+    let b = w.spawn((Transform::default(), Mesh::sphere(1.0), Visible(false)));
     let mut f = Feed::default();
     let mut r = Recording::default();
     f.feed_to(&w, &mut r).unwrap();
@@ -236,7 +237,7 @@ fn structure_and_visibility_rebuild_but_movement_does_not() {
     assert!(!r.calls.contains(&Call::Batches));
     w.insert(b, Visible(true));
     w.despawn(a);
-    let c = w.spawn((Transform::at(7., 0., 0.), Mesh::Cube));
+    let c = w.spawn((Transform::at(7., 0., 0.), Mesh::cube(1.0)));
     f.feed_to(&w, &mut r).unwrap();
     assert!(r.slots.contains(&c.index()) && r.slots.contains(&b.index()));
     assert_eq!(r.position(c, true).x, 7.);
@@ -254,7 +255,7 @@ fn materials_repack_pages_only_on_revision_and_default_missing_values() {
         Transform::default(),
         Material::rgb(0.2, 0.3, 0.4).emissive(2., 3., 4.),
     ));
-    let b = w.spawn((Transform::default(), Mesh::Cube));
+    let b = w.spawn((Transform::default(), Mesh::cube(1.0)));
     let mut f = Feed::default();
     let mut r = Recording::default();
     f.feed_to(&w, &mut r).unwrap();
@@ -313,9 +314,9 @@ fn capacity_refuses_before_history_and_allows_partial_last_page() {
 fn primitive_dimensions_and_bit_keys_match_agent_geometry() {
     let mut w = World::new(60, 0);
     for mesh in [
-        Mesh::Sphere,
-        Mesh::Cylinder,
-        Mesh::Plane { size: 40. },
+        Mesh::sphere(1.0),
+        Mesh::cylinder(1.0, 1.0),
+        Mesh::plane(40., 40.),
         Mesh::Capsule {
             radius: 0.4,
             height: 1.,
@@ -329,19 +330,19 @@ fn primitive_dimensions_and_bit_keys_match_agent_geometry() {
             height: 1.,
         },
         Mesh::Asset("future".into()),
-        Mesh::Cube,
+        Mesh::cube(1.0),
     ] {
         w.spawn((Transform::default(), mesh));
     }
     let mut f = Feed::default();
     let mut r = Recording::default();
     f.feed_to(&w, &mut r).unwrap();
-    assert_eq!(r.meshes.len(), 6);
+    assert_eq!(r.meshes.len(), 7);
     for (i, expected) in [
         (0, Vec3::ONE),
         (1, Vec3::new(1., 0.5, 1.)),
         (2, Vec3::new(20., 0., 20.)),
-        (3, Vec3::new(0.4, 0.9, 0.4)),
+        (3, Vec3::new(0.4, 0.5, 0.4)),
     ] {
         let extent = r.meshes[i]
             .0
@@ -442,19 +443,15 @@ fn steady_sim_feed_and_frame_inputs_allocate_nothing() {
         ..Default::default()
     };
     f.feed_to(sim.world(), &mut r).unwrap();
-    sim.advance(0., Clock::Seekable);
-    sim.advance_with(17., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
+    sim.advance(0., Clock::Live);
+    sim.advance_with(17., Clock::Live, |w, _| f.feed_to(w, &mut r).unwrap());
     let count = allocations::count(|| {
         for i in 2..240 {
-            sim.advance_with(
-                i as f64 * 1000. / 60. + 0.001,
-                Clock::Seekable,
-                |w, left| {
-                    if left < 2 {
-                        f.feed_to(w, &mut r).unwrap();
-                    }
-                },
-            );
+            sim.advance_with(i as f64 * 1000. / 60. + 0.001, Clock::Live, |w, left| {
+                if left < 2 {
+                    f.feed_to(w, &mut r).unwrap();
+                }
+            });
             let frame = f.frame(sim.world(), 0.5, 16. / 9.);
             std::hint::black_box(frame.camera_position);
         }
@@ -467,12 +464,12 @@ fn steady_sim_feed_and_frame_inputs_allocate_nothing() {
 fn first_transform_on_an_older_entity_initializes_history_and_reset_reuses_meshes() {
     struct Later;
     impl Game for Later {
+        type Args = ();
         const ID: &'static str = "late-pose";
-        fn setup(w: &mut World, _: &Args) -> Result<(), String> {
-            w.spawn(Mesh::Cube);
-            Ok(())
+        fn setup(w: &mut World, _: &Self::Args) {
+            w.spawn(Mesh::cube(1.0));
         }
-        fn tick(w: &mut World, _: &Input) {
+        fn tick(w: &mut World, _: &Input, _: &Self::Args) {
             let e = w.query::<&Mesh>().iter().next().unwrap().0;
             if !w.has::<Transform>(e) {
                 w.insert(e, Transform::at(9., 0., 0.));
@@ -497,17 +494,16 @@ fn first_transform_on_an_older_entity_initializes_history_and_reset_reuses_meshe
 fn ancestor_teleports_and_parent_edits_snap_mesh_camera_and_lights() {
     struct Empty;
     impl Game for Empty {
+        type Args = ();
         const ID: &'static str = "parent-snap";
-        fn setup(_: &mut World, _: &Args) -> Result<(), String> {
-            Ok(())
-        }
-        fn tick(_: &mut World, _: &Input) {}
+        fn setup(_: &mut World, _: &Self::Args) {}
+        fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
     }
     let mut sim = Sim::<Empty>::new(&[]).unwrap();
     let w = sim.world_mut();
     let root = w.spawn(Transform::default());
     let middle = w.spawn((Transform::at(1., 0., 0.), Parent(root)));
-    let mesh = w.spawn((Transform::at(1., 0., 0.), Parent(middle), Mesh::Cube));
+    let mesh = w.spawn((Transform::at(1., 0., 0.), Parent(middle), Mesh::cube(1.0)));
     let camera = w.spawn((Transform::at(0., 0., 8.), Parent(middle), Camera::default()));
     let light = w.spawn((Transform::default(), Parent(middle), PointLight::default()));
     w.propagate();
@@ -542,7 +538,11 @@ fn ancestor_teleports_and_parent_edits_snap_mesh_camera_and_lights() {
 #[test]
 fn load_invalidates_equal_revisions_and_does_not_change_save_or_hash() {
     let mut w = World::new(60, 0);
-    let e = w.spawn((Transform::at(1., 0., 0.), Mesh::Cube, Camera::default()));
+    let e = w.spawn((
+        Transform::at(1., 0., 0.),
+        Mesh::cube(1.0),
+        Camera::default(),
+    ));
     let a = w.save();
     w.get_mut::<Transform>(e).unwrap().position.x = 8.;
     let b = w.save();
@@ -732,15 +732,15 @@ fn dirty_pages_coalesce_overrides_and_dense_mode_reprobes() {
 fn half_million_still_transforms_with_moving_camera_write_only_its_page() {
     struct CameraOnly;
     impl Game for CameraOnly {
+        type Args = ();
         const ID: &'static str = "large-still-writes";
-        fn setup(w: &mut World, _: &Args) -> Result<(), String> {
+        fn setup(w: &mut World, _: &Self::Args) {
             for _ in 0..500_000 {
                 w.spawn(Transform::default());
             }
             w.spawn((Transform::default(), Camera::default()));
-            Ok(())
         }
-        fn tick(w: &mut World, _: &Input) {
+        fn tick(w: &mut World, _: &Input, _: &Self::Args) {
             for (_, (_, t)) in w.query::<(&Camera, &mut Transform)>().iter() {
                 t.position.x += 1.;
             }
@@ -771,4 +771,23 @@ fn half_million_still_transforms_with_moving_camera_write_only_its_page() {
     eprintln!(
         "500000 still entities + moving camera: 1 transform page/write per tick, 0 material writes"
     );
+}
+
+#[test]
+fn dimension_cache_refuses_the_4097th_mesh_by_entity_name() {
+    let mut w = World::new(60, 0);
+    for i in 0..4096 {
+        w.spawn((Transform::default(), Mesh::cube(i as f32 + 1.0)));
+    }
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.meshes.len(), 4096);
+    w.spawn_named("overflow", (Transform::default(), Mesh::cube(4097.0)));
+    let error = f.feed_to(&w, &mut r).unwrap_err().to_string();
+    assert!(
+        error.contains("overflow") && error.contains("4096"),
+        "{error}"
+    );
+    assert_eq!(r.meshes.len(), 4096);
 }

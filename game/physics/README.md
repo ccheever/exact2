@@ -8,7 +8,7 @@ Call `register` during setup, `move_character` after controls, and `step` per ti
   Dynamic poses, velocities and sleep return to components; kinematics use next pose.
 - One step uses `world.dt()`. A collision-only pass after moving kinematics supplies
   same-tick sensor transitions. Events are sorted; `Announce` journals transitions.
-  Sleeping bodies still step; active bodies call `world.busy`. Support edits wake all.
+  Sleeping bodies still step; seekable Sim observes Body/Transform changes. Support edits wake all.
 - Density defaults to 1000 kg/m³; explicit mass is kg. Friction combines geometrically,
   restitution by maximum. Contact slop is 0.1 mm; other integration defaults are Rapier's.
 - Shapes: sphere, box, Y capsule/cylinder (total height), static mesh and heightfield
@@ -77,3 +77,6 @@ cargo run -p exact-game-physics --release --example pile -- 1000 2000 5000
 cargo run -p exact-game-physics --release --example pile -- --verify
 cargo build -p exact-game-physics --profile web --target wasm32-unknown-unknown --example minimal
 ```
+
+`Collider::of(&mesh)` matches each dimensioned primitive. A plane makes a static
+1 cm slab with its top face at Y=0; assets require authored collision geometry.

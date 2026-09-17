@@ -202,25 +202,28 @@ fn arena_capacity_is_a_named_atomic_refusal() {
     let t = transform(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE);
     for first in [limit, u32::MAX] {
         let expected = RenderError {
+            detail: None,
             arena: "transforms",
             slot: u64::from(first),
             limit: u64::from(limit),
         };
-        assert_eq!(r.write_transforms(first, &t), Err(expected));
-        assert_eq!(r.write_transforms_both(first, &t), Err(expected));
+        assert_eq!(r.write_transforms(first, &t), Err(expected.clone()));
+        assert_eq!(r.write_transforms_both(first, &t), Err(expected.clone()));
         assert_eq!(
             r.write_materials(first, &material([0.0; 3], 0.0)),
             Err(RenderError {
+                detail: None,
                 arena: "materials",
-                ..expected
+                ..expected.clone()
             })
         );
-        assert_eq!(r.set_batches(&[], &[first]), Err(expected));
+        assert_eq!(r.set_batches(&[], &[first]), Err(expected.clone()));
     }
     let long = vec![0; limit as usize + 1];
     assert_eq!(
         r.set_batches(&[], &long),
         Err(RenderError {
+            detail: None,
             arena: "slots",
             slot: u64::from(limit),
             limit: u64::from(limit)

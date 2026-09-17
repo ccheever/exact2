@@ -1,3 +1,4 @@
+//! Dimensioned scene components and explicit scene functions.
 use crate::{Affine3A, Component, Entity, Quat, Vec3, World};
 
 /// Local pose; identity is an unmodified object, with forward along negative Z.
@@ -101,30 +102,101 @@ impl Default for Camera {
     }
 }
 
-/// Geometry identity; a renderer owns its actual vertices.
-#[derive(Clone, Debug, Default, PartialEq, Component)]
+/// Dimensioned geometry. Metres, Y up, centred on the origin; capsules and
+/// cylinders run along Y and height is tip to tip. Planes lie in XZ facing +Y.
+/// Transform scale stretches these dimensions on top; assets use their baked bounds.
+#[derive(Clone, Debug, PartialEq, Component)]
 pub enum Mesh {
-    /// A unit cube centered on the origin.
-    #[default]
-    Cube,
-    /// A sphere of radius one.
-    Sphere,
-    /// A Y-axis capsule.
+    /// Box with full axis lengths.
+    Box {
+        /// Full dimensions.
+        size: Vec3,
+    },
+    /// Sphere.
+    Sphere {
+        /// Radius.
+        radius: f32,
+    },
+    /// Capsule.
     Capsule {
         /// Hemisphere radius.
         radius: f32,
-        /// Length of the cylindrical segment.
+        /// Total height.
         height: f32,
     },
-    /// A square in the XZ plane.
+    /// Rectangle in XZ.
     Plane {
-        /// Side length.
-        size: f32,
+        /// X extent.
+        width: f32,
+        /// Z extent.
+        depth: f32,
     },
-    /// A Y-axis cylinder of radius one and height one.
-    Cylinder,
+    /// Cylinder.
+    Cylinder {
+        /// Radius.
+        radius: f32,
+        /// Total height.
+        height: f32,
+    },
     /// A baked asset's stable name.
     Asset(String),
+}
+impl Default for Mesh {
+    fn default() -> Self {
+        Self::cube(1.0)
+    }
+}
+impl Mesh {
+    /// Equal-sided box.
+    pub fn cube(size: f32) -> Self {
+        Self::cuboid(Vec3::splat(size))
+    }
+    /// Box with full axis lengths.
+    pub fn cuboid(size: Vec3) -> Self {
+        Self::Box { size }
+    }
+    /// Sphere of the given radius.
+    pub fn sphere(radius: f32) -> Self {
+        Self::Sphere { radius }
+    }
+    /// Capsule with a hemisphere at each end.
+    pub fn capsule(radius: f32, height: f32) -> Self {
+        Self::Capsule { radius, height }
+    }
+    /// Cylinder with flat caps.
+    pub fn cylinder(radius: f32, height: f32) -> Self {
+        Self::Cylinder { radius, height }
+    }
+    /// Rectangle in XZ, facing +Y.
+    pub fn plane(width: f32, depth: f32) -> Self {
+        Self::Plane { width, depth }
+    }
+    /// Baked model by name.
+    pub fn asset(name: impl Into<String>) -> Self {
+        Self::Asset(name.into())
+    }
+    /// Refuse invalid dimensions by primitive name, before rendering or colliding.
+    pub fn validate(&self) -> Result<(), String> {
+        let positive = |v: f32| v.is_finite() && v > 0.0;
+        let (name, valid) = match self {
+            Self::Box { size } => ("Box", size.is_finite() && size.min_element() > 0.0),
+            Self::Sphere { radius } => ("Sphere", positive(*radius)),
+            Self::Capsule { radius, height } => (
+                "Capsule",
+                positive(*radius) && positive(*height) && *height >= 2.0 * radius,
+            ),
+            Self::Cylinder { radius, height } => {
+                ("Cylinder", positive(*radius) && positive(*height))
+            }
+            Self::Plane { width, depth } => ("Plane", positive(*width) && positive(*depth)),
+            Self::Asset(_) => return Ok(()),
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err(format!("Mesh.{name}: invalid dimensions {self:?}"))
+        }
+    }
 }
 
 /// Renderer-neutral surface properties: ten contiguous f32s including the pad.
@@ -245,6 +317,8 @@ impl World {
             .register::<DirectionalLight>()
             .register::<PointLight>()
             .register::<Visible>()
+            .register::<Ambient>()
+            .register::<Follow>()
             .register_resource::<crate::Environment>()
     }
     /// Resolve only parented entities, reusing indexed scratch and chain stamps.
@@ -301,6 +375,13 @@ impl World {
     pub fn teleport(&mut self, e: Entity, transform: Transform) {
         if self.insert(e, transform) {
             self.fresh.push(e);
+            if let Some(name) = self.name(e) {
+                for (_, follow) in self.query::<&mut Follow>().iter() {
+                    if follow.target == name {
+                        follow.initialized = false;
+                    }
+                }
+            }
             self.propagate();
         }
     }
@@ -434,5 +515,95 @@ mod tests {
         }
         assert_eq!(buffers(&w.hierarchy), first);
         assert_eq!(w.global(entities[5]).unwrap().translation.x, 6.0);
+    }
+}
+
+/// Changes to this entity's components do not keep the seekable clock awake.
+#[derive(Clone, Copy, Debug, Default, Component)]
+pub struct Ambient;
+
+/// A saved camera follower. Call `scene::follow` at the desired point in the tick.
+#[derive(Clone, Debug, Default, Component)]
+pub struct Follow {
+    /// Target entity's name.
+    pub target: String,
+    /// Camera displacement from the target.
+    pub offset: Vec3,
+    /// Aim displacement from the followed position.
+    pub look_at_offset: Vec3,
+    /// Exponential time constant in seconds; zero snaps immediately.
+    pub lag: f32,
+    initialized: bool,
+}
+impl Follow {
+    /// Follow the entity with this name; initial placement snaps exactly.
+    pub fn new(target: impl Into<String>) -> Self {
+        Self {
+            target: target.into(),
+            ..Self::default()
+        }
+    }
+    /// Camera displacement from the target.
+    pub fn offset(mut self, x: f32, y: f32, z: f32) -> Self {
+        self.offset = Vec3::new(x, y, z);
+        self
+    }
+    /// Aim displacement from the followed position.
+    pub fn look_at_offset(mut self, x: f32, y: f32, z: f32) -> Self {
+        self.look_at_offset = Vec3::new(x, y, z);
+        self
+    }
+    /// Exponential time constant in seconds.
+    pub fn lag(mut self, seconds: f32) -> Self {
+        assert!(seconds.is_finite() && seconds >= 0.0);
+        self.lag = seconds;
+        self
+    }
+}
+/// Step followers in entity order. The look direction follows the eased position,
+/// so both translation and rotation stop exactly. Missing targets leave the pose alone.
+pub fn follow(world: &World) {
+    for (e, follow) in world.query::<&mut Follow>().iter() {
+        let Some(target) = world.named(&follow.target) else {
+            continue;
+        };
+        if target == e {
+            continue;
+        }
+        let Some(target_pose) = world.global(target) else {
+            continue;
+        };
+        let target = Vec3::from(target_pose.translation) + follow.offset;
+        let Some(current) = world.global(e) else {
+            continue;
+        };
+        let next = if follow.initialized {
+            crate::math::ease(
+                Vec3::from(current.translation),
+                target,
+                follow.lag,
+                world.dt(),
+            )
+        } else {
+            target
+        };
+        let aim = next - follow.offset + follow.look_at_offset;
+        if next == aim {
+            continue;
+        }
+        let mut pose = Transform::at(next.x, next.y, next.z).looking_at(aim, Vec3::Y);
+        if let Some(parent) = world.get::<Parent>(e).and_then(|p| world.global(p.0)) {
+            let (scale, rotation, position) =
+                (parent.inverse() * pose.affine()).to_scale_rotation_translation();
+            pose = Transform {
+                position,
+                rotation,
+                scale,
+            };
+        }
+        if let Some(mut transform) = world.get_mut::<Transform>(e) {
+            *transform = pose;
+        }
+        follow.initialized = true;
     }
 }

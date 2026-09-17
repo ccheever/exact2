@@ -1,5 +1,5 @@
 use crate::{bin, Actions, Data, DataError, Event, Input, InputEvent, Value, Vec2, World};
-use crate::{Arg, Args, PointerPhase};
+use crate::{Args, ArgumentKind, PointerPhase};
 use std::{collections::VecDeque, marker::PhantomData};
 
 /// One immutable simulation instant; Copy keeps world borrows short in game code.
@@ -19,25 +19,21 @@ pub trait Game: 'static {
     /// Game save schema version; older versions pass through migrate.
     const SAVE_VERSION: u32 = 1;
     /// Canvas argument declarations in positional order; also declares exact arity.
-    const ARGS: &'static [Arg] = &[];
+    type Args: Args;
     /// Discoverable controls.
     fn actions() -> Actions {
         Actions::default()
     }
-    /// Construct the world. Refusals name the invalid argument.
-    fn setup(world: &mut World, args: &Args) -> Result<(), String>;
-    /// Validate every argument before setup or a timed bind can change anything.
-    fn check(_args: &Args) -> Result<(), String> {
-        Ok(())
-    }
+    /// Construct the world after argument decoding succeeds.
+    fn setup(world: &mut World, args: &Self::Args);
     /// Upgrade a loaded older world before it becomes observable.
     fn migrate(_world: &mut World, _from: u32) {}
     /// Stop world time while continuing to serve reads.
-    fn paused(_args: &Args) -> bool {
+    fn paused(_args: &Self::Args) -> bool {
         false
     }
     /// One fixed step, called after inputs and before transform propagation.
-    fn tick(world: &mut World, input: &Input);
+    fn tick(world: &mut World, input: &Input, args: &Self::Args);
     /// Fixed steps per second.
     const HZ: u32 = 60;
 }
@@ -65,6 +61,8 @@ struct Saved {
     input: Input,
     queue: Vec<Queued>,
     world_us: i64,
+    still: bool,
+    changing: Vec<String>,
     journal: Vec<Event>,
     journal_next: u64,
     published: std::collections::BTreeMap<String, Value>,
@@ -72,6 +70,9 @@ struct Saved {
 /// The clock, bounded device queue, and a game's world, without a host or GPU.
 pub struct Sim<G: Game> {
     pub(crate) world: World,
+    pub(crate) args: G::Args,
+    pub(crate) values: Vec<Value>,
+    settle_delay: std::cell::Cell<u32>,
     pub(crate) input: Input,
     queue: VecDeque<Queued>,
     overflow_logged: bool,
@@ -79,6 +80,7 @@ pub struct Sim<G: Game> {
     pub(crate) restored: bool,
     pub(crate) last_us: Option<i64>,
     world_us: i64,
+    observations: [crate::world::Observation; 2],
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -86,31 +88,25 @@ pub(crate) fn micros(ms: f64) -> i64 {
     (ms * 1000.0).round() as i64
 }
 impl<G: Game> Sim<G> {
-    fn args(values: &[Value]) -> Result<Args, String> {
-        let args = Args {
-            values: values.to_vec(),
-            declarations: G::ARGS,
-        };
-        args.arity(G::NAME, G::ARGS)?;
-        G::check(&args)?;
-        Ok(args)
-    }
-    fn build(args: Args) -> Result<World, String> {
+    fn build(args: &G::Args) -> World {
         let mut world = World::new(G::HZ, 0);
         world.register_scene();
-        G::setup(&mut world, &args)?;
+        G::setup(&mut world, args);
         world.published_pending.set(true);
-        world.args = args;
         world.propagate();
-        Ok(world)
+        world
     }
     /// Build at tick zero with seed zero; setup may reseed from a named argument.
     pub fn new(values: &[Value]) -> Result<Self, String> {
         if G::HZ == 0 {
             return Err("game HZ must be positive".into());
         }
+        let args = G::Args::decode(values)?;
         Ok(Self {
-            world: Self::build(Self::args(values)?)?,
+            world: Self::build(&args),
+            args,
+            values: values.to_vec(),
+            settle_delay: std::cell::Cell::new(100),
             input: Input::new(G::actions()),
             queue: VecDeque::with_capacity(QUEUE_LIMIT),
             overflow_logged: false,
@@ -118,6 +114,7 @@ impl<G: Game> Sim<G> {
             restored: false,
             last_us: None,
             world_us: 0,
+            observations: Default::default(),
             game: PhantomData,
         })
     }
@@ -136,26 +133,26 @@ impl<G: Game> Sim<G> {
         if at_ms.is_some_and(|at| !at.is_finite()) {
             return Err("bind clock must be finite".into());
         }
-        let args = Self::args(values)?;
-        let changes: Vec<_> = G::ARGS
+        let args = G::Args::decode(values)?;
+        let changes: Vec<_> = G::Args::FIELDS
             .iter()
-            .zip(&self.world.args.values)
+            .zip(&self.values)
             .zip(values)
-            .filter(|((arg, old), new)| arg.setup && old != new)
+            .filter(|((arg, old), new)| arg.1 == ArgumentKind::Setup && old != new)
             .map(|((arg, old), new)| {
                 format!(
                     "{} {} → {}",
-                    arg.name,
+                    arg.0,
                     crate::values::value_json(old, false),
                     crate::values::value_json(new, false)
                 )
             })
             .collect();
-        // Even a setup refusal is atomic: build off to the side before seeking.
-        let restart = if changes.is_empty() {
+        // Decoding is complete before seeking under the old arguments.
+        let restart = if !self.args.setup_changed(&args) {
             None
         } else {
-            Some(Self::build(args.clone())?)
+            Some(Self::build(&args))
         };
         if let Some(at) = at_ms {
             self.advance_with(at, Clock::Seekable, after);
@@ -175,10 +172,10 @@ impl<G: Game> Sim<G> {
             self.overflow_logged = false;
             self.world
                 .log(format_args!("world restarted: {}", changes.join(", ")));
-        } else {
-            self.world.args = args;
         }
-        if G::paused(self.world.args()) {
+        self.args = args;
+        self.values = values.to_vec();
+        if G::paused(&self.args) {
             self.flush_paused(self.last_us.unwrap_or(0));
         }
         Ok(())
@@ -204,7 +201,7 @@ impl<G: Game> Sim<G> {
     /// Paused input updates held state directly, without edges or queued wheel deltas.
     pub fn input(&mut self, event: InputEvent) {
         assert!(event.at_ms().is_finite(), "input stamp must be finite");
-        if G::paused(self.world.args()) {
+        if G::paused(&self.args) {
             self.input.apply_paused(event);
             return;
         }
@@ -330,7 +327,7 @@ impl<G: Game> Sim<G> {
     /// Number of steps the next advance would complete. Presentation can skip
     /// timing samples that a long advance would immediately evict from its ring.
     pub fn ticks_due(&self, now_ms: f64, clock: Clock) -> u32 {
-        if !now_ms.is_finite() || G::paused(self.world.args()) {
+        if !now_ms.is_finite() || G::paused(&self.args) {
             return 0;
         }
         let now = micros(now_ms);
@@ -371,7 +368,7 @@ impl<G: Game> Sim<G> {
         }
         self.rebase_queue = false;
         self.last_us = Some(now);
-        if G::paused(self.world.args()) {
+        if G::paused(&self.args) {
             self.flush_paused(now);
             return 0;
         }
@@ -397,6 +394,11 @@ impl<G: Game> Sim<G> {
             .expect("simulation clock exhausted");
         let target = (self.world_us as u128 * G::HZ as u128 / 1_000_000) as u64;
         let start = self.world.tick();
+        // Exactly two samples per seek with work: before the last tick and after it.
+        // A single-tick seek samples its starting state. Live never enters this path.
+        if clock == Clock::Seekable && target == start + 1 {
+            self.world.observe(&mut self.observations[0]);
+        }
         while self.world.tick() < target {
             self.world.begin_tick();
             self.input.clear_edges();
@@ -408,10 +410,21 @@ impl<G: Game> Sim<G> {
                 self.input.apply(self.queue.pop_front().unwrap().event);
             }
             self.restored = false;
-            G::tick(&mut self.world, &self.input);
+            G::tick(&mut self.world, &self.input, &self.args);
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
+            if clock == Clock::Seekable {
+                let left = target - self.world.tick();
+                if left == 1 {
+                    self.world.observe(&mut self.observations[0]);
+                }
+                if left == 0 {
+                    self.world.observe(&mut self.observations[1]);
+                    self.world
+                        .compare(&self.observations[0], &self.observations[1]);
+                }
+            }
             after(
                 &self.world,
                 u32::try_from(target - self.world.tick()).unwrap_or(u32::MAX),
@@ -431,6 +444,10 @@ impl<G: Game> Sim<G> {
     pub fn world(&self) -> &World {
         &self.world
     }
+    /// Current decoded canvas arguments.
+    pub fn args(&self) -> &G::Args {
+        &self.args
+    }
     /// Edit simulation state, for setup tools and tests.
     pub fn world_mut(&mut self) -> &mut World {
         &mut self.world
@@ -446,19 +463,30 @@ impl<G: Game> Sim<G> {
     pub fn take_messages(&mut self) -> Vec<String> {
         std::mem::take(&mut *self.world.messages.borrow_mut())
     }
-    /// Paused worlds are settled; otherwise inspect springs and game-declared work.
+    /// Paused worlds are settled; otherwise inspect observed changes, springs and work.
     pub fn quiescent(&self) -> bool {
-        G::paused(self.world.args()) || self.world.quiescent()
+        let settled = G::paused(&self.args) || self.world.quiescent();
+        if settled {
+            self.settle_delay.set(100);
+        }
+        settled
     }
     pub(crate) fn settle_at(&self) -> f64 {
         let now = self.last_us.unwrap_or(0);
         self.world
             .settle_tick()
             .filter(|tick| *tick > self.world.tick())
-            .map_or(now as f64 / 1000.0 + 250.0, |tick| {
-                let deadline = (tick as u128 * 1_000_000).div_ceil(G::HZ as u128) as i64;
-                now.saturating_add(deadline.saturating_sub(self.world_us)) as f64 / 1000.0
-            })
+            .map_or_else(
+                || {
+                    let delay = self.settle_delay.get();
+                    self.settle_delay.set((delay * 2).min(2000));
+                    now as f64 / 1000.0 + delay as f64
+                },
+                |tick| {
+                    let deadline = (tick as u128 * 1_000_000).div_ceil(G::HZ as u128) as i64;
+                    now.saturating_add(deadline.saturating_sub(self.world_us)) as f64 / 1000.0
+                },
+            )
     }
     /// Save world time and relative pending input, independent of the host epoch.
     pub fn save(&self) -> Vec<u8> {
@@ -476,10 +504,12 @@ impl<G: Game> Sim<G> {
             game: G::ID.into(),
             version: G::SAVE_VERSION,
             world: self.world.save(),
-            args: self.world.args.values.clone(),
+            args: self.values.clone(),
             input: self.input.clone(),
             queue,
             world_us: self.world_us,
+            still: self.world.still,
+            changing: self.world.changing.clone(),
             published: self.world.publications(),
             journal: self.world.journal(),
             journal_next: self.world.journal_next(),
@@ -494,7 +524,7 @@ impl<G: Game> Sim<G> {
     }
     /// A surface retains the current app bindings, including setup arguments.
     pub fn restore_bound(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        let values = self.world.args.values.clone();
+        let values = self.values.clone();
         self.restore_into(bytes, Some(&values))
     }
     fn restore_into(&mut self, bytes: &[u8], values: Option<&[Value]>) -> Result<(), DataError> {
@@ -521,9 +551,7 @@ impl<G: Game> Sim<G> {
             return Err(DataError::new("invalid saved clock or input queue"));
         }
         let mut next = Self::new(values.unwrap_or(&s.args)).map_err(DataError::new)?;
-        let args = next.world.args.clone();
         next.world.load(&s.world)?;
-        next.world.args = args;
         if next.world.hz() != G::HZ
             || next.world.tick() as u128 != s.world_us as u128 * G::HZ as u128 / 1_000_000
         {
@@ -546,6 +574,8 @@ impl<G: Game> Sim<G> {
             }
         }
         next.world_us = s.world_us;
+        next.world.still = s.still;
+        next.world.changing = s.changing;
         next.rebase_queue = true;
         next.restored = true;
         next.world.presentation_generation = self

@@ -257,12 +257,12 @@ fn a09_fifty_thousand_freed_slots_reuse_lowest_first_after_save() {
 fn a10_roots_are_local_parent_chains_reuse_scratch_and_fresh_is_per_tick() {
     struct Moving;
     impl Game for Moving {
+        type Args = ();
         const ID: &'static str = "Moving";
-        fn setup(w: &mut World, _: &Args) -> Result<(), String> {
+        fn setup(w: &mut World, _: &Self::Args) {
             w.spawn_named("root", Transform::at(1.0, 0.0, 0.0));
-            Ok(())
         }
-        fn tick(w: &mut World, _: &Input) {
+        fn tick(w: &mut World, _: &Input, _: &Self::Args) {
             assert!(w.fresh().is_empty());
             if w.tick() == 0 {
                 let e = w.named("root").unwrap();
@@ -297,16 +297,16 @@ fn a10_roots_are_local_parent_chains_reuse_scratch_and_fresh_is_per_tick() {
 fn a11_orphan_chains_leave_after_game_tick_in_entity_order() {
     struct Reaper;
     impl Game for Reaper {
+        type Args = ();
         const ID: &'static str = "Reaper";
-        fn setup(w: &mut World, _: &Args) -> Result<(), String> {
+        fn setup(w: &mut World, _: &Self::Args) {
             let leaf = w.spawn_named("leaf", ());
             let middle = w.spawn_named("middle", ());
             let root = w.spawn_named("root", ());
             w.insert(leaf, Parent(middle));
             w.insert(middle, Parent(root));
-            Ok(())
         }
-        fn tick(w: &mut World, _: &Input) {
+        fn tick(w: &mut World, _: &Input, _: &Self::Args) {
             let root = w.named("root").unwrap();
             w.despawn(root);
             assert_eq!(w.len(), 2);
@@ -423,14 +423,18 @@ fn a18_spawn_named_takes_owned_or_borrowed_text() {
 #[test]
 fn a19_integer_argument_and_default_bind_refuse_by_name() {
     struct Seeded;
+    #[derive(Default, exact_game::Args)]
+    struct SeededArgs {
+        /// Canvas setup argument.
+        pub seed: u64,
+    }
     impl Game for Seeded {
         const ID: &'static str = "Seeded";
-        const ARGS: &'static [Arg] = &[Arg::setup("seed")];
-        fn setup(w: &mut World, args: &Args) -> Result<(), String> {
-            w.reseed(args.integer("seed")?);
-            Ok(())
+        type Args = SeededArgs;
+        fn setup(w: &mut World, args: &Self::Args) {
+            w.reseed(args.seed);
         }
-        fn tick(_: &mut World, _: &Input) {}
+        fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
     }
     for n in [-1.0, 1.5, 9_007_199_254_740_992.0, f64::INFINITY] {
         assert!(Sim::<Seeded>::new(&[Value::Number(n)])

@@ -158,12 +158,22 @@ impl<G: Game> Sim<G> {
                 }).collect::<Vec<_>>().join(",");
                 Ok(format!("{{\"tick\":{tick},\"entities\":[{entities}],\"truncated\":{}}}", end-start > 512))
             }
+            "state" if q.entity.as_deref() == Some("*") => {
+                let all = hierarchy(w)?;
+                let subtree = q.under.as_deref().map(|n| resolve(w,n)).transpose()?;
+                let start = subtree.and_then(|e| all.iter().position(|(a,_,_)| *a == e)).unwrap_or(0);
+                let end = if subtree.is_some() { (start+1..all.len()).find(|&i| all[i].2 <= all[start].2).unwrap_or(all.len()) } else { all.len() };
+                let entities = all[start..end].iter().take(512).map(|&(e,_,_)| {
+                    Ok(format!("{{{},\"components\":{}}}", identity(w,e), w.components_json(e).map_err(|e|e.to_string())?))
+                }).collect::<Result<Vec<String>, String>>()?.join(",");
+                Ok(format!("{{\"tick\":{tick},\"entities\":[{entities}],\"truncated\":{}}}", end-start > 512))
+            }
             "state" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().unwrap())?;
                 Ok(format!("{{\"tick\":{tick},\"entity\":{{{},\"components\":{}}}}}", identity(w,e), w.components_json(e).map_err(|e|e.to_string())?))
             }
             "state" => Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"restored\":{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{{\"actions\":{},\"held\":{}}},\"published\":{}}}}}",
-                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(w.args()), self.restored, w.args().json(), w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.actions.json(), encode(&self.input.keys)?, w.published_json(true))),
+                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), self.restored, crate::args::json::<G::Args>(&self.values), w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.actions.json(), encode(&self.input.keys)?, w.published_json(true))),
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;
                 self.layout(e)
@@ -177,7 +187,8 @@ impl<G: Game> Sim<G> {
             "clock" => {
                 let quiescent = self.quiescent();
                 let deadline = if quiescent { String::new() } else { format!(",\"settleAt\":{}", self.settle_at()) };
-                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":{quiescent}{deadline}}}", w.hash()))
+                let changing = encode(&w.changing)?;
+                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":{quiescent},\"changing\":{changing}{deadline}}}", w.hash()))
             },
             "logs" => {
                 let lines = w.journal(); let next = w.journal_next(); let start = lines.first().map_or(next, |e|e.index); let from = q.since.clamp(start,next);

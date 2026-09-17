@@ -10,18 +10,19 @@ struct Counts {
     wheel: Vec2,
 }
 struct Counter;
+#[derive(Default, exact_game::Args)]
+struct CounterArgs {
+    /// Canvas live argument.
+    #[live]
+    pub paused: bool,
+}
 impl Game for Counter {
     const ID: &'static str = "Counter";
-    const ARGS: &'static [Arg] = &[Arg::live("paused")];
-    fn check(args: &Args) -> Result<(), String> {
-        args.flag("paused")?;
-        Ok(())
-    }
-    fn setup(w: &mut World, args: &Args) -> Result<(), String> {
-        args.flag("paused")?;
+    type Args = CounterArgs;
+
+    fn setup(w: &mut World, _: &Self::Args) {
         w.insert_resource(Counts::default());
-        w.spawn_named("counter", Transform::default());
-        Ok(())
+        w.spawn_named("counter", (Transform::default(), Ambient));
     }
     fn actions() -> Actions {
         Actions::new()
@@ -32,10 +33,10 @@ impl Game for Counter {
                 Stick::keys("KeyW", "KeyS", "KeyA", "KeyD").or_touch(Region::Left),
             )
     }
-    fn paused(args: &Args) -> bool {
-        args.flag("paused").unwrap()
+    fn paused(args: &Self::Args) -> bool {
+        args.paused
     }
-    fn tick(w: &mut World, i: &Input) {
+    fn tick(w: &mut World, i: &Input, _: &Self::Args) {
         let mut c = w.resource_mut::<Counts>();
         c.held += u32::from(i.held("act"));
         c.pressed += u32::from(i.pressed("act"));
