@@ -50,6 +50,18 @@ pools and load balancing stay out; the mixed-resource first-frame bake is
 built with it rather than queued. The measurement bar in LLP 1027.002 §2 says
 when a worker is claimed to help.
 
+**Expanded (Charlie, 2026-09-17: "make the exact2 game engine feel as good or
+better than godot"):** an agent-native game engine as an **add-on** (LLP 1041;
+`game/`, its own workspace, outside the five checks), with one consumer game
+(LLP 1041.000) and its Godot and three.js twins as diagnostics. The core gains
+seams only, each with a non-game reading: raw input to a canvas that asks, a
+surface posting `message`, an agent pass-through on the GPU module, and a
+seekable flag on the frame. Unblocks games whose UI is the app engine and whose
+verification is the eight operations. Take (LLP 1041 §8's recommendation, his to
+replace): Messages' decorative parity comes off outright — Tapback and Reply
+artwork, material and animation-timing matching, the emoji and sticker picker;
+Messages stays as the Snapback4 and list-memory consumer.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with

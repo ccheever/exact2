@@ -13,3 +13,8 @@ host/apple/.build/
 apps/messages/snapback/backend.ts
 apps/messages/snapback/generated/
 apps/messages/.snapback/
+
+# The game add-on: Godot import caches, per-twin node_modules.
+game/twins/godot/**/.godot/
+*.gd.uid
+*.tscn.uid

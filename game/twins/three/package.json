@@ -1,0 +1,6 @@
+{
+  "name": "exact2-bench-twin-three",
+  "private": true,
+  "description": "The three.js twin of game/bench: the same scenes, measured the same way. Diagnostic, never a check.",
+  "dependencies": { "three": "0.186.0" }
+}
