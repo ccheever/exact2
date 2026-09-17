@@ -161,6 +161,13 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
     await call('Runtime.enable');
     await call('Log.enable');
     await call('Page.enable');
+    // Timestamp the actual browser input before a lazy surface module exists.
+    // Its first-frame latency belongs in state.world.perf, outside the clock/hash.
+    await call('Page.addScriptToEvaluateOnNewDocument', { source: `
+      addEventListener('click', event => {
+        if (event.isTrusted) { performance.clearMarks('exact-agent-input'); performance.mark('exact-agent-input', {startTime: event.timeStamp}); }
+      }, true);
+    ` });
     // The viewport exactly: Chrome will not make a window narrower than 500.
     await call('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
     const evaluate = async (expression) => {

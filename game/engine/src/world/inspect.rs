@@ -94,7 +94,7 @@ impl World {
     ) -> Result<String, DataError> {
         let mut fields = Vec::new();
         for (name, s) in storages {
-            let mut w = crate::json::Encoder::rounded();
+            let mut w = crate::json::Encoder::default(); // State must round-trip; only layout is rounded.
             if s.write_one(index, &mut w) {
                 fields.push(format!("{}:{}", quote(name), w.finish()?));
             }

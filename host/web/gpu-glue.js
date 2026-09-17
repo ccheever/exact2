@@ -31,6 +31,12 @@ function render(entry, now) {
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
   const r = gpu.gpu_render(entry.id, w, h, s, clockFor(now));
   if (r === 2) console.error("exact gpu:", gpu.gpu_error());
+  if (r !== 2 && entry.firstFrameSubmittedMs === undefined) {
+    entry.firstFrameSubmittedMs = performance.now();
+    entry.inputMs = performance.getEntriesByName('exact-agent-input').at(-1)?.startTime ?? null;
+    // A rendering opportunity after submission, not a GPU timestamp or scanout.
+    requestAnimationFrame(() => requestAnimationFrame(() => { entry.firstFrameMs = performance.now(); }));
+  }
   entry.wants = r === 1;
   messages(entry);
 }
@@ -133,7 +139,24 @@ function worlds(request) {
   for (const view of surfaces.keys()) {
     const reply = agent(view, request);
     const world = reply?.world ?? (request.op === "clock" ? reply : null);
-    if (world) out.push({ ...world, canvas: view });
+    if (world) {
+      if (request.op === "state") {
+        const entry = surfaces.get(view);
+        world.perf = { ...world.perf, wallClock: true,
+          navigationToFirstContentfulPaintMs: performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? null,
+          gpuMs: Number(exact.root.dataset.gpuMs),
+          inputMs: entry.inputMs ?? null,
+          firstFrameSubmittedMs: entry.firstFrameSubmittedMs ?? null,
+          firstFrameMs: entry.firstFrameMs ?? null,
+          inputToFirstFrameMs: entry.inputMs != null && entry.firstFrameMs != null ? entry.firstFrameMs - entry.inputMs : null,
+          firstFrameMeaning: 'rendering opportunity after GPU submission; not scanout',
+          resources: performance.getEntriesByType('resource')
+            .filter(r => /\/(?:app\.wasm|gpu(?:-glue)?\.js|gpu_bg\.wasm)$/.test(new URL(r.name).pathname))
+            .map(r => ({ name: new URL(r.name).pathname, startMs: r.startTime, endMs: r.responseEnd, bytes: r.decodedBodySize })),
+        };
+      }
+      out.push({ ...world, canvas: view });
+    }
   }
   return out;
 }

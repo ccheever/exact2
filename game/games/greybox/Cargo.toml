@@ -1,5 +1,5 @@
 [workspace]
-members = ["logic"]
+members = ["logic", "web", "apple", "gpu"]
 resolver = "2"
 
 [workspace.package]

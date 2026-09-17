@@ -69,7 +69,7 @@ fn pick_uses_oriented_boxes_and_exact_spheres_and_capsules() {
     assert!(pick(&mut s, 400.0, 300.0).contains("\"hit\":null"));
 }
 #[test]
-fn projection_refusals_and_four_decimal_rounding_are_read_only() {
+fn projection_refusals_and_lossless_state_are_read_only() {
     let mut s = Sim::<Scene>::new(&[]).unwrap();
     let e = s.world().named("child").unwrap();
     s.world_mut()
@@ -77,7 +77,10 @@ fn projection_refusals_and_four_decimal_rounding_are_read_only() {
     let hash = s.world().hash();
     assert!(s
         .agent(r#"{"op":"state","entity":"child"}"#)
-        .contains("0.1235"));
+        .contains("0.1234567"));
+    assert!(s
+        .agent(r#"{"op":"layout","entity":"child"}"#)
+        .contains("\"position\":[2.1235,0,0]"));
     assert!(s
         .agent(r#"{"op":"layout","x":0,"y":0}"#)
         .contains("needs an active camera and viewport"));

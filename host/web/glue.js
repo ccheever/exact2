@@ -719,7 +719,7 @@ function apply(batch) {
           const pending = (globalThis.exact.pendingSurfaces ??= []);
           const queued = pending.find((entry) => entry.id === op.id && entry.generation === incarnation);
           if (queued) { queued.name = op.name; queued.values = op.values; }
-          else pending.push({ id: op.id, name: op.name, values: op.values, generation: incarnation });
+          else { pending.push({ id: op.id, name: op.name, values: op.values, generation: incarnation }); requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded)); }
         }
         break;
       }
