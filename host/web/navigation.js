@@ -249,7 +249,7 @@ export function collectionBytes(facts) {
 export function collectionController({ root, views, report,
   requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id) }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
-  let frame = null, delivering = false, interaction = null;
+  let frame = null, delivering = false, interaction = null, reportsLeft = 4;
   const number = text => Number.parseFloat(text) || 0;
   const size = el => { const r = el.getBoundingClientRect(); return `${r.width},${r.height}`; };
   const portOf = el => {
@@ -284,7 +284,7 @@ export function collectionController({ root, views, report,
     return null;
   }
   function schedule() {
-    if (frame === null && dirty.size) frame = requestFrame(flush);
+    if (frame === null && dirty.size) frame = requestFrame(() => flush());
   }
   function enqueue(s, stimulus = false) {
     if (stimulus) s.budget = 2;
@@ -304,13 +304,13 @@ export function collectionController({ root, views, report,
     return old && ((old.focus_view != null && old.focus_view !== next[0])
       || (old.interaction_view != null && old.interaction_view !== next[1]));
   }
-  function flush() {
-    frame = null;
+  function flush(beforePaint = false) {
+    if (!beforePaint) { frame = null; reportsLeft = 4; }
     // One queued frame, at most four reports/frame and two dependent passes
     // per external stimulus. Retire session pins before acquiring replacements,
     // including when focus/interaction swap owners in the same turn.
     const attempted = new Set();
-    for (let pass = 0; pass < 4; pass++) {
+    for (let pass = 0; pass < 4 && reportsLeft > 0; pass++) {
       const releases = [...states.values()].filter(retiring);
       const candidates = [...dirty].filter(s => !attempted.has(s));
       const s = candidates.find(s => releases.includes(s)) ?? candidates[0];
@@ -348,7 +348,7 @@ export function collectionController({ root, views, report,
       if (s.signature === signature) continue;
       let bytes;
       try { bytes = collectionBytes(facts); } catch { continue; }
-      s.budget--;
+      s.budget--; reportsLeft--;
       for (const el of s.observed.keys()) s.observed.set(el, size(el));
       delivering = true;
       let accepted;
@@ -413,13 +413,23 @@ export function collectionController({ root, views, report,
             dimensions: null, signature: null, lastFacts: null, corrected: null, anchor: el.style.overflowAnchor };
           s.scrolled = () => { if (scrollChanged(s)) enqueue(s, true); };
           s.observer = new ResizeObserver(entries => {
-            let changed = false;
+            let changed = false, resizedPort = false;
             for (const { target } of entries) {
               const next = size(target);
-              if (s.observed.has(target) && s.observed.get(target) !== next) changed = true;
+              if (s.observed.has(target) && s.observed.get(target) !== next) {
+                changed = true;
+                if (target === s.port) resizedPort = true;
+              }
               if (s.observed.has(target)) s.observed.set(target, next);
             }
-            if (changed) enqueue(s, true);
+            if (changed) {
+              enqueue(s, true);
+              // Port growth can expose a spacer before the next rAF. Spend the
+              // remaining shared report budget now, after layout/before paint.
+              // Keep the queued frame: it replenishes the budget once and
+              // handles any deferred work. Own row resizes cannot spin here.
+              if (resizedPort && !delivering) flush(true);
+            }
           });
           port.addEventListener('scroll', s.scrolled, { passive: true });
           states.set(snapshot.view, s);
@@ -448,7 +458,7 @@ export function collectionController({ root, views, report,
         observe(s);
         enqueue(s, !delivering);
       }
-      if (!dirty.size && frame !== null) { cancelFrame(frame); frame = null; }
+      if (!dirty.size && frame !== null && !delivering) { cancelFrame(frame); frame = null; }
     },
     reset() {
       for (const s of states.values()) detach(s);

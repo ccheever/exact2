@@ -702,3 +702,94 @@ SHA-256 is `1979567fce5dd591e51279e3e51f1dbef3f01c44fe5334bdc00772adf5f503c7`;
 the timing executable is `1c2f17ccd75ad69eb7689a86fda6b95e8c7e5f63cb8b91c0ea180cdf6412e7a3`.
 These are exploratory same-machine CPU observations without an exclusive quiet
 window, Linux text result, whole-app input latency or physical presentation claim.
+
+### 8.9 Actual Linux giant-text failures and residency work, 2026-09-17
+
+Nine fresh-process probes use the preserved Linux rich-text executable
+`a2f9a246e6ebff0ce8971a47428665e2a0b1e4a43540da1443656afc11372fc1`
+on Ubuntu ARM64, four vCPUs/4 GiB, CPU presenter and DejaVu Sans. This is an
+identified earlier binary, not the current image-adapter working tree. The
+unchanged paragraph consumer supplies both document blocks and pauses production.
+Three fixed-width edits/scrolls precede alternating window widths and eight new
+widths, each queued immediately before a Unicode text edit. Timings include IPC,
+Runner work, shaping and painting; they are not isolated engine or display times.
+
+The 256 KiB arm completes all three runs: median warm typing ACKs are
+47.22/47.69/49.67 ms; eight fresh widths finish at about 838 MiB RSS, versus
+244 MiB after the alternating-width phase. All three 1 MiB arms abort on their
+fourth fresh width under the diagnostic's 2.5 GiB virtual-address-space cap;
+their previous acknowledged RSS is about 1,782 MiB. All three 4 MiB arms finish
+the size-change command in 1.55–1.57 s, then abort during wide-column setup.
+These are retained failures under an explicit experiment limit, not claims
+about unrestricted OS OOM behavior. The cap protects the shared VM and is not
+a product policy. Full samples, partial geometry, stderr, limits and provenance
+qualifications are in `target/linux-giant-text-20260917/report.md`.
+
+This exposes a prerequisite to asynchronous reflow: width-specific full buffers
+must not accumulate behind an entry-only cache limit. Newton owns a synchronous
+Linux residency increment, starting 2026-09-17 in an isolated worktree while the
+native image integration finishes. Retain each live paragraph owner's accepted
+snapshot and current working result; identical content may have several visible
+owners at different widths. Retire unpinned obsolete widths before allocation,
+retain scalar intrinsic metrics instead of full probe buffers, and replace
+formatted full-text width keys with collision-checked content/style/catalog
+identity. A proposed 64 MiB soft cold-cache target is an eviction policy, not a
+process cap: pinned/working overage, known owned storage, estimated library
+storage and RSS must remain distinct. Tests and repeated width sweeps must prove
+bounded history and unchanged complete layout before any improvement is claimed.
+Cold work remains synchronous in that increment. Moving it to a worker must
+later preserve a responsive published shell and explicitly pending content,
+coherent accepted geometry/text/selection, stale-result rejection and bounded
+running/pending work; returning invented final metrics is not an implementation.
+
+### 8.10 Reuse validated resources and cover growing web ports, 2026-09-17
+
+Carson's Runner change removes repeated shape validation only when the existing
+resource-reuse predicate succeeds. Each retained value has already crossed the
+current immutable plan/index's validation boundary; fresh answers, baked values,
+carry/kept inputs, asynchronous replies and forced refreshes still validate.
+Seven regressions failed before the change and pass afterwards, with 87 Runner
+tests and strict scoped Clippy passing. The unchanged 25,000-item fixture enters
+shape validation zero times during 120 scalar actions, versus 120 before;
+a forced fresh answer at the same pointer still enters it once.
+
+Twelve alternating fresh processes compare preserved before/after executables
+on the same Apple M4, with native builders/drives paused. Three repetitions per
+arm use 1,000 or 25,000 gallery records and 120 authored height changes from
+180 to 420 at fixed width. At 25,000 records, per-process action p50 falls from
+438.542/442.333/465.125 to 45.750/42.084/39.750 microseconds; p95 falls from
+459.958/476.000/513.833 to 49.209/50.625/44.625. All 1,440 samples pass and
+deterministic outputs match: 2–5 mounted rows, 69–93 live nodes, 254 arena slots,
+135 text measurements per process and no added source queries or key evaluation.
+The 1,000-record arm has an after-run outlier (p95 120.666 microseconds versus
+61.375 before); its other after p95s are 47.875/45.333 versus 70.250/74.167.
+It is retained, not discarded or described as an across-the-board speedup.
+
+The before executable SHA-256 is
+`b0305f8403952c40adaed835435399cc9cae1d96f23d68632ebf20543eb7e25d`;
+after is `0c9e7fa2ba10ca1b0ecfff8fb7db7679d1d34f453d864e9fed0b69b397811536`.
+Source/binary identities match before and after the run; all 13 point-in-time
+compiler observations are empty. Full raw samples and limits are under
+`target/runner-shape-reuse/paired-2026-09-17T08-17-58.950293+00-00/`.
+This probe uses deterministic monospace kernel measurement and ordinary authored
+actions. It does not include native fonts, paint, IPC, held-height projection or
+physical presentation; the tiny layout brackets do not prove a full frame budget.
+
+Leibniz's browser fix lets actual scrollport ResizeObserver changes spend the
+remaining collection-feedback budget before paint. It shares four reports with
+the scheduled rAF, preserves the two-pass stimulus budget and leaves row-only
+observation deferred. A growing port previously exposed an eight-pixel spacer
+strip for one rendered frame. The real 25,000-record gallery regression pauses
+a WAAPI height animation and grows its nested port from 105 to 256 pixels:
+two 124-pixel rows become five before the first resized frame is painted.
+
+The same test fails against the old JavaScript. In the fixed test, delaying the
+actual observer by one rAF still paints the uncovered strip, while ordinary
+delivery paints full coverage. Screencast PNGs must contain the marker for the
+first rendering opportunity; an eventual screenshot cannot satisfy the test.
+Both the 1,000-row Wasm fixture and gallery pass, as do 22 DOM tests. The lead
+independently reran the gallery and DOM tests. Artifacts are preserved in
+`target/web-resize-coverage-20260917/` and `target/web-resize-coverage-lead/`.
+This combines current JavaScript with an identified prior Wasm/plan, colors
+wrappers/spacers to isolate coverage, and makes no typography, physical gesture
+or physical 120 Hz claim. Native image and text-residency work remains separate.

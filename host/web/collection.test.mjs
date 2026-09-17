@@ -99,6 +99,24 @@ test('ResizeObserver updates real row heights and width, then becomes idle', asy
   expect(result.last.rows[0].height).toBe(97);
   expect(result.idle).toBe(true);
 });
+test('pre-paint port feedback shares four reports with rAF and defers excess without a resize loop', async () => {
+  const result = await evaluate(`(() => {
+    const NativeObserver=ResizeObserver; let notify;
+    globalThis.ResizeObserver=class { constructor(fn){notify=fn;} observe(){} unobserve(){} disconnect(){} };
+    let f;
+    try { f=fixture(); f.controller.commit([f.snapshot()]); } finally { globalThis.ResizeObserver=NativeObserver; }
+    f.flush();
+    for(let i=0;i<20;i++) { f.port.style.height=(200+i)+'px'; notify([{target:f.port}]); }
+    const before={reports:f.reports.length,pending:f.frames.size,height:f.reports.at(-1).height};
+    f.flush(); const after={reports:f.reports.length,height:f.reports.at(-1).height};
+    // Identical delivered entries cannot replenish budget or schedule work.
+    for(let i=0;i<20;i++) notify([{target:f.port}]);
+    return {before,after,pending:f.frames.size};
+  })()`);
+  expect(result.before).toEqual({reports:4,pending:1,height:202});
+  expect(result.after).toEqual({reports:5,height:219});
+  expect(result.pending).toBe(0);
+});
 test('a partial DOM never reports guessed geometry and resumes on a valid commit', async () => {
   const result = await evaluate(`(() => { const f=fixture(), row=f.views.get(2); f.views.delete(2); f.controller.commit([f.snapshot()]); f.views.get(3).focus({preventScroll:true}); f.flush(); const partial=f.reports.length; f.views.set(2,row); f.controller.commit([f.snapshot()]); f.flush(); return {partial,valid:f.reports.length}; })()`);
   expect(result).toEqual({ partial: 0, valid: 1 });
