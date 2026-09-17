@@ -366,6 +366,36 @@ and measure the browser where supported; promise no Exact-controlled
 decoded-byte ceiling there. Symbol/framework caches are likewise outside
 the Exact raster budget and remain visible in process measurements.
 
+**Native implementation starts 2026-09-17:** Newton owns the shared std-only
+`exact-raster` admission/accounting core; Darwin and Epicurus wire Apple and
+Linux image loaders. Tuft integrates and records before/after evidence. The
+session budget outlives replaceable runtime generations; active, candidate and
+retiring backings share it. A payload-free allocation charge follows each
+physical backing until its final owner drops. Sharing one backing shares one
+charge; making a pixel copy requires another reservation. Charge ownership has
+no strong path back to a session, cache or payload.
+
+The process admits at most two running decodes. Each session additionally has
+two reserved delivery cells, counting running and completed-unconsumed results;
+admission reserves a cell before allocating. A session whose UI does not consume
+its two results cannot stop other sessions decoding. Completed bytes remain
+charged, but a finished worker returns its process slot after scratch is gone.
+Pause/shutdown discard unclaimed results without requiring a UI callback; active
+cancelled work retains its reservation until its actual allocations drop.
+Native payload destruction occurs outside accounting locks.
+
+Pending job metadata is capped at 64 unique jobs per session, live subscriptions
+at 1,024, and cold cache entries at 64. Overflow/defer reasons are observable;
+no per-visited-source or failed-request history is retained. Temporary byte
+pressure waits for capacity; the host can replace demand with a smaller decode.
+Natural image size remains independent of decoded pixel dimensions in layout
+and `object-fit: none`/`scale-down`, as well as aspect-ratio-preserving fits.
+The adapter must establish its allocation bounds before claiming acceptance:
+metadata limits and thumbnail output dimensions alone do not prove a bound on
+opaque codec internals. Record known owned raster/copy/scratch charges, encoded
+storage and process memory separately. This paragraph is the implementation
+assignment and selected policy, not evidence that either native loader passes.
+
 ### 6.4 Acceptance and landing
 
 At a fixed viewport and row shape, 1,000 and 25,000 records have the same

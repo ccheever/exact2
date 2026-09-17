@@ -1,7 +1,7 @@
 # LLP 1041: Graceful overload, proved by interactive workloads
 
 **Type:** RFC
-**Status:** Draft design; three stress examples, native resize diagnostics, dependency memos and a bounded native HTTP/pump slice are implemented. Host evidence is recorded below. Module-worker placement, viewport collections and physical 120 Hz remain incomplete.
+**Status:** Campaign in progress. Three stress examples, bounded native HTTP/pump work, viewport collections and interruptible Messages gestures are implemented. Native image admission, the three continuous gallery gestures, measured worker placement and physical 120 Hz remain incomplete; evidence and limitations are recorded below.
 **Systems:** Data execution, runner settlement, host completion pumps, presentation, workload diagnostics
 **Author:** Tuft / Codex for Charlie Cheever
 **Implementer:** Tuft / Codex with Astra workers; first examples start 2026-09-16. Runtime changes follow measured examples and the accepted worker-placement design.
@@ -617,6 +617,28 @@ checks, source identity and executable are in
 captured binary from the subsequent removal of the unused legacy hold API.
 This is virtual display-loop and remote-input evidence, not a physical display,
 desktop-compositor comparison, input-latency measurement or a 120 Hz claim.
+
+An exploratory AppKit resize/typing/scroll drive of the preserved final Messages
+binary supplies 10,000 records, revises 32 tail records per virtual producer tick
+and resizes between 800×640 and 1120×860. All 72 cohorts pass echo, viewport,
+scroll and recovery checks (three repetitions of 24). The three typing-ACK p95s
+are 22.19 / 22.89 / 23.08 ms; resize-ACK p95s are 15.08 / 16.35 / 14.03 ms.
+ACK includes IPC and earlier queued clock/resize work, not a stage's CPU cost
+or physical presentation. The virtual producer advances once per backpressured
+cohort; this is not a real-time 4 Hz throughput result. Raw samples and executable
+identity are in `target/motion-integration-final/resize-10k-virtualized/`.
+The earlier `resize-10k-windowed-final/` directory actually exercised the manual
+100-row control, as its recorded mode says; its misleading directory name is
+not evidence of virtualization. The preceding PATH-only startup failure is
+retained separately. No compiler quiet-window claim follows from these runs.
+
+The matching 72-cohort drive also passes on actual Ubuntu ARM64 with final
+binary `d5c89044…`; all 10,000 records are supplied there too. Typing-ACK p95s
+are 17.80 / 15.92 / 15.92 ms and resize-ACK p95s 15.05 / 13.45 / 13.43 ms.
+Raw samples/screenshots are in `target/motion-integration-final/resize-10k-linux/`.
+This uses the headless CPU presenter, separately from the VKMS gesture drive;
+the OS, fonts, painting and viewport differ from AppKit, so these are independent
+workload observations rather than a platform speed comparison.
 
 The remaining campaign includes sustained loaded/resize interaction measurements,
 the three gallery gestures, image admission and reduced-resolution decoding,
