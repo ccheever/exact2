@@ -812,4 +812,43 @@ extension TextGeometryTests {
         leases.removeFirst()
         XCTAssertTrue(weakFirst.value == nil, "Evicted lookup metadata cannot own a former view's paragraph")
     }
+
+    func testAcceptedParagraphKeepsSourceAndPaintAcrossScalarReuseAndCatalogRestore() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let original = spec("Ée\u{301} 🧪漢字 linked source\nsecond line")
+        let measured = engine.paragraph(original, width: 190)
+        var painted = original
+        painted.color = [180, 30, 70, 255]
+        painted.runs[0].href = "first.md#É"
+        let accepted = engine.paragraph(painted, width: 190)
+        engine.accepted(accepted)
+        let ranges = accepted.lines.map { CTLineGetStringRange($0) }
+        let bytes = Array(accepted.shape!.spec.runs[0].text.utf8)
+        XCTAssertEqual(accepted.height, measured.height)
+        XCTAssertEqual(accepted.baselines, measured.baselines)
+        XCTAssertTrue(engine.paragraph(painted, width: 190) === accepted)
+        let cp = engine.checkpoint()
+        engine.install(nil)
+        let candidate = engine.paragraph(painted, width: 190)
+        XCTAssertTrue(candidate.shape!.identity.catalog !== accepted.shape!.identity.catalog)
+        engine.restore(cp)
+        XCTAssertTrue(engine.paragraph(painted, width: 190) === accepted)
+        var changed = painted
+        changed.color = [20, 80, 220, 255]
+        changed.runs[0].href = "second.md#e\u{301}"
+        let replacement = engine.paragraph(changed, width: 190)
+        XCTAssertTrue(replacement !== accepted)
+        XCTAssertEqual(replacement.height, accepted.height)
+        XCTAssertEqual(replacement.baselines, accepted.baselines)
+        XCTAssertEqual(replacement.lines.map { CTLineGetStringRange($0).location }, ranges.map { $0.location })
+        XCTAssertEqual(replacement.lines.map { CTLineGetStringRange($0).length }, ranges.map { $0.length })
+        XCTAssertEqual(Array(replacement.shape!.spec.runs[0].text.utf8), bytes)
+        XCTAssertEqual(replacement.shape!.spec.runs[0].href, changed.runs[0].href)
+        XCTAssertEqual(accepted.shape!.spec.runs[0].href, painted.runs[0].href)
+        XCTAssertEqual(ranges.last!.location + ranges.last!.length, original.runs[0].text.utf16.count)
+        assertInkMatches(replacement, spec: changed,
+                         bounds: CGRect(x: 15, y: 20, width: 190, height: replacement.height),
+                         clip: CGRect(x: 0, y: 0, width: 340, height: 160))
+    }
+
 }

@@ -1013,6 +1013,31 @@ build logs, exact samples and screenshots are in `target/apple-text-integration-
 Full macOS compilation and this drive validate the acceptance hook; Swift
 Package XCTest and UIKit remain unverified on this Command Line Tools machine.
 
+**Identified Apple scalar metrics, Tuft and Darwin, 2026-09-17:** the Rust
+callback measurer now checks the paragraph stamp before constructing C runs or
+calling Swift. Each measurer retains at most 256 generational owners, four exact
+typed width/height offer pairs per owner, scalar metrics and payload-free stamps.
+Metric/domain changes miss; paint-only revisions may reuse metrics. Catalog
+lifetime is the measurer's lifetime: current boot/candidate paths construct a
+fresh measurer before installing fonts. Invalid raw callback results retain the
+previous sanitized return behavior but are never memoized; valid zeros remain
+cacheable. Anonymous requests still use the original foreign path.
+
+The meaningful 4-MiB paragraph/sibling-typing regression changes four additional
+foreign callbacks to zero after the initial call. Ten new Rust tests also cover
+exact offers, owner bounds, source/namespace revisions, malformed-result retry
+and candidate/catalog lifetimes. All 118 Apple-package tests pass on integrated
+source, with strict Clippy, formatting, caps and boot. The optimized standalone
+Swift suite passes 32 methods/517 assertions, including accepted source, links,
+catalog restoration and bitmap geometry; it is not full XCTest. NodeText's
+accepted paragraph and paint/source/selection ownership are unchanged.
+
+Frozen source, meaningful RED/green logs, independent review and main integration
+checks are in `target/apple-identified-measure-validation/`. This callback-count
+proof is not an AppKit latency measurement. The controlled native comparison is
+prepared separately; cold/new-width shaping remains synchronous, and no new
+RSS, input-latency or physical-frame result is claimed by this increment.
+
 ### 8.12 Numeric sheet-height presentation trial, 2026-09-17
 
 The kernel trial separates sampled layout height from authored state.

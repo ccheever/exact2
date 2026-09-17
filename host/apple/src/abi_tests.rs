@@ -651,3 +651,125 @@ fn height_release_abi_separates_synthesis_from_generation_checked_pointer_comple
         assert_eq!(bridge.host.as_ref().unwrap().engine().now(), 0.);
     }
 }
+
+// The catalog callback is synchronous and precedes every candidate's first
+// measure. The Swift owner restores its checkpoint after a failed fresh boot.
+#[derive(Default)]
+struct MetricCatalogProbe {
+    catalog: std::cell::Cell<u32>,
+    calls: std::cell::RefCell<Vec<u32>>,
+}
+#[allow(unsafe_code)] // Borrow the test-owned callback context synchronously.
+extern "C" fn identified_install(ctx: *mut c_void, _: *const crate::measure::CFontCatalog) {
+    let p = unsafe { &*ctx.cast::<MetricCatalogProbe>() };
+    p.catalog.set(p.catalog.get() + 1);
+}
+#[allow(unsafe_code)] // Borrow the test-owned callback context synchronously.
+extern "C" fn identified_catalog_measure(
+    ctx: *mut c_void,
+    _: *const crate::measure::CRequest,
+) -> crate::measure::CMetrics {
+    let p = unsafe { &*ctx.cast::<MetricCatalogProbe>() };
+    let catalog = p.catalog.get();
+    p.calls.borrow_mut().push(catalog);
+    crate::measure::CMetrics {
+        width: 80.0,
+        height: 10.0 * catalog as f32,
+        baseline: 5.0,
+    }
+}
+fn catalog_hooks(p: &MetricCatalogProbe) -> Hooks {
+    Hooks {
+        measure: Some(identified_catalog_measure),
+        ctx: std::ptr::from_ref(p).cast_mut().cast(),
+        ..Hooks::none()
+    }
+}
+fn identified_plan() -> Vec<u8> {
+    contract::compile("component App\n  view\n    column\n      text \"catalog text\"\n")
+        .unwrap()
+        .encode()
+}
+
+#[test]
+fn identified_candidate_catalog_commit_and_discard_keep_separate_measurers() {
+    let bytes = identified_plan();
+    let live = MetricCatalogProbe::default();
+    let candidate = MetricCatalogProbe::default();
+    let mut bridge = Bridge::new();
+    bridge.set_fonts(Some(identified_install), catalog_hooks(&live).ctx);
+    bridge.boot(
+        &bytes,
+        StorageModule::default(),
+        catalog_hooks(&live),
+        390.0,
+        844.0,
+    );
+    assert!(!live.calls.borrow().is_empty());
+    assert!(live.calls.borrow().iter().all(|c| *c == 1));
+    let calls = live.calls.borrow().len();
+    bridge.set_fonts(Some(identified_install), catalog_hooks(&candidate).ctx);
+    bridge.input_write(&bytes);
+    bridge.prepare_plan(
+        bytes.len(),
+        StorageModule::default(),
+        catalog_hooks(&candidate),
+        390.0,
+        844.0,
+    );
+    assert!(bridge.prepared.is_some());
+    assert!(!candidate.calls.borrow().is_empty());
+    assert_eq!(live.calls.borrow().len(), calls);
+    bridge.discard_plan();
+    assert!(bridge.host.is_some());
+    bridge.resize(390.0, 845.0);
+    bridge.resize(390.0, 844.0);
+    let candidate_calls = candidate.calls.borrow().len();
+    bridge.input_write(&bytes);
+    bridge.prepare_plan(
+        bytes.len(),
+        StorageModule::default(),
+        catalog_hooks(&candidate),
+        390.0,
+        844.0,
+    );
+    assert!(bridge.prepared.is_some());
+    assert!(candidate.calls.borrow().len() > candidate_calls);
+    assert_eq!(candidate.catalog.get(), 2);
+    assert_eq!(*candidate.calls.borrow().last().unwrap(), 2);
+    bridge.commit_plan();
+    let previous_live_calls = live.calls.borrow().len();
+    bridge.resize(400.0, 844.0);
+    assert_eq!(live.calls.borrow().len(), previous_live_calls);
+    assert_eq!(*candidate.calls.borrow().last().unwrap(), 2);
+}
+
+#[test]
+fn identified_failed_fresh_boot_preserves_catalog_and_live_measurer() {
+    let bytes = identified_plan();
+    let context = MetricCatalogProbe::default();
+    let hooks = catalog_hooks(&context);
+    let mut bridge = Bridge::new();
+    bridge.set_fonts(Some(identified_install), hooks.ctx);
+    bridge.boot(&bytes, StorageModule::default(), hooks, 390.0, 844.0);
+    let old_keys = bridge.host.as_ref().unwrap().runner().roots();
+    let checkpoint = context.catalog.get();
+    let len = bridge.boot(&bytes, StorageModule::default(), hooks, f32::NAN, 844.0);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("error"));
+    assert_eq!(
+        context.catalog.get(),
+        checkpoint,
+        "invalid viewport refuses before font installation"
+    );
+    // ExactSession.boot's error branch does text.restore(cp); real Swift
+    // catalog/paragraph restoration remains covered by TextGeometryTests.
+    context.catalog.set(checkpoint);
+    assert_eq!(bridge.host.as_ref().unwrap().runner().roots(), old_keys);
+    context.calls.borrow_mut().clear();
+    bridge.resize(391.0, 844.0);
+    assert!(context
+        .calls
+        .borrow()
+        .iter()
+        .all(|catalog| *catalog == checkpoint));
+}

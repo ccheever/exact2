@@ -253,8 +253,9 @@ final class TextEngine {
     let resolve: (String) -> URL?
     let read: (String) -> Data?
     private var pendingFonts: [URL] = []
-    /// How many times the kernel asked, how many were answered from cache, and
-    /// total measurement time, since this session started.
+    /// Native callback entries, native cache hits, and native cache/layout time
+    /// since session start. Rust identified-metric hits bypass this callback;
+    /// the timer below excludes C-run decoding and Swift String construction.
     var measureCount = 0
     var measureHits = 0
     var measureSeconds = 0.0

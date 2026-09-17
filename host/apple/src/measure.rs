@@ -10,7 +10,11 @@
 //! NUL-terminated. Widths and heights are points; an unconstrained offer is
 //! negative ([`MAX_CONTENT`], [`MIN_CONTENT`]).
 
-use exact_kernel::{AxisOffer, TextAlign, TextMeasureRequest, TextMeasurer, TextMetrics};
+use exact_kernel::{
+    AxisOffer, ParagraphStamp, TextAlign, TextMeasureRequest, TextMeasurer, TextMetrics,
+};
+
+mod identified;
 use exact_plan::{Plan, StackMemberKind};
 use std::ffi::c_void;
 
@@ -152,12 +156,19 @@ pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
 pub struct CallbackMeasurer {
     f: MeasureFn,
     ctx: *mut c_void,
+    memo: identified::Memo,
 }
 
 impl CallbackMeasurer {
-    /// Wrap `f` with its context.
+    /// Wrap `f` with its context for one installed metric catalog.
+    /// Construct a new measurer when that catalog changes; Apple boot and
+    /// candidate preparation already do so before invoking the font hook.
     pub fn new(f: MeasureFn, ctx: *mut c_void) -> CallbackMeasurer {
-        CallbackMeasurer { f, ctx }
+        CallbackMeasurer {
+            f,
+            ctx,
+            memo: identified::Memo::default(),
+        }
     }
 }
 
@@ -183,8 +194,8 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
     }
 }
 
-impl TextMeasurer for CallbackMeasurer {
-    fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+impl CallbackMeasurer {
+    fn foreign_measure(&mut self, request: &TextMeasureRequest<'_>) -> CMetrics {
         let runs: Vec<CRun> = request
             .runs
             .iter()
@@ -207,20 +218,53 @@ impl TextMeasurer for CallbackMeasurer {
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.
-        let m = (self.f)(self.ctx, &c);
-        TextMetrics {
-            width: if m.width.is_finite() {
-                m.width.max(0.0)
-            } else {
-                0.0
-            },
-            height: if m.height.is_finite() {
-                m.height.max(0.0)
-            } else {
-                0.0
-            },
-            first_baseline: (m.baseline.is_finite() && m.baseline >= 0.0).then_some(m.baseline),
+        (self.f)(self.ctx, &c)
+    }
+}
+
+fn sanitize(m: CMetrics) -> TextMetrics {
+    TextMetrics {
+        width: if m.width.is_finite() {
+            m.width.max(0.0)
+        } else {
+            0.0
+        },
+        height: if m.height.is_finite() {
+            m.height.max(0.0)
+        } else {
+            0.0
+        },
+        first_baseline: (m.baseline.is_finite() && m.baseline >= 0.0).then_some(m.baseline),
+    }
+}
+
+impl TextMeasurer for CallbackMeasurer {
+    fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+        sanitize(self.foreign_measure(request))
+    }
+
+    fn measure_identified(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+    ) -> TextMetrics {
+        if let Some(metrics) = self.memo.get(stamp, request.width, request.height) {
+            return metrics;
         }
+        let raw = self.foreign_measure(request);
+        let valid = raw.width.is_finite()
+            && raw.width >= 0.0
+            && raw.height.is_finite()
+            && raw.height >= 0.0
+            && raw.baseline.is_finite();
+        let metrics = sanitize(raw);
+        // A negative finite baseline is the existing C "unknown" sentinel.
+        // Invalid raw output keeps its existing sanitized return behavior, but
+        // must retry the callback next time instead of caching a synthetic zero.
+        if valid {
+            self.memo.put(stamp, request.width, request.height, metrics);
+        }
+        metrics
     }
 }
 
@@ -244,3 +288,6 @@ mod tests {
         assert_eq!(ratio.line_height, 30.0);
     }
 }
+
+#[cfg(test)]
+mod identified_tests;
