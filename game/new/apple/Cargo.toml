@@ -1,5 +1,5 @@
 [package]
-name = "greybox-apple"
+name = "small-game-apple"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

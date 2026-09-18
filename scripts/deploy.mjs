@@ -279,23 +279,26 @@ function repoTop(cwd, what = 'source') {
  * inputs too. A package can inherit fields or read inputs from its workspace
  * root, so the immutable unit is its whole repository, not just its crate. */
 function cargoDependencyRoots(app, exactRoot) {
-  const workspace = canonicalPath(app.workspace ?? app.dir);
-  if (!existsSync(resolve(workspace, 'Cargo.toml'))) return [];
-  const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--locked'], {
-    cwd: workspace, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-  });
-  if (result.status !== 0) refuse(`${workspace}: cargo cannot resolve the locked local source graph: ${result.stderr.trim()}`);
-  let metadata;
-  try { metadata = JSON.parse(result.stdout); }
-  catch (error) { refuse(`${workspace}: cargo metadata was not JSON: ${error.message}`); }
   const owned = new Set([repoTop(app.dir, 'app source'), repoTop(exactRoot, 'Exact source')]);
   const repos = new Set();
-  for (const pkg of metadata.packages ?? []) {
-    if (pkg.source !== null || typeof pkg.manifest_path !== 'string') continue;
-    const packageDir = canonicalPath(dirname(pkg.manifest_path));
-    const repo = repoTop(packageDir, 'local Cargo dependency');
-    if (owned.has(repo)) continue;
-    repos.add(repo);
+  // Materialization validates both workspaces. Capture both local dependency
+  // closures too, even when the app belongs to a separate enclosing workspace.
+  for (const workspace of new Set([canonicalPath(app.workspace ?? app.dir), canonicalPath(exactRoot)])) {
+    if (!existsSync(resolve(workspace, 'Cargo.toml'))) continue;
+    const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--locked'], {
+      cwd: workspace, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    });
+    if (result.status !== 0) refuse(`${workspace}: cargo cannot resolve the locked local source graph: ${result.stderr.trim()}`);
+    let metadata;
+    try { metadata = JSON.parse(result.stdout); }
+    catch (error) { refuse(`${workspace}: cargo metadata was not JSON: ${error.message}`); }
+    for (const pkg of metadata.packages ?? []) {
+      if (pkg.source !== null || typeof pkg.manifest_path !== 'string') continue;
+      const packageDir = canonicalPath(dirname(pkg.manifest_path));
+      const repo = repoTop(packageDir, 'local Cargo dependency');
+      if (owned.has(repo)) continue;
+      repos.add(repo);
+    }
   }
   return [...repos].sort().map((cwd) => ({ role: 'cargo', cwd }));
 }

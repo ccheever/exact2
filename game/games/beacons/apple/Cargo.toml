@@ -4,14 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-build = "build.rs"
+build = "../../../app/apple.rs"
 
 [lib]
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-exact-runner = { path = "../../../../runner" }
-exact-apple = { path = "../../../../host/apple" }
+exact-runner.workspace = true
+exact-apple.workspace = true
 
 [build-dependencies]
-exact-game-app = { path = "../../../app" }
+exact-game-app.workspace = true

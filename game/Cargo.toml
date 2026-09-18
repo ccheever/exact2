@@ -2,13 +2,27 @@
 # from the root `members`, so exact2's five checks never compile it. It consumes
 # exact2 by path, as an app outside the repository does.
 [workspace]
-members = ["engine", "derive", "render", "physics", "audio", "app"]
+members = ["engine", "derive", "render", "physics", "audio", "app", "games/*/logic", "games/*/gpu", "games/*/web", "games/*/apple"]
 resolver = "2"
 
 [workspace.package]
 edition = "2021"
 version = "0.1.0"
 license = "MIT"
+
+[workspace.dependencies]
+exact-game = { path = "engine" }
+exact-game-derive = { path = "derive" }
+exact-game-render = { path = "render" }
+exact-game-physics = { path = "physics" }
+exact-game-audio = { path = "audio" }
+exact-game-app = { path = "app" }
+exact-web = { path = "../host/web" }
+exact-apple = { path = "../host/apple" }
+exact-runner = { path = "../runner" }
+wasm-bindgen = "=0.2.127"
+wasm-bindgen-futures = "=0.4.77"
+web-sys = { version = "=0.3.104", features = ["HtmlCanvasElement"] }
 
 # The profiles are exact2's (../Cargo.toml): `host/web/build.mjs` builds
 # `--profile web`, `host/apple/build.mjs` `--release`.

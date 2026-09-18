@@ -1,5 +1,5 @@
 [package]
-name = "greybox-gpu"
+name = "small-game-gpu"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 exact-game-render.workspace = true
-greybox-logic = { path = "../logic" }
+small-game-logic = { path = "../logic" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen.workspace = true

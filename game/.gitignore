@@ -1,0 +1,4 @@
+/games/*/dist/
+/games/*/dist.previous/
+/games/*/artifacts/
+/games/*/app.contract.d.ts

@@ -155,9 +155,23 @@ is closed and recorded children are checked before exit. Artifacts are in the ga
 
 ## Working here
 
-`cargo test` in this directory is the engine's loop; `bun ../scripts/caps.mjs` still
-holds every file to 1,500 lines. A game is driven like any app, with
-`EXACT_APP_DIR=game/games/<name>`.
+From the repository root:
+
+```sh
+bun game/new.mjs my-game                 # copy the complete, tested small game
+bun game/dev.mjs my-game                 # the shared dev loop, on loopback
+bun game/games/my-game/proof.mjs web      # or macos
+```
+
+Games are members of this workspace: one lockfile, profiles and dependency pins in
+`game/`, no workspace manifest or lockfile in a game. The generator registers the
+new packages in that shared lockfile without upgrading dependencies. The three
+one-line host shells use shared dependencies and web/Apple build scripts; game
+code lives in `logic/`, its UI in `app.contract`, and its proof beside them.
+`cargo test` from `game/` runs the engine and every game's logic tests.
+`bun test game/new.test.mjs` copies the real files in `game/new/`, builds and proves
+the untouched game, then removes it. `bun scripts/caps.mjs` from the repository
+root still holds every source file to 1,500 lines.
 
 A world's observation starts `Unknown`, also after rebuilding, restoring, live
 advancement, queued input, or live argument changes. Unknown is not quiescent.
@@ -200,7 +214,7 @@ to delete it and try again, not to configure it.
 
 ## The world dev loop
 
-`EXACT_APP_DIR=game/games/greybox bun host/web/dev.mjs --loopback` uses the same
+`bun game/dev.mjs greybox` uses the same
 core dev server as every app. Rust source edits exclusive to the GPU cdylib's
 Cargo dep-info rebuild only that module under `gpu-dev`, then swap it under the
 live canvas with its entire simulation carried. Shared/app inputs still rebuild

@@ -34,7 +34,7 @@ export async function proof(meta, script) {
   const dist = resolve(app, 'dist');
   mkdirSync(out, {recursive:true});
   Object.assign(process.env, {EXACT_APP_DIR:app, EXACT_WEB_DIST:dist,
-    EXACT_UPDATE_TRUST:'development', CARGO_TARGET_DIR:resolve(root, 'game/target')});
+    EXACT_UPDATE_TRUST:'development'});
   const started = performance.now(), failures = [], transcript = [], replies = [], sessions = new Set();
   const say = line => { transcript.push(line); console.log(line); };
   const check = (label, ok, value) => {
@@ -90,7 +90,7 @@ export async function proof(meta, script) {
     if (!['web','macos','ios'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const files = spawnSync('git', ['ls-files','--cached','--others','--exclude-standard'], {cwd:root, encoding:'utf8'});
     if (files.status !== 0) throw new Error('cannot enumerate build inputs');
-    const hash = createHash('sha256').update(host).update(process.env.CARGO_TARGET_DIR);
+    const hash = createHash('sha256').update(host).update(resolveApp(name).target);
     for (const file of [...new Set(files.stdout.trim().split('\n'))].sort()) {
       if (/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file)
         || (file.startsWith('game/games/') && !file.startsWith(`game/games/${name}/`))
