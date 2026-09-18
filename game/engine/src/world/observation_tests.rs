@@ -171,7 +171,9 @@ fn randomized_cached_observations_equal_the_original_path() {
                 let live: Vec<_> = w.entities().collect();
                 let e = *script.pick(&live).unwrap();
                 let action = script.range(0u32..coverage.len() as u32) as usize;
-                coverage[action] += 1;
+                let before_bytes = w.save();
+                let before_generation = w.presentation_generation;
+                let before_epoch = w.mutation_epoch();
                 match action {
                     0 => {
                         w.spawn_named("new", (Transform::default(), Payload::default()));
@@ -243,6 +245,13 @@ fn randomized_cached_observations_equal_the_original_path() {
                         }
                     }
                 }
+                // An unwritten lease deliberately changes only the observation epoch.
+                let mutated = if action == 4 {
+                    w.mutation_epoch() != before_epoch
+                } else {
+                    w.save() != before_bytes || w.presentation_generation != before_generation
+                };
+                coverage[action] += usize::from(mutated);
             }
             if tick % 67 == 0 {
                 w.id = WorldId(std::rc::Rc::new(()));
@@ -441,3 +450,6 @@ fn newly_available_globals_invalidate_equal_pose_cache_entries() {
             .any(|row| row.0 == 1 && row.2 == child));
     }
 }
+
+#[path = "observation_invalidation.rs"]
+mod invalidation;
