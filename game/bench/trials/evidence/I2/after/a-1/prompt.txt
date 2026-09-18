@@ -1,0 +1,49 @@
+Implement this change in game/games/lanterns only. This is a fresh 900-second change trial. Model gpt-5.6-sol, reasoning high. At most three fixes per failure loop; stop and report after three. No sub-agents. Do not read anything outside this workspace or seek external evaluators/other attempts. Do not change the engine, host, shared scripts, or baseline physics/movement. Ordinary input only; no teleport or test mutation. Read game/README.md and your game. Dependencies and existing build/proof scripts are present for compilation and verification. A warmed Linux build is ready. This machine has no GPU, Chrome, or Apple SDK. Use bun game/games/lanterns/proof.mjs linux, and cargo test --manifest-path game/Cargo.toml -p lanterns-logic. Preserve the environment's Cargo debug/incremental settings. Write your final report before the deadline.
+
+
+One playable 3D island, twelve lanterns, three-minute dusk countdown, fox.
+Player walks/runs, jumps with gravity, collides with solid obstacles and pushes
+a dynamic crate. An elevated final lantern is on a ledge: crate then jump to
+reach it. A real imported Fox.glb plays Survey/Walk/Run as appropriate (jump may
+be procedural). Directional sunset light and shadows; each lit lantern glows.
+Use the supplied level.json, Fox.glb and attribution unchanged. No downloaded
+art in addition; procedural geometry elsewhere. Ground may be a flat island
+with seeded decorative trees/rocks. One signpost explains the crate puzzle.
+
+Start/title, visible controls, live count/time HUD, pause/resume, sound toggle,
+save/resume after browser reload/process restart, explicit win and lose screens,
+restart. Play with WASD/arrows, Space jump, E act; click/touch buttons for these
+actions and start/pause/save/load. No pointer lock required. User can play all
+the way through with ordinary controls. Keyboard state clears on blur.
+
+Use real engine collisions/physics or an established integrated physics library,
+not scripted coordinates triggered by the acceptance route. Game time and
+animation have a 60 Hz simulation step. Rendering is independent. Use a real
+pushable dynamic body. Match rules and tolerances, not undocumented bit equality
+between different solvers. Keep files <1,500 lines. Pin versions and use Bun;
+browser production bundling uses Rolldown. No global installs or fresh clones.
+
+## Level semantics
+
+Right-handed shared world: x right, y up, z toward viewer. Player position in
+state is feet position; floor top y=0. `moveX` and `moveZ` are world-relative
+[-1,1], normalize diagonal. Constant run speed 4.5 units/s; jump speed 6.4,
+gravity 12, radius .35, height 1.3. Native engine axis conversion stays internal.
+Lantern positions are interaction targets at feet height, not mesh centers.
+Act is press-edge only and lights the nearest unlit lantern within Euclidean
+distance 1.5. Final ledge target y=2.4 prevents collecting from below.
+Win when all level lanterns lit before duration; otherwise lose at duration.
+Pause freezes simulation. Timer duration180s. Falling resets player at spawn
+but does not reset elapsed time or lit lanterns. Platform tops match level.
+
+
+
+Change request: another reachable lantern
+
+Add lantern-13 on a new raised platform at [-8,1.2,7]. The platform's center is
+[-8,.6,7], size [3,1.2,3]. It must be reachable by jumping from the ground and
+collide normally, have the same appearance/interaction rules as the other
+lanterns, and be required for victory. Keep the original twelve and their
+positions. Update the displayed total and save/load behavior. Prove the new
+platform can be reached through ordinary movement and jump input, the lantern
+cannot be lit remotely, and twelve no longer wins. No teleport/debug shortcuts.
