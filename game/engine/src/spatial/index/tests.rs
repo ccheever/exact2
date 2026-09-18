@@ -189,6 +189,10 @@ fn route_diagnostic_200k_interleaved_churn_returns_nearest_and_clear_side() {
             w.spawn((Transform::at(x, 0., i as f32), Mesh::cube(1.)));
         }
     }
+    assert!(sim
+        .route_diagnostic("subject", Vec3::ZERO, Vec3::splat(f32::MAX))
+        .unwrap_err()
+        .contains("finite segment range"));
     let before = sim.world().hash();
     let report = sim
         .route_diagnostic("subject", Vec3::ZERO, Vec3::new(0., 0., 10.))

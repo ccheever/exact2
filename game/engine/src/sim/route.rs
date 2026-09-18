@@ -87,6 +87,9 @@ impl<G: Game> Sim<G> {
         from: Vec3,
         to: Vec3,
     ) -> Result<String, String> {
+        if !from.is_finite() || !to.is_finite() || !(to - from).length().is_finite() {
+            return Err("route: endpoints exceed finite segment range".into());
+        }
         let w = self.world();
         let mut sight = spatial::index::Sight::new(w, subject, target, None)?;
         let mut nearest: Option<(Entity, f32)> = None;
