@@ -55,7 +55,7 @@ pub trait Target {
         std::any::type_name::<Self>().into()
     }
     /// Resolve a live entity, without reviving a stale handle.
-    fn entity(self, world: &World) -> Option<Entity>;
+    fn entity(&self, world: &World) -> Option<Entity>;
 }
 impl Target for Entity {
     fn describe(&self, world: &World) -> String {
@@ -70,15 +70,15 @@ impl Target for Entity {
             self
         )
     }
-    fn entity(self, world: &World) -> Option<Entity> {
-        world.contains(self).then_some(self)
+    fn entity(&self, world: &World) -> Option<Entity> {
+        world.contains(*self).then_some(*self)
     }
 }
 impl Target for &str {
     fn describe(&self, world: &World) -> String {
         format!("entity {:?} {:?}", self, world.resolve(self))
     }
-    fn entity(self, world: &World) -> Option<Entity> {
+    fn entity(&self, world: &World) -> Option<Entity> {
         world.resolve(self)
     }
 }
@@ -220,7 +220,8 @@ pub struct World {
     pub(crate) fresh: Vec<Entity>,
     orphans: Vec<Entity>,
     entities_revision: u64,
-    pub(crate) kind_operations: RefCell<Vec<String>>,
+    pub(crate) kind_operations: RefCell<Vec<crate::kind::Context>>,
+    pub(crate) kind_validated: RefCell<BTreeMap<TypeId, Vec<u64>>>,
     entity_pages: Vec<u64>,
     pub(crate) presentation_generation: u64,
 }
@@ -268,7 +269,8 @@ impl World {
             fresh: vec![],
             orphans: vec![],
             entities_revision: 0,
-            kind_operations: RefCell::new(Vec::new()),
+            kind_operations: RefCell::new(Vec::with_capacity(32)),
+            kind_validated: RefCell::new(BTreeMap::new()),
             entity_pages: vec![],
             presentation_generation: 0,
         }
@@ -413,6 +415,7 @@ impl World {
         &self.fresh
     }
     /// Whether this exact incarnation is alive.
+    #[inline]
     pub fn contains(&self, e: Entity) -> bool {
         self.state
             .slots
@@ -501,6 +504,13 @@ impl World {
         if !self.contains(e) {
             return None;
         }
+        // A removed column invalidates every kind proof for this slot. Inserts
+        // cannot invalidate membership; despawn changes the entity generation.
+        for generations in self.kind_validated.get_mut().values_mut() {
+            if let Some(generation) = generations.get_mut(e.index as usize) {
+                *generation = 0;
+            }
+        }
         self.components
             .get_mut(C::NAME)?
             .any_mut()
@@ -583,6 +593,7 @@ impl World {
     pub fn pages<C: Component>(&self) -> Pages<'_, C> {
         Pages::new(self.storage::<C>())
     }
+    #[inline]
     pub(crate) fn kind_work_bound(&self, operation: &str) {
         assert!(
             self.state.slots.len() <= 200_000,

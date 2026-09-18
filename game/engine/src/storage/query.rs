@@ -22,14 +22,14 @@ pub trait Query: sealed::Sealed {
     /// Human-readable component names.
     fn names() -> String;
     /// # Safety
-    /// Mark its page first. The index must match, and may be yielded only once
+    /// Acquire the state’s leases and mark its page first. The index must match, and may be yielded only once
     /// while this state lives.
     #[doc(hidden)]
     unsafe fn owned<'w>(state: &Self::State<'w>, index: usize) -> Self::Owned<'w>;
-    /// Storage leases acquired once at query construction.
+    /// Prepared column references, leased once at query construction.
     #[doc(hidden)]
     type State<'w>: for<'a> Fetch<Item<'a> = Self::Item<'a>>;
-    /// Acquire leases and reject duplicate component types.
+    /// Resolve columns and reject duplicate component types before acquiring leases.
     #[doc(hidden)]
     fn prepare<'w>(world: &'w World, seen: &mut [Option<TypeId>; 8]) -> Self::State<'w>;
 }
@@ -39,6 +39,8 @@ pub trait Query: sealed::Sealed {
 pub trait Fetch {
     type Item<'a>;
     fn words(&self) -> usize;
+    fn acquire(&mut self);
+    fn conflict(&self) -> Option<(&'static str, &'static str)>;
     fn mark_page(&self, page: usize);
     fn word(&self, word: usize) -> u64;
     /// # Safety
@@ -70,7 +72,7 @@ impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O
         let storage = world.storage::<C>();
         Self {
             storage,
-            _lease: storage.map(|s| s.lease(M)),
+            _lease: None,
             page: Cell::new(std::ptr::null_mut()),
         }
     }
@@ -135,6 +137,14 @@ macro_rules! reference {
         }
         impl<C: Component> Fetch for ComponentBorrow<'_, C, $m, $o> {
             type Item<'a> = $item;
+            fn acquire(&mut self) {
+                self._lease = self.storage.map(|s| s.lease($m));
+            }
+            fn conflict(&self) -> Option<(&'static str, &'static str)> {
+                self.storage
+                    .and_then(|s| s.lease_conflict($m))
+                    .map(|why| (C::NAME, why))
+            }
             fn mark_page(&self, page: usize) {
                 if let Some(s) = self.storage {
                     if $m {
@@ -226,6 +236,11 @@ macro_rules! tuples {
         }
         impl<$($T: Fetch),+> Fetch for ($($T,)+) {
             type Item<'a> = ($($T::Item<'a>,)+);
+            fn acquire(&mut self) { $(self.$i.acquire();)+ }
+            fn conflict(&self) -> Option<(&'static str, &'static str)> {
+                $(if let Some(conflict) = self.$i.conflict() { return Some(conflict); })+
+                None
+            }
             fn mark_page(&self, page: usize) { $(self.$i.mark_page(page);)+ }
             fn words(&self) -> usize { usize::MAX $(.min(self.$i.words()))+ }
             fn word(&self, word: usize) -> u64 { u64::MAX $(& self.$i.word(word))+ }
@@ -277,7 +292,25 @@ pub struct QueryBorrow<'w, Q: Query> {
 }
 impl<'w, Q: Query> QueryBorrow<'w, Q> {
     pub(crate) fn new(world: &'w World) -> Self {
-        let state = Q::prepare(world, &mut [None; 8]);
+        let mut state = Q::prepare(world, &mut [None; 8]);
+        state.acquire();
+        Self::from_state(world, state)
+    }
+    pub(crate) fn for_kind<K: crate::Kind>(world: &'w World, operation: &str) -> Self {
+        K::preflight().expect("kind preflight");
+        world.kind_work_bound(operation);
+        let mut state = Q::prepare(world, &mut [None; 8]);
+        if let Some((component, conflict)) = state.conflict() {
+            panic!(
+                "kind lease preflight: {}",
+                world.kind_conflict::<K>(None, operation, component, conflict)
+            );
+        }
+        world.prepare_kind_bindings::<K>(operation);
+        state.acquire();
+        Self::from_state(world, state)
+    }
+    fn from_state(world: &'w World, state: Q::State<'w>) -> Self {
         let words = state.words().min(world.alive_mask.len());
         Self {
             world,
@@ -286,6 +319,21 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
             filter_count: 0,
             words,
         }
+    }
+    // Structural singleton lookup uses the same presence-mask join without
+    // borrowing values or marking pages. It remains valid during an edit.
+    pub(crate) fn matching_count(world: &'w World) -> (usize, Option<Entity>) {
+        let state = Q::prepare(world, &mut [None; 8]);
+        let mut count = 0;
+        let mut found = None;
+        for word in 0..state.words().min(world.alive_mask.len()) {
+            let bits = world.alive_mask[word] & state.word(word);
+            count += bits.count_ones() as usize;
+            if bits != 0 {
+                found = Some(world.entity_at(word * 64 + bits.trailing_zeros() as usize));
+            }
+        }
+        (count, found)
     }
     /// Keep entities carrying C, without borrowing its values.
     pub fn with<C: Component>(mut self) -> Self {
@@ -369,6 +417,7 @@ impl<'w, Q: Query> Iterator for QueryRows<'w, Q> {
 }
 impl<'w, Q: Query> QueryRows<'w, Q> {
     /// Next guarded row together with its entity, in the same storage scan.
+    #[inline]
     pub fn next_entity(&mut self) -> Option<(Entity, Q::Owned<'w>)> {
         let index = next_index(&self.query, &mut self.word, &mut self.bits, &mut self.page)?;
         // SAFETY: the mask proves presence and next_index never repeats a slot.
