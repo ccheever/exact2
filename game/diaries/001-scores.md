@@ -94,3 +94,41 @@ gate of LLP 1041.005 §3 is not passed. What both judges ask for, again concrete
 
 What they said to keep: the proof through the shared agent interface (sol's 5 — "no
 Beacons-specific browser API"), the save and restore, the Contract HUD at 37 lines.
+
+
+## Third score (2026-09-18, early) — Beacons r3 after three-file games, named kinematics, the UI defaults
+
+Same judges, rubric and twins; the exact2 entry is `001-beacons-exact-r3.md` (181 game
+lines, no authored scaffolding, 5 min 2 s, no engine change). exact2's Feel still
+unverified (display locked).
+
+| | Godot | three.js | exact2 r3 | | Godot | three.js | exact2 r3 |
+|---|---:|---:|---:|---|---:|---:|---:|
+| **sol** | | | | **grok** | | | |
+| Small | 3 | 5 | 4 | | 3 | 4 | 4 |
+| Direct | 3 | 4 | 4 | | 3 | 4 | **5** |
+| Provable | 5 | 5 | 5 | | 5 | 5 | 5 |
+| Repeatable | 3 | 3 | 3 | | 4 | 4 | 4 |
+| Loop | 5 | 4 | **5** | | 4 | 4 | 3 |
+| UI | 4 | 5 | 4 | | 4 | 5 | 3 |
+| six rows, of 30 | 23 | 26 | **25** | | 23 | 26 | **24** |
+| Feel | 2 | 4 | unverified | | 2 | 4 | unverified |
+
+19 → 20/24 → 24/25 over three builds. Ahead of Godot on both cards, one and two points
+behind three.js on the six rows, Feel unmeasured. The gate is still not passed; the
+asks are now small and specific:
+
+1. **Restart is a world operation**, not an invented `round` argument (grok); or
+   at least the template names the idiom.
+2. **One vocabulary from native test to browser proof** — `hold`, `tap`, `run`,
+   `settle`, `position` on the driver's world handle exactly as on `Sim` (grok); a
+   `Character` operation that folds movement, gravity, ground and bounds, and a
+   `press_near`-style proximity helper (sol).
+3. **Feel**: measure it; the template carries the probe; consider 120 Hz as the
+   shipped step for action games (grok); one-command feel gate (sol).
+4. **UI**: a centred overlay primitive with focus-visible and hover in the Contract;
+   in-world beacon pads and a nearby prompt in the template (both).
+5. Collapse project/surface/save terminology (`game world=Beacons(...) as hud`;
+   the `screenshot … save` spelling) (sol).
+
+Kept, again: the proof through the product's agent, the save, the Contract HUD.
