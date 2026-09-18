@@ -271,7 +271,7 @@ impl<G: Game> Sim<G> {
         let mut entities = Vec::new();
         let mut bytes = resources.len();
         let mut truncated = false;
-        for (index, entity) in self.world.entities().into_iter().enumerate() {
+        for (index, entity) in self.world.entities().enumerate() {
             if index >= 16 {
                 truncated = true;
                 break;
@@ -360,6 +360,9 @@ impl<G: Game> Sim<G> {
             ));
         }
         let mut sim = Self::from_save(&capture.checkpoint)?;
+        // Isolated replay owns a controlled clock, but intentionally retains the
+        // checkpoint's held input. A physical handoff would erase that evidence.
+        sim.agent_owned = true;
         if sim.capture_hash() != capture.checkpoint_hash || sim.world.tick() != capture.first_tick {
             return Err(DataError::new(
                 "corrupt checkpoint: semantic state/hash differs",
