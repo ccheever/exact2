@@ -243,3 +243,10 @@ installation URL and a local Apple development loop; the generic Go launcher,
 distributable IPA, EAS/AppDrop adapter and
 automatic provider provisioning remain behind proving this consumer. No new
 update service or production native carrier is introduced.
+
+**Admitted 2026-09-18 (Charlie, LLP 1041.006):** opt-in, bounded game-local
+input/binding recording attached to world saves, isolated reproduction, dependable
+web carry/reload and typed scene authoring unblock reproducible Lanterns bugs.
+Take: TS gameplay execution and native live game-code replacement wait behind
+this loop. General app recording, causal tracing, replay services and timeline
+editors remain refused.
