@@ -45,8 +45,8 @@ fn fixture(source: &str) -> (Bridge<Rows>, String, Rc<Counter<usize>>) {
         600.,
     )
     .unwrap();
-    // Feedback does not run requests. Keep these tests independent of worker
-    // admission and avoid consuming the scheduler's process-wide worker budget.
+    // This synchronous source issues no requests. Keep these fixtures independent
+    // of worker admission and the scheduler's process-wide worker budget.
     let mut bridge = Bridge::new();
     bridge.host = Some(host);
     (bridge, batch, queries)
@@ -92,6 +92,76 @@ fn state(bridge: &Bridge<Rows>) -> (String, String, f64, f64) {
         host.engine().now(),
         host.runner().now_ms(),
     )
+}
+
+#[test]
+fn collection_feedback_submits_edge_request_without_another_bridge_call() {
+    use exact_runner::{Answer, Outcome, Request, Store};
+    use std::sync::mpsc::{channel, Sender};
+    use std::time::Duration;
+
+    struct DeferredRows(Sender<u64>);
+    impl DataSource for DeferredRows {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::list(vec![Value::Number(0.), Value::Number(1.)]))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            name: &str,
+            args: &[Value],
+        ) -> Result<Answer, DataError> {
+            if args == [Value::Number(1.)] {
+                Ok(Answer::Later(Request::continuation(7)))
+            } else {
+                self.query(name, args).map(Answer::Now)
+            }
+        }
+        fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+            let submitted = self.0.clone();
+            Some(Box::new(move || {
+                submitted.send(token).unwrap();
+                Outcome::Storage(Vec::new())
+            }))
+        }
+    }
+    let source = r#"component App
+  state cursor = 0
+  resource rows = rows(cursor) as shape list<number>
+  action next writes cursor
+    cursor = 1
+  view
+    list virtualized=true height=160 width=240 reachend=next
+      each row in rows key=row
+        text `${row}`
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (submitted, received) = channel();
+    let mut bridge = Bridge::new();
+    bridge.boot(&plan, DeferredRows(submitted), Hooks::none(), 400., 600.);
+    let snapshot = bridge
+        .host
+        .as_ref()
+        .unwrap()
+        .runner()
+        .collections()
+        .remove(0);
+    assert!(bridge.host.as_mut().unwrap().take_requests().is_empty());
+    assert!(received.try_recv().is_err());
+    let bytes = facts(&snapshot, 0.).encode().unwrap();
+    bridge.input_write(&bytes);
+    let len = bridge.collection_feedback(bytes.len(), 0.);
+    let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(batch.contains("\"error\":null"), "{batch}");
+    let host = bridge.host.as_mut().unwrap();
+    assert_eq!(host.runner().slot("cursor"), Some(&Value::Number(1.)));
+    assert_eq!(host.runner().pending().len(), 1);
+    assert!(
+        host.take_requests().is_empty(),
+        "feedback must submit its request"
+    );
+    // No pump, tick, event or other emit call may be needed to start the work.
+    assert_eq!(received.recv_timeout(Duration::from_secs(2)).unwrap(), 7);
 }
 
 #[test]
