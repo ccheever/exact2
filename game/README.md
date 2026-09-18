@@ -136,10 +136,55 @@ and authored Transform positions (XZ ignores height). A missing origin yields no
 - **Time is an input.** `tick = floor(clock_ms × hz / 1000)`; a step is `1/hz`
   exactly; there is no `delta`. Rendering interpolates between the last two ticks,
   so motion is smooth at any refresh rate and the simulation never knows.
-- **Names are first class.** `world.get::<Transform>("fox")` accepts a name or an entity handle; `world:fox` addresses it in the agent. Consuming `query()` yields guarded items (mutable bindings use `mut`); `.iter()` yields `(Entity, item)` with plain references. `.one()` returns an item and refuses multiple matches in all builds.
+- **Names are first class.** Name lookup is O(log n); duplicate names select the lowest live entity index, including recycled slots. The derived index is rebuilt on load and excluded from saves, hashes and observations. `world.get::<Transform>("fox")` accepts a name or an entity handle; `world:fox` addresses it in the agent. Consuming `query()` yields guarded items (mutable bindings use `mut`); `.iter()` yields `(Entity, item)` with plain references. `.one()` returns an item and refuses multiple matches in all builds.
 - **Iteration is in entity order, always** — storage scans presence bitmasks in
   ascending index order, so a world loaded from a save replays exactly as the one
   that wrote it.
+
+
+Name lookup diagnostic: `cargo test --manifest-path game/Cargo.toml -p exact-game
+--release named_cost -- --ignored --nocapture` compares the original scan with the
+index, looking up the last entity. One x86-64 Linux sample (ns/call): 1k names
+2,925 → 61.7; 10k 33,263 → 95.3; 200k 1,233,892 → 140.9. Timing is diagnostic,
+not a gate; this measures lookup only, excluding construction and formatting.
+
+## Placement
+
+`exact_game::place` supplies deterministic placement in meters, Y-up, −Z forward:
+
+- `ring(count, radius)`, `ring_jittered(seed, count, inner, outer)`,
+  `grid(cols, rows, spacing)`, and `line(a, b, count)` return allocation-free
+  `ExactSizeIterator<Item = Vec3>` values. Rings start at +X toward +Z; grids
+  are centered XZ rows. Lines include endpoints (one point means `a`).
+- `scatter(seed, min, max, count, min_distance) -> Vec<Vec3>` reserves `count`
+  points and tries at most `64 * count` candidates in the 3D box. Impossible
+  packing returns fewer points, preserving spacing. Seeded helpers use `Rng`
+  privately, without advancing world randomness.
+- `facing(from, to) -> Quat` aims −Z, with +Y up; coincident points give identity
+  and vertical aims use +Z as the roll reference.
+- `on_top_of(&World, impl Target, own_height) -> Vec3` and
+  `next_to(&World, impl Target, Side, gap, own_size) -> Vec3` use layout's mesh
+  bounds transformed through the current parent chain. Own dimensions are full
+  world dimensions for an unparented, axis-aligned object. Missing targets or
+  poses panic; `Side::{Left, Right, Front, Back}` are −X, +X, −Z, +Z.
+- `blockout(&str, cell, origin, impl FnMut(char, Vec3)) -> Result<(), BlockoutError>`
+  validates ASCII rectangular rows before any callback. Rows advance +Z, columns
+  +X; `.` and space are empty. Errors identify the one-based row and column.
+
+Dimensions must be finite and nonnegative; invalid arguments panic. The helpers
+allocate no hidden world state. A tiny placement game in greybox's integration
+suite exercises them without changing the shipped games' pinned positions.
+
+```rust
+use exact_game::{place, Mesh, Transform, Vec3, World};
+let mut world = World::new(60, 7);
+place::blockout("P.\n.P", 3.0, Vec3::ZERO, |ch, at| {
+    world.spawn_named(ch.to_string(), (
+        Transform { position: at, ..Transform::default() }, Mesh::cube(2.0)));
+}).unwrap();
+let at = place::on_top_of(&world, "P", 1.0);
+assert_eq!(at, Vec3::new(0.0, 1.5, 0.0));
+```
 
 ## Determinism — the contract (LLP 1041.001 D5)
 
