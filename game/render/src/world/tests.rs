@@ -877,3 +877,6 @@ fn renderer_defaults_match_world_and_negative_alpha_does_not_enable_grid() {
     material.grid_spacing = 2.0;
     assert_eq!(material_floats(material)[3], -2.0);
 }
+
+#[path = "difficult_timing.rs"]
+mod difficult_timing;

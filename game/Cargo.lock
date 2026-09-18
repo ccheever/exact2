@@ -788,6 +788,7 @@ dependencies = [
  "exact-gpu",
  "glam 0.33.7",
  "greybox-logic",
+ "lanterns-logic",
  "png",
  "serde_json",
  "wasm-bindgen",
@@ -1644,6 +1645,7 @@ dependencies = [
  "exact-game",
  "exact-game-physics",
  "exact-game-scene",
+ "serde_json",
 ]
 
 [[package]]
