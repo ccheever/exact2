@@ -157,3 +157,45 @@ under both. A judge scoring the Feel row from this sitting would give exact2 5,
 three.js 3 (smooth cadence, uneven displacement, best latency), Godot shipped 1 and
 Godot interpolated 3. That row is not yet scored by the judges: the fourth score waits
 for the skeleton slice so the game rebuilt for it can be the same brief as before.
+
+## Fourth score (2026-09-18, 10:00) — Beacons rebuilt a fourth time, the Feel row measured
+
+Same judges, rubric and twins; the exact2 entry is `001-beacons-exact-r4.md` (148 lines
+of logic + a 39-line Contract, 0 authored scaffolding, 6 min 40 s from the brief to a
+passing first browser run — 3 min 20 s strictly timestamped — no engine change). The
+Feel row is scored from the first full sitting (`game/bench/README.md`) for all three.
+
+| | Godot | three.js | exact2 r4 | | Godot | three.js | exact2 r4 |
+|---|---:|---:|---:|---|---:|---:|---:|
+| **sol** | | | | **grok** | | | |
+| Small | 2 | 5 | 4 | | 3 | 5 | 4 |
+| Direct | 3 | 5 | 4 | | 3 | 5 | 4 |
+| Provable | 5 | 5 | 5 | | 5 | 5 | 5 |
+| Repeatable | 4 | 4 | 4 | | 4 | 4 | **5** |
+| Loop | 5 | 4 | 4 | | 5 | 4 | 4 |
+| Feel | 1 | 3 | **5** | | 2 | 3 | **4** |
+| UI | 4 | 5 | 4 | | 4 | 5 | 4 |
+| **of 35** | **24** | **31** | **30** | | **26** | **31** | **30** |
+
+19 → 20/24 → 24/25 → **30/30 of 35** across four builds; one point behind three.js on
+both cards, four and six ahead of Godot; Feel is the row this engine now wins outright.
+The asks, concrete on both cards:
+
+1. **Restart is a world operation** and the tick should not mention the engine:
+   `w.character("player").step(..)`, `w.nearest_xz::<Beacon>(..)`, `World::position`
+   instead of a query scope, an `unwrap` chain and a second `near_xz` pass (grok);
+   named bindings and a real restart signal in the Contract (sol).
+2. **A headless proof that sees the HUD in well under a second**: the native test (or
+   `proof.mjs linux`) drives `hold`/`tap`/`tree`/`snapshot` including Contract text and
+   accessible names on the GPU-less host; Chrome only for the screenshot (grok). And
+   one standard command that runs hosts in parallel, repeats, restores and compares
+   saves across hosts (sol).
+3. **Ship what the twins get for free**: `Game::HZ = 120` for action games (the 120 Hz
+   row is the 3.5–4.1 ms one), `Material::grid` and a background in the template, a
+   centred overlay with `focus-visible`/hover on Contract buttons (grok); the author-
+   owned unit down to `game.rs` + `app.contract` + `proof.mjs` with the manifests derived
+   (sol); task-defining numbers visible at the call site even when they equal the
+   defaults (sol — copy three.js's auditability).
+
+Kept, again: the proof through the product's agent, the save, the Contract HUD, and now
+the pacing.
