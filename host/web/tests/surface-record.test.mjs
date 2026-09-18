@@ -4,12 +4,12 @@ import { readFileSync } from 'node:fs';
 
 // Run the production lazy module and applyBatch with a deterministic GPU and
 // presenter. The runner's returned batch addresses the *final* outer tree.
-async function fixture(options = {}) {
+export async function fixture(options = {}) {
   const views = new Map(), records = [], diagnostics = [];
   let next = 0, hud = null, expectedView = null;
   const changed = new Map(), events = [], order = [];
   let mutations = Promise.resolve();
-  const exact = { mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: () => 0, devAssets: [],
+  const exact = { mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: options.now ?? (() => 0), devAssets: [],
     writeIn: text => text, wasm: { exact_surface_record(text) {
       records.push(text);
       return { ops: [() => {
@@ -24,7 +24,7 @@ async function fixture(options = {}) {
     gpu_messages: () => undefined, gpu_wants_input: () => Boolean(options.input), gpu_destroy() { order.push("old destroy"); },
     gpu_carry: () => new Uint8Array([1]), gpu_restore(id) { return !options.refuse?.(id); },
     gpu_error: () => "fixture refusal", gpu_render: () => 0, gpu_dirty: () => false,
-    gpu_agent: () => JSON.stringify({world:{tick:0,input:{forwarded:options.forwarded ?? []}}, lines:[], from:0, next:0}),
+    gpu_agent: (id, json) => JSON.parse(json).reload ? JSON.stringify({reload:{values:options.values ?? [],setupIndices:[]}}) : JSON.stringify({world:{tick:0,input:{forwarded:options.forwarded ?? []}}, lines:[], from:0, next:0}),
     gpu_input: (id, json) => { events.push(JSON.parse(json)); return true; }, gpu_shader_check: async () => true,
     gpu_shader: () => true,
   };
@@ -46,7 +46,7 @@ async function fixture(options = {}) {
     querySelector() { return this.canvas; }
     getBoundingClientRect() { return {width:10,height:10}; }
     cloneNode() { return new Element(this.kind); }
-    replaceWith(el) { order.push("replace"); this.isConnected = false; el.isConnected = true; }
+    replaceWith(el) { order.push("replace"); this.isConnected = false; el.isConnected = true; if (this.parent) { this.parent.canvas = el; el.parent = this.parent; } }
     getAttribute() { return null; }
     removeAttribute() {}
     setAttribute() {}
@@ -64,12 +64,12 @@ async function fixture(options = {}) {
     }
   }
   await new (Object.getPrototypeOf(async function() {}).constructor)(
-    'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console',
+    'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'ResizeObserver', 'MutationObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console',
     source
-  )({ exact }, async version => version ? nextGpu : gpu, { createElement: () => ({}), head: { append() {} }, activeElement:{} }, Element, 1,
-    class { observe() {} disconnect() {} }, () => 1, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} });
+  )({ exact }, async version => version ? (options.candidate ? options.candidate(version, {...nextGpu}) : {...nextGpu}) : gpu, { createElement: kind => new Element(kind), head: { append() {} }, activeElement:{} }, Element, 1,
+    class { observe() {} disconnect() {} }, class { observe() {} disconnect() {} }, () => 1, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {}, warn() {} });
   function create(id, name = 'world') {
-    const el = new Element("host"); el.canvas = new Element();
+    const el = new Element("host"); el.canvas = new Element(); el.canvas.parent = el;
     views.set(id, el); exact.gpu.surface(id, name, []); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }

@@ -21,6 +21,7 @@
 // shows its errors in the page's overlay, as a contract that fails does,
 // and the page keeps the last good wasm. TypeScript apps use a checked
 // resident producer below the data seam; file watching remains Node's own.
+import { reloadInputs, verifyReloadInputs, gpuArtifact } from './reload-build.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -70,7 +71,13 @@ let gpuInputs = new Set(), appInputs = new Set();
 const gpuSideRoot = resolve(app.target, 'dev-gpu', app.name);
 // A server epoch pairs function-scoped glue with its Wasm bytes.
 let gpuSide = null, gpuVersion = Date.now(), gpuBuildChild = null;
-const gpuTimings = new Map(), gpuVersions = new Map();
+const gpuTimings = new Map(), gpuVersions = new Map(), gpuArtifacts = new Map();
+let gpuRevision = 0, gpuSaved = Date.now();
+function requestGpuBuild() {
+  gpuRevision++; gpuSaved = Date.now();
+  push({gpuRequested:{revision:gpuRevision, detectedAt:gpuSaved}});
+}
+const gpuReceiptInputs = () => reloadInputs([...gpuInputs, resolve(app.dir, "app.json"), resolve(app.workspace, "Cargo.toml"), resolve(app.workspace, "Cargo.lock")], assetTrees.map(([path])=>path));
 function readGpuInputs(profile = 'web') {
   const inputs = (kind, profile) => {
     const path = resolve(app.target, 'wasm32-unknown-unknown', profile, app.crate(kind).replaceAll('-', '_') + '.d');
@@ -551,6 +558,29 @@ const killCompiler = () => {
   if (moduleStage) { rmSync(moduleStage, { recursive: true, force: true }); moduleStage = null; }
 };
 startCompiler();
+// Optional typed scene content follows the Contract producer, never Rust rebuild.
+if (app.manifest.game && existsSync(resolve(root, 'game/app/scenes.mjs'))) {
+  const {bakeGameScene, sceneInputs} = await import('../../game/app/scenes.mjs');
+  let sceneTimer, sceneBusy = false, sceneAgain = false;
+  const sceneWatched = new Set();
+  const rebake = async () => {
+    if (sceneBusy) { sceneAgain = true; return; }
+    sceneBusy = true;
+    try {
+      await bakeGameScene(app, {development:true});
+      console.log('scene content rebake; Continue retains saved entities; Restart instantiates new content');
+      observeScenes();
+    } catch (error) { push({error:`scene: ${error.message}`}); }
+    finally { sceneBusy = false; if (sceneAgain) { sceneAgain = false; void rebake(); } }
+  };
+  const observeScenes = () => {
+    for (const path of sceneInputs(app)) {
+      const dir = resolve(path, '..'); if (sceneWatched.has(dir)) continue; sceneWatched.add(dir);
+      watch(dir, (_, name) => { if (name?.endsWith('.json')) { clearTimeout(sceneTimer); sceneTimer = setTimeout(rebake, 30); } });
+    }
+  };
+  observeScenes();
+}
 const stop = async () => {
   const children = [dev, rustChild, gpuBuildChild, localInstallChild].filter(Boolean);
   const exits = children.map(child => new Promise(ok => child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok)));
@@ -572,6 +602,7 @@ let assetTimer = null;
 try {
   watchStaticTrees(app.dir, assetTrees, (change) => {
     if (skipped.test(change.relative) || /(^|\/)\./.test(change.relative)) return;
+    requestGpuBuild();
     if (change.tree) {
       for (const name of assetChanges.keys()) if (name === change.targetRoot || name.startsWith(`${change.targetRoot}/`)) assetChanges.delete(name);
       assetChanges.set(change.targetRoot, change);
@@ -745,6 +776,7 @@ function watchCompilerInputs() {
         && !(name.endsWith('.swift') && swiftSourceDirectories.has(dir))) return;
       if (typescript && resolve(dir, name).startsWith(app.dir + '/') && /\.(ts|contract)$/.test(name)) return;
       if (portableRust && rustInputFiles.has(resolve(dir,name))) { rustSaved=Date.now();rustDirty=true;if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(produceRust,200);}return; }
+      requestGpuBuild();
       changed.add(resolve(dir,name));console.log(`edit ${resolve(dir,name)} → build pending; classification follows its receipt`);
       if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(rebuild,gpuOnly([...changed]) ? 20 : 200);}
     }));}catch(error){console.error(`cannot watch ${dir}: ${error.message}`);}
@@ -803,7 +835,8 @@ function rebuildNow(files) {
 
 async function produceGpu(files) {
   building = true;
-  const start = Date.now();
+  const start = Date.now(), revision = gpuRevision, detectedAt = gpuSaved;
+  const capturedInputs = gpuReceiptInputs();
   const profile = /\[profile\.gpu-dev\]/.test(readFileSync(resolve(app.workspace, 'Cargo.toml'), 'utf8')) ? 'gpu-dev' : 'web';
   if (profile === 'web') console.log('gpu: add [profile.gpu-dev] inheriting dev, opt-level=1, no LTO, and optimized dependencies for fast module rebuilds');
   mkdirSync(gpuSideRoot, { recursive: true });
@@ -821,19 +854,29 @@ async function produceGpu(files) {
     await run('cargo', ['build','-p',app.crate('gpu'),'--target','wasm32-unknown-unknown','--profile',profile]);
     const compiled = Date.now();
     await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',stage,'--out-name','gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate('gpu').replaceAll('-','_')+'.wasm')]);
-    gpuSide = stage; gpuVersion++; gpuVersions.set(gpuVersion, stage);
+    const compiledInputs = new Set(gpuInputs);
+    readGpuInputs(profile);
+    // A newly discovered dependency requires a second captured bake. Never
+    // claim that an uncaptured file was verified by the previous snapshot.
+    for (const path of compiledInputs) gpuInputs.add(path);
+    verifyReloadInputs(capturedInputs, gpuReceiptInputs());
+    if (revision !== gpuRevision) throw new Error('GPU build superseded by a newer edit; candidate discarded');
+    const timing = {detectedAt, buildStartedAt:start, buildCompleteAt:Date.now(), buildMs:Date.now()-start, cache:'unmeasured', edit:'code'};
+    const artifact = gpuArtifact(stage, gpuVersion + 1, capturedInputs, timing);
+    gpuSide = stage; gpuVersion++; gpuVersions.set(gpuVersion, stage); gpuArtifacts.set(gpuVersion, artifact);
     // Query versions pin JS and wasm together. A lagging fetch gets 404 rather
     // than silently pairing exports from one build with another build's wasm.
-    while (gpuVersions.size > 3) { const [version, directory] = gpuVersions.entries().next().value; rmSync(directory, {recursive:true,force:true}); gpuVersions.delete(version); }
+    while (gpuVersions.size > 3) { const [version, directory] = gpuVersions.entries().next().value; rmSync(directory, {recursive:true,force:true}); gpuVersions.delete(version); gpuArtifacts.delete(version); }
     readGpuInputs(profile); watchCompilerInputs();
     const ms = Date.now() - start;
     gpuTimings.set(gpuVersion, { ms, start });
     console.log(`gpu: rebuilt in ${ms} ms (cargo ${compiled-start} ms, bindgen ${Date.now()-compiled} ms); swap pushed`);
-    push({gpu:gpuVersion});
+    push({gpu:gpuVersion, artifact:gpuArtifacts.get(gpuVersion)});
   } catch (error) {
     rmSync(stage, {recursive:true,force:true});
     console.error(`gpu: build failed in ${Date.now()-start} ms\n${error.message}`);
-    push({error:`GPU module did not build:\n${error.message}`});
+    push({error:`GPU module did not build:\n${error.message}`, gpuFailed:true, revision});
+    if (/inputs changed during bake/.test(error.message)) { for (const file of files) changed.add(file); buildPending = true; }
   } finally {
     building = false;
     drainBuilds();
@@ -846,12 +889,18 @@ const server = createServer(async (req, res) => {
   const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted' || url.pathname === '/__dev/gpu';
   const localInstall = url.pathname === LOCAL_IOS_INSTALL_ENDPOINT;
   if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (devBeacon || localInstall))) { res.writeHead(405); res.end(); return; }
+  if (url.pathname === '/__dev/gpu-artifact') {
+    const version = Number(url.searchParams.get('g'));
+    const artifact = version === 0 && app.hasGpu ? gpuArtifact(dist, 0, [], null, 'module') : gpuArtifacts.get(version);
+    if (!artifact) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, {'content-type':'application/json','cache-control':'no-store'}); res.end(JSON.stringify(artifact)); return;
+  }
   if (url.pathname === '/__dev/gpu') {
     const timing = gpuTimings.get(Number(url.searchParams.get('g')));
     if (timing) console.log(`gpu: rebuilt in ${timing.ms} ms · swapped in ${url.searchParams.get('swap')} ms · build start → running ${Date.now()-timing.start} ms (warm budget 2000 ms)`);
     res.writeHead(204); res.end(); return;
   }
-  if (gpuSide && url.searchParams.has('g') && ['/gpu.js','/gpu_bg.wasm'].includes(url.pathname)) {
+  if (url.searchParams.has('g') && ['/gpu.js','/gpu_bg.wasm'].includes(url.pathname)) {
     const directory = url.searchParams.has('g') ? gpuVersions.get(Number(url.searchParams.get('g'))) : gpuSide;
     if (!directory) { res.writeHead(404, {'cache-control':'no-store'}); res.end(); return; }
     res.writeHead(200, {'content-type':webContentType(url.pathname),'cache-control':'no-store'});
@@ -911,7 +960,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(':\n\n');
     res.write(`data: ${hello()}\n\n`);
-    if (gpuSide) res.write(`data: ${JSON.stringify({gpu:gpuVersion})}\n\n`);
+    if (gpuSide) res.write(`data: ${JSON.stringify({gpu:gpuVersion,artifact:gpuArtifacts.get(gpuVersion)})}\n\n`);
     clients.add(res);
     console.log(`page connected (${clients.size})`);
     req.on('close', () => clients.delete(res));

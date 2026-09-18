@@ -184,9 +184,76 @@ function generationClient({ fetchGeneration, apply, applied = () => {}, failed =
   };
 }
 
-if (!es) globalThis.exactDevProtocol = { digest, generationClient, validIdentity };
+// Verify loader and Wasm bytes against one immutable receipt BEFORE execution.
+async function loadGpuModule(version) {
+  const { bytes } = await readBounded(new URL(`/__dev/gpu-artifact?g=${version}`, location.href).href, 64*1024, AbortSignal.timeout(15000));
+  const receipt = JSON.parse(new TextDecoder().decode(bytes));
+  const announced = globalThis.exact.gpuArtifacts?.get(version);
+  if (receipt.version !== version || !['module','no-modules'].includes(receipt.format)
+      || (announced && JSON.stringify(receipt) !== JSON.stringify(announced))) throw new Error('GPU receipt differs from requested artifact');
+  const payloads = await Promise.all(['gpu.js','gpu_bg.wasm'].map(async name => {
+    const card = receipt.files?.[name];
+    if (!Number.isSafeInteger(card?.bytes) || card.bytes <= 0 || card.bytes > 256*1024*1024 || !/^[0-9a-f]{64}$/.test(card.sha256)) throw new Error(`invalid GPU receipt: ${name}`);
+    const url = new URL(`/${name}${version ? `?g=${version}` : ''}`, location.href).href;
+    const {bytes} = await readBounded(url, card.bytes, AbortSignal.timeout(30000));
+    if (bytes.length !== card.bytes || await digest(bytes) !== card.sha256) throw new Error(`GPU receipt mismatch: ${name}`);
+    return bytes;
+  }));
+  let module;
+  const source = new TextDecoder('utf-8',{fatal:true}).decode(payloads[0]);
+  if (receipt.format === 'module') {
+    // wasm-bindgen's generated wrapper has local exports only. Evaluate this
+    // verified wrapper in a disposable function scope, not the immortal ESM
+    // module map; repeated Restart of the initial build must release memory.
+    const exports = new Map();
+    let body = source.replace(/\bexport\s+(async\s+)?(function|class|const|let)\s+(\w+)/g, (_,async,kind,name) => {exports.set(name,name);return `${async ?? ''}${kind} ${name}`;});
+    body = body.replace(/\bexport\s+default\s+(\w+);?/g, (_,name)=>{exports.set('default',name);return '';});
+    body = body.replace(/\bexport\s*\{([^}]+)\};?/g, (_,list) => {
+      for (const row of list.split(',')) { const [local,name=local] = row.trim().split(/\s+as\s+/); if (local) exports.set(name,local); }
+      return '';
+    }).replaceAll('import.meta.url',JSON.stringify(new URL('/gpu.js',location.href).href));
+    if (/^\s*(?:import|export)\b/m.test(body) || [...exports].some(([name,local])=>!/^\w+$/.test(name)||!/^\w+$/.test(local))) throw new Error('unsupported generated GPU wrapper; rebuild required');
+    module = new Function(`${body}; return {${[...exports].map(([name,local])=>`${name}:${local}`).join(',')}};`)();
+    await module.default({module_or_path:payloads[1]});
+  } else {
+    module = new Function(`${source}; return wasm_bindgen;`)();
+    await module({module_or_path:payloads[1]});
+  }
+  globalThis.exact.gpuArtifacts ??= new Map(); globalThis.exact.gpuArtifacts.set(version, receipt);
+  return module;
+}
+
+if (!es) globalThis.exactDevProtocol = { digest, generationClient, validIdentity, loadGpuModule };
 if (es) {
   globalThis.exact.devError = show;
+  globalThis.exact.loadGpuModule = loadGpuModule;
+  globalThis.exact.reloadGame = async (options = {}) => {
+    const exact = globalThis.exact, version = exact.gpuVersion ?? exact.gpu?.version ?? 0;
+    if (!exact.gpu) throw new Error('game module is not loaded');
+    const result = await exact.gpu.swap(version, {...options, artifact:exact.gpuArtifacts?.get(version)});
+    if (!result.stale) show(result.errors.join('\n') || null);
+    return result;
+  };
+  const controls = document.body.appendChild(document.createElement('span'));
+  controls.style = 'position:fixed;left:10px;bottom:10px;z-index:2147483646;font:13px system-ui';
+  for (const intent of ['continue','restart','restore']) {
+    const button = controls.appendChild(document.createElement('button'));
+    button.textContent = intent[0].toUpperCase()+intent.slice(1);
+    button.onclick = async () => {
+      try {
+        if (intent !== 'restore') { await globalThis.exact.reloadGame({intent}); return; }
+        const ids = globalThis.exact.gpu?.canvasIds() ?? [];
+        if (ids.length !== 1) throw new Error('Restore requires a checkpoint per canvas; use exact.reloadGame({intent:"restore", checkpoints:new Map(...)})');
+        const input = document.createElement('input'); input.type = 'file'; input.accept = '.world';
+        input.onchange = async () => {
+          try { const file = input.files?.[0]; if (!file) return;
+            if (file.size > 256*1024*1024) throw new Error('checkpoint exceeds 256 MiB');
+            await globalThis.exact.reloadGame({intent,checkpoints:new Map([[ids[0],new Uint8Array(await file.arrayBuffer())]])});
+          } catch (error) { show(String(error)); }
+        }; input.click();
+      } catch (error) { show(String(error)); }
+    };
+  }
   // Host affordance, outside the app tree and absent from static/production pages.
   const opening = document.body.appendChild(document.createElement('a'));
   opening.href = '/__dev/open' + location.search + location.hash;
@@ -199,6 +266,7 @@ if (es) {
     apply: async (candidate, current) => {
       if (!current()) return false;
       const t = performance.now();
+      globalThis.exact.devPlanArtifact = {generation:candidate.generation, epoch:candidate.epoch, seq:candidate.seq};
       const accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module, candidate.rust);
       if (accepted) {
         navigator.sendBeacon(`/__dev/reloaded?epoch=${candidate.epoch}&seq=${candidate.seq}&dom=${Date.now()}&fetch=${candidate.fetchMs.toFixed(1)}&boot=${(performance.now() - t).toFixed(1)}`);
@@ -208,6 +276,7 @@ if (es) {
     },
     applied: () => { clearTimeout(retry); show(null); },
     failed: (error, current) => {
+      globalThis.exact.gpu?.buildFailed(error);
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
       // A deterministic host refusal needs a new edit, not repeated execution
@@ -226,18 +295,19 @@ if (es) {
   es.onmessage = (event) => {
     let message;
     try { message = JSON.parse(event.data); } catch { show("the dev stream sent invalid JSON"); return; }
-    if (message.error) { show(message.error); console.error("exact dev:", message.error); return; }
+    if (message.gpuRequested) { globalThis.exact.gpu?.requested(message.gpuRequested); return; }
+    if (message.error) { globalThis.exact.gpu?.buildFailed(message.error); show(message.error); console.error("exact dev:", message.error); return; }
     if (message.fresh) { if (new URLSearchParams(location.search).get('agent') !== '1') location.reload(); return; }
     if (message.gpu !== undefined) {
       // A drive owns its clock and code. Do not change either behind the driver.
       if (new URLSearchParams(location.search).get('agent') === '1') return;
       globalThis.exact.gpuVersion = message.gpu;
-      if (globalThis.exact.gpu) (async () => {
-        if (message.gpu !== globalThis.exact.gpuVersion) return;
-        const result = await globalThis.exact.gpu.swap(message.gpu);
-        show(result.errors.join('\n') || null);
-        navigator.sendBeacon(`/__dev/gpu?g=${message.gpu}&swap=${result.ms.toFixed(1)}`);
-      })().catch(error => { show(String(error)); console.error('exact dev:', error); });
+      globalThis.exact.gpuArtifacts ??= new Map();
+      if (message.artifact) globalThis.exact.gpuArtifacts.set(message.gpu, message.artifact);
+      if (globalThis.exact.gpu) {
+        globalThis.exact.gpu.onUsable = success => navigator.sendBeacon(`/__dev/gpu?g=${message.gpu}&swap=${success.timing.prepareToCommitMs.toFixed(1)}&usable=${success.timing.firstUsableFrameMs.toFixed(1)}`);
+        globalThis.exact.reloadGame({timing:message.artifact?.timing}).catch(error=> {show(String(error));console.error('exact dev:',error);});
+      }
       return;
     }
     if (message.ready === false) return;

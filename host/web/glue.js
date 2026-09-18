@@ -1316,14 +1316,10 @@ function activateData() {
   applyBatch(batch); setInputReady(true); root.dataset.moduleReady = 'true';
 }
 
-// Boot the app — from the plan baked into the wasm, or from `bytes` (the
-// dev loop's restart carrying compatible state, LLP 1007 §6).
 let mutation = Promise.resolve(); function mutate(work) { const next = mutation.then(work); mutation = next.catch(() => {}); return next; }
 function boot(...args) { return mutate(() => bootNow(...args)); }
 async function bootNow(bytes, assets = devAssets, current = () => true, module = null) {
   const t = performance.now(), request = ++bootAttempt;
-  // Decode and load private font faces while the live page keeps running.
-  // Carry state only at the synchronous host acceptance point below.
   const bakedLength = bytes ? 0 : wasm.exact_plan();
   const plan = bytes ?? new Uint8Array(memory.buffer, wasm.exact_out(), bakedLength).slice();
   let ptr = wasm.exact_in(plan.length);
@@ -1334,7 +1330,11 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
   if (!current() || request !== bootAttempt) return null;
   const launch = encoder.encode(location.pathname + location.search); // @ref LLP 1038 D5
-  let len;
+  let len, stagedGpu = null;
+  const transaction = Boolean(bytes && globalThis.exact.gpu);
+  if (transaction && (!wasm.exact_begin_boot || !wasm.exact_begin_boot())) throw new Error("canvas reload requires the transactional web host; rebuild/relaunch");
+  let batch;
+  try {
   if (module) {
     const id = module.rust ?? new TextEncoder().encode(JSON.stringify(module.realm.id));
     const payload = new Uint8Array(plan.length + module.receipt.length + id.length);
@@ -1351,19 +1351,22 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     new Uint8Array(memory.buffer, ptr, launch.length).set(launch);
     len = wasm.exact_boot(innerWidth, innerHeight, launch.length);
   }
-  const batch = JSON.parse(readOut(len));
+  batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
+  shaderCommit?.();
+  if (transaction) stagedGpu = globalThis.exact.gpu.stagePlan(batch);
+  } catch (error) {
+    stagedGpu?.abort(); shaderCommit?.rollback?.();
+    if (transaction) wasm.exact_finish_boot(0);
+    throw error;
+  }
+  if (transaction) wasm.exact_finish_boot(1);
   if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); }
   navigation.reset(batch.ops.find(op => op.op === "router"));
   const oldAssets = devAssets;
   devAssets = assets;
-  shaderCommit?.();
-  // Tear down without yielding; ownership guards refuse retired views.
   incarnation += 1;
   globalThis.exact.generation = incarnation;
-  // A queued surface belongs to the plan that named it. The GPU device may
-  // finish loading across a reload; no old surface request may join the new
-  // plan even when view ids are reused.
   globalThis.exact.pendingSurfaces = [];
   if (ticker) clearInterval(ticker);
   ticker = null;
@@ -1381,7 +1384,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   inflight.clear();
   root.replaceChildren();
   commitFonts(preparedFonts);
-  const timers = applyBatch(batch).timers; globalThis.exact?.gpu?.finishRestart();
+  const timers = applyBatch(batch).timers; globalThis.exact?.gpu?.finishRestart(); stagedGpu?.commit();
   if (bytes && !module) activateData(); // This session has already painted once.
   if (oldAssets !== assets) releaseAssets(oldAssets);
   if (timers && !agentMode) ticker = setInterval(() => send(wasm.exact_advance(now())), 250);
@@ -1389,20 +1392,14 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   return performance.now() - t;
 }
 
-// `agent` and `now` exist only in agent mode: a normal page has no agent
-// surface and no clock but the browser's.
 let ready;
 globalThis.exact = { mutate,
-  // @ref LLP 1038 D8/D11 — synchronous for the serialized popstate caller.
   navigate: (location) => {
     const nav = root.firstElementChild;
     if (!inputReady || !nav?.hasAttribute("navigationBack")) return { ops: [], error: "no navigation root" };
     const batch = JSON.parse(readOut(wasm.exact_dispatch(Number(nav.dataset.view), 14, writeIn(location), now())));
     applyBatch(batch); return batch;
   },
-  // A dev-plan event can arrive while the wasm is still fetching. Queue it
-  // behind the initial boot instead of acknowledging a reload that did not
-  // happen.
   reload: async (bytes) => { await ready; await moduleReady; if (logicInfo || activeModule) throw new Error('module reload requires a paired generation'); return boot(bytes); },
   reloadGeneration: async (bytes, cards, current, module = null, rust = null) => {
     await ready;
@@ -1435,9 +1432,6 @@ globalThis.exact = { mutate,
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
   ...(agentMode ? { agent, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, writeIn, send, views, root, generation: 0, pendingSurfaces: [],
 };
-// The GPU module, on demand: a script element after a rendering opportunity
-// (two animation-frame callbacks), never an eager import, and only when a
-// canvas is on the page.
 let gpuLoading = null;
 function loadGpuIfNeeded() {
   if (gpuLoading || !(globalThis.exact.pendingSurfaces ?? []).length) return;
