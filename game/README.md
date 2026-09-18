@@ -409,3 +409,55 @@ JavaScript operations are awaited; `settle()` returns a boolean. `snapshot()` ke
 simulation fields only. These helpers dispatch the existing eight agent operations.
 The generated game demonstrates nearby prompts, beacon plinths, and `round` as the
 world's restart identity, with the same movement/light sequence in its test and proof.
+
+## Linux proof baseline (T0c, 2026-09-18)
+
+The original converged trunk (`8189f90`) was compared by running both merge parents:
+engine `01f4c48` (`origin/lane/game`) and DX `7b34fc5`
+(`origin/llp-ship/game-dx-20260918/integration`). These failures are inherited;
+T0c leaves their assertions, hash pins, save formats and runtime APIs unchanged.
+
+| Linux proof assertion | Engine | DX | Trunk |
+| --- | --- | --- | --- |
+| Beacons: glow fully up at one second after E, after restore | pass | fail | fail |
+| Beacons: restored continuation matches original | pass | fail | fail |
+| Beacons: complete continuation save is byte-identical | pass | fail | fail |
+| Greybox: saved queued jump executes after capture, after restore | pass | fail | fail |
+| Greybox: D6 two sessions continue to the same simulation snapshot | pass | fail | fail |
+| Greybox: D6 entire Sim save is byte-identical | pass | fail | fail |
+| Lanterns: proof reaches the Linux session without web `dist/index.html` | game absent | interrupted | interrupted |
+
+DX and trunk restore Greybox successfully at tick 30 with
+`clockState.hostMicros: null`; the following `clock +500` stays at tick 30.
+The first continuation advance establishes the epoch instead of executing ticks.
+DX's `1e636eb` made inspection read-only, while `7b34fc5` establishes ownership
+before restore; restore resets the host epoch. This needs an explicit host clock
+anchor after restore. The intentionally invalid `refused.world` is a separate,
+passing refusal test, not an EXSIM version mismatch in the valid checkpoint.
+
+Lanterns' unconditional web adapter installation comes from DX's `1176d78`.
+Its headless interruption must be repaired in that consumer; creating a web
+distribution to conceal the dependency would not prove a headless launch.
+DX also fails Beacons' old native-hash assertion twice; trunk's existing
+`0x58d5d637a36c8365` pin passes and was not changed in this audit.
+
+`cd game && bun test` requires more than the headless host: the generated-game
+test builds successfully but explicitly launches a web proof and requires Chrome
+on both parents. The feel `--no-build` test requires pre-existing Beacons 60 Hz
+`dist/` and 120 Hz `target/feel120/` web bakes; it already fails without them on
+engine and is absent on DX. Both failures are environmental on this machine.
+DX separately has a missing `games/beacons/feel.mjs` import, already resolved on trunk.
+
+Clippy's `type_complexity` diagnostic at `render/src/assets.rs:239` and rustfmt
+differences in that file and `engine/tests/capture.rs` also reproduce on DX;
+engine passes both checks. GPU pixels, browser execution and Apple SDK/runtime
+behavior are outside this machine's verification capabilities.
+
+Final trunk verification: the clean game workspace has **375 Rust tests passed,
+0 failed, 9 ignored**; `bun test` has **38 passed, 2 environmental failures**.
+The Linux proofs report Beacons **51 passed / 3 failed**, Greybox **57 / 3**,
+Lanterns **1 / 1** (cleanup passes; the proof is interrupted), and asset-fixture
+**6 / 0**. An untouched generated game separately passes its three Rust tests
+and Linux proof. No merge-only failure was demonstrated. Parent scratch worktrees
+were removed; cold rebuilds retained `CARGO_PROFILE_DEV_DEBUG=0`,
+`CARGO_PROFILE_TEST_DEBUG=0`, and `CARGO_INCREMENTAL=0` after disk cleanup.
