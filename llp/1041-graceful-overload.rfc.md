@@ -3236,3 +3236,14 @@ and binary receipts remain under `target/apple-resize-native-cut-native-v1/`,
 508 files/126,951,165 bytes, manifest
 `0678dd2aea4222a3f187b3c0f8e0f4ffc2062e393b78cffcb9a99f62c1294d5d`.
 The separate AppKit control is under `target/native-630-resize-tile-price/`.
+
+A subsequent small production cleanup passes the already-resolved text identity
+from definite-width measurement into the private paragraph helper. This removes
+a second identity lookup on that miss path; intrinsic measurement, public
+paragraph lookup, source/paint keys, width offers and ownership policy are
+unchanged. The exact changed source passes 32 existing standalone TextGeometry
+methods (517 assertions) and full ExactKit Swift typechecking. Four
+Session/NodeView-dependent methods are excluded from that standalone harness;
+this is not a full XCTest or native performance run. No saving is measured yet.
+The source and checks are retained under `target/apple-text-known-identity/`,
+manifest `4743d8edadd3e91adce1872a0025415a6836cae3b25fdc3caec2857bdc89f90d`.

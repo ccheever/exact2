@@ -434,6 +434,10 @@ final class TextEngine {
     /// widths alive; a new width retires obsolete cache ownership before work.
     func paragraph(_ spec: Spec, width: CGFloat) -> Paragraph {
         let identity = residency.identity(spec)
+        return paragraph(spec, identity: identity, width: width)
+    }
+
+    private func paragraph(_ spec: Spec, identity: TextIdentity, width: CGFloat) -> Paragraph {
         let key = TextParagraphKey(shape: TextShapeKey(identity: identity, paint: TextPaint(spec)), width: width)
         if let p = residency.paragraph(key) { return p }
         // Preserve matching measured line breaks while replacing their black
@@ -692,7 +696,7 @@ final class TextEngine {
             let shape = shape(key.shape, identity: identity)
             residency.prepare(estimatedBytes: identity.utf16Count * 64)
             p = layout(shape, width: width)
-        } else { p = paragraph(spec, width: width) }
+        } else { p = paragraph(spec, identity: identity, width: width) }
         let metrics = ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
         if intrinsic { residency.put(identity, kind: kind, metrics: metrics) }
         measureSeconds += CACurrentMediaTime() - started
