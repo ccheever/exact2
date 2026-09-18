@@ -5368,3 +5368,56 @@ Source and execution evidence is preserved under
 `target/region-atomic-publication-validation/`. No worker, queue, image history
 or wider budget is added. The change closes the tested model-layer gap; it does
 not establish continuous physical120Hz presentation.
+
+### 8.89 Guarded reversed Markdown pair, 2026-09-18
+
+Two new cells run treatment then control using the same immutable dafa9d6
+products as8.87, without rebuilding. Both precede the atomic Surface fix1e1cf3b;
+these are not current-MAIN timings. A prospective guard compares the first
+existing fully-ready snapshot with the existing pre-edge snapshot, using the
+unchanged independent Cocoa admission. Control must also match treatment's
+sampled tuple before its external resize input starts. The old admission passes
+nine controls and misses eight intended refusal cases; the new guard passes all
+17. It adds no native read, poll, forced style, width allowlist or retry.
+
+Both cells pass with legacy scrollers and963×400 initial clips. Their18 actual
+resize offers, full six document Values, twelve input requests, window geometry
+and backing scale match. Final clips are879×400; the unchanged full paragraph
+reflows940→856px. This closes the sampled scroller mismatch for this pair only;
+the original unmatched cells and their classifications remain unchanged.
+
+| Semantic control → treatment; execution treatment → control | Control | Treatment |
+|---|---:|---:|
+| Whole resize sum / maximum,18 calls | 17.647 /4.112ms | 16.488 /2.775ms |
+| Typing ACK maximum / wheel ACK maximum | 3.956 /0.535ms | 3.506 /0.360ms |
+| UI interval union inside resize | 23.304ms | 26.761ms |
+| Worker interval union inside resize | 1660.839ms | 1646.156ms |
+| First final-width layer after resize ends | 210.608ms | 168.654ms |
+
+Control frame/source935/936 joins acceptance951 and first layer957; treatment
+1020/1021 joins1036 and first1042. Acceptance-to-first assignment is12.174875
+and12.348875ms. Latest985/1070 are fifth repetitions, not first delivery. All18
+measured resize calls and all12 input ACKs per cell are below8.33ms, but both
+fresh-publication-inside-resize endpoints remain not established.
+
+The unchanged retention reader establishes24 discrete A placements per cell,
+23 inside resize, with no clear44 and each episode ending at fresh B. Coverage
+is14full/10partial for control and15full/9partial for treatment. The captured
+enum is still34/35–43/44. These placements do not prove uninterrupted coverage,
+fresh hits or physical display, and do not test the later Surface fix.
+
+Costs remain mixed: treatment's UI union and acceptance-to-first delay are
+higher. Final shape completions are38 versus44; recorded worker spans cover
+different progress and horizons. The clipped unions are overlapping wall
+intervals, not additive CPU costs or equal-work comparisons. One matched pair
+does not establish a uniform or repeated gain. Passive-mode classification
+remains not established and the recorded display is60Hz; physical120fps remains
+unmeasured.
+
+Both cells exit0, with eight recorded processes/four groups gone and both owned
+pointers released. No build, retry, third cell or source change occurred.
+The102-file runtime archive is under
+`target/apple-current-region-guarded-reverse-execution-v1/`; independent lead
+raw reconstruction and final-geometry checks are separate `lead-*` sidecars.
+The next source discriminator targets obsolete shape work before metadata
+construction, preserving complete results, bounded progress and accepted A.
