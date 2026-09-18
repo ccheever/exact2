@@ -10,9 +10,6 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
-- **Linux geometric occlusion** (2026-09-18, T0d): `host/linux/src/surfaces.rs`
-  overwrites the engine's CPU occlusion result with `unavailable`; Greybox still
-  asserts that old behavior. Expose and prove the merged T5 result through the host.
 - **Game test prerequisites** (2026-09-18, T0c): the generated-game test launches web
   on both parents and requires Chrome; engine's feel `--no-build` test requires existing
   60/120 Hz web bakes. Both remain environmental failures on this headless box.

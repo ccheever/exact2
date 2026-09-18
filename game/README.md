@@ -375,23 +375,73 @@ clock, publications, saves and CPU point picks work; canvas pixels report unavai
 Entity layout requests also accept an optional target:
 `{"op":"layout","entity":"fox","to":"lantern-2","width":800,"height":600}`.
 The reply adds `entity.visible.occluded` (0–1) and `occluders` (at most four
-names, nearest ray intersection first, entity index breaking ties; unnamed
+names, nearest ray intersection first after rounding distances to 0.0001 m,
+entity index breaking quantized ties; unnamed
 entities use `#index`). Occlusion counts the eight oriented-bound corners,
 six face centres and centre equally. It is a geometric estimate, independent
-of frustum status, material opacity and rendered pixels. Hidden entities and
-singular transforms do not obstruct. Rays use the same primitive intersections
-and declared model boxes as picking. Undeclared models without authored
+of material opacity and rendered pixels. Behind-camera or out-of-frustum bounds
+report `occluded: null` and a `reason`; `behindCamera` means all eight corners
+are behind the eye. Hidden subjects also report null occlusion. Cameras are
+perspective-only. Hidden entities, fully degenerate bounds and
+singular transforms do not obstruct. Visibility rays count entry surfaces only:
+a shape containing the ray origin (including its boundary) is ignored, so a
+room containing the camera cannot hide its interior. Picking still returns exits.
+Rays use the same primitive intersections and declared model boxes as picking. Undeclared models without authored
 `ModelBounds` have null bounds and unavailable screen/visibility reads; they
 never block a pick or occlusion ray, even after their presentation bytes arrive.
 Authored bounds remain usable before and after cosmetic delivery.
-`entity.facing.forward` is normalized world −Z, `towardCamera` its dot with
+A missing global pose reports `world: null` and unavailable geometry with a
+reason, never an identity pose. `entity.facing.forward` is normalized world −Z
+(null for a collapsed axis), `towardCamera` its dot with
 the normalized direction to the active camera (null without camera/viewport).
-With `to`, facing also contains `bearingTo` (signed degrees about +Y, −180…180),
+With `to`, facing also contains `bearingTo` (signed degrees about +Y, −180…180,
+with the boundary canonicalized to +180),
 `distanceTo` (world-origin distance) and `lineOfSight` (open origin-to-origin
-segment, excluding both endpoint entities and their descendants). Coincident origins have distance
+segment). Each endpoint and its ancestors and descendants are one object for
+this read: their meshes are excluded. Camera occlusion applies the same rule to
+the subject and active camera; LOS applies it to subject and target. Siblings
+remain separate objects, even under a common scene root. Exclusion crosses every
+Parent edge (there is no separate rigid attachment edge). Coincident origins have distance
 and bearing zero and clear sight; zero horizontal directions have bearing zero.
-Visibility retains `{"unavailable":true}` without camera/viewport.
+A missing target pose makes distance, bearing and LOS null with a reason;
+a collapsed forward axis makes bearing null. Rounded JSON canonicalizes signed
+zero to 0. Visibility retains `{"unavailable":true}` without camera/viewport.
 These queries take only shared world reads and preserve the mutation epoch.
+Visibility uses a separate, retained mesh-bounds BVH (physics indexes colliders).
+The cache is world-owned derived data, excluded from saves, hashes and observation.
+It invalidates on Mesh, Transform, Parent, Visible and ModelBounds revisions,
+entity membership, propagated hierarchy generation, presentation generation and
+asset geometry revision. Layout never advances or mutates simulation state.
+An index rebuild admits at most 262,144 entity slots, including dead slots;
+beyond that `layout` returns an explicit index-limit error before allocation.
+Balanced median construction is O(N log N), at most 19 levels and 524,287 nodes.
+Each request additionally allows 1,000,000 total hierarchy-exclusion/BVH-node
+visits across all 15 sample rays and the optional line-of-sight ray; exhaustion
+returns `layout visibility work budget exceeded`, never a partial fraction.
+Exclusions are built once, line-of-sight exits on the first blocker, and rays
+allocate and sort no hit lists. Occlusion retains only four distinct nearest hits.
+
+T5b diagnostic (`cargo test --manifest-path game/Cargo.toml -p exact-game --lib
+mesh_bvh_200k -- --nocapture`), optimized test profile, shared x86-64 Linux:
+200,000 meshes, a 99,999-deep chain, interleaved/reversed spatial order, recycled
+slots, a Character component, a loading cosmetic model and a subject 10 km from
+the camera. The complete layout request (15 samples plus `to`, including JSON)
+measured **84.679 ms cold**, **1.972 ms warm median / 1.998 ms maximum** over nine
+warm reads, with **300,737 visits**. Construction of the world is excluded;
+cold includes building the index and warm includes rebuilding endpoint exclusions.
+The successful answer must name the real wall and change when it is removed.
+The unprunable case, 200,000 overlapping on-ray meshes, explicitly
+refuses at **1,000,000 visits**, **102.424 ms cold / 35.775 ms warm**; the same
+scene's boolean LOS stops in fewer than 64 visits. These are diagnostic timings,
+not a frame-time guarantee. The slot-limit test includes despawned slots.
+
+A temporary negative control returning zero occlusion and no occluders failed
+three engine tests and the viewport-bearing WorldSurface snapshot test; restoring
+the implementation passes those tests. Linux preserves the engine's geometric
+visibility reply even without a GPU; Greybox opens an 800×600 headless session
+and compares the complete unchanged native layout snapshot, including screen
+coordinates. Only the host's transport epoch/incarnation/clock are outside that
+engine reply.
 
 The native bake binds the GPU product digest to the app and cohort before loading.
 `EXACT_GPU_MODULE` (Linux) and `EXACT_GPU_DYLIB` (Apple) select a path only in a development-trust bake; the product must still match its baked digest.
@@ -1493,3 +1543,40 @@ Ran `git fetch ../exact2-next next/trunk && git merge FETCH_HEAD` against
 merge commit or conflict resolution was needed. Full verification above ran after
 that merge. Commands, complete sample arrays, negative control and verification
 logs are retained under `~/lanes/gamenext/scratch/K1/`.
+
+
+## Geometric eyes follow-up (T5b, 2026-09-18)
+
+`Sim::agent(&mut self, request: &str) -> String` and the layout request signature
+are unchanged. Layout now has bounded mesh visibility work, symmetric endpoint
+hierarchy exclusions, explicit unavailable geometry, canonical rounded numbers
+and quantized occluder ordering. The API rules and 200k measurements are above.
+Model bounds were already validated as finite and ordered on merged trunk; the
+new asset-load regression proves rejection on each inverted axis. Authored
+ModelBounds remain deterministic geometry even before cosmetic model delivery.
+
+The required local fetch/merge of `next/trunk` resolved to
+`77ef8d2c86cf5757818e44f960f6cf5ccfb09c09`, already an ancestor of this branch.
+After that merge check, **533 game Rust tests passed, 0 failed, 21 diagnostics
+ignored**. Game workspace Clippy (`-D warnings`) and formatting pass. The affected
+Linux host additionally passes **15 unit tests** and Clippy. Root formatting,
+staged caps and boot pass; boot retains two JavaScript modules and one Wasm.
+
+| Linux proof | Off | Save | FreshGame |
+| --- | ---: | ---: | ---: |
+| Greybox | 63/0 | 64/0 | 64/0 |
+| Beacons | 54/0 | 55/0 | 55/0 |
+| Lanterns | 8/0 | 9/0 | 9/0 |
+| Asset fixture | 7/0 | 8/0 | 8/0 |
+| Cubes | 3/0 | 4/0 | 4/0 |
+
+All **15 runs / 415 assertions** pass. No pinned positions, hashes or committed
+snapshot files changed. The forced-empty occlusion negative control failed four
+tests, including the viewport-bearing WorldSurface test; production code is restored.
+Bun remains **55 passed / 2 environmental failures** (missing Chrome and prebuilt
+feel bakes). Full root build/test/Clippy cannot bake TypeScript apps without the
+lean Hermes executor. GPU pixels, browser/Wasm execution and Apple runtime are
+unverified on this host; device-dependent Rust tests may return early.
+The initial game build refused a stale ignored asset-fixture `crate.model` without
+its generation manifest; it was preserved in task scratch and regenerated from
+tracked art. Logs and that preserved artifact are in `~/lanes/gamenext/scratch/T5b/`.

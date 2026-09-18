@@ -267,6 +267,13 @@ fn walking_fox_with_authored_bounds_behind_wall_changes_geometric_eyes_headlessl
     let player = sim.world().named("player").unwrap();
     let camera = sim.world().named("camera").unwrap();
     sim.world_mut().remove::<Follow>(camera);
+    sim.world_mut().insert(
+        player,
+        Mesh::Capsule {
+            radius: 0.4,
+            height: 1.3,
+        },
+    );
     sim.world_mut().teleport(
         camera,
         Transform::at(-10.0, 1.0, 5.0).looking_at(Vec3::new(-2.0, 0.0, 5.0), Vec3::Y),
@@ -287,12 +294,12 @@ fn walking_fox_with_authored_bounds_behind_wall_changes_geometric_eyes_headlessl
     let epoch = sim.world().mutation_epoch();
     let after = sim.agent(request);
     assert_eq!(sim.world().mutation_epoch(), epoch);
-    eprintln!("fox before: {before}\nfox after: {after}");
     #[derive(Default, exact_game::Data)]
     struct Visibility {
         occluded: f32,
+        occluders: Vec<String>,
     }
-    // Parse only the sampled fraction; exact wire names are also checked below.
+    // Parse the occluder field, not arbitrary occurrences of a name in the reply.
     #[derive(Default, exact_game::Data)]
     struct EntityEyes {
         visible: Visibility,
@@ -306,5 +313,16 @@ fn walking_fox_with_authored_bounds_behind_wall_changes_geometric_eyes_headlessl
     assert!(b.entity.visible.occluded > a.entity.visible.occluded);
     assert!(before.contains("\"lineOfSight\":true"), "{before}");
     assert!(after.contains("\"lineOfSight\":false"), "{after}");
-    assert!(after.contains("\"wall\""), "{after}");
+    assert!(
+        !a.entity.visible.occluders.iter().any(|n| n == "wall"),
+        "{before}"
+    );
+    assert!(
+        b.entity.visible.occluders.iter().any(|n| n == "wall"),
+        "{after}"
+    );
+    assert!(
+        !b.entity.visible.occluders.iter().any(|n| n == "player"),
+        "{after}"
+    );
 }

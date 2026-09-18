@@ -351,6 +351,7 @@ pub enum AssetState {
 }
 #[derive(Default, Clone)]
 pub(crate) struct Assets {
+    pub geometry_revision: u64,
     pub models: BTreeMap<String, Arc<Model>>,
     pub states: BTreeMap<String, AssetState>,
     pub declared: BTreeSet<String>,
@@ -416,7 +417,7 @@ impl crate::World {
     }
 }
 
-fn valid_bounds(b: &[f32; 6]) -> bool {
+pub(crate) fn valid_bounds(b: &[f32; 6]) -> bool {
     b.iter().all(|v| v.is_finite()) && (0..3).all(|i| b[i] <= b[i + 3])
 }
 impl TextureData {

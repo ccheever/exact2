@@ -494,6 +494,9 @@ struct Node {
     global: Affine3A,
 }
 impl Hierarchy {
+    pub(crate) fn generation(&self) -> u64 {
+        self.stamp
+    }
     pub(crate) fn page_generation(&self, page: usize) -> u64 {
         self.global_pages.get(page).copied().unwrap_or(0)
     }

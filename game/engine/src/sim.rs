@@ -343,6 +343,8 @@ impl<G: Game> Sim<G> {
                     .assets
                     .models
                     .insert(name.into(), std::sync::Arc::new(model));
+                self.world.assets.geometry_revision =
+                    self.world.assets.geometry_revision.wrapping_add(1);
                 if !self.defer_assets {
                     self.world.assets.prepared.insert(name.into());
                 }

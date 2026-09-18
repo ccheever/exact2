@@ -592,6 +592,11 @@ fn rounded(n: f64) -> f64 {
     if n.abs() > f64::MAX / 10000.0 {
         n
     } else {
-        (n * 10000.0).round() / 10000.0
+        let n = (n * 10000.0).round() / 10000.0;
+        if n == 0.0 {
+            0.0
+        } else {
+            n
+        }
     }
 }
