@@ -4296,3 +4296,38 @@ MAIN matches the tested production and test bytes; unrelated compiled dependency
 identities, caps and boot checks are retained. The multi-second publication delay
 and absent in-edge paragraph layer in§8.64 remain uncorrected measurements until
 the new native experiment establishes otherwise.
+
+### 8.67 First range-reuse native comparison has unmatched geometry, 2026-09-18
+
+One new optimized candidate build and two fresh full1MiB cells complete with
+typing, directional wheel movement and eventual correct source/publication.
+The candidate differs only in the worker range change from§8.66; generated entry,
+plan, compatibility and existing diagnostic sources match the control. Neither
+cell establishes a new accepted raster and layer assignment inside live resize.
+
+The intended timing comparison is not valid: macOS restored the prior saved
+window after processing requested size overrides. Actual paragraph widths are
+856→772 for control and772→688 for candidate, with different line counts. Each
+cell's existing oracle correctly checks its actual window but does not require
+equal geometry between cells. This setup failure was found offline; both records
+remain intact, with no retry or inferred speedup. Future comparisons must check
+actual starting geometry before admitting either measured edge.
+
+The candidate still spends2,241.554ms in the full shape crossing the edge and
+2,131.356ms in the final-width shape afterward, followed by79.058ms of index work.
+Its final layer arrives3,101.454ms after resize; the control's arrives4,205.302ms
+after its different-width edge. Those are separate observations, not a gain.
+Both first post-edge samples have visible publication0 and displayable=false.
+Each has six typing and six actual±40 wheel handlers/ACKs inside18 native resize
+changes. Primary/cost recorders have no omissions; passive mode remains unknown.
+No physical presentation, destination pixel comparison or120Hz result follows.
+
+All eight recorded PIDs/four groups are retired with both posted mouse-ups saved.
+Evidence is `target/apple-giant-range-pair-e494-v1/`. Independent selected-raw
+reconstruction agrees on source, widths, worker spans and publication delays;
+parent and nested worker costs are not added. The next cost discriminator separates
+typesetter setup, Unicode boundaries, line construction and numeric caret/hit
+metadata, before choosing another optimization or scheduling change.
+Manifest `bfab2998a2cc124bbfaf7a0fa54fdad6375945837e38979bfad0ccb398ec6a7c`
+records190 files/85,284,262B; report
+`f95ce87b41a3d318d1eafc3d4cac58ab9c5c80a75785bfe6bd7b660ff4629412`.
