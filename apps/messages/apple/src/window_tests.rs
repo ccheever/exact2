@@ -227,6 +227,12 @@ fn bounded_bytecode_answers_round_trip_and_keep_decoration_at_25_1000_25000() {
         if n >= 1_000 {
             // Diagnostic only: the same process, module, source and 200 rows.
             // Measure answer/typed crossing separately from Rust JSON rendering.
+            // Module exposes no VM allocation/instruction counter. These host
+            // observations cannot detect decorating every row before slicing:
+            // in-memory row visits do not cross the Store/request/log seams.
+            model.module.take_logs();
+            let reads = model.store.reads();
+            let overruns = model.module.overruns();
             let mut timings = Vec::new();
             let mut bytes = 0;
             for _ in 0..9 {
@@ -251,6 +257,13 @@ fn bounded_bytecode_answers_round_trip_and_keep_decoration_at_25_1000_25000() {
             eprintln!(
                 "conversation N={n}: answer median={:?}, JSON bytes={bytes}, rows={K}",
                 timings[4]
+            );
+            eprintln!(
+                "host observations N={n}, 9 answers: reads={}, overruns={}, in_flight={}, logs={}",
+                model.store.reads() - reads,
+                model.module.overruns() - overruns,
+                model.module.in_flight(),
+                model.module.take_logs().len()
             );
         }
     }

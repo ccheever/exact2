@@ -145,6 +145,7 @@ mod tests {
                     Value::Number(0.),
                     Value::str(reply),
                     Value::str(""),
+                    Value::str(""),
                 ],
             )
         };
@@ -296,6 +297,7 @@ mod tests {
                     Value::Number(0.),
                     Value::str("m7"),
                     Value::str(""),
+                    Value::str(""),
                 ],
             )
         };
@@ -354,6 +356,7 @@ mod tests {
                     Value::Number(0.),
                     Value::str(""),
                     Value::str(""),
+                    Value::str(""),
                 ],
             )
         };
@@ -405,6 +408,7 @@ mod tests {
                 Value::str("maya"),
                 Value::Number(0.),
                 Value::str("m9"),
+                Value::str(""),
                 Value::str(""),
             ],
         );
@@ -458,6 +462,7 @@ mod tests {
                 Value::Number(0.),
                 Value::str(""),
                 Value::str("m3|m1|m1|dad-1|missing"),
+                Value::str(""),
             ],
         );
         assert_eq!(selection["selectionCount"], 2.0);
@@ -532,6 +537,7 @@ mod tests {
                         Value::Number(0.),
                         Value::str("m9"),
                         Value::str(""),
+                        Value::str(""),
                     ],
                 )
             };
@@ -572,6 +578,7 @@ mod tests {
                     Value::str(id),
                     Value::Number(0.),
                     Value::str(reply),
+                    Value::str(""),
                     Value::str(""),
                 ],
             )
@@ -681,6 +688,7 @@ mod tests {
                     Value::Number(0.),
                     Value::str(""),
                     Value::str(""),
+                    Value::str(""),
                 ],
             )
         };
@@ -787,6 +795,7 @@ mod tests {
                 vec![
                     Value::str("maya"),
                     Value::Number(0.),
+                    Value::str(""),
                     Value::str(""),
                     Value::str(""),
                 ],
@@ -987,6 +996,7 @@ mod tests {
                 Value::Number(0.),
                 Value::str(""),
                 Value::str(""),
+                Value::str(""),
             ],
         );
         assert_eq!(chat["knownContact"], true);
@@ -1050,6 +1060,7 @@ mod tests {
                 vec![
                     Value::str(id),
                     Value::Number(0.),
+                    Value::str(""),
                     Value::str(""),
                     Value::str(""),
                 ],

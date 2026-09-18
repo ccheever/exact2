@@ -14,11 +14,12 @@ the top of its new window; latest and sending return to the end. History does
 not follow arrivals. The eager transcript retains up to 200 mounted messages,
 without preserving position across shifts; its scrollbar spans that window.
 Short fixture threads keep their existing presentation. The scroll policy passes
-on web; the headless Linux drive still ignores the authored end request (tracked
-in `QUEUE.md`), so Linux latest/send positioning is not verified.
+on web; the headless Linux drive still ignores the authored end request
+(pre-existing at `ccc5367`, tracked in `QUEUE.md`), so Linux latest/send
+positioning is not verified.
 
 Per-thread indexes bound transcript reads to a binary search, the window and
-its two neighbors. Selection uses only selected IDs (ordered in linear time);
+its two neighbors. Selection uses only selected IDs (sorted by order in O(S log S));
 the reply sheet still returns all R rows of its indexed root, including its own
 receipt. Thus an open reply chain can still cost O(N) when R=N. Durable writes
 remain O(total records): `snapshot()` clones the model, `persist` diffs it, and

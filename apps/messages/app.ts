@@ -69,29 +69,6 @@ function removeMessages(id:string,selected:Set<string>) {
   if(removed.length)replaceThread(id,kept);
   return removed;
 }
-// Eight stable byte passes order finite IEEE-754 keys in O(S), without
-// walking unselected rows or adding an O(S log S) comparison sort.
-function orderedSelection(rows:StoredMessage[]) {
-  if(rows.length<2)return rows;
-  const view=new DataView(new ArrayBuffer(8));
-  let items=rows.map(row=>{
-    view.setFloat64(0,row.order,false);
-    const bytes=Array.from({length:8},(_,i)=>view.getUint8(i));
-    if(bytes[0]&128)for(let i=0;i<8;i++)bytes[i]^=255;
-    else bytes[0]^=128;
-    return {row,bytes};
-  });
-  for(let byte=7;byte>=0;byte--){
-    const counts=new Array<number>(256).fill(0);
-    for(const item of items)counts[item.bytes[byte]]++;
-    let offset=0;
-    for(let i=0;i<256;i++){const count=counts[i];counts[i]=offset;offset+=count;}
-    const sorted=new Array<typeof items[number]>(items.length);
-    for(const item of items)sorted[counts[item.bytes[byte]]++]=item;
-    items=sorted;
-  }
-  return items.map(item=>item.row);
-}
 const muted = new Set<string>();
 const blocked = new Set<string>();
 const localContacts = new Map<string,{first:string,last:string,company:string,phone:string,email:string,notes:string}>();
@@ -253,7 +230,7 @@ function conversation(id:string,replying:string,selection:string,cursor:string):
   const messages=decorate(rows.slice(start,end),rows[start-1],rows[end],index.lastOutgoing);
   const activity=pending.get(person.id);
   const typing=!!activity && ticks>=activity.start;
-  return {selectedText:orderedSelection(selectedRows).map(m=>m.body).join("\n"),selectionCount:selected.size,typingName:typing?(responder(person.id)?.name || ''):'',
+  return {selectedText:selectedRows.sort((a,b)=>a.order-b.order).map(m=>m.body).join("\n"),selectionCount:selected.size,typingName:typing?(responder(person.id)?.name || ''):'',
     typingAvatar:typing && groups.has(person.id)?responder(person.id)!.initials:'',typingRoot:typing?activity!.reply:'',
     id:person.id,name:person.name,initials:person.initials,color:person.color,reactions,
     muted:muted.has(person.id),blocked:blocked.has(person.id),knownContact:!person.id.startsWith('address:') || localContacts.has(person.id),
