@@ -149,13 +149,14 @@ final class RegionWorkerLayout {
         // An authored CSS line height fixes the line box, including fractions.
         // Keep intrinsic width and `normal` height measurement separate: changing
         // their rounding also changes wrapping and the established host parity.
-        // One cooperative boundary only: no partial metrics or layout binding
-        // escape if the authoritative request was superseded during shaping.
+        // Check before metadata and at its coarse line boundaries. No partial
+        // metrics or layout binding escape if the authoritative owner changed.
         try beforeMetadata()
-        let metadata = RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
+        let metadata = try RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
                                        lines: lines, baselines: baselines,
                                        width: ceil(maxWidth), height: explicit ? y : ceil(y),
-                                       lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false)
+                                       lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false,
+                                       metadataCheckpoint: beforeMetadata)
         return RegionWorkerLayout(source: source, lines: retainHits ? lines : [], baselines: retainHits ? baselines : [],
                                   metadata: metadata, preparation: preparation)
     }

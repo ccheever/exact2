@@ -106,15 +106,33 @@ final class RegionParagraph: Sendable {
             + (baselines.count + lineBottoms.count) * MemoryLayout<CGFloat>.stride
     }
 
+    convenience init(source: RegionTextSource, sourceSHA256: String, lines: [CTLine], baselines: [CGFloat], width: CGFloat,
+                     height: CGFloat, lineBottoms: [CGFloat], offeredWidth: CGFloat, retainHits: Bool = true, captureHits: Bool = true) {
+        self.init(source: source, sourceSHA256: sourceSHA256, lines: lines, baselines: baselines, width: width,
+                  height: height, lineBottoms: lineBottoms, offeredWidth: offeredWidth, retainHits: retainHits,
+                  captureHits: captureHits, metadataCheckpoint: {})
+    }
     init(source: RegionTextSource, sourceSHA256: String, lines: [CTLine], baselines: [CGFloat], width: CGFloat,
-         height: CGFloat, lineBottoms: [CGFloat], offeredWidth: CGFloat, retainHits: Bool = true, captureHits: Bool = true) {
+         height: CGFloat, lineBottoms: [CGFloat], offeredWidth: CGFloat, retainHits: Bool = true, captureHits: Bool = true,
+         metadataCheckpoint: () throws -> Void) rethrows {
         precondition(!Thread.isMainThread)
         self.source = source; self.baselines = baselines; self.lineBottoms = lineBottoms
         self.sourceSHA256 = sourceSHA256
         self.width = width; self.height = height; self.offeredWidth = offeredWidth
         shapedOnMainThread = Thread.isMainThread
         let flush: CGFloat = source.align == 1 ? 0.5 : source.align == 2 ? 1 : 0
-        self.lines = retainHits ? lines.map { RegionLine($0, flush: flush, width: offeredWidth, captureHits: captureHits) } : []
+        var captured: [RegionLine] = []
+        if retainHits {
+            captured.reserveCapacity(lines.count)
+            for (index, line) in lines.enumerated() {
+                if index > 0 && index % 128 == 0 { try metadataCheckpoint() }
+                captured.append(RegionLine(line, flush: flush, width: offeredWidth, captureHits: captureHits))
+            }
+            // Include the final short tail. No partially initialized metadata
+            // or layout binding escapes if the owning request was superseded.
+            if !lines.isEmpty { try metadataCheckpoint() }
+        }
+        self.lines = captured
     }
 
     func copy(_ range: NSRange) -> String {

@@ -5532,3 +5532,50 @@ The checkpoint precedes the entire metadata loop. The existing trace cannot
 locate supersession relative to that checkpoint. The next controlled fixture
 tests bounded checks during metadata construction; no pressure retuning or
 repeat of this pair is used to manufacture abandonment.
+
+### 8.92 Check for supersession during compact metadata construction, 2026-09-18
+
+The entry-only checkpoint cannot stop a request superseded while its numeric
+line metadata is being built. `RegionParagraph` now builds the same ordered
+array locally and calls the existing checkpoint before each new128-line chunk
+and after the final nonempty tail. `RegionWorkerLayout` retains its entry check
+and forwards that same closure. The existing nonthrowing initializer delegates
+with a no-op closure. Only these two production files change.
+
+The controlled fixture pauses after129 actual `RegionLine` constructors, then
+supersedes the request through the real controller's `prepare` path. Baseline
+constructs all600 lines. Candidate stops at256:344 actual constructors are
+avoided. The next superseded job is protected and still constructs all600;
+its valid completion rearms one later abandonment, which again stops at256.
+Reset during metadata also stops the old job at256 while preserving one serial
+worker and the new generation. Partial metadata never supplies runtime metrics
+or a layout binding, and the old accepted provider remains intact.
+
+The baseline has three intended failures among1516 assertions. Candidate passes
+1532, including16 additional assertions for0/1/127/128/129 line boundaries,
+unchanged no-op output, a source-free terminal, last-source release after an
+actual serial destruction fence, and zero partial raster/index/hit charges.
+Both completed600-line successors match ordinary full metrics, every baseline,
+line range and glyph-ink bound, source copy and128,000 exact RGBA bytes. Existing
+atomic assignment, retention, multi-move selection, current-request, stale
+terminal and same-width height-alias controls remain in these actual runs.
+
+Two test-only actor-annotation setup failures precede the successful baseline
+compile; both are preserved. The corrected baseline and candidate use identical
+test-main bytes and unchanged warning flags. Their compiled production copies
+invert exactly to the claimed sources. All70 current ExactKit sources typecheck
+with warnings as errors, and those inputs match the integration. The earlier
+55-method unit runner remains unrun; it was not repaired or counted here.
+
+This is a real worker/CoreText/AppKit fixture with Runtime/Session/Presenter
+doubles, not a full-app performance result. The recorded count reduction does
+not establish saved CPU or latency. An8155-line shape adds64 checkpoint calls;
+8988 lines adds71, with unmeasured branch/lock overhead. A single CoreText call
+remains indivisible, and supersession after the final check can still produce
+stale complete output. Existing one-abandonment/required-completion fairness,
+intrinsic-width behavior, epochs, accounts and accepted-image ownership remain.
+
+The319-file source/fixture archive is under
+`target/region-metadata-checkpoint-validation/freeze-v1/`. All seven execution
+groups retired. The zero-abandonment application pair in8.91 is unchanged; this
+fixture does not retroactively turn it into a gain or physical120Hz result.
