@@ -5579,3 +5579,46 @@ The319-file source/fixture archive is under
 `target/region-metadata-checkpoint-validation/freeze-v1/`. All seven execution
 groups retired. The zero-abandonment application pair in8.91 is unchanged; this
 fixture does not retroactively turn it into a gain or physical120Hz result.
+
+### 8.93 First metadata-checkpoint application pair is incomplete, 2026-09-18
+
+The new candidate builds successfully in95.658s. Its captured1418 source cards
+and1471 receipt inputs differ from the entry-only control only in the two
+metadata-checkpoint files from8.92. The generated application entry, plan,
+compatibility bytes, observer and toolchain remain equal. The93-file candidate
+capture hashes exactly; this is build evidence, not a runtime result.
+
+A fresh control cell exits0, but the candidate driver exits1 after24ms because
+the copied harness omitted `reuse/compiled-inputs.mjs`. No candidate application
+or poster launches. Syntax parsing had not checked transitive import resolution.
+The first-failure stop is preserved: no retry, replacement timing, source repair
+or candidate performance result is included in this pair.
+
+The control completes18 resize changes and twelve input requests, including six
+actual alternating40px wheel moves. All twelve handlers and conservative sender
+ACK brackets lie inside the AppKit edge. Three complete document Values remain
+equal, with the1,048,499-byte giant paragraph unchanged. One intermediate869px
+layout is accepted and assigned during resize: frame/source920/921 joins
+accept937 and layer943,175.466500ms before the edge ends. This supports the saved
+driver's in-edge new-width endpoint; it does not describe the final856px layout.
+That final layout first joins1133/1134 through1150 to1156,191.293709ms after the
+edge and10.264626ms after acceptance. Layer1184 is its fifth assignment, not the
+first. Retention remains the frozen `NOTESTABLISHED` result; discrete placements
+span two publications and do not establish continuous coverage.
+
+Unlike the earlier pair in8.91, this control records one actual entry-checkpoint
+abandonment: request56 at873px, inside the edge. All67 shape attempts join66
+shape returns, including aliases, plus that abandonment. Six raster returns and
+one raster refusal are separate outcomes. Each observed terminal joins its
+worker parent and UI delivery;49 successful completion returns are not49 fresh
+publications. This is evidence that the old checkpoint can fire, not a comparison
+of old and new checkpoints or a measurement of saved metadata work.
+
+The61-file failed-runtime archive is under
+`target/apple-region-metadata-pair-execution-v1/`, separate from the successful
+candidate capture. Its original report and raw endpoint remain unchanged; the
+lead's independent raw joins qualify intermediate and final widths separately.
+All six recorded PIDs and three groups retired, with exactly one actual control
+poster release and no invented candidate cleanup. The next step is a separate
+source-only import-closure correction. No full-app benefit, physical120Hz or
+robust latency-tail result follows from this incomplete pair.
