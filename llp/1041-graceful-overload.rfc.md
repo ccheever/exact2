@@ -3416,3 +3416,42 @@ The 20 pure counter/oracle checks are retained separately from native evidence.
 Raw count identities and timer tails were independently reconstructed. Evidence:
 `target/native-630-prefit-text-mix-native-v1/`, manifest
 `fa7a794fcd4fbcf498751fd62e39e74585ececcd91a6981f964f8b6e506490d7`.
+
+### 8.49 Borrowed Apple text measurement lookup, 2026-09-18
+
+The synchronous Swift callback now checks the existing metric identity index
+before decoding its borrowed C request into Strings, Runs and a Spec. A shared
+metric hash selects candidates; exact original UTF8, run boundaries and converted
+metric fields decide equality. Only an existing intrinsic scalar or exact-width
+geometry answer returns early. Paint remains separate, catalog replacement keeps
+its existing namespace, and no C pointer or request escapes the callback. There
+is no additional cache, worker or retained source history.
+
+Cold sources, new widths and malformed UTF8 retain the decoder path. The lookup
+still scans source bytes, and a miss can scan them again after decoding; avoiding
+construction is neither constant-time nor a zero-allocation claim. Existing
+Swift height handling and Rust's two-axis memo checks remain unchanged. Cache
+maintenance runs once for identity lookup/admission. The measureSeconds counter
+includes the borrowed lookup and existing cache/layout work, but still excludes
+fallback Run/Spec decoding; it is not interchangeable with the full foreign-call
+wall interval measured in §8.44.
+
+A test-only marker at the actual decoder entry fails three cached-repeat checks
+on the original callback, while cold/new-width controls pass. The candidate
+passes 38 methods and 7,027 assertions in a strict Swift 6 optimized CoreText
+runner, including existing bitmap, Unicode, lease and cache-bound tests. Forced
+hash collisions pass another 68 assertions. Controls cover changed run/strut
+fields, exact Unicode bytes, signed zero, malformed input, independent freed C
+buffers, catalog restore and retained paint. The reference callback body is the
+original body running against the candidate cache, not a separately linked old
+engine. A test-only compile warning and its correction remain in the evidence.
+
+The complete current ExactKit module typechecks on macOS. Four Session/view
+methods are excluded from the standalone assertion runner; this is not full
+XCTest or an iOS build. Compiled copies reconstruct to the exact production
+sources after removing the test hooks. No native workload, latency comparison
+or physical presentation run has tested this optimization yet. The misses and
+tails in §8.48 remain the latest measured result.
+
+Evidence: `target/apple-text-borrowed-validation/freeze-v1/`, manifest
+`251ea3da4b96a9bb6692f40c0fc20db8171c188b816529ff882a0b2c1e509d3c`.

@@ -670,6 +670,25 @@ final class TextEngine {
     /// paints.
     func measure(_ request: ExactMeasureRequest) -> ExactMetrics {
         measureCount += 1
+        let lookupStarted = CACurrentMediaTime()
+        let knownIdentity = residency.borrowedIdentity(request)
+        let intrinsic = request.width < 0
+        let kind: TextScalarKind = request.width == EXACT_MIN_CONTENT ? .minContent : .maxContent
+        if let identity = knownIdentity {
+            if intrinsic, let metrics = residency.scalar(identity, kind: kind) {
+                measureHits += 1
+                measureSeconds += CACurrentMediaTime() - lookupStarted
+                return metrics
+            }
+            if !intrinsic, let p = residency.geometry(identity, width: CGFloat(request.width)) {
+                measureHits += 1
+                measureSeconds += CACurrentMediaTime() - lookupStarted
+                return ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
+            }
+        }
+        // Preserve measureSeconds as cache/layout work, excluding Run/Spec
+        // decoding: a fallback adds its failed borrowed lookup interval below.
+        let lookupSeconds = CACurrentMediaTime() - lookupStarted
         func run(_ run: ExactTextRun) -> Run {
             Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing))
         }
@@ -677,17 +696,15 @@ final class TextEngine {
         // Metric-only keys match the geometry used by the colored presenter.
         let spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), strut: run(request.strut))
         let started = CACurrentMediaTime()
-        let identity = residency.identity(spec)
-        let intrinsic = request.width < 0
-        let kind: TextScalarKind = request.width == EXACT_MIN_CONTENT ? .minContent : .maxContent
-        if intrinsic, let metrics = residency.scalar(identity, kind: kind) {
+        let identity = knownIdentity ?? residency.identityAfterBorrowedMiss(spec)
+        if intrinsic, knownIdentity == nil, let metrics = residency.scalar(identity, kind: kind) {
             measureHits += 1
-            measureSeconds += CACurrentMediaTime() - started
+            measureSeconds += lookupSeconds + (CACurrentMediaTime() - started)
             return metrics
         }
         let width: CGFloat = request.width == EXACT_MIN_CONTENT ? minContentWidth(spec) : intrinsic ? .infinity : CGFloat(request.width)
         let p: Paragraph
-        if let cached = residency.geometry(identity, width: width) { measureHits += 1; p = cached }
+        if (intrinsic || knownIdentity == nil), let cached = residency.geometry(identity, width: width) { measureHits += 1; p = cached }
         else if intrinsic {
             // Intrinsic probes publish only scalar metrics. Their full CTLines
             // leave this scope; shaped source remains subject to the same budget.
@@ -699,7 +716,7 @@ final class TextEngine {
         } else { p = paragraph(spec, identity: identity, width: width) }
         let metrics = ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
         if intrinsic { residency.put(identity, kind: kind, metrics: metrics) }
-        measureSeconds += CACurrentMediaTime() - started
+        measureSeconds += lookupSeconds + (CACurrentMediaTime() - started)
         return metrics
     }
 
