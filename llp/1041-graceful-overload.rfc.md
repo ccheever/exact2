@@ -4026,3 +4026,46 @@ reversed pair `target/native-630-offers-reverse-pair-v1/`,379 files/145,723,390 
 manifest `e6e32fbcb9b58821ce09b66041ff71fc844dcf68c055b68d20544cca998084fb`.
 The original test authoring, pre-launch SDK-variable check and offline setup
 failures remain in their archives; none is a native retry or a retuned workload.
+
+### 8.61 Reuse collection feedback for observer baselines, 2026-09-18
+
+The Web collection adapter previously read every mounted row's rectangle during
+commit to establish observer baselines, then read those rows again in its queued
+measurement pass. Eligible commits now defer only row baselines to that existing
+pass. List and port baselines remain immediate. The final dependent commit also
+retains immediate row reads: its feedback budget is exhausted, so no later pass
+can safely supply them. No new timer, queue, frame cache or scheduler is added.
+
+The same real rectangle supplies the typed row height and observer width/height.
+Even unchanged feedback refreshes width-only baselines. Samples stay local to the
+DOM pass and are cleared before synchronous reporting can replace Elements or
+epochs. Deferred own notifications coalesce without replenishing the two-pass
+budget; external changes still replenish it, and port growth retains the existing
+before-paint flush and four-report bound. An unmeasured baseline is not a guessed
+row height. Workloads and application data remain unchanged.
+
+The corrected old-source test passes exact wire, fractional height, large epoch,
+focus/interaction pin and real observer-idle checks before failing its read-count
+assertion. Each row has one read at commit, two cumulatively by feedback and three
+by observer delivery; the candidate has zero, one and two. Four baseline controls
+pass. An initial observer-constructor setup failure is retained separately.
+
+Six new tests bring the exact source suite to 74 passing tests/271 assertions.
+They cover callback ordering, own-only termination, external growth, width-only
+feedback, replaced Elements and hidden restoration. A separate negative control
+that always defers row baselines loses external growth coalesced after the last
+own commit: the observer sees 97.25px while accepted feedback remains 41.5px.
+The integrated fallback preserves 97.25px with the exact wire and returns to idle.
+All owned test processes terminated; the final tested source bytes match the
+integration, without another test execution being counted as additional evidence.
+
+This proves fewer rectangle API calls in eligible commits, not fewer browser
+layouts or a frame-time gain. Other style, list, port and scroll reads remain;
+observer delivery still samples current bounds. A fresh application trace pair
+is separate work. Physical120, Storm scheduling and latency tails are unproved.
+
+Evidence: `target/web-observer-baseline-validation/freeze-v1/`, 33 artifacts /
+1,381,354 bytes, artifact manifest
+`7e365f0ec8484463ae0713a7267f8a5f46720a4f7b9475b1e60a68ae7093799f`;
+source manifest `2616287b945b5d55d7ed54f7849737118415a77ded679d3bf6fce596f6a8cb62`,
+two-file patch `100aa303c9c3a88ec7c200e36c37dc06195bdd1eb8f64a307861a3bb7a62a0ef`.

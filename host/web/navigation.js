@@ -351,11 +351,14 @@ export function collectionController({ root, views, report, settled=()=>{},
       // cannot cause a loop. Changed wrapper epochs, pins or geometry can.
       const signature = [facts.scroll_top, facts.scroll_sequence, dimensions, ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.height])].join('|');
+      // Even identical feedback settles deferred row baselines (width is not
+      // part of a row measurement). Keep samples local to this DOM pass.
+      for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature) continue;
       let bytes;
       try { bytes = collectionBytes(facts); } catch { continue; }
       s.budget--; reportsLeft--;
-      for (const el of s.observed.keys()) s.observed.set(el, measuredSizes.get(el) ?? size(el));
+      for (const el of s.observed.keys()) if (!measuredSizes.has(el)) s.observed.set(el, size(el));
       // Samples belong to this DOM pass only; report can synchronously replace rows.
       measuredSizes.clear();
       delivering = true;
@@ -384,9 +387,11 @@ export function collectionController({ root, views, report, settled=()=>{},
     for (const el of s.observed.keys()) if (!elements.has(el)) { s.observer.unobserve(el); s.observed.delete(el); }
     for (const el of elements) {
       if (!s.observed.has(el)) s.observer.observe(el);
-      // Own commits are already queued with their remaining pass budget. Their
-      // ResizeObserver notifications must not replenish that budget indefinitely.
-      s.observed.set(el, size(el));
+      // The queued measurement supplies row baselines. Port/list geometry stays
+      // current for pre-paint resize feedback. At the final dependent commit no
+      // pass remains: read now so its own notification cannot renew the budget.
+      const deferred = el !== s.el && el !== s.port && (!delivering || s.budget > 0);
+      s.observed.set(el, deferred ? null : size(el));
     }
   }
   function focusChanged() { for (const s of states.values()) enqueue(s, true); }
@@ -467,11 +472,12 @@ export function collectionController({ root, views, report, settled=()=>{},
             dimensions: null, signature: null, lastFacts: null, corrected: null, anchor: el.style.overflowAnchor };
           s.scrolled = () => { if (scrollChanged(s)) enqueue(s, true); };
           s.observer = new ResizeObserver(entries => {
-            let changed = false, resizedPort = false;
+            let changed = false, resizedPort = false, pending = false;
             for (const { target } of entries) {
               const next = size(target);
               if (s.observed.has(target) && s.observed.get(target) !== next) {
-                changed = true;
+                if (s.observed.get(target) === null) pending = true;
+                else changed = true;
                 if (target === s.port) resizedPort = true;
               }
               if (s.observed.has(target)) s.observed.set(target, next);
@@ -483,7 +489,7 @@ export function collectionController({ root, views, report, settled=()=>{},
               // Keep the queued frame: it replenishes the budget once and
               // handles any deferred work. Own row resizes cannot spin here.
               if (resizedPort && !delivering) flush(true);
-            }
+            } else if (pending) enqueue(s); // Coalesce an own notification, never replenish.
           });
           port.addEventListener('scroll', s.scrolled, { passive: true });
           states.set(snapshot.view, s);

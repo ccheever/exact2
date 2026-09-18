@@ -89,14 +89,141 @@ function collectionReads(f) {
     el.getBoundingClientRect=()=>{counts[i]++;return read();}; });
   return { counts, clear:()=>counts.fill(0) };
 }
-test('collection read reuse: correction-free commit reads only observer baselines', async () => {
+test('observer baseline: commit to feedback to real observer reads each row once before delivery', async () => {
+  const result=await evaluate(`(async () => {
+    const NativeObserver=ResizeObserver, deliveries=[];
+    globalThis.ResizeObserver=class extends NativeObserver {
+      constructor(callback){super(entries=>{deliveries.push(entries.map(e=>e.target.dataset.view??'port'));callback(entries);});}
+    };
+    let f,reads,commit;
+    try {
+      f=fixture();reads=(${collectionReads})(f);
+      f.views.get(2).style.height='40.5px';f.views.get(4).style.height='60.25px';
+      f.controller.commit([f.snapshot('7')]);commit=[...reads.counts];
+    } finally { globalThis.ResizeObserver=NativeObserver; }
+    f.port.scrollTop=110;f.views.get(3).focus({preventScroll:true});
+    f.views.get(5).dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7}));
+    f.flush();const feedback=[...reads.counts], wire=f.wires.at(-1);
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    const observed=[...reads.counts], queued=f.frames.size;f.flush();
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    return {commit,feedback,observed,deliveries,queued,pending:f.frames.size,reports:f.reports.length,wire,width:f.port.clientWidth};
+  })()`);
+  expect(result.wire).toEqual([...collectionBytes({view:1,revision:'7',scroll_sequence:'1',scroll_top:50,
+    port_width:result.width,port_height:180,row_width:result.width-24,focus_view:3,interaction_view:5,
+    measurements:[{view:2,epoch:'9007199254740993',height:40.5},{view:4,epoch:'2',height:60.25}]})]);
+  expect(result.deliveries.flat().filter(v=>v==='2')).toHaveLength(1);
+  expect(result.deliveries.flat().filter(v=>v==='4')).toHaveLength(1);
+  expect([result.reports,result.queued,result.pending]).toEqual([1,0,0]);
+  console.log('observer baseline commit/feedback/observer',JSON.stringify(result));
+  expect(result.commit).toEqual([1,1,0,0]);
+  expect(result.feedback.slice(2)).toEqual([1,1]);
+  expect(result.observed.slice(2)).toEqual([2,2]);
+});
+test('observer baseline: real own notifications cannot extend two dependent passes, later external rows wake', async () => {
+  const result=await evaluate(`(async () => {
+    const f=fixture();let revision=1;
+    f.onReport=()=>{f.views.get(2).style.height=(40+revision)+'.5px';f.controller.commit([f.snapshot(String(++revision))]);};
+    f.controller.commit([f.snapshot()]);
+    for(let i=0;i<6;i++){f.flush();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));}
+    const own={reports:f.reports.length,pending:f.frames.size,heights:f.reports.map(r=>r.rows[0].height)};
+    f.onReport=null;f.views.get(2).style.height='97.25px';
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    const last=f.reports.at(-1),n=f.reports.length;
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    return {own,last,externalReports:n,pending:f.frames.size,idle:f.reports.length===n};
+  })()`);
+  expect(result.own).toEqual({reports:2,pending:0,heights:[40,41.5]});
+  expect(result.last.rows[0].height).toBe(97.25);
+  expect(result.externalReports).toBe(3);expect(result.pending).toBe(0);expect(result.idle).toBe(true);
+});
+test('observer baseline: observer before queued feedback does not replenish an own commit budget', async () => {
+  const result=await evaluate(`(() => {
+    const NativeObserver=ResizeObserver;let notify;
+    globalThis.ResizeObserver=class {constructor(fn){notify=fn;}observe(){}unobserve(){}disconnect(){}};
+    let f;try{f=fixture();f.controller.commit([f.snapshot()]);}finally{globalThis.ResizeObserver=NativeObserver;}
+    let revision=1;f.onReport=()=>{f.views.get(2).style.height=(40+revision)+'.25px';f.controller.commit([f.snapshot(String(++revision))]);};
+    for(let i=0;i<8;i++){notify([{target:f.views.get(2)},{target:f.views.get(4)}]);f.flush();}
+    const own={reports:f.reports.length,pending:f.frames.size,heights:f.reports.map(r=>r.rows[0].height)};
+    f.onReport=null;f.port.style.height='220px';notify([{target:f.port}]);
+    const beforeFrame={reports:f.reports.length,height:f.reports.at(-1).height};f.flush();
+    return {own,beforeFrame,pending:f.frames.size};
+  })()`);
+  expect(result.own).toEqual({reports:2,pending:0,heights:[40,41.25]});
+  expect(result.beforeFrame).toEqual({reports:3,height:220});expect(result.pending).toBe(0);
+});
+test('observer baseline: external growth coalesced after final own commit survives real observer delivery', async () => {
+  const result=await evaluate(`(async () => {
+    const NativeObserver=ResizeObserver,events=[];let f;
+    globalThis.ResizeObserver=class extends NativeObserver {
+      constructor(callback){super(entries=>{events.push({kind:'observer',reports:f.reports.length,
+        rows:entries.filter(e=>e.target.dataset.view==='2').map(e=>e.target.getBoundingClientRect().height)});callback(entries);});}
+    };
+    // Fix both containing boxes: only the row can expose the external growth.
+    try {f=fixture();f.views.get(1).style.height='1900px';f.controller.commit([f.snapshot()]);}
+    finally{globalThis.ResizeObserver=NativeObserver;}
+    let revision=1;
+    f.onReport=()=>{
+      const row=f.views.get(2);events.push({kind:'report',height:f.reports.at(-1).rows[0].height});
+      row.style.height=(40+revision)+'.5px';f.controller.commit([f.snapshot(String(++revision))]);
+      events.push({kind:'own-commit',height:row.getBoundingClientRect().height});
+    };
+    f.flush();f.flush();const exhausted={reports:f.reports.length,pending:f.frames.size};
+    // A separate mutation in the same task, before native ResizeObserver delivery.
+    f.onReport=null;f.views.get(2).style.height='97.25px';events.push({kind:'external'});
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    const last=f.reports.at(-1),wire=f.wires.at(-1),n=f.reports.length;
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    return {events,exhausted,last,wire,reports:f.reports.length,idle:f.reports.length===n,pending:f.frames.size};
+  })()`);
+  expect(result.exhausted).toEqual({reports:2,pending:0});
+  expect(result.events.slice(0,5)).toEqual([{kind:'report',height:40},{kind:'own-commit',height:41.5},
+    {kind:'report',height:41.5},{kind:'own-commit',height:42.5},{kind:'external'}]);
+  expect(result.events.slice(5).some(e=>e.kind==='observer'&&e.reports===2&&e.rows.includes(97.25))).toBe(true);
+  expect(result.last.rows[0]).toEqual({view:2,epoch:'9007199254740993',height:97.25});
+  expect(result.wire).toEqual([...collectionBytes({view:1,revision:'3',scroll_sequence:result.last.sequence,
+    scroll_top:result.last.top,port_width:result.last.width,port_height:180,row_width:result.last.rowWidth,
+    focus_view:null,interaction_view:null,measurements:[{view:2,epoch:'9007199254740993',height:97.25},{view:4,epoch:'2',height:60}]})]);
+  expect([result.reports,result.idle,result.pending]).toEqual([3,true,0]);
+  console.log('observer baseline coalesced external growth',JSON.stringify(result));
+});
+test('observer baseline: unchanged feedback refreshes row width baseline and ignores retired Elements', async () => {
+  const result=await evaluate(`(() => {
+    const NativeObserver=ResizeObserver;let notify;
+    globalThis.ResizeObserver=class {constructor(fn){notify=fn;}observe(){}unobserve(){}disconnect(){}};
+    let f;try{f=fixture();f.controller.commit([f.snapshot()]);}finally{globalThis.ResizeObserver=NativeObserver;}
+    f.flush();const initial=f.wires[0];
+    f.views.get(2).style.width='50px';f.controller.commit([f.snapshot('2')]);f.flush();
+    notify([{target:f.views.get(2)}]);const unchanged={reports:f.reports.length,pending:f.frames.size};
+    const old=f.views.get(2),row=document.createElement('div');row.dataset.view='2';row.style.height='73.5px';old.replaceWith(row);f.views.set(2,row);
+    const next=f.snapshot('3');next.rows[0].epoch='9007199254740994';f.controller.commit([next]);f.flush();
+    notify([{target:old},{target:row}]);return {initial,unchanged,last:f.reports.at(-1),pending:f.frames.size,width:f.port.clientWidth};
+  })()`);
+  expect(result.unchanged).toEqual({reports:1,pending:0});
+  expect(result.last.rows[0]).toEqual({view:2,epoch:'9007199254740994',height:73.5});
+  expect(result.last.revision).toBe('3');expect(result.pending).toBe(0);
+});
+test('observer baseline: hidden pending row resumes on an external show without a commit', async () => {
+  const result=await evaluate(`(async () => {
+    const f=fixture();f.views.get(2).style.display='none';f.controller.commit([f.snapshot()]);f.flush();
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    const hidden=f.reports.length;f.views.get(2).style.display='flow-root';
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    const last=f.reports.at(-1),n=f.reports.length;
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    return {hidden,last,idle:f.reports.length===n,pending:f.frames.size};
+  })()`);
+  expect(result.hidden).toBe(0);expect(result.last.rows[0].height).toBe(40);
+  expect(result.idle).toBe(true);expect(result.pending).toBe(0);
+});
+test('collection read reuse: correction-free commit reads only list and port baselines', async () => {
   const result=await evaluate(`(() => {const f=fixture(),reads=(${collectionReads})(f);
     f.controller.commit([f.snapshot()]);const commit=[...reads.counts];f.flush();
     return {commit,wire:f.wires.at(-1),width:f.port.clientWidth};})()`);
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'1',scroll_sequence:'0',scroll_top:0,
     port_width:result.width,port_height:180,row_width:result.width-24,focus_view:null,interaction_view:null,
     measurements:[{view:2,epoch:'9007199254740993',height:40},{view:4,epoch:'2',height:60}]})]);
-  expect(result.commit).toEqual([1,1,1,1]);
+  expect(result.commit).toEqual([1,1,0,0]);
 });
 test('collection read reuse: one row sample preserves fractional wire, epochs and both pins', async () => {
   const result=await evaluate(`(() => {const f=fixture(),reads=(${collectionReads})(f);
@@ -119,9 +246,9 @@ test('collection read reuse: eligible nested correction alone reads geometry, la
     reads.clear();f.controller.commit([s]);const repeated={top:f.port.scrollTop,reads:[...reads.counts]};
     f.port.scrollTop=260;reads.clear();f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,scrollTop:180}})]);
     return {eligible,repeated,newer:{top:f.port.scrollTop,reads:[...reads.counts]}};})()`);
-  expect(result.eligible).toEqual({top:200,reads:[2,2,1,1]});
-  expect(result.repeated).toEqual({top:200,reads:[1,1,1,1]});
-  expect(result.newer).toEqual({top:260,reads:[1,1,1,1]});
+  expect(result.eligible).toEqual({top:200,reads:[2,2,0,0]});
+  expect(result.repeated).toEqual({top:200,reads:[1,1,0,0]});
+  expect(result.newer).toEqual({top:260,reads:[1,1,0,0]});
 });
 test('collection read reuse: synchronous report replacement samples new nodes and epochs next pass', async () => {
   const result=await evaluate(`(() => {const f=fixture(),widths=[];let replaced=false;
