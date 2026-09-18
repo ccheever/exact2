@@ -1,0 +1,115 @@
+{
+  "engine": "exact2-linux",
+  "ref": "next/baseline",
+  "sha": "e47a09fc36c07103cdc3645b7061cca305af6c14",
+  "task": "b",
+  "attempt": "1",
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "wallCeilingSeconds": 900,
+  "startedAt": "2026-09-18T12:10:48.939Z",
+  "humanInterventions": 0,
+  "agentSeconds": 268.113802531,
+  "buildSeconds": 18.513586880000016,
+  "proofSeconds": 19.75738109099999,
+  "usage": {
+    "input_tokens": 1197088,
+    "cached_input_tokens": 1142656,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 9254,
+    "reasoning_output_tokens": 4049
+  },
+  "passed": false,
+  "evaluatorHashes": {
+    "command.mjs": "173ec52ae3f33f2c6ed43586219f47011d6adaf072725353abdc9f2f59ce958c",
+    "acceptance.mjs": "94afe49873e485ced95506aee48ab6a3e7d97e1903dce9618504c5bd372fd027",
+    "task-evaluator.mjs": "f88e519d341010bc3303dc138d75d53eaaa2b34b80a7fe056ce7975d11b9fdf2",
+    "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+    "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+    "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+  },
+  "externalQueueDelaySeconds": null,
+  "freeKiBBefore": 125146908,
+  "setupSeconds": 101.27074617100001,
+  "inputCommit": "113330c71b762b34dde6cd03ff00837dc28b84de",
+  "dispatchedAt": "2026-09-18T12:12:57.148Z",
+  "agentTimedOut": false,
+  "agentExit": 0,
+  "modelCompletedAt": "2026-09-18T12:17:25.262Z",
+  "invocations": {
+    "build": 0,
+    "proof": 1,
+    "tests": 4,
+    "commands": 16,
+    "method": "completed shell commands invoking cargo/build entrypoints (including scene-only bake), bun proof, or tests; filename reads excluded; combined commands count once; proof-internal builds excluded"
+  },
+  "files": [
+    {
+      "path": "game/games/lanterns/README.md",
+      "added": 2,
+      "deleted": 1
+    },
+    {
+      "path": "game/games/lanterns/app.contract",
+      "added": 5,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/assets/lanterns-adapter.mjs",
+      "added": 3,
+      "deleted": 1
+    },
+    {
+      "path": "game/games/lanterns/logic/src/lib.rs",
+      "added": 21,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/logic/tests/capture.rs",
+      "added": 20,
+      "deleted": 10
+    }
+  ],
+  "filesChanged": 5,
+  "linesAdded": 51,
+  "linesDeleted": 16,
+  "scopeViolations": [],
+  "sourceHashes": {
+    "game/games/lanterns/README.md": "07c66c9d2da1df687309692af489cc29264ad0ebfe0970a7088f54bbe36b9d73",
+    "game/games/lanterns/app.contract": "f404710ce18c99515898922dbec0c6534acb3b823233e47374a8705b017473ad",
+    "game/games/lanterns/assets/lanterns-adapter.mjs": "f8cad10f00f31858dc46281dfaaf7304dbe7284c6d92b3020b056c18405fb518",
+    "game/games/lanterns/logic/src/lib.rs": "afc8df64dea1ddf73329fce723e5c7da861a4b4ef36ded4c52996b09ff325887",
+    "game/games/lanterns/logic/tests/capture.rs": "54cd81777d4e72f1734251498d47342cfd7fae23941c021ea3f2211e7fec992d"
+  },
+  "freeKiBBeforeBuild": 119058744,
+  "buildExit": 0,
+  "buildCompletedAt": "2026-09-18T12:17:43.797Z",
+  "evaluatorStartedAt": "2026-09-18T12:17:43.797Z",
+  "taskFunctionalPassed": true,
+  "baselineMechanicsPassed": false,
+  "selfRepairRounds": 3,
+  "screenshotInspections": 0,
+  "protocolCompliant": false,
+  "finishedAt": "2026-09-18T12:18:03.555Z",
+  "buildOutputDeleted": true,
+  "instrumentValid": true,
+  "sessionProtocolCompliant": true,
+  "auditNotes": [
+    "Three repairs in one capture-route loop; third removed an existing post-terminal capture replay assertion after semantic state/hash mismatch persisted. External task checks pass, but do not cover that removed assertion.",
+    "Strict comparison remains incomplete: baseline direct crate route fails and world pixels unavailable."
+  ],
+  "removedRenderFiles": [
+    "evaluation/won.png",
+    "evaluation/return-home.png",
+    "evaluation/title.png",
+    "evaluation/moving.png",
+    "evaluation/final.png",
+    "evaluation/lost.png",
+    "controls/task-a/final.png",
+    "controls/acceptance/won.png",
+    "controls/acceptance/title.png",
+    "controls/acceptance/moving.png",
+    "controls/acceptance/lost.png",
+    "controls/task-b/final.png"
+  ]
+}
