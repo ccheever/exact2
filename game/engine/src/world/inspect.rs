@@ -460,6 +460,46 @@ mod measurements {
     }
 
     #[test]
+    #[ignore = "release settle cost diagnostic"]
+    fn settle_200k_cost() {
+        struct Large;
+        impl crate::Game for Large {
+            type Args = ();
+            const ID: &'static str = "settle-cost";
+            fn setup(w: &mut World, _: &()) {
+                for i in 0..200_000 {
+                    w.spawn(crate::Transform::at(i as f32, 0.0, 0.0));
+                }
+            }
+            fn tick(_: &mut World, _: &crate::Input, _: &()) {}
+        }
+        let mut s = crate::Sim::<Large>::new(()).unwrap();
+        let start = std::time::Instant::now();
+        assert!(s.settle());
+        println!(
+            "settle 200000 initial: {:.6} ms",
+            start.elapsed().as_secs_f64() * 1000.0
+        );
+        let entity = s.world().entities().next().unwrap();
+        let mut samples = Vec::new();
+        for sample in 0..105 {
+            // Force Unknown without changing a value. Repeated settle() on an
+            // already Still world would only measure the early return.
+            drop(s.world().get_mut::<crate::Transform>(entity).unwrap());
+            let start = std::time::Instant::now();
+            assert!(std::hint::black_box(&mut s).settle());
+            if sample >= 5 {
+                samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+        samples.sort_by(f64::total_cmp);
+        println!(
+            "settle 200000 after unwritten lease: {:.6} ms median, {:.6} ms p95",
+            samples[50], samples[95]
+        );
+    }
+
+    #[test]
     #[ignore = "release stillness cost diagnostic"]
     fn stillness_hash_cost() {
         for count in [1_000, 10_000, 200_000] {
