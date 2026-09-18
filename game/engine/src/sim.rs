@@ -1,4 +1,6 @@
 mod assets;
+mod capture_clock;
+pub(crate) use capture_clock::CaptureClock;
 mod paranoid;
 use crate::data::limits::LoadBudget;
 use crate::{bin, Actions, Data, DataError, Event, Input, InputEvent, Value, Vec2, World};
@@ -662,7 +664,7 @@ impl<G: Game> Sim<G> {
         // ceil(horizon / step) - 1 with L; equality waits for the next frame.
         ((phase + lookahead - i128::from(lookahead > 0)).max(0) / 1_000_000) as u64
     }
-    fn exact_world_us(&self) -> i64 {
+    pub(crate) fn exact_world_us(&self) -> i64 {
         let deadline = (self.world.tick() as u128 * 1_000_000).div_ceil(G::HZ as u128);
         self.world_us
             .max(i64::try_from(deadline).expect("simulation clock exhausted"))
@@ -746,8 +748,9 @@ impl<G: Game> Sim<G> {
             if now != last {
                 self.record(
                     before_tick,
-                    crate::capture::Operation::Advance {
-                        at_us: now,
+                    crate::capture::Operation::Frame {
+                        at_ms: now_ms,
+                        period_ms: self.period_ms,
                         live: clock == Clock::Live,
                     },
                 );
@@ -842,8 +845,9 @@ impl<G: Game> Sim<G> {
         if now != last {
             self.record(
                 before_tick,
-                crate::capture::Operation::Advance {
-                    at_us: now,
+                crate::capture::Operation::Frame {
+                    at_ms: now_ms,
+                    period_ms: self.period_ms,
                     live: clock == Clock::Live,
                 },
             );

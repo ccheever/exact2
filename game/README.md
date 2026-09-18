@@ -1263,8 +1263,14 @@ decoders and scene/component payloads. Registered Rust constructors, validators
 and custom Data implementations remain trusted game code; these limits are not
 a process-memory sandbox.
 
-The checkpoint and ordered normalized input, live bindings, viewport changes and
-clock advances reproduce the simulation. Defaults are 2 MiB, 4,096 records and
+EXCAP v2 hashes the checkpoint at the same exact tick deadline as EXSIM saves,
+then retains the fixed-size live scheduler state (fractional phase, lookahead,
+display period and host epoch) separately. Every frame records its original
+floating-point timestamp and period; scheduled and delivered-device inputs retain
+their distinct timing. Ordinary saves remain independent of presentation timing.
+EXCAP v1 is refused explicitly; regenerate development captures with their scripts.
+The checkpoint and ordered input, live bindings, viewport changes and clock
+advances reproduce the simulation. Defaults are 2 MiB, 4,096 records and
 36,000 ticks; maxima are 8 MiB, 16,384 records and 216,000 ticks. Overflow, dropped
 input, direct mutation, lifecycle discontinuity and attested external input during
 agent control mark a capture incomplete. Replay refuses incomplete, corrupt or

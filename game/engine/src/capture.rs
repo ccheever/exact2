@@ -61,8 +61,9 @@ pub(crate) enum Operation {
         width: f32,
         height: f32,
     },
-    Advance {
-        at_us: i64,
+    Frame {
+        at_ms: f64,
+        period_ms: f64,
         live: bool,
     },
 }
@@ -91,6 +92,7 @@ pub struct Capture {
     checkpoint: Vec<u8>,
     checkpoint_hash: u64,
     checkpoint_world_hash: u64,
+    clock: crate::sim::CaptureClock,
     records: Vec<Record>,
     limits: CaptureLimits,
     incomplete: String,
@@ -105,7 +107,6 @@ struct Envelope {
 }
 pub(crate) struct Recorder {
     capture: Capture,
-    origin_us: i64,
     bytes: usize,
     stopped: bool,
 }
@@ -124,7 +125,7 @@ impl Capture {
     /// Encode a sealed recording; the checksum detects corruption and missing records.
     /// This checksum is not an authentication signature.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = b"EXCAP\0\x01".to_vec();
+        let mut bytes = b"EXCAP\0\x02".to_vec();
         bytes.extend(bin::to_vec(&Envelope {
             checksum: hash::of(self),
             capture: self.clone(),
@@ -137,7 +138,7 @@ impl Capture {
             return Err(DataError::new("capture exceeds 8 MiB"));
         }
         let payload = bytes
-            .strip_prefix(b"EXCAP\0\x01")
+            .strip_prefix(b"EXCAP\0\x02")
             .ok_or_else(|| DataError::new("unsupported capture format"))?;
         let (header, checksum, records) = read_header(payload)?;
         header.limits.validate()?;
@@ -148,7 +149,7 @@ impl Capture {
             return Err(DataError::new("capture record count exceeds event budget"));
         }
         verify_checksum(payload, &header, checksum)?;
-        // V1 hashes typed values (including omitted defaults), not wire bytes.
+        // V2 hashes typed values (including omitted defaults), not wire bytes.
         // Only retain the record vector after the streaming checksum has passed.
         drop(header);
         #[cfg(test)]
@@ -162,7 +163,7 @@ impl Capture {
     }
     fn validate(&self) -> Result<(), DataError> {
         let refuse = |s: &str| Err(DataError::new(s));
-        if self.format != 1 {
+        if self.format != 2 {
             return refuse("unsupported capture version");
         }
         if !self.complete || !self.incomplete.is_empty() {
@@ -229,6 +230,7 @@ fn read_header(payload: &[u8]) -> Result<(Capture, u64, usize), DataError> {
                         "checkpoint" => c.checkpoint.read(&mut r)?,
                         "checkpoint_hash" => c.checkpoint_hash.read(&mut r)?,
                         "checkpoint_world_hash" => c.checkpoint_world_hash.read(&mut r)?,
+                        "clock" => c.clock.read(&mut r)?,
                         "limits" => c.limits.read(&mut r)?,
                         "incomplete" => c.incomplete.read(&mut r)?,
                         "complete" => c.complete.read(&mut r)?,
@@ -259,7 +261,7 @@ fn read_header(payload: &[u8]) -> Result<(Capture, u64, usize), DataError> {
 
 fn verify_checksum(payload: &[u8], c: &Capture, checksum: u64) -> Result<(), DataError> {
     // Match Capture's declaration-order Data hash without retaining its records.
-    // A round-trip fixture below pins this to the derived v1 schema, including
+    // A round-trip fixture below pins this to the derived v2 schema, including
     // reordered fields, missing defaults, and nested binding values.
     let mut h = hash::Hasher::default();
     h.begin_struct();
@@ -273,6 +275,7 @@ fn verify_checksum(payload: &[u8], c: &Capture, checksum: u64) -> Result<(), Dat
     c.checkpoint.write(&mut h);
     c.checkpoint_hash.write(&mut h);
     c.checkpoint_world_hash.write(&mut h);
+    c.clock.write(&mut h);
     let mut r = decoder(payload);
     let mut found = false;
     r.begin_struct()?;
@@ -357,7 +360,7 @@ impl<G: Game> Sim<G> {
             return Err(DataError::new("checkpoint exceeds capture byte budget"));
         }
         let capture = Capture {
-            format: 1,
+            format: 2,
             game: G::ID.into(),
             version: 6,
             build: build.into(),
@@ -366,6 +369,7 @@ impl<G: Game> Sim<G> {
             first_tick: self.world.tick(),
             checkpoint_hash: self.capture_hash(),
             checkpoint_world_hash: self.world.hash(),
+            clock: self.capture_clock(),
             checkpoint,
             limits,
             ..Default::default()
@@ -373,7 +377,6 @@ impl<G: Game> Sim<G> {
         let bytes = bin::to_vec(&capture).len() + 4096;
         self.recorder = Some(Recorder {
             capture,
-            origin_us: self.last_us.unwrap_or(0),
             bytes,
             stopped: false,
         });
@@ -411,12 +414,15 @@ impl<G: Game> Sim<G> {
             pending: Vec<u8>,
             world_us: i64,
         }
+        let mut input = self.input.clone();
+        input.clear_edges();
         hash::of(&State {
             world: self.world.hash(),
             args: json::to_string(&self.args).unwrap(),
-            input: self.input.clone(),
+            input,
             pending: self.capture_queue(),
-            world_us: self.world_us,
+            // Match save-time catch-up before hashing this boundary.
+            world_us: self.exact_world_us(),
         })
     }
     fn observed(&self) -> String {
@@ -455,19 +461,10 @@ impl<G: Game> Sim<G> {
         }
         format!("{{\"resources\":{resources},\"entities\":[{}],\"truncated\":{truncated},\"inspect\":\"state world:*\"}}", entities.join(","))
     }
-    pub(crate) fn record(&mut self, before: u64, mut operation: Operation) {
+    pub(crate) fn record(&mut self, before: u64, operation: Operation) {
         let Some(r) = self.recorder.as_ref().filter(|r| r.active()) else {
             return;
         };
-        let origin = r.origin_us;
-        if let Operation::Input(event) = &mut operation {
-            event.set_at_ms(
-                crate::sim::micros(event.at_ms()).saturating_sub(origin) as f64 / 1000.0,
-            );
-        }
-        if let Operation::Advance { at_us, .. } = &mut operation {
-            *at_us = at_us.saturating_sub(origin);
-        }
         let after = self.world.tick();
         let state_hash = self.capture_hash();
         let observed = self.observed();
@@ -523,7 +520,7 @@ impl<G: Game> Sim<G> {
         // The checkpoint is a nested EXSIM/JSON/EXGAME payload. All its decoders
         // share consumption, including repeated passes and paged world storage.
         // The floor accommodates sparse component pages in small real saves.
-        // Game setup/migration and custom Data/Default code remain executable
+        // Game setup and custom Data/Default code remain executable
         // construction code: allocations outside Reader claims are not metered.
         let budget = crate::data::limits::LoadBudget::new(
             capture
@@ -542,7 +539,7 @@ impl<G: Game> Sim<G> {
                 "corrupt checkpoint: semantic state/hash differs",
             ));
         }
-        sim.advance(0.0, Clock::Seekable);
+        sim.restore_capture_clock(&capture.clock)?;
         for record in capture.records.iter().take(end) {
             if sim.world.tick() != record.before {
                 return Err(DataError::new("capture boundary differs before event"));
@@ -565,19 +562,27 @@ impl<G: Game> Sim<G> {
                     }
                     sim.viewport(*width, *height);
                 }
-                Operation::Advance { at_us, live } => {
-                    if *at_us < sim.last_us.unwrap_or(0) || *at_us > 86_400_000_000 {
+                Operation::Frame {
+                    at_ms,
+                    period_ms,
+                    live,
+                } => {
+                    if !at_ms.is_finite()
+                        || *at_ms < sim.last_ms_for_capture()
+                        || *at_ms > 86_400_000.0
+                        || !period_ms.is_finite()
+                        || !(0.0..=1000.0).contains(period_ms)
+                    {
                         return Err(DataError::new("invalid captured clock"));
                     }
                     let clock = if *live { Clock::Live } else { Clock::Seekable };
-                    if sim.ticks_due(*at_us as f64 / 1000.0, clock) as u64
-                        != record.after - record.before
-                    {
+                    sim.frame_period(*period_ms);
+                    if sim.ticks_due(*at_ms, clock) as u64 != record.after - record.before {
                         return Err(DataError::new(
                             "captured clock does not match recorded tick boundary",
                         ));
                     }
-                    sim.advance(*at_us as f64 / 1000.0, clock);
+                    sim.advance(*at_ms, clock);
                 }
             }
             if sim.world.tick() != record.after
@@ -701,7 +706,7 @@ mod tests {
                 ..Default::default()
             };
             // A valid semantic checksum over records encoded as just [8, 0].
-            let mut bytes = b"EXCAP\0\x01".to_vec();
+            let mut bytes = b"EXCAP\0\x02".to_vec();
             bytes.extend(bin::to_vec(&Wire {
                 checksum: hash::of(&capture),
                 capture: Compact {
@@ -719,7 +724,7 @@ mod tests {
         w.begin_struct();
         w.field("records");
         w.begin_seq(MAX_EVENTS as usize + 1);
-        let mut bytes = b"EXCAP\0\x01".to_vec();
+        let mut bytes = b"EXCAP\0\x02".to_vec();
         bytes.extend(w.finish());
         // Enough bytes for the count check, but the first value tag is invalid.
         // Refusing the count rather than that tag proves no item was walked.
@@ -729,7 +734,7 @@ mod tests {
     #[test]
     fn checksum_and_actual_wire_size_are_checked_before_retaining_records() {
         let original = capture();
-        let mut corrupt = b"EXCAP\0\x01".to_vec();
+        let mut corrupt = b"EXCAP\0\x02".to_vec();
         corrupt.extend(bin::to_vec(&Envelope {
             checksum: hash::of(&original) ^ 1,
             capture: original.clone(),
@@ -769,7 +774,7 @@ mod tests {
             capture: Capture,
             ignored: Vec<u8>,
         }
-        let mut padded = b"EXCAP\0\x01".to_vec();
+        let mut padded = b"EXCAP\0\x02".to_vec();
         padded.extend(bin::to_vec(&Padded {
             checksum: hash::of(&small),
             capture: small,
@@ -778,7 +783,7 @@ mod tests {
         refused_before_collection(&padded, "declared byte budget", 0);
     }
     #[test]
-    fn v1_checksum_preserves_nested_values_reordered_fields_and_defaults() {
+    fn v2_checksum_preserves_nested_values_reordered_fields_and_defaults() {
         let mut c = capture();
         c.records[0].operation = Operation::Bind(vec![
             Value::Unit,
@@ -807,12 +812,12 @@ mod tests {
             checksum: u64,
         }
         let c = Capture {
-            format: 1,
+            format: 2,
             hz: 60,
             complete: true,
             ..Default::default()
         };
-        let mut bytes = b"EXCAP\0\x01".to_vec();
+        let mut bytes = b"EXCAP\0\x02".to_vec();
         bytes.extend(bin::to_vec(&Reordered {
             checksum: hash::of(&c),
             capture: Compact {
@@ -830,7 +835,7 @@ mod tests {
     #[test]
     fn legitimate_maximum_record_count_and_large_nested_bindings_still_import() {
         let mut c = Capture {
-            format: 1,
+            format: 2,
             hz: 60,
             complete: true,
             completed_records: MAX_EVENTS,
@@ -902,7 +907,7 @@ mod tests {
         w.end_seq();
         w.end_struct();
         w.end_struct();
-        let mut bytes = b"EXCAP\0\x01".to_vec();
+        let mut bytes = b"EXCAP\0\x02".to_vec();
         bytes.extend(w.finish());
         assert!(bytes.len() <= MAX_BYTES as usize);
         refused_before_collection(&bytes, "decoded size exceeds load budget", 1);
@@ -1087,8 +1092,9 @@ mod tests {
     #[test]
     fn checksum_valid_oversized_advance_refuses_before_any_tick() {
         let mut forged = capture();
-        forged.records[1].operation = Operation::Advance {
-            at_us: 86_400_000_000,
+        forged.records[1].operation = Operation::Frame {
+            at_ms: 86_400_000.0,
+            period_ms: 0.0,
             live: false,
         };
         // Re-encode a valid checksum: integrity alone cannot bound replay work.
@@ -1121,8 +1127,9 @@ mod tests {
             .to_string()
             .contains("input fields"));
         c = capture();
-        c.records[1].operation = Operation::Advance {
-            at_us: 86_400_000_000,
+        c.records[1].operation = Operation::Frame {
+            at_ms: 86_400_000.0,
+            period_ms: 0.0,
             live: false,
         };
         assert!(Sim::<Fixture>::replay_capture(&c, "actual", None)

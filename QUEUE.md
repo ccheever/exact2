@@ -526,7 +526,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - I3 remaining diagnostic limitations: Lanterns has no blend state, and three scripted route rounds did not keep the crate moving at the jump apex; moving-crate carry is tested separately (game/diaries/003-difficult-moment.md). T2/M3 landed authored placement/material/gravity merging and reload explanations with exact continuation/input parity.
 - Game scene reload latency (LLP 1041.006, 2026-09-18; Codex): real content edit/restoration reached paint acknowledgement in 126/238 ms (candidate plan 74/181 ms), above the 100 ms target. Isolate load, measure a warm distribution and reduce plan/replacement cost; no p50 or scanout claim from these two samples.
 
-- M1 live capture/F2c clock contract: a capture started after live frames at 0/20/40 ms and continued at 60/80/100 ms refuses replay with `captured clock does not match recorded tick boundary`; the seekable version replays at tick 6. F2c retains live frame precision/lookahead outside EXSIM, while DX replay starts a seekable epoch and retains only integer-microsecond advances. Decide how captures preserve or normalize that scheduling input without changing deterministic world/save pins. M2 rechecked with an explicit 60 Hz display period: live replay now refuses earlier with `corrupt checkpoint: semantic state/hash differs`, because save catches the clock up to the tick deadline while capture hashes the pre-catch-up clock; the display period is also absent from replay. Reproducers: `~/lanes/gamenext/scratch/M1/live-capture.rs` and `~/lanes/gamenext/scratch/M2/live-capture.rs`; controlled captures and all four Linux proofs pass.
 - GPU-compressed game textures (after S3a-b): separate `.tex` assets now fit the 64 MiB carrier, with RGBA8 inputs capped at 2048×2048. Bake BC7/ASTC variants selected by host next, retaining named texture deduplication, bounded carrier files and no runtime image decoder.
 - Baked model delivery sizes (S3a): DamagedHelmet's RGBA8 mip chains produce a 112,733,848-byte `.model`, above PlanURL's existing 64 MiB per-asset limit. The GPU fixture renders it, but a native URL generation cannot carry that file. Choose a GPU-ready compression/chunking policy without introducing a runtime image decoder; evidence in `game/artifacts/s3a/report.md`.
 - Physics canonical repartition (T1b2): warm characters retain geometry and certify refits,
@@ -557,13 +556,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - S3a-c macOS fixture proof: three build attempts stopped on mixed SDK/toolchain selection (SDK 27 versus the required SDK 26, then incompatible Swift tools); rerun the full native proof once the local toolchain is coherent.
 - **S3b macOS Fox is white:** the skinned fixture's textures do not arrive on macOS (`fox-mid-stride-macos.png` is untextured; the web is textured, `fox-mid-stride-web.png`). The model itself, its pins and hashes agree across hosts, so it is the Apple `.tex` delivery path after R1's consumable-bytes change or a name/path mismatch in `Assets.swift` — drive `bun game/games/skinned-fixture/proof.mjs macos` with `state world:*` and the module's asset states before touching the renderer.
 
-- Sibling `next/t4` live capture checkpoint: reproduce there with a live
-  `screenshot run.world world save`, reopen `--world run.world`, then continue;
-  the seekable control passes but the reported live replay refuses checkpoint
-  validation because the capture hashes before save-time catch-up. Lane/game's
-  save does not catch up or mutate tick/hash; PX1's 144 Hz live / 60 Hz physics
-  regression passes all modes and byte-identical resumed continuation. Keep the
-  correction in the sibling capture path (catch up before recording its hash).
 
 - PX1 root verification: `cargo build --workspace` stalls in native JS baking
   (`weatherlight-web` on the serial retry), with child Bun processes not finishing.

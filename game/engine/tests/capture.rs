@@ -222,3 +222,100 @@ fn incidental_inspection_timestamp_and_viewport_do_not_step_or_record() {
     assert_eq!(sim.world().hash(), hash);
     assert_eq!(sim.world().tick(), 0);
 }
+
+#[test]
+fn live_capture_after_lookahead_replays_checkpoint_and_continuation() {
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        for clock in [Clock::Live, Clock::Seekable] {
+            let mut sim = Sim::<Fixture>::new(Options::default())
+                .unwrap()
+                .paranoid(mode);
+            sim.frame_period(1000.0 / 60.0);
+            for at in [0., 20., 40.] {
+                sim.advance(at, clock);
+            }
+            let before = (sim.world().tick(), sim.world().hash());
+            sim.start_capture("live-clock-regression", CaptureLimits::default())
+                .unwrap();
+            assert_eq!((sim.world().tick(), sim.world().hash()), before);
+            for at in [60., 80., 100.] {
+                sim.advance(at, clock);
+            }
+            let capture = Capture::from_bytes(&sim.stop_capture().unwrap().to_bytes()).unwrap();
+            let checkpoint =
+                Sim::<Fixture>::replay_capture(&capture, "live-clock-regression", Some(0)).unwrap();
+            assert_eq!(
+                (checkpoint.world().tick(), checkpoint.world().hash()),
+                before
+            );
+            let replay =
+                Sim::<Fixture>::replay_capture(&capture, "live-clock-regression", None).unwrap();
+            assert_eq!(replay.world().hash(), sim.world().hash());
+            assert_eq!(replay.world().tick(), sim.world().tick());
+            assert_eq!(replay.save().unwrap(), sim.save().unwrap());
+            assert!(replay.world().tick() > before.0);
+        }
+    }
+}
+
+#[test]
+fn live_capture_keeps_fractional_phase_period_changes_and_pending_device_input() {
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        let mut sim = Sim::<Fixture>::new(Options::default())
+            .unwrap()
+            .paranoid(mode);
+        sim.viewport(800., 600.);
+        let mut at = 1234.567895;
+        sim.frame_period(1000. / 144.);
+        sim.advance(at, Clock::Live);
+        for _ in 0..7 {
+            at += 1000. / 144.;
+            sim.advance(at, Clock::Live);
+        }
+        sim.device_input(InputEvent::Key {
+            code: "KeyW".into(),
+            down: true,
+            at_ms: at + 0.123456,
+        });
+        sim.start_capture("fractional-live-clock", CaptureLimits::default())
+            .unwrap();
+        for frame in 0..90 {
+            let period = if frame < 30 {
+                1000. / 144.
+            } else if frame < 60 {
+                1000. / 60.
+            } else {
+                1000. / 120.
+            };
+            sim.frame_period(period);
+            at += period;
+            if frame == 40 {
+                sim.device_input(InputEvent::Key {
+                    code: "KeyW".into(),
+                    down: false,
+                    at_ms: at + 0.12,
+                });
+            }
+            sim.advance(at, Clock::Live);
+        }
+        let capture = Capture::from_bytes(&sim.stop_capture().unwrap().to_bytes()).unwrap();
+        let mut replay =
+            Sim::<Fixture>::replay_capture(&capture, "fractional-live-clock", None).unwrap();
+        assert!(sim.world().resource::<Counts>().held > 10);
+        assert_eq!(replay.save().unwrap(), sim.save().unwrap());
+        // Future live execution still uses the reconstructed display phase.
+        for _ in 0..10 {
+            at += 1000. / 120.;
+            sim.advance(at, Clock::Live);
+            replay.advance(at, Clock::Live);
+        }
+        assert_eq!(replay.save().unwrap(), sim.save().unwrap());
+        let mut old = capture.to_bytes();
+        old[6] = 1;
+        assert!(Capture::from_bytes(&old)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("unsupported capture format"));
+    }
+}
