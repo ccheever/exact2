@@ -5,6 +5,44 @@ absent from the root `members`, so the five checks never compile it and an app
 without a world carries none of it (LLP 1041 §5). The record of why is LLP 1041 and
 its sub-documents; this file is the map and the rules. The code is the authority.
 
+## Change a game
+
+- **Add an entity:** edit `games/<game>/scene.json`, instantiate its fragment, and
+  declare/bind its gameplay `#[derive(Kind)]` in `logic/src/lib.rs`. For Lanterns,
+  reuse `lantern.fragment.json` and its `Lamp`/`Lightable` kinds; update the game's
+  rule and route assertions when the requested behavior changes.
+- **Check a route:** use `sim.move_to("player", target, tolerance, speed)` in Rust
+  or `session.world("world").moveTo("player", [x,z])` in the JS driver. A stalled
+  route reports the blocker name, position, bounds and nearest clear side from
+  layout geometry. `layout world:player to crate` inspects a segment directly.
+- **Prove the change:** `bun game/proof.mjs lanterns --paranoid` runs the Linux
+  proof in continuous, Save and FreshGame modes. Other games use their own
+  `game/games/<game>/proof.mjs linux --paranoid` entry point.
+- **Repin Lanterns once:** `bun game/proof.mjs lanterns --repin` runs all Lanterns
+  Rust tests, then the scripted integration tests and Linux proofs in all three
+  modes, compares checkpoint bytes, then
+  updates `games/lanterns/pins.json` and prints old → new hashes. Failure leaves
+  committed pins unchanged. No manual inventory or fixture editing is needed.
+- **After reload:** `state world` shows `reload` (authored fields applied/kept),
+  `ready` (assets and presentation prepared), and `gpu` (upload/allocation work,
+  including after-ready violations). Read those before attributing a hitch to gameplay.
+
+The movement helpers use ordinary cardinal WASD at 4.5 m/s by default in JS
+(the Rust speed is explicit); they stop after at most 160 bursts / 1,760 ticks.
+The diagnostic probes at head height, 0.65 m above the starting Transform, for
+Lanterns' 1.3 m controller. A clear side is a clear approach ray with a 0.4 m margin,
+not a swept-body route guarantee. It may be null when every candidate is blocked.
+Layout accepts `from`/`toward` world points through its JSON request as well as
+`to` entity names. The nearest blocker and four candidate sides share a maximum
+of 1,000,000 BVH visits over at most 262,144 slots; exceeding either returns an
+explicit error. Index rebuilding is O(N log N). No planner or extra tick work.
+
+[Historical engine evidence](verification/lanterns/README.md) is frozen separately
+from the authored game. Repinning compares exactly three modes and four candidate
+files per mode, capped at 16 MiB each; missing, extra, oversized or differing
+candidates refuse. The current producer is Lanterns; other games explicitly refuse
+`--repin` rather than silently leaving their independent pins untouched.
+
 ## The one idea
 
 **A world is a guest in a `canvas`**, as a web page is a guest in an `iframe`
@@ -594,7 +632,7 @@ paired performance claim against the earlier T3b measurements.
 Only Lanterns pins changed: saved `Lantern.bulb`, saved `Session.actors`, and
 the scene digest of the newly saved default ID. The three world hashes at
 0/60/180 are `a778d065d6cea372`, `8f7cfe89cd32bdef`, `ecf7e7cab49ab213`.
-[Every changed pin, with file:line and old → new](games/lanterns/fixtures/binding-hash-changes.txt)
+[Every changed pin, with file:line and old → new](verification/lanterns/fixtures/binding-hash-changes.txt)
 includes the 609 existing difficult-moment hash occurrences as well as these
 three pins. The two difficult-moment binary saves grew by 1,160 bytes each;
 all existing non-hash gameplay fields in the JSON/JSONL fixtures compare equal.
@@ -1209,7 +1247,7 @@ builds restored through `Sim::restore_bound(&mut self, &[u8]) -> Result<(), Data
 T2 extends this instrument with the production three-way merge and reload report.
 The test binary compiles
 independent copies of the game with explicit source substitutions; shipped Lanterns
-is unchanged. `games/lanterns/fixtures/difficult-moment.script.json` uses the
+is unchanged. `verification/lanterns/fixtures/difficult-moment.script.json` uses the
 existing Sim key and clock verbs from tick zero, including scheduled key edges.
 `difficult-moment.sim` is its EXSIM v6 save, including the tick-zero base; the adjacent JSON describes the
 observed moment and the JSONL records all 120 ticks of each continuation.
@@ -1220,8 +1258,9 @@ nonzero linear and angular velocity, with the same four edits.
 Run the deterministic probe with
 `cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test difficult_moment`.
 `EXACT_I3_OUT=<directory>` additionally writes full fresh/restored/continued state
-and journals. `EXACT_I3_RECORD=1` deliberately regenerates these new diagnostic
-fixtures; normal tests only compare them. Existing game proof pins are unchanged.
+and journals. E1 freezes these historical engine fixtures and their source in
+`verification/lanterns`; the former `EXACT_I3_RECORD` writer is removed. Current
+Lanterns pins use `bun game/proof.mjs lanterns --repin`.
 CPU timing is opt-in:
 `cargo test --manifest-path game/Cargo.toml -p exact-game-render difficult_moment_cost -- --ignored --nocapture`.
 It uses the existing recording feed backend, times actual CPU animation sampling

@@ -1,5 +1,6 @@
 mod assets;
 mod capture_clock;
+mod route;
 pub(crate) use capture_clock::CaptureClock;
 mod paranoid;
 use crate::data::limits::LoadBudget;

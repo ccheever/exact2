@@ -559,3 +559,5 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   Standard, task-owned TMPDIR, and `-j 1` attempts were stopped after three rounds;
   do not report the root build green. Root Cargo metadata confirms Rapier is absent.
   Re-run after resolving the local bake/process stall; game workspace checks pass.
+- I2 trial protocol follow-up: the frozen I1 prompt preserves inspection command names but omits BRIEF's phase-value vocabulary; fresh baseline B3 and after B1 both publish `returning` and fail immutable v3 evaluation despite passing self-tests. Supply the full vocabulary only in a separately labelled future protocol, never retroactively reclassify these attempts. The isolated context also removes Beacons/Greybox test modules, so workspace-wide rustfmt fails; package-scoped formatting works. See `game/bench/trials/RESULTS-after.md` and the retained prompts/logs.
+

@@ -1,0 +1,563 @@
+Command: ['bun', 'game/games/lanterns/proof.mjs', 'linux']
+Filesystem     1024-blocks       Used Available Capacity Mounted on
+/dev/nvme0n1p4  1810493656 1569748012 148703900      92% /
+
+BUILD lanterns linux
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling thiserror v2.0.20
+   Compiling heapless v0.8.0
+   Compiling rawpointer v0.2.1
+   Compiling byteorder v1.5.0
+   Compiling stable_deref_trait v1.2.1
+   Compiling either v1.18.0
+   Compiling downcast-rs v2.0.2
+   Compiling slab v0.4.12
+   Compiling lanterns-logic v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/games/lanterns/logic)
+   Compiling num-traits v0.2.19
+   Compiling matrixmultiply v0.3.11
+   Compiling ena v0.14.4
+   Compiling profiling-procmacros v1.0.18
+   Compiling nalgebra-macros v0.3.0
+   Compiling num-derive v0.4.2
+   Compiling safe_arch v1.2.0
+   Compiling lanterns-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/2612b96c8d96cbdb9fe4f02c-gpu)
+   Compiling hash32 v0.3.1
+   Compiling profiling v1.0.18
+   Compiling gpu-allocator v0.28.0
+   Compiling wide v1.7.1
+   Compiling approx v0.5.1
+   Compiling ordered-float v5.5.0
+   Compiling half v2.7.1
+   Compiling num-integer v0.1.47
+   Compiling rstar v0.13.0
+   Compiling num-rational v0.4.2
+   Compiling hashbrown v0.17.1
+   Compiling bitflags v2.13.2
+   Compiling glam v0.33.7
+   Compiling serde_json v1.0.151
+   Compiling spirv v0.4.0+sdk-1.4.341.0
+   Compiling png v0.18.1
+   Compiling arrayvec v0.7.8
+   Compiling num-complex v0.4.6
+   Compiling serde_arrays v0.2.0
+   Compiling bincode v1.3.3
+   Compiling indexmap v2.14.2
+   Compiling naga-types v30.0.1
+   Compiling naga v30.0.1
+   Compiling wgpu-types v30.0.1
+   Compiling exact-game v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/engine)
+   Compiling simba v0.10.2
+   Compiling exact-game-scene v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/scene)
+   Compiling nalgebra v0.35.0
+   Compiling wgpu-naga-bridge v30.0.1
+   Compiling exact-gpu-reflect v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/gpu/reflect)
+   Compiling wgpu-hal v30.0.1
+   Compiling wgpu-core-deps-windows-linux-android v30.0.1
+   Compiling wgpu-core v30.0.1
+   Compiling wgpu v30.0.1
+   Compiling glamx v0.3.0
+   Compiling parry3d v0.30.2
+   Compiling exact-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/gpu)
+   Compiling exact-game-render v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/render)
+   Compiling rapier3d v0.35.3 (/home/ccheever/lanes/gamenext/exact2-i1/vendor/rapier3d)
+   Compiling exact-game-physics v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/physics)
+    Finished `release` profile [optimized] target(s) in 37.93s
+   Compiling lanterns-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/2612b96c8d96cbdb9fe4f02c-linux)
+    Finished `release` profile [optimized] target(s) in 13.76s
+tree 
+epoch 1 · incarnation 1 · clock 0 ms · 12 nodes
+View#1
+  Canvas#2 [world] (message) world{world} · 116 entities · tick 0
+    View#3 [title]
+      Text#4 "LANTERNS"
+      Text#5 "Light twelve lanterns before the last three minutes of dusk run out."
+      Text#6 "Push the crate to reach the lantern on the stone ledge."
+      Text#7 "WASD or arrows · Space to jump · E to light"
+      View#8
+        Pressable#9 [play] [focused] name="Play" (press)
+          Text#10 "Play"
+        Pressable#11 [title-load] name="Load save" (press)
+          Text#12 "Load save"
+PASS accessible Play overlays a real title-paused world at tick zero
+tap play
+{"tapped":9,"at":[553.5,476.5],"epoch":2,"incarnation":1,"clock":0,"target":"play","delivery":"platform","carrier":"linux","mode":"agent"}
+tree 
+epoch 2 · incarnation 1 · clock 0 ms · 21 nodes
+View#1
+  Canvas#2 [world] (message) world{world} · 116 entities · tick 0
+    View#13
+      Text#14 [hud-lanterns] "LANTERNS 0 / 12"
+      Text#15 [hud-time] "TIME 180"
+      View#16
+        Pressable#17 [sound] name="Sound on" (press)
+          Text#18 "Sound on"
+        Pressable#19 [save] name="Save" (press)
+          Text#20 "Save"
+        Pressable#21 [load-save] name="Load" (press)
+          Text#22 "Load"
+        Pressable#23 [pause] name="Pause" (press)
+          Text#24 "Pause"
+    Text#25 "Move: WASD / arrows / left thumb"
+    Text#26 [sign-instruction] "Push the crate beside the high ledge. Jump onto it, then jump again."
+    View#27
+      Pressable#28 [light] name="LIGHT" (press)
+        Text#29 "LIGHT"
+      Pressable#30 [jump] name="JUMP" (press)
+        Text#31 "JUMP"
+PASS the world and distinct Light and Jump controls are mounted
+state world:fox
+{
+  "entity": {
+    "components": {
+      "Animation": {
+        "clip": "Survey",
+        "looped": true,
+        "seconds": 0,
+        "speed": 1
+      },
+      "Material": {
+        "color": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0,
+        "metallic": 0,
+        "roughness": 0.58
+      },
+      "Mesh": {
+        "Asset": [
+          "Fox.glb"
+        ]
+      },
+      "Parent": [
+        {
+          "generation": 0,
+          "index": 52
+        }
+      ],
+      "Transform": {
+        "position": [
+          0,
+          -0.65,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.018,
+          0.018,
+          0.018
+        ]
+      }
+    },
+    "id": 53,
+    "name": "fox"
+  },
+  "tick": 0,
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 0
+}
+state world:fox
+{
+  "entity": {
+    "components": {
+      "Animation": {
+        "clip": "Survey",
+        "looped": true,
+        "seconds": 0,
+        "speed": 1
+      },
+      "Material": {
+        "color": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0,
+        "metallic": 0,
+        "roughness": 0.58
+      },
+      "Mesh": {
+        "Asset": [
+          "Fox.glb"
+        ]
+      },
+      "Parent": [
+        {
+          "generation": 0,
+          "index": 52
+        }
+      ],
+      "Transform": {
+        "position": [
+          0,
+          -0.65,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.018,
+          0.018,
+          0.018
+        ]
+      }
+    },
+    "id": 53,
+    "name": "fox"
+  },
+  "tick": 0,
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 0
+}
+PASS the consumer uses the real Fox asset: {"Asset":["Fox.glb"]}
+PASS the Fox begins in the Survey clip: {"clip":"Survey","looped":true,"seconds":0,"speed":1}
+type world {"key":"KeyW","for":1000}
+type world {"key":"KeyW","phase":"down"}
+{"typed":2,"delivery":"recognized","epoch":2,"incarnation":1,"clock":0,"target":"world","carrier":"linux","mode":"agent"}
+clock +1000
+{"clock":1000,"world":[{"canvas":2,"changing":["fox.global","fox.Animation","player.Player","player.Transform","camera.Transform","sun.Transform","resource.Session"],"hash":"0x8d712ef8ea7aa587","ownership":{"clock":"controlled","contamination":0,"handoff":"clock owner human/agent","inputSource":"unavailable","owner":"agent"},"quiescent":false,"settleAt":1100,"tick":60}],"epoch":3,"incarnation":1}
+type world {"key":"KeyW","phase":"up"}
+{"typed":2,"delivery":"recognized","epoch":3,"incarnation":1,"clock":1000,"target":"world","carrier":"linux","mode":"agent"}
+state world:player
+{
+  "entity": {
+    "components": {
+      "Body": {
+        "asleep": false,
+        "damping": 0,
+        "gravity": 1,
+        "kind": {
+          "Kinematic": {}
+        },
+        "mass": 0,
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "spin_damping": 0,
+        "velocity": [
+          0,
+          0,
+          -4.499988
+        ]
+      },
+      "Character": {
+        "grounded": true,
+        "height": 1.3,
+        "mass": 80,
+        "radius": 0.35,
+        "slope_degrees": 50,
+        "step": 0.32,
+        "support": [
+          {
+            "generation": 0,
+            "index": 0
+          }
+        ],
+        "support_pose": {
+          "position": [
+            0,
+            -0.5,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "velocity": [
+          0,
+          0,
+          -4.5
+        ]
+      },
+      "Collider": {
+        "bounce": 0,
+        "friction": 0.6,
+        "layer": 1,
+        "mask": 4294967295,
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "sensor": true,
+        "shape": {
+          "Capsule": {
+            "height": 1.3,
+            "radius": 0.35
+          }
+        }
+      },
+      "Player": {
+        "stride": 0.29999852
+      },
+      "Transform": {
+        "position": [
+          -0.000009777818,
+          0.6518451,
+          7.5000114
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    "id": 52,
+    "name": "player"
+  },
+  "tick": 60,
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 1000
+}
+state world:fox
+{
+  "entity": {
+    "components": {
+      "Animation": {
+        "clip": "Run",
+        "looped": true,
+        "seconds": 0.9999997,
+        "speed": 1
+      },
+      "Material": {
+        "color": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0,
+        "metallic": 0,
+        "roughness": 0.58
+      },
+      "Mesh": {
+        "Asset": [
+          "Fox.glb"
+        ]
+      },
+      "Parent": [
+        {
+          "generation": 0,
+          "index": 52
+        }
+      ],
+      "Transform": {
+        "position": [
+          0,
+          -0.65,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.018,
+          0.018,
+          0.018
+        ]
+      }
+    },
+    "id": 53,
+    "name": "fox"
+  },
+  "tick": 60,
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 1000
+}
+PASS one second of W moves 4.5 metres through real physics: [-0.000009777818,0.6518451,7.5000114]
+PASS movement selects and advances Run: {"clip":"Run","looped":true,"seconds":0.9999997,"speed":1}
+screenshot /home/ccheever/lanes/gamenext/exact2-i1/game/games/lanterns/artifacts/lanterns-fox.png
+{"h":720,"note":"Contract painted; canvas rectangles are flat (no device)","screenshot":"/home/ccheever/lanes/gamenext/exact2-i1/game/games/lanterns/artifacts/lanterns-fox.png","w":1280,"epoch":3,"incarnation":1,"clock":1000}
+logs 
+t=0 boot: 12 nodes, epoch 1
+t=0 trust roots: the system's trust store (121 roots)
+t=0 surface world (1 asked again) → epoch 1 (+0 −0 ~0)
+t=0 press view 9 (play) → epoch 2 (+19 −10 ~1)
+t=1000 surface world (1 asked again) → epoch 3 (+0 −0 ~1)
+world t=0 tick=0 spawn #0
+world t=0 tick=0 spawn #1
+world t=0 tick=0 spawn #2
+world t=0 tick=0 spawn #3
+world t=0 tick=0 spawn #4
+world t=0 tick=0 spawn #5
+world t=0 tick=0 spawn #6
+world t=0 tick=0 spawn #7
+world t=0 tick=0 spawn #8
+world t=0 tick=0 spawn #9
+world t=0 tick=0 spawn #10
+world t=0 tick=0 spawn #11
+world t=0 tick=0 spawn #12
+world t=0 tick=0 spawn #13
+world t=0 tick=0 spawn #14
+world t=0 tick=0 spawn #15
+world t=0 tick=0 spawn #16
+world t=0 tick=0 spawn #17
+world t=0 tick=0 spawn #18
+world t=0 tick=0 spawn #19
+world t=0 tick=0 spawn #20
+world t=0 tick=0 spawn #21
+world t=0 tick=0 spawn #22
+world t=0 tick=0 spawn #23
+world t=0 tick=0 spawn #24
+world t=0 tick=0 spawn #25
+world t=0 tick=0 spawn #26
+world t=0 tick=0 spawn #27
+world t=0 tick=0 spawn #28
+world t=0 tick=0 spawn #29
+world t=0 tick=0 spawn #30
+world t=0 tick=0 spawn #31
+world t=0 tick=0 spawn #32
+world t=0 tick=0 spawn #33
+world t=0 tick=0 spawn #34
+world t=0 tick=0 spawn #35
+world t=0 tick=0 spawn #36
+world t=0 tick=0 spawn #37
+world t=0 tick=0 spawn #38
+world t=0 tick=0 spawn #39
+world t=0 tick=0 spawn #40
+world t=0 tick=0 spawn #41
+world t=0 tick=0 spawn #42
+world t=0 tick=0 spawn #43
+world t=0 tick=0 spawn #44
+world t=0 tick=0 spawn #45
+world t=0 tick=0 spawn #46
+world t=0 tick=0 spawn #47
+world t=0 tick=0 spawn #48
+world t=0 tick=0 spawn #49
+world t=0 tick=0 spawn #50
+world t=0 tick=0 spawn #51
+world t=0 tick=0 spawn #52
+world t=0 tick=0 spawn #53
+world t=0 tick=0 spawn #54
+world t=0 tick=0 spawn #55
+world t=0 tick=0 spawn #56
+world t=0 tick=0 spawn #57
+world t=0 tick=0 spawn #58
+world t=0 tick=0 spawn #59
+world t=0 tick=0 spawn #60
+world t=0 tick=0 spawn #61
+world t=0 tick=0 spawn #62
+world t=0 tick=0 spawn #63
+world t=0 tick=0 spawn #64
+world t=0 tick=0 spawn #65
+world t=0 tick=0 spawn #66
+world t=0 tick=0 spawn #67
+world t=0 tick=0 spawn #68
+world t=0 tick=0 spawn #69
+world t=0 tick=0 spawn #70
+world t=0 tick=0 spawn #71
+world t=0 tick=0 spawn #72
+world t=0 tick=0 spawn #73
+world t=0 tick=0 spawn #74
+world t=0 tick=0 spawn #75
+world t=0 tick=0 spawn #76
+world t=0 tick=0 spawn #77
+world t=0 tick=0 spawn #78
+world t=0 tick=0 spawn #79
+world t=0 tick=0 spawn #80
+world t=0 tick=0 spawn #81
+world t=0 tick=0 spawn #82
+world t=0 tick=0 spawn #83
+world t=0 tick=0 spawn #84
+world t=0 tick=0 spawn #85
+world t=0 tick=0 spawn #86
+world t=0 tick=0 spawn #87
+world t=0 tick=0 spawn #88
+world t=0 tick=0 spawn #89
+world t=0 tick=0 spawn #90
+world t=0 tick=0 spawn #91
+world t=0 tick=0 spawn #92
+world t=0 tick=0 spawn #93
+world t=0 tick=0 spawn #94
+world t=0 tick=0 spawn #95
+world t=0 tick=0 spawn #96
+world t=0 tick=0 spawn #97
+world t=0 tick=0 spawn #98
+world t=0 tick=0 spawn #99
+world t=0 tick=0 spawn #100
+world t=0 tick=0 spawn #101
+world t=0 tick=0 spawn #102
+world t=0 tick=0 spawn #103
+world t=0 tick=0 spawn #104
+world t=0 tick=0 spawn #105
+world t=0 tick=0 spawn #106
+world t=0 tick=0 spawn #107
+world t=0 tick=0 spawn #108
+world t=0 tick=0 spawn #109
+world t=0 tick=0 spawn #110
+world t=0 tick=0 spawn #111
+world t=0 tick=0 spawn #112
+world t=0 tick=0 spawn #113
+world t=0 tick=0 spawn #114
+world t=0 tick=0 spawn #115
+world t=0 tick=0 publish count: Number(0.0)
+world t=0 tick=0 publish total: Number(12.0)
+world t=0 tick=0 publish remaining: Number(180.0)
+world t=0 tick=0 publish phase: Str("title")
+world t=0 tick=0 publish assetReady: Bool(true)
+world t=0 tick=0 control: agent attached; controlled clock
+world t=0 tick=0 loop wind on gain 0.22
+world t=0 tick=0 publish phase: Str("playing")
+world t=150 tick=9 sfx footstep at player gain 1.00
+world t=300 tick=18 sfx footstep at player gain 1.00
+world t=466 tick=28 sfx footstep at player gain 1.00
+world t=616 tick=37 sfx footstep at player gain 1.00
+world t=766 tick=46 sfx footstep at player gain 1.00
+world t=933 tick=56 sfx footstep at player gain 1.00
+world t=983 tick=59 publish remaining: Number(179.0)
+PASS the browser and GPU report no errors: []
+PASS ready: no GPU allocations or asset uploads after ready: {"ready":true,"gpu":{"afterReady":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"declaredExceptions":{"counts":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0},"events":0,"last":null},"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"streamingVertexBytes":138240,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0,"violations":0},"beforeReady":{"bindGroupLayouts":0,"bufferReallocations":4,"computePipelines":0,"indexBuffers":4,"meshBytesUploaded":103624,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":2,"streamingVertexBytes":69120,"textureBytesUploaded":4194304,"textures":1,"vertexBuffers":4},"device":false,"lastAfterReady":null,"restoreUploads":{"counts":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0},"events":0,"last":null}},"lastAfterReady":null}
+PASS all recorded children exited: []
+PROOF PASS lanterns linux: 0 failures; 76.219 s

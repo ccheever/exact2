@@ -173,3 +173,54 @@ fn sight_limit_includes_dead_slots_and_is_an_agent_error() {
         r#"{"tick":0,"error":"layout visibility index limit exceeded (262144 entity slots, including dead slots)"}"#
     );
 }
+
+#[test]
+fn route_diagnostic_200k_interleaved_churn_returns_nearest_and_clear_side() {
+    let mut sim = crate::Sim::<Quiet>::new(()).unwrap();
+    let w = sim.world_mut();
+    w.spawn_named("subject", Transform::at(0., 0., 0.));
+    let far = w.spawn_named("far", (Transform::at(0., 0., 8.), Mesh::cube(2.)));
+    let near = w.spawn_named("nearest", (Transform::at(0., 0., 4.), Mesh::cube(2.)));
+    for i in 3..200_000 {
+        let x = if i % 2 == 0 { 100. } else { -100. };
+        let e = w.spawn((Transform::at(x, 0., i as f32), Mesh::cube(1.)));
+        if i % 3 == 0 {
+            w.despawn(e);
+            w.spawn((Transform::at(x, 0., i as f32), Mesh::cube(1.)));
+        }
+    }
+    assert!(sim
+        .route_diagnostic("subject", Vec3::ZERO, Vec3::splat(f32::MAX))
+        .unwrap_err()
+        .contains("finite segment range"));
+    let before = sim.world().hash();
+    let report = sim
+        .route_diagnostic("subject", Vec3::ZERO, Vec3::new(0., 0., 10.))
+        .unwrap();
+    assert!(report.contains("\"name\":\"nearest\""), "{report}");
+    assert!(
+        report.contains("\"bounds\":{\"min\":[-1.0,-1.0,3.0],\"max\":[1.0,1.0,5.0]}"),
+        "{report}"
+    );
+    assert!(!report.contains("\"nearestClearSide\":null"), "{report}");
+    assert_eq!(before, sim.world().hash());
+    sim.world_mut().despawn(near);
+    let report = sim
+        .route_diagnostic("subject", Vec3::ZERO, Vec3::new(0., 0., 10.))
+        .unwrap();
+    assert!(report.contains("\"name\":\"far\""), "{report}");
+    sim.world_mut().despawn(far);
+    assert_eq!(
+        sim.route_diagnostic("subject", Vec3::ZERO, Vec3::new(0., 0., 10.))
+            .unwrap(),
+        r#"{"blocker":null,"nearestClearSide":null}"#
+    );
+    // Retain entities to cross the same explicit layout slot ceiling.
+    while sim.world().alive_mask.len() * 64 <= SLOT_LIMIT {
+        sim.world_mut().spawn(());
+    }
+    assert!(sim
+        .route_diagnostic("subject", Vec3::ZERO, Vec3::Z)
+        .unwrap_err()
+        .contains("262144"));
+}

@@ -1,0 +1,215 @@
+[
+  {
+    "name": "install",
+    "command": [
+      "bun",
+      "install",
+      "--frozen-lockfile"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:14:20.521084+00:00",
+    "seconds": 0.014049375895410776,
+    "exit": 0,
+    "freeKiBBefore": 150593992
+  },
+  {
+    "name": "proof-beacons",
+    "command": [
+      "bun",
+      "game/games/beacons/proof.mjs",
+      "linux"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:14:20.536731+00:00",
+    "seconds": 80.383460897021,
+    "exit": 0,
+    "freeKiBBefore": 150593816
+  },
+  {
+    "name": "proof-greybox",
+    "command": [
+      "bun",
+      "game/games/greybox/proof.mjs",
+      "linux"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:15:40.922678+00:00",
+    "seconds": 22.499456249177456,
+    "exit": 0,
+    "freeKiBBefore": 148759548
+  },
+  {
+    "name": "proof-lanterns",
+    "command": [
+      "bun",
+      "game/games/lanterns/proof.mjs",
+      "linux"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:16:03.424744+00:00",
+    "seconds": 76.29288619104773,
+    "exit": 0,
+    "freeKiBBefore": 148703900
+  },
+  {
+    "name": "proof-asset-fixture",
+    "command": [
+      "bun",
+      "game/games/asset-fixture/proof.mjs",
+      "linux"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:17:19.720010+00:00",
+    "seconds": 1.7852604403160512,
+    "exit": 1,
+    "freeKiBBefore": 147955060
+  },
+  {
+    "name": "proof-cubes",
+    "command": [
+      "bun",
+      "game/bench/cubes/proof.mjs",
+      "linux"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:17:21.508017+00:00",
+    "seconds": 21.05269184987992,
+    "exit": 0,
+    "freeKiBBefore": 147939432
+  },
+  {
+    "name": "game-test",
+    "command": [
+      "cargo",
+      "test",
+      "--manifest-path",
+      "game/Cargo.toml",
+      "--workspace",
+      "--no-fail-fast"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:17:42.564082+00:00",
+    "seconds": 24.56040713796392,
+    "exit": 101,
+    "freeKiBBefore": 147885316
+  },
+  {
+    "name": "game-clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--manifest-path",
+      "game/Cargo.toml",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:18:07.127965+00:00",
+    "seconds": 6.841018708888441,
+    "exit": 101,
+    "freeKiBBefore": 146403328
+  },
+  {
+    "name": "game-fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--manifest-path",
+      "game/Cargo.toml",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:18:13.971995+00:00",
+    "seconds": 4.581127950921655,
+    "exit": 0,
+    "freeKiBBefore": 145940332
+  },
+  {
+    "name": "game-bun",
+    "command": [
+      "bun",
+      "test"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1/game",
+    "startedAt": "2026-09-18T19:18:18.556241+00:00",
+    "seconds": 47.15562259731814,
+    "exit": 1,
+    "freeKiBBefore": 145940328
+  },
+  {
+    "name": "root-build",
+    "command": [
+      "cargo",
+      "build",
+      "--workspace"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:19:05.714449+00:00",
+    "seconds": 11.148701169062406,
+    "exit": 101,
+    "freeKiBBefore": 145149976
+  },
+  {
+    "name": "root-test",
+    "command": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--no-fail-fast"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:19:16.865091+00:00",
+    "seconds": 4.114563541021198,
+    "exit": 101,
+    "freeKiBBefore": 143628380
+  },
+  {
+    "name": "root-clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:19:20.981982+00:00",
+    "seconds": 6.794196439906955,
+    "exit": 101,
+    "freeKiBBefore": 143418048
+  },
+  {
+    "name": "root-fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:19:27.778904+00:00",
+    "seconds": 3.581776787992567,
+    "exit": 0,
+    "freeKiBBefore": 142844952
+  },
+  {
+    "name": "boot",
+    "command": [
+      "bun",
+      "scripts/boot.mjs"
+    ],
+    "cwd": "/home/ccheever/lanes/gamenext/exact2-i1",
+    "startedAt": "2026-09-18T19:19:31.364204+00:00",
+    "seconds": 0.03350050700828433,
+    "exit": 0,
+    "freeKiBBefore": 142844932
+  }
+]

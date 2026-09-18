@@ -1,0 +1,1166 @@
+['bun', 'game/games/asset-fixture/proof.mjs', 'linux']
+Filesystem     1024-blocks       Used Available Capacity Mounted on
+/dev/nvme0n1p4  1810493656 1575599952 142851960      92% /
+
+BUILD asset-fixture linux
+   Compiling asset-fixture-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/682178d6082d3f8fc5b77435-gpu)
+    Finished `release` profile [optimized] target(s) in 3.37s
+   Compiling asset-fixture-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/682178d6082d3f8fc5b77435-linux)
+    Finished `release` profile [optimized] target(s) in 13.67s
+tap play
+{"tapped":2,"at":[640,33.5],"epoch":2,"incarnation":1,"clock":0,"target":"play","delivery":"platform","carrier":"linux","mode":"agent"}
+clock 500
+{"clock":500,"world":[{"canvas":4,"changing":[],"hash":"0x386073903e9c84d6","ownership":{"clock":"controlled","contamination":0,"handoff":"clock owner human/agent","inputSource":"unavailable","owner":"agent"},"quiescent":true,"tick":30}],"epoch":2,"incarnation":1}
+state 
+{
+  "capabilities": {
+    "build": {
+      "host": "763f2dbc12da972eefc340a42c613f18",
+      "lastSuccessfulSwap": null,
+      "loadedGame": {
+        "app": "com.exact.asset-fixture",
+        "cohort": "763f2dbc12da972eefc340a42c613f18",
+        "name": "libasset_fixture_gpu.so",
+        "sha256": "49188b786e9923a16ece4c87f1476731082fb752ce4a237bffe5620d739eb05d",
+        "trust": "development"
+      },
+      "phase": "launch",
+      "planDigest": {
+        "unavailable": true
+      },
+      "requestedGame": {
+        "app": "com.exact.asset-fixture",
+        "cohort": "763f2dbc12da972eefc340a42c613f18",
+        "name": "libasset_fixture_gpu.so",
+        "sha256": "49188b786e9923a16ece4c87f1476731082fb752ce4a237bffe5620d739eb05d",
+        "trust": "development"
+      }
+    },
+    "carrier": {
+      "active": "stdio-headless",
+      "available": [
+        "stdio-headless"
+      ],
+      "delivery": {
+        "canvasKey": "recognized",
+        "device": false,
+        "heldContact": false,
+        "tap": "recognized"
+      },
+      "eof": "exit",
+      "scope": "launch"
+    },
+    "clockOwnership": false,
+    "detach": false,
+    "handoff": false,
+    "host": "linux",
+    "inputProvenance": {
+      "reason": "GPU input ABI does not carry source attestation",
+      "unavailable": true
+    },
+    "reload": {
+      "game": "rebuild-relaunch",
+      "liveGameReplacement": false,
+      "ui": "restart-with-compatible-slot-carry",
+      "worldCarry": "explicit-save-restore",
+      "worldOnUIReload": {
+        "reason": "surface instances are rebound by view id; transactional game carry is not implemented",
+        "unavailable": true
+      }
+    }
+  },
+  "clock": 500,
+  "delivery": {
+    "E": [
+      "native"
+    ],
+    "L": "0",
+    "compatibilityId": "763f2dbc12da972eefc340a42c613f18",
+    "embeddedSeq": 0,
+    "interpreted": [],
+    "seq": 0,
+    "staged": false,
+    "stream": "embedded",
+    "sunset": ""
+  },
+  "derives": {},
+  "epoch": 2,
+  "focus": {
+    "logical": null
+  },
+  "incarnation": 1,
+  "keyboard": {
+    "unavailable": true
+  },
+  "logic": {
+    "ready": true,
+    "revision": null,
+    "rustExecutor": null
+  },
+  "navigation": {
+    "unavailable": true
+  },
+  "ownership": {
+    "clock": "controlled",
+    "launchMode": "agent",
+    "owner": "agent",
+    "scope": "launch"
+  },
+  "pending": [],
+  "resources": {},
+  "slots": {
+    "playing": true
+  },
+  "store": [],
+  "world": [
+    {
+      "args": [],
+      "assets": [
+        {
+          "name": "crate.model",
+          "state": "Loaded"
+        },
+        {
+          "name": "crate/0-srgb.tex",
+          "state": "Loaded"
+        }
+      ],
+      "audio": {
+        "sources": [],
+        "voices": []
+      },
+      "canvas": 4,
+      "capture": null,
+      "clockState": {
+        "hostMicros": 500000,
+        "worldMicros": 500000
+      },
+      "device": false,
+      "entities": 3,
+      "gpu": {
+        "afterReady": {
+          "bindGroupLayouts": 0,
+          "bufferReallocations": 0,
+          "computePipelines": 0,
+          "declaredExceptions": {
+            "counts": {
+              "bindGroupLayouts": 0,
+              "bufferReallocations": 0,
+              "computePipelines": 0,
+              "indexBuffers": 0,
+              "meshBytesUploaded": 0,
+              "renderPipelines": 0,
+              "shaderModules": 0,
+              "slotCapacityGrowth": 0,
+              "textureBytesUploaded": 0,
+              "textures": 0,
+              "vertexBuffers": 0
+            },
+            "events": 0,
+            "last": null
+          },
+          "indexBuffers": 0,
+          "meshBytesUploaded": 0,
+          "renderPipelines": 0,
+          "shaderModules": 0,
+          "slotCapacityGrowth": 0,
+          "streamingVertexBytes": 0,
+          "textureBytesUploaded": 0,
+          "textures": 0,
+          "vertexBuffers": 0,
+          "violations": 0
+        },
+        "beforeReady": {
+          "bindGroupLayouts": 0,
+          "bufferReallocations": 4,
+          "computePipelines": 0,
+          "indexBuffers": 1,
+          "meshBytesUploaded": 1288,
+          "renderPipelines": 0,
+          "shaderModules": 0,
+          "slotCapacityGrowth": 2,
+          "streamingVertexBytes": 0,
+          "textureBytesUploaded": 1364,
+          "textures": 1,
+          "vertexBuffers": 2
+        },
+        "device": false,
+        "lastAfterReady": null,
+        "restoreUploads": {
+          "counts": {
+            "bindGroupLayouts": 0,
+            "bufferReallocations": 0,
+            "computePipelines": 0,
+            "indexBuffers": 0,
+            "meshBytesUploaded": 0,
+            "renderPipelines": 0,
+            "shaderModules": 0,
+            "slotCapacityGrowth": 0,
+            "textureBytesUploaded": 0,
+            "textures": 0,
+            "vertexBuffers": 0
+          },
+          "events": 0,
+          "last": null
+        }
+      },
+      "hash": "0x386073903e9c84d6",
+      "hz": 60,
+      "input": {
+        "actions": {},
+        "forwarded": [],
+        "held": []
+      },
+      "loading": [],
+      "name": "world",
+      "ownership": {
+        "clock": "controlled",
+        "contamination": 0,
+        "handoff": "clock owner human/agent",
+        "inputSource": "unavailable",
+        "owner": "agent"
+      },
+      "paused": false,
+      "perf": {
+        "draws": 0,
+        "encodeMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "feedMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "frameMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "instances": 0,
+        "pixels": [
+          0,
+          0
+        ],
+        "tickMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "ticksPerFrame": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "triangles": 0,
+        "wallClock": true
+      },
+      "published": {
+        "ready": true,
+        "tick": 29
+      },
+      "ready": true,
+      "readyReasons": [],
+      "reload": {
+        "added": [],
+        "applied": [],
+        "kept": [],
+        "omitted": 0,
+        "removed": [],
+        "unmatched": []
+      },
+      "resources": {},
+      "restored": false,
+      "seed": 0,
+      "tick": 30
+    }
+  ]
+}
+PASS setup and exactly 30 ticks after settlement: {"args":[],"assets":[{"name":"crate.model","state":"Loaded"},{"name":"crate/0-srgb.tex","state":"Loaded"}],"audio":{"sources":[],"voices":[]},"canvas":4,"capture":null,"clockState":{"hostMicros":500000,"worldMicros":500000},"device":false,"entities":3,"gpu":{"afterReady":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"declaredExceptions":{"counts":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0},"events":0,"last":null},"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"streamingVertexBytes":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0,"violations":0},"beforeReady":{"bindGroupLayouts":0,"bufferReallocations":4,"computePipelines":0,"indexBuffers":1,"meshBytesUploaded":1288,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":2,"streamingVertexBytes":0,"textureBytesUploaded":1364,"textures":1,"vertexBuffers":2},"device":false,"lastAfterReady":null,"restoreUploads":{"counts":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0},"events":0,"last":null}},"hash":"0x386073903e9c84d6","hz":60,"input":{"actions":{},"forwarded":[],"held":[]},"loading":[],"name":"world","ownership":{"clock":"controlled","contamination":0,"handoff":"clock owner human/agent","inputSource":"unavailable","owner":"agent"},"paused":false,"perf":{"draws":0,"encodeMs":{"count":0,"max":0,"mean":0,"p50":0,"p95":0,"p99":0},"feedMs":{"count":0,"max":0,"mean":0,"p50":0,"p95":0,"p99":0},"frameMs":{"count":0,"max":0,"mean":0,"p50":0,"p95":0,"p99":0},"instances":0,"pixels":[0,0],"tickMs":{"count":0,"max":0,"mean":0,"p50":0,"p95":0,"p99":0},"ticksPerFrame":{"count":0,"max":0,"mean":0,"p50":0,"p95":0,"p99":0},"triangles":0,"wallClock":true},"published":{"ready":true,"tick":29},"ready":true,"readyReasons":[],"reload":{"added":[],"applied":[],"kept":[],"omitted":0,"removed":[],"unmatched":[]},"resources":{},"restored":false,"seed":0,"tick":30}
+type world {"key":"KeyW","phase":"down"}
+{"typed":4,"delivery":"recognized","epoch":2,"incarnation":1,"clock":500,"target":"world","carrier":"linux","mode":"agent"}
+screenshot /home/ccheever/lanes/gamenext/exact2-i1/game/games/asset-fixture/artifacts/crate.world world save
+{"bytes":4321,"hash":"0x386073903e9c84d6","tick":30,"epoch":2,"incarnation":1,"clock":500,"screenshot":"/home/ccheever/lanes/gamenext/exact2-i1/game/games/asset-fixture/artifacts/crate.world"}
+PASS ready: no GPU allocations or asset uploads after ready: {"ready":true,"gpu":{"afterReady":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"declaredExceptions":{"counts":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0},"events":0,"last":null},"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"streamingVertexBytes":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0,"violations":0},"beforeReady":{"bindGroupLayouts":0,"bufferReallocations":4,"computePipelines":0,"indexBuffers":1,"meshBytesUploaded":1288,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":2,"streamingVertexBytes":0,"textureBytesUploaded":1364,"textures":1,"vertexBuffers":2},"device":false,"lastAfterReady":null,"restoreUploads":{"counts":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0},"events":0,"last":null}},"lastAfterReady":null}
+tap play
+{"tapped":2,"at":[640,33.5],"epoch":2,"incarnation":1,"clock":0,"target":"play","delivery":"platform","carrier":"linux","mode":"agent"}
+state 
+{
+  "capabilities": {
+    "build": {
+      "host": "763f2dbc12da972eefc340a42c613f18",
+      "lastSuccessfulSwap": null,
+      "loadedGame": {
+        "app": "com.exact.asset-fixture",
+        "cohort": "763f2dbc12da972eefc340a42c613f18",
+        "name": "libasset_fixture_gpu.so",
+        "sha256": "49188b786e9923a16ece4c87f1476731082fb752ce4a237bffe5620d739eb05d",
+        "trust": "development"
+      },
+      "phase": "launch",
+      "planDigest": {
+        "unavailable": true
+      },
+      "requestedGame": {
+        "app": "com.exact.asset-fixture",
+        "cohort": "763f2dbc12da972eefc340a42c613f18",
+        "name": "libasset_fixture_gpu.so",
+        "sha256": "49188b786e9923a16ece4c87f1476731082fb752ce4a237bffe5620d739eb05d",
+        "trust": "development"
+      }
+    },
+    "carrier": {
+      "active": "stdio-headless",
+      "available": [
+        "stdio-headless"
+      ],
+      "delivery": {
+        "canvasKey": "recognized",
+        "device": false,
+        "heldContact": false,
+        "tap": "recognized"
+      },
+      "eof": "exit",
+      "scope": "launch"
+    },
+    "clockOwnership": false,
+    "detach": false,
+    "handoff": false,
+    "host": "linux",
+    "inputProvenance": {
+      "reason": "GPU input ABI does not carry source attestation",
+      "unavailable": true
+    },
+    "reload": {
+      "game": "rebuild-relaunch",
+      "liveGameReplacement": false,
+      "ui": "restart-with-compatible-slot-carry",
+      "worldCarry": "explicit-save-restore",
+      "worldOnUIReload": {
+        "reason": "surface instances are rebound by view id; transactional game carry is not implemented",
+        "unavailable": true
+      }
+    }
+  },
+  "clock": 0,
+  "delivery": {
+    "E": [
+      "native"
+    ],
+    "L": "0",
+    "compatibilityId": "763f2dbc12da972eefc340a42c613f18",
+    "embeddedSeq": 0,
+    "interpreted": [],
+    "seq": 0,
+    "staged": false,
+    "stream": "embedded",
+    "sunset": ""
+  },
+  "derives": {},
+  "epoch": 2,
+  "focus": {
+    "logical": null
+  },
+  "incarnation": 1,
+  "keyboard": {
+    "unavailable": true
+  },
+  "logic": {
+    "ready": true,
+    "revision": null,
+    "rustExecutor": null
+  },
+  "navigation": {
+    "unavailable": true
+  },
+  "ownership": {
+    "clock": "controlled",
+    "launchMode": "agent",
+    "owner": "agent",
+    "scope": "launch"
+  },
+  "pending": [],
+  "resources": {},
+  "slots": {
+    "playing": true
+  },
+  "store": [],
+  "world": [
+    {
+      "args": [],
+      "assets": [
+        {
+          "name": "crate.model",
+          "state": "Loaded"
+        },
+        {
+          "name": "crate/0-srgb.tex",
+          "state": "Loaded"
+        }
+      ],
+      "audio": {
+        "sources": [],
+        "voices": []
+      },
+      "canvas": 4,
+      "capture": null,
+      "clockState": {
+        "hostMicros": 0,
+        "worldMicros": 500000
+      },
+      "device": false,
+      "entities": 3,
+      "gpu": {
+        "afterReady": {
+          "bindGroupLayouts": 0,
+          "bufferReallocations": 0,
+          "computePipelines": 0,
+          "declaredExceptions": {
+            "counts": {
+              "bindGroupLayouts": 0,
+              "bufferReallocations": 0,
+              "computePipelines": 0,
+              "indexBuffers": 0,
+              "meshBytesUploaded": 0,
+              "renderPipelines": 0,
+              "shaderModules": 0,
+              "slotCapacityGrowth": 0,
+              "textureBytesUploaded": 0,
+              "textures": 0,
+              "vertexBuffers": 0
+            },
+            "events": 0,
+            "last": null
+          },
+          "indexBuffers": 0,
+          "meshBytesUploaded": 0,
+          "renderPipelines": 0,
+          "shaderModules": 0,
+          "slotCapacityGrowth": 0,
+          "streamingVertexBytes": 0,
+          "textureBytesUploaded": 0,
+          "textures": 0,
+          "vertexBuffers": 0,
+          "violations": 0
+        },
+        "beforeReady": {
+          "bindGroupLayouts": 0,
+          "bufferReallocations": 4,
+          "computePipelines": 0,
+          "indexBuffers": 1,
+          "meshBytesUploaded": 1288,
+          "renderPipelines": 0,
+          "shaderModules": 0,
+          "slotCapacityGrowth": 2,
+          "streamingVertexBytes": 0,
+          "textureBytesUploaded": 1364,
+          "textures": 1,
+          "vertexBuffers": 2
+        },
+        "device": false,
+        "lastAfterReady": null,
+        "restoreUploads": {
+          "counts": {
+            "bindGroupLayouts": 0,
+            "bufferReallocations": 0,
+            "computePipelines": 0,
+            "indexBuffers": 0,
+            "meshBytesUploaded": 0,
+            "renderPipelines": 0,
+            "shaderModules": 0,
+            "slotCapacityGrowth": 0,
+            "textureBytesUploaded": 0,
+            "textures": 0,
+            "vertexBuffers": 0
+          },
+          "events": 0,
+          "last": null
+        }
+      },
+      "hash": "0x386073903e9c84d6",
+      "hz": 60,
+      "input": {
+        "actions": {},
+        "forwarded": [
+          "KeyW"
+        ],
+        "held": []
+      },
+      "loading": [],
+      "name": "world",
+      "ownership": {
+        "clock": "controlled",
+        "contamination": 0,
+        "handoff": "clock owner human/agent",
+        "inputSource": "unavailable",
+        "owner": "agent"
+      },
+      "paused": false,
+      "perf": {
+        "draws": 0,
+        "encodeMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "feedMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "frameMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "instances": 0,
+        "pixels": [
+          0,
+          0
+        ],
+        "tickMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "ticksPerFrame": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "triangles": 0,
+        "wallClock": true
+      },
+      "published": {
+        "ready": true,
+        "tick": 29
+      },
+      "ready": true,
+      "readyReasons": [],
+      "reload": {
+        "added": [],
+        "applied": [],
+        "kept": [],
+        "omitted": 0,
+        "removed": [],
+        "unmatched": []
+      },
+      "resources": {},
+      "restored": true,
+      "restoredFrom": [],
+      "seed": 0,
+      "tick": 30
+    }
+  ]
+}
+PASS fresh process resumes saved tick/hash only after delivery: {"args":[],"assets":[{"name":"crate.model","state":"Loaded"},{"name":"crate/0-srgb.tex","state":"Loaded"}],"audio":{"sources":[],"voices":[]},"canvas":4,"capture":null,"clockState":{"hostMicros":0,"worldMicros":500000},"device":false,"entities":3,"gpu":{"afterReady":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"declaredExceptions":{"counts":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0},"events":0,"last":null},"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"streamingVertexBytes":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0,"violations":0},"beforeReady":{"bindGroupLayouts":0,"bufferReallocations":4,"computePipelines":0,"indexBuffers":1,"meshBytesUploaded":1288,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":2,"streamingVertexBytes":0,"textureBytesUploaded":1364,"textures":1,"vertexBuffers":2},"device":false,"lastAfterReady":null,"restoreUploads":{"counts":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0},"events":0,"last":null}},"hash":"0x386073903e9c84d6","hz":60,"input":{"actions":{},"forwarded":["KeyW"],"held":[]},"loading":[],"name":"world","ownership":{"clock":"controlled","contamination":0,"handoff":"clock owner human/agent","inputSource":"unavailable","owner":"agent"},"paused":false,"perf":{"draws":0,"encodeMs":{"count":0,"max":0,"mean":0,"p50":0,"p95":0,"p99":0},"feedMs":{"count":0,"max":0,"mean":0,"p50":0,"p95":0,"p99":0},"frameMs":{"count":0,"max":0,"mean":0,"p50":0,"p95":0,"p99":0},"instances":0,"pixels":[0,0],"tickMs":{"count":0,"max":0,"mean":0,"p50":0,"p95":0,"p99":0},"ticksPerFrame":{"count":0,"max":0,"mean":0,"p50":0,"p95":0,"p99":0},"triangles":0,"wallClock":true},"published":{"ready":true,"tick":29},"ready":true,"readyReasons":[],"reload":{"added":[],"applied":[],"kept":[],"omitted":0,"removed":[],"unmatched":[]},"resources":{},"restored":true,"restoredFrom":[],"seed":0,"tick":30}
+PASS restored forwarded key owns its later keyup: {"actions":{},"forwarded":["KeyW"],"held":[]}
+type world {"key":"KeyW","phase":"up"}
+{"typed":4,"delivery":"recognized","epoch":2,"incarnation":1,"clock":0,"target":"world","carrier":"linux","mode":"agent"}
+state 
+{
+  "capabilities": {
+    "build": {
+      "host": "763f2dbc12da972eefc340a42c613f18",
+      "lastSuccessfulSwap": null,
+      "loadedGame": {
+        "app": "com.exact.asset-fixture",
+        "cohort": "763f2dbc12da972eefc340a42c613f18",
+        "name": "libasset_fixture_gpu.so",
+        "sha256": "49188b786e9923a16ece4c87f1476731082fb752ce4a237bffe5620d739eb05d",
+        "trust": "development"
+      },
+      "phase": "launch",
+      "planDigest": {
+        "unavailable": true
+      },
+      "requestedGame": {
+        "app": "com.exact.asset-fixture",
+        "cohort": "763f2dbc12da972eefc340a42c613f18",
+        "name": "libasset_fixture_gpu.so",
+        "sha256": "49188b786e9923a16ece4c87f1476731082fb752ce4a237bffe5620d739eb05d",
+        "trust": "development"
+      }
+    },
+    "carrier": {
+      "active": "stdio-headless",
+      "available": [
+        "stdio-headless"
+      ],
+      "delivery": {
+        "canvasKey": "recognized",
+        "device": false,
+        "heldContact": false,
+        "tap": "recognized"
+      },
+      "eof": "exit",
+      "scope": "launch"
+    },
+    "clockOwnership": false,
+    "detach": false,
+    "handoff": false,
+    "host": "linux",
+    "inputProvenance": {
+      "reason": "GPU input ABI does not carry source attestation",
+      "unavailable": true
+    },
+    "reload": {
+      "game": "rebuild-relaunch",
+      "liveGameReplacement": false,
+      "ui": "restart-with-compatible-slot-carry",
+      "worldCarry": "explicit-save-restore",
+      "worldOnUIReload": {
+        "reason": "surface instances are rebound by view id; transactional game carry is not implemented",
+        "unavailable": true
+      }
+    }
+  },
+  "clock": 0,
+  "delivery": {
+    "E": [
+      "native"
+    ],
+    "L": "0",
+    "compatibilityId": "763f2dbc12da972eefc340a42c613f18",
+    "embeddedSeq": 0,
+    "interpreted": [],
+    "seq": 0,
+    "staged": false,
+    "stream": "embedded",
+    "sunset": ""
+  },
+  "derives": {},
+  "epoch": 2,
+  "focus": {
+    "logical": null
+  },
+  "incarnation": 1,
+  "keyboard": {
+    "unavailable": true
+  },
+  "logic": {
+    "ready": true,
+    "revision": null,
+    "rustExecutor": null
+  },
+  "navigation": {
+    "unavailable": true
+  },
+  "ownership": {
+    "clock": "controlled",
+    "launchMode": "agent",
+    "owner": "agent",
+    "scope": "launch"
+  },
+  "pending": [],
+  "resources": {},
+  "slots": {
+    "playing": true
+  },
+  "store": [],
+  "world": [
+    {
+      "args": [],
+      "assets": [
+        {
+          "name": "crate.model",
+          "state": "Loaded"
+        },
+        {
+          "name": "crate/0-srgb.tex",
+          "state": "Loaded"
+        }
+      ],
+      "audio": {
+        "sources": [],
+        "voices": []
+      },
+      "canvas": 4,
+      "capture": null,
+      "clockState": {
+        "hostMicros": 0,
+        "worldMicros": 500000
+      },
+      "device": false,
+      "entities": 3,
+      "gpu": {
+        "afterReady": {
+          "bindGroupLayouts": 0,
+          "bufferReallocations": 0,
+          "computePipelines": 0,
+          "declaredExceptions": {
+            "counts": {
+              "bindGroupLayouts": 0,
+              "bufferReallocations": 0,
+              "computePipelines": 0,
+              "indexBuffers": 0,
+              "meshBytesUploaded": 0,
+              "renderPipelines": 0,
+              "shaderModules": 0,
+              "slotCapacityGrowth": 0,
+              "textureBytesUploaded": 0,
+              "textures": 0,
+              "vertexBuffers": 0
+            },
+            "events": 0,
+            "last": null
+          },
+          "indexBuffers": 0,
+          "meshBytesUploaded": 0,
+          "renderPipelines": 0,
+          "shaderModules": 0,
+          "slotCapacityGrowth": 0,
+          "streamingVertexBytes": 0,
+          "textureBytesUploaded": 0,
+          "textures": 0,
+          "vertexBuffers": 0,
+          "violations": 0
+        },
+        "beforeReady": {
+          "bindGroupLayouts": 0,
+          "bufferReallocations": 4,
+          "computePipelines": 0,
+          "indexBuffers": 1,
+          "meshBytesUploaded": 1288,
+          "renderPipelines": 0,
+          "shaderModules": 0,
+          "slotCapacityGrowth": 2,
+          "streamingVertexBytes": 0,
+          "textureBytesUploaded": 1364,
+          "textures": 1,
+          "vertexBuffers": 2
+        },
+        "device": false,
+        "lastAfterReady": null,
+        "restoreUploads": {
+          "counts": {
+            "bindGroupLayouts": 0,
+            "bufferReallocations": 0,
+            "computePipelines": 0,
+            "indexBuffers": 0,
+            "meshBytesUploaded": 0,
+            "renderPipelines": 0,
+            "shaderModules": 0,
+            "slotCapacityGrowth": 0,
+            "textureBytesUploaded": 0,
+            "textures": 0,
+            "vertexBuffers": 0
+          },
+          "events": 0,
+          "last": null
+        }
+      },
+      "hash": "0x386073903e9c84d6",
+      "hz": 60,
+      "input": {
+        "actions": {},
+        "forwarded": [],
+        "held": []
+      },
+      "loading": [],
+      "name": "world",
+      "ownership": {
+        "clock": "controlled",
+        "contamination": 0,
+        "handoff": "clock owner human/agent",
+        "inputSource": "unavailable",
+        "owner": "agent"
+      },
+      "paused": false,
+      "perf": {
+        "draws": 0,
+        "encodeMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "feedMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "frameMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "instances": 0,
+        "pixels": [
+          0,
+          0
+        ],
+        "tickMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "ticksPerFrame": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "triangles": 0,
+        "wallClock": true
+      },
+      "published": {
+        "ready": true,
+        "tick": 29
+      },
+      "ready": true,
+      "readyReasons": [],
+      "reload": {
+        "added": [],
+        "applied": [],
+        "kept": [],
+        "omitted": 0,
+        "removed": [],
+        "unmatched": []
+      },
+      "resources": {},
+      "restored": true,
+      "restoredFrom": [],
+      "seed": 0,
+      "tick": 30
+    }
+  ]
+}
+PASS keyup clears restored forwarded input
+clock 500
+{"clock":500,"world":[{"canvas":4,"changing":[],"hash":"0x8f6d518f39634478","ownership":{"clock":"controlled","contamination":0,"handoff":"clock owner human/agent","inputSource":"unavailable","owner":"agent"},"quiescent":true,"tick":60}],"epoch":2,"incarnation":1}
+state 
+{
+  "capabilities": {
+    "build": {
+      "host": "763f2dbc12da972eefc340a42c613f18",
+      "lastSuccessfulSwap": null,
+      "loadedGame": {
+        "app": "com.exact.asset-fixture",
+        "cohort": "763f2dbc12da972eefc340a42c613f18",
+        "name": "libasset_fixture_gpu.so",
+        "sha256": "49188b786e9923a16ece4c87f1476731082fb752ce4a237bffe5620d739eb05d",
+        "trust": "development"
+      },
+      "phase": "launch",
+      "planDigest": {
+        "unavailable": true
+      },
+      "requestedGame": {
+        "app": "com.exact.asset-fixture",
+        "cohort": "763f2dbc12da972eefc340a42c613f18",
+        "name": "libasset_fixture_gpu.so",
+        "sha256": "49188b786e9923a16ece4c87f1476731082fb752ce4a237bffe5620d739eb05d",
+        "trust": "development"
+      }
+    },
+    "carrier": {
+      "active": "stdio-headless",
+      "available": [
+        "stdio-headless"
+      ],
+      "delivery": {
+        "canvasKey": "recognized",
+        "device": false,
+        "heldContact": false,
+        "tap": "recognized"
+      },
+      "eof": "exit",
+      "scope": "launch"
+    },
+    "clockOwnership": false,
+    "detach": false,
+    "handoff": false,
+    "host": "linux",
+    "inputProvenance": {
+      "reason": "GPU input ABI does not carry source attestation",
+      "unavailable": true
+    },
+    "reload": {
+      "game": "rebuild-relaunch",
+      "liveGameReplacement": false,
+      "ui": "restart-with-compatible-slot-carry",
+      "worldCarry": "explicit-save-restore",
+      "worldOnUIReload": {
+        "reason": "surface instances are rebound by view id; transactional game carry is not implemented",
+        "unavailable": true
+      }
+    }
+  },
+  "clock": 500,
+  "delivery": {
+    "E": [
+      "native"
+    ],
+    "L": "0",
+    "compatibilityId": "763f2dbc12da972eefc340a42c613f18",
+    "embeddedSeq": 0,
+    "interpreted": [],
+    "seq": 0,
+    "staged": false,
+    "stream": "embedded",
+    "sunset": ""
+  },
+  "derives": {},
+  "epoch": 2,
+  "focus": {
+    "logical": null
+  },
+  "incarnation": 1,
+  "keyboard": {
+    "unavailable": true
+  },
+  "logic": {
+    "ready": true,
+    "revision": null,
+    "rustExecutor": null
+  },
+  "navigation": {
+    "unavailable": true
+  },
+  "ownership": {
+    "clock": "controlled",
+    "launchMode": "agent",
+    "owner": "agent",
+    "scope": "launch"
+  },
+  "pending": [],
+  "resources": {},
+  "slots": {
+    "playing": true
+  },
+  "store": [],
+  "world": [
+    {
+      "args": [],
+      "assets": [
+        {
+          "name": "crate.model",
+          "state": "Loaded"
+        },
+        {
+          "name": "crate/0-srgb.tex",
+          "state": "Loaded"
+        }
+      ],
+      "audio": {
+        "sources": [],
+        "voices": []
+      },
+      "canvas": 4,
+      "capture": null,
+      "clockState": {
+        "hostMicros": 500000,
+        "worldMicros": 1000000
+      },
+      "device": false,
+      "entities": 3,
+      "gpu": {
+        "afterReady": {
+          "bindGroupLayouts": 0,
+          "bufferReallocations": 0,
+          "computePipelines": 0,
+          "declaredExceptions": {
+            "counts": {
+              "bindGroupLayouts": 0,
+              "bufferReallocations": 0,
+              "computePipelines": 0,
+              "indexBuffers": 0,
+              "meshBytesUploaded": 0,
+              "renderPipelines": 0,
+              "shaderModules": 0,
+              "slotCapacityGrowth": 0,
+              "textureBytesUploaded": 0,
+              "textures": 0,
+              "vertexBuffers": 0
+            },
+            "events": 0,
+            "last": null
+          },
+          "indexBuffers": 0,
+          "meshBytesUploaded": 0,
+          "renderPipelines": 0,
+          "shaderModules": 0,
+          "slotCapacityGrowth": 0,
+          "streamingVertexBytes": 0,
+          "textureBytesUploaded": 0,
+          "textures": 0,
+          "vertexBuffers": 0,
+          "violations": 0
+        },
+        "beforeReady": {
+          "bindGroupLayouts": 0,
+          "bufferReallocations": 4,
+          "computePipelines": 0,
+          "indexBuffers": 1,
+          "meshBytesUploaded": 1288,
+          "renderPipelines": 0,
+          "shaderModules": 0,
+          "slotCapacityGrowth": 2,
+          "streamingVertexBytes": 0,
+          "textureBytesUploaded": 1364,
+          "textures": 1,
+          "vertexBuffers": 2
+        },
+        "device": false,
+        "lastAfterReady": null,
+        "restoreUploads": {
+          "counts": {
+            "bindGroupLayouts": 0,
+            "bufferReallocations": 0,
+            "computePipelines": 0,
+            "indexBuffers": 0,
+            "meshBytesUploaded": 0,
+            "renderPipelines": 0,
+            "shaderModules": 0,
+            "slotCapacityGrowth": 0,
+            "textureBytesUploaded": 0,
+            "textures": 0,
+            "vertexBuffers": 0
+          },
+          "events": 0,
+          "last": null
+        }
+      },
+      "hash": "0x8f6d518f39634478",
+      "hz": 60,
+      "input": {
+        "actions": {},
+        "forwarded": [],
+        "held": []
+      },
+      "loading": [],
+      "name": "world",
+      "ownership": {
+        "clock": "controlled",
+        "contamination": 0,
+        "handoff": "clock owner human/agent",
+        "inputSource": "unavailable",
+        "owner": "agent"
+      },
+      "paused": false,
+      "perf": {
+        "draws": 0,
+        "encodeMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "feedMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "frameMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "instances": 0,
+        "pixels": [
+          0,
+          0
+        ],
+        "tickMs": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "ticksPerFrame": {
+          "count": 0,
+          "max": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "triangles": 0,
+        "wallClock": true
+      },
+      "published": {
+        "ready": true,
+        "tick": 59
+      },
+      "ready": true,
+      "readyReasons": [],
+      "reload": {
+        "added": [],
+        "applied": [],
+        "kept": [],
+        "omitted": 0,
+        "removed": [],
+        "unmatched": []
+      },
+      "resources": {},
+      "restored": false,
+      "seed": 0,
+      "tick": 60
+    }
+  ]
+}
+PASS native and web simulation hash agrees at 60: "0x8f6d518f39634478"
+layout world:crate
+#0 crate world 0,0.6,0 · screen 546.8456,282.4326 182.4337×173.7739 · depth 4.9234 · in frustum
+PASS declared model supplies layout bounds: {"entity":{"bounds":{"max":[0.5,1.1,0.5],"min":[-0.5,0.1,-0.5]},"depth":4.9234,"facing":{"forward":[0,0,-1],"towardCamera":-0.7718},"id":0,"name":"crate","screen":{"h":173.7739,"w":182.4337,"x":546.8456,"y":282.4326},"visible":{"behindCamera":false,"distance":4.9234,"inFrustum":true,"occluded":0,"occluders":[]},"world":{"position":[0,0.6,0],"rotation":[0,0,0,1],"scale":[1,1,1]}},"tick":60,"epoch":2,"incarnation":1,"clock":500}
+screenshot /home/ccheever/lanes/gamenext/exact2-i1/game/games/asset-fixture/artifacts/crate-linux.png
+{"h":720,"note":"Contract painted; canvas rectangles are flat (no device)","screenshot":"/home/ccheever/lanes/gamenext/exact2-i1/game/games/asset-fixture/artifacts/crate-linux.png","w":1280,"epoch":2,"incarnation":1,"clock":500}
+model bytes: 2190; texture bytes: 1475
+PASS ready: no GPU allocations or asset uploads after ready: {"ready":true,"gpu":{"afterReady":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"declaredExceptions":{"counts":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0},"events":0,"last":null},"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"streamingVertexBytes":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0,"violations":0},"beforeReady":{"bindGroupLayouts":0,"bufferReallocations":4,"computePipelines":0,"indexBuffers":1,"meshBytesUploaded":1288,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":2,"streamingVertexBytes":0,"textureBytesUploaded":1364,"textures":1,"vertexBuffers":2},"device":false,"lastAfterReady":null,"restoreUploads":{"counts":{"bindGroupLayouts":0,"bufferReallocations":0,"computePipelines":0,"indexBuffers":0,"meshBytesUploaded":0,"renderPipelines":0,"shaderModules":0,"slotCapacityGrowth":0,"textureBytesUploaded":0,"textures":0,"vertexBuffers":0},"events":0,"last":null}},"lastAfterReady":null}
+PASS all recorded children exited: []
+PROOF PASS asset-fixture linux: 0 failures; 18.867 s

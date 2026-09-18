@@ -1,0 +1,108 @@
+{
+  "engine": "exact2-linux",
+  "ref": "7c65726",
+  "sha": "7c65726ca8be72a3f10de3a44a836e1b3b00eed5",
+  "task": "b",
+  "attempt": "2",
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "wallCeilingSeconds": 900,
+  "startedAt": "2026-09-18T19:04:56.634Z",
+  "humanInterventions": 0,
+  "agentSeconds": 400.022247328,
+  "buildSeconds": 18.160808838000055,
+  "proofSeconds": 18.674948750000098,
+  "usage": {
+    "input_tokens": 2048318,
+    "cached_input_tokens": 1967360,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 14329,
+    "reasoning_output_tokens": 6367
+  },
+  "passed": false,
+  "evaluatorHashes": {
+    "command.mjs": "048f7203f2c2c30bb80809ef8b5dc6c53e52f44dc97e5825525b4b5361cbcc65",
+    "acceptance.mjs": "b7b590f7b3c351e3cfd9e6f71686c39d2ccd762415de205622a071165f6a3195",
+    "task-evaluator.mjs": "a3fd17feb2f0358529f4d685d187104298dd340e9f9d220362174a8a030429e1",
+    "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+    "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+    "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+  },
+  "externalQueueDelaySeconds": null,
+  "freeKiBBefore": 140260832,
+  "setupSeconds": 101.10710328500001,
+  "inputCommit": "40df0da96eb164d71acc445ce3d5bcaa4ebf0897",
+  "promptHash": "5bdd23dd35416be1f5b5c18847b87fc27995b8e6d8d218e48e3a2f6fd71fe75a",
+  "dispatchedAt": "2026-09-18T19:07:02.434Z",
+  "agentTimedOut": false,
+  "agentExit": 0,
+  "modelCompletedAt": "2026-09-18T19:13:42.457Z",
+  "invocations": {
+    "build": 0,
+    "proof": 3,
+    "tests": 5,
+    "commands": 19,
+    "method": "completed shell commands invoking cargo/build entrypoints (including scene-only bake), bun proof, or tests; filename reads excluded; combined commands count once; proof-internal builds excluded"
+  },
+  "files": [
+    {
+      "path": "game/games/lanterns/README.md",
+      "added": 2,
+      "deleted": 1
+    },
+    {
+      "path": "game/games/lanterns/app.contract",
+      "added": 4,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/assets/lanterns-adapter.mjs",
+      "added": 5,
+      "deleted": 4
+    },
+    {
+      "path": "game/games/lanterns/logic/src/lib.rs",
+      "added": 38,
+      "deleted": 10
+    },
+    {
+      "path": "game/games/lanterns/logic/tests/capture.rs",
+      "added": 54,
+      "deleted": 10
+    }
+  ],
+  "filesChanged": 5,
+  "linesAdded": 103,
+  "linesDeleted": 27,
+  "scopeViolations": [],
+  "sourceHashes": {
+    "game/games/lanterns/README.md": "e2814dcdcffe762b71e47ef453db6264ddb3c27c22a6ef1f38651a42bd22c067",
+    "game/games/lanterns/app.contract": "a56f3f1b83ed911dd34e7957e2e7429a4c54b2daad0852356a53e4cbf28cda31",
+    "game/games/lanterns/assets/lanterns-adapter.mjs": "36d574736ccd14ec4d145055af819f2778a3f0f7be7012c2b996c707702a32ea",
+    "game/games/lanterns/logic/src/lib.rs": "758a10f7a6053ad24bc560f2847aca182c6314c3a03c6dbe14af2e2d3c3dd90f",
+    "game/games/lanterns/logic/tests/capture.rs": "1596d7f92e5c399a7665586fe7104d4f06cd253011acdcb9aea30aae69959b75"
+  },
+  "freeKiBBeforeBuild": 148165256,
+  "buildExit": 0,
+  "buildCompletedAt": "2026-09-18T19:14:00.643Z",
+  "evaluatorStartedAt": "2026-09-18T19:14:00.643Z",
+  "taskFunctionalPassed": false,
+  "baselineMechanicsPassed": false,
+  "selfRepairRounds": null,
+  "screenshotInspections": null,
+  "protocolCompliant": null,
+  "finishedAt": "2026-09-18T19:14:19.319Z",
+  "buildOutputDeleted": true,
+  "removedRenderFiles": [
+    "controls/task-a/final.png",
+    "controls/acceptance/won.png",
+    "controls/acceptance/title.png",
+    "controls/acceptance/moving.png",
+    "controls/acceptance/lost.png",
+    "controls/task-b/final.png",
+    "evaluation/title.png",
+    "evaluation/moving.png",
+    "evaluation/final.png",
+    "evaluation/lost.png"
+  ]
+}

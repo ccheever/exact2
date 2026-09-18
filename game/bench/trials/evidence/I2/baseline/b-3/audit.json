@@ -1,0 +1,28 @@
+{
+  "selfRepairRounds": 1,
+  "repairLoops": [
+    {
+      "name": "formatting",
+      "repairs": 1,
+      "items": [
+        "item_11",
+        "item_12"
+      ]
+    }
+  ],
+  "maximumRepairsInOneLoop": 1,
+  "repairCapCompliant": true,
+  "screenshotInspections": 0,
+  "recurrence": {
+    "semanticStateHashMismatch": false,
+    "resourceLeaseBorrowError": false,
+    "signpostRouting": false,
+    "missingLanternsSimTestDiscovery": false
+  },
+  "notes": [
+    "Retains the original live-terminal capture assertion; it passes on the chosen return route.",
+    "Derives return state from saved flags instead of adding a resource field.",
+    "Externally fails returning phase vocabulary like after B1 and original baseline B2.",
+    "No DNS, permission, Git or rg faults observed."
+  ]
+}

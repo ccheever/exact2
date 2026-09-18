@@ -1,0 +1,21 @@
+[
+  "/bin/bash -lc \"pwd && printf '%s\n' 'WORKSPACE FILES' && rg --files -g 'AGENTS.md' -g 'game/README.md' -g 'game/games/lanterns/**' | sort\"",
+  "/bin/bash -lc \"sed -n '1,260p' game/README.md && printf '%s\n' '--- LANTERNS README ---' && sed -n '1,320p' game/games/lanterns/README.md && printf '%s\n' '--- STATUS ---' && git status --short -- game/games/lanterns game/Cargo.toml\"",
+  "/bin/bash -lc \"wc -l game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/src/kind_tests.rs game/games/lanterns/logic/src/scene_tests.rs game/games/lanterns/logic/tests/*.rs game/games/lanterns/*.mjs game/games/lanterns/*.json && printf '%s\n' '--- symbols ---' && rg -n \\\"win|lose|lit|lantern|elapsed|duration|save|resume|spawn|home|hud|instruction|phase|status|Outcome|GameState\\\" game/games/lanterns/logic game/games/lanterns/{app.contract,app.json,scene.json,proof.mjs,build-web.mjs,assets/lanterns-adapter.mjs}\"",
+  "/bin/bash -lc \"sed -n '1,680p' game/games/lanterns/logic/src/lib.rs && printf '%s\n' '--- APP CONTRACT ---' && sed -n '1,180p' game/games/lanterns/app.contract && printf '%s\n' '--- PROOF ---' && sed -n '1,120p' game/games/lanterns/proof.mjs && printf '%s\n' '--- ADAPTER ---' && sed -n '1,270p' game/games/lanterns/assets/lanterns-adapter.mjs\"",
+  "/bin/bash -lc \"sed -n '1,220p' game/games/lanterns/logic/tests/capture.rs && printf '%s\n' '--- scene tests relevant ---' && sed -n '120,245p' game/games/lanterns/logic/src/scene_tests.rs && printf '%s\n' '--- contracts/build metadata ---' && sed -n '1,120p' game/games/lanterns/logic/Cargo.toml && sed -n '1,120p' game/games/lanterns/app.json && git diff -- game/games/lanterns\"",
+  "/bin/bash -lc 'git diff --check -- game/games/lanterns && git diff -- game/games/lanterns/logic/src/lib.rs game/games/lanterns/app.contract game/games/lanterns/assets/lanterns-adapter.mjs game/games/lanterns/README.md'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic -- --check'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic && git status --short -- game/games/lanterns game/Cargo.toml && git diff --check -- game/games/lanterns'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test capture -- --nocapture'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic -- --check && cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test capture -- --nocapture'",
+  "/bin/bash -lc \"nl -ba game/games/lanterns/logic/tests/capture.rs | sed -n '185,225p'\"",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic -- --check && cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test capture -- --nocapture'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic -- --check && cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc \"git status --short && git diff --check && printf '%s\n' '--- CHANGED FILE SIZES ---' && wc -l game/games/lanterns/README.md game/games/lanterns/app.contract game/games/lanterns/assets/lanterns-adapter.mjs game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/tests/capture.rs && printf '%s\n' '--- DIFF STAT ---' && git diff --stat -- game/games/lanterns && printf '%s\n' '--- FINAL DIFF ---' && git diff -- game/games/lanterns\"",
+  "/bin/bash -lc 'bun --check game/games/lanterns/assets/lanterns-adapter.mjs && bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc 'bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc \"bun -e \\\"const source = await Bun.file('game/games/lanterns/assets/lanterns-adapter.mjs').text(); new Bun.Transpiler({ loader: 'js', target: 'browser' }).transformSync(source);\\\" && git diff --check -- game/games/lanterns && git status --short\""
+]

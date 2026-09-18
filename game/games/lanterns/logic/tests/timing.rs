@@ -44,12 +44,11 @@ fn saved_bindings_and_physics_v2_pins_match_continuous_and_every_tick_restore() 
     use exact_game::Paranoid;
     let mut sims = [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame]
         .map(|mode| (mode, game().paranoid(mode)));
-    let mut mismatches = Vec::new();
-    for (ms, expected) in [
-        (0.0, 0xa778d065d6cea372),
-        (1000.0, 0x8d712ef8ea7aa587),
-        (2000.0, 0x264947d99e722167),
-    ] {
+    let pin_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../pins.json");
+    let expected: Vec<String> = serde_json::from_slice(&std::fs::read(&pin_path).unwrap()).unwrap();
+    let mut actual = Vec::new();
+    let mut saves = Vec::new();
+    for ms in [0.0, 1000.0, 2000.0] {
         let mut continuous = None;
         for (mode, sim) in &mut sims {
             sim.key_down("KeyW");
@@ -69,15 +68,30 @@ fn saved_bindings_and_physics_v2_pins_match_continuous_and_every_tick_restore() 
             } else {
                 continuous = Some(observation);
             }
-            if hash != expected {
-                mismatches.push(format!(
-                    "{mode:?} tick {}: 0x{expected:016x} -> 0x{hash:016x}",
-                    sim.world().tick()
-                ));
-            }
         }
+        let (hash, tick, bytes) = continuous.unwrap();
+        actual.push(format!("0x{hash:016x}"));
+        saves.push((tick, bytes));
     }
-    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    // Candidates are isolated by the driver; no test writes committed pins.
+    // Every checkpoint must first agree byte-for-byte across all three modes.
+    if let Some(dir) = std::env::var_os("EXACT_REPIN_OUT") {
+        let dir = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (tick, bytes) in saves {
+            std::fs::write(dir.join(format!("tick-{tick}.sim")), bytes).unwrap();
+        }
+        std::fs::write(
+            dir.join("pins.json"),
+            serde_json::to_string_pretty(&actual).unwrap() + "\n",
+        )
+        .unwrap();
+    } else {
+        assert_eq!(
+            actual, expected,
+            "pin mismatch: bun game/proof.mjs lanterns --repin"
+        );
+    }
 }
 
 #[path = "../../../../paranoid-test.rs"]

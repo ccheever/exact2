@@ -1,0 +1,4 @@
+Command: ['cargo', 'fmt', '--all', '--', '--check']
+Filesystem     1024-blocks       Used Available Capacity Mounted on
+/dev/nvme0n1p4  1810493656 1575606960 142844952      92% /
+

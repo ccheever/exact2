@@ -11,6 +11,8 @@ struct Request {
     entity: Option<String>,
     under: Option<String>,
     to: Option<String>,
+    toward: Option<Vec3>,
+    from: Option<Vec3>,
     summary: bool,
     pose: bool,
     settle: bool,
@@ -55,6 +57,18 @@ impl Request {
                 "entity" => q.entity = Some(r.string()?),
                 "under" => q.under = Some(r.string()?),
                 "to" => q.to = Some(r.string()?),
+                "toward" | "from" => {
+                    let mut point = Vec3::ZERO;
+                    point.read(&mut r)?;
+                    if !point.is_finite() {
+                        return Err(DataError::new("route: finite endpoints required"));
+                    }
+                    if f == "toward" {
+                        q.toward = Some(point);
+                    } else {
+                        q.from = Some(point);
+                    }
+                }
                 "settle" => q.settle.read(&mut r)?,
                 "summary" => q.summary.read(&mut r)?,
                 "pose" => q.pose.read(&mut r)?,
@@ -311,7 +325,19 @@ impl<G: Game> Sim<G> {
                 quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, state)| **state == crate::asset::AssetState::Pending).map(|(name, _)| name.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), crate::json::to_string(&self.args).map_err(|e| e.to_string())?, w.resources_json().map_err(|e|e.to_string())?, self.reload.json(), crate::audio::state(w), self.ownership_json(), self.last_us.map_or("null".into(), |n| n.to_string()), self.world_us, self.capture().map_or("null".into(), |c| c.status()), self.input.actions.json(), encode(&self.input.keys)?, encode(&self.held_keys())?, w.published_json(true))),
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;
-                self.layout_json(e, viewport, q.to.as_deref().map(|n| resolve(w, n)).transpose()?)
+                let target = q.to.as_deref().map(|n| resolve(w, n)).transpose()?;
+                let mut result = self.layout_json(e, viewport, target)?;
+                let toward = q.toward.or_else(|| target.and_then(|e| w.global(e).map(|p| p.translation.into())));
+                if let Some(toward) = toward {
+                    let from = q.from.or_else(|| w.global(e).map(|p| p.translation.into()));
+                    let route = match from {
+                        Some(from) => self.route_json(e, target, from, toward)?,
+                        None => r#"{"unavailable":"subject global pose unavailable"}"#.into(),
+                    };
+                    result.pop();
+                    result.push_str(&format!(",\"route\":{route}}}"));
+                }
+                Ok(result)
             }
             "layout" => {
                 spatial::index::check_size(w)?;

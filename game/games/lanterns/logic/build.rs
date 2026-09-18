@@ -2,28 +2,19 @@
 // The shipped Lanterns source and engine behavior are unchanged.
 use std::{env, fs, path::PathBuf};
 fn main() {
-    println!("cargo:rerun-if-changed=src/lib.rs");
+    println!("cargo:rerun-if-changed=../../../verification/lanterns/game.rs");
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let source = fs::read_to_string(root.join("src/lib.rs")).unwrap();
-    let source = source.split("#[cfg(test)]").next().unwrap();
+    let source = fs::read_to_string(root.join("../../../verification/lanterns/game.rs")).unwrap();
+    let source = source.split("fn bake_scene()").next().unwrap();
     let source = source
         .lines()
         .filter(|l| !l.starts_with("//!") && !l.starts_with("#!"))
         .collect::<Vec<_>>()
         .join("\n")
         .replace(
-            "include_bytes!(\"../../assets/Fox.glb\")",
+            "include_bytes!(\"../../games/lanterns/assets/Fox.glb\")",
             &format!("include_bytes!({:?})", root.join("../assets/Fox.glb")),
         );
-    let original = fs::read_to_string(root.join("src/lib.rs")).unwrap();
-    let types = original
-        .split("pub fn scene_types()")
-        .nth(1)
-        .unwrap()
-        .split("#[cfg(test)]")
-        .next()
-        .unwrap();
-    let source = format!("{source}\npub fn scene_types(){types}");
     for (name, replacements) in [
         (
             "physics",

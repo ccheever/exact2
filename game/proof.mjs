@@ -1,6 +1,6 @@
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -113,8 +113,62 @@ export function equal(a, b) {
     && keys.every((key, i) => key === other[i] && equal(a[key], b[key]));
 }
 
+/** Publish only complete, three-mode-equal candidates; tests never edit source pins. */
+export function agreePins(directories) {
+  if (!Array.isArray(directories) || directories.length !== 3)
+    throw new Error('repin refused: exactly three candidate directories required');
+  const expected = ['pins.json', 'tick-0.sim', 'tick-180.sim', 'tick-60.sim'];
+  const rows = directories.map(dir => {
+    const files = readdirSync(dir).sort();
+    if (!equal(files, expected)) throw new Error('repin refused: incomplete or unexpected candidate inventory');
+    return files.map(file => {
+      const path = resolve(dir,file);
+      if (statSync(path).size > 16*1024*1024) throw new Error('repin refused: candidate exceeds 16 MiB');
+      return readFileSync(path);
+    });
+  });
+  if (rows.slice(1).some(row => row.some((bytes,i) => !bytes.equals(rows[0][i]))))
+    throw new Error('repin refused: continuous / Save / FreshGame candidates differ');
+  const pins = JSON.parse(rows[0][0]);
+  if (!Array.isArray(pins) || pins.length !== 3 || pins.some(p => !/^0x[0-9a-f]{16}$/.test(p)))
+    throw new Error('repin refused: expected three tick hashes');
+  return rows[0][0];
+}
+
+export async function repin(name) {
+  // Lanterns is the measured authoring consumer. Other games keep their independent
+  // engine-fixture contracts; never pretend an unsupported game was repinned.
+  if (name !== 'lanterns') throw new Error(`repin: no current-game pin producer for ${name}`);
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const app = resolve(root, 'game/games', name);
+  const scratch = mkdtempSync(resolve(app, 'artifacts/repin-'));
+  const run = async (command, args, env = {}) => {
+    const child = spawn(command,args,{cwd:root, env:{...process.env, EXACT_UPDATE_TRUST:'development',...env},stdio:'inherit'});
+    const code = await new Promise((ok,reject) => {child.on('exit',ok);child.on('error',reject);});
+    if (code !== 0) throw new Error(`repin refused: ${command} exited ${code}; committed pins unchanged`);
+  };
+  try {
+    const dirs = [];
+    for (const mode of ['0','1','fresh-game']) {
+      const dir = resolve(scratch,mode); mkdirSync(dir); dirs.push(dir);
+      await run('cargo',['test','--manifest-path','game/Cargo.toml','-p','lanterns-logic','--no-fail-fast',
+        ...(mode === '0' ? [] : ['--test','timing','--test','difficult_moment','--test','capture'])],
+        {EXACT_GAME_PARANOID:mode, EXACT_REPIN_OUT:dir});
+    }
+    const candidate = agreePins(dirs);
+    await run(process.execPath,[resolve(app,'proof.mjs'),'linux','--paranoid']);
+    const path = resolve(app,'pins.json'), old = JSON.parse(readFileSync(path,'utf8')), next = JSON.parse(candidate);
+    const replacement = resolve(scratch, "agreed-pins.json");
+    writeFileSync(replacement,candidate);
+    renameSync(replacement,path);
+    console.log('REPIN lanterns: continuous / Save / FreshGame bytes agree; historical engine evidence unchanged');
+    [0,60,180].forEach((tick,i) => console.log(`  tick ${tick}: ${old[i]} → ${next[i]}`));
+  } finally { rmSync(scratch,{recursive:true,force:true}); }
+}
+
 export async function proof(meta, script) {
   const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
+  if (process.argv.includes('--repin')) { mkdirSync(resolve(app,'artifacts'),{recursive:true}); await repin(name); return; }
   const root = fileURLToPath(new URL('..', import.meta.url));
   const host = process.argv[2] ?? 'web', out = resolve(app, 'artifacts');
   const appPrefix = relative(root, app) + '/';
@@ -310,4 +364,16 @@ export async function proof(meta, script) {
     writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');
   }
   process.exit(failures.length ? 1 : 0);
+}
+
+if (import.meta.main) {
+  const name = process.argv[2];
+  if (!/^[a-z][a-z0-9-]*$/.test(name ?? '')) throw new Error('usage: bun game/proof.mjs <game> --repin | --paranoid');
+  if (process.argv.includes('--repin')) {
+    mkdirSync(resolve(import.meta.dirname,'games',name,'artifacts'),{recursive:true});
+    await repin(name);
+  } else {
+    const child = spawn(process.execPath,[resolve(import.meta.dirname,'games',name,'proof.mjs'),'linux',...process.argv.slice(3)],{stdio:'inherit'});
+    process.exit(await new Promise((ok,reject) => {child.on('exit',ok);child.on('error',reject);}));
+  }
 }

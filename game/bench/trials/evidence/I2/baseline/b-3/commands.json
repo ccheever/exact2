@@ -1,0 +1,15 @@
+[
+  "/bin/bash -lc \"sed -n '1,240p' game/README.md && printf '\\\\n--- lanterns files ---\\\\n' && rg --files game/games/lanterns | sort\"",
+  "/bin/bash -lc \"sed -n '1,260p' game/games/lanterns/README.md && printf '\\\\n--- logic ---\\\\n' && sed -n '1,320p' game/games/lanterns/logic/src/lib.rs && printf '\\\\n--- tests ---\\\\n' && sed -n '1,320p' game/games/lanterns/logic/tests/capture.rs && printf '\\\\n--- proof ---\\\\n' && sed -n '1,360p' game/games/lanterns/proof.mjs\"",
+  "/bin/bash -lc \"sed -n '260,760p' game/games/lanterns/logic/src/lib.rs && printf '\\\\n--- contract ---\\\\n' && sed -n '1,360p' game/games/lanterns/app.contract && printf '\\\\n--- app json ---\\\\n' && sed -n '1,240p' game/games/lanterns/app.json && printf '\\\\n--- all phase/win/hud refs ---\\\\n' && rg -n \\\"phase|won|win|lit|return|home|instruction|elapsed|remaining|lantern\\\" game/games/lanterns --glob '\"'!assets/Fox.glb'\"' --glob '\"'!artifacts/**'\"'\"",
+  "/bin/bash -lc \"sed -n '1,280p' game/games/lanterns/assets/lanterns-adapter.mjs && sed -n '1,280p' game/games/lanterns/logic/src/scene_tests.rs && git status --short -- game/games/lanterns\"",
+  "/bin/bash -lc 'git diff --check -- game/games/lanterns && git diff -- game/games/lanterns/logic/src/lib.rs game/games/lanterns/app.contract game/games/lanterns/assets/lanterns-adapter.mjs game/games/lanterns/README.md'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml --package lanterns-logic -- --check'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml --package lanterns-logic && cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc \"find game/games/lanterns/artifacts -maxdepth 2 -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\\\\n' | sort\"",
+  "/bin/bash -lc 'bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc 'bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc 'git status --short && git diff --check && git diff --stat && wc -l game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/tests/capture.rs game/games/lanterns/app.contract game/games/lanterns/assets/lanterns-adapter.mjs game/games/lanterns/README.md'",
+  "/bin/bash -lc 'git diff -- game/games/lanterns'",
+  "/bin/bash -lc \"nl -ba game/games/lanterns/logic/src/lib.rs | sed -n '232,270p;458,545p' && nl -ba game/games/lanterns/app.contract | sed -n '64,106p' && nl -ba game/games/lanterns/logic/tests/capture.rs | sed -n '125,178p'\""
+]

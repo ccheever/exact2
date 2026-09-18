@@ -1,0 +1,299 @@
+diff --git a/game/games/lanterns/README.md b/game/games/lanterns/README.md
+index 98f1be5..18c42de 100644
+--- a/game/games/lanterns/README.md
++++ b/game/games/lanterns/README.md
+@@ -3,7 +3,8 @@
+ A three-minute third-person game built on Exact's game add-on. Move the animated
+ Fox with WASD, arrows, or the left side of a touch screen. Jump with Space or the
+ purple button and press E or LIGHT within 1.5 metres of a lantern. Push the crate
+-to reach the twelfth lantern on the ledge.
++to reach the twelfth lantern on the ledge, then return within two metres of the
++starting clearing before dusk ends.
+ 
+ From the repository root:
+ 
+diff --git a/game/games/lanterns/app.contract b/game/games/lanterns/app.contract
+index 8f0bde0..20e41fd 100644
+--- a/game/games/lanterns/app.contract
++++ b/game/games/lanterns/app.contract
+@@ -69,6 +69,8 @@ component Lanterns
+               text checkpointStatus aria-live="polite" testId="save-status" padding=10 border-radius=9 background-color="#1b1730" color="#ffd27a" font-size=14
+           text "Move: WASD / arrows / left thumb" position="absolute" bottom=22 left=22 padding=12 border-radius=10 background-color="#1b1730" color="#d6cdec" font-size=15
+           text "Push the crate beside the high ledge. Jump onto it, then jump again." testId="sign-instruction" position="absolute" bottom=76 left=22 right=22 padding=12 border-radius=10 background-color="#1b1730" color="#ffd27a" font-size=14
++          when hud.phase == "returning"
++            text "All twelve are lit — return home to the starting clearing!" aria-live="assertive" testId="return-home-instruction" position="absolute" top=94 left="24%" width="52%" padding=16 text-align="center" border-radius=10 background-color="#ffd27a" color="#241531" font-size=19 font-weight=700
+           row position="absolute" bottom=22 right=22 gap=14 align-items="flex-end"
+             button press=light testId="light" width=92 height=92 display="flex" border-radius=46 background-color="#ffb43b" justify-content="center" align-items="center"
+               text "LIGHT" width="100%" text-align="center" color="#241531" font-size=17 font-weight=700
+@@ -83,7 +85,7 @@ component Lanterns
+           when hud.phase == "won"
+             column testId="victory" position="absolute" top="28%" left="24%" width="52%" padding=30 align-items="center" gap=18 border-radius=14 background-color="#1b1730"
+               text "The island is glowing" aria-live="polite" font-size=34 color="#ffd27a" font-weight=700
+-              text "All twelve lanterns are lit." font-size=18 color="#fff4d6"
++              text "All twelve lanterns are lit, and the fox made it home." font-size=18 color="#fff4d6"
+               button press=restart testId="again" padding=16 border-radius=9 background-color="#ffd27a"
+                 text "Play again" font-size=19 color="#241531"
+           when hud.phase == "lost"
+@@ -95,7 +97,7 @@ component Lanterns
+         else
+           column testId="title" position="absolute" top=0 left=0 width="100%" height="100%" align-items="center" justify-content="center" gap=24 background-color="#130f24"
+             text "LANTERNS" font-size=64 font-weight=700 color="#ffd27a"
+-            text "Light twelve lanterns before the last three minutes of dusk run out." font-size=20 color="#fff4d6"
++            text "Light twelve lanterns, then return home before the last three minutes of dusk run out." font-size=20 color="#fff4d6"
+             text "Push the crate to reach the lantern on the stone ledge." font-size=17 color="#d6cdec"
+             text "WASD or arrows · Space to jump · E to light" font-size=15 color="#a99fc1"
+             row gap=12
+diff --git a/game/games/lanterns/assets/lanterns-adapter.mjs b/game/games/lanterns/assets/lanterns-adapter.mjs
+index 6b6ed63..e70ec7e 100644
+--- a/game/games/lanterns/assets/lanterns-adapter.mjs
++++ b/game/games/lanterns/assets/lanterns-adapter.mjs
+@@ -86,7 +86,8 @@ if (ENABLED) {
+       if (/\bjump$/.test(line)) return [{type: 'jump'}];
+       const lit = /\b(lantern-\d+) lit$/.exec(line);
+       if (lit) return [{type: 'lantern-lit', id: lit[1]}];
+-      if (/\ball lanterns lit$/.test(line)) return [{type: 'win'}];
++      if (/\ball lanterns lit$/.test(line)) return [{type: 'return-home'}];
++      if (/\breturned home$/.test(line)) return [{type: 'win'}];
+       if (/\bnight fell$/.test(line)) return [{type: 'lose'}];
+       return [];
+     });
+@@ -114,7 +115,7 @@ if (ENABLED) {
+     });
+     let phase = published.phase ?? 'title';
+     if (phase === 'title' && args.started === true) phase = 'playing';
+-    if (world.paused && args.started === true && phase === 'playing') phase = 'paused';
++    if (world.paused && args.started === true && ['playing', 'returning'].includes(phase)) phase = 'paused';
+     return {
+       phase,
+       ticks: world.tick,
+@@ -187,7 +188,7 @@ if (ENABLED) {
+   }
+   async function pause() {
+     const current = await state();
+-    if (!['playing', 'paused'].includes(current.phase)) return current;
++    if (!['playing', 'returning', 'paused'].includes(current.phase)) return current;
+     const button = await viewByTestId(current.phase === 'paused' ? 'resume' : 'pause');
+     if (!button) throw new Error('Pause action is unavailable');
+     button.click();
+@@ -209,7 +210,7 @@ if (ENABLED) {
+         case 'step': {
+           const ticks = Math.max(0, Math.trunc(Number(request.ticks) || 0));
+           const before = await state();
+-          if (ticks && before.phase === 'playing') {
++          if (ticks && ['playing', 'returning'].includes(before.phase)) {
+             const {view} = await waitReady();
+             surface(view, {op: 'clock', ticks});
+           }
+diff --git a/game/games/lanterns/logic/src/lib.rs b/game/games/lanterns/logic/src/lib.rs
+index fa98adf..129d475 100644
+--- a/game/games/lanterns/logic/src/lib.rs
++++ b/game/games/lanterns/logic/src/lib.rs
+@@ -57,6 +57,12 @@ struct Actors {
+ const FOX_BYTES: &[u8] = include_bytes!("../../assets/Fox.glb");
+ const DURATION_TICKS: u32 = 180 * 60;
+ const SPAWN: Vec3 = Vec3::new(0.0, 0.0, 12.0);
++const HOME_RADIUS: f32 = 2.0;
++const PHASE_TITLE: u32 = 0;
++const PHASE_PLAYING: u32 = 1;
++const PHASE_RETURNING: u32 = 2;
++const PHASE_LOST: u32 = 3;
++const PHASE_WON: u32 = 4;
+ /// Canvas inputs. Action counters let Contract overlay buttons feed distinct
+ /// touch presses while the left thumb remains on the raw movement stick.
+ #[derive(Default, exact_game::Args)]
+@@ -106,7 +112,7 @@ pub struct Lantern {
+ pub struct Session {
+     /// Active fixed ticks; pause and terminal states do not add to this.
+     pub elapsed: u32,
+-    /// 0 title, 1 playing, 2 won, 3 lost.
++    /// 0 title, 1 playing, 2 returning home, 3 lost, 4 won.
+     pub phase: u32,
+     /// Last Contract Jump counter consumed.
+     pub jump_press: u32,
+@@ -235,14 +241,14 @@ impl Game for Lanterns {
+     fn tick(world: &mut World, input: &Input, args: &Options) {
+         let ids = world.resource::<Session>().actors;
+         let (terminal, jump_button, light_button) = world.edit_resource::<Session, _>(|session| {
+-            if session.phase == 0 && args.started {
+-                session.phase = 1;
++            if session.phase == PHASE_TITLE && args.started {
++                session.phase = PHASE_PLAYING;
+             }
+             let jump = session.jump_press != args.jump_press;
+             let light = session.light_press != args.light_press;
+             session.jump_press = args.jump_press;
+             session.light_press = args.light_press;
+-            (session.phase >= 2, jump, light)
++            (matches!(session.phase, PHASE_WON | PHASE_LOST), jump, light)
+         });
+         if terminal {
+             publish(world);
+@@ -285,11 +291,14 @@ impl Game for Lanterns {
+         update_lanterns(world);
+         let elapsed = world.resource::<Session>().elapsed;
+         if elapsed >= DURATION_TICKS {
+-            world.resource_mut::<Session>().phase = 3;
++            world.resource_mut::<Session>().phase = PHASE_LOST;
+             world.log("night fell");
+             if args.sound {
+                 world.play("night").start();
+             }
++        } else if let Err(error) = finish_if_home(world, args.sound) {
++            world.log(error);
++            return;
+         }
+         update_sun(world, ids.sun);
+         scene::follow(world);
+@@ -490,12 +499,30 @@ fn light_nearest(world: &mut World, sound: bool) -> Result<(), exact_game::KindE
+         world.play("chime").at(entity.entity()).start();
+     }
+     if world.rows::<Lamp>().all(|row| row.lantern.lit) {
+-        world.resource_mut::<Session>().phase = 2;
++        world.resource_mut::<Session>().phase = PHASE_RETURNING;
+         world.log("all lanterns lit");
+     }
+     Ok(())
+ }
+ 
++fn finish_if_home(world: &mut World, sound: bool) -> Result<(), exact_game::KindError> {
++    if world.resource::<Session>().phase != PHASE_RETURNING {
++        return Ok(());
++    }
++    let hero = world.resource::<Session>().actors.hero;
++    let position = world.row(hero)?.transform.position;
++    let from_home = Vec2::new(position.x - SPAWN.x, position.z - SPAWN.z);
++    if from_home.length_squared() > HOME_RADIUS * HOME_RADIUS {
++        return Ok(());
++    }
++    world.resource_mut::<Session>().phase = PHASE_WON;
++    world.log("returned home");
++    if sound {
++        world.play("chime").at(hero.entity()).start();
++    }
++    Ok(())
++}
++
+ fn update_lanterns(world: &mut World) {
+     let now = world.now();
+     for row in world.rows::<Lamp>() {
+@@ -524,9 +551,10 @@ fn publish(world: &mut World) {
+         .saturating_sub(world.resource::<Session>().elapsed)
+         .div_ceil(60);
+     let phase = match world.resource::<Session>().phase {
+-        0 => "title",
+-        1 => "playing",
+-        2 => "won",
++        PHASE_TITLE => "title",
++        PHASE_PLAYING => "playing",
++        PHASE_RETURNING => "returning",
++        PHASE_WON => "won",
+         _ => "lost",
+     };
+     world.publish("count", count);
+@@ -603,7 +631,7 @@ mod tests {
+     fn no_input_loses_at_exactly_three_minutes() {
+         let mut sim = game();
+         sim.run(180_000.0);
+-        assert_eq!(sim.world().resource::<Session>().phase, 3);
++        assert_eq!(sim.world().resource::<Session>().phase, PHASE_LOST);
+         assert_eq!(sim.world().resource::<Session>().elapsed, DURATION_TICKS);
+     }
+ }
+diff --git a/game/games/lanterns/logic/tests/capture.rs b/game/games/lanterns/logic/tests/capture.rs
+index 7f55422..f7ffd08 100644
+--- a/game/games/lanterns/logic/tests/capture.rs
++++ b/game/games/lanterns/logic/tests/capture.rs
+@@ -57,6 +57,35 @@ fn steer(sim: &mut Sim<Lanterns>, x: f32, z: f32, tolerance: f32) {
+         sim.position("player")
+     );
+ }
++fn return_home(sim: &mut Sim<Lanterns>) {
++    for _ in 0..240 {
++        let phase = sim.world().resource::<Session>().phase;
++        if phase == 4 {
++            return;
++        }
++        assert_eq!(phase, 2, "return journey entered phase {phase}");
++        let at = sim.position("player").unwrap();
++        let dx = -at.x;
++        let dz = 12.0 - at.z;
++        // Pass left of the signboard at (3, 10) before entering the clearing.
++        let x_axis = (at.z < 10.6 && at.x > 1.0) || dx.abs() >= dz.abs();
++        let gap = if x_axis { dx } else { dz };
++        let key = if x_axis {
++            if gap > 0.0 {
++                "KeyD"
++            } else {
++                "KeyA"
++            }
++        } else if gap > 0.0 {
++            "KeyS"
++        } else {
++            "KeyW"
++        };
++        hold(sim, key, 8);
++        ticks(sim, 1);
++    }
++    panic!("return journey stalled at {:?}", sim.position("player"));
++}
+ fn land(sim: &mut Sim<Lanterns>, floor: f32) {
+     for _ in 0..72 {
+         if sim.world().get::<Character>("player").unwrap().grounded
+@@ -69,7 +98,7 @@ fn land(sim: &mut Sim<Lanterns>, floor: f32) {
+     panic!("landing failed at {:?}", sim.position("player"));
+ }
+ #[test]
+-fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
++fn crate_checkpoint_requires_return_home_and_restores_both_new_states() {
+     let mut sim = Sim::<Lanterns>::new(Options {
+         seed: 1_041_003,
+         started: true,
+@@ -138,6 +167,28 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
+             .count(),
+         12
+     );
++    let return_elapsed = sim.world().resource::<Session>().elapsed;
++    let intermediate = sim.save();
++    let mut timed_out = Sim::<Lanterns>::from_save(&intermediate).unwrap();
++    assert_eq!(timed_out.world().resource::<Session>().phase, 2);
++    assert_eq!(
++        timed_out.world().resource::<Session>().elapsed,
++        return_elapsed
++    );
++    ticks(&mut timed_out, 30);
++    assert_eq!(timed_out.world().resource::<Session>().phase, 2);
++    assert_eq!(
++        timed_out.world().resource::<Session>().elapsed,
++        return_elapsed + 30
++    );
++    ticks(&mut timed_out, 180 * 60 - return_elapsed - 30);
++    assert_eq!(timed_out.world().resource::<Session>().phase, 3);
++
++    return_home(&mut sim);
++    let home = sim.position("player").unwrap();
++    assert!(home.x.hypot(home.z - 12.0) <= 2.0, "{home:?}");
++    assert_eq!(sim.world().resource::<Session>().phase, 4);
++    assert!(sim.world().resource::<Session>().elapsed > return_elapsed);
+     let hash = sim.world().hash();
+     let capture = Capture::from_bytes(&sim.stop_capture().unwrap().to_bytes()).unwrap();
+     for _ in 0..2 {
+@@ -145,17 +196,10 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
+             Sim::<Lanterns>::replay_capture(&capture, "test-executable:lanterns-route", None)
+                 .unwrap();
+         assert_eq!(replay.world().hash(), hash);
+-        assert_eq!(replay.world().resource::<Session>().phase, 2);
++        assert_eq!(replay.world().resource::<Session>().phase, 4);
+     }
+     let terminal = sim.save();
+     let restored = Sim::<Lanterns>::from_save(&terminal).unwrap();
+     assert_eq!(restored.world().hash(), hash);
+-    sim.start_capture("test-executable:lanterns-route", CaptureLimits::default())
+-        .unwrap();
+-    ticks(&mut sim, 10);
+-    let terminal_capture = sim.stop_capture().unwrap();
+-    let replay =
+-        Sim::<Lanterns>::replay_capture(terminal_capture, "test-executable:lanterns-route", None)
+-            .unwrap();
+-    assert_eq!(replay.world().resource::<Session>().phase, 2);
++    assert_eq!(restored.world().resource::<Session>().phase, 4);
+ }

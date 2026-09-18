@@ -145,7 +145,7 @@ fn eyes_snapshot_is_a_pure_read_and_optional_target_is_validated() {
     let reply = s.agent(r#"{"op":"layout","entity":"subject","to":"target"}"#);
     assert_eq!(
         reply,
-        r#"{"tick":0,"entity":{"id":0,"name":"subject","world":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"bounds":{"min":[-1,-1,-1],"max":[1,1,1]},"screen":{"unavailable":true},"depth":null,"visible":{"unavailable":true},"facing":{"forward":[0,0,-1],"towardCamera":null,"bearingTo":0,"distanceTo":10,"lineOfSight":true}}}"#
+        r#"{"tick":0,"entity":{"id":0,"name":"subject","world":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"bounds":{"min":[-1,-1,-1],"max":[1,1,1]},"screen":{"unavailable":true},"depth":null,"visible":{"unavailable":true},"facing":{"forward":[0,0,-1],"towardCamera":null,"bearingTo":0,"distanceTo":10,"lineOfSight":true}},"route":{"blocker":null,"nearestClearSide":null}}"#
     );
     assert_eq!(
         (s.world().mutation_epoch(), s.world().hash(), s.save()),

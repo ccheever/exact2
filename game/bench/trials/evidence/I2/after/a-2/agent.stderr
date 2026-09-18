@@ -1,0 +1,96 @@
+Reading additional input from stdin...
+2026-09-18T18:59:16.175663Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in /home/ccheever/lanes/gamenext/scratch/I2/trials/7c65726/a-2/workspace/game/games/lanterns/logic/src/kind_tests.rs:
+    })
+    .unwrap();
+    for (ms, bytes) in [
+        (
+            0.0,
+            include_bytes!("../tests/fixtures/before-0.world").as_slice(),
+        ),
+        (
+            1000.0,
+            include_bytes!("../tests/fixtures/before-60.world").as_slice(),
+        ),
+        (
+            2000.0,
+            include_bytes!("../tests/fixtures/before-180.world").as_slice(),
+        ),
+    ] {
+        sim.key_down("KeyW");
+        sim.run(ms);
+        let mut expected = Sim::<Lanterns>::new(Options {
+            scene: bake_scene().content,
+            seed: 1_041_003,
+            started: true,
+            sound: true,
+            ..Options::default()
+        })
+        .unwrap();
+        // The approved schema addition changes only saved bindings and the scene
+        // digest (the baked Lantern default now includes its saved Entity).
+        let scene_identity = exact_game::bin::to_vec(
+            &*expected
+                .world()
+                .resource::<exact_game_scene::SceneIdentity>(),
+        );
+        expected.world_mut().load(bytes).unwrap();
+        bind_scene(expected.world());
+        exact_game::bin::read_into(
+            &scene_identity,
+            &mut *expected
+                .world()
+                .resource_mut::<exact_game_scene::SceneIdentity>(),
+        )
+        .unwrap();
+        assert_eq!(
+            sim.world().save(),
+            expected.world().save(),
+            "old bytes plus only declared binding state"
+        );
+    }
+2026-09-18T18:59:52.070252Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in /home/ccheever/lanes/gamenext/scratch/I2/trials/7c65726/a-2/workspace/game/games/lanterns/logic/src/kind_tests.rs:
+    for (ms, bytes) in [
+        (
+            0.0,
+            include_bytes!("../tests/fixtures/before-0.world").as_slice(),
+        ),
+        (
+            1000.0,
+            include_bytes!("../tests/fixtures/before-60.world").as_slice(),
+        ),
+        (
+            2000.0,
+            include_bytes!("../tests/fixtures/before-180.world").as_slice(),
+        ),
+    ] {
+        sim.key_down("KeyW");
+        sim.run(ms);
+        let mut expected = Sim::<Lanterns>::new(Options {
+            scene: bake_scene().content,
+            seed: 1_041_003,
+            started: true,
+            sound: true,
+            ..Options::default()
+        })
+        .unwrap();
+        // The approved schema addition changes only saved bindings and the scene
+        // digest (the baked Lantern default now includes its saved Entity).
+        let scene_identity = exact_game::bin::to_vec(
+            &*expected
+                .world()
+                .resource::<exact_game_scene::SceneIdentity>(),
+        );
+        expected.world_mut().load(bytes).unwrap();
+        bind_scene(expected.world());
+        exact_game::bin::read_into(
+            &scene_identity,
+            &mut *expected
+                .world()
+                .resource_mut::<exact_game_scene::SceneIdentity>(),
+        )
+        .unwrap();
+        assert_eq!(
+            sim.world().save(),
+            expected.world().save(),
+            "old bytes plus only declared binding state"
+        );

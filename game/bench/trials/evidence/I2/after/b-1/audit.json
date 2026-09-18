@@ -1,0 +1,40 @@
+{
+  "selfRepairRounds": 3,
+  "repairLoops": [
+    {
+      "name": "formatting",
+      "repairs": 1,
+      "items": [
+        "item_10",
+        "item_11"
+      ]
+    },
+    {
+      "name": "return route",
+      "repairs": 2,
+      "items": [
+        "item_13",
+        "item_16",
+        "item_20"
+      ]
+    }
+  ],
+  "maximumRepairsInOneLoop": 2,
+  "repairCapCompliant": true,
+  "screenshotInspections": 0,
+  "recurrence": {
+    "semanticStateHashMismatch": false,
+    "resourceLeaseBorrowError": false,
+    "signpostRouting": true,
+    "missingLanternsSimTestDiscovery": false
+  },
+  "facilities": {
+    "kinds": "new all_lanterns_lit uses rows::<Lamp>(); new player_is_home uses Id<Hero> and row(hero)",
+    "layout": "no new layout or LOS/occlusion call for route planning; reads authored colliders",
+    "place": "not used",
+    "paranoid": "inherited tests execute modes; --paranoid not invoked",
+    "reloadReport": "inherited regression executes; not consulted"
+  },
+  "coverageCaveat": "Retains original live-terminal start_capture/replay assertion and it passes. Functional external failure is returning phase outside the evaluator vocabulary; follow-on clock/timer/return failures are coupled to that refusal.",
+  "promptCaveat": "Frozen original prompt includes Game/Level semantics and Task B, but does not enumerate allowed inspection phase values; it says not to change existing inspection command names."
+}
