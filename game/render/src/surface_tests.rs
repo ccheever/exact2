@@ -388,6 +388,54 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
 }
 
 #[test]
+fn headless_module_restore_anchors_controlled_clock_even_when_assets_arrive_later() {
+    use exact_gpu::{Module, Registry};
+    struct Loading;
+    impl Game for Loading {
+        const ID: &'static str = "restore-clock-assets";
+        const ASSETS: &'static [&'static str] = &["crate.model"];
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("crate", Transform::default());
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            w.get_mut::<Transform>("crate").unwrap().position.x += 1.;
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("world", 0, || Box::<WorldSurface<Loading>>::default())],
+        shaders: &[],
+    };
+    let asset = exact_game::bin::to_vec(&exact_game::asset::Model::default());
+    let mut original = Sim::<Loading>::new(()).unwrap();
+    original.asset("crate.model", Some(&asset)).unwrap();
+    original.run(500.);
+    let saved = original.save();
+    original.run(500.);
+    for deferred in [false, true] {
+        let mut module = Module::new(&REGISTRY);
+        let id = module.create_headless("world").unwrap();
+        assert!(module.bind(id, &[], Some(9000.)));
+        module.agent(id, r#"{"op":"clock","owner":"agent","now":9000}"#);
+        assert_eq!(module.take_assets(id), ["crate.model"]);
+        if !deferred {
+            assert!(module.asset(id, "crate.model", Some(&asset)));
+        }
+        assert!(module.restore(id, &saved));
+        if deferred {
+            assert!(module.asset(id, "crate.model", Some(&asset)));
+        }
+        let state = module.agent(id, r#"{"op":"state","now":999999}"#).unwrap();
+        assert!(state.contains(r#""tick":30"#), "{state}");
+        assert!(state.contains(r#""hostMicros":9000000"#), "{state}");
+        assert_eq!(module.carry(id).unwrap(), saved);
+        let clock = module.agent(id, r#"{"op":"clock","now":9500}"#).unwrap();
+        assert!(clock.contains(r#""tick":60"#), "{clock}");
+        assert_eq!(module.carry(id).unwrap(), original.save());
+    }
+}
+
+#[test]
 fn presentation_hook_follows_frames_transport_and_gestures() {
     #[derive(Default)]
     struct Probe {

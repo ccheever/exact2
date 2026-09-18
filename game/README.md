@@ -188,8 +188,13 @@ and authored Transform positions (XZ ignores height). A missing origin yields no
   Integer bounds are checked before casting; 64-bit fields accept safe f64 integers. A timed
   `bind(values, Some(at_ms))` validates first, seeks under the old arguments, then
   swaps. `Game::validate` runs before construction, binding, seeking for a bind, or restore; a refusal changes nothing. Hosts construct with `Sim::from_values`. Saves encode argument fields by name: reordering is safe, additions default, removals are ignored. Saves carry the game's `ID` and
-  `SAVE_VERSION`, world time and dynamic input; the first restored host clock
-  establishes a new epoch.
+  `SAVE_VERSION`, world time and dynamic input. `Sim::restore(&[u8])` and
+  `restore_bound(&[u8])` return `Result<(), DataError>`: under agent ownership,
+  they anchor to the destination's established host clock, so the next advance
+  executes its full duration. Hosts establish ownership and time together with
+  `clock {owner: "agent", now: milliseconds}` before restoring. Under live
+  ownership (or without an established clock), the next host sample establishes
+  a new epoch without simulating time spent paused. Inspection never anchors time.
 - **Time is an input.** `tick = floor(clock_ms × hz / 1000)`; a step is `1/hz`
   exactly; there is no `delta`. Rendering interpolates between the last two ticks,
   so motion is smooth at any refresh rate and the simulation never knows.

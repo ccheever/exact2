@@ -261,7 +261,7 @@ test('world handoff preflights the complete participant set and releases held in
 
 test('controlled creation declares ownership before restoring intentional checkpoint-held input',async()=>{
   const order=[];
-  const f=await fixture({input:true,gpu:{gpu_agent:(id,json)=>{if(JSON.parse(json).owner)order.push('owner');return '{"world":{"input":{"forwarded":["Space"]}},"ownership":{"owner":"agent"}}';},gpu_restore:()=>{order.push('restore');return true;}}});
+  const f=await fixture({now:()=>9000,input:true,gpu:{gpu_agent:(id,json)=>{const q=JSON.parse(json);if(q.owner){assert.equal(q.now,9000,'ownership must establish the destination clock before restore');order.push('owner');}return '{"world":{"input":{"forwarded":["Space"]}},"ownership":{"owner":"agent"}}';},gpu_restore:()=>{order.push('restore');return true;}}});
   f.exact.worldCarry=new Uint8Array([1]);const host=f.create(1);
   assert.deepEqual(order,['owner','restore']);
   host.listeners.keyup({target:host,code:'Space',timeStamp:0});assert.equal(f.events.at(-1).code,'Space');
